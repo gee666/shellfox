@@ -60,6 +60,8 @@ export interface BackendOptions {
   closeTimeoutMs?: number;
   platform?: NodeJS.Platform;
   prepareSupervisor?: (profile: TerminalProfileDto, cwd: string, marker: string) => Promise<SupervisorLaunch>;
+  /** How long a failed Darwin CLOSE waits for the supervisor's own trusted exit (it may exit before replying). */
+  supervisorExitGraceMs?: number;
 }
 export type TreeTerminator = (root: TrackingRoot, identity: UnixIdentity | null, known: UnixIdentity[]) => Promise<void>;
 export class PtyBackend {
@@ -282,11 +284,16 @@ export class PtyBackend {
   private async closeOwned(e: Entry): Promise<Result<{ closed: true }>> {
     if (e.supervisor) {
       try { await e.supervisor.close(); e.cleanupPending = false; }
-      catch {
+      catch (error) {
         // Natural verified cleanup can unlink the endpoint while CLOSE is in
-        // flight. Its trusted normal PTY exit is still authoritative evidence.
+        // flight, and the supervisor may exit before its reply is read. Its
+        // trusted normal PTY exit is still authoritative evidence; that exit
+        // event can arrive shortly after the failed request, so wait for it.
+        const deadline = Date.now() + (this.options.supervisorExitGraceMs ?? 3000);
+        while (e.state !== 'closed' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
         if (e.state === 'closed' && !e.cleanupPending) return success({ closed: true });
-        return failure('MONITOR_UNAVAILABLE', 'The native Darwin supervisor did not confirm owned-session cleanup. It was not killed; ownership is retained for retry.', true);
+        const reason = error instanceof Error ? error.message.slice(0, 200) : 'unknown error';
+        return failure('MONITOR_UNAVAILABLE', `The native Darwin supervisor did not confirm owned-session cleanup (${reason}). It was not killed; ownership is retained for retry.`, true);
       }
     }
     else if (e.root.environment === 'wsl') {

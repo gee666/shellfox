@@ -88,6 +88,31 @@ it('accepts trusted normal cleanup exit when natural closure races the CLOSE soc
   expect(f.processes[0].kill).not.toHaveBeenCalled(); await backend.dispose();
 });
 
+it('accepts a trusted normal supervisor exit that arrives just after CLOSE fails (reply lost)', async () => {
+  const f = factoryFixture();
+  const control = { ready: async () => status, close: vi.fn(async () => { setTimeout(() => f.processes[0].exit(0), 60); throw new Error('Darwin supervisor ended without a verified reply.'); }), disposeConfirmed: vi.fn(async () => {}) };
+  const backend = new PtyBackend({ ...f.options, platform: 'darwin', prepareSupervisor: async (_p, cwd) => ({ file: '/native/supervisor', args: [], cwd, env: {}, control }) });
+  await backend.initialize(); const input = launchInput(); await backend.launch(input);
+  expect(await backend.close({ tabId: input.tabId, generation: input.generation })).toMatchObject({ ok: true });
+  expect(backend.get(input.tabId)).toMatchObject({ state: 'closed', cleanupPending: false });
+  expect(f.processes[0].kill).not.toHaveBeenCalled(); await backend.dispose();
+});
+
+it('still fails, with the reason, when the supervisor neither replies nor exits within the grace period', async () => {
+  const f = factoryFixture();
+  const control = { ready: async () => status, close: vi.fn(async () => { throw new Error('Darwin supervisor request timed out; its owned process was not killed.'); }), disposeConfirmed: vi.fn(async () => {}) };
+  const backend = new PtyBackend({ ...f.options, platform: 'darwin', supervisorExitGraceMs: 100, prepareSupervisor: async (_p, cwd) => ({ file: '/native/supervisor', args: [], cwd, env: {}, control }) });
+  await backend.initialize(); const input = launchInput(); await backend.launch(input);
+  const started = Date.now();
+  const result = await backend.close({ tabId: input.tabId, generation: input.generation });
+  expect(Date.now() - started).toBeGreaterThanOrEqual(90);
+  expect(result).toMatchObject({ ok: false, error: { code: 'MONITOR_UNAVAILABLE', retryable: true } });
+  if (!result.ok) expect(result.error.message).toContain('request timed out');
+  expect(backend.get(input.tabId)).toMatchObject({ state: 'open' });
+  expect(f.processes[0].kill).not.toHaveBeenCalled();
+  f.processes[0].exit(0); await backend.dispose();
+});
+
 it('does not infer cleanup from a signalled supervisor exit when CLOSE fails', async () => {
   const f = factoryFixture();
   const control = { ready: async () => status, close: vi.fn(async () => { f.processes[0].exit(0, 9); throw new Error('supervisor crashed'); }), disposeConfirmed: vi.fn(async () => {}) };
@@ -104,7 +129,7 @@ it('does not infer cleanup from a signalled supervisor exit when CLOSE fails', a
 it('failed Darwin CLOSE retains ownership and can be retried without Unix PID fallback', async () => {
   const f = factoryFixture(); let refuse = true;
   const control = { ready: async () => status, close: vi.fn(async () => { if (refuse) throw new Error('elevated member'); f.processes[0].exit(0); return { ...status, state: 'closed' as const, shellAlive: false }; }), disposeConfirmed: async () => {} };
-  const backend = new PtyBackend({ ...f.options, platform: 'darwin', prepareSupervisor: async (_p, cwd) => ({ file: '/native/supervisor', args: [], cwd, env: {}, control }) }); await backend.initialize(); const input = launchInput(); await backend.launch(input);
+  const backend = new PtyBackend({ ...f.options, platform: 'darwin', supervisorExitGraceMs: 50, prepareSupervisor: async (_p, cwd) => ({ file: '/native/supervisor', args: [], cwd, env: {}, control }) }); await backend.initialize(); const input = launchInput(); await backend.launch(input);
   expect(await backend.close({ tabId: input.tabId, generation: input.generation })).toMatchObject({ ok: false, error: { code: 'MONITOR_UNAVAILABLE' } }); expect(backend.live()).toHaveLength(1); expect(f.processes[0].kill).not.toHaveBeenCalled();
   refuse = false; await backend.dispose(); expect(backend.live()).toHaveLength(0);
 });
