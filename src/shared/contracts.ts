@@ -79,7 +79,8 @@ export type TerminalEvent = TerminalDataEvent
   | { type: 'error'; tabId: Id; generation: Id; error: AppError };
 export interface TerminalAttachmentDto {
   tabId: Id; sessionId: Id; generation: Id; firstSequence: number; lastSequence: number;
-  chunks: TerminalDataEvent[]; truncated: boolean; state: 'open' | 'closed'; exitCode: number | null;
+  /** With `snapshot`, the leading chunks are a serialized screen (history, visible rows, modes) at `cols` x `rows`, not raw PTY output. */
+  chunks: TerminalDataEvent[]; truncated: boolean; snapshot?: boolean; state: 'open' | 'closed'; exitCode: number | null;
   cols: number; rows: number; lifetime: 'app-owned';
 }
 export interface TerminalApi {

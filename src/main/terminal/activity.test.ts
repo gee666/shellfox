@@ -37,7 +37,10 @@ describe('terminal activity', () => {
       { type: 'activity', tabId: first.tabId, busy: false },
     ]);
     await backend.dispose(); expect(events.filter(e => e.type === 'activity').at(-1)).toEqual({ type: 'activity', tabId: second.tabId, busy: false });
-    expect(vi.getTimerCount()).toBe(0);
+    // The headless screen mirror schedules its own parse timers; only activity timers are under test,
+    // so let those fire and prove nothing of the activity tracker is left behind.
+    const activity = events.filter(e => e.type === 'activity').length; vi.runAllTimers();
+    expect(events.filter(e => e.type === 'activity')).toHaveLength(activity); expect(vi.getTimerCount()).toBe(0);
   });
   it('suppresses synchronous echo emitted inside the native write', async () => {
     vi.useFakeTimers(); const f = factoryFixture(), backend = new PtyBackend(f.options), emit = vi.fn();

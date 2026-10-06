@@ -94,3 +94,13 @@ Use disposable users/VMs and obtain permission before installation or creating t
 - Test clean Windows/Linux installations, native ARM64, Windows shortcut lifecycle and macOS signing/quarantine/notarization policy.
 
 Cleanup may stop only test-owned processes with current ownership evidence. Do not kill unrelated processes, terminal servers or WSL distributions, or suppress native refusals with numeric-PID fallback.
+
+## Terminal screen restoration
+
+The main process keeps a raw replay ring (256 KiB) and, per PTY, a headless xterm "screen mirror" (`src/main/terminal/screen-mirror.ts`) that parses the whole output stream in lockstep. When a view needs output the ring no longer holds (tab/session switch while a TUI keeps updating, a live burst, a reload), `attach` returns a serialized screen (`snapshot: true`: history, visible rows, SGR, cursor, scroll region, modes, active buffer) at the PTY's grid instead of a partial byte tail, which cannot reproduce a diff-rendering TUI. If no snapshot is possible the renderer replays the tail at the PTY grid and nudges the app to repaint (shrink by one row, restore).
+
+Regression coverage: `screen-mirror.test.ts`, `backend-restore.test.ts`, `terminal-restore.integration.test.ts` (real backend, delivery, registry and a real xterm parser), `terminal-client.test.ts`, and the real-Electron `tests/e2e/terminal-tui-restore.spec.ts` (POSIX only):
+
+```sh
+node scripts/build.mjs --test && SHELLFOX_VERIFY_PROJECT=e2e node node_modules/@playwright/test/cli.js test --project=e2e terminal-tui-restore
+```

@@ -90,6 +90,38 @@ describe('terminal stream ownership', () => {
     fixture.registry.refresh(tab.id); await flush();
     expect(fixture.latest().output).toBe('retained'); expect(fixture.registry.getState(tab.id).warning).toMatch(/Earlier output is unavailable/);
   });
+  it('replays a snapshot attachment at the grid it was taken at, without an unavailable-output warning', async () => {
+    const order: string[] = [];
+    const factory: SurfaceFactory = () => ({ element: document.createElement('div'), write(data, done) { order.push(`write:${data}`); done(); }, reset() {}, fit: () => ({ cols: 120, rows: 30 }), resize: (cols, rows) => { order.push(`resize:${cols}x${rows}`); }, focus() {}, setInput() {}, dispose() {} });
+    const fixture = mockApi(); const registry = new TerminalRegistry(fixture.api, factory); registries.push(registry); registry.start();
+    fixture.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(8, 'screen'), chunk(9, 'live')], { truncated: true, snapshot: true, firstSequence: 8, lastSequence: 9, cols: 132, rows: 43 })));
+    const host = document.createElement('div'); document.body.append(host); registry.mount(tab.id, host, true); await flush();
+    expect(order.slice(0, 2)).toEqual(['resize:132x43', 'write:screen']);
+    expect(registry.getState(tab.id)).toMatchObject({ phase: 'open', warning: null });
+    // The grid is changed to the viewport only afterwards, through the normal fit/resize path.
+    expect(fixture.api.resizeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, cols: 120, rows: 30 });
+  });
+  it('also sizes the grid before a raw full replay, so cursor-addressed output lands where the app drew it', async () => {
+    const order: string[] = [];
+    const factory: SurfaceFactory = () => ({ element: document.createElement('div'), write(data, done) { order.push(`write:${data}`); done(); }, reset() {}, fit: () => ({ cols: 100, rows: 40 }), resize: (cols, rows) => { order.push(`resize:${cols}x${rows}`); }, focus() {}, setInput() {}, dispose() {} });
+    const fixture = mockApi(); const registry = new TerminalRegistry(fixture.api, factory); registries.push(registry); registry.start();
+    fixture.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(8, 'tail')], { truncated: true, firstSequence: 8, lastSequence: 8, cols: 100, rows: 40 })));
+    const host = document.createElement('div'); document.body.append(host); registry.mount(tab.id, host, true); await flush();
+    expect(order.slice(0, 2)).toEqual(['resize:100x40', 'write:tail']);
+    expect(registry.getState(tab.id).warning).toMatch(/Earlier output is unavailable/);
+  });
+  it('makes the app repaint after a view was rebuilt from a partial raw tail, and not otherwise', async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = setup(); await vi.advanceTimersByTimeAsync(10); await flush(); fixture.api.resizeTerminal.mockClear(); fixture.emitTerminal(chunk(1, 'old')); await flush();
+      fixture.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(8, 'tail')], { truncated: true, firstSequence: 8, lastSequence: 8 })));
+      fixture.registry.refresh(tab.id); await vi.advanceTimersByTimeAsync(300); await flush();
+      // SIGWINCH is only observable when the size really changes: shrink, wait, restore.
+      expect(fixture.api.resizeTerminal.mock.calls.map(([size]) => `${size.cols}x${size.rows}`)).toEqual(['80x23', '80x24']);
+      fixture.api.resizeTerminal.mockClear(); fixture.registry.refresh(tab.id); await vi.advanceTimersByTimeAsync(300); await flush();
+      expect(fixture.api.resizeTerminal).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
   it('drains output while hidden without resizing, focusing or allowing hidden input', async () => {
     const fixture = setup(); await flush(); fixture.api.resizeTerminal.mockClear(); fixture.latest().focus.mockClear();
     fixture.registry.visibility(tab.id, false); fixture.emitTerminal(chunk(1, 'background')); fixture.latest().input('hidden'); fixture.registry.fit(tab.id); await flush();

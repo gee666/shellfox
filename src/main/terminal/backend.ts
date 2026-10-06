@@ -14,8 +14,12 @@ import { envVarsSchema } from '../../shared/schemas';
 import { TerminalActivity } from './activity';
 import { nativeQueuedInputBytes, MAX_NATIVE_INPUT_BYTES } from './native-input';
 import { prepareDarwinSupervisor, type SupervisorLaunch, type SupervisorControl } from './darwin-supervisor';
+import { ScreenMirror } from './screen-mirror';
 
 export const REPLAY_BYTES = 256 * 1024;
+/** terminalAttachmentSchema rejects attachments above this many UTF-8 bytes of chunk data. */
+const ATTACHMENT_BYTES = 262144;
+const SNAPSHOT_CHUNK_UNITS = 4096;
 const GLOBAL_REPLAY_BYTES = 16 * 1024 * 1024;
 const MAX_CHUNKS = 8192;
 export interface PtyProcess {
@@ -39,6 +43,8 @@ interface Entry extends OwnedTerminal {
   handles: { dispose(): void }[]; closing?: Promise<Result<{ closed: true }>>;
   identity: UnixIdentity | null; known: UnixIdentity[]; ready: boolean;
   supervisor?: SupervisorControl;
+  /** Parsed VT state of the whole output stream; restores screens the replay ring can no longer rebuild. */
+  mirror: ScreenMirror;
 }
 function defaultFactory(): PtyFactory {
   // Deliberately external/lazy: the packaging owner stages the Electron-ABI native addon.
@@ -171,8 +177,8 @@ export class PtyBackend {
     try { pty = this.factory(spawn.file, spawn.args, { name: termName, cols: 80, rows: 24, cwd: spawn.cwd, env, useConpty: true, useConptyDll: true }); }
     catch { await supervisor?.control.disposeConfirmed(); return failure('LAUNCH_FAILED', 'The selected interactive shell could not start.'); }
     const bornAfter = (BigInt(Date.now()) + 11644473600000n) * 10000n + 9999n;
-    if (current) { current.activity.stop(); this.replayBytes -= current.bytes; current.handles.forEach(h => h.dispose()); }
-    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), cwd, state: 'open', exitCode: null, cols: 80, rows: 24, pty, root: { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: false, cleanupPending: profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control };
+    if (current) { current.activity.stop(); this.replayBytes -= current.bytes; current.handles.forEach(h => h.dispose()); current.mirror.dispose(); }
+    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), cwd, state: 'open', exitCode: null, cols: 80, rows: 24, pty, root: { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: false, cleanupPending: profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control, mirror: new ScreenMirror(80, 24) };
     this.entries.set(input.tabId, e);
     try {
       e.handles.push(pty.onData(data => this.output(e, data)));
@@ -205,6 +211,7 @@ export class PtyBackend {
       const part = data.slice(offset, end); offset = end;
       const bytes = Buffer.byteLength(part);
       const event = { type: 'data' as const, tabId: e.tabId, generation: e.generation, sequence: ++e.sequence, data: part };
+      e.mirror.write(event.sequence, part);
       e.chunks.push({ event, bytes, order: ++this.order }); e.bytes += bytes; this.replayBytes += bytes;
       while (e.bytes > REPLAY_BYTES || e.chunks.length > MAX_CHUNKS) this.evict(e);
       while (this.replayBytes > GLOBAL_REPLAY_BYTES) {
@@ -229,7 +236,7 @@ export class PtyBackend {
     while (closed.length > 256) {
       const retired = closed.shift()!;
       if (retired === e) continue;
-      retired.handles.forEach(h => h.dispose()); this.replayBytes -= retired.bytes; this.entries.delete(retired.tabId);
+      retired.handles.forEach(h => h.dispose()); retired.mirror.dispose(); this.replayBytes -= retired.bytes; this.entries.delete(retired.tabId);
     }
   }
   attach(input: { tabId: string; afterSequence?: number; generation?: string }): Result<TerminalAttachmentDto> {
@@ -240,7 +247,36 @@ export class PtyBackend {
     const after = mismatch ? 0 : input.afterSequence ?? 0;
     if (after > e.sequence) return failure('VALIDATION', 'The requested sequence is ahead of this terminal.');
     const first = e.chunks[0]?.event.sequence ?? e.sequence + 1;
-    return success({ tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, firstSequence: first, lastSequence: e.sequence, chunks: e.chunks.filter(c => c.event.sequence > after).map(c => ({ ...c.event })), truncated: mismatch || after < first - 1, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, lifetime: 'app-owned' });
+    const truncated = mismatch || after < first - 1;
+    const base = { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, state: e.state, exitCode: e.exitCode, lifetime: 'app-owned' as const };
+    // A byte tail of a diff-rendering TUI is not a screen. When output the view still needs was
+    // evicted from the ring, restore from the parsed screen instead of replaying a partial tail.
+    const restored = after < first - 1 ? this.restore(e, first) : null;
+    if (restored) return success({ ...base, firstSequence: restored.firstSequence, lastSequence: e.sequence, chunks: restored.chunks, truncated: true, snapshot: true, cols: restored.cols, rows: restored.rows });
+    return success({ ...base, firstSequence: first, lastSequence: e.sequence, chunks: e.chunks.filter(c => c.event.sequence > after).map(c => ({ ...c.event })), truncated, cols: e.cols, rows: e.rows });
+  }
+  /**
+   * Serialized screen as numbered chunks ending at the mirror's parsed sequence P, followed by
+   * the ring chunks after P. Null when the mirror lags behind the ring or cannot fit the bound.
+   */
+  private restore(e: Entry, ringFirst: number): { firstSequence: number; chunks: Extract<TerminalEvent, { type: 'data' }>[]; cols: number; rows: number } | null {
+    const parsed = e.mirror.sequence;
+    if (parsed + 1 < ringFirst || parsed < 1) return null;
+    const rest = e.chunks.filter(c => c.event.sequence > parsed);
+    const budget = ATTACHMENT_BYTES - rest.reduce((n, c) => n + c.bytes, 0);
+    const snapshot = budget > 0 ? e.mirror.snapshot(budget) : null;
+    if (!snapshot || snapshot.sequence !== parsed) return null;
+    const parts: string[] = [];
+    for (let offset = 0; offset < snapshot.data.length;) {
+      let end = Math.min(snapshot.data.length, offset + SNAPSHOT_CHUNK_UNITS);
+      if (end < snapshot.data.length && /[\uD800-\uDBFF]/.test(snapshot.data[end - 1]!)) end--;
+      parts.push(snapshot.data.slice(offset, end)); offset = end;
+    }
+    // Chunk sequences must be unique, positive and contiguous with the live stream.
+    if (!parts.length || parts.length > parsed || parts.length + rest.length > MAX_CHUNKS) return null;
+    const firstSequence = parsed - parts.length + 1;
+    const chunks = [...parts.map((data, i) => ({ type: 'data' as const, tabId: e.tabId, generation: e.generation, sequence: firstSequence + i, data })), ...rest.map(c => ({ ...c.event }))];
+    return { firstSequence, chunks, cols: snapshot.cols, rows: snapshot.rows };
   }
   private owned(tabId: string, generation: string): Result<Entry> {
     const e = this.entries.get(tabId);
@@ -270,7 +306,7 @@ export class PtyBackend {
     const e = owned.value; if (e.state !== 'open') return failure('TARGET_LOST', 'This shell has exited.');
     if (e.closing) return failure('TARGET_LOST', 'Owned terminal cleanup is in progress; no resize was enqueued.');
     if (!e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal channel is still being prepared. No deferred resize was enqueued.');
-    try { e.pty.resize(input.cols, input.rows); e.cols = input.cols; e.rows = input.rows; return success({ resized: true }); }
+    try { e.pty.resize(input.cols, input.rows); e.cols = input.cols; e.rows = input.rows; e.mirror.resize(input.cols, input.rows); return success({ resized: true }); }
     catch { return failure('NATIVE_UNAVAILABLE', 'Terminal could not be resized.'); }
   }
   async close(input: { tabId: string; generation: string }): Promise<Result<{ closed: true }>> {
@@ -318,7 +354,7 @@ export class PtyBackend {
     this.disposed = true;
     const results = await Promise.all(this.live().map(e => this.close({ tabId: e.tabId, generation: e.generation })));
     if (results.some(r => !r.ok)) { this.disposed = false; throw new Error('Owned terminal termination was not confirmed.'); }
-    for (const e of this.entries.values()) { e.activity.stop(); e.handles.forEach(h => h.dispose()); }
+    for (const e of this.entries.values()) { e.activity.stop(); e.handles.forEach(h => h.dispose()); e.mirror.dispose(); }
     this.entries.clear(); this.listeners.clear(); this.replayBytes = 0;
   }
 }

@@ -128,13 +128,15 @@ describe('TerminalRegistry + production TerminalDelivery credit/replay integrati
     expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled(); expect(f.api.writeTerminal).not.toHaveBeenCalled();
     expect(f.trace.slice(0, 3)).toEqual(['attach', 'detach', 'attach']);
     await f.parseAll();
-    expect(f.latest().output).toBe('x'.repeat(256 * 1024));
+    // The ring only holds the last 256 KiB; the view is rebuilt from the backend's parsed screen
+    // (3000 scrollback rows + 23 full and one partial visible row at 80 columns) instead of a raw tail.
+    expect(f.latest().output.replace(/[^x]/g, '')).toHaveLength(3023 * 80 + (1024 * 1024) % 80); expect(f.latest().output.length).toBeLessThan(300 * 1024);
     expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: 256 });
     f.processes[0]!.output('AFTER-RECOVERY'); await f.parseAll();
     expect(f.latest().output.endsWith('AFTER-RECOVERY')).toBe(true);
     expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: 257 });
     expect(f.registry.getState(f.input.tabId)).toMatchObject({ phase: 'open', error: null });
-    expect(f.registry.getState(f.input.tabId).warning).toMatch(/Earlier output is unavailable/);
+    expect(f.registry.getState(f.input.tabId).warning).toBeNull(); // restored from a screen snapshot, nothing is missing
     expect(f.api.attachTerminal).toHaveBeenCalledTimes(2); expect(f.api.closeTab).not.toHaveBeenCalled();
   });
 

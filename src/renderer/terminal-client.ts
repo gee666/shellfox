@@ -13,12 +13,15 @@ const MAX_BUFFER = 512 * 1024;
 // 256 outstanding chunks. Object limits must not reject that bounded replay.
 const MAX_QUEUED_CHUNKS = 8192 + 256;
 const WRITE_BATCH_BYTES = 16 * 1024;
+const REPAINT_NUDGE_MS = 80;
 const encoder = new TextEncoder();
 export interface TerminalSurface {
   element: HTMLElement;
   write(data: string, done: () => void): void;
   reset(): void;
   fit(): { cols: number; rows: number } | null;
+  /** Sets the grid before any output is parsed, so a snapshot is replayed at the size it was taken at. */
+  resize?(cols: number, rows: number): void;
   focus(): void;
   setInput(enabled: boolean): void;
   setTheme?(theme: ITheme): void;
@@ -59,6 +62,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       terminal.refresh(0, terminal.rows - 1);
       return { cols, rows };
     },
+    resize: (cols, rows) => { if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows); },
     focus: () => { if (opened) terminal.focus(); },
     setInput: enabled => { terminal.options.disableStdin = !enabled; },
     setTheme: next => { terminal.options.theme = next; },
@@ -83,6 +87,8 @@ interface Entry {
   consumed: number; nextAck: number; ackTask: Promise<void> | null; detachQueue: Promise<boolean>;
   inputQueue: Promise<void>; inputBytes: number;
   resized: string; resizing: boolean; nextSize: { cols: number; rows: number } | null;
+  // Set when a view was rebuilt from a partial raw tail: the app is asked to repaint itself.
+  repaint: boolean;
 }
 
 // Metadata snapshots never carry terminal output. This registry owns bounded
@@ -126,7 +132,7 @@ export class TerminalRegistry {
       attachToken: 0, replayAgain: false, fullReplay: false,
       writes: [], writeBytes: 0, writing: false, epoch: 0, inputEpoch: 0,
       consumed: 0, nextAck: 0, ackTask: null, detachQueue: Promise.resolve(true),
-      inputQueue: Promise.resolve(), inputBytes: 0, resized: '', resizing: false, nextSize: null,
+      inputQueue: Promise.resolve(), inputBytes: 0, resized: '', resizing: false, nextSize: null, repaint: false,
     };
     this.entries.set(id, entry);
     return entry;
@@ -263,9 +269,16 @@ export class TerminalRegistry {
       }
       entry.epoch++;
       this.resetSurface(entry, attachment.firstSequence - 1);
+      // Cursor-addressed output (and a snapshot above all) only reproduces the app's layout when it
+      // is parsed at the grid the app was drawing for, not a fresh terminal's 80x24. The following
+      // fit resizes to the real viewport.
+      entry.surface.resize?.(attachment.cols, attachment.rows);
+      // A raw tail of a diff-rendering TUI lacks every row it did not rewrite recently; the only
+      // way to complete the screen is to make the app repaint itself.
+      entry.repaint = !attachment.snapshot && attachment.truncated && attachment.state === 'open';
     }
     this.update(entry, { generation: attachment.generation, phase: attachment.state, exitCode: attachment.exitCode, error: null,
-      warning: attachment.truncated || full ? 'Earlier output is unavailable. Showing the retained terminal buffer.' : entry.state.warning });
+      warning: attachment.snapshot ? null : attachment.truncated || full ? 'Earlier output is unavailable. Showing the retained terminal buffer.' : entry.state.warning });
     for (const chunk of attachment.chunks) this.apply(entry, chunk);
     const early = entry.early; entry.early = []; entry.earlyBytes = 0;
     // The attachment, not arbitrary event arrival order, selects the generation.
@@ -385,6 +398,15 @@ export class TerminalRegistry {
       while (entry.nextSize && this.active && entry.visible && entry.state.phase === 'open' && entry.state.generation) {
         const size = entry.nextSize; entry.nextSize = null; const generation = entry.state.generation;
         const key = `${generation}:${size.cols}:${size.rows}`;
+        if (entry.repaint) {
+          // SIGWINCH is only delivered, and TUIs (Node's tty 'resize', ncurses) only repaint, when the
+          // size really changes: shrink by one row, give the app time to notice, then restore.
+          entry.repaint = false; entry.resized = '';
+          const nudged = await request(() => api.resizeTerminal({ tabId: entry.id, generation, cols: size.cols, rows: Math.max(2, size.rows - 1) }));
+          if (!this.active || this.entries.get(entry.id) !== entry) break;
+          if (nudged.ok) await new Promise(resolve => setTimeout(resolve, REPAINT_NUDGE_MS));
+          if (!this.active || this.entries.get(entry.id) !== entry || entry.state.generation !== generation) continue;
+        }
         if (entry.resized === key) continue;
         const result = await request(() => api.resizeTerminal({ tabId: entry.id, generation, ...size }));
         if (!this.active || this.entries.get(entry.id) !== entry) break;
