@@ -43,3 +43,8 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Local planning / agent notes
+.idea.md
+.implementation-plan.md
+.agent-*.md
