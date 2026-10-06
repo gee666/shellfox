@@ -28,6 +28,12 @@ export class MemoryRepository implements RepositoryPort {
   tab(id: string) { const t = this.tabMap.get(id); return t && structuredClone(t); }
   saveSession(s: SessionRecord) { this.sessionMap.set(s.id, structuredClone(s)); }
   saveTab(t: TabRecord) { this.tabMap.set(t.id, structuredClone(t)); }
+  deleteSession(id: string) {
+    if (!this.sessionMap.get(id)?.settledAt) return false;
+    for (const tab of this.tabs(id)) this.tabMap.delete(tab.id);
+    for (const op of [...this.operationMap.values()]) if (op.sessionId === id) this.operationMap.delete(op.id);
+    return this.sessionMap.delete(id);
+  }
   saveOperation(o: OperationRecord) { this.operationMap.set(o.id, structuredClone(o)); }
   operation(id: string) { const o = this.operationMap.get(id); return o && structuredClone(o); }
   operationsForTab(id: string) { return [...this.operationMap.values()].filter(o => o.tabId === id).map(o => structuredClone(o)); }

@@ -298,6 +298,24 @@ export class EmbeddedSessionService {
     if (s.adapterId !== 'embedded-pty' || !this.repository.tabs(s.id).some(tab => tab.terminal)) return failure('UNSUPPORTED', 'Legacy external sessions are read-only history. Create a new embedded session instead.');
     s.settledAt = null;
   }, 'history'); }
+  deleteSession(input: { sessionId: string }): Promise<Result<{ deleted: true }>> {
+    if (!requestSchemas.deleteSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
+    return this.serialize(input.sessionId, async () => {
+      const s = this.repository.session(input.sessionId); if (!s) return failure('NOT_FOUND', 'Session not found.');
+      if (!s.settledAt) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
+      // Archiving never stops shells, and an archived session offers no way to close them. Deleting must not
+      // orphan a live terminal, so it closes them first (the confirm dialog says so) and aborts unless every close is confirmed.
+      const tabs = this.repository.tabs(s.id);
+      if (tabs.some(t => t.terminal && t.lifecycle === 'launching')) return failure('UNSUPPORTED', 'A terminal in this session is still starting. Try again in a moment.');
+      for (const live of this.backend.live().filter(e => e.sessionId === s.id)) {
+        const closed = await this.backend.close({ tabId: live.tabId, generation: live.generation });
+        if (!closed.ok) return closed;
+      }
+      if (!this.repository.deleteSession(s.id)) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
+      for (const tab of tabs) this.observations.delete(tab.id);
+      this.changed('history'); return success({ deleted: true as const });
+    });
+  }
   clearSessionError(input: { sessionId: string }): Promise<Result<SessionDto>> { return this.mutate(input.sessionId, s => { s.error = null; for (const tab of this.repository.tabs(s.id)) { tab.error = null; this.repository.saveTab(tab); } }); }
   private mutate(id: string, action: (s: SessionRecord) => void | Result<never>, reason: ChangedEvent['reason'] = 'sessions'): Promise<Result<SessionDto>> {
     if (!requestSchemas.activateSession.safeParse({ sessionId: id }).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));

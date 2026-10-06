@@ -17,6 +17,12 @@ class MemoryRepository implements RepositoryPort {
   tab(id: string) { const t = this.tabMap.get(id); return t && structuredClone(t); }
   saveSession(s: SessionRecord) { this.sessionMap.set(s.id,structuredClone(s)); }
   saveTab(t: TabRecord) { this.tabMap.set(t.id,structuredClone(t)); }
+  deleteSession(id: string) {
+    if (!this.sessionMap.get(id)?.settledAt) return false;
+    for (const tab of this.tabs(id)) this.tabMap.delete(tab.id);
+    for (const op of [...this.operationMap.values()]) if (op.sessionId === id) this.operationMap.delete(op.id);
+    return this.sessionMap.delete(id);
+  }
   saveOperation(o: OperationRecord) { this.operationMap.set(o.id,structuredClone(o)); }
   operation(id: string) { const o = this.operationMap.get(id); return o && structuredClone(o); }
   operationsForTab(id: string) { return [...this.operationMap.values()].filter(o => o.tabId === id).map(o => structuredClone(o)); }
@@ -423,6 +429,21 @@ describe('session service with mock native transport and in-memory repository', 
     await restored.initialize({userDataDir:'C:\\tmp',helperDir:'C:\\helper',shellScriptDir:'C:\\shell',packagedExecutable:null});
     expect(f.repository.session(s.id)?.binding).toEqual(binding);expect(f.launches).toHaveLength(1);
     expect(value(restored.getSnapshot()).sessions[0].window?.state).toBe('alive');
+  });
+  it('permanently deletes only archived sessions, with their tabs and operations', async () => {
+    const f=fixture(); await f.start(); const a=await f.create(); const b=await f.create(); const events: string[]=[];
+    f.service.subscribe(event=>events.push(event.reason));
+    expect(await f.service.deleteSession({sessionId:a.id})).toMatchObject({ok:false,error:{code:'UNSUPPORTED'}});
+    expect(f.repository.session(a.id)).toBeDefined();
+    value(await f.service.settleSession({sessionId:a.id,confirmActive:true}));
+    expect(value(await f.service.deleteSession({sessionId:a.id}))).toEqual({deleted:true});
+    expect(events.at(-1)).toBe('history');
+    expect(f.repository.session(a.id)).toBeUndefined(); expect(f.repository.tabs(a.id)).toEqual([]);
+    expect([...f.repository.operationMap.values()].filter(o=>o.sessionId===a.id)).toEqual([]);
+    expect(f.repository.session(b.id)).toBeDefined(); expect(f.repository.tabs(b.id)).toHaveLength(1);
+    expect(value(f.service.getHistory({search:'',status:'all',page:1,pageSize:20})).total).toBe(0);
+    expect(await f.service.deleteSession({sessionId:a.id})).toMatchObject({ok:false,error:{code:'NOT_FOUND'}});
+    expect(await f.service.deleteSession({sessionId:'nope'})).toMatchObject({ok:false,error:{code:'VALIDATION'}});
   });
   it('history filters activity while public status remains settled', async () => {
     const f=fixture(); await f.start(); const a=await f.create(); const b=await f.create(); f.observe(a,2); f.observe(b,0);

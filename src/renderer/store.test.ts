@@ -128,6 +128,22 @@ describe('manager client', () => {
     expect(fixture.api.activateSession).not.toHaveBeenCalled(); client.stop();
   });
 
+  it('drops the selection of a deleted archived session and re-reads the snapshot', async () => {
+    const live = session(2), archived = session(1, { status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' });
+    const fixture = mockApi(snapshot([live])); const client = createManagerClient(fixture.api);
+    client.start(); await flush();
+    client.select(archived);
+    expect(client.store.getState()).toMatchObject({ selectedId: archived.id, historical: archived });
+    const { archiveVersion, historyStatusVersion, selectionEpoch } = client.store.getState();
+    client.remove(archived.id); await flush();
+    const state = client.store.getState();
+    expect(state).toMatchObject({ selectedId: live.id, historical: null });
+    expect(state.archiveVersion).toBe(archiveVersion + 1); expect(state.historyStatusVersion).toBe(historyStatusVersion + 1); expect(state.selectionEpoch).toBe(selectionEpoch + 1);
+    expect(fixture.api.getSnapshot).toHaveBeenCalledTimes(2);
+    client.select(live); client.remove(archived.id); await flush();
+    expect(client.store.getState().selectedId).toBe(live.id); client.stop();
+  });
+
   it('tracks activity independently from snapshots and clears busy on exit', async () => {
     const fixture = mockApi(); const client = createManagerClient(fixture.api); client.start(); await flush();
     const tab = session().tabs[0]!;

@@ -20,6 +20,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [archiving, setArchiving] = useState<SessionDto | null>(null);
+  const [deleting, setDeleting] = useState<SessionDto | null>(null);
   const [morePending, setMorePending] = useState(false);
   const historyToken = useRef(0);
   const action = useAction();
@@ -81,6 +82,10 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
     const result = await action.run(() => client.api.unsettleSession({ sessionId: session.id }));
     if (result?.ok) client.accept(result.value);
   }
+  async function remove(session: SessionDto) {
+    const result = await action.run(() => client.api.deleteSession({ sessionId: session.id }));
+    if (result?.ok) { setDeleting(null); client.remove(session.id); }
+  }
   async function copyPath(cwd: string) {
     const result = await action.run(() => client.api.copyText({ text: cwd }));
     if (result?.ok) notify({ message: 'Path copied', tone: 'info', durationMs: 2000 });
@@ -107,8 +112,10 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
       {(menu.session.status === 'error' || menu.session.error || menu.session.tabs.some(tab => tab.error)) && <button role="menuitem" disabled={action.pending} onClick={() => { const session = menu.session; setMenu(null); void action.run(() => client.api.clearSessionError({ sessionId: session.id })).then(result => { if (result?.ok) client.accept(result.value); }); }}>Clear error</button>}
       {!menu.session.settledAt ? <button role="menuitem" disabled={action.pending} onClick={() => void archive(menu.session)}>Archive</button>
         : menu.session.adapterId === 'embedded-pty' && menu.session.tabs.some(tab => tab.terminalKind === 'embedded') && <button role="menuitem" disabled={action.pending} onClick={() => void restore(menu.session)}>Restore</button>}
+      {menu.session.settledAt && <button role="menuitem" disabled={action.pending} onClick={() => { setDeleting(menu.session); setMenu(null); }}>Delete permanently…</button>}
     </ContextMenu>}
     {editingEnv && <ShellfoxEnvModal key={editingEnv.id} client={client} session={editingEnv} onClose={() => setEditingEnv(null)} />}
     {archiving && <div className="inline-confirm archive-confirm" role="dialog" aria-label="Archive session" onKeyDown={event => { if (event.key === 'Escape') setArchiving(null); }}><p>Agents are still running. Archive anyway?</p><div><button autoFocus disabled={action.pending} onClick={() => void archive(archiving, true)}>Archive</button><button onClick={() => setArchiving(null)}>Cancel</button></div></div>}
+    {deleting && <div className="inline-confirm archive-confirm" role="dialog" aria-label="Delete session" onKeyDown={event => { if (event.key === 'Escape') setDeleting(null); }}><p>Permanently delete “{deleting.title}”?{deleting.tabs.some(tab => tab.terminalKind === 'embedded' && tab.lifecycle !== 'closed') ? ' Its running terminals will be closed.' : ''} This cannot be undone.</p><div><button autoFocus disabled={action.pending} onClick={() => void remove(deleting)}>Delete</button><button onClick={() => setDeleting(null)}>Cancel</button></div></div>}
   </div>;
 }

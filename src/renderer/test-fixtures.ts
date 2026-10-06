@@ -100,6 +100,7 @@ export function mockApi(initial = snapshot()) {
     setSessionPinned: vi.fn<ManagerApi['setSessionPinned']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, pinnedAt: input.pinned ? '2026-10-05T10:00:00.000Z' : null })),
     settleSession: vi.fn<ManagerApi['settleSession']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' })),
     unsettleSession: vi.fn<ManagerApi['unsettleSession']>(async () => success(session())),
+    deleteSession: vi.fn<ManagerApi['deleteSession']>(async () => success({ deleted: true })),
     clearSessionError: vi.fn<ManagerApi['clearSessionError']>(async () => success(session())),
     retryTab: vi.fn<ManagerApi['retryTab']>(async () => success(session())),
     getHistory: vi.fn<ManagerApi['getHistory']>(async query => success({ items: [], total: 0, page: query.page, pageSize: query.pageSize })),

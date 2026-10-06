@@ -107,6 +107,7 @@ export interface ManagerApi extends Partial<TerminalApi> {
   setSessionPinned(input: { sessionId: Id; pinned: boolean }): Promise<Result<SessionDto>>;
   settleSession(input: { sessionId: Id; confirmActive: boolean }): Promise<Result<SessionDto>>;
   unsettleSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
+  deleteSession(input: { sessionId: Id }): Promise<Result<{ deleted: true }>>;
   clearSessionError(input: { sessionId: Id }): Promise<Result<SessionDto>>;
   retryTab(input: { tabId: Id; confirmPossibleDuplicate: boolean }): Promise<Result<SessionDto>>;
   getHistory(query: HistoryQuery): Promise<Result<HistoryPage>>;

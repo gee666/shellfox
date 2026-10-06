@@ -149,6 +149,16 @@ export function createManagerClient(api: ManagerApi) {
         archiveVersion: state.archiveVersion + (archiveChanged ? 1 : 0), historyStatusVersion: state.historyStatusVersion + 1 });
       refresh();
     },
+    remove(sessionId: string) {
+      // The session no longer exists anywhere. Drop any selection of it and re-read the authoritative snapshot.
+      store.setState(state => {
+        const activeTabIds = { ...state.activeTabIds };
+        delete activeTabIds[sessionId];
+        return { activeTabIds, archiveVersion: state.archiveVersion + 1, historyStatusVersion: state.historyStatusVersion + 1,
+          ...(state.selectedId === sessionId ? { selectedId: state.snapshot?.sessions.find(item => item.id !== sessionId && !item.settledAt)?.id ?? null, historical: null, selectionEpoch: state.selectionEpoch + 1 } : {}) };
+      });
+      refresh();
+    },
     updateHistory(items: SessionDto[]) {
       const state = store.getState();
       if (!state.historical) return;

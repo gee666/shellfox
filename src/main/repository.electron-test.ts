@@ -48,6 +48,32 @@ async function run() {
   repository.saveTab({...tab,lifecycle:'closed',terminal:{kind:'embedded',profileId:'login-shell',exitCode:7}});
   repository.close();repository=new Repository(filename);
   assert.deepEqual(repository.tab(tab.id)?.terminal,{kind:'embedded',profileId:'login-shell',exitCode:7});
+  // Permanent deletion removes an archived session with every dependent row and refuses live sessions.
+  {
+    const doomed:SessionRecord={...s,id:randomUUID(),title:'doomed',settledAt:now,binding:null,windowState:'unknown'};
+    const live:SessionRecord={...s,id:randomUUID(),title:'live',settledAt:null};
+    const doomedTab:TabRecord={...tab,id:randomUUID(),sessionId:doomed.id,operationId:randomUUID(),member:null,terminal:{kind:'embedded',profileId:'login-shell',exitCode:0}};
+    const liveTab:TabRecord={...tab,id:randomUUID(),sessionId:live.id,operationId:randomUUID()};
+    const count=(sql:string,...args:unknown[])=>(repository.db.prepare(sql).get(...args) as {n:number}).n;
+    repository.transaction(()=>{
+      repository.saveSession(doomed);repository.saveSession(live);repository.saveTab(doomedTab);repository.saveTab(liveTab);
+      repository.saveOperation({id:doomedTab.operationId,sessionId:doomed.id,tabId:doomedTab.id,requestId:randomUUID(),kind:'create',state:'registered',createdAt:now,updatedAt:now,error:null});
+      repository.saveOperation({id:liveTab.operationId,sessionId:live.id,tabId:liveTab.id,requestId:randomUUID(),kind:'create',state:'registered',createdAt:now,updatedAt:now,error:null});
+    });
+    assert.equal(count("SELECT count(*) n FROM preferences WHERE key IN (?,?)",'session-window:'+doomed.id,'tab-member:'+doomedTab.id),2);
+    assert.equal(count('SELECT count(*) n FROM terminal_metadata WHERE tabId=?',doomedTab.id),1);
+    assert.equal(repository.deleteSession(live.id),false);
+    assert.equal(repository.deleteSession(randomUUID()),false);
+    assert.ok(repository.session(live.id));assert.equal(repository.tabs(live.id).length,1);
+    assert.equal(repository.deleteSession(doomed.id),true);
+    assert.equal(repository.session(doomed.id),undefined);assert.equal(repository.tabs(doomed.id).length,0);
+    assert.equal(repository.operation(doomedTab.operationId),undefined);
+    assert.equal(count('SELECT count(*) n FROM terminal_metadata WHERE tabId=?',doomedTab.id),0);
+    assert.equal(count("SELECT count(*) n FROM preferences WHERE key IN (?,?)",'session-window:'+doomed.id,'tab-member:'+doomedTab.id),0);
+    assert.ok(repository.operation(liveTab.operationId));assert.equal(repository.tabs(live.id).length,1);
+    assert.equal(repository.deleteSession(doomed.id),false);
+    repository.db.exec("DELETE FROM operations WHERE sessionId='"+live.id+"'; DELETE FROM tabs WHERE sessionId='"+live.id+"'; DELETE FROM sessions WHERE id='"+live.id+"'");
+  }
   // Simulate the previous version's schema and verify a real migration keeps task/root history.
   // Pinned state survives a close/reopen at the current schema version (reopening must not be refused).
   repository.saveSession({...s,pinnedAt:now});repository.close();repository=new Repository(filename);

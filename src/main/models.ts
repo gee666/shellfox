@@ -24,6 +24,8 @@ export interface OperationRecord {
 export interface RepositoryPort {
   sessions(): SessionRecord[]; tabs(sessionId?: string): TabRecord[]; session(id: string): SessionRecord | undefined;
   tab(id: string): TabRecord | undefined; saveSession(s: SessionRecord): void; saveTab(t: TabRecord): void;
+  /** Deletes an archived session with its tabs, operations and metadata. False when it is missing or not archived. */
+  deleteSession(id: string): boolean;
   saveOperation(o: OperationRecord): void; operation(id: string): OperationRecord | undefined;
   operationsForTab(tabId: string): OperationRecord[];
   sessionByRequest(requestId: string): SessionRecord | undefined;

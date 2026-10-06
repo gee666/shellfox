@@ -37,6 +37,7 @@ const api: ManagerApi = {
   setSessionPinned: input => request('setSessionPinned', input),
   settleSession: input => request('settleSession', input),
   unsettleSession: input => request('unsettleSession', input),
+  deleteSession: input => request('deleteSession', input),
   clearSessionError: input => request('clearSessionError', input),
   retryTab: input => request('retryTab', input),
   getHistory: input => request('getHistory', input),

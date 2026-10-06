@@ -77,7 +77,7 @@ export const requestSchemas = {
   renameSession: z.object({ sessionId: idSchema, title: titleSchema }).strict(),
   setSessionPinned: z.object({ sessionId: idSchema, pinned: z.boolean() }).strict(),
   settleSession: z.object({ sessionId: idSchema, confirmActive: z.boolean() }).strict(),
-  unsettleSession: sessionId, clearSessionError: sessionId,
+  unsettleSession: sessionId, deleteSession: sessionId, clearSessionError: sessionId,
   retryTab: z.object({ tabId: idSchema, confirmPossibleDuplicate: z.boolean() }).strict(),
   getHistory: historyQuerySchema, saveSettings: settingsSchema,
   setExplorerIntegration: z.object({ installed: z.boolean() }).strict(), chooseDirectory: empty, getUpdateStatus: empty,
@@ -93,7 +93,7 @@ export const responseSchemas = {
   acknowledgeTerminal: resultSchema(z.object({ acknowledged: z.literal(true) }).strict()), detachTerminal: resultSchema(z.object({ detached: z.literal(true) }).strict()),
   writeTerminal: resultSchema(z.object({ written: z.literal(true) }).strict()), resizeTerminal: resultSchema(z.object({ resized: z.literal(true) }).strict()), closeTab: resultSchema(sessionSchema),
   activateSession: resultSchema(sessionSchema), refreshSessionMembership: resultSchema(sessionSchema), prepareSessionRegistration: resultSchema(registrationGuideSchema),
-  getSnapshot: resultSchema(snapshotSchema), createSession: resultSchema(sessionSchema), addTab: resultSchema(sessionSchema), focusSession: resultSchema(z.object({ focused: z.literal(true) }).strict()), renameSession: resultSchema(sessionSchema), setSessionPinned: resultSchema(sessionSchema), settleSession: resultSchema(sessionSchema), unsettleSession: resultSchema(sessionSchema), clearSessionError: resultSchema(sessionSchema), retryTab: resultSchema(sessionSchema), getHistory: resultSchema(historyPageSchema), saveSettings: resultSchema(settingsSchema), setExplorerIntegration: resultSchema(explorerSchema), chooseDirectory: resultSchema(z.object({ cwd: pathSchema }).strict().nullable()),
+  getSnapshot: resultSchema(snapshotSchema), createSession: resultSchema(sessionSchema), addTab: resultSchema(sessionSchema), focusSession: resultSchema(z.object({ focused: z.literal(true) }).strict()), renameSession: resultSchema(sessionSchema), setSessionPinned: resultSchema(sessionSchema), settleSession: resultSchema(sessionSchema), unsettleSession: resultSchema(sessionSchema), deleteSession: resultSchema(z.object({ deleted: z.literal(true) }).strict()), clearSessionError: resultSchema(sessionSchema), retryTab: resultSchema(sessionSchema), getHistory: resultSchema(historyPageSchema), saveSettings: resultSchema(settingsSchema), setExplorerIntegration: resultSchema(explorerSchema), chooseDirectory: resultSchema(z.object({ cwd: pathSchema }).strict().nullable()),
   getUpdateStatus: resultSchema(z.object({ current: z.string().max(64), latest: z.string().max(64).nullable(), available: z.boolean(), command: z.literal('shellfox update'), url: z.string().url().max(300) }).strict()),
 } as const;
 // Stable descriptive aliases for callers consuming native validation.

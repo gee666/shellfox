@@ -5,6 +5,13 @@ it('rejects unexpected IPC fields and arbitrary methods', () => {
   expect(requestEnvelopeSchema.safeParse({version:1,method:'execute',payload:{}}).success).toBe(false);
   expect(requestSchemas.createSession.safeParse({cwd:'C:\\work',requestId:'c36951c8-03f5-49c7-bb11-ad8828044a31',command:'evil'}).success).toBe(false);
 });
+it('accepts only a strict session id for deleteSession', () => {
+  const sessionId = 'c36951c8-03f5-49c7-bb11-ad8828044a31';
+  expect(requestSchemas.deleteSession.safeParse({sessionId}).success).toBe(true);
+  expect(requestSchemas.deleteSession.safeParse({sessionId:'1'}).success).toBe(false);
+  expect(requestSchemas.deleteSession.safeParse({sessionId,force:true}).success).toBe(false);
+  expect(requestSchemas.deleteSession.safeParse({}).success).toBe(false);
+});
 it('rejects malformed IDs', () => expect(requestSchemas.focusSession.safeParse({sessionId:'1'}).success).toBe(false));
 it.each(['relative','\\\\server\\folder','\\\\?\\C:\\folder','C:\\x\u0000','shell:desktop'])('rejects unsafe path %s', value => expect(pathSchema.safeParse(value).success).toBe(false));
 it('treats shell punctuation as path data', () => expect(pathSchema.safeParse("C:\\space 雪\\a'&;%[x]").success).toBe(true));

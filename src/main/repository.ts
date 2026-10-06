@@ -116,6 +116,23 @@ export class Repository implements RepositoryPort {
     }
     });
   }
+  /** Permanently removes an archived session and everything keyed to it. Returns false, changing nothing, unless the session exists and is archived. */
+  deleteSession(id: string): boolean {
+    return this.transaction(() => {
+      const session = this.db.prepare('SELECT settledAt FROM sessions WHERE id=?').get(id) as { settledAt: string | null } | undefined;
+      if (!session?.settledAt) return false;
+      const tabIds = (this.db.prepare('SELECT id FROM tabs WHERE sessionId=?').all(id) as { id: string }[]).map(tab => tab.id);
+      this.db.prepare('DELETE FROM operations WHERE sessionId=?').run(id);
+      for (const tabId of tabIds) {
+        this.db.prepare('DELETE FROM terminal_metadata WHERE tabId=?').run(tabId);
+        this.db.prepare('DELETE FROM preferences WHERE key=?').run('tab-member:' + tabId);
+      }
+      this.db.prepare('DELETE FROM tabs WHERE sessionId=?').run(id);
+      this.db.prepare('DELETE FROM preferences WHERE key=?').run('session-window:' + id);
+      this.db.prepare('DELETE FROM sessions WHERE id=?').run(id);
+      return true;
+    });
+  }
   saveOperation(o: OperationRecord): void {
     this.db.prepare(`INSERT INTO operations VALUES (@id,@sessionId,@tabId,@requestId,@kind,@state,@createdAt,@updatedAt,@error)
       ON CONFLICT(id) DO UPDATE SET sessionId=excluded.sessionId,tabId=excluded.tabId,state=excluded.state,updatedAt=excluded.updatedAt,error=excluded.error`).run({ ...o, error: encode(o.error) });

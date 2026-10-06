@@ -431,6 +431,19 @@ export class SessionService {
     if (!requestSchemas.unsettleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID'));
     return this.mutate(input.sessionId, s => { s.settledAt = null; }, 'history');
   }
+  deleteSession(input: { sessionId: string }): Promise<Result<{ deleted: true }>> {
+    if (!requestSchemas.deleteSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID'));
+    return this.serialize(input.sessionId, async () => {
+      const session = this.repository.session(input.sessionId);
+      if (!session) return failure('NOT_FOUND', 'Session not found');
+      if (!session.settledAt) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
+      const tabIds = this.repository.tabs(session.id).map(tab => tab.id);
+      if (!this.repository.deleteSession(session.id)) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
+      for (const tabId of tabIds) this.observations.delete(tabId);
+      this.verified.delete(session.id);
+      this.changed('history'); return success({ deleted: true as const });
+    });
+  }
   clearSessionError(input: { sessionId: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.clearSessionError.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID'));
     return this.mutate(input.sessionId, s => { s.error = null; for (const tab of this.repository.tabs(s.id)) { tab.error = null; this.repository.saveTab(tab); } });

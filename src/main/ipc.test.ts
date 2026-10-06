@@ -57,3 +57,18 @@ it('directory cancel returns null',async()=>{
   const {window,event,service}=fixture(); installIpc(window,url,service);
   expect(await state.handler!(event,{version:1,method:'chooseDirectory',payload:{}})).toEqual({ok:true,value:null});
 });
+it('routes deleteSession only with a strict session id payload and validates the response',async()=>{
+  const {window,event,service}=fixture();
+  (service as any).deleteSession=vi.fn(async()=>({ok:true,value:{deleted:true}}));
+  installIpc(window,url,service);
+  const sessionId='00000000-0000-4000-8000-000000000001';
+  expect(await state.handler!(event,{version:1,method:'deleteSession',payload:{sessionId}})).toEqual({ok:true,value:{deleted:true}});
+  expect(service.deleteSession).toHaveBeenCalledWith({sessionId});
+  for(const payload of [{},{sessionId:'x'},{sessionId,force:true}])
+    expect(await state.handler!(event,{version:1,method:'deleteSession',payload})).toMatchObject({ok:false,error:{code:'VALIDATION'}});
+  expect(service.deleteSession).toHaveBeenCalledTimes(1);
+  (service as any).deleteSession=vi.fn(async()=>({ok:true,value:{deleted:false}}));
+  expect(await state.handler!(event,{version:1,method:'deleteSession',payload:{sessionId}})).toMatchObject({ok:false,error:{code:'INTERNAL'}});
+  await state.handler!({...event,sender:{}},{version:1,method:'deleteSession',payload:{sessionId}});
+  expect(service.deleteSession).toHaveBeenCalledTimes(1);
+});

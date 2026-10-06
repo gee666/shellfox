@@ -4,7 +4,7 @@ import { useStore } from 'zustand';
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { success } from '../shared/contracts';
+import { failure, success } from '../shared/contracts';
 import { SessionSidebar } from './SessionSidebar';
 import { createManagerClient } from './store';
 import type { ManagerClient } from './store';
@@ -104,5 +104,66 @@ describe('session activation and pinning', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Unpin' }));
     expect(fixture.api.setSessionPinned).toHaveBeenLastCalledWith({ sessionId: session(2).id, pinned: false });
     await waitFor(() => expect(screen.queryByLabelText('Pinned')).not.toBeInTheDocument());
+  });
+});
+
+describe('permanent deletion of archived sessions', () => {
+  async function setup(items: ReturnType<typeof archived>[], live = [session(1, { title: 'Live' })]) {
+    const fixture = mockApi(snapshot(live));
+    fixture.api.getHistory.mockImplementation(async query => success({ items, total: items.length, page: query.page, pageSize: query.pageSize }));
+    const client = createManagerClient(fixture.api); clients.push(client); client.start();
+    const user = userEvent.setup(); render(<Navigation client={client} />);
+    await user.click(await screen.findByRole('button', { name: `Archived · ${items.length}` }));
+    await screen.findByRole('button', { name: `Select session ${items[0]!.title}` });
+    return { fixture, client, user };
+  }
+  it('offers deletion only for archived sessions', async () => {
+    const { user } = await setup([archived(20, 'Old')]);
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Live' }) });
+    expect(screen.queryByRole('menuitem', { name: 'Delete permanently…' })).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Old' }) });
+    expect(screen.getByRole('menuitem', { name: 'Delete permanently…' })).toBeVisible();
+  });
+  it('only mentions closing terminals when the archived session still has a running one', async () => {
+    const old = archived(20, 'Old'), done = archived(21, 'Done');
+    for (const tab of done.tabs) tab.lifecycle = 'closed';
+    const { user } = await setup([old, done]);
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Done' }) });
+    await user.click(screen.getByRole('menuitem', { name: 'Delete permanently…' }));
+    expect(await screen.findByRole('dialog', { name: 'Delete session' })).toHaveTextContent('Permanently delete “Done”? This cannot be undone.');
+  });
+  it('requires confirmation, can be cancelled, then deletes and refreshes the archive', async () => {
+    const items = [archived(20, 'Old')];
+    const { fixture, client, user } = await setup(items);
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Old' }) });
+    await user.click(screen.getByRole('menuitem', { name: 'Delete permanently…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete session' });
+    expect(dialog).toHaveTextContent('Permanently delete “Old”? Its running terminals will be closed. This cannot be undone.');
+    expect(fixture.api.deleteSession).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: 'Delete session' })).not.toBeInTheDocument();
+    expect(fixture.api.deleteSession).not.toHaveBeenCalled();
+
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Old' }) });
+    await user.click(screen.getByRole('menuitem', { name: 'Delete permanently…' }));
+    client.select(items[0]!);
+    fixture.api.deleteSession.mockImplementationOnce(async () => { items.splice(0); return success({ deleted: true }); });
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    expect(fixture.api.deleteSession).toHaveBeenCalledExactlyOnceWith({ sessionId: session(20).id });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Delete session' })).not.toBeInTheDocument());
+    await screen.findByRole('button', { name: 'Archived · 0' });
+    expect(screen.queryByRole('button', { name: 'Select session Old' })).not.toBeInTheDocument();
+    expect(client.store.getState().historical).toBeNull();
+  });
+  it('keeps the session and the confirmation open when deletion fails', async () => {
+    const { fixture, user } = await setup([archived(20, 'Old')]);
+    fixture.api.deleteSession.mockResolvedValueOnce(failure('UNSUPPORTED', 'Close terminals first.'));
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Old' }) });
+    await user.click(screen.getByRole('menuitem', { name: 'Delete permanently…' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(fixture.api.deleteSession).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('dialog', { name: 'Delete session' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Select session Old' })).toBeVisible();
   });
 });

@@ -104,3 +104,13 @@ Regression coverage: `screen-mirror.test.ts`, `backend-restore.test.ts`, `termin
 ```sh
 node scripts/build.mjs --test && SHELLFOX_VERIFY_PROJECT=e2e node node_modules/@playwright/test/cli.js test --project=e2e terminal-tui-restore
 ```
+
+## Permanent deletion of archived sessions
+
+`deleteSession` removes an archived session with its tabs, operations and per-tab metadata from SQLite; live sessions are refused. For an embedded session, any shell still running in it is closed first (archiving never stops shells) and the deletion is abandoned unless every close is confirmed. The sidebar offers "Delete permanently…" on archived rows only, behind a confirmation.
+
+Coverage: `repository.electron-test.ts` (`pnpm test:storage`), `delete-session.test.ts`, `service.test.ts`, `ipc.test.ts`, `SessionSidebar.test.tsx`, plus two e2e specs. `tests/e2e/delete-archived-session.spec.ts` uses the real embedded backend (POSIX; screenshots in `tmp/e2e-evidence/`) and also checks the database after an app restart. The additions to `flows.spec.ts` cover the Windows legacy fake-backend path; that spec (like most of the e2e project) needs the Windows fake native adapter and fails with `DEPENDENCY_MISSING` on Linux/macOS, before and after this change.
+
+```sh
+node scripts/build.mjs --test && SHELLFOX_VERIFY_PROJECT=e2e node node_modules/@playwright/test/cli.js test --project=e2e delete-archived-session
+```
