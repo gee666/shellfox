@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, session } from 'electron';
+import { app, BrowserWindow, dialog, net, screen, session } from 'electron';
+import { parseWindowState, restoreBounds, trackWindowState } from './window-state';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -17,6 +18,8 @@ import { EmbeddedSessionService } from './terminal/service';
 import { TerminalQuitGuard } from './terminal/shutdown';
 import { installIpc } from './ipc';
 import { handleEmbeddedInstaller, installerEvent } from './installer';
+import { UpdateChecker, fetchLatestRelease } from './update-check';
+import windowsUpdateScript from './update/shellfox-update.ps1';
 declare const __TEST_BUILD__: boolean;
 declare const __PROJECT_ROOT__: string;
 app.setName('Shellfox');
@@ -45,7 +48,7 @@ async function run(): Promise<void> {
   if (lifecycle) {
     try {
       await migrateUserData(appData, productData);
-      await handleEmbeddedInstaller(lifecycle, explorerIntegration(), new WindowsCliIntegration({ executable: process.execPath })); app.exit(0);
+      await handleEmbeddedInstaller(lifecycle, explorerIntegration(), new WindowsCliIntegration({ executable: process.execPath, updateScript: windowsUpdateScript })); app.exit(0);
     }
     catch { app.exit(1); }
     return;
@@ -60,7 +63,7 @@ async function run(): Promise<void> {
     catch { console.error('Shellfox: directory does not exist or is not accessible.'); app.exit(1); return; }
   }
   const cliOptions = {
-    executable: process.execPath, ...(app.isPackaged ? {} : { appPath: path.join(__dirname, 'index.cjs') }),
+    updateScript: windowsUpdateScript, executable: process.execPath, ...(app.isPackaged ? {} : { appPath: path.join(__dirname, 'index.cjs') }),
     ...(parsed.value.userData ? {
       binDir: path.join(parsed.value.userData, 'Shellfox', 'bin'),
       registryKey: 'Software\\Shellfox\\Tests\\' + createHash('sha256').update(parsed.value.userData).digest('hex') + '\\Environment',
@@ -68,7 +71,7 @@ async function run(): Promise<void> {
       launchEnv: { SHELLFOX_TEST_MODE: '1', SHELLFOX_TEST_ROOT: __TEST_BUILD__ ? __PROJECT_ROOT__ : process.env.SHELLFOX_TEST_ROOT! },
     } : {}),
   };
-  const cliIntegration = process.platform === 'linux'
+  const cliIntegration = process.platform === 'linux' || process.platform === 'darwin'
     ? new LinuxCliIntegration({ ...cliOptions, ...(parsed.value.userData ? { home: parsed.value.userData } : {}) })
     : new WindowsCliIntegration(cliOptions);
   const folderIntegration = process.platform === 'linux' && cliIntegration instanceof LinuxCliIntegration
@@ -103,20 +106,34 @@ async function run(): Promise<void> {
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } }));
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
+  let savedWindowState: ReturnType<typeof parseWindowState> = null;
+  try { savedWindowState = parseWindowState(repository.windowState()); } catch { /* fall back to defaults */ }
+  const restored = (() => {
+    try { return restoreBounds(savedWindowState, screen.getAllDisplays().map(d => d.workArea), screen.getPrimaryDisplay().workArea); }
+    catch { return restoreBounds(null, [], { x: 0, y: 0, width: 1220, height: 820 }); }
+  })();
+  // Paint the saved theme background before the renderer loads (no flash on light themes).
+  let windowBackground = '#111016';
+  try { const saved = repository.settings().backgroundColor; if (/^#[0-9a-fA-F]{6}$/.test(saved)) windowBackground = saved; } catch { /* default */ }
   window = new BrowserWindow({
+    ...restored.options,
     icon: path.resolve(__dirname, '../icon', process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
-    width: 1220, height: 820, minWidth: 850, minHeight: 600, backgroundColor: '#111118', title: 'Shellfox',
+    minWidth: 850, minHeight: 600, backgroundColor: windowBackground, title: 'Shellfox',
     webPreferences: { preload: path.resolve(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
   });
+  if (restored.maximized) window.maximize();
+  const windowTracker = trackWindowState(window, state => repository.saveWindowState(state));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-redirect', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
+  // One release lookup per start: packaged builds ask GitHub; test builds read an env value (no network in tests).
+  const updates = new UpdateChecker({ current: app.getVersion(), check: async () => __TEST_BUILD__ ? process.env.SHELLFOX_TEST_LATEST_RELEASE ?? null : app.isPackaged ? fetchLatestRelease((url, init) => net.fetch(url, init)) : null });
   const uninstallIpc = installIpc(window, rendererUrl, service, () => requests.ready(async request => {
     if (!window || window.isDestroyed()) return;
     const result = await handleCliRequest(request, service, window);
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
-  }));
+  }), updates);
   await window.loadFile(rendererFile);
   let quitting = false;
   const quitGuard = new TerminalQuitGuard({ ownedTerminalCount: () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0, dispose: () => service.dispose() }, count => {
@@ -132,7 +149,7 @@ async function run(): Promise<void> {
     event.preventDefault();
     void quitGuard.request().then(approved => {
       if (!approved || quitting) return;
-      quitting = true; uninstallIpc(); repository.close(); app.quit();
+      quitting = true; uninstallIpc(); windowTracker.dispose(); repository.close(); app.quit();
     }).catch(() => dialog.showErrorBox('Shutdown failed', 'Owned terminals could not be closed cleanly. Shellfox has not claimed shell survival.'));
   });
   app.on('window-all-closed', () => app.quit());

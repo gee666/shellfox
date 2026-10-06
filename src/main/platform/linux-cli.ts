@@ -5,6 +5,7 @@ import { constants } from 'node:fs';
 import type { CliIntegrationDto, Result } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import type { CliPort } from './shellfox-cli';
+import updateScript from '../update/shellfox-update.sh';
 export const LINUX_OWNER = 'Shellfox/linux-v1';
 export const ownsLinuxFile = (content: string) => content.split(/\r?\n/).includes('# ' + LINUX_OWNER);
 export interface LinuxCliOptions { executable: string; appPath?: string; home?: string; env?: NodeJS.ProcessEnv; prefixArgs?: string[]; launchEnv?: Record<string,string>; systemLauncher?: string }
@@ -13,14 +14,19 @@ export function linuxLauncher(options: LinuxCliOptions): string {
   const target=[options.executable,...(options.appPath?[options.appPath]:[]),...(options.prefixArgs??[])].map(shQuote).join(' ');
   return `#!/bin/sh
 # ${LINUX_OWNER}
-if [ "\${1:-}" = '--help' ]; then printf '%s\\n' 'Usage: shellfox start [path]' 'Without arguments, open Shellfox.'; exit 0; fi
+if [ "\${1:-}" = '--help' ]; then printf '%s\\n' 'Usage: shellfox start [path]' '       shellfox update [--check]' 'Without arguments, open Shellfox.' 'update installs the latest published release.'; exit 0; fi
+if [ "\${1:-}" = update ]; then
+  shift
+  shellfox_update_script=${shQuote(updateScript)}
+  SHELLFOX_APP_EXECUTABLE=${shQuote(options.executable)} exec /bin/sh -c "$shellfox_update_script" shellfox-update "$@"
+fi
 if [ "$#" -eq 0 ]; then mode=show
 elif [ "$1" = start ] && [ "$#" -le 2 ]; then
   target=\${2:-.}
   case "$target" in /*) ;; *) target=./$target ;; esac
   folder=$(CDPATH='' cd -P -- "$target" 2>/dev/null && pwd -P) || { printf '%s\\n' 'Shellfox: directory does not exist or is inaccessible.' >&2; exit 1; }
   mode=start
-else printf '%s\\n' 'Usage: shellfox start [path]' >&2; exit 2; fi
+else printf '%s\\n' 'Usage: shellfox start [path] | shellfox update [--check]' >&2; exit 2; fi
 if [ ! -x ${shQuote(options.executable)} ]; then printf '%s\\n' 'Shellfox: application executable is missing.' >&2; exit 1; fi
 ${Object.entries(options.launchEnv??{}).map(([key,value])=>`export ${key}=${shQuote(value)}`).join('\n')}
 launch() {

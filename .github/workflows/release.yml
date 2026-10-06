@@ -1,0 +1,112 @@
+name: Release
+# Push a tag vX.Y.Z (matching package.json "version") to package Shellfox for
+# Windows, Linux and macOS and publish a GitHub Release with the installers.
+# `shellfox update` and the in-app update notice read the latest published release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  package:
+    name: package ${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, platform: linux, arch: x64 }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+          - { runner: windows-2022, platform: win32, arch: x64 }
+          - { runner: windows-11-arm, platform: win32, arch: arm64 }
+          - { runner: macos-15, platform: darwin, arch: arm64 }
+          - { runner: macos-15-intel, platform: darwin, arch: x64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      TMP: ${{ github.workspace }}/tmp
+      TEMP: ${{ github.workspace }}/tmp
+      TMPDIR: ${{ github.workspace }}/tmp
+      ELECTRON_CACHE: ${{ github.workspace }}/tmp/electron-cache
+      npm_config_cache: ${{ github.workspace }}/tmp/npm-cache
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scratch directory
+        run: mkdir -p tmp
+      # Version comes from package.json "packageManager".
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          architecture: ${{ matrix.arch }}
+      - name: Verify native runner architecture
+        run: |
+          node -e "if(process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Wrong native target: ' + process.platform + '-' + process.arch)"
+      - name: Tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          node -e "const v=require('./package.json').version; if('v'+v !== process.env.GITHUB_REF_NAME) throw new Error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package.json version ' + v)"
+      - name: Linux build and Electron dependencies
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++ dpkg fakeroot util-linux dbus-x11 xvfb libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
+      - name: Install dependencies
+        run: bash .github/scripts/ci-step.sh install pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: bash .github/scripts/ci-step.sh typecheck pnpm typecheck
+      - name: Packaging configuration tests
+        run: bash .github/scripts/ci-step.sh packaging-tests pnpm test:packaging
+      - name: Unit tests
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        run: bash .github/scripts/ci-step.sh unit-tests pnpm test:unit
+      - name: Package and make installers
+        run: bash .github/scripts/ci-step.sh make pnpm make
+      - name: Linux packaged Electron sandbox helper
+        if: matrix.platform == 'linux'
+        run: sudo chown root:root 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox' && sudo chmod 4755 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox'
+      - name: Packaged native smoke (Linux)
+        if: matrix.platform == 'linux'
+        run: bash .github/scripts/ci-step.sh packaged-smoke dbus-run-session -- xvfb-run -a pnpm test:packaged
+      - name: Packaged native smoke
+        if: matrix.platform != 'linux'
+        run: bash .github/scripts/ci-step.sh packaged-smoke pnpm test:packaged
+      - name: List artifacts
+        run: find tmp/packages/make -type f \( -name '*.deb' -o -name '*.zip' -o -name '*.exe' -o -name '*.nupkg' \) -exec ls -l {} \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shellfox-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            tmp/packages/make/**/*.deb
+            tmp/packages/make/**/*.zip
+            tmp/packages/make/**/*.exe
+            tmp/packages/make/**/*.nupkg
+          if-no-files-found: error
+  release:
+    name: publish GitHub release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release files
+        run: find dist -type f -exec ls -l {} \;
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Shellfox ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/**/*.deb
+            dist/**/*.zip
+            dist/**/*.exe
+            dist/**/*.nupkg

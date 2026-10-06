@@ -42,7 +42,7 @@ export interface ProcessRule {
   executablePaths: string[]; scriptPathSuffixes: string[];
 }
 export interface SettingsDto {
-  version: 1; pythonPath?: string | null; accentColor: string; adapterId: AdapterId; shellId: ShellId;
+  version: 1; pythonPath?: string | null; accentColor: string; backgroundColor: string; adapterId: AdapterId; shellId: ShellId;
   shellExecutable: string | null; processRules: ProcessRule[]; historyPageSize: number;
   terminalProfileId?: string | null;
 }
@@ -91,6 +91,7 @@ export interface TerminalApi {
   subscribeTerminal(listener: (event: TerminalEvent) => void): () => void;
 }
 // Optional only for legacy injected clients. The production preload exposes every terminal method.
+export interface UpdateStatusDto { current: string; latest: string | null; available: boolean; command: 'shellfox update'; url: string }
 export interface ManagerApi extends Partial<TerminalApi> {
   getSnapshot(): Promise<Result<ManagerSnapshot>>;
   activateSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
@@ -112,6 +113,7 @@ export interface ManagerApi extends Partial<TerminalApi> {
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
   setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;
+  getUpdateStatus?(): Promise<Result<UpdateStatusDto>>;
   subscribe(listener: (event: ChangedEvent) => void): () => void;
 }
 export const success = <T>(value: T): Result<T> => ({ ok: true, value });

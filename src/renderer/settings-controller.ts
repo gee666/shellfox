@@ -10,6 +10,7 @@ const localPath = (value: string) => (/^[a-z]:[\\/]/i.test(value) || /^\/(?!\/)/
 export function validateSettingsDraft(settings: SettingsDto): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!/^#[0-9a-f]{6}$/i.test(settings.accentColor)) errors.accent = 'Choose a six-digit color.';
+  if (!/^#[0-9a-f]{6}$/i.test(settings.backgroundColor)) errors.background = 'Choose a six-digit color.';
   if (settings.pythonPath && (!settings.pythonPath.startsWith('/') || /[\u0000-\u001f\u007f]/.test(settings.pythonPath))) errors.python = 'Use an absolute Python path, or leave empty for auto-detect.';
   for (const rule of settings.processRules) {
     if (rule.executablePaths.some(path => !localPath(path))) errors[`${rule.id}.paths`] = 'Use absolute local paths, separated by commas.';
@@ -143,7 +144,7 @@ export function createSettingsController(api: ManagerApi, refresh: () => void) {
         refresh();
       } else {
         failedVersion = dispatchedVersion;
-        const field = dispatched.has('pythonPath') ? 'python' : dispatched.has('terminalProfileId') ? 'shell' : dispatched.has('accentColor') ? 'accent' : 'agents';
+        const field = dispatched.has('pythonPath') ? 'python' : dispatched.has('terminalProfileId') ? 'shell' : dispatched.has('accentColor') ? 'accent' : dispatched.has('backgroundColor') ? 'background' : 'agents';
         store.setState({ saving: false, error: { field, error: result.error, toast: viewers === 0 } });
         // Do not retry a failed intent automatically. A genuinely newer edit
         // may still be queued, and will include the retained unsaved fields.

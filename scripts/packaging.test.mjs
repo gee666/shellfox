@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { darwinCompilerArgs, darwinHelpers } from './terminal-native-helpers.mjs';
 const require = createRequire(import.meta.url);
@@ -31,6 +31,14 @@ test('Debian installs an owned launcher, setuid sandbox and guarded unconfined A
  const postinst=readFileSync(options.scripts.postinst,'utf8'),postrm=readFileSync(options.scripts.postrm,'utf8');
  assert.ok(postinst.includes('chmod 4755'));assert.ok(postinst.includes('chown root:root'));assert.ok(postinst.includes('apparmor_restrict_unprivileged_userns'));assert.ok(postinst.includes('abi/4.0'));assert.ok(postinst.includes('flags=(unconfined)'));assert.ok(postinst.includes('userns,'));assert.ok(postrm.includes('apparmor_parser -R'));assert.ok(!postinst.includes('--no-sandbox'));
  assert.ok(readFileSync(options.desktopTemplate,'utf8').includes('Exec=/usr/bin/shellfox'));assert.ok(!readFileSync(options.desktopTemplate,'utf8').includes('%U'));
+});
+test('Debian ships the launcher with its update script, which the launcher routes to', () => {
+  const c = config('linux', 'x64').packagerConfig;
+  assert.deepEqual([...c.extraResource], [path.resolve('resources/linux/shellfox-launcher'), path.resolve('src/main/update/shellfox-update.sh')]);
+  for (const file of c.extraResource) assert.ok(existsSync(file));
+  const launcher = readFileSync(c.extraResource[0], 'utf8');
+  assert.ok(launcher.includes('exec /bin/sh /usr/lib/shellfox/resources/shellfox-update.sh "$@"'));
+  assert.ok(launcher.includes('shellfox update [--check]'));
 });
 test('Darwin native resources are outside ASAR and covered by preview signing', () => {
   for (const arch of ['x64', 'arm64']) {

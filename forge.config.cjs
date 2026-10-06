@@ -48,7 +48,7 @@ module.exports = {
     executableName: platform === 'linux' ? 'shellfox' : 'Shellfox',
     name: 'Shellfox', appBundleId: 'local.shellfox',
     icon: path.join(__dirname, 'resources/icon/icon'),
-    ...(platform === 'linux' ? { extraResource: [path.join(__dirname, 'resources/linux/shellfox-launcher')] } : {}),
+    ...(platform === 'linux' ? { extraResource: [path.join(__dirname, 'resources/linux/shellfox-launcher'), path.join(__dirname, 'src/main/update/shellfox-update.sh')] } : {}),
     ...(platform === 'darwin' ? {
       extraResource: [path.join(__dirname, 'tmp/package-resources/terminal-native')],
       // Packager signs resources and unpacked native code inside-out before
@@ -94,7 +94,10 @@ module.exports = {
       if (platform !== 'linux') return;
       for (const output of result.outputPaths) {
         const resources = path.join(output, 'resources');
+        // Explicit modes: a restrictive checkout umask must not leave root-owned
+        // launcher/updater files unreadable for normal users after dpkg install.
         await fs.chmod(path.join(resources, 'shellfox-launcher'), 0o755);
+        await fs.chmod(path.join(resources, 'shellfox-update.sh'), 0o755);
         const native = path.join(resources, 'app.asar.unpacked/node_modules/node-pty/build/Release');
         // Linux currently uses fork, but retain executable mode if a future
         // pinned addon release supplies a spawn-helper. Darwin is signed already.

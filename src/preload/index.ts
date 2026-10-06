@@ -46,6 +46,7 @@ const api: ManagerApi = {
   setSessionEnv: input => request('setSessionEnv', input),
   setCliIntegration: input => request('setCliIntegration', input),
   chooseDirectory: () => request('chooseDirectory', {}),
+  getUpdateStatus: () => request('getUpdateStatus', {}),
   subscribe(listener: (event: ChangedEvent) => void): () => void {
     if (typeof listener !== 'function') return () => {};
     const receive = (_event: unknown, value: unknown) => {

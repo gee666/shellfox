@@ -5,12 +5,13 @@ import type { SessionService } from './service';
 import type { EmbeddedSessionService } from './terminal/service';
 import { TerminalDelivery } from './terminal/delivery';
 import { validateDirectory } from './directory';
+import type { UpdateChecker } from './update-check';
 
 export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow, rendererUrl: string): boolean {
   return !window.isDestroyed() && event.sender === window.webContents && !!event.senderFrame &&
     event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === rendererUrl;
 }
-export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void): () => void {
+export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateChecker): () => void {
   let announcedReady = false;
   const embedded = 'attachTerminal' in service ? service : null;
   const delivery = embedded ? new TerminalDelivery(input => embedded.attachTerminal(input), event => {
@@ -86,6 +87,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
           } catch { result = failure('NOT_FOUND', 'The session folder is missing or inaccessible.'); }
           break;
         }
+        case 'getUpdateStatus': result = updates ? success(await updates.status()) : failure('UNSUPPORTED', 'Update checks are unavailable.'); break;
         case 'chooseDirectory': {
           const selection = await dialog.showOpenDialog(window, { properties: ['openDirectory'], title: 'Choose default working directory' });
           if (selection.canceled || !selection.filePaths[0]) result = success(null);

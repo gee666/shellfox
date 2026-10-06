@@ -8,7 +8,7 @@ export const profiles: TerminalProfileDto[] = [
   { id: 'wsl:Ubuntu', label: 'Ubuntu', executable: 'C:\\Windows\\System32\\wsl.exe', args: ['--distribution', 'Ubuntu'], environment: 'wsl', distro: 'Ubuntu', available: true },
 ];
 export const settings: SettingsDto = {
-  version: 1, accentColor: '#ec4899', adapterId: 'embedded-pty', shellId: 'pwsh', terminalProfileId: 'pwsh',
+  version: 1, accentColor: '#ec4899', backgroundColor: '#111016', adapterId: 'embedded-pty', shellId: 'pwsh', terminalProfileId: 'pwsh',
   shellExecutable: null, historyPageSize: 20, processRules: [{
     id: '00000000-0000-4000-8000-000000000099', label: 'Pi', enabled: true,
     executableBasenames: ['node.exe'], executablePaths: [], scriptPathSuffixes: ['pi/dist/cli.js'],

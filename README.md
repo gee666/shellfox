@@ -57,6 +57,12 @@ The pinned `node-pty` uses Node-API prebuilds on Windows/macOS where supplied. `
 
 This host's forced source rebuild failed because Visual Studio's Spectre libraries are missing. The default validated Windows x64 prebuild path works. End users should not need developer Node, .NET or compilers, but clean-machine deployment is unverified.
 
+## Updating and releases
+
+Run `shellfox update` to download and install the latest published release (`shellfox update --check` only reports). Linux uses the `.deb` (`sudo apt-get install`), macOS replaces `Shellfox.app`, Windows runs `ShellfoxSetup.exe`; zip/loose installs print the releases page instead. When a newer release exists the app shows a small "run shellfox update" notice in the sidebar; hiding it lasts until the next start.
+
+To publish a release, set `version` in package.json and push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The Release workflow packages Linux, Windows and macOS (x64 and arm64) and attaches the installers to a GitHub Release.
+
 ## Packaging
 
 ```sh

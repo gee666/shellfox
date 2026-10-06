@@ -35,9 +35,12 @@ async function run() {
   repository.saveSession({ ...s, env: [{ name: 'SHELLFOX_STORAGE_TEST', value: 'persisted' }] });
   repository.saveSettings({...defaultSettings,accentColor:'#123456'});
   repository.saveExplorerPreference(true);
+  assert.equal(repository.windowState(),undefined);
+  repository.saveWindowState({x:1,y:2,width:900,height:700,maximized:true});
   repository.close();
   repository=new Repository(filename);
   assert.equal(repository.settings().accentColor,'#123456');
+  assert.deepEqual(repository.windowState(),{x:1,y:2,width:900,height:700,maximized:true});
   assert.equal(repository.explorerPreference(),true);
   assert.equal(repository.session(s.id)?.title,s.title);
   assert.equal(repository.operation(tab.operationId)?.state,'intent');

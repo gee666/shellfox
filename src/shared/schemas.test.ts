@@ -18,6 +18,17 @@ it('validates accents and structured process rules', () => {
   expect(settingsSchema.safeParse({...defaultSettings,processRules:[{...defaultSettings.processRules[0],executableBasenames:[],executablePaths:[]}]}).success).toBe(false);
   expect(settingsSchema.safeParse({...defaultSettings,processRules:[{...defaultSettings.processRules[0],regex:'.*'}]}).success).toBe(false);
 });
+it('loads settings saved before backgroundColor existed with the default background', () => {
+  const { backgroundColor, ...legacy } = defaultSettings;
+  const parsed = settingsSchema.safeParse(legacy);
+  expect(backgroundColor).toBe('#111016');
+  expect(parsed.success && parsed.data.backgroundColor).toBe('#111016');
+  // Same path as Repository.settings(): JSON.parse of the stored row, then settingsSchema.parse.
+  expect(settingsSchema.parse(JSON.parse(JSON.stringify(legacy))).backgroundColor).toBe('#111016');
+  expect(settingsSchema.parse({ ...legacy, backgroundColor: '#ffffff' }).backgroundColor).toBe('#ffffff');
+  expect(settingsSchema.safeParse({ ...defaultSettings, backgroundColor: 'white' }).success).toBe(false);
+  expect(settingsSchema.safeParse({ ...defaultSettings, backgroundColor: '#fff' }).success).toBe(false);
+});
 it.each(['..\\agent\\cli.js','agent/../cli.js','agent/./cli.js','.','..','   '])('rejects native-invalid script suffix %s', suffix => {
   expect(settingsSchema.safeParse({...defaultSettings,processRules:[{...defaultSettings.processRules[0],scriptPathSuffixes:[suffix]}]}).success).toBe(false);
 });

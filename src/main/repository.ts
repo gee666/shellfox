@@ -82,6 +82,8 @@ export class Repository implements RepositoryPort {
   private saveMetadata(key: string, value: unknown): void {
     this.db.prepare('INSERT INTO preferences VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, JSON.stringify(value));
   }
+  windowState(): unknown { return this.metadata('window-state'); }
+  saveWindowState(value: unknown): void { this.saveMetadata('window-state', value); }
   sessions(): SessionRecord[] { return this.db.prepare('SELECT * FROM sessions').all().map(r => this.decode<SessionRecord>(r, ['error', 'target'])!); }
   session(id: string): SessionRecord | undefined { return this.decode(this.db.prepare('SELECT * FROM sessions WHERE id=?').get(id), ['error', 'target']); }
   tabs(sessionId?: string): TabRecord[] {

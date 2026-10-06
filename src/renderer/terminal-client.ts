@@ -1,7 +1,10 @@
-import { Terminal } from '@xterm/xterm';
+import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { AppError, TerminalApi, TerminalAttachmentDto, TerminalEvent } from '../shared/contracts';
 import { request } from './api';
+import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from './theme';
+
+const DEFAULT_THEME: ITheme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
 
 // Activity is metadata-only and has no terminal generation or output sequence.
 type DeliveryEvent = Exclude<TerminalEvent, { type: 'activity' }>;
@@ -18,10 +21,11 @@ export interface TerminalSurface {
   fit(): { cols: number; rows: number } | null;
   focus(): void;
   setInput(enabled: boolean): void;
+  setTheme?(theme: ITheme): void;
   dispose(): void;
 }
-export type SurfaceFactory = (input: (data: string) => void) => TerminalSurface;
-export const createTerminalSurface: SurfaceFactory = input => {
+export type SurfaceFactory = (input: (data: string) => void, theme?: ITheme) => TerminalSurface;
+export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THEME) => {
   const element = document.createElement('div');
   element.className = 'terminal-surface';
   const terminal = new Terminal({
@@ -31,8 +35,7 @@ export const createTerminalSurface: SurfaceFactory = input => {
     // Preserve application RGB choices; bold must not remap ANSI palette colors.
     minimumContrastRatio: 1, drawBoldTextInBrightColors: false,
     overviewRuler: { width: 8 },
-    theme: { background: '#111016', foreground: '#e8e6ee', cursor: '#ec4899', selectionBackground: '#69517980',
-      scrollbarSliderBackground: '#302c3b80', scrollbarSliderHoverBackground: '#40364d', scrollbarSliderActiveBackground: '#40364d', overviewRulerBorder: '#111016' },
+    theme,
     linkHandler: { activate: () => {}, allowNonHttpProtocols: false },
   });
   const fit = new FitAddon();
@@ -58,6 +61,7 @@ export const createTerminalSurface: SurfaceFactory = input => {
     },
     focus: () => { if (opened) terminal.focus(); },
     setInput: enabled => { terminal.options.disableStdin = !enabled; },
+    setTheme: next => { terminal.options.theme = next; },
     dispose: () => { terminal.dispose(); element.remove(); },
   };
 };
@@ -88,6 +92,7 @@ export class TerminalRegistry {
   private unsubscribe?: () => void;
   private shutdown?: ReturnType<typeof setTimeout>;
   private active = false;
+  private theme: ITheme | undefined;
   constructor(private api: TerminalApi | null, private factory: SurfaceFactory = createTerminalSurface) {}
 
   start() {
@@ -114,7 +119,7 @@ export class TerminalRegistry {
     const existing = this.entries.get(id);
     if (existing) return existing;
     const entry: Entry = {
-      id, surface: this.factory(data => { if (entry.inputEpoch === 0) this.input(entry, data); }),
+      id, surface: this.factory(data => { if (entry.inputEpoch === 0) this.input(entry, data); }, this.theme),
       state: { generation: null, phase: 'connecting', error: null, warning: null, exitCode: null },
       listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0,
       pending: new Map(), pendingBytes: 0, early: [], earlyBytes: 0, retired: new Set(), attaching: false,
@@ -125,6 +130,11 @@ export class TerminalRegistry {
     };
     this.entries.set(id, entry);
     return entry;
+  }
+  /** Applies a derived palette to every existing terminal and to terminals created later. */
+  setTheme(theme: ITheme) {
+    this.theme = theme;
+    for (const entry of this.entries.values()) entry.surface.setTheme?.(theme);
   }
   getState(id: string) { return this.ensure(id).state; }
   subscribe(id: string, listener: () => void) {
@@ -279,7 +289,7 @@ export class TerminalRegistry {
   private resetSurface(entry: Entry, sequence: number) {
     entry.surface.dispose();
     const inputEpoch = ++entry.inputEpoch;
-    entry.surface = this.factory(data => { if (entry.inputEpoch === inputEpoch) this.input(entry, data); });
+    entry.surface = this.factory(data => { if (entry.inputEpoch === inputEpoch) this.input(entry, data); }, this.theme);
     if (entry.host) entry.host.append(entry.surface.element);
     entry.writes = []; entry.writeBytes = 0; entry.writing = false;
     entry.pending.clear(); entry.pendingBytes = 0;
