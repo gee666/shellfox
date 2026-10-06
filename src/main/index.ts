@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, net, screen, session } from 'electron';
+import { app, BrowserWindow, dialog, Menu, net, screen, session } from 'electron';
 import { parseWindowState, restoreBounds, trackWindowState } from './window-state';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -86,6 +86,7 @@ async function run(): Promise<void> {
     if (!result.ok) dialog.showErrorBox('Shellfox', result.error.message);
   });
   await app.whenReady();
+  if (process.platform === 'win32') Menu.setApplicationMenu(null);
   await mkdir(app.getPath('userData'), { recursive: true });
   if (!parsed.value.userData || __TEST_BUILD__ && parsed.value.userData === productData) await migrateUserData(appData, productData);
   const repository = new Repository(path.join(app.getPath('userData'), 'manager.sqlite3'));

@@ -6,6 +6,7 @@ import { resultSchema } from '../../shared/schemas';
 import { z } from 'zod';
 import { shellfoxDispatcher } from './shellfox-dispatcher';
 import { runRegistry, type RegistryRunner } from './explorer';
+import { setWslCli, type WslCliOptions } from './wsl-cli';
 
 export const SHELLFOX_COMMAND = 'shellfox start <path>';
 const OWNER = 'Shellfox/cli-v1';
@@ -15,6 +16,9 @@ export interface ShellfoxCliOptions {
   updateScript?: string;
   executable: string; appPath?: string; binDir?: string; platform?: NodeJS.Platform;
   registryKey?: string; run?: RegistryRunner; prefixArgs?: string[]; launchEnv?: Record<string, string>;
+  /** Disabled by default with a custom bin, registry key, or registry runner. Explicitly opt in
+   * only with an injected runner or an isolated guest home when testing. */
+  wsl?: false | WslCliOptions;
 }
 const shQuote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 function cmdQuote(s: string): string {
@@ -97,7 +101,11 @@ try {
       }
       const registry = await this.pathState(installed); if (!registry.ok) return registry;
       if (!installed && owned) for (const file of ['shellfox.cmd','shellfox','shellfox-owner.json','shellfox-dispatch.ps1','shellfox-update.ps1']) await unlink(path.join(this.binDir,file)).catch(error => { if (error.code !== 'ENOENT') throw error; });
-      return this.get();
+      const wslEnabled = this.options.wsl !== false && (this.options.wsl !== undefined ||
+        !this.options.binDir && !this.options.registryKey && !this.options.run);
+      const reason = wslEnabled ? await setWslCli(installed, this.binDir, this.options.wsl || {}) : null;
+      const result = await this.get();
+      return result.ok && reason ? success({ ...result.value, reason }) : result;
     } catch { return failure('STORAGE_FAILED', 'Shellfox shims could not be updated.', true); }
   }
 }

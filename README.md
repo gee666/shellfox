@@ -103,6 +103,16 @@ On Ubuntu/Debian, install with `sudo apt install ./shellfox_*.deb`; `/usr/bin/sh
 
 For Windows or loose/from-source Linux builds, enable `shellfox start <path>` in Settings to install the terminal command. Run `shellfox start .` or `shellfox start "C:\folder with spaces"` from cmd, PowerShell, Git Bash or WSL. Paths resolve against the caller's working directory. The command returns without waiting for the app to close. Run `shellfox --help` for usage. New external terminals pick up the user PATH change; new embedded terminals receive it immediately.
 
+On Windows, enabling the CLI also prepends the Windows launcher directory in each registered WSL distribution's default user's shell startup files. This makes bare `shellfox` resolve to the Windows launcher before an older `/usr/bin/shellfox`. Bash uses `~/.bashrc` and the first existing login file among `~/.bash_profile`, `~/.bash_login`, and `~/.profile`, creating `.profile` only if none exists. Zsh uses `~/.zprofile`, `~/.zshrc`, and `~/.zlogin` when zsh or its startup files are present. Shellfox adds marked blocks, preserves other content, and removes only its blocks when disabled. It does not use sudo or change the Linux launcher.
+
+`shellfox start .` from WSL opens a session in the running Windows window. PowerShell tabs use the Windows drive or `\\wsl.localhost\<distro>\...` path; WSL tabs use the guest path. The Windows app has no Electron menu bar. Linux behavior is unchanged.
+
+Restart existing WSL shells after enabling or disabling. To apply enabling in place, reload the startup file Shellfox updated, then run `hash -r` in Bash or `rehash` in zsh. A hash reset alone does not change an existing shell's PATH. After disabling, restart to remove the injected PATH entry. Check with `type -a shellfox`.
+
+WSL integration is best-effort and can boot registered distributions. It requires guest Python 3, `wslpath`, access to the Windows bin directory, and Windows interoperability to launch the app. Missing WSL or a failed guest update does not disable the Windows CLI. Symlinked, hard-linked, inaccessible, non-regular, or other-user startup files and malformed Shellfox blocks are left untouched. Only each distribution's default user is configured, not root or other users unless they are the default. Other shells, custom `ZDOTDIR`, shells started without startup files, aliases/functions named `shellfox`, and later PATH overrides are not covered. New distributions need the setting reapplied. CLI installed status checks Windows files and PATH, not every guest's startup configuration.
+
+Tests with a custom CLI bin, registry key, or registry runner skip WSL by default. `ShellfoxCliOptions.wsl` accepts an explicit injected `run` and/or an absolute guest `home` for isolated testing; `wsl: false` disables guest updates. Do not opt test builds into a real guest HOME.
+
 The older `--new-session --cwd` flags are also supported, with both flags required. Each invocation creates a separate saved session, even in the same folder. Request UUIDs prevent duplicate delivery. Early requests wait for initialization. Settings also offers `Open in Shellfox` for Explorer folder and background menus. On Windows 11, use Show more options. Registry changes affect only app-owned verbs.
 
 ## Storage, tracking and security

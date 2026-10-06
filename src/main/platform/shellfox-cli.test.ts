@@ -1,10 +1,12 @@
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { WindowsCliIntegration, shellfoxShims } from './shellfox-cli';
+import * as wslCli from './wsl-cli';
+import * as explorer from './explorer';
 const exec = promisify(execFile);
 const ps = async (script: string) => (await exec('powershell.exe', ['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')], { timeout: 10000, maxBuffer: 65536 })).stdout;
 it('generates immediate-return cmd and quoted POSIX/WSL launchers with usage and caller-directory resolution', () => {
@@ -51,4 +53,82 @@ it('does not overwrite foreign shellfox files', async () => {
     expect(await cli.set(true)).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
     expect(await readFile(path.join(binDir,'shellfox.cmd'),'utf8')).toBe('foreign');
   } finally { await rm(binDir,{ recursive: true, force: true }); }
+});
+
+const isolatedDirectories: string[] = [];
+afterEach(async () => {
+  vi.restoreAllMocks(); vi.unstubAllEnvs();
+  await Promise.all(isolatedDirectories.splice(0).map(dir => rm(dir, { recursive: true, force: true })));
+});
+async function isolatedBin() {
+  await mkdir(path.resolve('tmp'), { recursive: true });
+  const directory = await mkdtemp(path.resolve('tmp/shellfox-wsl-wiring-'));
+  isolatedDirectories.push(directory);
+  return directory;
+}
+function isolateLocalAppData(directory: string) {
+  vi.stubEnv('LOCALAPPDATA', directory);
+  if (process.platform !== 'win32') {
+    // Keep default options for the opt-in test, but map its Windows bin to a
+    // native absolute path. Backslashes would otherwise name a repo-relative file.
+    const join = path.win32.join;
+    vi.spyOn(path.win32, 'join').mockImplementation((...parts) =>
+      parts.length === 3 && parts[0] === directory && parts[1] === 'Shellfox' && parts[2] === 'bin'
+        ? path.join(...parts) : join(...parts));
+  }
+}
+function registryRunner() {
+  let installed = false;
+  return vi.fn(async (script: string) => {
+    const data = JSON.parse(Buffer.from(/FromBase64String\('([^']+)'\)/.exec(script)![1], 'base64').toString());
+    if (data.installed !== null) installed = data.installed;
+    return { ok: true, value: { installed } };
+  });
+}
+it('production defaults invoke WSL on enable and disable, but never on a read', async () => {
+  const directory = await isolatedBin();
+  isolateLocalAppData(directory);
+  vi.spyOn(explorer, 'runRegistry').mockImplementation(registryRunner());
+  const wsl = vi.spyOn(wslCli, 'setWslCli').mockResolvedValue('Restart WSL shells.');
+  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32' });
+  expect(path.relative(directory, cli.binDir)).toBe(path.join('Shellfox', 'bin'));
+  await cli.get(); expect(wsl).not.toHaveBeenCalled();
+  expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true, reason: 'Restart WSL shells.' } });
+  expect(wsl).toHaveBeenLastCalledWith(true, cli.binDir, {});
+  expect(await cli.set(false)).toMatchObject({ ok: true, value: { installed: false } });
+  expect(wsl).toHaveBeenLastCalledWith(false, cli.binDir, {});
+});
+it('custom registry/bin/runner options and an explicit opt-out cannot touch real WSL HOME', async () => {
+  const directory = await isolatedBin();
+  isolateLocalAppData(directory);
+  vi.spyOn(explorer, 'runRegistry').mockImplementation(registryRunner());
+  const wsl = vi.spyOn(wslCli, 'setWslCli').mockResolvedValue(null);
+  for (const extra of [{ binDir: directory }, { registryKey: 'Software\\ShellfoxTests\\Isolated' }, { run: registryRunner() }, { wsl: false as const }]) {
+    const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', ...extra });
+    expect(path.relative(directory, cli.binDir)).toBe('binDir' in extra ? '' : path.join('Shellfox', 'bin'));
+    expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true } });
+    expect(await cli.set(false)).toMatchObject({ ok: true, value: { installed: false } });
+  }
+  expect(wsl).not.toHaveBeenCalled();
+});
+it('explicit isolated WSL opt-in uses its runner and does not fail Windows when WSL is unavailable', async () => {
+  const binDir = await isolatedBin();
+  const run = vi.fn(async () => { throw new Error('WSL unavailable'); });
+  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run: registryRunner(), wsl: { run, home: '/tmp/shellfox-test-home' } });
+  expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true, reason: expect.stringContaining('Windows CLI is unaffected') } });
+  expect(await readFile(path.join(binDir, 'shellfox'), 'utf8')).toContain('Shellfox/cli-v1');
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(await cli.set(false)).toMatchObject({ ok: true, value: { installed: false } });
+  expect(run).toHaveBeenCalledTimes(2);
+});
+it('does not invoke WSL on non-Windows platforms or after a registry failure', async () => {
+  const binDir = await isolatedBin();
+  const wsl = vi.spyOn(wslCli, 'setWslCli').mockResolvedValue(null);
+  const run = vi.fn(async () => { throw new Error('Registry failure'); });
+  const linux = new WindowsCliIntegration({ executable: process.execPath, platform: 'linux', binDir, run, wsl: {} });
+  expect(await linux.set(true)).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
+  expect(run).not.toHaveBeenCalled();
+  const windows = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run, wsl: {} });
+  expect(await windows.set(true)).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
+  expect(wsl).not.toHaveBeenCalled();
 });
