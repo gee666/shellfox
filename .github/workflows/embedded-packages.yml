@@ -1,0 +1,117 @@
+name: Embedded terminal packages
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            platform: win32
+            arch: x64
+          - runner: windows-11-arm
+            platform: win32
+            arch: arm64
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      TMP: ${{ github.workspace }}/tmp
+      TEMP: ${{ github.workspace }}/tmp
+      TMPDIR: ${{ github.workspace }}/tmp
+      ELECTRON_CACHE: ${{ github.workspace }}/tmp/electron-cache
+      npm_config_cache: ${{ github.workspace }}/tmp/npm-cache
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scratch directory
+        run: mkdir -p tmp
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.8.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          architecture: ${{ matrix.arch }}
+      - name: Verify native runner architecture
+        run: node -e "if(process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Wrong native target')"
+      # Only changes disposable CI runners. No GNOME Terminal or .NET helper.
+      - name: Linux build and Electron dependencies
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++ dpkg fakeroot util-linux dbus-x11 xvfb libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
+      - name: Linux private namespace fixture support
+        if: matrix.platform == 'linux'
+        # Ubuntu 24.04 restricts unprivileged user namespaces by default.
+        # Relax only this disposable runner policy for the isolated PID/SID
+        # reuse fixture, not a production-machine configuration or sandbox bypass.
+        run: if test -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+        timeout-minutes: 2
+      - run: pnpm install --frozen-lockfile
+        timeout-minutes: 5
+      - name: Linux development Electron sandbox helper
+        if: matrix.platform == 'linux'
+        # Configure only the disposable runner, never disable Chromium sandboxing.
+        run: sudo chown root:root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+      - run: pnpm typecheck
+        timeout-minutes: 2
+      - run: pnpm test:unit && pnpm test:packaging
+        timeout-minutes: 3
+      - run: pnpm build
+        timeout-minutes: 10
+      - name: macOS native helper preflight
+        if: matrix.platform == 'darwin'
+        run: pnpm test:terminal-native
+        timeout-minutes: 2
+      - name: macOS actual supervisor lifecycle tests
+        if: matrix.platform == 'darwin'
+        run: SHELLFOX_DARWIN_SUPERVISOR_NATIVE=1 pnpm exec vitest run src/main/terminal/supervisor-native.test.ts
+        timeout-minutes: 3
+      - name: Linux actual-kernel descendant shutdown tests
+        if: matrix.platform == 'linux'
+        run: SHELLFOX_UNIX_TREE_TEST=1 pnpm exec vitest run src/main/terminal/unix-close.test.ts
+        timeout-minutes: 3
+      - name: Native backend and storage smokes
+        if: matrix.platform != 'linux'
+        # Backend-owned smoke is deliberately not patched/mocked by packaging.
+        run: pnpm test:storage && pnpm test:pty
+        timeout-minutes: 3
+      - name: Linux native backend and storage smokes
+        if: matrix.platform == 'linux'
+        run: dbus-run-session -- xvfb-run -a bash -c 'pnpm test:storage && pnpm test:pty'
+        timeout-minutes: 3
+      - run: pnpm make
+        timeout-minutes: 10
+      - name: Linux packaged Electron sandbox helper
+        if: matrix.platform == 'linux'
+        run: sudo chown root:root 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox' && sudo chmod 4755 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox'
+      - name: Packaged native smoke
+        if: matrix.platform != 'linux'
+        run: pnpm test:packaged && pnpm test:packaged:startup
+        timeout-minutes: 5
+      - name: Linux packaged native smoke
+        if: matrix.platform == 'linux'
+        run: dbus-run-session -- xvfb-run -a bash -c 'pnpm test:packaged && pnpm test:packaged:startup'
+        timeout-minutes: 5
+      # Windows/Linux unsigned; macOS ad-hoc preview signing includes native
+      # resources. No Developer ID/notarization, installation acceptance or release.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shellfox-${{ matrix.platform }}-${{ matrix.arch }}-preview
+          path: tmp/packages/make/**
+          if-no-files-found: error

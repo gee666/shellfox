@@ -1,0 +1,11 @@
+packages:
+  - '.'
+allowBuilds:
+  electron: true
+  esbuild: true
+  better-sqlite3: false
+  node-pty: false # Rebuilt explicitly for Electron by scripts/rebuild.mjs.
+  electron-winstaller: true
+storeDir: tmp/pnpm-store
+nodeLinker: hoisted
+cacheDir: tmp/npm-cache

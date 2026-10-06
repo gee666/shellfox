@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)../tmp/build-cache/$(MSBuildProjectName)/obj/</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(MSBuildThisFileDirectory)../tmp/build-cache/$(MSBuildProjectName)/bin/</BaseOutputPath>
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)../tmp/build-cache/nuget/</RestorePackagesPath>
+  </PropertyGroup>
+</Project>
