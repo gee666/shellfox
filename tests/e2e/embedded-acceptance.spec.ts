@@ -16,8 +16,10 @@ test('embedded startup archives legacy-only tasks, upgrades untouched rules and 
         repository.saveTab({ id: input.tabId, sessionId: input.sessionId, title: 'External shell', cwd: input.dir, ordinal: 0, createdAt: input.now, lifecycle: 'open', operationId: input.operationId, error: null,
           registration: { sessionId: input.sessionId, tabId: input.tabId, operationId: input.operationId, shell: { pid: 777, startTime: '123456' }, shellExecutable: 'C:\\PowerShell\\pwsh.exe', cwd: input.dir, registeredAt: input.now } });
         const settings = repository.settings();
-        settings.processRules = settings.processRules.map((rule: any) => rule.label === 'Pi Node launcher' ? { ...rule, executableBasenames: ['node.exe', 'node'], scriptPathSuffixes: ['@earendil-works/pi-coding-agent/dist/cli.js', '@mariozechner/pi-coding-agent/dist/cli.js'] }
-          : rule.label === 'Native agents' ? { ...rule, executableBasenames: ['claude.exe', 'claude', 'codex.exe', 'codex', 'opencode.exe', 'opencode'] } : rule);
+        settings.processRules = settings.processRules.map(({ processNames: _, ...rule }: any) => ({ ...rule, label: rule.label + ' Node launcher', executableBasenames: ['node.exe', 'node'],
+          ...(rule.label === 'Pi' ? { enabled: false, scriptPathSuffixes: ['@earendil-works/pi-coding-agent/dist/cli.js', '@mariozechner/pi-coding-agent/dist/cli.js'] } : {}) }));
+        settings.processRules.push({ id: 'f919fb1a-fb03-4a93-8b9b-1cde465d5873', label: 'Native agents', enabled: true,
+          executableBasenames: ['claude.exe', 'claude', 'codex.exe', 'codex', 'opencode.exe', 'opencode'], executablePaths: [], scriptPathSuffixes: [] });
         repository.saveSettings(settings);
         resolve();
       } catch (error) { reject(error); }
@@ -28,8 +30,9 @@ test('embedded startup archives legacy-only tasks, upgrades untouched rules and 
     const history = value(await running.page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 })));
     expect(history.items[0]).toMatchObject({ id: sessionId, status: 'settled', tabs: [{ lifecycle: 'open', terminalKind: 'external-legacy', agents: 0 }] });
     const settings = (await snapshot(running.page)).settings;
-    expect(settings.processRules.find(rule => rule.label === 'Pi Node launcher')?.scriptPathSuffixes).toContain('@earendil-works/pi-coding-agent/dist/bundle/cli.js');
-    expect(settings.processRules.find(rule => rule.label === 'Native agents')?.executableBasenames).toContain('pi.exe');
+    expect(settings.processRules.find(rule => rule.label === 'Pi')).toMatchObject({ enabled: false, processNames: ['pi', 'pi.exe'] });
+    expect(settings.processRules.find(rule => rule.label === 'Pi')?.scriptPathSuffixes).toContain('@earendil-works/pi-coding-agent/dist/bundle/cli.js');
+    expect(settings.processRules.some(rule => rule.label === 'Native agents')).toBe(false);
     await running.page.getByRole('button', { name: 'Archived · 1' }).click();
     await running.page.getByRole('button', { name: 'Select session learn-language' }).click();
     await expect(running.page.getByText('Archived session', { exact: true })).toBeVisible();

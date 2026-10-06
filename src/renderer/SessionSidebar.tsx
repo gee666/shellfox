@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SessionDto } from '../shared/contracts';
+import { parseWslUnc } from '../shared/wsl-path';
 import { request } from './api';
 import type { ManagerClient } from './store';
 import { ContextMenu, Icon, StatusDot, sessionDot, useAction, useNotify } from './components';
 import { ShellfoxEnvModal } from './shellfox-env-modal';
 
 export function shortenHome(cwd: string) {
+  cwd = parseWslUnc(cwd)?.guestPath ?? cwd;
   return cwd.replace(/^[a-z]:[\\/]Users[\\/][^\\/]+(?=[\\/]|$)/i, '~').replace(/^\/home\/[^/]+(?=\/|$)|^\/Users\/[^/]+(?=\/|$)/, '~');
 }
 export function SessionSidebar({ client, sessions, selectedId, busy, invalidation, archiveInvalidation = 0, pageSize }: {

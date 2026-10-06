@@ -42,10 +42,17 @@ describe('discovered native shell profiles', () => {
     expect(run).toHaveBeenNthCalledWith(2, profiles.profiles[1].executable, ['--distribution', 'Ubuntu', '--exec', '/bin/sh', '-c', 'test -d "$1" && test -x "$1"', 'shellfox-cwd', cwd]);
     expect(spawnArguments(profiles.profiles[1], cwd, 'marker').args).toContain('SHELLFOX_TERMINAL_MARKER=marker');
   });
-  it('maps WSL interop UNC folders only into their own discovered guest', async () => {
+  it.each([
+    [String.raw`\\wsl.localhost\Ubuntu\home\user`, '/home/user'],
+    [String.raw`\\wsl$\uBuNtU\home\user`, '/home/user'],
+    [String.raw`\\wsl.localhost\Ubuntu`, '/'],
+  ])('maps %s only into its own discovered guest', async (cwd, guest) => {
     const run = vi.fn(async () => Buffer.from(''));
-    expect(await validateProfileCwd(profiles.profiles[1], '\\\\wsl.localhost\\Ubuntu\\home\\user', run)).toBe('/home/user');
-    await expect(validateProfileCwd(profiles.profiles[1], '\\\\wsl.localhost\\Debian\\home\\user', run)).rejects.toThrow('different WSL');
+    expect(await validateProfileCwd(profiles.profiles[1], cwd, run)).toBe(guest);
+    expect(run).toHaveBeenCalledWith(profiles.profiles[1].executable, expect.arrayContaining(['Ubuntu', guest]));
+    run.mockClear();
+    await expect(validateProfileCwd(profiles.profiles[1], String.raw`\\wsl.localhost\Debian\home\user`, run)).rejects.toThrow('different WSL');
+    expect(run).not.toHaveBeenCalled();
   });
   it('rejects bad guest cwd and failed accessibility checks', async () => {
     await expect(validateProfileCwd(profiles.profiles[1], '/guest', async () => { throw new Error('not accessible'); })).rejects.toThrow();

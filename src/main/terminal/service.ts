@@ -2,6 +2,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, HistoryPage, HistoryQuery, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalAttachmentDto, TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
+import { parseWslUnc } from '../../shared/wsl-path';
 import { requestSchemas } from '../../shared/schemas';
 import { aggregateStatus, countTabs, needsSettleConfirmation, publicStatus, sortSessions, tabStatus } from '../../shared/status';
 import type { NativeInit, TabObservation } from '../../shared/native-port';
@@ -188,17 +189,28 @@ export class EmbeddedSessionService {
   }
   writeTerminal(input: Parameters<PtyBackend['write']>[0]): Result<{ written: true }> { return this.backend.write(input); }
   resizeTerminal(input: Parameters<PtyBackend['resize']>[0]): Result<{ resized: true }> { return this.backend.resize(input); }
-  private profile(session?: SessionRecord, explicit?: string): TerminalProfileDto | undefined {
+  private profile(cwd: string, session?: SessionRecord, explicit?: string): TerminalProfileDto | undefined {
     const profiles = this.backend.getProfiles(), settings = this.repository.settings();
+    if (explicit !== undefined) return profiles.profiles.find(p => p.id === explicit && p.available);
+    if (process.platform === 'win32') {
+      const unc = parseWslUnc(cwd);
+      if (unc) return profiles.profiles.find(p => p.environment === 'wsl' && p.distro?.toLowerCase() === unc.distro.toLowerCase() && p.available);
+      // A global WSL preference or an old WSL tab must not route a Windows folder into WSL.
+      const configured = profiles.profiles.find(p => p.id === settings.terminalProfileId && p.environment === 'local');
+      if (configured) return configured.available ? configured : undefined;
+      return profiles.profiles.find(p => p.id === 'pwsh' && p.available)
+        ?? profiles.profiles.find(p => p.id === 'windows-powershell' && p.available)
+        ?? profiles.profiles.find(p => p.environment === 'local' && p.available);
+    }
     const existing = session && this.repository.tabs(session.id).find(t => t.terminal)?.terminal?.profileId;
-    const id = explicit ?? existing ?? settings.terminalProfileId ?? profiles.defaultProfileId;
+    const id = existing ?? settings.terminalProfileId ?? profiles.defaultProfileId;
     return profiles.profiles.find(p => p.id === id && p.available);
   }
   createSession(input: { cwd: string; requestId: string; title?: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.createSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session request.'));
     return this.serialize('create', async () => {
       const existing = this.repository.sessionByRequest(input.requestId); if (existing) return success(this.toDto(existing));
-      const profile = this.profile(); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'No discovered interactive terminal profile is available.');
+      const profile = this.profile(input.cwd); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'No discovered interactive terminal profile is available.');
       if (this.repository.sessions().filter(s => !s.settledAt).length >= 10000) return failure('VALIDATION', 'The saved session limit is reached.');
       const now = new Date().toISOString();
       const session: SessionRecord = { id: randomUUID(), title: input.title ?? (path.basename(input.cwd).slice(0, 200) || input.cwd.slice(0, 200)), cwd: input.cwd, adapterId: 'embedded-pty', shellId: shellId(profile), shellExecutable: profile.executable, createdAt: now, updatedAt: now, settledAt: null, error: null, target: null, binding: null, windowState: 'unknown' };
@@ -211,7 +223,7 @@ export class EmbeddedSessionService {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
       if (this.backend.live().some(e => e.sessionId === session.id && e.state === 'open') || this.repository.tabs(session.id).some(t => t.terminal && t.lifecycle === 'launching')) return success(this.toDto(session));
       const cleanup = await this.backend.awaitCleanup(session.id); if (!cleanup.ok) return cleanup;
-      const profile = this.profile(session); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
+      const profile = this.profile(session.cwd, session); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
       return this.open(session, profile, 'reopen');
     });
   }
@@ -220,7 +232,7 @@ export class EmbeddedSessionService {
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
       if (session.settledAt) return failure('UNSUPPORTED', 'Unsettle this session before adding a tab.');
-      const profile = this.profile(session, input.profileId); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The selected terminal profile is unavailable.');
+      const profile = this.profile(input.cwd ?? session.cwd, session, input.profileId); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The selected terminal profile is unavailable.');
       return this.open(session, profile, 'add', null, input.title, input.cwd);
     });
   }
@@ -238,7 +250,7 @@ export class EmbeddedSessionService {
         const latest = this.repository.session(session.id)!;
         if (!launched.ok) { const uncertain = this.backend.get(tab.id)?.state === 'open'; current.lifecycle = uncertain ? 'launch-uncertain' : 'closed'; current.error = launched.error; operation.state = uncertain ? 'uncertain' : 'failed'; operation.error = launched.error; }
         else {
-          current.cwd = launched.value.cwd; current.lifecycle = launched.value.state === 'open' ? 'open' : 'closed'; current.terminal!.exitCode = launched.value.exitCode; operation.state = 'registered';
+          current.cwd = process.platform === 'win32' && parseWslUnc(tab.cwd) ? tab.cwd : launched.value.cwd; current.lifecycle = launched.value.state === 'open' ? 'open' : 'closed'; current.terminal!.exitCode = launched.value.exitCode; operation.state = 'registered';
           latest.adapterId = 'embedded-pty'; latest.shellId = shellId(profile); latest.shellExecutable = profile.executable; latest.target = null; latest.binding = null;
         }
         latest.updatedAt = new Date().toISOString(); operation.updatedAt = latest.updatedAt;

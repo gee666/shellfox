@@ -63,7 +63,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const selected = snapshot?.sessions.find(session => session.id === state.selectedId) ?? state.historical;
   const effectiveProfile = snapshot?.settings.terminalProfileId ?? defaultProfileId;
   const available = !!snapshot?.probe.available;
-  const canCreate = available && !!snapshot?.probe.capabilities.createWindow && (snapshot.probe.adapterId !== 'embedded-pty' || (!!terminalApi && profiles.some(profile => profile.available && profile.id === effectiveProfile)));
+  const canCreate = available && !!snapshot?.probe.capabilities.createWindow && (snapshot.probe.adapterId !== 'embedded-pty' || (!!terminalApi && profiles.some(profile => profile.available && (snapshot.probe.platform === 'win32' || profile.id === effectiveProfile))));
   async function create() {
     // The native folder picker waits for the user. Browsing may take longer than
     // the IPC transport deadline, and a timed-out pick would be silently dropped.
@@ -76,7 +76,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     let session = result.value;
     client.accept(session);
     if (!session.tabs.some(tab => tab.lifecycle !== 'closed')) {
-      const added = await action.run(() => api.addTab({ sessionId: session.id, ...(effectiveProfile ? { profileId: effectiveProfile } : {}) }));
+      const added = await action.run(() => api.addTab({ sessionId: session.id, ...(snapshot?.probe.platform !== 'win32' && effectiveProfile ? { profileId: effectiveProfile } : {}) }));
       if (added?.ok) { session = added.value; client.accept(session); }
     }
     const tab = session.tabs.find(tab => tab.lifecycle !== 'closed');
@@ -101,7 +101,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
       onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDragging(false); }}
       onPointerCancel={() => setDragging(false)} onLostPointerCapture={() => setDragging(false)} />
     <main className="workspace" aria-label="Workspace">
-      {selected ? <TerminalWorkspace key={selected.id} session={selected} client={client} registry={registry} profiles={profiles} defaultProfileId={effectiveProfile} available={available} /> : <div className="empty-terminal">{state.loading ? 'Loading…' : 'Choose a session or press +'}</div>}
+      {selected ? <TerminalWorkspace key={selected.id} session={selected} client={client} registry={registry} profiles={profiles} defaultProfileId={effectiveProfile} platform={snapshot?.probe.platform} available={available} /> : <div className="empty-terminal">{state.loading ? 'Loading…' : 'Choose a session or press +'}</div>}
     </main>
     {settingsOpen && snapshot && <Modal title="Settings" onClose={closeSettings}><SettingsPanel client={client} settings={snapshot.settings} explorer={snapshot.explorer} cli={snapshot.cli} profiles={profiles} defaultProfileId={defaultProfileId} /></Modal>}
   </div>;

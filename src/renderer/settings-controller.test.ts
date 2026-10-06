@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { failure, success } from '../shared/contracts';
+import { processRuleSchema } from '../shared/schemas';
+import { validateSettingsDraft } from './settings-controller';
 import { createManagerClient } from './store';
 import { createAgentRule } from './SettingsPanel';
 import { deferred, mockApi, snapshot } from './test-fixtures';
@@ -15,6 +17,29 @@ function setup() {
 const tick = () => vi.advanceTimersByTimeAsync(400);
 
 describe('client-owned settings controller', () => {
+  it.each(['C:\\Program Files\\agent.exe', '/opt/Agent Tools/agent', '\\\\wsl.localhost\\Ubuntu\\opt\\Agent Tools\\agent', '\\\\wsl$\\Debian\\opt\\agent'])('autosaves executable paths accepted by shared validation: %s', async path => {
+    const { fixture, controller } = setup();
+    const rule = createAgentRule(path);
+    expect(processRuleSchema.safeParse(rule).success).toBe(true);
+    controller.update(draft => ({ ...draft, processRules: [...draft.processRules, rule] }));
+    expect(validateSettingsDraft(controller.store.getState().draft!)).toEqual({});
+    await tick();
+    expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
+    expect(fixture.api.saveSettings.mock.calls[0]![0].processRules.at(-1)).toEqual(rule);
+    expect(controller.store.getState().dirty).toBe(false);
+  });
+
+  it.each(['relative/agent', 'C:agent.exe', '\\\\server\\share\\agent.exe', '\\\\wsl.localhost', '\\\\?\\C:\\agent.exe', '/opt/agent\u0000', '/' + 'a'.repeat(32760)].map(path => ({ path, label: path.length > 200 ? 'overlong path' : path })))('blocks executable paths rejected by shared validation: $label', async ({ path }) => {
+    const { fixture, controller } = setup();
+    const rule = { ...createAgentRule('agent'), executableBasenames: [], executablePaths: [path] };
+    expect(processRuleSchema.safeParse(rule).success).toBe(false);
+    controller.update(draft => ({ ...draft, processRules: [...draft.processRules, rule] }));
+    expect(validateSettingsDraft(controller.store.getState().draft!)[`${rule.id}.paths`]).toBe('Use an absolute local executable path.');
+    await tick();
+    expect(fixture.api.saveSettings).not.toHaveBeenCalled();
+    expect(controller.store.getState().dirty).toBe(true);
+  });
+
   it('coalesces the old modal flush and newer modal edits into one ordered save', async () => {
     const { initial, fixture, controller } = setup();
     const pending = deferred<Awaited<ReturnType<typeof fixture.api.saveSettings>>>();

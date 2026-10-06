@@ -160,9 +160,7 @@ export class PtyBackend {
       return failure('VALIDATION', 'Terminal ownership changed or the live terminal limit was reached during preparation.');
     }
     const command = supervisor ?? spawnArguments(profile, cwd, marker);
-    const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin });
-    for (const name of Object.keys(env)) if (name.toLowerCase() === 'shellfox_terminal_marker') delete env[name];
-    env.SHELLFOX_TERMINAL_MARKER = marker;
+    const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin, marker });
     if (supervisor) Object.assign(env, supervisor.env);
     // Unix node-pty writes options.name back to env.TERM, so use the session value.
     const termName = env.TERM ?? 'xterm-256color';

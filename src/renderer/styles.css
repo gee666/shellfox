@@ -117,17 +117,14 @@ button.session-copy:hover { background: transparent; }
 .agent-rule { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .agent-row, .explorer-row { display: flex; align-items: center; gap: 8px; }
 .agent-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; line-height: 16px; }
-.agent-copy span, .agent-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-copy span, .agent-copy small { overflow-wrap: anywhere; }
+.agent-copy small { color: var(--muted); }
 .toggle { width: 28px; height: 16px; padding: 2px; flex: 0 0 28px; background: var(--surface); border: 1px solid var(--input-border); border-radius: 8px; }
 .toggle > span { display: block; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform 120ms; }
 .toggle[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }
 .toggle[aria-checked='true'] > span { transform: translateX(12px); background: var(--on-accent); }
-.agent-advanced { margin: 4px 0 0 36px; font-size: 11px; }
-.agent-advanced summary { color: var(--muted); cursor: pointer; width: fit-content; }
-.agent-advanced label { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; color: var(--muted); }
-.agent-advanced input { font-size: 12px; }
 .add-agent { display: flex; gap: 8px; margin-top: 12px; }
-.add-agent input { flex: 1; font-size: 12px; }
+.add-agent input { flex: 1; min-width: 0; font-size: 12px; }
 .field-error { color: var(--dot-error); display: block; margin-top: 4px; }
 .explorer-row { align-items: flex-start; font-size: 12px; line-height: 16px; }
 .explorer-row + small { display: block; margin: 8px 0 0 36px; }

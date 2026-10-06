@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseWslUnc } from './wsl-path';
 export const idSchema = z.string().uuid();
 export const adapterSchema = z.enum(['windows-terminal', 'gnome-terminal', 'embedded-pty']);
 export const shellIdSchema = z.enum(['pwsh', 'windows-powershell', 'bash', 'login-shell', 'wsl']);
@@ -7,7 +8,7 @@ const utf8Size = (s: string) => new TextEncoder().encode(s).byteLength;
 export const timestampSchema = z.iso.datetime({ offset: false });
 const text = (max: number) => z.string().max(max).refine(s => !/[\u0000-\u001f\u007f]/.test(s), 'Control characters are not allowed');
 export const titleSchema = text(200).min(1).refine(s => s.trim().length > 0);
-export const isWslUncPath = (s: string) => /^\\\\(?:wsl\.localhost|wsl\$)\\[^\\/]+\\/i.test(s);
+export const isWslUncPath = (s: string) => parseWslUnc(s) !== null;
 export const pathSchema = text(32767).min(1).refine(s => isWslUncPath(s) || (/^[A-Za-z]:[\\/]/.test(s) || /^\/(?!\/)/.test(s)) && !/^[/\\]{2}/.test(s) && !s.includes('://'), 'Expected an absolute local path');
 export const statusSchema = z.enum(['waiting', 'error', 'running', 'unknown', 'settled']);
 export const tabStatusSchema = z.enum(['waiting', 'error', 'running', 'unknown']);
@@ -17,7 +18,7 @@ export const resultSchema = <T extends z.ZodType>(value: T) => z.discriminatedUn
 const count = z.number().int().min(0).max(1000000);
 export const capabilitiesSchema = z.object({ createWindow: z.boolean(), addTab: z.boolean(), focusWindow: z.boolean(), activateTab: z.boolean(), splitPane: z.literal(false), attachExisting: z.literal(false), closeTerminal: z.boolean(), commandExitStatus: z.literal(false), processTracking: z.boolean(), explorerContextMenu: z.boolean(), embeddedTerminal: z.boolean().optional(), terminalLifetime: z.enum(['app-owned', 'external-legacy']).optional(), shellSurvival: z.boolean().optional() }).strict();
 const processRuleIdSchema = z.union([idSchema, z.string().max(120).regex(/^custom-[a-z0-9][a-z0-9-]*-[a-z0-9]+$/)]);
-export const processRuleSchema = z.object({ id: processRuleIdSchema, label: titleSchema, enabled: z.boolean(), executableBasenames: z.array(text(260).min(1).refine(s => s.trim().length > 0 && !/[\\/:]/.test(s))).max(30), executablePaths: z.array(pathSchema.max(32760)).max(30), scriptPathSuffixes: z.array(text(4096).min(1).refine(s => s.trim().length > 0 && !s.split(/[\\/]/).some(component => component === '.' || component === '..'), 'Script suffixes must contain path components, not traversal')).max(30) }).strict().refine(r => r.executableBasenames.length + r.executablePaths.length > 0);
+export const processRuleSchema = z.object({ id: processRuleIdSchema, label: titleSchema, enabled: z.boolean(), executableBasenames: z.array(text(260).min(1).refine(s => s.trim().length > 0 && !/[\\/:]/.test(s))).max(30), processNames: z.array(text(260).min(1).refine(s => s.trim().length > 0 && !/[\\/:]/.test(s))).max(30).optional(), executablePaths: z.array(pathSchema.max(32760)).max(30), scriptPathSuffixes: z.array(text(4096).min(1).refine(s => s.trim().length > 0 && !s.split(/[\\/]/).some(component => component === '.' || component === '..'), 'Script suffixes must contain path components, not traversal')).max(30) }).strict().refine(r => r.executableBasenames.length + r.executablePaths.length > 0);
 export const settingsSchema = z.object({ version: z.literal(1), pythonPath: pathSchema.nullable().default(null), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#111016'), adapterId: adapterSchema, shellId: shellIdSchema, shellExecutable: pathSchema.nullable(), terminalProfileId: profileIdSchema.nullable().optional(), processRules: z.array(processRuleSchema).max(100).refine(r => new Set(r.map(x => x.id)).size === r.length), historyPageSize: z.number().int().min(1).max(100) }).strict();
 export const probeSchema = z.object({ platform: text(100), arch: text(100), adapterId: adapterSchema, available: z.boolean(), python: z.object({ detected: pathSchema.nullable(), usable: z.boolean(), reason: text(1000).nullable() }).strict().optional(), terminalVersion: text(100).nullable(), capabilities: capabilitiesSchema, shells: z.array(z.object({ id: shellIdSchema, executable: pathSchema, available: z.boolean(), reason: text(1000).nullable() }).strict()).max(100), reasons: z.array(text(1000)).max(100) }).strict();
 export const explorerSchema = z.object({ supported: z.boolean(), installed: z.boolean(), folderItemInstalled: z.boolean(), backgroundInstalled: z.boolean(), reason: text(1000).nullable() }).strict();

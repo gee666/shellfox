@@ -22,7 +22,7 @@ export function sessionDot(session: SessionDto, busy: Record<string, boolean>): 
     .reduce<DotState>((best, dot) => priority[dot.kind] > priority[best.kind] ? dot : best, { kind: 'shell', title: 'Shell' });
 }
 export function StatusDot({ state }: { state: DotState }) {
-  return <span className={`status-dot dot-${state.kind}`} title={state.title} aria-label={state.title} />;
+  return <span className={`status-dot dot-${state.kind}`} aria-label={state.title} />;
 }
 
 type ShellfoxNotice = AppError | { message: string; tone: 'info'; durationMs?: number };

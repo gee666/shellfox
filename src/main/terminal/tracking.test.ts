@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
-import { access, open, readdir, readlink, readFile, realpath, stat as fileStat } from 'node:fs/promises';
+import { access, open, readdir, readlink, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 vi.mock('node:fs/promises', async importOriginal => ({
@@ -264,7 +264,9 @@ describe('guest root discovery', () => {
       guest([shell(40, { marker: 'secret-a' }), proc(41, 40, '/bin/bash', { marker: 'secret-a' }), proc(42, 41, '/usr/bin/node', { marker: 'secret-a' }), proc(50, 1, '/usr/bin/node', { marker: 'secret-a' })]),
     ], [guestRoot]);
     await h.tracker.poll();
-    expect(h.last()[0]).toMatchObject({ root: 'alive', health: 'healthy', agents: 1 });
+    // On Windows the detached marked agent contributes status, not ownership.
+    expect(h.last()[0]).toMatchObject({ root: 'alive', health: 'healthy', agents: process.platform === 'win32' ? 2 : 1 });
+    expect(h.tracker.resolveDescendants(guestRoot).map(p => p.pid)).toEqual([41, 42]);
     expect(h.provider.mock.calls[0]![0][0]!.pid).toBe(9000);
   });
 
@@ -401,43 +403,113 @@ describe('interpreter script slots', () => {
     expect(h.last()[0]).toMatchObject({ agents, health });
   });
 
+  it('trusts rewritten Pi argv without installation provenance, but still honors disabled rules', async () => {
+    const pi = proc(11, 10, '/usr/bin/node', { argv: ['pi', '', ''] });
+    const h = harness([snapshot([shell(), pi, proc(20, 1, '/usr/bin/node', { argv: ['pi'] })])], [root()], defaultSettings.processRules);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
+    h.tracker.setWatch([root()], defaultSettings.processRules.map(r => ({ ...r, enabled: r.label !== 'Pi' })));
+    await h.tracker.poll(); expect(h.last()[0].agents).toBe(0);
+  });
+  it('keeps script suffix filters on legacy/custom runtime rules', async () => {
+    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/node', { argv: ['pi'] })])], [root()], [rule()]);
+    await h.tracker.poll(); expect(h.last()[0].agents).toBe(0);
+  });
+});
+
+describe('unified agent detection', () => {
+  it.each(['win32', 'linux', 'darwin'] as const)('trusts native names, comm and rewritten argv0 for each agent on %s', async platform => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    const windows = platform === 'win32';
+    const runtime = windows ? 'C:\\Node Versions\\v24\\node.exe' : '/home/u/.nvm/versions/node/v24/bin/node';
+    for (const builtin of defaultSettings.processRules) {
+      const name = builtin.processNames![0], exe = windows ? name + '.exe' : name;
+      for (const evidence of [
+        { executable: windows ? 'C:\\tools\\' + exe : '/opt/bin/' + exe, argv: null },
+        { executable: runtime, argv: [name, '', ''] },
+        { executable: runtime, argv: null, processName: exe },
+      ]) {
+        const h = harness([snapshot([shell(), proc(11, 10, evidence.executable, evidence),
+          proc(20, 1, evidence.executable, evidence)])], [root()], defaultSettings.processRules);
+        await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
+        const descendants = h.tracker.resolveDescendants(root());
+        h.tracker.setWatch([root()], defaultSettings.processRules.map(r => ({ ...r, enabled: r.id !== builtin.id })));
+        await h.tracker.poll(); expect(h.last()[0].agents).toBe(0);
+        expect(h.tracker.resolveDescendants(root())).toEqual(descendants);
+      }
+    }
+  });
+  it.each(['win32', 'linux', 'darwin'] as const)('matches custom names but never bypasses exact paths on %s', async platform => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    const windows = platform === 'win32', name = windows ? 'helper.exe' : 'helper';
+    const runtime = windows ? 'C:\\tools\\node.exe' : '/usr/bin/node';
+    const path = windows ? 'C:\\tools\\helper.exe' : '/opt/helper';
+    const custom = rule({ executableBasenames: ['helper', 'helper.exe'], scriptPathSuffixes: [] });
+    const rows = [shell(), proc(11, 10, runtime, { argv: [name] }),
+      proc(12, 10, runtime, { processName: name, argv: null }), proc(13, 10, path, { argv: null })];
+    const h = harness([snapshot(rows)], [root()], [custom]);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 3, health: 'healthy' });
+    h.tracker.setWatch([root()], [{ ...custom, executablePaths: [path], processNames: [name] }]);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
+    h.tracker.setWatch([root()], [{ ...custom, executablePaths: [path + '-other'], processNames: [name] }]);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 0, health: 'healthy' });
+    h.tracker.setWatch([root()], [{ ...custom, enabled: false }]);
+    await h.tracker.poll(); expect(h.last()[0].agents).toBe(0);
+  });
+  it.each(['win32', 'linux', 'darwin'] as const)('uses script fallbacks across runtime install versions on %s', async platform => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    for (const builtin of defaultSettings.processRules) {
+      for (const runtime of ['node', 'bun']) {
+        const windows = platform === 'win32';
+        const exe = windows ? 'C:\\runtimes\\v24.15.0\\' + runtime + '.exe' : '/home/u/.local/share/runtime/v22.3/bin/' + runtime;
+        for (const suffix of builtin.scriptPathSuffixes) {
+          const script = windows ? 'C:\\pkg\\' + suffix.replaceAll('/', '\\') : '/pkg/' + suffix;
+          const h = harness([snapshot([shell(), proc(11, 10, exe, { argv: [exe, script, 'prompt'] }),
+            proc(12, 10, exe, { argv: [exe, '/unrelated.js', script] })])], [root()], defaultSettings.processRules);
+          await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
+          h.tracker.setWatch([root()], defaultSettings.processRules.map(r => ({ ...r, enabled: r.id !== builtin.id })));
+          await h.tracker.poll(); expect(h.last()[0].agents).toBe(0);
+        }
+      }
+    }
+  });
   it.each([
-    { argv: ['pi', '', ''], launchScript: null, expected: 0 },
-    { argv: ['pi'], launchScript: null, expected: 0 },
-    { argv: ['pi', ''], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js', expected: 1 },
-    { argv: ['pi'], launchScript: '/pkg/unrelated/cli.js', expected: 0 },
-    { argv: ['node', 'other.js', 'pi'], launchScript: null, expected: 0 },
-    { argv: ['pi', 'prompt'], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js', expected: 0 },
-    { argv: ['pi '], launchScript: null, expected: 0 },
-  ])('requires resolved Pi launch evidence for rewritten Unix argv: $argv / $launchScript', async ({ argv, launchScript, expected }) => {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
-    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/node', { argv, launchScript }),
-      proc(20, 1, '/usr/bin/node', { argv: ['pi'], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js' })])], [root()], defaultSettings.processRules);
-    await h.tracker.poll();
-    expect(h.last()[0]).toMatchObject({ agents: expected, health: 'healthy' });
+    [['bun', '/pkg/agent/cli.js'], 1, 'healthy'],
+    [['bun', 'run', '/pkg/agent/cli.js'], 1, 'healthy'],
+    [['bun', 'run', 'cli.js'], 0, 'healthy'],
+    [['bun', 'run', 'agent-task', '/pkg/agent/cli.js'], 0, 'healthy'],
+    [['bun', 'x', '/pkg/agent/cli.js'], 0, 'healthy'],
+    [['bun', '-e', '/pkg/agent/cli.js'], 0, 'healthy'],
+    [['bun', '--mystery', '/pkg/agent/cli.js'], 0, 'unknown'],
+  ] as const)('supports Bun direct/run paths, not arbitrary subcommands: %j', async (argv, agents, health) => {
+    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/bun', { argv: [...argv] })])], [root()], [rule({ executableBasenames: ['bun'] })]);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents, health });
   });
-  it('does not reuse Pi launcher evidence for a reused PID or bypass a disabled script rule', async () => {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
-    const pi = proc(11, 10, '/usr/bin/node', { argv: ['pi'], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js' });
-    const h = harness([snapshot([shell(), pi])], [root()], defaultSettings.processRules);
-    await h.tracker.poll(); expect(h.last()[0].agents).toBe(1);
-    await h.step([snapshot([shell(), { ...pi, birth: 'reused:11', launchScript: null }])]);
-    expect(h.last()[0].agents).toBe(0);
-    h.tracker.setWatch([root()], defaultSettings.processRules.map(r => ({ ...r, enabled: r.label !== 'Pi Node launcher' })));
-    await h.step([snapshot([shell(), pi])]); expect(h.last()[0].agents).toBe(0);
+  it('prefers a recognized title over another script rule regardless of rule order or toggles', async () => {
+    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/node', {
+      argv: ['pi', '/pkg/@anthropic-ai/claude-code/cli.js'],
+    })])], [root()], [...defaultSettings.processRules].reverse());
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
+    h.tracker.setWatch([root()], defaultSettings.processRules.map(r => ({ ...r, enabled: r.label !== 'Pi' })));
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 0, health: 'healthy' });
+    h.tracker.setWatch([root()], [...defaultSettings.processRules.map(r => ({ ...r, enabled: false })),
+      rule({ executableBasenames: [], executablePaths: ['/usr/bin/node'], scriptPathSuffixes: [] })]);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
   });
-  it('never uses a Unix Pi title to bypass a script suffix or explicit executable path', async () => {
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
-    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/node', { argv: ['pi', ''] })])], [root()], [
-      rule({ executableBasenames: ['node'], scriptPathSuffixes: ['agent/cli.js'] }),
-      rule({ executableBasenames: ['pi'], executablePaths: ['/usr/bin/pi'], scriptPathSuffixes: [] }),
-    ]);
-    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 0 });
+  it('does not treat prompt text, near titles, or arbitrary wrapper arguments as agent names', async () => {
+    const h = harness([snapshot([shell(), ...[
+      ['node', 'other.js', 'pi'], ['pi '], ['not-pi'], ['node', '-e', 'pi'],
+    ].map((argv, i) => proc(11 + i, 10, '/usr/bin/node', { argv })),
+    proc(21, 10, '/usr/bin/python3', { argv: ['python3', defaultSettings.processRules[0].scriptPathSuffixes[0]] })])],
+    [root()], defaultSettings.processRules);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 0, health: 'healthy' });
   });
-  it('does not guess script slots for unsupported interpreters or Bun subcommands', async () => {
-    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/python3'), proc(12, 10, '/usr/bin/bun', { argv: ['bun', 'run', '/pkg/agent/cli.js'] })])], [root()], [rule({ executableBasenames: ['python3', 'bun'] })]);
-    await h.tracker.poll();
-    expect(h.last()[0]).toMatchObject({ agents: 0, health: 'unknown' });
+  it.each(['win32', 'linux'] as const)('uses platform name/path case rules on %s', async platform => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+    const windows = platform === 'win32', executable = windows ? 'C:\\Tools\\NODE.EXE' : '/usr/bin/node';
+    const h = harness([snapshot([shell(), proc(11, 10, executable, { argv: ['PI'] })])], [root()], defaultSettings.processRules);
+    await h.tracker.poll(); expect(h.last()[0].agents).toBe(windows ? 1 : 0);
+    h.tracker.setWatch([root()], [rule({ executablePaths: [windows ? 'c:/tools/node.exe' : '/usr/bin/NODE'], scriptPathSuffixes: [] })]);
+    await h.tracker.poll(); expect(h.last()[0].agents).toBe(windows ? 1 : 0);
   });
 });
 
@@ -527,6 +599,8 @@ describe('bounded system snapshot commands', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     vi.mocked(access).mockResolvedValue(undefined);
     vi.mocked(execFile).mockImplementation(((file: string, args: string[], options: Record<string, unknown>, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
+      // Existing collector tests have no optional running guests; dedicated tests cover that scan.
+      if (args[0] === '--list') { callback(null, '', ''); return; }
       calls.push({ file, args, options });
       const response = responses.shift();
       if (response instanceof Error) callback(response, '', 'private error text');
@@ -558,6 +632,7 @@ describe('bounded system snapshot commands', () => {
     expect(code).toContain('[ShellfoxProcessOwner]::Sid([uint32]$p.ProcessId) -eq $me');
     expect(code).toContain('CloseHandle(token); CloseHandle(process)');
     expect(code).not.toContain('Invoke-CimMethod');
+    expect(code).toContain('processName=$p.Name');
     expect(code.match(/Get-CimInstance Win32_Process/g)).toHaveLength(2);
     expect(code).toContain('-ne $r.birth -or [int]$p.ParentProcessId -ne $r.parentPid');
     expect(calls[0]!.args.at(-1)).not.toContain('secret-a');
@@ -623,7 +698,7 @@ describe('bounded system snapshot commands', () => {
   it('falls back to the fixed proc shell program when Python is missing', async () => {
     const b64 = (s: string) => Buffer.from(s).toString('base64');
     const boot = '12345678-1234-1234-1234-123456789abc';
-    const row = ['R', '40', '1', '123', '1', b64('/bin/bash'), b64('bash\0\0' + '1'), b64('SHELLFOX_TERMINAL_MARKER=secret-a\0')].join('\t');
+    const row = ['R', '40', '1', '123', '1', b64('/bin/bash'), b64('bash\0\0' + '1'), b64('SHELLFOX_TERMINAL_MARKER=secret-a\0'), b64('bash')].join('\t');
     const calls = mockCommands([new Error('python3 missing'), 'SHELLFOX_TRACKING_1\t' + boot + '\n' + row + '\n']);
     const result = await createSystemSnapshotProvider()([root({ environment: 'wsl', distro: 'Ubuntu' })]);
     expect(calls).toHaveLength(2);
@@ -631,7 +706,7 @@ describe('bounded system snapshot commands', () => {
     expect(calls[1]!.args[5]).toContain('for d in /proc/[0-9]*');
     expect(calls[1]!.args[5]).toContain('${1##*) }');
     expect(calls[1]!.args[5]).not.toContain('set -f');
-    expect(result[0]).toMatchObject({ complete: true, processes: [{ pid: 40, parentPid: 1, birth: boot + ':123', birthOrder: '123', argv: ['bash'], marker: 'secret-a', accessible: true }] });
+    expect(result[0]).toMatchObject({ complete: true, processes: [{ pid: 40, parentPid: 1, birth: boot + ':123', birthOrder: '123', argv: ['bash'], marker: 'secret-a', accessible: true, processName: 'bash' }] });
   });
 
   it('keeps failed shell field reads inaccessible and preserves empty trailing fields', async () => {
@@ -795,6 +870,14 @@ describe('packaged macOS native helper protocol', () => {
     expect(calls.every(c => c.file === macTrackingHelperPath(helperOptions))).toBe(true);
   });
 
+  it('accepts optional libproc process names without requiring argv or changing ownership', async () => {
+    install([packet([rows()[0], nativeRow(11, 10, '/opt/node', { argv: null, processName: 'pi' })])]);
+    const observations: TabObservation[][] = [];
+    const tracker = new ProcessTracker(items => observations.push(items), createSystemSnapshotProvider(helperOptions)); trackers.push(tracker);
+    tracker.setWatch([root()], defaultSettings.processRules); await tracker.poll();
+    expect(observations[0][0]).toMatchObject({ agents: 1, health: 'healthy' });
+    expect(tracker.resolveDescendants(root())).toEqual([expect.objectContaining({ pid: 11, birth: 'darwin:1700000000:000101' })]);
+  });
   it('does not round native birth seconds through JSON Number or Date', async () => {
     const r = rows(); r[0]!.startSeconds = '9007199254740993'; r[0]!.startMicroseconds = '1';
     install([packet(r)]);
@@ -972,62 +1055,19 @@ describe('initial local root marker authentication', () => {
     const denied = await createSystemSnapshotProvider()([root()]);
     const inaccessible = harness(denied); await inaccessible.tracker.poll();
     expect(inaccessible.last()[0]).toMatchObject({ root: 'unavailable', health: 'unknown' });
-    // The candidate's initial environ is read before the second birth check;
-    // ordinary Node titles have no script evidence, pnpm/npm launchers do.
+    // A rewritten title needs no private environ or installation provenance.
     files.set('/proc/10/environ', 'SHELLFOX_TERMINAL_MARKER=secret-a\0');
     files.set('/proc/11/cmdline', 'pi\0\0');
-    files.set('/proc/11/environ', '_=/bin/pi\0TOKEN=private\0');
-    const script = '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js';
-    files.set('/bin/pi', '#!/bin/sh\n# cmd-shim-target=' + script + '\n');
-    vi.mocked(realpath).mockImplementation(async path => String(path));
-    vi.mocked(fileStat).mockResolvedValue({ isFile: () => true } as Awaited<ReturnType<typeof fileStat>>);
-    const check = async (agents: number) => {
-      const rows = await createSystemSnapshotProvider()([root()]);
-      expect(JSON.stringify(rows)).not.toContain('private');
-      const h = harness(rows, [root()], defaultSettings.processRules); await h.tracker.poll();
-      expect(h.last()[0].agents).toBe(agents); return rows[0].processes.find(p => p.pid === 11)!;
-    };
-    expect((await check(1)).launchScript).toBe(script);
-    files.set('/bin/pi', '# unrelated launcher\n'); expect((await check(0)).launchScript).toBeNull();
-    vi.mocked(realpath).mockImplementation(async path => String(path) === '/bin/pi' ? script : String(path));
-    expect((await check(1)).launchScript).toBe(script); // npm JS symlink
-    vi.mocked(realpath).mockRejectedValue(new Error('denied')); expect((await check(0)).launchScript).toBeNull();
-    vi.mocked(realpath).mockImplementation(async path => String(path));
-    files.set('/bin/pi', 'x'.repeat(65537)); expect((await check(0)).launchScript).toBeNull();
-    // Pi's managed installer: $_ is the POSIX wrapper <agent>/bin/pi, which execs
-    // <agent>/install/releases/<current-version>/node_modules/.bin/pi (a cli.js symlink).
-    const wrapper = '#!/bin/sh\nexec "$pi_release_bin" "$@"\n', release = '/home/u/.pi/agent/install/releases/1.0.4/node_modules/.bin/pi';
-    const managedLinks = (overrides: Record<string, string> = {}) => vi.mocked(realpath).mockImplementation(async path => {
-      const links: Record<string, string> = { '/home/u/.local/bin/pi': '/home/u/.pi/agent/bin/pi', [release]: script, ...overrides };
-      return links[String(path)] ?? String(path);
-    });
-    managedLinks();
-    files.set('/home/u/.pi/agent/bin/pi', wrapper); files.set('/home/u/.pi/agent/install/current-version', '1.0.4\n');
-    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.local/bin/../../.pi/agent/install\0TOKEN=private\0');
-    managedLinks({ '/home/u/.local/bin/../../.pi/agent/install': '/home/u/.pi/agent/install' });
-    expect((await check(1)).launchScript).toBe(script);
-    // The launcher must be that install root's own bin/pi wrapper.
-    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/elsewhere/install\0');
-    expect((await check(0)).launchScript).toBeNull();
-    // Missing, duplicated or traversing version evidence never counts.
-    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0');
-    expect((await check(1)).launchScript).toBe(script);
-    files.set('/home/u/.pi/agent/install/current-version', '../../x\n'); expect((await check(0)).launchScript).toBeNull();
-    files.set('/home/u/.pi/agent/install/current-version', '1.0.4\n');
-    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0');
-    expect((await check(0)).launchScript).toBeNull();
-    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0');
-    expect((await check(0)).launchScript).toBeNull();
-    // A release binary that does not resolve to a JS file is not Pi evidence.
-    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0');
-    managedLinks({ [release]: '/usr/bin/true' }); expect((await check(0)).launchScript).toBeNull();
-    vi.mocked(realpath).mockImplementation(async path => String(path));
-    files.set('/proc/11/environ', '_=/bin/pi\0TOKEN=private\0');
-    files.set('/bin/pi', '# cmd-shim-target=' + script + '\n');
-    vi.mocked(fileStat).mockImplementation(async path => {
-      if (String(path) === script) files.set('/proc/11/stat', stat(11, 10, '999'));
-      return { isFile: () => true } as Awaited<ReturnType<typeof fileStat>>;
-    });
-    expect(await check(0)).toMatchObject({ launchScript: script, birth: null, accessible: false });
+    reads.length = 0;
+    const titled = await createSystemSnapshotProvider()([root()]);
+    const named = harness(titled, [root()], defaultSettings.processRules); await named.tracker.poll();
+    expect(named.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
+    expect(reads.filter(p => p.endsWith('/environ'))).toEqual(['/proc/10/environ']);
+    files.set('/proc/11/stat', stat(11, 10, '101').replace('(test)', '(pi)'));
+    files.delete('/proc/11/cmdline');
+    const comm = await createSystemSnapshotProvider()([root()]);
+    expect(comm[0].processes.find(p => p.pid === 11)).toMatchObject({ processName: 'pi', argv: null });
+    const byComm = harness(comm, [root()], defaultSettings.processRules); await byComm.tracker.poll();
+    expect(byComm.last()[0]).toMatchObject({ agents: 1, health: 'healthy' });
   });
 });

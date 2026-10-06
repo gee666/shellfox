@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { open, readdir, readlink, access, realpath, stat } from 'node:fs/promises';
+import { open, readdir, readlink, access } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { constants } from 'node:fs';
 import { win32, join, resolve } from 'node:path';
@@ -35,9 +35,8 @@ export interface TrackingProcess {
   birthOrder?: string;
   executable: string | null;
   argv: string[] | null;
-  /** Verified initial shell launcher target, read inside the same /proc birth check.
-   * Only a resolved JS symlink or pnpm cmd-shim target; never the title itself. */
-  launchScript?: string | null;
+  /** OS process name/comm, when the collector exposes it. Status matching only. */
+  processName?: string | null;
   accessible: boolean;
   marker?: string | null;
   /** Native metadata is informational, not authority to signal a numeric PID. */
@@ -60,6 +59,8 @@ export interface TrackingSnapshot {
   rootMarkerRequired?: boolean;
   /** Windows cannot read the root marker through CIM. Require launch-window/ancestry proof. */
   rootLaunchEvidenceRequired?: boolean;
+  /** Optional guest enumeration for inherited-marker status, never root/owner evidence. */
+  statusOnly?: boolean;
 }
 export type SnapshotProvider = (
   roots: readonly TrackingRoot[], signal?: AbortSignal,
@@ -78,8 +79,6 @@ const basename = (p: string, windows = false) => (windows ? p.replace(/\\/g, '/'
 const shellNames = new Set(['sh', 'bash', 'dash', 'ash', 'zsh', 'fish', 'ksh', 'csh', 'tcsh', 'nu', 'pwsh', 'powershell']);
 const shellBasename = (executable: string, windows: boolean) => windows
   ? basename(executable, true).toLowerCase() : basename(executable);
-const rewrittenPi = (executable: string | null, argv: string[] | null) => executable !== null &&
-  ['node', 'nodejs'].includes(basename(executable)) && argv?.[0] === 'pi' && argv.slice(1).every(arg => arg === '');
 const isShell = (p: TrackingProcess, windows = false) => p.executable !== null &&
   shellNames.has(windows ? shellBasename(p.executable, true).replace(/\.exe$/, '') : basename(p.executable));
 const ordered = (p: TrackingProcess, parent: TrackingProcess) =>
@@ -123,7 +122,14 @@ function scriptSlot(executable: string, argv: string[], windows: boolean): Scrip
     if (nodeFlags.has(a)) continue;
     // Only known value options accept '='. An unknown flag could change the script slot.
     if (a.includes('=') && (nodeValues.has(a.split('=')[0]!) || ['--inspect', '--inspect-brk', '--inspect-wait'].includes(a.split('=')[0]!))) continue;
-    if (a.startsWith('-') || exe === 'bun' && a === 'run') return unknown;
+    if (exe === 'bun' && a === 'run') {
+      const path = argv[i + 1];
+      // Package.json script names and other Bun subcommands are not launch paths.
+      return path && !path.startsWith('-') && (/[\\/]/.test(path) || /\.[cm]?[jt]sx?$/.test(path))
+        ? { path, unsupported: false } : none;
+    }
+    if (exe === 'bun' && ['x', 'exec', 'test', 'install', 'build', 'add', 'remove', 'update'].includes(a)) return none;
+    if (a.startsWith('-')) return unknown;
     return { path: a, unsupported: false };
   }
   return none;
@@ -141,6 +147,50 @@ function suffixMatches(path: string, suffix: string, windows: boolean): boolean 
   };
   const p = normalize(path), s = normalize(suffix);
   return p === s || p.endsWith('/' + s);
+}
+
+function snapshotRows(s: TrackingSnapshot): Map<number, TrackingProcess> {
+  if (typeof s.domain !== 'string' || !s.domain || typeof s.complete !== 'boolean' || !Array.isArray(s.processes) || s.processes.length > MAX_ROWS) throw new Error('Invalid snapshot.');
+  const rows = new Map<number, TrackingProcess>();
+  for (const p of s.processes) {
+    if (!Number.isSafeInteger(p.pid) || p.pid <= 0 || !Number.isSafeInteger(p.parentPid) || p.parentPid < 0 || rows.has(p.pid) ||
+      p.birthOrder !== undefined && (typeof p.birthOrder !== 'string' || !/^\d+$/.test(p.birthOrder)) ||
+      p.birth !== null && (typeof p.birth !== 'string' || !p.birth) || typeof p.accessible !== 'boolean' ||
+      p.executable !== null && typeof p.executable !== 'string' ||
+      p.argv !== null && (!Array.isArray(p.argv) || p.argv.some(a => typeof a !== 'string')) ||
+      p.processName != null && (typeof p.processName !== 'string' || p.processName.includes('\0') ||
+        Buffer.byteLength(p.processName) > MAX_FIELD)) throw new Error('Invalid process identity.');
+    rows.set(p.pid, p);
+  }
+  return rows;
+}
+
+function matchAgent(p: TrackingProcess, rules: ProcessRule[], windows: boolean): { matched: boolean; reason: string | null } {
+  let reason: string | null = null;
+  if (!p.executable) return { matched: false, reason };
+  const equalName = (a: string, b: string) => windows ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const names = [basename(p.executable, windows), p.processName, p.argv?.[0] && basename(p.argv[0], windows)];
+  const named = rules.filter(rule => {
+    if (rule.executablePaths.length) return false;
+    const trusted = rule.processNames ?? (rule.scriptPathSuffixes.length ? [] : rule.executableBasenames);
+    return trusted.some(name => names.some(actual => actual != null && equalName(name, actual)));
+  });
+  if (named.some(rule => rule.enabled)) return { matched: true, reason: null };
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+    // A recognized disabled name cannot fall through to another agent's script.
+    // Exact-path custom rules remain independent and never use name/title evidence.
+    if (named.length && !rule.executablePaths.length) continue;
+    if (!executableMatches(rule, p.executable, windows)) continue;
+    if (!rule.scriptPathSuffixes.length) return { matched: true, reason: null };
+    if (!p.argv) { reason = 'A relevant descendant command line is inaccessible.'; continue; }
+    const script = scriptSlot(p.executable, p.argv, windows);
+    if (script.unsupported) reason = 'A script rule uses an unsupported interpreter or option form.';
+    if (script.path && rule.scriptPathSuffixes.some(suffix => suffixMatches(script.path!, suffix, windows))) {
+      return { matched: true, reason: null };
+    }
+  }
+  return { matched: false, reason };
 }
 
 /** No native helper, persistent child, or command launch until there is a watch. */
@@ -253,7 +303,7 @@ export class ProcessTracker {
       });
       const groups = new Map<string, TrackingRoot[]>();
       for (const r of roots) {
-        const matches = snapshots.filter(s => s.environment === r.environment && s.distro === r.distro);
+        const matches = snapshots.filter(s => !s.statusOnly && s.environment === r.environment && s.distro === r.distro);
         if (matches.length !== 1) continue;
         const s = matches[0]!;
         if (snapshots.filter(other => other.domain === s.domain).length !== 1) continue;
@@ -266,23 +316,31 @@ export class ProcessTracker {
         try { this.observe(s, watched, observedAt).forEach(item => items.set(watchKey(watched.find(r => r.tabId === item.tabId)!), item)); }
         catch { /* Malformed or ambiguous snapshot evidence remains unknown. */ }
       }
+      // Marker association is status only. Do not resolve ancestry or retain guest owners.
+      if (process.platform === 'win32') {
+        const marked = new Map(roots.filter(r => r.marker && roots.filter(other => other.marker === r.marker).length === 1)
+          .map(r => [r.marker, items.get(watchKey(r))!]));
+        for (const s of snapshots.filter(s => s.environment === 'wsl')) {
+          if (snapshots.filter(other => other.domain === s.domain).length !== 1) continue;
+          try {
+            for (const p of snapshotRows(s).values()) {
+              const item = p.marker ? marked.get(p.marker) : undefined;
+              if (!item || item.root !== 'alive' || this.owners.has(key(s.domain, p))) continue;
+              if (!s.complete) { item.reason ??= s.reason ?? 'Marked guest process enumeration was incomplete.'; item.health = 'unknown'; }
+              const match = p.accessible && p.birth !== null && p.executable
+                ? matchAgent(p, this.rules, false) : { matched: false, reason: 'A marked guest process is inaccessible.' };
+              if (match.matched) item.agents++;
+              if (match.reason) { item.reason ??= match.reason; item.health = 'unknown'; }
+            }
+          } catch { /* Optional malformed/unlinked guest evidence does not change root health. */ }
+        }
+      }
       this.onObservations(roots.map(r => items.get(watchKey(r))!));
     } while (!this.disposed && revision !== this.revision);
   }
 
   private observe(s: TrackingSnapshot, watched: TrackingRoot[], observedAt: string): TabObservation[] {
-    if (typeof s.domain !== 'string' || !s.domain || typeof s.complete !== 'boolean' || !Array.isArray(s.processes) || s.processes.length > MAX_ROWS) throw new Error('Invalid snapshot.');
-    const rows = new Map<number, TrackingProcess>();
-    for (const p of s.processes) {
-      if (!Number.isSafeInteger(p.pid) || p.pid <= 0 || !Number.isSafeInteger(p.parentPid) || p.parentPid < 0 || rows.has(p.pid) ||
-        p.birthOrder !== undefined && (typeof p.birthOrder !== 'string' || !/^\d+$/.test(p.birthOrder)) ||
-        p.birth !== null && (typeof p.birth !== 'string' || !p.birth) || typeof p.accessible !== 'boolean' ||
-        p.executable !== null && typeof p.executable !== 'string' ||
-        p.argv !== null && (!Array.isArray(p.argv) || p.argv.some(a => typeof a !== 'string')) ||
-        p.launchScript != null && (typeof p.launchScript !== 'string' || !p.launchScript.startsWith('/') ||
-          p.launchScript.includes('\0') || Buffer.byteLength(p.launchScript) > MAX_FIELD)) throw new Error('Invalid process identity.');
-      rows.set(p.pid, p);
-    }
+    const rows = snapshotRows(s);
     const alive = new Set(s.processes.filter(p => p.birth !== null).map(p => key(s.domain, p)));
     const rootRows = new Map<string, TrackingProcess>();
     const rootOwners = new Map<string, string>();
@@ -424,30 +482,19 @@ export class ProcessTracker {
           continue;
         }
         if (!p.accessible || !p.executable) { reason = 'A descendant is inaccessible.'; continue; }
-        let matched = false;
-        for (const rule of this.rules) {
-          if (!rule.enabled || !executableMatches(rule, p.executable, windows)) continue;
-          if (!rule.scriptPathSuffixes.length) { matched = true; continue; }
-          if (!p.argv) { reason = 'A relevant descendant command line is inaccessible.'; continue; }
-          const script = scriptSlot(p.executable, p.argv, windows);
-          if (script.unsupported) reason = 'A script rule uses an unsupported interpreter or option form.';
-          if (script.path && rule.scriptPathSuffixes.some(suffix => suffixMatches(script.path!, suffix, windows))) matched = true;
-          // Pi rewrites argv on Unix. Require a verified launcher target matching
-          // an enabled Pi script rule, not a native-basename/title shortcut.
-          if (!windows && rewrittenPi(p.executable, p.argv) && p.launchScript &&
-            rule.scriptPathSuffixes.some(suffix => /(^|\/)pi-coding-agent\//.test(suffix) && suffixMatches(p.launchScript!, suffix, false))) matched = true;
-        }
-        if (matched) agents++;
+        const match = matchAgent(p, this.rules, windows);
+        if (match.reason) reason = match.reason;
+        if (match.matched) agents++;
       }
       return { sessionId: r.sessionId, tabId: r.tabId, observedAt, root, health: root === 'alive' && reason === null ? 'healthy' : 'unknown', agents: root === 'alive' ? agents : 0, reason };
     });
   }
 }
 
-function command(executable: string, args: string[], signal?: AbortSignal, env?: NodeJS.ProcessEnv): Promise<string> {
+function command(executable: string, args: string[], signal?: AbortSignal, env?: NodeJS.ProcessEnv, wslList = false): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(executable, args, { timeout: SNAPSHOT_TIMEOUT, maxBuffer: MAX_OUTPUT, encoding: 'utf8', windowsHide: true, signal, env },
-      (error, stdout) => error ? reject(error) : resolve(stdout));
+    execFile(executable, args, { timeout: SNAPSHOT_TIMEOUT, maxBuffer: MAX_OUTPUT, encoding: wslList ? 'buffer' : 'utf8', windowsHide: true, signal, env },
+      (error, stdout) => error ? reject(error) : resolve(Buffer.isBuffer(stdout) ? stdout.toString(stdout.includes(0) ? 'utf16le' : 'utf8') : stdout));
   });
 }
 async function windowsExecutable(name: 'powershell' | 'wsl'): Promise<string> {
@@ -513,7 +560,7 @@ $rows = @($first | ForEach-Object {
   if ($relevant.Contains([int]$p.ProcessId)) {
     $ok = ([ShellfoxProcessOwner]::Sid([uint32]$p.ProcessId) -eq $me)
   }
-  [pscustomobject]@{ pid=[int]$p.ProcessId; parentPid=[int]$p.ParentProcessId; birth=$birth; birthOrder=$birth; executable=$p.ExecutablePath; commandLine=$p.CommandLine; accessible=($ok -and $null -ne $birth -and $null -ne $p.ExecutablePath) }
+  [pscustomobject]@{ pid=[int]$p.ProcessId; parentPid=[int]$p.ParentProcessId; birth=$birth; birthOrder=$birth; executable=$p.ExecutablePath; processName=$p.Name; commandLine=$p.CommandLine; accessible=($ok -and $null -ne $birth -and $null -ne $p.ExecutablePath) }
 })
 $after = @{}
 Get-CimInstance Win32_Process -OperationTimeoutSec 5 | ForEach-Object { $after[[int]$_.ProcessId] = $_ }
@@ -568,6 +615,7 @@ async function windowsSnapshot(roots: readonly TrackingRoot[], known: Map<number
       pid: Number(row.pid), parentPid: Number(row.parentPid), birth: typeof row.birth === 'string' ? row.birth : null,
       birthOrder: typeof row.birthOrder === 'string' ? row.birthOrder : undefined,
       executable: typeof row.executable === 'string' ? row.executable : null,
+      processName: typeof row.processName === 'string' ? row.processName : null,
       argv: typeof row.commandLine === 'string' ? windowsArgs(row.commandLine) : null,
       accessible: row.accessible === true,
     };
@@ -584,10 +632,9 @@ async function windowsSnapshot(roots: readonly TrackingRoot[], known: Map<number
   return ownedProcesses;
 }
 
-async function boundedRead(path: string, signal?: AbortSignal, regular = false): Promise<string> {
-  const file = await open(path, regular ? constants.O_RDONLY | constants.O_NONBLOCK : 'r');
+async function boundedRead(path: string, signal?: AbortSignal): Promise<string> {
+  const file = await open(path, 'r');
   try {
-    if (regular && !(await file.stat()).isFile()) throw new Error('Launcher is not a regular file.');
     const buffer = Buffer.alloc(MAX_FIELD + 1);
     let size = 0;
     while (size < buffer.length) {
@@ -599,54 +646,16 @@ async function boundedRead(path: string, signal?: AbortSignal, regular = false):
     throw new Error('Process field limit exceeded.');
   } finally { await file.close(); }
 }
-function procStat(text: string): { parentPid: number; ticks: string; dead: boolean } {
+function procStat(text: string): { parentPid: number; ticks: string; dead: boolean; name: string } {
   const end = text.lastIndexOf(')');
   const fields = text.slice(end + 2).trim().split(/\s+/);
   if (end < 0 || !/^\d+$/.test(fields[19] ?? '') || !/^\d+$/.test(fields[1] ?? '')) throw new Error('Invalid proc stat.');
-  return { parentPid: Number(fields[1]), ticks: fields[19]!, dead: ['Z', 'X', 'x'].includes(fields[0]!) };
+  return { parentPid: Number(fields[1]), ticks: fields[19]!, dead: ['Z', 'X', 'x'].includes(fields[0]!), name: text.slice(text.indexOf('(') + 1, end) };
 }
 function environmentMarker(environ: string): string | null {
   const prefix = 'SHELLFOX_TERMINAL_MARKER=';
   const values = environ.split('\0').filter(e => e.startsWith(prefix));
   return values.length === 1 ? values[0]!.slice(prefix.length) : null;
-}
-async function launcherScript(environ: string, signal?: AbortSignal): Promise<string | null> {
-  const entries = environ.split('\0').filter(entry => entry.startsWith('_='));
-  const launcher = entries.length === 1 ? entries[0]!.slice(2) : '';
-  if (!launcher.startsWith('/')) return null;
-  try {
-    const resolved = await realpath(launcher);
-    if (!(await stat(resolved)).isFile()) return null;
-    if (resolved.endsWith('.js')) return resolved;
-    // pnpm's executable shim names its literal target. Never execute or evaluate
-    // shim source. Nonblocking open + fstat rejects FIFOs and oversized files.
-    const source = await boundedRead(resolved, signal, true);
-    const targets = source.split('\n').filter(line => line.startsWith('# cmd-shim-target='));
-    const target = targets.length === 1 ? targets[0]!.slice('# cmd-shim-target='.length).trim() : '';
-    if (!target.startsWith('/') || !target.endsWith('.js') || target.includes('\0')) return managedPiScript(environ, resolved, signal);
-    const script = await realpath(target);
-    return (await stat(script)).isFile() ? script : null;
-  } catch { return null; }
-}
-/** Pi's managed installer: <agent>/bin/pi is a POSIX wrapper that execs
- * <agent>/install/releases/<current-version>/node_modules/.bin/pi and exports
- * PI_MANAGED_INSTALL_ROOT=<agent>/install. Only that exact layout counts:
- * the resolved launcher must be the install root's sibling bin/pi, and the
- * release binary must resolve to a regular JS file. Nothing is executed. */
-async function managedPiScript(environ: string, launcher: string, signal?: AbortSignal): Promise<string | null> {
-  const prefix = 'PI_MANAGED_INSTALL_ROOT=';
-  const roots = environ.split('\0').filter(entry => entry.startsWith(prefix));
-  const declared = roots.length === 1 ? roots[0]!.slice(prefix.length) : '';
-  if (!declared.startsWith('/') || declared.includes('\0')) return null;
-  try {
-    const installRoot = await realpath(declared);
-    const agentDir = installRoot.slice(0, installRoot.lastIndexOf('/'));
-    if (!agentDir || await realpath(agentDir + '/bin/pi') !== launcher) return null;
-    const version = (await boundedRead(installRoot + '/current-version', signal, true)).split('\n')[0]!;
-    if (!/^[0-9A-Za-z._+-]{1,128}$/.test(version) || version === '.' || version === '..') return null;
-    const script = await realpath(installRoot + '/releases/' + version + '/node_modules/.bin/pi');
-    return script.endsWith('.js') && (await stat(script)).isFile() ? script : null;
-  } catch { return null; }
 }
 async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSignal): Promise<{ processes: TrackingProcess[]; complete: boolean; rootMarkerRequired: true }> {
   const rootPids = new Set(roots.map(r => r.pid));
@@ -672,7 +681,7 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
       }
       if (before.dead) continue;
       let executable: string | null = null, argv: string[] | null = null, accessible = false;
-      let marker: string | null | undefined, launchScript: string | null | undefined;
+      let marker: string | null | undefined;
       try {
         const status = await boundedRead(directory + '/status', signal);
         const users = /^Uid:\s+(\d+)\s+(\d+)/m.exec(status);
@@ -680,14 +689,10 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
           executable = (await readlink(directory + '/exe')).replace(/ \(deleted\)$/, '');
           accessible = true;
           try { argv = (await boundedRead(directory + '/cmdline', signal)).split('\0'); if (argv.at(-1) === '') argv.pop(); } catch { /* Relevant script rules will report unknown. */ }
-          if (rootPids.has(pid) || rewrittenPi(executable, argv)) {
-            if (rootPids.has(pid)) marker = null;
-            if (rewrittenPi(executable, argv)) launchScript = null;
-            try {
-              const environ = await boundedRead(directory + '/environ', signal);
-              if (rootPids.has(pid)) marker = environmentMarker(environ);
-              if (rewrittenPi(executable, argv)) launchScript = await launcherScript(environ, signal);
-            } catch { /* Missing launcher evidence never turns a title into an agent. */ }
+          if (rootPids.has(pid)) {
+            marker = null;
+            try { marker = environmentMarker(await boundedRead(directory + '/environ', signal)); }
+            catch { /* Missing root marker evidence remains unknown. */ }
           }
         }
       } catch { /* Keep ancestry and birth evidence for inaccessible descendants. */ }
@@ -697,8 +702,7 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
         if (after.dead) continue;
         if (before.ticks !== after.ticks || before.parentPid !== after.parentPid) { birth = null; accessible = false; }
       } catch { birth = null; accessible = false; }
-      const p = { pid, parentPid: before.parentPid, birth, birthOrder: before.ticks, executable, argv, accessible, marker,
-        ...(launchScript !== undefined ? { launchScript } : {}) };
+      const p = { pid, parentPid: before.parentPid, birth, birthOrder: before.ticks, executable, argv, accessible, marker, processName: before.name };
       bytes += Buffer.byteLength(JSON.stringify(p), 'utf8');
       if (bytes > MAX_OUTPUT) throw new Error('Process output limit exceeded.');
       processes.push(p);
@@ -707,45 +711,21 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
   return { processes, complete, rootMarkerRequired: true };
 }
 
-// Retain only the marker and a verified launcher target, never the full environ.
+// Retain only the marker, never the full environ.
 // No command, marker or distro is interpolated.
 const WSL_PYTHON = String.raw`
-import os, json, errno, stat as modes
+import os, json, errno
 LIMIT = 65536
-def read(path, regular=False):
-    fd = os.open(path, os.O_RDONLY | (os.O_NONBLOCK if regular else 0))
+def read(path):
+    fd = os.open(path, os.O_RDONLY)
     with os.fdopen(fd, 'rb') as f:
-        if regular and not modes.S_ISREG(os.fstat(fd).st_mode): raise ValueError('not a regular launcher')
         b = f.read(LIMIT + 1)
     if len(b) > LIMIT: raise ValueError('field limit')
     return b
 def stat(path):
     b = read(path); f = b[b.rfind(b')')+2:].split()
-    return int(f[1]), f[19].decode('ascii'), f[0] in (b'Z', b'X', b'x')
+    return int(f[1]), f[19].decode('ascii'), f[0] in (b'Z', b'X', b'x'), text(b[b.find(b'(')+1:b.rfind(b')')])
 def text(b): return b.decode('utf-8', 'replace')
-def script_file(path):
-    if not path.startswith('/') or '\0' in path: return None
-    path = os.path.realpath(path)
-    return path if modes.S_ISREG(os.stat(path).st_mode) else None
-def launcher_script(env):
-    try:
-        entries = [text(e[2:]) for e in env if e.startswith(b'_=')]
-        path = script_file(entries[0]) if len(entries) == 1 else None
-        if not path: return None
-        if path.endswith('.js'): return path
-        targets = [l[len('# cmd-shim-target='):].strip() for l in text(read(path, True)).splitlines() if l.startswith('# cmd-shim-target=')]
-        if len(targets) == 1 and targets[0].endswith('.js'): return script_file(targets[0])
-        return managed_pi(env, path)
-    except (OSError, ValueError): return None
-def managed_pi(env, launcher):
-    roots = [text(e[len(b'PI_MANAGED_INSTALL_ROOT='):]) for e in env if e.startswith(b'PI_MANAGED_INSTALL_ROOT=')]
-    if len(roots) != 1 or not roots[0].startswith('/') or '\0' in roots[0]: return None
-    root = os.path.realpath(roots[0]); agent = os.path.dirname(root)
-    if os.path.realpath(agent + '/bin/pi') != launcher: return None
-    version = text(read(root + '/current-version', True)).split('\n')[0]
-    if not version or len(version) > 128 or version in ('.', '..') or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-' for c in version): return None
-    script = script_file(root + '/releases/' + version + '/node_modules/.bin/pi')
-    return script if script and script.endswith('.js') else None
 boot = text(read('/proc/sys/kernel/random/boot_id')).strip()
 uid = os.getuid()
 if uid != os.geteuid() or len(boot) != 36: raise ValueError('identity unavailable')
@@ -754,12 +734,12 @@ if len(pids) > 20000: raise ValueError('process limit')
 rows = []; complete = True; total = 0
 for number in pids:
     d = '/proc/' + number
-    try: parent, ticks, dead = stat(d + '/stat')
+    try: parent, ticks, dead, name = stat(d + '/stat')
     except OSError as e:
         if e.errno not in (errno.ENOENT, errno.ESRCH): complete = False
         continue
     if dead: continue
-    exe = None; args = None; marker = None; accessible = False; launch = None
+    exe = None; args = None; marker = None; accessible = False
     try:
         users = next(l.split()[1:3] for l in read(d + '/status').splitlines() if l.startswith(b'Uid:'))
         if all(int(u) == uid for u in users):
@@ -775,7 +755,6 @@ for number in pids:
                 env = read(d + '/environ').split(b'\0')
                 markers = [text(e[len(b'SHELLFOX_TERMINAL_MARKER='):]) for e in env if e.startswith(b'SHELLFOX_TERMINAL_MARKER=')]
                 if len(markers) == 1: marker = markers[0]
-                if os.path.basename(exe) in ('node', 'nodejs') and args and args[0] == 'pi' and all(a == '' for a in args[1:]): launch = launcher_script(env)
             except (OSError, ValueError): pass
     except (OSError, ValueError, StopIteration): pass
     birth = boot + ':' + ticks
@@ -784,8 +763,7 @@ for number in pids:
         if after[2]: continue
         if after[:2] != (parent, ticks): birth = None; accessible = False
     except (OSError, ValueError): birth = None; accessible = False
-    row = dict(pid=int(number), parentPid=parent, birth=birth, birthOrder=ticks, executable=exe, argv=args, accessible=accessible, marker=marker)
-    if launch is not None: row['launchScript'] = launch
+    row = dict(pid=int(number), parentPid=parent, birth=birth, birthOrder=ticks, executable=exe, argv=args, accessible=accessible, marker=marker, processName=name)
     total += len(json.dumps(row))
     if total > 8388608: raise ValueError('output limit')
     rows.append(row)
@@ -821,6 +799,7 @@ for d in /proc/[0-9]*; do
   stat_fields "$before" || exit 70
   case "$state" in Z|X|x) continue;; esac
   pp=$parent; start=$ticks; ok=0; exe=''; args='-'; marker='-'
+  name=${'$'}{before#*(}; name=${'$'}{name%)*}; name=$(printf '%s' "$name" | base64 -w0) || exit 70
   real=''; effective=''
   while read -r label a b rest; do
     if [ "$label" = 'Uid:' ]; then real=$a; effective=$b; break; fi
@@ -834,7 +813,7 @@ for d in /proc/[0-9]*; do
   stat_fields "$after" || exit 70
   case "$state" in Z|X|x) continue;; esac
   if [ "$start" != "$ticks" ] || [ "$pp" != "$parent" ]; then printf 'E\n'; continue; fi
-  printf 'R\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${'$'}{d##*/}" "$pp" "$start" "$ok" "$exe" "$args" "$marker"
+  printf 'R\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${'$'}{d##*/}" "$pp" "$start" "$ok" "$exe" "$args" "$marker" "$name"
 done
 `;
 function shellSnapshot(output: string): { processes: TrackingProcess[]; complete: boolean } {
@@ -852,7 +831,7 @@ function shellSnapshot(output: string): { processes: TrackingProcess[]; complete
   for (const line of lines) {
     if (line === 'E') { complete = false; continue; }
     const f = line.split('\t');
-    if (f.length !== 8 || f[0] !== 'R' || !/^\d+$/.test(f[3]!)) throw new Error('Invalid guest process.');
+    if (![8, 9].includes(f.length) || f[0] !== 'R' || !/^\d+$/.test(f[3]!)) throw new Error('Invalid guest process.');
     const cmdline = f[6] === '-' ? null : decode(f[6]!);
     const args = cmdline?.endsWith('\0' + '1') ? cmdline.slice(0, -2).split('\0') : null;
     if (args?.at(-1) === '') args.pop();
@@ -861,6 +840,7 @@ function shellSnapshot(output: string): { processes: TrackingProcess[]; complete
     processes.push({
       pid: Number(f[1]), parentPid: Number(f[2]), birth: header[1] + ':' + f[3], birthOrder: f[3],
       accessible: f[4] === '1', executable: f[5] ? decode(f[5]!).replace(/ \(deleted\)$/, '') : null,
+      processName: f.length === 9 ? decode(f[8]!) : null,
       argv: args, marker: env.length === 1 && env[0]!.startsWith(prefix) ? env[0]!.slice(prefix.length) : null,
     });
     if (processes.length > MAX_ROWS) throw new Error('Guest process limit exceeded.');
@@ -990,6 +970,7 @@ function parseMacSnapshot(output: string, arch: string): { processes: TrackingPr
       p.executable !== null && (typeof p.executable !== 'string' || !p.executable.startsWith('/') || Buffer.byteLength(p.executable) > MAX_FIELD || p.executable.includes('\0')) ||
       p.argv !== null && (!Array.isArray(p.argv) || p.argv.length > 4096 || p.argv.some(a => typeof a !== 'string' || a.includes('\0')) ||
         Buffer.byteLength(p.argv.join('\0')) > MAX_FIELD) ||
+      p.processName != null && (typeof p.processName !== 'string' || p.processName.includes('\0') || Buffer.byteLength(p.processName) > MAX_FIELD) ||
       p.marker !== null && (typeof p.marker !== 'string' || p.marker.length > 1024 || p.marker.includes('\0'))) throw new Error('Invalid native process fields.');
     seen.add(Number(p.pid));
     let birth: string | null = null, birthOrder: string | undefined;
@@ -1005,6 +986,7 @@ function parseMacSnapshot(output: string, arch: string): { processes: TrackingPr
     }
     return { pid: Number(p.pid), parentPid: Number(p.parentPid), birth, birthOrder, executable: p.executable as string | null,
       argv: p.argv as string[] | null, accessible: p.accessible, marker: p.marker as string | null,
+      processName: p.processName as string | null | undefined,
       pgid: p.pgid as number | null, sid: p.sid as number | null, uid: p.uid as number | null, realUid: p.realUid as number | null, savedUid: p.savedUid as number | null };
   });
   return { processes, complete: d.complete, reason: d.reason as string ?? undefined, rootMarkerRequired: true };
@@ -1059,6 +1041,27 @@ export function createSystemSnapshotProvider(helperOptions: TrackingHelperOption
         }
       }
     }));
+    if (process.platform === 'win32' && roots.some(r => r.marker) && !signal?.aborted) {
+      // Direct WSL snapshots are reused. Optional collection has a total budget,
+      // four workers and at most 32 running distros. Listing never boots a distro.
+      const optionalSignal = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(3000)]);
+      try {
+        const output = await command(await windowsExecutable('wsl'), ['--list', '--running', '--quiet'], optionalSignal, undefined, true);
+        const running = [...new Set(output.replace(/^\uFEFF/, '').split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
+        if (running.length > 32 || running.some(d => d.length > 256 || /[\x00-\x1f\x7f]/.test(d))) throw new Error('Invalid running distro list.');
+        const pending = running.filter(d => !snapshots.some(s => s.environment === 'wsl' && s.distro === d));
+        let next = 0;
+        await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+          while (next < pending.length && !optionalSignal.aborted) {
+            const distro = pending[next++]!;
+            try {
+              const result = await wslSnapshot(distro, optionalSignal);
+              snapshots.push({ domain: JSON.stringify([hostname(), 'wsl', distro]), environment: 'wsl', distro, statusOnly: true, ...result });
+            } catch { /* Optional status evidence cannot make unrelated tabs unhealthy. */ }
+          }
+        }));
+      } catch { /* WSL unavailable, enumeration failed or optional budget expired. */ }
+    }
     return snapshots;
   };
 }

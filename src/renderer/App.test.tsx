@@ -75,7 +75,7 @@ describe('compact workspace', () => {
     const user = userEvent.setup(); render(<App api={fixture.api} />);
     const plus = await screen.findByRole('button', { name: 'New terminal' });
     await waitFor(() => expect(plus).toBeEnabled());
-    await user.click(plus); expect(fixture.api.addTab).not.toHaveBeenCalled();
+    await user.click(plus); expect(fixture.api.addTab).toHaveBeenCalledWith({ sessionId: session().id });
     fireEvent.contextMenu(plus);
     expect(screen.getByRole('menuitem', { name: 'PowerShell 7' })).toBeDisabled();
     await user.click(screen.getByRole('menuitem', { name: 'Ubuntu' }));
@@ -159,15 +159,24 @@ describe('compact workspace', () => {
     const { user } = await ready(fixture.api);
     await user.click(screen.getByRole('button', { name: 'New session' })); expect(fixture.api.createSession).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'New session' }));
-    await waitFor(() => expect(fixture.api.addTab).toHaveBeenCalledWith({ sessionId: session(2).id, profileId: 'pwsh' }));
+    await waitFor(() => expect(fixture.api.addTab).toHaveBeenCalledWith({ sessionId: session(2).id }));
   });
-  it('adds the default shell or chooses a profile from the plus context menu', async () => {
+  it('lets the backend choose the cwd default or sends an explicit profile from the plus context menu', async () => {
     const fixture = mockApi(); const { user } = await ready(fixture.api);
     await user.click(screen.getByRole('button', { name: 'New terminal' }));
     expect(await screen.findByRole('tab', { name: /Shell 2/ })).toHaveAttribute('aria-selected', 'true');
+    expect(fixture.api.addTab).toHaveBeenLastCalledWith({ sessionId: session().id });
     fireEvent.contextMenu(screen.getByRole('button', { name: 'New terminal' }), { clientX: 300, clientY: 28 });
     await user.click(screen.getByRole('menuitem', { name: 'Ubuntu' }));
     await waitFor(() => expect(fixture.api.addTab).toHaveBeenLastCalledWith({ sessionId: session().id, profileId: 'wsl:Ubuntu' }));
+  });
+  it.each(['win32', 'linux'])('normal plus requests retain platform defaults on %s for a WSL cwd with an old PowerShell tab', async platform => {
+    const item = session(1, { cwd: String.raw`\\wsl.localhost\Ubuntu\var\www` });
+    const initial = snapshot([item]); initial.probe.platform = platform;
+    initial.settings.terminalProfileId = 'wsl:Ubuntu';
+    const fixture = mockApi(initial); const { user } = await ready(fixture.api);
+    await user.click(screen.getByRole('button', { name: 'New terminal' }));
+    await waitFor(() => expect(fixture.api.addTab).toHaveBeenCalledWith({ sessionId: item.id, ...(platform === 'linux' ? { profileId: 'wsl:Ubuntu' } : {}) }));
   });
   it('shows archived legacy sessions as read-only history without external terminals, Focus or Restore', async () => {
     const item = session(2, { adapterId: 'windows-terminal', terminalLifetime: 'external-legacy', settledAt: '2026-10-04T11:00:00.000Z', status: 'settled' });

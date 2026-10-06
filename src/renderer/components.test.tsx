@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { ContextMenu, sessionDot, tabDot } from './components';
+import { ContextMenu, StatusDot, sessionDot, tabDot } from './components';
 import { session } from './test-fixtures';
 afterEach(cleanup);
 describe('compact status and menus', () => {
@@ -16,6 +16,14 @@ describe('compact status and menus', () => {
     expect(tabDot({...t,status:'running'},false).kind).toBe('running');
     expect(tabDot({...t,status:'running'},true).kind).toBe('busy');
     expect(sessionDot({...s,tabs:[{...t,lifecycle:'closed',status:'error'}]},{}).kind).toBe('shell');
+  });
+  it.each([
+    ['waiting', false, 'Shell'],
+    ['running', false, 'Agent idle'],
+    ['running', true, 'Agent working'],
+  ] as const)('keeps %s dots accessible without hover popups', (status, busy, title) => {
+    render(<StatusDot state={tabDot({ ...session().tabs[0]!, status }, busy)} />);
+    expect(screen.getByLabelText(title).hasAttribute('title')).toBe(false);
   });
   it('dismisses context menus on outside pointerdown and Escape', () => {
     const close=vi.fn();

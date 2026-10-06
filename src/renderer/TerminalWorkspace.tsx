@@ -7,8 +7,8 @@ import { ContextMenu, Icon, StatusDot, tabDot, useAction } from './components';
 import { TerminalViewport } from './TerminalViewport';
 import { getTerminalApi } from './api';
 
-export function TerminalWorkspace({ session, client, registry, profiles, defaultProfileId, available }: {
-  session: SessionDto; client: ManagerClient; registry: TerminalRegistry; profiles: TerminalProfileDto[]; defaultProfileId: string | null; available: boolean;
+export function TerminalWorkspace({ session, client, registry, profiles, defaultProfileId, platform, available }: {
+  session: SessionDto; client: ManagerClient; registry: TerminalRegistry; profiles: TerminalProfileDto[]; defaultProfileId: string | null; platform?: string; available: boolean;
 }) {
   const chosen = useStore(client.store, state => state.activeTabIds[session.id]);
   const busy = useStore(client.store, state => state.busyTabIds);
@@ -23,9 +23,9 @@ export function TerminalWorkspace({ session, client, registry, profiles, default
   const legacy = session.adapterId !== 'embedded-pty' || !session.tabs.some(tab => tab.terminalKind === 'embedded');
   const canAdd = !archived && available && session.canAddTab && (legacy || (!!terminalApi && profiles.some(profile => profile.available)));
   useEffect(() => { if (selected && !archived) registry.focus(selected.id); }, [registry, selected?.id, archived]);
-  async function add(profileId = defaultProfileId) {
+  async function add(profileId = platform === 'win32' ? undefined : defaultProfileId ?? undefined) {
     setProfileMenu(null);
-    if (archived || !available || !session.canAddTab || (!legacy && (!profileId || !profiles.some(profile => profile.id === profileId && profile.available)))) return;
+    if (archived || !available || !session.canAddTab || (!legacy && (!terminalApi || (profileId !== undefined ? !profiles.some(profile => profile.id === profileId && profile.available) : platform !== 'win32')))) return;
     const ids = new Set(session.tabs.map(tab => tab.id));
     const result = await action.run(() => client.api.addTab({ sessionId: session.id, ...(profileId ? { profileId } : {}) }));
     if (result?.ok && client.store.getState().selectedId === session.id) {

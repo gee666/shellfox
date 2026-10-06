@@ -34,6 +34,16 @@ A shell exit cannot erase pending descendant cleanup. Failed cleanup retains own
 
 The Darwin lifecycle supervisor is separate from read-only snapshots. It retains the owned session leader and uses same-session group guardians and private same-user control; main does not signal a target by numeric PID. The backend authenticates and tracks the real foreground shell child. Confirmed CLOSE waits for native wrapper exit; timeout never kills that wrapper. Crashes/SIGKILL retain uncertain cleanup ownership. Detached new sessions are outside the protocol and are not swept. Real job-control and shutdown behavior must still be verified on Darwin before release.
 
+## Agent detection
+
+Pi, Claude, Codex and OpenCode each have one switch for native executables and Node/Bun launches. Detection trusts an exact executable basename, OS process name or rewritten argv0 first. Custom name rules use the same matching. Exact executable-path rules match only that path, never a name or title. Names and paths are case-insensitive on Windows and case-sensitive on Unix.
+
+When no agent name is recognized, bundled rules check the Node/Bun script slot against package suffixes. This works across runtime versions and install directories. Bun direct scripts and `bun run <script-path>` are supported, not package.json task names, arbitrary wrappers or prompt arguments. Pi titles no longer require installer/shim provenance.
+
+Linux/WSL collectors expose proc comm and argv0; macOS exposes libproc names and argv0. Windows CIM exposes the executable Name and original command line, not Node's later console title. Windows title-only Node detection is therefore unavailable; native names and script paths still work. Truncated OS names must match exactly; argv0 can supply the full name. Native macOS execution remains unverified.
+
+Stored bundled launcher rules migrate to the unified switches. An existing per-agent toggle wins over the old Native agents toggle, including when disabled. If a per-agent rule is absent but the untouched native rule covered that agent, its old native toggle supplies the missing switch. Customized legacy rules retain their constraints and toggle under custom IDs; unrelated custom rules are untouched. Removed rules stay removed when no old native coverage exists. Detection changes do not grant tab ownership or cleanup authority.
+
 ## Workspace behavior
 
 - Activation selects a live tab or opens one fresh shell only when no live/launching shell or unresolved cleanup remains.

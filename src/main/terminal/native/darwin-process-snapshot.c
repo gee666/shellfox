@@ -242,6 +242,10 @@ static bool snapshot(struct args_info *args, pid_t *pids) {
         if (verified) emit("\"%" PRIu64 "\"", a.pbi_start_tvusec); else emit("null");
         emit(",\"identityVerified\":%s,\"accessible\":%s,\"executable\":", verified ? "true" : "false", accessible ? "true" : "false");
         string(accessible ? path : NULL);
+        char name[sizeof(a.pbi_name) + 1] = {0};
+        if (a.pbi_name[0]) memcpy(name, a.pbi_name, sizeof(a.pbi_name));
+        else memcpy(name, a.pbi_comm, sizeof(a.pbi_comm));
+        emit(",\"processName\":"); string(accessible && utf8(name) ? name : NULL);
         emit(",\"argv\":");
         if (accessible && have_args) {
             emit("["); for (int j = 0; j < args->argc; j++) { if (j) emit(","); string(args->argv[j]); } emit("]");

@@ -5,6 +5,7 @@ import { userInfo } from 'node:os';
 import path from 'node:path';
 import type { TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { pathSchema, terminalProfileSchema } from '../../shared/schemas';
+import { parseWslUnc } from '../../shared/wsl-path';
 import { validateDirectory } from '../directory';
 import { PIDFD_PREFLIGHT, PIDFD_READY } from './pidfd-preflight';
 import { resolvePython, type PythonProbe } from './python';
@@ -74,10 +75,10 @@ export async function validateProfileCwd(profile: TerminalProfileDto, cwd: strin
   if (profile.environment === 'local') return validateDirectory(cwd);
   if (!profile.distro) throw new Error('No guest distribution selected.');
   let guest = cwd;
-  const unc = /^\\\\(?:wsl\.localhost|wsl\$)\\([^\\]+)\\(.*)$/i.exec(cwd);
+  const unc = parseWslUnc(cwd);
   if (unc) {
-    if (unc[1]!.toLowerCase() !== profile.distro.toLowerCase()) throw new Error('The folder belongs to a different WSL distribution.');
-    guest = '/' + unc[2]!.replace(/\\/g, '/');
+    if (unc.distro.toLowerCase() !== profile.distro.toLowerCase()) throw new Error('The folder belongs to a different WSL distribution.');
+    guest = unc.guestPath;
   }
   if (/^[A-Za-z]:[\\/]/.test(cwd)) guest = decodeWsl(await run(profile.executable, ['--distribution', profile.distro, '--exec', 'wslpath', '-a', '-u', cwd])).trim();
   if (!guest.startsWith('/') || !pathSchema.safeParse(guest).success) throw new Error('Expected an absolute guest directory.');

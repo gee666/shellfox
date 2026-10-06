@@ -42,6 +42,8 @@ export interface SessionDto {
 export interface ProcessRule {
   id: Id; label: string; enabled: boolean; executableBasenames: string[];
   executablePaths: string[]; scriptPathSuffixes: string[];
+  /** Trusted names/titles for bundled agents, separate from runtime script launchers. */
+  processNames?: string[];
 }
 export interface SettingsDto {
   version: 1; pythonPath?: string | null; accentColor: string; backgroundColor: string; adapterId: AdapterId; shellId: ShellId;

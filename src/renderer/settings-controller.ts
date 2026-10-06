@@ -1,19 +1,20 @@
 import { createStore } from 'zustand/vanilla';
 import type { AppError, ManagerApi, ProcessRule, SettingsDto } from '../shared/contracts';
+import { pathSchema } from '../shared/schemas';
 import { request } from './api';
 
 type Edit = { value: unknown; version: number };
 type Changes = Map<string, unknown>;
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const rulePath = (id: string, field?: string) => `rule:${id}${field ? `:${field}` : ''}`;
-const localPath = (value: string) => (/^[a-z]:[\\/]/i.test(value) || /^\/(?!\/)/.test(value)) && !value.includes('://') && !/^[\\/]{2}/.test(value) && !/[\u0000-\u001f\u007f]/.test(value);
+export const executablePathSchema = pathSchema.max(32760);
 export function validateSettingsDraft(settings: SettingsDto): Record<string, string> {
   const errors: Record<string, string> = {};
   if (!/^#[0-9a-f]{6}$/i.test(settings.accentColor)) errors.accent = 'Choose a six-digit color.';
   if (!/^#[0-9a-f]{6}$/i.test(settings.backgroundColor)) errors.background = 'Choose a six-digit color.';
   if (settings.pythonPath && (!settings.pythonPath.startsWith('/') || /[\u0000-\u001f\u007f]/.test(settings.pythonPath))) errors.python = 'Use an absolute Python path, or leave empty for auto-detect.';
   for (const rule of settings.processRules) {
-    if (rule.executablePaths.some(path => !localPath(path))) errors[`${rule.id}.paths`] = 'Use absolute local paths, separated by commas.';
+    if (rule.executablePaths.some(path => !executablePathSchema.safeParse(path).success)) errors[`${rule.id}.paths`] = 'Use an absolute local executable path.';
     if (rule.scriptPathSuffixes.some(path => path.split(/[\\/]/).some(part => part === '.' || part === '..') || /[\u0000-\u001f\u007f]/.test(path))) errors[`${rule.id}.suffixes`] = 'Use script paths without . or .. components.';
     if (rule.executablePaths.length > 30 || rule.scriptPathSuffixes.length > 30) errors[`${rule.id}.paths`] = 'Use at most 30 entries.';
   }

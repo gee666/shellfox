@@ -1,8 +1,8 @@
 import type { EnvVar } from '../../shared/contracts';
 import { envVarsSchemaFor } from '../../shared/schemas';
 
-/** Session overrides win, including Windows' case-insensitive environment names. */
-export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: EnvVar[], options: { windows: boolean; wsl: boolean; cliBin?: string }): Record<string, string> {
+/** Session overrides win, except the owned marker, including Windows' case-insensitive names. */
+export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: EnvVar[], options: { windows: boolean; wsl: boolean; cliBin?: string; marker?: string }): Record<string, string> {
   const env: Record<string, string> = Object.create(null);
   const set = (name: string, value: string) => {
     if (options.windows) for (const key of Object.keys(env)) if (key.toLowerCase() === name.toLowerCase()) delete env[key];
@@ -22,14 +22,21 @@ export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: Env
     const name = Object.keys(env).find(key => key.toLowerCase() === 'path') ?? 'PATH', separator = options.windows ? ';' : ':';
     set(name, options.cliBin + separator + (env[name] ?? ''));
   }
-  if (options.wsl) {
+  if (options.marker !== undefined) {
+    for (const key of Object.keys(env)) if (key.toLowerCase() === 'shellfox_terminal_marker') delete env[key];
+    set('SHELLFOX_TERMINAL_MARKER', options.marker);
+  }
+  if (options.wsl || options.windows && options.marker !== undefined) {
     const key = Object.keys(env).find(key => key.toLowerCase() === 'wslenv') ?? 'WSLENV';
-    const transfer = [...new Set(['TERM', 'COLORTERM', ...parsed.map(v => v.name)]
+    const transfer = [...new Set([
+      ...(options.wsl ? ['TERM', 'COLORTERM', ...parsed.map(v => v.name)] : []),
+      ...(options.marker !== undefined ? ['SHELLFOX_TERMINAL_MARKER'] : []),
+    ]
       .map(name => Object.keys(env).find(key => key.toLowerCase() === name.toLowerCase()) ?? name))]
       .filter(name => name.toLowerCase() !== 'wslenv');
     const names = new Set(transfer.map(name => name.toLowerCase()));
-    // Capabilities and session values must reach the guest even if inherited WSLENV
-    // restricted them with /w or transformed them with /p or /l. Keep unrelated flags.
+    // Strip transfer restrictions/transforms from managed values. The marker must
+    // cross both directions unchanged; unrelated WSLENV entries keep their flags.
     const previous = (env[key] ?? '').split(':').filter(entry => entry && !names.has(entry.split('/')[0]!.toLowerCase()));
     set('WSLENV', [...previous, ...transfer].join(':'));
   }

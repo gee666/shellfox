@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { failure, success } from '../shared/contracts';
-import { SessionSidebar } from './SessionSidebar';
+import { SessionSidebar, shortenHome } from './SessionSidebar';
 import { createManagerClient } from './store';
 import type { ManagerClient } from './store';
 import { mockApi, session, snapshot } from './test-fixtures';
@@ -18,6 +18,30 @@ function Navigation({ client }: { client: ManagerClient }) {
   return <SessionSidebar client={client} sessions={state.snapshot?.sessions ?? []} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={1} />;
 }
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+
+describe('sidebar cwd display', () => {
+  it.each([
+    [String.raw`\\wsl.localhost\Debian\var\www`, '/var/www'],
+    [String.raw`\\wsl$\Debian\var\www`, '/var/www'],
+    [String.raw`\\wsl$\Debian`, '/'],
+    [String.raw`\\wsl$\Debian\home\user\work`, '~/work'],
+    [String.raw`C:\Users\user\work`, String.raw`~\work`],
+    [String.raw`C:\work`, String.raw`C:\work`],
+    [String.raw`\\server\share\work`, String.raw`\\server\share\work`],
+    ['/var/www', '/var/www'], ['/home/user/work', '~/work'],
+  ])('formats %s as %s', (cwd, expected) => expect(shortenHome(cwd)).toBe(expected));
+
+  it('displays the guest path but keeps the original UNC tooltip and copy path', async () => {
+    const cwd = String.raw`\\wsl.localhost\Debian\var\www`;
+    const fixture = mockApi(snapshot([session(1, { cwd })]));
+    const client = createManagerClient(fixture.api); clients.push(client); client.start();
+    const user = userEvent.setup(); render(<Navigation client={client} />);
+    expect(await screen.findByText('/var/www')).toHaveAttribute('title', cwd);
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Session 1' }) });
+    await user.click(screen.getByRole('menuitem', { name: 'Copy path' }));
+    expect(fixture.api.copyText).toHaveBeenCalledWith({ text: cwd });
+  });
+});
 
 describe('archive refresh and pagination', () => {
   it('keeps the loaded page range through native polls, archive and restore events', async () => {

@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { failure, success } from '../shared/contracts';
 import { processRuleSchema } from '../shared/schemas';
+import { defaultSettings } from '../main/defaults';
 import { SettingsPanel, createAgentRule } from './SettingsPanel';
 import { createManagerClient } from './store';
 import { deferred, mockApi, profiles, snapshot } from './test-fixtures';
@@ -38,49 +39,141 @@ describe('autosaving settings', () => {
     const { fixture, user } = setup();
     await user.type(screen.getByLabelText('Add agent'), 'aider{Enter}');
     expect(screen.getByRole('switch', { name: 'Track aider' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByText('aider, aider.exe')).toBeVisible();
+    expect(screen.getByText('Process name: aider, aider.exe')).toBeVisible();
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
     const rule = fixture.api.saveSettings.mock.calls.at(-1)![0].processRules.at(-1)!;
     expect(rule).toMatchObject({ label: 'aider', enabled: true, executableBasenames: ['aider', 'aider.exe'], executablePaths: [], scriptPathSuffixes: [] });
     expect(rule.id).toMatch(/^custom-aider-/); expect(screen.queryByText(rule.id)).not.toBeInTheDocument();
-    expect(createAgentRule('agent.exe').executableBasenames).toEqual(['agent.exe']);
+    expect(createAgentRule('agent.exe').executableBasenames).toEqual(['agent', 'agent.exe']);
     expect(processRuleSchema.safeParse(rule).success).toBe(true);
   });
-  it('rejects paths/commands and duplicate names without saving', async () => {
+  it.each(['C:\\Program Files\\Agent\\agent.exe', '/opt/Agent Tools/agent', '\\\\wsl.localhost\\Ubuntu\\opt\\Agent Tools\\agent', '\\\\wsl$\\Debian\\opt\\agent'])('adds an exact executable path with spaces: %s', async path => {
     const { fixture, user } = setup();
-    await user.type(screen.getByLabelText('Add agent'), 'C:\\tools\\aider.exe{Enter}');
-    expect(screen.getByRole('alert')).toHaveTextContent('program name');
-    await user.clear(screen.getByLabelText('Add agent'));
-    await user.type(screen.getByLabelText('Add agent'), 'node.exe{Enter}');
+    fireEvent.change(screen.getByLabelText('Add agent'), { target: { value: path } });
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByText('Exact path: ' + path)).toBeVisible();
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
+    const rule = fixture.api.saveSettings.mock.calls.at(-1)![0].processRules.at(-1)!;
+    expect(rule).toMatchObject({ enabled: true, executableBasenames: [], executablePaths: [path], scriptPathSuffixes: [] });
+    expect(processRuleSchema.safeParse(rule).success).toBe(true);
+  });
+  it('accepts paths longer than the label limit and keeps the entire path', async () => {
+    const path = '/opt/' + 'agent-tools/'.repeat(25) + 'agent';
+    const { fixture, user } = setup();
+    const input = screen.getByLabelText('Add agent');
+    expect(input).toHaveAttribute('maxlength', '32760');
+    fireEvent.change(input, { target: { value: path } });
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
+    const rule = fixture.api.saveSettings.mock.calls.at(-1)![0].processRules.at(-1)!;
+    expect(rule.label).toBe('agent');
+    expect(rule.executablePaths).toEqual([path]);
+    expect(processRuleSchema.safeParse(rule).success).toBe(true);
+  });
+  it.each(['./agent', 'tools/agent', 'C:agent.exe', '\\\\server\\share\\agent.exe', '\\\\?\\C:\\agent.exe', 'https://example.com/agent', 'agent --flag', '"C:\\Program Files\\agent.exe"', 'agent\u0000', 'agent\u0001--flag', 'a'.repeat(201)])('rejects invalid input without saving: %j', async value => {
+    const { fixture, user, client } = setup();
+    fireEvent.change(screen.getByLabelText('Add agent'), { target: { value } });
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('process name or an absolute local executable path');
+    expect(screen.getByLabelText('Add agent')).toHaveAttribute('aria-invalid', 'true');
+    expect(client.settings.store.getState().draft?.processRules).toHaveLength(1);
+    client.settings.flush();
+    expect(fixture.api.saveSettings).not.toHaveBeenCalled();
+  });
+  it('deduplicates process names case-insensitively and treats .exe as the same name', async () => {
+    const initial = snapshot(); initial.settings.processRules = [createAgentRule('aider.exe')];
+    const { fixture, user } = setup(initial);
+    for (const name of ['aider', 'AIDER.EXE', ' aider ']) {
+      fireEvent.change(screen.getByLabelText('Add agent'), { target: { value: name } });
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+      expect(screen.getByRole('alert')).toHaveTextContent('already listed');
+    }
+    expect(fixture.api.saveSettings).not.toHaveBeenCalled();
+  });
+  it.each(['bun', 'node'])('allows custom %s with actual bundled defaults and then rejects direct-name duplicates', async name => {
+    const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
+    const { fixture, user, client } = setup(initial);
+    await user.type(screen.getByLabelText('Add agent'), name + '{Enter}');
+    expect(screen.getByRole('switch', { name: 'Track ' + name })).toBeVisible();
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
+    const rules = fixture.api.saveSettings.mock.calls[0]![0].processRules;
+    expect(rules.slice(0, -1)).toEqual(defaultSettings.processRules);
+    expect(rules.at(-1)).toMatchObject({ executableBasenames: [name, name + '.exe'], executablePaths: [], scriptPathSuffixes: [] });
+    await user.type(screen.getByLabelText('Add agent'), name.toUpperCase() + '.EXE{Enter}');
+    expect(screen.getByRole('alert')).toHaveTextContent('already listed');
+    client.settings.flush();
+    expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
+  });
+  it('does not deduplicate names against legacy script-constrained runtimes', async () => {
+    const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
+    for (const rule of initial.settings.processRules) delete rule.processNames;
+    const { fixture, user } = setup(initial);
+    await user.type(screen.getByLabelText('Add agent'), 'node{Enter}');
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
+    expect(fixture.api.saveSettings.mock.calls[0]![0].processRules.at(-1)!.executableBasenames).toEqual(['node', 'node.exe']);
+  });
+  it('does not deduplicate names against exact-path rules even with basenames and processNames', async () => {
+    const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
+    initial.settings.processRules.push({ ...createAgentRule('/opt/bun'), executableBasenames: ['bun', 'bun.exe'], processNames: ['bun', 'bun.exe'] });
+    const { fixture, user } = setup(initial);
+    await user.type(screen.getByLabelText('Add agent'), 'bun{Enter}');
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
+    expect(fixture.api.saveSettings.mock.calls[0]![0].processRules.at(-1)).toMatchObject({ executableBasenames: ['bun', 'bun.exe'], executablePaths: [] });
+  });
+  it('deduplicates Windows paths across case and slash variants without changing the stored path', async () => {
+    const path = 'C:\\Program Files\\agent.exe';
+    const initial = snapshot(); initial.settings.processRules = [createAgentRule(path)];
+    const { fixture, user, client } = setup(initial);
+    fireEvent.change(screen.getByLabelText('Add agent'), { target: { value: ' c:/PROGRAM FILES/AGENT.EXE ' } });
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('already listed');
+    expect(client.settings.store.getState().draft?.processRules[0]!.executablePaths).toEqual([path]);
+    expect(fixture.api.saveSettings).not.toHaveBeenCalled();
+  });
+  it('keeps Linux paths case-sensitive and name trust separate from exact path trust', async () => {
+    const initial = snapshot(); initial.settings.processRules = [createAgentRule('/opt/agent')];
+    const { fixture, user } = setup(initial);
+    const input = screen.getByLabelText('Add agent');
+    fireEvent.change(input, { target: { value: '/opt/agent' } });
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('already listed');
+    for (const value of ['/opt/Agent', 'agent']) {
+      fireEvent.change(input, { target: { value } });
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+      expect(input).toHaveValue('');
+    }
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
+    expect(fixture.api.saveSettings.mock.calls.at(-1)![0].processRules).toHaveLength(3);
+  });
+  it('shows four standard built-in toggles without Advanced or removal and preserves hidden matcher fields', async () => {
+    const initial = snapshot();
+    initial.settings = structuredClone(defaultSettings);
+    const { fixture, user } = setup(initial);
+    expect(screen.getAllByRole('switch', { name: /^Track / })).toHaveLength(4);
+    expect(screen.queryByRole('switch', { name: /Native/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Advanced')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Executable paths for|Script path suffix for/)).not.toBeInTheDocument();
+    for (const label of ['Pi', 'Claude', 'Codex', 'OpenCode']) {
+      expect(screen.queryByRole('button', { name: 'Remove ' + label })).not.toBeInTheDocument();
+      await user.click(screen.getByRole('switch', { name: 'Track ' + label }));
+    }
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
+    expect(fixture.api.saveSettings.mock.calls.at(-1)![0].processRules).toEqual(initial.settings.processRules.map(rule => ({ ...rule, enabled: false })));
+  });
+  it.each(['PI.EXE', 'claude', 'CODEX', 'opencode.exe'])('rejects actual built-in process name %s', async name => {
+    const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
+    const { fixture, user } = setup(initial);
+    await user.type(screen.getByLabelText('Add agent'), name + '{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('already listed');
     expect(fixture.api.saveSettings).not.toHaveBeenCalled();
   });
-  it('protects built-in rules from removal and lets users toggle them', async () => {
-    const initial = snapshot(); initial.settings.processRules[0]!.id = 'f919fb1a-fb03-4a93-8b9b-1cde465d5870';
+  it.each(['aider', '/opt/tools/agent'])('removes a custom name or path rule: %s', async value => {
+    const initial = snapshot(); const custom = createAgentRule(value);
+    initial.settings.processRules.push(custom);
     const { fixture, user } = setup(initial);
-    expect(screen.queryByRole('button', { name: 'Remove Pi' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('switch', { name: 'Track Pi' }));
-    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
-    expect(fixture.api.saveSettings.mock.calls.at(-1)![0].processRules[0]!.enabled).toBe(false);
-    expect(fixture.api.saveSettings.mock.calls.at(-1)![0].processRules[0]!.scriptPathSuffixes).toEqual(initial.settings.processRules[0]!.scriptPathSuffixes);
-  });
-  it('retains comma-separated advanced input while typing and validates paths inline', async () => {
-    const { fixture, user } = setup();
-    await user.click(screen.getByText('Advanced'));
-    const input = screen.getByLabelText('Executable paths for Pi');
-    await user.type(input, 'relative');
-    expect(screen.getByRole('alert')).toHaveTextContent('absolute local paths');
-    await new Promise(resolve => setTimeout(resolve, 450)); expect(fixture.api.saveSettings).not.toHaveBeenCalled();
-    await user.clear(input);
-    await user.type(input, 'C:\\tools\\one.exe, C:\\tools\\two.exe');
-    expect(input).toHaveValue('C:\\tools\\one.exe, C:\\tools\\two.exe');
-    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
-    expect(fixture.api.saveSettings.mock.calls.at(-1)![0].processRules[0]!.executablePaths).toEqual(['C:\\tools\\one.exe', 'C:\\tools\\two.exe']);
-  });
-  it('removes user-added rules', async () => {
-    const { fixture, user } = setup();
-    await user.click(screen.getByRole('button', { name: 'Remove Pi' }));
-    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ processRules: [] })));
+    await user.click(screen.getByRole('button', { name: 'Remove ' + custom.label }));
+    expect(screen.queryByRole('switch', { name: 'Track ' + custom.label })).not.toBeInTheDocument();
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ processRules: [initial.settings.processRules[0]] })));
   });
   it('serializes autosaves and keeps later edits made during a pending save', async () => {
     const { fixture, user } = setup();
@@ -149,15 +242,13 @@ describe('autosaving settings', () => {
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
     expect(fixture.api.saveSettings.mock.calls[0]![0]).toMatchObject({ accentColor: '#60a5fa', historyPageSize: 3 });
   });
-  it('updates clean advanced text from authoritative props and preserves partial comma typing', async () => {
+  it('updates path summaries from authoritative props without disturbing the add-agent input', async () => {
     const initial = snapshot(); const { client, rerender, user } = setup(initial);
-    await user.click(screen.getByText('Advanced'));
+    await user.type(screen.getByLabelText('Add agent'), '/opt/partial path');
     const external = { ...initial.settings, processRules: [{ ...initial.settings.processRules[0]!, executablePaths: ['C:\\external\\pi.exe'] }] };
     rerender(<SettingsPanel client={client} settings={external} explorer={initial.explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
-    const input = screen.getByLabelText('Executable paths for Pi');
-    await waitFor(() => expect(input).toHaveValue('C:\\external\\pi.exe'));
-    await user.type(input, ', ');
-    expect(input).toHaveValue('C:\\external\\pi.exe, ');
+    await waitFor(() => expect(screen.getByText(/Exact path: C:\\external\\pi.exe/)).toBeVisible());
+    expect(screen.getByLabelText('Add agent')).toHaveValue('/opt/partial path');
   });
   it('toggles the Terminal command using the CLI integration API and reflects authoritative updates', async () => {
     const initial = snapshot(); const { fixture, client, user, rerender } = setup(initial);
