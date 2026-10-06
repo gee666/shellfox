@@ -23,6 +23,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   const [morePending, setMorePending] = useState(false);
   const historyToken = useRef(0);
   const action = useAction();
+  const opening = useAction();
   const notify = useNotify();
   const statusRefresh = expanded ? invalidation : 0;
   useEffect(() => {
@@ -46,6 +47,22 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
     return () => { historyToken.current++; };
   }, [client, statusRefresh, archiveInvalidation, pageSize, expanded, page]);
   function more() { setPage(value => value + 1); }
+  /** Selecting a live session with no open terminal (e.g. after a restart) opens one fresh shell.
+   * The backend serializes activation and returns the existing shell if one is already live. */
+  async function open(session: SessionDto) {
+    client.select(session);
+    if (session.settledAt || session.status === 'settled' || session.tabs.some(tab => tab.lifecycle !== 'closed')) return;
+    const result = await opening.run(() => client.api.activateSession({ sessionId: session.id }));
+    if (!result?.ok || client.store.getState().selectedId !== session.id) return;
+    client.accept(result.value);
+    const tab = result.value.tabs.find(item => item.lifecycle !== 'closed');
+    if (tab) client.selectTab(result.value, tab.id);
+  }
+  async function pin(session: SessionDto, pinned: boolean) {
+    setMenu(null);
+    const result = await action.run(() => client.api.setSessionPinned({ sessionId: session.id, pinned }));
+    if (result?.ok) client.refresh();
+  }
   function rename(session: SessionDto) { setMenu(null); setRenaming(session.id); setName(session.title); }
   async function saveName(session: SessionDto) {
     if (!name.trim()) return;
@@ -74,7 +91,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
       onContextMenu={event => { event.preventDefault(); setMenu({ session, x: event.clientX, y: event.clientY }); }}>
       <StatusDot state={sessionDot(session, busy)} />
       {editing ? <div className="session-copy"><input autoFocus aria-label="Session title" value={name} maxLength={160} disabled={action.pending} onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void saveName(session); if (event.key === 'Escape') setRenaming(null); }} /><small title={session.cwd}>{shortenHome(session.cwd)}</small></div>
-        : <button className="session-copy" aria-label={`Select session ${session.title}`} aria-pressed={selectedId === session.id} onClick={() => client.select(session)}><span className="session-title" title={session.title} onDoubleClick={() => rename(session)}>{session.title}</span><small title={session.cwd}>{shortenHome(session.cwd)}</small></button>}
+        : <button className="session-copy" aria-label={`Select session ${session.title}`} aria-pressed={selectedId === session.id} onClick={() => void open(session)}><span className="session-title-line"><span className="session-title" title={session.title} onDoubleClick={() => rename(session)}>{session.title}</span>{session.pinnedAt && !session.settledAt && <span className="session-pin" title="Pinned" aria-label="Pinned"><Icon name="pin" /></span>}</span><small title={session.cwd}>{shortenHome(session.cwd)}</small></button>}
     </div>;
   }
   const live = sessions.filter(session => !session.settledAt && session.status !== 'settled');
@@ -82,6 +99,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
     <button className="archive-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><span>Archived · {total}</span><span className={expanded ? 'expanded' : ''}><Icon name="chevron" /></span></button>
     {expanded && <div role="region" aria-label="Archived sessions">{history.map(row)}{history.length < total && <button className="text-button history-more" disabled={morePending} onClick={() => void more()}>More</button>}</div>}
     {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+      {!menu.session.settledAt && <button role="menuitem" disabled={action.pending} onClick={() => void pin(menu.session, !menu.session.pinnedAt)}>{menu.session.pinnedAt ? 'Unpin' : 'Pin to top'}</button>}
       <button role="menuitem" disabled={action.pending} onClick={() => rename(menu.session)}>Rename</button>
       <button role="menuitem" disabled={action.pending} onClick={() => { setEditingEnv(menu.session); setMenu(null); }}>Environment variables…</button>
       <button role="menuitem" disabled={action.pending} onClick={() => { const sessionId = menu.session.id; setMenu(null); void action.run(() => client.api.openSessionFolder({ sessionId })); }}>Open in File Explorer</button>

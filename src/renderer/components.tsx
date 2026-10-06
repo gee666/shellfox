@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom';
 import type { AppError, Result, SessionDto, TabDto } from '../shared/contracts';
 import { request } from './api';
 
-export function Icon({ name }: { name: 'plus' | 'settings' | 'close' | 'chevron' }) {
-  const paths = { plus: 'M8 3v10M3 8h10', close: 'm4 4 8 8M12 4l-8 8', chevron: 'm6 3 5 5-5 5',
+export function Icon({ name }: { name: 'plus' | 'settings' | 'close' | 'chevron' | 'pin' }) {
+  const paths = { pin: 'M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5', plus: 'M8 3v10M3 8h10', close: 'm4 4 8 8M12 4l-8 8', chevron: 'm6 3 5 5-5 5',
     settings: 'm6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z' };
   return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} />{name === 'settings' && <circle cx="8" cy="7.5" r="2.25" />}</svg>;
 }

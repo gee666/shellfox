@@ -236,7 +236,7 @@ export class SessionService {
     const bound = this.probe.available && this.verified.has(session.id) && !!session.target && (!this.windows || (!!session.binding && session.windowState === 'alive'));
     const canFocus = bound && this.probe.capabilities.focusWindow;
     const canAddTab = bound && this.probe.capabilities.addTab && !session.settledAt && tabs.some(t => t.lifecycle === 'open');
-    return { window: this.windows ? this.windows.dto(session) : {state:'unsupported',canReopen:false,canRegister:false,reason:'This backend does not support authenticated window lifecycle or explicit terminal registration.'}, id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt, status: publicStatus(activityStatus, session.settledAt), activityStatus, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus, canAddTab, controlReason: !tabs.some(t => t.lifecycle !== 'closed') ? 'No open terminals' : !bound ? 'No verified native window. Select the terminal manually.' : !this.probe.capabilities.addTab ? 'Adding tabs is unavailable for this backend. Select individual tabs in Windows Terminal.' : session.settledAt ? 'Unsettle before adding a tab. Select individual tabs in Windows Terminal.' : 'Select individual tabs in Windows Terminal.', error: session.error };
+    return { window: this.windows ? this.windows.dto(session) : {state:'unsupported',canReopen:false,canRegister:false,reason:'This backend does not support authenticated window lifecycle or explicit terminal registration.'}, id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt, pinnedAt: session.pinnedAt ?? null, status: publicStatus(activityStatus, session.settledAt), activityStatus, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus, canAddTab, controlReason: !tabs.some(t => t.lifecycle !== 'closed') ? 'No open terminals' : !bound ? 'No verified native window. Select the terminal manually.' : !this.probe.capabilities.addTab ? 'Adding tabs is unavailable for this backend. Select individual tabs in Windows Terminal.' : session.settledAt ? 'Unsettle before adding a tab. Select individual tabs in Windows Terminal.' : 'Select individual tabs in Windows Terminal.', error: session.error };
   }
   getSnapshot(): Result<ManagerSnapshot> { return success({ revision: this.revision, sessions: sortSessions(this.repository.sessions().filter(s => !s.settledAt).map(s => this.toDto(s))), settings: this.repository.settings(), probe: this.probe, explorer: this.explorer, cli: this.cli }); }
   getHistory(input: HistoryQuery): Result<HistoryPage> {
@@ -405,6 +405,13 @@ export class SessionService {
     return Promise.resolve(failure('UNSUPPORTED', 'Environment overrides require embedded terminals.'));
   }
   setCliIntegration(_input: { installed: boolean }) { return Promise.resolve(failure('UNSUPPORTED', 'Shellfox CLI integration requires embedded terminals.')); }
+  setSessionPinned(input: { sessionId: string; pinned: boolean }): Promise<Result<SessionDto>> {
+    if (!requestSchemas.setSessionPinned.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid pin request'));
+    return this.mutate(input.sessionId, s => {
+      if (s.settledAt) return failure('UNSUPPORTED', 'Restore this session before pinning it.');
+      s.pinnedAt = input.pinned ? s.pinnedAt ?? new Date().toISOString() : null;
+    });
+  }
   renameSession(input: { sessionId: string; title: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.renameSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid title'));
     return this.mutate(input.sessionId, s => { s.title = input.title; });

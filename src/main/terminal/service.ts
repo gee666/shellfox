@@ -167,7 +167,7 @@ export class EmbeddedSessionService {
     });
     const embedded = session.adapterId === 'embedded-pty', live = this.backend.live().some(e => e.sessionId === session.id);
     const activity = aggregateStatus(tabs, session.error);
-    return { id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt,
+    return { id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt, pinnedAt: session.pinnedAt ?? null,
       status: publicStatus(activity, session.settledAt), activityStatus: activity, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus: live,
       canAddTab: this.probe.available && !session.settledAt, controlReason: embedded ? LIFETIME_NOTICE : 'Legacy external terminals are not controlled. Activating this task starts a separate embedded shell.', error: session.error,
       terminalLifetime: embedded ? 'app-owned' : 'external-legacy', shellSurvival: false,
@@ -274,6 +274,13 @@ export class EmbeddedSessionService {
     const parsed = requestSchemas.setSessionEnv.safeParse(input);
     if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid environment variables.'));
     return this.mutate(parsed.data.sessionId, session => { session.env = parsed.data.env; });
+  }
+  setSessionPinned(input: { sessionId: string; pinned: boolean }): Promise<Result<SessionDto>> {
+    if (!requestSchemas.setSessionPinned.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid pin request.'));
+    return this.mutate(input.sessionId, s => {
+      if (s.settledAt) return failure('UNSUPPORTED', 'Restore this session before pinning it.');
+      s.pinnedAt = input.pinned ? s.pinnedAt ?? new Date().toISOString() : null;
+    });
   }
   renameSession(input: { sessionId: string; title: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.renameSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid title.'));

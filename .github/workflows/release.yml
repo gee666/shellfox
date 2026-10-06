@@ -68,6 +68,11 @@ jobs:
         run: bash .github/scripts/ci-step.sh unit-tests pnpm test:unit
       - name: Package and make installers
         run: bash .github/scripts/ci-step.sh make pnpm make
+      - name: SQLite storage and migration smoke (Linux)
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+          bash .github/scripts/ci-step.sh storage-smoke dbus-run-session -- xvfb-run -a pnpm test:storage
       - name: Linux packaged Electron sandbox helper
         if: matrix.platform == 'linux'
         run: sudo chown root:root 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox' && sudo chmod 4755 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox'

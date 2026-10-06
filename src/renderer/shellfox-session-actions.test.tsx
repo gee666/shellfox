@@ -20,7 +20,7 @@ describe('Shellfox session actions', () => {
   it('uses the specified menu order and copies through the preload API with a two-second success toast', async () => {
     const initial = snapshot([session(1, { error: { code: 'FOCUS_DENIED', message: 'Focus denied', retryable: true } })]);
     const { fixture, user } = await setup(initial); context();
-    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Rename', 'Environment variables…', 'Open in File Explorer', 'Copy path', 'Clear error', 'Archive']);
+    expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Pin to top', 'Rename', 'Environment variables…', 'Open in File Explorer', 'Copy path', 'Clear error', 'Archive']);
     await user.click(screen.getByRole('menuitem', { name: 'Copy path' }));
     expect(fixture.api.copyText).toHaveBeenCalledWith({ text: initial.sessions[0]!.cwd });
     const toast = await screen.findByRole('status'); expect(toast).toHaveTextContent('Path copied');

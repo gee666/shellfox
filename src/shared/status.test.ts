@@ -40,3 +40,16 @@ describe('status rules', () => {
     expect(records.sort(compareSessions).map(r => r.status+':'+r.id)).toEqual(['waiting:a','waiting:b','error:a','running:a','unknown:a','settled:a']);
   });
 });
+
+describe('pinned session order', () => {
+  it('puts pinned sessions first in pin order, then status/creation order', () => {
+    const base = { createdAt: '2026-01-01T00:00:00.000Z' };
+    const records = [
+      { ...base, id: 'a', status: 'waiting' as const, pinnedAt: null },
+      { ...base, id: 'b', status: 'running' as const, pinnedAt: '2026-02-02T00:00:00.000Z' },
+      { ...base, id: 'c', status: 'unknown' as const, pinnedAt: '2026-02-01T00:00:00.000Z' },
+      { ...base, id: 'd', status: 'waiting' as const },
+    ];
+    expect(records.sort(compareSessions).map(r => r.id)).toEqual(['c', 'b', 'a', 'd']);
+  });
+});

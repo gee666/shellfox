@@ -154,4 +154,4 @@ async function run(): Promise<void> {
   });
   app.on('window-all-closed', () => app.quit());
 }
-void run().catch(() => { dialog.showErrorBox('Shellfox', 'The manager could not start. Check the installed application and data directory.'); app.exit(1); });
+void run().catch(error => { console.error('Shellfox startup failed:', error); dialog.showErrorBox('Shellfox', 'The manager could not start. Check the installed application and data directory.'); app.exit(1); });

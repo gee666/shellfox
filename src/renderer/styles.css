@@ -59,6 +59,10 @@ small { font-size: 11px; color: var(--muted); }
 .session-copy { display: flex; flex-direction: column; gap: 0; border: 0; padding: 0; border-radius: 0; text-align: left; background: transparent; min-width: 0; width: 100%; line-height: 14px; }
 button.session-copy:hover { background: transparent; }
 .session-title { font-size: 13px; }
+.session-title-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.session-title-line > .session-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+.session-pin { flex: 0 0 auto; display: inline-flex; color: var(--muted); }
+.session-pin svg { width: 11px; height: 11px; }
 .session-copy > span, .session-copy small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .session-copy small { line-height: 14px; }
 .session-copy input { height: 16px; padding: 0 2px; border-radius: 2px; font-size: 13px; }

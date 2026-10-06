@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { Repository } from './repository';
+import { Repository, SCHEMA_VERSION } from './repository';
 import { defaultSettings } from './defaults';
 import type { SessionRecord, TabRecord } from './models';
 declare const __PROJECT_ROOT__: string;
@@ -15,7 +15,7 @@ async function run() {
   await app.whenReady();
   const filename = path.join(folder, 'manager.sqlite3');
   let repository = new Repository(filename);
-  assert.equal(repository.db.pragma('user_version', {simple:true}),3);
+  assert.equal(repository.db.pragma('user_version', {simple:true}),SCHEMA_VERSION);
   assert.equal(repository.db.pragma('journal_mode', {simple:true}),'wal');
   assert.equal(repository.db.pragma('foreign_keys', {simple:true}),1);
   assert.deepEqual(repository.settings(),defaultSettings);
@@ -49,9 +49,16 @@ async function run() {
   repository.close();repository=new Repository(filename);
   assert.deepEqual(repository.tab(tab.id)?.terminal,{kind:'embedded',profileId:'login-shell',exitCode:7});
   // Simulate the previous version's schema and verify a real migration keeps task/root history.
-  repository.db.exec('DROP TABLE terminal_metadata; ALTER TABLE sessions DROP COLUMN env');repository.db.pragma('user_version = 1');repository.close();
+  // Pinned state survives a close/reopen at the current schema version (reopening must not be refused).
+  repository.saveSession({...s,pinnedAt:now});repository.close();repository=new Repository(filename);
+  assert.equal(repository.session(s.id)?.pinnedAt,now);
+  repository.saveSession({...repository.session(s.id)!,pinnedAt:null});assert.equal(repository.session(s.id)?.pinnedAt,null);
+  repository.db.exec('DROP TABLE terminal_metadata; ALTER TABLE sessions DROP COLUMN env; ALTER TABLE sessions DROP COLUMN pinnedAt');repository.db.pragma('user_version = 1');repository.close();
   repository=new Repository(filename);
-  assert.equal(repository.db.pragma('user_version',{simple:true}),3);
+  assert.equal(repository.db.pragma('user_version',{simple:true}),SCHEMA_VERSION);
+  assert.equal(repository.session(s.id)?.pinnedAt,null);
+  repository.close();repository=new Repository(filename);
+  assert.equal(repository.db.pragma('user_version',{simple:true}),SCHEMA_VERSION);
   assert.equal(repository.session(s.id)?.title,s.title);
   assert.equal(repository.tab(tab.id)?.terminal,null);
   const before=repository.sessions().length;

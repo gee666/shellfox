@@ -9,7 +9,9 @@ This is an embedded-terminal preview. Windows x64 dependency/build/package check
 ## Using the workspace
 
 - Create a session with an accessible folder. Multiple sessions can use the same folder.
-- Select a session to show its current or first live tab. If none remain, press the tab-strip plus to open a fresh shell. Selection never launches shells or restores commands.
+- Select a session to show its current or first live tab. If it has no open terminal (for example after a restart), selecting it opens one fresh shell; commands are never restored. The session's environment variables apply to every new terminal in it.
+- After a restart all saved sessions are listed, but no terminals open until you select a session.
+- Right-click a session → Pin to top keeps it above the others (in pin order); Unpin returns it to the normal order. Archived sessions remember the pin; it applies again after Restore.
 - The tab-strip plus creates another independent shell. Right-click it to choose a discovered profile.
 - Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
 - Closing a tab explicitly terminates its owned shell and verified descendants. Closure requires exit evidence, not just a sent signal. Do not use it on work you want to keep running.

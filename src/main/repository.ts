@@ -5,6 +5,8 @@ import type { RepositoryPort, SessionRecord, TabRecord, OperationRecord } from '
 import { defaultSettings, upgradeBundledRules } from './defaults';
 import { historySearch } from './history';
 
+/** Latest schema migration. Opening a database with a higher user_version is refused. */
+export const SCHEMA_VERSION = 4;
 export class Repository implements RepositoryPort {
   readonly db: Database.Database;
   constructor(filename: string) {
@@ -14,7 +16,7 @@ export class Repository implements RepositoryPort {
       this.db.pragma('foreign_keys = ON');
       this.db.pragma('busy_timeout = 5000');
       const version = this.db.pragma('user_version', { simple: true }) as number;
-      if (version > 3) throw new Error('Database was created by a newer app');
+      if (version > SCHEMA_VERSION) throw new Error('Database was created by a newer app');
       if (version === 0) this.db.transaction(() => {
         this.db.exec(`
           CREATE TABLE sessions (
@@ -50,6 +52,11 @@ export class Repository implements RepositoryPort {
       if (version < 3) this.db.transaction(() => {
         this.db.exec("ALTER TABLE sessions ADD COLUMN env TEXT NOT NULL DEFAULT '[]'");
         this.db.pragma('user_version = 3');
+      })();
+      // Version 4: pinned sessions. Archived sessions keep pinnedAt; it only orders live sessions.
+      if (version < 4) this.db.transaction(() => {
+        this.db.exec('ALTER TABLE sessions ADD COLUMN pinnedAt TEXT');
+        this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
       })();
       const settings = this.settings();
       const upgraded = upgradeBundledRules(settings);
@@ -93,8 +100,8 @@ export class Repository implements RepositoryPort {
   tab(id: string): TabRecord | undefined { return this.decode(this.db.prepare('SELECT * FROM tabs WHERE id=?').get(id), ['registration', 'error']); }
   saveSession(s: SessionRecord): void {
     this.transaction(() => {
-    this.db.prepare(`INSERT INTO sessions (id,title,cwd,adapterId,shellId,shellExecutable,createdAt,updatedAt,settledAt,error,target,env) VALUES (@id,@title,@cwd,@adapterId,@shellId,@shellExecutable,@createdAt,@updatedAt,@settledAt,@error,@target,@env)
-      ON CONFLICT(id) DO UPDATE SET title=excluded.title,adapterId=excluded.adapterId,shellId=excluded.shellId,shellExecutable=excluded.shellExecutable,updatedAt=excluded.updatedAt,settledAt=excluded.settledAt,error=excluded.error,target=excluded.target,env=excluded.env`).run({ ...s, env: JSON.stringify(storedEnvVarsSchema.parse(s.env ?? [])), error: encode(s.error), target: encode(s.target) });
+    this.db.prepare(`INSERT INTO sessions (id,title,cwd,adapterId,shellId,shellExecutable,createdAt,updatedAt,settledAt,error,target,env,pinnedAt) VALUES (@id,@title,@cwd,@adapterId,@shellId,@shellExecutable,@createdAt,@updatedAt,@settledAt,@error,@target,@env,@pinnedAt)
+      ON CONFLICT(id) DO UPDATE SET title=excluded.title,adapterId=excluded.adapterId,shellId=excluded.shellId,shellExecutable=excluded.shellExecutable,updatedAt=excluded.updatedAt,settledAt=excluded.settledAt,error=excluded.error,target=excluded.target,env=excluded.env,pinnedAt=excluded.pinnedAt`).run({ ...s, pinnedAt: s.pinnedAt ?? null, env: JSON.stringify(storedEnvVarsSchema.parse(s.env ?? [])), error: encode(s.error), target: encode(s.target) });
     if (s.binding !== undefined) this.saveMetadata('session-window:' + s.id, { binding: s.binding, windowState: s.windowState ?? 'unknown' });
     });
   }

@@ -6,6 +6,8 @@ export interface SessionRecord {
   shellExecutable: string; createdAt: string; updatedAt: string; settledAt: string | null;
   error: AppError | null; target: WindowTarget | null;
   env?: EnvVar[];
+  /** Set while pinned to the top of the live list. Kept when archived (no effect there). */
+  pinnedAt?: string | null;
   binding?: BoundWindow | null; windowState?: 'alive' | 'closed' | 'unknown' | 'opening' | 'launch-uncertain';
 }
 export interface TabRecord {

@@ -28,7 +28,12 @@ export function needsSettleConfirmation(tabs: Pick<TabDto, 'lifecycle' | 'status
 }
 export const publicStatus = (activity: TabStatus, settledAt: string | null): Status => settledAt ? 'settled' : activity;
 const order: Record<Status, number> = { waiting: 0, error: 1, running: 2, unknown: 3, settled: 4 };
-export function compareSessions(a: Pick<SessionDto, 'status' | 'createdAt' | 'id'>, b: Pick<SessionDto, 'status' | 'createdAt' | 'id'>): number {
+type Sortable = Pick<SessionDto, 'status' | 'createdAt' | 'id'> & { pinnedAt?: string | null };
+/** Pinned (live) sessions first, in the order they were pinned; then by status and age. */
+export function compareSessions(a: Sortable, b: Sortable): number {
+  const pinned = (a.pinnedAt ? 0 : 1) - (b.pinnedAt ? 0 : 1);
+  if (pinned) return pinned;
+  if (a.pinnedAt && b.pinnedAt && a.pinnedAt !== b.pinnedAt) return a.pinnedAt.localeCompare(b.pinnedAt);
   return order[a.status] - order[b.status] || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 }
 export const sortSessions = (sessions: SessionDto[]): SessionDto[] => [...sessions].sort(compareSessions);

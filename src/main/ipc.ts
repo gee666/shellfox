@@ -63,6 +63,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'addTab': result = await service.addTab(requestSchemas.addTab.parse(payload)); break;
         case 'focusSession': result = await service.focusSession(requestSchemas.focusSession.parse(payload)); break;
         case 'renameSession': result = await service.renameSession(requestSchemas.renameSession.parse(payload)); break;
+        case 'setSessionPinned': result = await service.setSessionPinned(requestSchemas.setSessionPinned.parse(payload)); break;
         case 'settleSession': result = await service.settleSession(requestSchemas.settleSession.parse(payload)); break;
         case 'unsettleSession': result = await service.unsettleSession(requestSchemas.unsettleSession.parse(payload)); break;
         case 'clearSessionError': result = await service.clearSessionError(requestSchemas.clearSessionError.parse(payload)); break;

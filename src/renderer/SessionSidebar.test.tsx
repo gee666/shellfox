@@ -69,3 +69,40 @@ describe('archive refresh and pagination', () => {
     expect(fixture.api.getHistory.mock.calls.slice(-2).map(([query]) => query.page)).toEqual([1, 2]);
   });
 });
+
+describe('session activation and pinning', () => {
+  const closedTabs = (index: number, title: string) => { const item = session(index, { title }); for (const tab of item.tabs) tab.lifecycle = 'closed'; return item; };
+  async function setup(sessions: ReturnType<typeof session>[]) {
+    const fixture = mockApi(snapshot(sessions));
+    const client = createManagerClient(fixture.api); clients.push(client); client.start();
+    const user = userEvent.setup(); render(<Navigation client={client} />);
+    await screen.findByRole('button', { name: `Select session ${sessions[0]!.title}` });
+    return { fixture, client, user };
+  }
+  it('opens one fresh terminal when selecting a saved session without open terminals (after restart)', async () => {
+    const { fixture, client, user } = await setup([closedTabs(1, 'Restored')]);
+    const reopened = session(1, { title: 'Restored' });
+    // Like the backend: activation opens a shell and publishes a new snapshot.
+    fixture.api.activateSession.mockImplementationOnce(async () => { fixture.emit({ ...snapshot([reopened]), revision: 100 }); return success(reopened); });
+    await user.click(screen.getByRole('button', { name: 'Select session Restored' }));
+    await waitFor(() => expect(fixture.api.activateSession).toHaveBeenCalledWith({ sessionId: reopened.id }));
+    await waitFor(() => expect(client.store.getState().activeTabIds[reopened.id]).toBe(reopened.tabs[0]!.id));
+  });
+  it('does not open another terminal for sessions that already have one, or for archived sessions', async () => {
+    const { fixture, user } = await setup([session(1, { title: 'Live' })]);
+    await user.click(screen.getByRole('button', { name: 'Select session Live' }));
+    await flush();
+    expect(fixture.api.activateSession).not.toHaveBeenCalled();
+  });
+  it('pins and unpins from the context menu, showing a pin marker', async () => {
+    const { fixture, user } = await setup([session(1, { title: 'One' }), session(2, { title: 'Two' })]);
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Two' }) });
+    await user.click(screen.getByRole('menuitem', { name: 'Pin to top' }));
+    expect(fixture.api.setSessionPinned).toHaveBeenCalledWith({ sessionId: session(2).id, pinned: true });
+    await waitFor(() => expect(screen.getByLabelText('Pinned')).toBeInTheDocument());
+    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: 'Select session Two' }) });
+    await user.click(screen.getByRole('menuitem', { name: 'Unpin' }));
+    expect(fixture.api.setSessionPinned).toHaveBeenLastCalledWith({ sessionId: session(2).id, pinned: false });
+    await waitFor(() => expect(screen.queryByLabelText('Pinned')).not.toBeInTheDocument());
+  });
+});

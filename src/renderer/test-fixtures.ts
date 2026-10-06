@@ -20,7 +20,7 @@ export function session(index = 1, overrides: Partial<SessionDto> = {}): Session
   const result: SessionDto = {
     id, title: `Session ${index}`, cwd: 'C:\\projects\\same folder', adapterId: 'embedded-pty', shellId: 'pwsh',
     env: [], terminalLifetime: 'app-owned', shellSurvival: false,
-    createdAt: '2026-10-04T10:00:00.000Z', updatedAt: '2026-10-04T10:00:00.000Z', settledAt: null,
+    createdAt: '2026-10-04T10:00:00.000Z', updatedAt: '2026-10-04T10:00:00.000Z', settledAt: null, pinnedAt: null,
     status: 'waiting', activityStatus: 'waiting', counts: { running: 0, waiting: 1, unknown: 0, error: 0, closed: 0, agents: 0 },
     canFocus: true, canAddTab: true, controlReason: null, error: null,
     tabs: [{
@@ -97,6 +97,7 @@ export function mockApi(initial = snapshot()) {
     }),
     focusSession: vi.fn<ManagerApi['focusSession']>(async () => success({ focused: true })),
     renameSession: vi.fn<ManagerApi['renameSession']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, title: input.title })),
+    setSessionPinned: vi.fn<ManagerApi['setSessionPinned']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, pinnedAt: input.pinned ? '2026-10-05T10:00:00.000Z' : null })),
     settleSession: vi.fn<ManagerApi['settleSession']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' })),
     unsettleSession: vi.fn<ManagerApi['unsettleSession']>(async () => success(session())),
     clearSessionError: vi.fn<ManagerApi['clearSessionError']>(async () => success(session())),

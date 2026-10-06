@@ -33,6 +33,8 @@ export interface SessionDto {
   id: Id; title: string; cwd: string; adapterId: AdapterId; shellId: ShellId;
   createdAt: Timestamp; updatedAt: Timestamp; settledAt: Timestamp | null;
   status: Status; activityStatus: TabStatus; counts: Counts; tabs: TabDto[]; env: EnvVar[];
+  /** Pinned sessions stay at the top of the live list, in pin order. Archived sessions remember it without effect. */
+  pinnedAt: Timestamp | null;
   canFocus: boolean; canAddTab: boolean; controlReason: string | null; error: AppError | null;
   window?: SessionWindowDto;
   terminalLifetime?: 'app-owned' | 'external-legacy'; shellSurvival?: boolean;
@@ -101,6 +103,7 @@ export interface ManagerApi extends Partial<TerminalApi> {
   addTab(input: { sessionId: Id; title?: string; profileId?: string; cwd?: string }): Promise<Result<SessionDto>>;
   focusSession(input: { sessionId: Id }): Promise<Result<{ focused: true }>>;
   renameSession(input: { sessionId: Id; title: string }): Promise<Result<SessionDto>>;
+  setSessionPinned(input: { sessionId: Id; pinned: boolean }): Promise<Result<SessionDto>>;
   settleSession(input: { sessionId: Id; confirmActive: boolean }): Promise<Result<SessionDto>>;
   unsettleSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
   clearSessionError(input: { sessionId: Id }): Promise<Result<SessionDto>>;
