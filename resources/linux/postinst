@@ -1,0 +1,28 @@
+#!/bin/sh
+# Shellfox/linux-v1
+set -eu
+root=/usr/lib/shellfox
+if [ "${1:-}" = configure ]; then
+  chown root:root "$root/chrome-sandbox"
+  chmod 4755 "$root/chrome-sandbox"
+  # The package owns /usr/bin/shellfox; replace the maker's binary symlink with our launcher.
+  rm -f /usr/bin/shellfox
+  install -m 755 "$root/resources/shellfox-launcher" /usr/bin/shellfox
+  if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ] && [ -f /etc/apparmor.d/abi/4.0 ] && command -v apparmor_parser >/dev/null 2>&1; then
+    profile=/etc/apparmor.d/shellfox
+    if [ -L "$profile" ] || { [ -f "$profile" ] && ! grep -Fxq '# Shellfox/linux-v1' "$profile"; }; then
+      echo 'Shellfox: refusing to overwrite a foreign AppArmor profile.' >&2
+      exit 1
+    fi
+    cat > "$profile" <<'PROFILE'
+# Shellfox/linux-v1
+abi <abi/4.0>,
+include <tunables/global>
+profile shellfox /usr/lib/shellfox/shellfox flags=(unconfined) {
+  userns,
+  include if exists <local/shellfox>
+}
+PROFILE
+    apparmor_parser -r "$profile"
+  fi
+fi

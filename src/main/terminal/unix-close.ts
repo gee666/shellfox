@@ -2,17 +2,8 @@ import { readFile, open } from 'node:fs/promises';
 import type { TrackingRoot } from './tracking';
 import { execute, type Execute } from './profiles';
 
-export const PIDFD_READY = 'SHELLFOX_PIDFD_READY_V1';
-export const PIDFD_PREFLIGHT = `import os, signal, select
-assert callable(getattr(os, 'pidfd_open', None)) and callable(getattr(signal, 'pidfd_send_signal', None))
-assert os.getuid() == os.geteuid()
-open('/proc/sys/kernel/random/boot_id').read()
-open('/proc/self/stat').read()
-fd = os.pidfd_open(os.getpid(), 0)
-try: signal.pidfd_send_signal(fd, 0, None, 0)
-finally: os.close(fd)
-print('${PIDFD_READY}')
-`;
+export { PIDFD_READY, PIDFD_PREFLIGHT } from './pidfd-preflight';
+import { resolvePython } from './python';
 export interface UnixIdentity { pid: number; birth: string }
 /** Freeze first, enumerate to a fixed point, then signal held pidfds, not recycled numeric PIDs.
  * Whole PTY sessions are admitted only while an exact owned root/member anchors the session.
@@ -149,9 +140,12 @@ export function compactOwnedIdentities(identity: UnixIdentity, known: UnixIdenti
   if (proven.length > 256) throw new Error('The proven descendant count exceeds the safe close bound.');
   return proven.map(p => [p.pid, p.birth.slice(boot.length + 1)]);
 }
-export async function closeUnixTree(root: TrackingRoot, identity: UnixIdentity | null, known: UnixIdentity[] = [], run: Execute = execute): Promise<void> {
+export async function closeUnixTree(root: TrackingRoot, identity: UnixIdentity | null, known: UnixIdentity[] = [], run: Execute = execute, python?: string): Promise<void> {
   if (process.platform !== 'linux' || !identity || !/^[0-9a-fA-F-]{32,36}:\d+$/.test(identity.birth)) throw new Error('Safe Unix process-tree termination is unavailable.');
-  await run('/usr/bin/python3', ['-c', UNIX_TREE_CLOSE_SCRIPT, String(identity.pid), identity.birth, root.marker, JSON.stringify(compactOwnedIdentities(identity, known))]);
+  const probe = python ? null : await resolvePython();
+  const interpreter = python ?? (probe?.usable ? probe.detected : null);
+  if (!interpreter) throw new Error('Python 3 not found. Set its path in Settings → Python.');
+  await run(interpreter, ['-c', UNIX_TREE_CLOSE_SCRIPT, String(identity.pid), identity.birth, root.marker, JSON.stringify(compactOwnedIdentities(identity, known))]);
 }
 /** Capture before accepting input. Marker, parent and stat are rechecked around the read. */
 export async function captureLinuxRoot(root: TrackingRoot): Promise<UnixIdentity | null> {

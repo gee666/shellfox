@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { build as esbuild } from 'esbuild';
 import { build as viteBuild } from 'vite';
@@ -9,6 +9,8 @@ const testBuild = process.argv.includes('--test');
 const output = testBuild ? 'tmp/build-test' : 'tmp/build';
 const sourceHash = sourceDigest(root);
 mkdirSync(output, { recursive: true });
+mkdirSync(path.join(output, 'icon'), { recursive: true });
+for (const file of ['icon-256.png', 'icon.ico']) copyFileSync(path.join(root, 'resources/icon', file), path.join(output, 'icon', file));
 if (!['win32', 'linux', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('Build requires Windows, Linux or macOS with target-native x64/arm64 Node.');
 const electronPath = process.platform === 'win32' ? 'electron.exe' : process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : 'electron';
 if (!existsSync(path.join('node_modules/electron/dist', electronPath))) runNode('node_modules/electron/install.js');

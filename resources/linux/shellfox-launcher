@@ -1,0 +1,20 @@
+#!/bin/sh
+# Shellfox/linux-v1
+if [ "${1:-}" = --help ]; then printf '%s\n' 'Usage: shellfox start [path]' 'Without arguments, open Shellfox.'; exit 0; fi
+if [ "$#" -eq 0 ]; then mode=show
+elif [ "$1" = start ] && [ "$#" -le 2 ]; then
+  target=${2:-.}
+  case "$target" in /*) ;; *) target=./$target ;; esac
+  folder=$(CDPATH='' cd -P -- "$target" 2>/dev/null && pwd -P) || { printf '%s\n' 'Shellfox: directory does not exist or is inaccessible.' >&2; exit 1; }
+  mode=start
+else printf '%s\n' 'Usage: shellfox start [path]' >&2; exit 2; fi
+launch() { exec setsid --fork --wait /usr/lib/shellfox/shellfox "$@" </dev/null >/dev/null 2>&1; }
+# Do not retain saved copies of the caller's output pipes in a shell function.
+if [ "$mode" = start ]; then launch start "$folder" &
+else launch & fi
+child=$!
+i=0
+while [ "$i" -lt 5 ] && kill -0 "$child" 2>/dev/null; do sleep 0.1; i=$((i+1)); done
+if ! kill -0 "$child" 2>/dev/null; then wait "$child" || { printf '%s\n' 'Shellfox: application rejected the launch.' >&2; exit 1; }; fi
+if [ "$mode" = start ]; then printf 'Shellfox: started session in %s\n' "$folder"; fi
+exit 0

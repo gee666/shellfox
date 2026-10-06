@@ -29,7 +29,7 @@ export function parseCli(args: string[], options: { testMode?: boolean; testBuil
     if (flag === 'start') {
       if (newSession || cwd !== undefined || start) return failure('VALIDATION', 'Do not combine start with legacy session flags.');
       start = newSession = true;
-      const target = args[i + 1] && !args[i + 1]!.startsWith('--') ? args[++i]! : '.';
+      const target = args[i + 1] && !['--test-user-data', '--test-backend', '--new-session', '--cwd'].includes(args[i + 1]!) ? args[++i]! : '.';
       const base = options.cwd ?? process.cwd();
       cwd = (/^[a-z]:[\\/]/i.test(base) || /^\\\\/.test(base) ? path.win32 : path.posix).resolve(base, target);
       continue;

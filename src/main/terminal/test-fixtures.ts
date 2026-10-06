@@ -16,7 +16,7 @@ export class FakePty implements PtyProcess {
 export function factoryFixture() {
   const processes: FakePty[] = [];
   const factory: PtyFactory = vi.fn(() => { const p = new FakePty(); p.pid += processes.length; processes.push(p); return p; });
-  return { factory, processes, options: { factory, discover: async () => profiles, validateCwd: async (_profile: unknown, cwd: string) => cwd, terminateGuest: async (root: { pid: number }) => { processes.find(p => p.pid === root.pid)?.kill(); }, terminateUnix: async (root: { pid: number }) => { processes.find(p => p.pid === root.pid)?.kill(); } } };
+  return { factory, processes, options: { platform: 'win32' as NodeJS.Platform, factory, discover: async () => profiles, validateCwd: async (_profile: unknown, cwd: string) => cwd, terminateGuest: async (root: { pid: number }) => { processes.find(p => p.pid === root.pid)?.kill(); }, terminateUnix: async (root: { pid: number }) => { processes.find(p => p.pid === root.pid)?.kill(); } } };
 }
 export function launchInput() { return { tabId: randomUUID(), sessionId: randomUUID(), generation: randomUUID(), profileId: 'login-shell', cwd: '/work' }; }
 export class MemoryRepository implements RepositoryPort {

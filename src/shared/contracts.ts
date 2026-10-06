@@ -42,13 +42,14 @@ export interface ProcessRule {
   executablePaths: string[]; scriptPathSuffixes: string[];
 }
 export interface SettingsDto {
-  version: 1; accentColor: string; adapterId: AdapterId; shellId: ShellId;
+  version: 1; pythonPath?: string | null; accentColor: string; adapterId: AdapterId; shellId: ShellId;
   shellExecutable: string | null; processRules: ProcessRule[]; historyPageSize: number;
   terminalProfileId?: string | null;
 }
 export interface ShellOption { id: ShellId; executable: string; available: boolean; reason: string | null }
 export interface NativeProbe {
   platform: string; arch: string; adapterId: AdapterId; available: boolean;
+  python?: { detected: string | null; usable: boolean; reason: string | null };
   terminalVersion: string | null; capabilities: Capabilities; shells: ShellOption[]; reasons: string[];
 }
 export interface ExplorerIntegrationDto {

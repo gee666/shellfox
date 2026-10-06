@@ -33,7 +33,7 @@ describe('discovered native shell profiles', () => {
   });
   it('uses the actual Unix login shell before SHELL and fallbacks', async () => {
     const d = await discoverProfiles({ platform: 'linux', env: { SHELL: '/bin/bash' }, loginShell: '/bin/zsh', exists: async () => true, canonical: async p => p, run: async () => Buffer.from(PIDFD_READY) }); expect(d.defaultProfileId).toBe('login-shell'); expect(d.profiles[0]).toMatchObject({ executable: '/bin/zsh', args: ['-l', '-i'] });
-    const fallback = await discoverProfiles({ platform: 'linux', env: {}, loginShell: '/missing', exists: async p => p === '/bin/bash', canonical: async p => p, run: async () => Buffer.from(PIDFD_READY) }); expect(fallback.profiles[0].executable).toBe('/bin/bash'); expect(fallback.defaultProfileId).toBe('shell:/bin/bash');
+    const fallback = await discoverProfiles({ platform: 'linux', env: {}, loginShell: '/missing', exists: async p => p === '/bin/bash' || p === '/usr/bin/python3', canonical: async p => p, run: async () => Buffer.from(PIDFD_READY) }); expect(fallback.profiles[0].executable).toBe('/bin/bash'); expect(fallback.defaultProfileId).toBe('shell:/bin/bash');
   });
   it('translates host WSL paths and validates guest directories without interpolation', async () => {
     const run = vi.fn(async (_file: string, args: string[]) => Buffer.from(args.includes('wslpath') ? "/mnt/c/a';& folder\n" : ''));

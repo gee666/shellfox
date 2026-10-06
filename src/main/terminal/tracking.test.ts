@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
-import { access, open, readdir, readlink, readFile } from 'node:fs/promises';
+import { access, open, readdir, readlink, readFile, realpath, stat as fileStat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
 vi.mock('node:fs/promises', async importOriginal => ({
   ...await importOriginal<typeof import('node:fs/promises')>(), access: vi.fn(async () => {}),
-  open: vi.fn(), readdir: vi.fn(), readlink: vi.fn(),
+  open: vi.fn(), readdir: vi.fn(), readlink: vi.fn(), realpath: vi.fn(), stat: vi.fn(),
 }));
 import type { ProcessRule } from '../../shared/contracts';
 import type { TabObservation } from '../../shared/native-port';
@@ -401,6 +401,39 @@ describe('interpreter script slots', () => {
     expect(h.last()[0]).toMatchObject({ agents, health });
   });
 
+  it.each([
+    { argv: ['pi', '', ''], launchScript: null, expected: 0 },
+    { argv: ['pi'], launchScript: null, expected: 0 },
+    { argv: ['pi', ''], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js', expected: 1 },
+    { argv: ['pi'], launchScript: '/pkg/unrelated/cli.js', expected: 0 },
+    { argv: ['node', 'other.js', 'pi'], launchScript: null, expected: 0 },
+    { argv: ['pi', 'prompt'], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js', expected: 0 },
+    { argv: ['pi '], launchScript: null, expected: 0 },
+  ])('requires resolved Pi launch evidence for rewritten Unix argv: $argv / $launchScript', async ({ argv, launchScript, expected }) => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/node', { argv, launchScript }),
+      proc(20, 1, '/usr/bin/node', { argv: ['pi'], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js' })])], [root()], defaultSettings.processRules);
+    await h.tracker.poll();
+    expect(h.last()[0]).toMatchObject({ agents: expected, health: 'healthy' });
+  });
+  it('does not reuse Pi launcher evidence for a reused PID or bypass a disabled script rule', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    const pi = proc(11, 10, '/usr/bin/node', { argv: ['pi'], launchScript: '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js' });
+    const h = harness([snapshot([shell(), pi])], [root()], defaultSettings.processRules);
+    await h.tracker.poll(); expect(h.last()[0].agents).toBe(1);
+    await h.step([snapshot([shell(), { ...pi, birth: 'reused:11', launchScript: null }])]);
+    expect(h.last()[0].agents).toBe(0);
+    h.tracker.setWatch([root()], defaultSettings.processRules.map(r => ({ ...r, enabled: r.label !== 'Pi Node launcher' })));
+    await h.step([snapshot([shell(), pi])]); expect(h.last()[0].agents).toBe(0);
+  });
+  it('never uses a Unix Pi title to bypass a script suffix or explicit executable path', async () => {
+    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+    const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/node', { argv: ['pi', ''] })])], [root()], [
+      rule({ executableBasenames: ['node'], scriptPathSuffixes: ['agent/cli.js'] }),
+      rule({ executableBasenames: ['pi'], executablePaths: ['/usr/bin/pi'], scriptPathSuffixes: [] }),
+    ]);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ agents: 0 });
+  });
   it('does not guess script slots for unsupported interpreters or Bun subcommands', async () => {
     const h = harness([snapshot([shell(), proc(11, 10, '/usr/bin/python3'), proc(12, 10, '/usr/bin/bun', { argv: ['bun', 'run', '/pkg/agent/cli.js'] })])], [root()], [rule({ executableBasenames: ['python3', 'bun'] })]);
     await h.tracker.poll();
@@ -409,7 +442,7 @@ describe('interpreter script slots', () => {
 });
 
 describe('poll lifetime', () => {
-  it('does no snapshot work at construction and polls watched processes every two seconds', async () => {
+  it('does no snapshot work at construction and polls watched processes every second', async () => {
     vi.useFakeTimers();
     const provider = vi.fn<SnapshotProvider>(async () => [snapshot([shell()])]);
     const listener = vi.fn();
@@ -419,7 +452,7 @@ describe('poll lifetime', () => {
     tracker.setWatch([root()], []);
     await tracker.poll();
     expect(provider).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1999);
+    await vi.advanceTimersByTimeAsync(999);
     expect(provider).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(provider).toHaveBeenCalledTimes(2);
@@ -445,6 +478,30 @@ describe('poll lifetime', () => {
     expect(provider).toHaveBeenCalledTimes(2);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener.mock.calls[0]![0][0]).toMatchObject({ tabId: 'tab-b', root: 'alive' });
+  });
+
+  it('registers the second tab during an in-flight poll and resolves both shim chains in one namespace', async () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    let deliver!: (s: TrackingSnapshot[]) => void;
+    const second = root({ tabId: 'tab-b', pid: 20, marker: 'secret-b' });
+    const provider = vi.fn<SnapshotProvider>().mockImplementationOnce(() => new Promise(resolve => { deliver = resolve; }))
+      .mockResolvedValue([snapshot([
+        shell(10, { executable: 'C:\\pwsh.exe' }), shell(20, { executable: 'C:\\pwsh.exe' }),
+        proc(11, 10, 'C:\\pi.exe'), proc(12, 11, 'C:\\cmd.exe'),
+        proc(21, 20, 'C:\\pi.exe'), proc(22, 21, 'C:\\cmd.exe'),
+        proc(23, 22, 'C:\\node.exe', { argv: ['node.exe', 'C:\\pkg\\@earendil-works\\pi-coding-agent\\dist\\bundle\\cli.js'] }),
+        proc(30, 1, 'C:\\pi.exe'),
+      ])]);
+    const listener = vi.fn(), tracker = new ProcessTracker(listener, provider); trackers.push(tracker);
+    tracker.setWatch([root()], defaultSettings.processRules);
+    const pending = tracker.poll();
+    tracker.setWatch([root(), second], defaultSettings.processRules);
+    expect(tracker.poll()).toBe(pending);
+    deliver([snapshot([shell()])]);
+    await pending;
+    expect(provider).toHaveBeenCalledTimes(2);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.calls[0]![0]).toMatchObject([{ tabId: 'tab-a', agents: 1, health: 'healthy' }, { tabId: 'tab-b', agents: 2, health: 'healthy' }]);
   });
 
   it('aborts disposal and never delivers late observations', async () => {
@@ -496,6 +553,13 @@ describe('bounded system snapshot commands', () => {
     expect(calls[0]!.file).toMatch(/WindowsPowerShell[\\/]v1\.0[\\/]powershell\.exe$/);
     expect(calls[0]!.args).toContain('-NonInteractive');
     expect(calls[0]!.args.at(-1)).toContain('Get-CimInstance Win32_Process');
+    const code = calls[0]!.args.at(-1)!;
+    expect(code).toContain('OpenProcessToken(process, 8, out token)');
+    expect(code).toContain('[ShellfoxProcessOwner]::Sid([uint32]$p.ProcessId) -eq $me');
+    expect(code).toContain('CloseHandle(token); CloseHandle(process)');
+    expect(code).not.toContain('Invoke-CimMethod');
+    expect(code.match(/Get-CimInstance Win32_Process/g)).toHaveLength(2);
+    expect(code).toContain('-ne $r.birth -or [int]$p.ParentProcessId -ne $r.parentPid');
     expect(calls[0]!.args.at(-1)).not.toContain('secret-a');
     expect(calls[0]!.options).toMatchObject({ timeout: 8000, maxBuffer: 8388608, windowsHide: true });
     expect(JSON.parse((calls[0]!.options.env as NodeJS.ProcessEnv).SHELLFOX_TRACKING_SNAPSHOT!)).toEqual({ roots: [10], known: [] });
@@ -891,7 +955,7 @@ describe('initial local root marker authentication', () => {
       return { async read(buffer: Buffer, offset: number, length: number) {
         const n = Math.min(length, bytes.length - cursor); bytes.copy(buffer, offset, cursor, cursor + n); cursor += n;
         return { bytesRead: n, buffer };
-      }, async close() {} } as unknown as Awaited<ReturnType<typeof open>>;
+      }, async stat() { return { isFile: () => true }; }, async close() {} } as unknown as Awaited<ReturnType<typeof open>>;
     });
     const result = await createSystemSnapshotProvider()([root()]);
     expect(result[0]).toMatchObject({ complete: true, rootMarkerRequired: true });
@@ -908,5 +972,33 @@ describe('initial local root marker authentication', () => {
     const denied = await createSystemSnapshotProvider()([root()]);
     const inaccessible = harness(denied); await inaccessible.tracker.poll();
     expect(inaccessible.last()[0]).toMatchObject({ root: 'unavailable', health: 'unknown' });
+    // The candidate's initial environ is read before the second birth check;
+    // ordinary Node titles have no script evidence, pnpm/npm launchers do.
+    files.set('/proc/10/environ', 'SHELLFOX_TERMINAL_MARKER=secret-a\0');
+    files.set('/proc/11/cmdline', 'pi\0\0');
+    files.set('/proc/11/environ', '_=/bin/pi\0TOKEN=private\0');
+    const script = '/pkg/@earendil-works/pi-coding-agent/dist/bundle/cli.js';
+    files.set('/bin/pi', '#!/bin/sh\n# cmd-shim-target=' + script + '\n');
+    vi.mocked(realpath).mockImplementation(async path => String(path));
+    vi.mocked(fileStat).mockResolvedValue({ isFile: () => true } as Awaited<ReturnType<typeof fileStat>>);
+    const check = async (agents: number) => {
+      const rows = await createSystemSnapshotProvider()([root()]);
+      expect(JSON.stringify(rows)).not.toContain('private');
+      const h = harness(rows, [root()], defaultSettings.processRules); await h.tracker.poll();
+      expect(h.last()[0].agents).toBe(agents); return rows[0].processes.find(p => p.pid === 11)!;
+    };
+    expect((await check(1)).launchScript).toBe(script);
+    files.set('/bin/pi', '# unrelated launcher\n'); expect((await check(0)).launchScript).toBeNull();
+    vi.mocked(realpath).mockImplementation(async path => String(path) === '/bin/pi' ? script : String(path));
+    expect((await check(1)).launchScript).toBe(script); // npm JS symlink
+    vi.mocked(realpath).mockRejectedValue(new Error('denied')); expect((await check(0)).launchScript).toBeNull();
+    vi.mocked(realpath).mockImplementation(async path => String(path));
+    files.set('/bin/pi', 'x'.repeat(65537)); expect((await check(0)).launchScript).toBeNull();
+    files.set('/bin/pi', '# cmd-shim-target=' + script + '\n');
+    vi.mocked(fileStat).mockImplementation(async path => {
+      if (String(path) === script) files.set('/proc/11/stat', stat(11, 10, '999'));
+      return { isFile: () => true } as Awaited<ReturnType<typeof fileStat>>;
+    });
+    expect(await check(0)).toMatchObject({ launchScript: script, birth: null, accessible: false });
   });
 });

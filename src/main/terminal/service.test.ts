@@ -69,6 +69,23 @@ describe('embedded saved-task lifecycle', () => {
     expect(added.tabs).toHaveLength(2); expect(added.tabs[1]).toMatchObject({ profileId: 'wsl:Ubuntu', cwd: '/home/user', title: 'Guest' }); expect(f.backend.live()).toHaveLength(2);
     expect(f.repository.session(s.id)?.target).toBeNull(); await f.service.dispose();
   });
+  it('keeps per-tab agent evidence when another tab opens/closes and never reuses it on reopen', async () => {
+    const f = await fixture(), s = await f.create(); f.observe(s, 1);
+    const added = value(await f.service.addTab({ sessionId: s.id }));
+    expect(added.tabs.map(t => t.status)).toEqual(['running', 'unknown']);
+    f.observe(added, 2);
+    const closed = value(await f.service.closeTab({ tabId: added.tabs[1].id, generation: added.tabs[1].generation! }));
+    expect(closed.tabs[0].status).toBe('running');
+    expect(closed.tabs[1].lifecycle).toBe('closed');
+    expect(closed.tabs[0].agents).toBe(2);
+    value(await f.service.closeTab({ tabId: added.tabs[0].id, generation: added.tabs[0].generation! }));
+    const retried = value(await f.service.retryTab({ tabId: added.tabs[1].id, confirmPossibleDuplicate: false }));
+    expect(retried.tabs).toHaveLength(3);
+    expect(retried.tabs[2]).toMatchObject({ status: 'unknown', agents: 0 });
+    expect(retried.tabs[2].generation).not.toBe(added.tabs[1].generation);
+    expect(retried.tabs[0].agents).toBe(0);
+    await f.service.dispose();
+  });
   it('does not close terminals on attach, view switches or history settling', async () => {
     const f = await fixture(), s = await f.create(); f.service.attachTerminal({ tabId: s.tabs[0].id }); f.observe(s, 1);
     expect(await f.service.settleSession({ sessionId: s.id, confirmActive: false })).toMatchObject({ ok: false, error: { code: 'SETTLE_CONFIRM_REQUIRED' } });

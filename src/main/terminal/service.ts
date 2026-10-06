@@ -7,6 +7,7 @@ import { aggregateStatus, countTabs, needsSettleConfirmation, publicStatus, sort
 import type { NativeInit, TabObservation } from '../../shared/native-port';
 import type { OperationRecord, RepositoryPort, SessionRecord, TabRecord } from '../models';
 import { unavailableExplorer, unavailableProbe, unavailableCli, defaultSettings } from '../defaults';
+import { resolvePython } from './python';
 import { PtyBackend } from './backend';
 import { ProcessTracker, getProcessTrackingCapability } from './tracking';
 import { closeGuest } from './guest-close';
@@ -24,7 +25,7 @@ export class EmbeddedSessionService {
   private readonly listeners = new Set<(event: ChangedEvent) => void>();
   private readonly streams = new Set<(event: TerminalEvent) => void>();
   private readonly queues = new Map<string, Promise<unknown>>();
-  private readonly observations = new Map<string, TabObservation>();
+  private readonly observations = new Map<string, TabObservation & { generation: string }>();
   private readonly tracker: TrackerPort;
   private readonly pendingExits = new Map<string, Extract<TerminalEvent, { type: 'exit' }>>();
   private exitRetryTimer?: ReturnType<typeof setInterval>;
@@ -38,7 +39,7 @@ export class EmbeddedSessionService {
       for (const owned of backend.live()) backend.rememberOwnership(owned.tabId, owned.generation, this.tracker.resolveIdentity?.(owned.root) ?? null, this.tracker.resolveDescendants?.(owned.root) ?? []);
       for (const item of items) {
         const tab = repository.tab(item.tabId), owned = backend.get(item.tabId);
-        if (tab?.terminal && owned?.state === 'open' && owned.generation === tab.operationId && tab.sessionId === item.sessionId) this.observations.set(tab.id, item);
+        if (tab?.terminal && owned?.state === 'open' && owned.generation === tab.operationId && tab.sessionId === item.sessionId) this.observations.set(tab.id, { ...item, generation: owned.generation });
       }
       this.changed('native');
     });
@@ -62,23 +63,25 @@ export class EmbeddedSessionService {
   }
   async initialize(_input?: NativeInit): Promise<void> {
     this.unsubscribe = this.backend.subscribe(event => this.terminalEvent(event));
+    this.backend.configurePythonPath(this.repository.settings().pythonPath ?? null);
     const result = await this.backend.initialize();
     if (this.explorerIntegration) {
       // Reapply saved opt-in with the new identity; get() also removes owned legacy verbs.
       const integration = this.repository.explorerPreference()
         ? await this.explorerIntegration.set(true) : await this.explorerIntegration.get();
-      this.explorer = integration.ok ? integration.value : { ...unavailableExplorer, supported: process.platform === 'win32', reason: integration.error.message };
+      this.explorer = integration.ok ? integration.value : { ...unavailableExplorer, supported: ['win32', 'linux'].includes(process.platform), reason: integration.error.message };
     }
     if (this.cliIntegration) {
       // Round 3 already used Shellfox shims. Refresh their executable after the rename.
       const integration = this.repository.cliPreference?.() === true
         ? await this.cliIntegration.set(true) : await this.cliIntegration.get();
-      this.cli = integration.ok ? integration.value : { ...unavailableCli, supported: process.platform === 'win32', reason: integration.error.message };
+      this.cli = integration.ok ? integration.value : { ...unavailableCli, supported: ['win32', 'linux'].includes(process.platform), reason: integration.error.message };
     }
     const profiles = this.backend.getProfiles();
     const tracking = await getProcessTrackingCapability();
     const available = result.ok && profiles.profiles.some(p => p.available);
     this.probe = { ...this.probe, available, platform: process.platform, arch: process.arch,
+      ...(process.platform === 'linux' ? { python: this.backend.getPython() } : {}),
       shells: profiles.profiles.filter(p => p.environment === 'local').map(p => ({ id: shellId(p), executable: p.executable, available: p.available, reason: null })),
       reasons: [LIFETIME_NOTICE, ...(result.ok ? [] : [result.error.message]), ...profiles.profiles.filter(p => !p.available).map(p => p.unavailableReason ?? `${p.label} is unavailable.`), ...(tracking.reason ? [tracking.reason] : [])],
       capabilities: { createWindow: available, addTab: available, focusWindow: available, activateTab: available, closeTerminal: available, splitPane: false, attachExisting: false, commandExitStatus: false, processTracking: tracking.available, explorerContextMenu: this.explorer.supported, embeddedTerminal: true, terminalLifetime: 'app-owned', shellSurvival: false } };
@@ -113,8 +116,11 @@ export class EmbeddedSessionService {
     this.refreshWatch(); this.changed('native');
   }
   private refreshWatch(): void {
-    this.observations.clear();
-    this.tracker.setWatch(this.backend.live().map(e => e.root), this.repository.settings().processRules);
+    const live = this.backend.live();
+    // Adding/closing another tab does not invalidate evidence for an unchanged
+    // shell generation. Drop closed/replaced roots, not the entire session.
+    for (const [id, observation] of this.observations) if (!live.some(e => e.tabId === id && e.state === 'open' && e.generation === observation.generation)) this.observations.delete(id);
+    this.tracker.setWatch(live.map(e => e.root), this.repository.settings().processRules);
   }
   private terminalEvent(event: TerminalEvent): void {
     const owned = this.backend.get(event.tabId);
@@ -148,7 +154,8 @@ export class EmbeddedSessionService {
   toDto(session: SessionRecord): SessionDto {
     const tabs: TabDto[] = this.repository.tabs(session.id).map(tab => {
       const owned = this.backend.get(tab.id), embedded = !!tab.terminal;
-      const observation = this.observations.get(tab.id);
+      const latestObservation = this.observations.get(tab.id);
+      const observation = latestObservation?.generation === tab.operationId ? latestObservation : undefined;
       const exit = this.pendingExits.get(tab.id);
       const runtimeClosed = owned?.generation === tab.operationId && owned.state === 'closed' || exit?.generation === tab.operationId;
       const lifecycle = runtimeClosed ? 'closed' : tab.lifecycle;
@@ -302,16 +309,26 @@ export class EmbeddedSessionService {
   saveSettings(input: SettingsDto): Promise<Result<SettingsDto>> {
     const parsed = requestSchemas.saveSettings.safeParse(input); if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid settings.'));
     return this.serialize('settings', async () => {
+      const previous = this.repository.settings();
+      const pythonChanged = process.platform === 'linux' && (parsed.data.pythonPath ?? null) !== (previous.pythonPath ?? null);
+      if (pythonChanged) {
+        const check = await resolvePython(parsed.data.pythonPath, {}, parsed.data.pythonPath !== null);
+        if (!check.usable) return failure('VALIDATION', "This Python can't be used: " + check.reason);
+        await this.backend.refreshProfiles(parsed.data.pythonPath);
+      }
       const profiles = this.backend.getProfiles(), requested = input.terminalProfileId ?? profiles.profiles.find(p => p.id === input.shellId && (!input.shellExecutable || p.executable === input.shellExecutable))?.id ?? profiles.defaultProfileId;
       const selected = profiles.profiles.find(p => p.id === requested && p.available);
-      if (!selected) return failure('VALIDATION', 'Choose a discovered terminal profile.');
-      const previous = this.repository.settings();
+      if (!selected) { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); return failure('VALIDATION', 'Choose a discovered terminal profile.'); }
       // An explicit discovered profile owns its derived fields. Full DTOs may still carry the old executable.
       const unchangedExecutable = !!input.terminalProfileId && input.shellExecutable === previous.shellExecutable;
-      if (input.shellExecutable && input.shellExecutable !== selected.executable && !unchangedExecutable) return failure('VALIDATION', 'Arbitrary shell executables are not allowed.');
+      if (input.shellExecutable && input.shellExecutable !== selected.executable && !unchangedExecutable) { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); return failure('VALIDATION', 'Arbitrary shell executables are not allowed.'); }
       const settings: SettingsDto = { ...parsed.data, adapterId: 'embedded-pty', terminalProfileId: selected.id, shellId: shellId(selected), shellExecutable: selected.executable };
       try { this.observations.clear(); this.tracker.setWatch(this.backend.live().map(e => e.root), settings.processRules); this.repository.saveSettings(settings); }
-      catch { this.tracker.setWatch(this.backend.live().map(e => e.root), previous.processRules); return failure('STORAGE_FAILED', 'Settings could not be applied.', true); }
+      catch { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); this.tracker.setWatch(this.backend.live().map(e => e.root), previous.processRules); return failure('STORAGE_FAILED', 'Settings could not be applied.', true); }
+      if (pythonChanged) {
+        const available = profiles.profiles.some(p => p.available);
+        this.probe = { ...this.probe, available, python: this.backend.getPython(), reasons: [LIFETIME_NOTICE, ...profiles.profiles.filter(p => !p.available).map(p => p.unavailableReason ?? 'Shell unavailable')], shells: profiles.profiles.filter(p => p.environment === 'local').map(p => ({ id: shellId(p), executable: p.executable, available: p.available, reason: p.unavailableReason ?? null })), capabilities: { ...this.probe.capabilities, createWindow: available, addTab: available, closeTerminal: available, focusWindow: available, activateTab: available } };
+      }
       this.changed('settings'); return success(settings);
     });
   }

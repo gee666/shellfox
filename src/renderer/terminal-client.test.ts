@@ -182,6 +182,9 @@ describe('xterm safety configuration', () => {
   it('bounds scrollback and consumes clipboard/hyperlink escape handlers without browser effects', () => {
     const surface = createTerminalSurface(() => {}); const terminal = terminalMocks.terminals.at(-1);
     expect(terminal.options.scrollback).toBe(3000); expect(terminal.options.linkHandler.allowNonHttpProtocols).toBe(false);
+    expect(terminal.options.allowProposedApi).toBe(true);
+    expect(terminal.options.minimumContrastRatio).toBe(1);
+    expect(terminal.options.drawBoldTextInBrightColors).toBe(false);
     expect(terminal.osc.get(52)('c;?')).toBe(true); expect(terminal.osc.get(8)(';javascript:alert(1)')).toBe(true);
     expect(() => terminal.options.linkHandler.activate({}, 'javascript:alert(1)')).not.toThrow(); surface.dispose();
   });

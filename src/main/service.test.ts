@@ -10,7 +10,7 @@ import { success, failure } from '../shared/contracts';
 
 class MemoryRepository implements RepositoryPort {
   sessionMap = new Map<string, SessionRecord>(); tabMap = new Map<string, TabRecord>(); operationMap = new Map<string, OperationRecord>();
-  config = structuredClone(defaultSettings); preference = false;
+  config: SettingsDto = { ...structuredClone(defaultSettings), adapterId: 'windows-terminal' as const, shellId: 'pwsh' as const }; preference = false;
   sessions() { return [...this.sessionMap.values()].map(s => structuredClone(s)); }
   session(id: string) { const s = this.sessionMap.get(id); return s && structuredClone(s); }
   tabs(id?: string) { return [...this.tabMap.values()].filter(t => !id || t.sessionId===id).sort((a,b) => a.ordinal-b.ordinal).map(t => structuredClone(t)); }

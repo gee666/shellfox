@@ -166,6 +166,9 @@ importers:
 
   .:
     dependencies:
+      '@xmldom/xmldom':
+        specifier: 0.9.12
+        version: 0.9.12
       '@xterm/addon-fit':
         specifier: 0.11.0
         version: 0.11.0

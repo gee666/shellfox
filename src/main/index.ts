@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { validateDirectory } from './directory';
 import { migrateUserData } from './user-data-upgrade';
+import { LinuxCliIntegration } from './platform/linux-cli';
+import { LinuxFileMenus } from './platform/linux-menus';
 import { WindowsCliIntegration } from './platform/shellfox-cli';
 import { mkdir } from 'node:fs/promises';
 import type { NativeBackend, NativeInit } from '../shared/native-port';
@@ -57,7 +59,7 @@ async function run(): Promise<void> {
     try { parsed.value.request.cwd = await validateDirectory(parsed.value.request.cwd); }
     catch { console.error('Shellfox: directory does not exist or is not accessible.'); app.exit(1); return; }
   }
-  const cliIntegration = new WindowsCliIntegration({
+  const cliOptions = {
     executable: process.execPath, ...(app.isPackaged ? {} : { appPath: path.join(__dirname, 'index.cjs') }),
     ...(parsed.value.userData ? {
       binDir: path.join(parsed.value.userData, 'Shellfox', 'bin'),
@@ -65,7 +67,13 @@ async function run(): Promise<void> {
       prefixArgs: ['--test-user-data', parsed.value.userData, '--test-backend', parsed.value.backend!],
       launchEnv: { SHELLFOX_TEST_MODE: '1', SHELLFOX_TEST_ROOT: __TEST_BUILD__ ? __PROJECT_ROOT__ : process.env.SHELLFOX_TEST_ROOT! },
     } : {}),
-  });
+  };
+  const cliIntegration = process.platform === 'linux'
+    ? new LinuxCliIntegration({ ...cliOptions, ...(parsed.value.userData ? { home: parsed.value.userData } : {}) })
+    : new WindowsCliIntegration(cliOptions);
+  const folderIntegration = process.platform === 'linux' && cliIntegration instanceof LinuxCliIntegration
+    ? new LinuxFileMenus(cliIntegration, parsed.value.userData ? { home: parsed.value.userData, env: { ...process.env, XDG_DATA_HOME: path.join(parsed.value.userData, '.local/share'), XDG_CONFIG_HOME: path.join(parsed.value.userData, '.config') } } : {})
+    : explorerIntegration(parsed.value.userData);
   const requests = new EarlyRequestQueue();
   if (!app.requestSingleInstanceLock(parsed.value.request)) { app.exit(0); return; }
   requests.enqueue(parsed.value.request);
@@ -86,7 +94,7 @@ async function run(): Promise<void> {
       const { WindowTestBackend } = await import('./window-test-backend');backend = new WindowTestBackend();
     } else backend = createFakeNativeBackend();
     service = new SessionService(repository, backend, undefined, app.isPackaged ? process.execPath : null);
-  } else service = new EmbeddedSessionService(repository, undefined, undefined, explorerIntegration(parsed.value.userData), cliIntegration);
+  } else service = new EmbeddedSessionService(repository, undefined, undefined, folderIntegration, cliIntegration);
   if (__TEST_BUILD__) (globalThis as any).__shellfoxTest = { service, repository, backend: service.backend };
   await service.initialize(nativePaths());
   const rendererFile = path.resolve(__dirname, '../renderer/index.html');
@@ -96,6 +104,7 @@ async function run(): Promise<void> {
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   window = new BrowserWindow({
+    icon: path.resolve(__dirname, '../icon', process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
     width: 1220, height: 820, minWidth: 850, minHeight: 600, backgroundColor: '#111118', title: 'Shellfox',
     webPreferences: { preload: path.resolve(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
   });

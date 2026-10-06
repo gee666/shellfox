@@ -9,18 +9,29 @@ export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: Env
     env[name] = value;
   };
   for (const [key, value] of Object.entries(inherited)) if (typeof value === 'string' && !key.startsWith('SHELLFOX_')) set(key, value);
+  // Terminal capabilities are defaults, not inherited host-console limitations.
+  // Apply overrides last, including case-insensitive Windows names.
+  set('TERM', 'xterm-256color');
+  set('COLORTERM', 'truecolor');
   const parsed = envVarsSchemaFor(options.windows).parse(variables);
-  for (const variable of parsed) set(variable.name, variable.value);
+  for (const variable of parsed) {
+    const name = options.windows && ['term', 'colorterm'].includes(variable.name.toLowerCase()) ? variable.name.toUpperCase() : variable.name;
+    set(name, variable.value);
+  }
   if (options.cliBin) {
     const name = Object.keys(env).find(key => key.toLowerCase() === 'path') ?? 'PATH', separator = options.windows ? ';' : ':';
     set(name, options.cliBin + separator + (env[name] ?? ''));
   }
   if (options.wsl) {
     const key = Object.keys(env).find(key => key.toLowerCase() === 'wslenv') ?? 'WSLENV';
-    const names = new Set(parsed.map(v => v.name.toLowerCase()));
-    // Replace flags on session names: transfer these as plain values, not paths/lists.
+    const transfer = [...new Set(['TERM', 'COLORTERM', ...parsed.map(v => v.name)]
+      .map(name => Object.keys(env).find(key => key.toLowerCase() === name.toLowerCase()) ?? name))]
+      .filter(name => name.toLowerCase() !== 'wslenv');
+    const names = new Set(transfer.map(name => name.toLowerCase()));
+    // Capabilities and session values must reach the guest even if inherited WSLENV
+    // restricted them with /w or transformed them with /p or /l. Keep unrelated flags.
     const previous = (env[key] ?? '').split(':').filter(entry => entry && !names.has(entry.split('/')[0]!.toLowerCase()));
-    set(key, [...previous, ...parsed.map(v => v.name)].join(':'));
+    set('WSLENV', [...previous, ...transfer].join(':'));
   }
   return env;
 }

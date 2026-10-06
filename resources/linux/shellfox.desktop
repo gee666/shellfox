@@ -1,0 +1,10 @@
+[Desktop Entry]
+# Shellfox/linux-v1
+Name=Shellfox
+Comment=Terminal manager
+Exec=/usr/bin/shellfox
+Terminal=false
+Type=Application
+Icon=shellfox
+Categories=Development;
+StartupWMClass=Shellfox

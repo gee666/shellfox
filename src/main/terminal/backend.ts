@@ -5,6 +5,7 @@ import type { EnvVar, Result, TerminalAttachmentDto, TerminalEvent, TerminalProf
 import { failure, success } from '../../shared/contracts';
 import { idSchema, pathSchema, profileIdSchema, requestSchemas } from '../../shared/schemas';
 import { z } from 'zod';
+import { resolvePython, type PythonProbe } from './python';
 import { discoverProfiles, spawnArguments, validateProfileCwd } from './profiles';
 import type { TrackingRoot } from './tracking';
 import { captureLinuxRoot, closeUnixTree, type UnixIdentity } from './unix-close';
@@ -74,7 +75,12 @@ export class PtyBackend {
   private initialized = false;
   private order = 0;
   private replayBytes = 0;
-  constructor(private readonly options: BackendOptions = {}) { this.factory = options.factory; this.terminateGuest = options.terminateGuest; this.terminateUnix = options.terminateUnix ?? closeUnixTree; this.platform = options.platform ?? process.platform; }
+  private pythonPath: string | null = null;
+  private python: PythonProbe = { detected: null, usable: false, reason: null };
+  constructor(private readonly options: BackendOptions = {}) { this.factory = options.factory; this.terminateGuest = options.terminateGuest; this.terminateUnix = options.terminateUnix ?? ((root, identity, known) => {
+    if (this.platform === 'linux' && !this.python.usable) throw new Error(this.python.reason ?? 'Python pidfd support unavailable.');
+    return closeUnixTree(root, identity, known, undefined, this.python.detected ?? undefined);
+  }); this.platform = options.platform ?? process.platform; }
   configureGuestTermination(close: TreeTerminator): void { this.terminateGuest ??= close; }
   rememberOwnership(tabId: string, generation: string, identity: UnixIdentity | null, known: UnixIdentity[]): void {
     const e = this.entries.get(tabId); if (!e || e.generation !== generation) return;
@@ -86,10 +92,18 @@ export class PtyBackend {
     if (this.initialized) return success(this.getProfiles());
     try {
       this.factory ??= defaultFactory();
-      this.profiles = await (this.options.discover ?? discoverProfiles)();
+      await this.refreshProfiles();
       this.initialized = true;
       return success(this.getProfiles());
     } catch { return failure('DEPENDENCY_MISSING', 'The embedded terminal addon or discovered shell is unavailable. Rebuild node-pty for this Electron runtime.'); }
+  }
+  configurePythonPath(value: string | null): void { this.pythonPath = value; }
+  getPython(): PythonProbe { return { ...this.python }; }
+  async refreshProfiles(value = this.pythonPath): Promise<TerminalProfilesDto> {
+    if (this.platform === 'linux') this.python = await resolvePython(value);
+    this.pythonPath = value;
+    this.profiles = await (this.options.discover ?? (() => discoverProfiles({ platform: this.platform, pythonPath: value, python: this.python })))();
+    return this.getProfiles();
   }
   getProfiles(): TerminalProfilesDto { return structuredClone(this.profiles); }
   get(tabId: string): OwnedTerminal | undefined {
@@ -138,13 +152,21 @@ export class PtyBackend {
       return failure('VALIDATION', 'Terminal ownership changed or the live terminal limit was reached during preparation.');
     }
     const command = supervisor ?? spawnArguments(profile, cwd, marker);
-    const env = terminalEnvironment({ ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin });
+    const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin });
     for (const name of Object.keys(env)) if (name.toLowerCase() === 'shellfox_terminal_marker') delete env[name];
     env.SHELLFOX_TERMINAL_MARKER = marker;
     if (supervisor) Object.assign(env, supervisor.env);
+    // Unix node-pty writes options.name back to env.TERM, so use the session value.
+    const termName = env.TERM ?? 'xterm-256color';
+    // node-pty treats an empty name as missing and rewrites Unix env.TERM to its
+    // default. Restore an explicit empty TERM after that step; env exec keeps the
+    // same owned PID, including the macOS supervisor transport.
+    const spawn = this.platform !== 'win32' && env.TERM === ''
+      ? { ...command, file: '/usr/bin/env', args: ['TERM=', command.file, ...command.args] }
+      : command;
     let pty: PtyProcess;
     const bornBefore = (BigInt(Date.now()) + 11644473600000n) * 10000n;
-    try { pty = this.factory(command.file, command.args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: command.cwd, env, useConpty: true, useConptyDll: true }); }
+    try { pty = this.factory(spawn.file, spawn.args, { name: termName, cols: 80, rows: 24, cwd: spawn.cwd, env, useConpty: true, useConptyDll: true }); }
     catch { await supervisor?.control.disposeConfirmed(); return failure('LAUNCH_FAILED', 'The selected interactive shell could not start.'); }
     const bornAfter = (BigInt(Date.now()) + 11644473600000n) * 10000n + 9999n;
     if (current) { current.activity.stop(); this.replayBytes -= current.bytes; current.handles.forEach(h => h.dispose()); }

@@ -40,7 +40,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     return () => { active = false; };
     // The bridge is stable for the lifetime of this app.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [terminalApi]);
+  }, [terminalApi, state.snapshot?.settings.pythonPath]);
   useEffect(() => { if (state.error) notify(state.error); }, [state.error]);
   useEffect(() => { if (settingsError?.toast) notify(settingsError.error); }, [settingsError]);
   const snapshot = state.snapshot;

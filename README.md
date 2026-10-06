@@ -9,11 +9,11 @@ This is an embedded-terminal preview. Windows x64 dependency/build/package check
 ## Using the workspace
 
 - Create a session with an accessible folder. Multiple sessions can use the same folder.
-- Select a session to show its saved or first live tab. If it has no live or launching tab, activation opens one fresh shell. It never restores commands.
-- Add tab creates another independent shell. Choose a discovered profile and, optionally, a different starting folder for that tab.
+- Select a session to show its current or first live tab. If none remain, press the tab-strip plus to open a fresh shell. Selection never launches shells or restores commands.
+- The tab-strip plus creates another independent shell. Right-click it to choose a discovered profile.
 - Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
 - Closing a tab explicitly terminates its owned shell and verified descendants. Closure requires exit evidence, not just a sent signal. Do not use it on work you want to keep running.
-- Settle moves a saved task into history. It does not stop shells or agents. Rename, unsettle, literal history search and process-rule settings remain available.
+- Archive moves a saved task into history without stopping shells or agents. Embedded archived sessions can be restored; retired external sessions remain read-only. Rename and agent-rule settings are available.
 
 Terminals are app-owned. Quitting with live shells shows a native confirmation and closes them if confirmed. Cancel keeps the app running. Failed termination or missing exit evidence keeps the manager open for a retry. Closing or restarting the manager does not preserve shells. On startup, former embedded live tabs become closed records; commands and screen output are not restored. This replaces the previous external-terminal survival behavior.
 
@@ -25,15 +25,15 @@ Windows discovers PowerShell 7 at its standard installation path, then falls bac
 
 Installed WSL distributions appear as separate Windows profiles. Discovery now preflights each guest before permitting launch. This can boot distributions, with bounded concurrency and timeouts. Bash, env, Python 3, readable guest `/proc` and working pidfd signaling must pass; unavailable profiles remain listed in Settings, and the backend returns an explicit reason. The current UI labels them unavailable rather than displaying every per-profile reason. WSL tabs use guest Bash and guest process tracking, not `wsl.exe` ancestry as a substitute. Use an absolute guest folder such as `/home/me/project`, or a Windows drive path that the selected distribution can translate with `wslpath`. Initial session creation uses the saved default profile; Add tab can select another profile.
 
-Linux local profiles require `/usr/bin/python3`, readable `/proc` and working `os.pidfd_open` and `signal.pidfd_send_signal` before launch. WSL requires the same guest APIs plus Bash/env. A kernel version alone is not proof; preflight checks usable signaling and process access.
+Linux local profiles resolve Python from Settings → Python, then `/usr/bin/python3`, then PATH. The chosen interpreter must pass readable `/proc` and working `os.pidfd_open` / `signal.pidfd_send_signal` preflight before launch. WSL requires the same guest APIs plus Bash/env. A kernel version alone is not proof; preflight checks usable signaling and process access.
 
 Linux/WSL close freezes and enumerates the owned PTY session to a fixed point, signals held pidfds for its root and descendants, and confirms every exit. Only the original live stopped session leader authorizes new session members. Previously proven detached/orphan identities need independent exact-birth verification; unknown ownership causes refusal. Shell exit alone does not discard pending descendant cleanup. Failed cleanup blocks replacement and quitting, retains ownership and resumes surviving processes stopped by that invocation. A killed/crashed cleanup helper cannot guarantee restoration.
 
-If prerequisites disappear after launch, or members become elevated/inaccessible or exceed the 256-member bound, close can fail honestly. The manager does not kill `wsl.exe` first or use numeric-PID fallback. Exit the shell manually or restore the prerequisites. Actual Linux pidfd/tree safety fixtures passed inside WSL Debian; WSL UI and target-native Linux package acceptance remain unverified.
+If prerequisites disappear after launch, or members become elevated/inaccessible or exceed the 256-member bound, close can fail honestly. The manager does not kill `wsl.exe` first or use numeric-PID fallback. Exit the shell manually or restore the prerequisites. Actual Linux pidfd/tree safety fixtures and a target-native installed Debian x64 UI/CLI smoke passed inside WSL Debian. This does not establish Ubuntu-flavour physical desktop, AppArmor-policy or ARM64 acceptance.
 
 ## Development
 
-Use Node 24 and pnpm 12.8.1, running natively on the target OS and architecture.
+Use Node 24 and the pnpm version specified in package.json, running natively on the target OS and architecture.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -91,7 +91,9 @@ After build:
 pnpm exec electron . --new-session --cwd "C:\work\project"
 ```
 
-Enable `shellfox start <path>` in Settings to install the terminal command. Run `shellfox start .` or `shellfox start "C:\folder with spaces"` from cmd, PowerShell, Git Bash or WSL. Paths resolve against the caller's working directory. The command returns without waiting for the app to close. Run `shellfox --help` for usage. New external terminals pick up the user PATH change; new embedded terminals receive it immediately.
+On Ubuntu/Debian, install with `sudo apt install ./shellfox_*.deb`; `/usr/bin/shellfox` is included. `shellfox` opens the app and `shellfox start .` selects a session for your current folder. Linux Settings also installs per-user right-click entries for Files/Nautilus, Nemo, Dolphin, Thunar and Caja. See [Ubuntu install and usage](docs/ubuntu.md), including Python path and sandbox details.
+
+For Windows or loose/from-source Linux builds, enable `shellfox start <path>` in Settings to install the terminal command. Run `shellfox start .` or `shellfox start "C:\folder with spaces"` from cmd, PowerShell, Git Bash or WSL. Paths resolve against the caller's working directory. The command returns without waiting for the app to close. Run `shellfox --help` for usage. New external terminals pick up the user PATH change; new embedded terminals receive it immediately.
 
 The older `--new-session --cwd` flags are also supported, with both flags required. Each invocation creates a separate saved session, even in the same folder. Request UUIDs prevent duplicate delivery. Early requests wait for initialization. Settings also offers `Open in Shellfox` for Explorer folder and background menus. On Windows 11, use Show more options. Registry changes affect only app-owned verbs.
 
@@ -99,7 +101,7 @@ The older `--new-session --cwd` flags are also supported, with both flags requir
 
 SQLite lives in `<Electron appData>/Shellfox/manager.sqlite3`. The main process is its only writer. On the first renamed startup, if that database is absent, Shellfox copies the previous app's database and settings without deleting the old directory. SQLite backup includes committed WAL data; `legacy-backup` keeps raw DB/WAL/SHM recovery copies. Existing Shellfox databases are never overwritten. Renderer preferences migrate their old storage keys on read. Saved Explorer and CLI opt-ins are reapplied with the new executable. Squirrel now has a new installed identity and install path; this is a separate installation, not an in-place update of the old package. Migrations retain legacy history and persist embedded tab/profile/exit metadata. Terminal output and process command lines are not stored in SQLite or manager snapshots. Scrollback and replay are bounded and disappear at app exit. Shell exit is forwarded even if SQLite saving fails; runtime closure remains authoritative, a storage error is surfaced and metadata reconciliation retries separately.
 
-Counts mean matched descendant process identities, not logical tasks, input-wait detection or command success. Windows local tracking uses PowerShell/CIM, Linux uses `/proc`, and macOS uses a read-only libproc/numeric-sysctl snapshot helper, with helper self-preflight before advertising tracking. WSL tracking runs inside the selected distro. Poll failures and inaccessible identity evidence stay unknown. Very short-lived, detached, elevated, remote, container or multiplexer activity is not guaranteed. The displayed folder is the starting/default folder, not live shell CWD. Local folder validation rejects inaccessible, symlink/reparse and unsupported remote paths.
+Counts mean matched descendant process identities, not logical tasks, input-wait detection or command success. Windows local tracking uses PowerShell/CIM, Linux uses `/proc`, and macOS uses a read-only libproc/numeric-sysctl snapshot helper, with helper self-preflight before advertising tracking. WSL tracking runs inside the selected distro. Poll failures and inaccessible identity evidence stay unknown. Very short-lived, detached, elevated, remote, container or multiplexer activity is not guaranteed. The displayed folder is the starting/default folder, not live shell CWD. Local folder validation checks accessibility and the resolved target, rejects unsupported remote paths, and accepts supported local symlinks.
 
 The renderer is sandboxed with no Node integration or raw IPC. Preload exposes validated terminal operations; main checks sender, generation and ownership before input, resize or close. VT output goes to xterm rather than HTML. OSC clipboard and link activation are disabled; no clipboard or web-links addon is installed. A shell's exit code is not arbitrary command-status detection.
 

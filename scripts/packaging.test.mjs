@@ -25,6 +25,13 @@ test('makers match each native OS/architecture without an arm64 Squirrel claim',
     assert.equal(c.packagerConfig.ignore('/node_modules/node-pty/build/Release/spawn-helper'), false);
   }
 });
+test('Debian installs an owned launcher, setuid sandbox and guarded unconfined AppArmor profile', () => {
+ const options=config('linux','x64').makers.find(m=>m.name==='@electron-forge/maker-deb').config.options;
+ assert.ok(options.depends.includes('python3'));assert.ok(options.depends.includes('libasound2t64 | libasound2'));assert.ok(options.recommends.includes('python3-nautilus'));assert.ok(!options.depends.includes('gnome-terminal'));
+ const postinst=readFileSync(options.scripts.postinst,'utf8'),postrm=readFileSync(options.scripts.postrm,'utf8');
+ assert.ok(postinst.includes('chmod 4755'));assert.ok(postinst.includes('chown root:root'));assert.ok(postinst.includes('apparmor_restrict_unprivileged_userns'));assert.ok(postinst.includes('abi/4.0'));assert.ok(postinst.includes('flags=(unconfined)'));assert.ok(postinst.includes('userns,'));assert.ok(postrm.includes('apparmor_parser -R'));assert.ok(!postinst.includes('--no-sandbox'));
+ assert.ok(readFileSync(options.desktopTemplate,'utf8').includes('Exec=/usr/bin/shellfox'));assert.ok(!readFileSync(options.desktopTemplate,'utf8').includes('%U'));
+});
 test('Darwin native resources are outside ASAR and covered by preview signing', () => {
   for (const arch of ['x64', 'arm64']) {
     const c = config('darwin', arch).packagerConfig;

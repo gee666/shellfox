@@ -40,6 +40,20 @@ describe('owned PTY backend', () => {
     expect(f.factory).toHaveBeenCalledWith('/bin/bash', ['-l', '-i'], expect.objectContaining({ cwd: '/work', cols: 80, rows: 24, name: 'xterm-256color', env: expect.objectContaining({ TERM: 'xterm-256color', SHELLFOX_TERMINAL_MARKER: expect.any(String) }) }));
     expect(f.backend.live()).toHaveLength(1); await f.backend.dispose();
   });
+  it.each(['win32', 'linux'] as const)('preserves explicit terminal capabilities in spawn env and node-pty name on %s', async platform => {
+    const f = factoryFixture(), testBackend = new PtyBackend({ ...f.options, platform });
+    value(await testBackend.initialize());
+    const input = { ...launchInput(), env: [{ name: 'TERM', value: 'vt100' }, { name: 'COLORTERM', value: '' }] };
+    value(await testBackend.launch(input));
+    expect(f.factory).toHaveBeenLastCalledWith(expect.any(String), expect.any(Array), expect.objectContaining({ name: 'vt100', env: expect.objectContaining({ TERM: 'vt100', COLORTERM: '' }), useConpty: true, useConptyDll: true }));
+    await testBackend.dispose();
+  });
+  it('restores an explicit empty TERM after Unix node-pty chooses its fallback name', async () => {
+    const f = factoryFixture(), backend = new PtyBackend({ ...f.options, platform: 'linux' }); value(await backend.initialize());
+    value(await backend.launch({ ...launchInput(), env: [{ name: 'TERM', value: '' }] }));
+    expect(f.factory).toHaveBeenLastCalledWith('/usr/bin/env', ['TERM=', '/bin/bash', '-l', '-i'], expect.objectContaining({ name: '', env: expect.objectContaining({ TERM: '', COLORTERM: 'truecolor' }) }));
+    await backend.dispose();
+  });
   it('launches WSL with guest cwd and injected marker, never an interpolated shell command', async () => {
     const f = await fixture(), input = { ...launchInput(), profileId: 'wsl:Ubuntu', cwd: "/home/user/a';& folder" };
     value(await f.backend.launch(input));

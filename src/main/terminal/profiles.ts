@@ -6,7 +6,8 @@ import path from 'node:path';
 import type { TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { pathSchema, terminalProfileSchema } from '../../shared/schemas';
 import { validateDirectory } from '../directory';
-import { PIDFD_PREFLIGHT, PIDFD_READY } from './unix-close';
+import { PIDFD_PREFLIGHT, PIDFD_READY } from './pidfd-preflight';
+import { resolvePython, type PythonProbe } from './python';
 import { getDarwinSupervisorCapability } from './darwin-supervisor';
 import type { TrackingHelperOptions } from './tracking';
 
@@ -21,7 +22,7 @@ export interface ProfileOptions {
   platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv;
   exists?: (file: string) => Promise<boolean>; run?: Execute; loginShell?: string | null;
   canonical?: (file: string) => Promise<string>;
-  supervisorOptions?: TrackingHelperOptions;
+  supervisorOptions?: TrackingHelperOptions; pythonPath?: string | null; python?: PythonProbe;
 }
 export async function discoverProfiles(options: ProfileOptions = {}): Promise<TerminalProfilesDto> {
   const platform = options.platform ?? process.platform, env = options.env ?? process.env, run = options.run ?? execute;
@@ -56,13 +57,14 @@ export async function discoverProfiles(options: ProfileOptions = {}): Promise<Te
     if (login === undefined) { try { login = userInfo().shell; } catch { login = null; } }
     const candidates = [...new Set([login, env.SHELL, platform === 'darwin' ? '/bin/zsh' : '/bin/bash', '/bin/sh'].filter((p): p is string => !!p && pathSchema.safeParse(p).success))];
     let closeReady = false, supervisorReason: string | null = null;
+    const python = platform === 'linux' ? options.python ?? await resolvePython(options.pythonPath ?? null, { env, exists, run }) : null;
     if (platform === 'darwin') { const supervisor = await getDarwinSupervisorCapability({ ...options.supervisorOptions, platform }, run); closeReady = supervisor.available; supervisorReason = supervisor.reason; }
-    if (platform === 'linux') { try { closeReady = (await run('/usr/bin/python3', ['-c', PIDFD_PREFLIGHT])).toString('utf8').trim() === PIDFD_READY; } catch { /* Missing pidfds is not safe numeric-PID termination. */ } }
+    if (platform === 'linux') closeReady = !!python?.usable;
     for (const original of candidates) if (await exists(original)) {
       let executable = original, canonicalReady = false;
       try { executable = await (options.canonical ?? realpath)(original); canonicalReady = pathSchema.safeParse(executable).success && await exists(executable); } catch { /* Canonical identity could not be verified. */ }
       const available = canonicalReady && closeReady;
-      profiles.push({ id: original === candidates[0] ? 'login-shell' : `shell:${original}`, label: `${path.posix.basename(original)} login shell`, environment: 'local', executable, args: ['-l', '-i'], distro: null, available, canTerminateDescendants: available, unavailableReason: !canonicalReady ? 'The canonical shell executable could not be verified.' : platform === 'darwin' && !closeReady ? `macOS supervisor preflight unavailable: ${supervisorReason ?? 'Bundled native helper is unavailable.'}` : !closeReady ? 'Requires /usr/bin/python3, /proc and working Linux pidfd signal support for owned descendant cleanup.' : null });
+      profiles.push({ id: original === candidates[0] ? 'login-shell' : `shell:${original}`, label: `${path.posix.basename(original)} login shell`, environment: 'local', executable, args: ['-l', '-i'], distro: null, available, canTerminateDescendants: available, unavailableReason: !canonicalReady ? 'The canonical shell executable could not be verified.' : platform === 'darwin' && !closeReady ? `macOS supervisor preflight unavailable: ${supervisorReason ?? 'Bundled native helper is unavailable.'}` : !closeReady ? python?.reason ?? 'Python 3 not found. Set its path in Settings → Python.' : null });
     }
   }
   return { profiles: profiles.filter(p => terminalProfileSchema.safeParse(p).success), defaultProfileId: profiles.find(p => p.available)?.id ?? null, lifetime: 'app-owned', shellSurvival: false };

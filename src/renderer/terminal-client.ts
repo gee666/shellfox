@@ -28,6 +28,8 @@ export const createTerminalSurface: SurfaceFactory = input => {
     allowProposedApi: true, scrollback: 3000, fontSize: 14,
     fontFamily: "'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace",
     cursorBlink: true, convertEol: false, disableStdin: true,
+    // Preserve application RGB choices; bold must not remap ANSI palette colors.
+    minimumContrastRatio: 1, drawBoldTextInBrightColors: false,
     overviewRuler: { width: 8 },
     theme: { background: '#111016', foreground: '#e8e6ee', cursor: '#ec4899', selectionBackground: '#69517980',
       scrollbarSliderBackground: '#302c3b80', scrollbarSliderHoverBackground: '#40364d', scrollbarSliderActiveBackground: '#40364d', overviewRulerBorder: '#111016' },

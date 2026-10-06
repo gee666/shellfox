@@ -1,0 +1,12 @@
+#!/bin/sh
+# Shellfox/linux-v1
+set -eu
+case "${1:-}" in
+  remove|purge)
+    profile=/etc/apparmor.d/shellfox
+    if [ ! -L "$profile" ] && [ -f "$profile" ] && grep -Fxq '# Shellfox/linux-v1' "$profile"; then
+      if command -v apparmor_parser >/dev/null 2>&1; then apparmor_parser -R "$profile" || true; fi
+      rm -f "$profile"
+    fi
+    ;;
+esac

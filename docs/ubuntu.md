@@ -1,50 +1,81 @@
-# Ubuntu embedded-terminal builds
+# Shellfox on Ubuntu and Debian
 
-The current Linux runtime embeds an interactive shell in the right workspace using node-pty and xterm. It no longer requires GNOME Terminal, a registered Bash rcfile or a self-contained .NET helper. Older `0.1.0` DEB artifacts in scratch directories predate this rewrite and must not be used as evidence for it.
+## Install
 
-## Build on the target host
-
-Use a glibc-based Ubuntu desktop, Node 24 and pnpm 12.8.1 with matching x64 or arm64 architecture. Install development dependencies only with the machine owner's consent. Typical Ubuntu 24.04 prerequisites are Python 3, make/g++, dpkg, fakeroot, libgtk-3-0, libnss3, libxss1, libgbm1, libnotify4, libxtst6, libasound2t64 and xdg-utils. Electron's exact runtime dependencies vary by distribution. For headless tests also provide Xvfb and session D-Bus.
+Download the `.deb` for your architecture and install it as your normal desktop user:
 
 ```sh
+sudo apt install ./shellfox_*.deb
+shellfox
+```
+
+Do not launch Shellfox with sudo. Ubuntu 22.04, 24.04+ and desktop flavours use the same package; GNOME is not required. The package installs the Electron runtime libraries, Python 3 and the `/usr/bin/shellfox` launcher. It recommends `python3-nautilus` for GNOME Files.
+
+```sh
+shellfox start .
+shellfox start ..
+shellfox start "/home/me/a folder with spaces"
+shellfox --help
+```
+
+Paths resolve against the caller's directory. Each call creates/selects one session with a default terminal and returns without waiting for the app to close. Symlinks are resolved by the launcher. A missing folder prints an error and returns exit 1. With no arguments, `shellfox` opens the app normally.
+
+The launcher installed by the package is always available. A loose package or from-source build can install its owned launcher in `~/.local/bin` using Settings → Terminal command. If that directory is absent from PATH, add it or log out and in:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Add that line to your shell's startup file if needed. New Shellfox tabs receive the launcher directory immediately; already running shells are not modified.
+
+## Right-click menus
+
+In Settings → Explorer, enable **Add “Open in Shellfox” to the file manager right-click menu**. Shellfox detects installed file managers and installs per-user entries for every supported one:
+
+- **GNOME Files / Nautilus:** single folder and background menu provider for Nautilus 3.0 and 4.0. For the top-level menu, install the optional binding:
+  `sudo apt install python3-nautilus`.
+  Without it, an executable fallback appears under Scripts → Open in Shellfox. Restart Files yourself or log out and in to load the extension. Shellfox never kills Files.
+- **Nemo:** directory and background actions.
+- **Dolphin:** KDE Frameworks 5/6 service-menu locations, with executable desktop files.
+- **Thunar:** a custom action merged into uca.xml without removing other actions.
+- **Caja:** Scripts → Open in Shellfox, using the selected folder or current local folder.
+
+Only local file locations are passed as argv; no folder text is executable shell source. Disabling integration removes only Shellfox-owned entries. Existing foreign files/actions are not overwritten. Installed state is checked from the actual files and launcher, not just a saved switch.
+
+## Python
+
+Linux terminal cleanup uses Python's pidfd APIs to identify and safely close owned processes. Settings → Python lets you choose an **absolute executable Python 3 path**. Leave it empty for auto-detection: configured path, then `/usr/bin/python3`, then `python3` on PATH. Saving a path verifies executable access and actual pidfd signaling; a successful change refreshes shell availability without restarting the app.
+
+If Python is missing, Settings says “Python 3 not found. Set its path in Settings → Python.” Install Python 3 or choose its path. Python 3.9+, readable /proc, a compatible Linux kernel and permitted pidfd operations are required. A kernel version alone is not proof. WSL profiles on Windows still resolve Python inside the guest; this setting affects local Linux only.
+
+Closing a terminal stops and enumerates its verified owned session, holds pidfds, signals those handles and confirms exit. Inaccessible/elevated descendants, lost prerequisites or the member bound can block cleanup honestly. There is no numeric-PID fallback. Failed pre-commit cleanup resumes surviving processes it stopped. Existing running shells are not rewritten by a settings change.
+
+## Sandbox
+
+Only the UI process is sandboxed; terminals and agents run with your full user permissions. The package makes Chromium's chrome-sandbox helper root-owned mode 4755. On Ubuntu 24.04+ systems that restrict unprivileged user namespaces, its guarded AppArmor profile is **unconfined** and grants userns; it does not confine your shells or agents. Older systems skip that profile. Do not use a Chromium sandbox-bypass flag to hide configuration errors.
+
+## Build from source
+
+Use target-native Node 24, pnpm matching package.json and fresh Linux dependencies. Never copy Windows node_modules.
+
+```sh
+sudo apt install build-essential python3 curl fakeroot dpkg libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test:unit
 pnpm build
-pnpm test:storage
-pnpm test:pty
-pnpm package
-pnpm test:packaged
-pnpm test:packaged:startup
 pnpm make
+sudo apt install ./tmp/packages/make/deb/*/shellfox_*.deb
 ```
 
-node-pty 1.1.0 does not ship Linux prebuilds. Build compiles it against the pinned Electron and verifies native loading in Electron alongside SQLite. No .NET build runs. Do not copy Windows/macOS node_modules or reuse their build/Release files. `node scripts/ubuntu-stage.mjs` can copy source into `tmp/ubuntu-source`; install fresh dependencies there on Linux. No prepublished .NET helper is required.
+On Ubuntu 22.04, use libgtk-3-0 and libasound2 instead of their t64 names. node-pty compiles against the pinned Electron on Linux. `scripts/ubuntu-stage.mjs` prepares an isolated source tree; native Linux filesystem builds are preferable to Windows-mounted node_modules.
 
-Headless Electron commands need a graphical wrapper, for example:
+A loose app is `tmp/packages/Shellfox-linux-<arch>/shellfox`. If testing a loose/dev app requires the setuid helper, configure only that build's chrome-sandbox with administrator approval; the installed deb already handles it. No sandbox bypass is added by Shellfox. Headless testing uses a graphical wrapper:
 
 ```sh
 dbus-run-session -- xvfb-run -a pnpm test:storage
-dbus-run-session -- xvfb-run -a pnpm test:pty
 ```
 
-The package is `tmp/packages/Shellfox-linux-<arch>/shellfox`. Makers produce ZIPs and `tmp/packages/make/deb/<arch>/*.deb`. DEB dependencies no longer include GNOME Terminal. A shell and working directory must still be available. Electron's Chromium sandbox also needs a working host namespace configuration or its correctly installed root-owned mode-4755 chrome-sandbox helper. The disposable CI runners configure that development/loose-package helper and permit private user/PID namespaces for the isolated PID/SID-reuse fixture. The Ubuntu runner's unprivileged-userns AppArmor restriction is relaxed only in CI; production launch does not need the fixture's namespace policy change. CI never disables Chromium sandboxing; this is not clean-machine installation acceptance. Do not change host sandbox permissions or policies without administrator approval. The package does not install user profiles, registration scripts, file-manager verbs or default-terminal settings.
+## Verification scope
 
-Python 3 is also a runtime prerequisite on Linux, not just a compiler dependency. Launch preflight requires `/usr/bin/python3`, readable `/proc` and working pidfd-open/signal APIs under the current user. Missing kernel support, seccomp restrictions or inaccessible process evidence disable profiles with a reason. Build success does not bypass this gate. Unix shell aliases are canonicalized for executable identity.
-
-Close uses held pidfds to freeze and enumerate the owned session and verify root/descendant exit. Unknown ownership, inaccessible/elevated members, lost prerequisites or the 256-member bound can block cleanup and quitting. Root exit alone does not authorize a new shell while cleanup remains unconfirmed. Failed invocations resume still-live members they stopped; external destruction of the cleanup helper cannot guarantee restoration.
-
-## Desktop installation and acceptance
-
-After separate permission to install a newly built artifact on a disposable target desktop:
-
-```sh
-sudo apt install ./shellfox_<version>_<debian-architecture>.deb
-shellfox
-```
-
-Use the actual artifact filename. Do not launch the app with sudo, disable Chromium's sandbox to hide a configuration error, or bypass dependency failures. Capture the exact error instead.
-
-Create sessions and independent tabs, run input/output and a full-screen program, resize the workspace, switch sessions/Settings, settle a live task, and check quit cancellation and confirmed termination. Verify restart shows history without replaying commands. Linux process visibility failures must show unknown, not an invented healthy state.
-
-Linux/Ubuntu desktop acceptance and clean installation have not run for this rewrite. Actual Linux kernel pidfd/tree tests did run inside WSL Debian, including unrelated-session protection, stale identities, reused session IDs and failed-close resume. They are not a native Linux node-pty/Electron package test. Old WSL Debian SQLite/helper smokes and GNOME registration tests are historical only. The manual native-target [CI workflow](../.github/workflows/embedded-packages.yml) is configured but unexecuted; its build artifacts will not by themselves prove desktop installation or complete UI behavior.
+Round 4 actually built and installed the Linux x64 deb in the existing WSL Debian 13 distro, opened its installed UI without a sandbox bypass under Xvfb, created real Bash terminals through cold/warm installed CLI calls, exercised Python settings, and imported/called Nautilus 4.0 with real GI. Ubuntu 22.04/24.04 physical desktops, AppArmor kernel-policy loading, and live Nemo/Dolphin/Thunar/Caja desktop menus were not run. See `tmp/round4-linux-report.md` for executed checks versus unit coverage. Squirrel and macOS/Linux ARM64 acceptance are separate work.

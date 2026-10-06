@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { open, readdir, readlink, access } from 'node:fs/promises';
+import { open, readdir, readlink, access, realpath, stat } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { constants } from 'node:fs';
 import { win32, join, resolve } from 'node:path';
@@ -35,6 +35,9 @@ export interface TrackingProcess {
   birthOrder?: string;
   executable: string | null;
   argv: string[] | null;
+  /** Verified initial shell launcher target, read inside the same /proc birth check.
+   * Only a resolved JS symlink or pnpm cmd-shim target; never the title itself. */
+  launchScript?: string | null;
   accessible: boolean;
   marker?: string | null;
   /** Native metadata is informational, not authority to signal a numeric PID. */
@@ -75,6 +78,8 @@ const basename = (p: string, windows = false) => (windows ? p.replace(/\\/g, '/'
 const shellNames = new Set(['sh', 'bash', 'dash', 'ash', 'zsh', 'fish', 'ksh', 'csh', 'tcsh', 'nu', 'pwsh', 'powershell']);
 const shellBasename = (executable: string, windows: boolean) => windows
   ? basename(executable, true).toLowerCase() : basename(executable);
+const rewrittenPi = (executable: string | null, argv: string[] | null) => executable !== null &&
+  ['node', 'nodejs'].includes(basename(executable)) && argv?.[0] === 'pi' && argv.slice(1).every(arg => arg === '');
 const isShell = (p: TrackingProcess, windows = false) => p.executable !== null &&
   shellNames.has(windows ? shellBasename(p.executable, true).replace(/\.exe$/, '') : basename(p.executable));
 const ordered = (p: TrackingProcess, parent: TrackingProcess) =>
@@ -177,7 +182,7 @@ export class ProcessTracker {
     for (const [id, owner] of this.owners) if (!retained.has(owner)) this.owners.delete(id);
     this.revision++;
     if (roots.length && !this.timer) {
-      this.timer = setInterval(() => { void this.poll().catch(() => {}); }, 2000);
+      this.timer = setInterval(() => { void this.poll().catch(() => {}); }, 1000);
       this.timer.unref?.();
     } else if (!roots.length && this.timer) {
       clearInterval(this.timer);
@@ -273,7 +278,9 @@ export class ProcessTracker {
         p.birthOrder !== undefined && (typeof p.birthOrder !== 'string' || !/^\d+$/.test(p.birthOrder)) ||
         p.birth !== null && (typeof p.birth !== 'string' || !p.birth) || typeof p.accessible !== 'boolean' ||
         p.executable !== null && typeof p.executable !== 'string' ||
-        p.argv !== null && (!Array.isArray(p.argv) || p.argv.some(a => typeof a !== 'string'))) throw new Error('Invalid process identity.');
+        p.argv !== null && (!Array.isArray(p.argv) || p.argv.some(a => typeof a !== 'string')) ||
+        p.launchScript != null && (typeof p.launchScript !== 'string' || !p.launchScript.startsWith('/') ||
+          p.launchScript.includes('\0') || Buffer.byteLength(p.launchScript) > MAX_FIELD)) throw new Error('Invalid process identity.');
       rows.set(p.pid, p);
     }
     const alive = new Set(s.processes.filter(p => p.birth !== null).map(p => key(s.domain, p)));
@@ -287,7 +294,7 @@ export class ProcessTracker {
       while (true) {
         const parent = rows.get(current.parentPid);
         if (!parent || parent.birth === null || seen.has(parent.pid) || !ordered(current, parent)) return false;
-        // CIM verifies each ancestry row's PID/birth twice. Owner queries intentionally
+        // CIM verifies each ancestry row's PID/birth twice. Token reads intentionally
         // omit unrelated ancestors; their accessible flag is not ancestry evidence.
         if (parent.pid === expectedPid) return true;
         seen.add(parent.pid); current = parent;
@@ -425,6 +432,10 @@ export class ProcessTracker {
           const script = scriptSlot(p.executable, p.argv, windows);
           if (script.unsupported) reason = 'A script rule uses an unsupported interpreter or option form.';
           if (script.path && rule.scriptPathSuffixes.some(suffix => suffixMatches(script.path!, suffix, windows))) matched = true;
+          // Pi rewrites argv on Unix. Require a verified launcher target matching
+          // an enabled Pi script rule, not a native-basename/title shortcut.
+          if (!windows && rewrittenPi(p.executable, p.argv) && p.launchScript &&
+            rule.scriptPathSuffixes.some(suffix => /(^|\/)pi-coding-agent\//.test(suffix) && suffixMatches(p.launchScript!, suffix, false))) matched = true;
         }
         if (matched) agents++;
       }
@@ -453,6 +464,27 @@ const WINDOWS_SNAPSHOT = String.raw`
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+# CIM GetOwnerSid is a separate RPC per descendant. Under multi-tab load that
+# exceeds the whole-command deadline. Read the same token-user SID locally.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+public static class ShellfoxProcessOwner {
+  [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  public static string Sid(uint pid) {
+    IntPtr process = OpenProcess(0x1000, false, pid), token = IntPtr.Zero;
+    if (process == IntPtr.Zero) return null;
+    try {
+      if (!OpenProcessToken(process, 8, out token)) return null;
+      using (var identity = new WindowsIdentity(token)) { return identity.User.Value; }
+    } catch { return null; }
+    finally { if (token != IntPtr.Zero) CloseHandle(token); CloseHandle(process); }
+  }
+}
+'@
 $first = @(Get-CimInstance Win32_Process -OperationTimeoutSec 5)
 if ($first.Count -gt 20000) { throw 'Process limit' }
 $watch = ConvertFrom-Json $env:SHELLFOX_TRACKING_SNAPSHOT
@@ -476,11 +508,11 @@ while ($queue.Count -gt 0) {
 }
 $rows = @($first | ForEach-Object {
   $p = $_; $ok = $false
-  if ($relevant.Contains([int]$p.ProcessId)) {
-    try { $o = Invoke-CimMethod -InputObject $p -MethodName GetOwnerSid -OperationTimeoutSec 2; $ok = ($o.ReturnValue -eq 0 -and $o.Sid -eq $me) } catch {}
-  }
   $birth = $null
   if ($p.CreationDate) { $birth = $p.CreationDate.ToUniversalTime().ToFileTimeUtc().ToString([Globalization.CultureInfo]::InvariantCulture) }
+  if ($relevant.Contains([int]$p.ProcessId)) {
+    $ok = ([ShellfoxProcessOwner]::Sid([uint32]$p.ProcessId) -eq $me)
+  }
   [pscustomobject]@{ pid=[int]$p.ProcessId; parentPid=[int]$p.ParentProcessId; birth=$birth; birthOrder=$birth; executable=$p.ExecutablePath; commandLine=$p.CommandLine; accessible=($ok -and $null -ne $birth -and $null -ne $p.ExecutablePath) }
 })
 $after = @{}
@@ -552,9 +584,10 @@ async function windowsSnapshot(roots: readonly TrackingRoot[], known: Map<number
   return ownedProcesses;
 }
 
-async function boundedRead(path: string, signal?: AbortSignal): Promise<string> {
-  const file = await open(path, 'r');
+async function boundedRead(path: string, signal?: AbortSignal, regular = false): Promise<string> {
+  const file = await open(path, regular ? constants.O_RDONLY | constants.O_NONBLOCK : 'r');
   try {
+    if (regular && !(await file.stat()).isFile()) throw new Error('Launcher is not a regular file.');
     const buffer = Buffer.alloc(MAX_FIELD + 1);
     let size = 0;
     while (size < buffer.length) {
@@ -576,6 +609,24 @@ function environmentMarker(environ: string): string | null {
   const prefix = 'SHELLFOX_TERMINAL_MARKER=';
   const values = environ.split('\0').filter(e => e.startsWith(prefix));
   return values.length === 1 ? values[0]!.slice(prefix.length) : null;
+}
+async function launcherScript(environ: string, signal?: AbortSignal): Promise<string | null> {
+  const entries = environ.split('\0').filter(entry => entry.startsWith('_='));
+  const launcher = entries.length === 1 ? entries[0]!.slice(2) : '';
+  if (!launcher.startsWith('/')) return null;
+  try {
+    const resolved = await realpath(launcher);
+    if (!(await stat(resolved)).isFile()) return null;
+    if (resolved.endsWith('.js')) return resolved;
+    // pnpm's executable shim names its literal target. Never execute or evaluate
+    // shim source. Nonblocking open + fstat rejects FIFOs and oversized files.
+    const source = await boundedRead(resolved, signal, true);
+    const targets = source.split('\n').filter(line => line.startsWith('# cmd-shim-target='));
+    const target = targets.length === 1 ? targets[0]!.slice('# cmd-shim-target='.length).trim() : '';
+    if (!target.startsWith('/') || !target.endsWith('.js') || target.includes('\0')) return null;
+    const script = await realpath(target);
+    return (await stat(script)).isFile() ? script : null;
+  } catch { return null; }
 }
 async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSignal): Promise<{ processes: TrackingProcess[]; complete: boolean; rootMarkerRequired: true }> {
   const rootPids = new Set(roots.map(r => r.pid));
@@ -601,7 +652,7 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
       }
       if (before.dead) continue;
       let executable: string | null = null, argv: string[] | null = null, accessible = false;
-      let marker: string | null | undefined;
+      let marker: string | null | undefined, launchScript: string | null | undefined;
       try {
         const status = await boundedRead(directory + '/status', signal);
         const users = /^Uid:\s+(\d+)\s+(\d+)/m.exec(status);
@@ -609,9 +660,14 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
           executable = (await readlink(directory + '/exe')).replace(/ \(deleted\)$/, '');
           accessible = true;
           try { argv = (await boundedRead(directory + '/cmdline', signal)).split('\0'); if (argv.at(-1) === '') argv.pop(); } catch { /* Relevant script rules will report unknown. */ }
-          if (rootPids.has(pid)) {
-            marker = null;
-            try { marker = environmentMarker(await boundedRead(directory + '/environ', signal)); } catch { /* Initial roots cannot be pinned without marker evidence. */ }
+          if (rootPids.has(pid) || rewrittenPi(executable, argv)) {
+            if (rootPids.has(pid)) marker = null;
+            if (rewrittenPi(executable, argv)) launchScript = null;
+            try {
+              const environ = await boundedRead(directory + '/environ', signal);
+              if (rootPids.has(pid)) marker = environmentMarker(environ);
+              if (rewrittenPi(executable, argv)) launchScript = await launcherScript(environ, signal);
+            } catch { /* Missing launcher evidence never turns a title into an agent. */ }
           }
         }
       } catch { /* Keep ancestry and birth evidence for inaccessible descendants. */ }
@@ -621,7 +677,8 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
         if (after.dead) continue;
         if (before.ticks !== after.ticks || before.parentPid !== after.parentPid) { birth = null; accessible = false; }
       } catch { birth = null; accessible = false; }
-      const p = { pid, parentPid: before.parentPid, birth, birthOrder: before.ticks, executable, argv, accessible, marker };
+      const p = { pid, parentPid: before.parentPid, birth, birthOrder: before.ticks, executable, argv, accessible, marker,
+        ...(launchScript !== undefined ? { launchScript } : {}) };
       bytes += Buffer.byteLength(JSON.stringify(p), 'utf8');
       if (bytes > MAX_OUTPUT) throw new Error('Process output limit exceeded.');
       processes.push(p);
@@ -630,12 +687,15 @@ async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSigna
   return { processes, complete, rootMarkerRequired: true };
 }
 
-// Only the marker is retained from environ. No command, marker or distro is interpolated.
+// Retain only the marker and a verified launcher target, never the full environ.
+// No command, marker or distro is interpolated.
 const WSL_PYTHON = String.raw`
-import os, json, errno
+import os, json, errno, stat as modes
 LIMIT = 65536
-def read(path):
-    with open(path, 'rb') as f:
+def read(path, regular=False):
+    fd = os.open(path, os.O_RDONLY | (os.O_NONBLOCK if regular else 0))
+    with os.fdopen(fd, 'rb') as f:
+        if regular and not modes.S_ISREG(os.fstat(fd).st_mode): raise ValueError('not a regular launcher')
         b = f.read(LIMIT + 1)
     if len(b) > LIMIT: raise ValueError('field limit')
     return b
@@ -643,6 +703,19 @@ def stat(path):
     b = read(path); f = b[b.rfind(b')')+2:].split()
     return int(f[1]), f[19].decode('ascii'), f[0] in (b'Z', b'X', b'x')
 def text(b): return b.decode('utf-8', 'replace')
+def script_file(path):
+    if not path.startswith('/') or '\0' in path: return None
+    path = os.path.realpath(path)
+    return path if modes.S_ISREG(os.stat(path).st_mode) else None
+def launcher_script(env):
+    try:
+        entries = [text(e[2:]) for e in env if e.startswith(b'_=')]
+        path = script_file(entries[0]) if len(entries) == 1 else None
+        if not path: return None
+        if path.endswith('.js'): return path
+        targets = [l[len('# cmd-shim-target='):].strip() for l in text(read(path, True)).splitlines() if l.startswith('# cmd-shim-target=')]
+        return script_file(targets[0]) if len(targets) == 1 and targets[0].endswith('.js') else None
+    except (OSError, ValueError): return None
 boot = text(read('/proc/sys/kernel/random/boot_id')).strip()
 uid = os.getuid()
 if uid != os.geteuid() or len(boot) != 36: raise ValueError('identity unavailable')
@@ -656,7 +729,7 @@ for number in pids:
         if e.errno not in (errno.ENOENT, errno.ESRCH): complete = False
         continue
     if dead: continue
-    exe = None; args = None; marker = None; accessible = False
+    exe = None; args = None; marker = None; accessible = False; launch = None
     try:
         users = next(l.split()[1:3] for l in read(d + '/status').splitlines() if l.startswith(b'Uid:'))
         if all(int(u) == uid for u in users):
@@ -669,8 +742,10 @@ for number in pids:
                 args = [text(a) for a in raw]
             except (OSError, ValueError): pass
             try:
-                markers = [text(e[len(b'SHELLFOX_TERMINAL_MARKER='):]) for e in read(d + '/environ').split(b'\0') if e.startswith(b'SHELLFOX_TERMINAL_MARKER=')]
+                env = read(d + '/environ').split(b'\0')
+                markers = [text(e[len(b'SHELLFOX_TERMINAL_MARKER='):]) for e in env if e.startswith(b'SHELLFOX_TERMINAL_MARKER=')]
                 if len(markers) == 1: marker = markers[0]
+                if os.path.basename(exe) in ('node', 'nodejs') and args and args[0] == 'pi' and all(a == '' for a in args[1:]): launch = launcher_script(env)
             except (OSError, ValueError): pass
     except (OSError, ValueError, StopIteration): pass
     birth = boot + ':' + ticks
@@ -680,6 +755,7 @@ for number in pids:
         if after[:2] != (parent, ticks): birth = None; accessible = False
     except (OSError, ValueError): birth = None; accessible = False
     row = dict(pid=int(number), parentPid=parent, birth=birth, birthOrder=ticks, executable=exe, argv=args, accessible=accessible, marker=marker)
+    if launch is not None: row['launchScript'] = launch
     total += len(json.dumps(row))
     if total > 8388608: raise ValueError('output limit')
     rows.append(row)
