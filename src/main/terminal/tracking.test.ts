@@ -994,6 +994,35 @@ describe('initial local root marker authentication', () => {
     vi.mocked(realpath).mockRejectedValue(new Error('denied')); expect((await check(0)).launchScript).toBeNull();
     vi.mocked(realpath).mockImplementation(async path => String(path));
     files.set('/bin/pi', 'x'.repeat(65537)); expect((await check(0)).launchScript).toBeNull();
+    // Pi's managed installer: $_ is the POSIX wrapper <agent>/bin/pi, which execs
+    // <agent>/install/releases/<current-version>/node_modules/.bin/pi (a cli.js symlink).
+    const wrapper = '#!/bin/sh\nexec "$pi_release_bin" "$@"\n', release = '/home/u/.pi/agent/install/releases/1.0.4/node_modules/.bin/pi';
+    const managedLinks = (overrides: Record<string, string> = {}) => vi.mocked(realpath).mockImplementation(async path => {
+      const links: Record<string, string> = { '/home/u/.local/bin/pi': '/home/u/.pi/agent/bin/pi', [release]: script, ...overrides };
+      return links[String(path)] ?? String(path);
+    });
+    managedLinks();
+    files.set('/home/u/.pi/agent/bin/pi', wrapper); files.set('/home/u/.pi/agent/install/current-version', '1.0.4\n');
+    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.local/bin/../../.pi/agent/install\0TOKEN=private\0');
+    managedLinks({ '/home/u/.local/bin/../../.pi/agent/install': '/home/u/.pi/agent/install' });
+    expect((await check(1)).launchScript).toBe(script);
+    // The launcher must be that install root's own bin/pi wrapper.
+    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/elsewhere/install\0');
+    expect((await check(0)).launchScript).toBeNull();
+    // Missing, duplicated or traversing version evidence never counts.
+    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0');
+    expect((await check(1)).launchScript).toBe(script);
+    files.set('/home/u/.pi/agent/install/current-version', '../../x\n'); expect((await check(0)).launchScript).toBeNull();
+    files.set('/home/u/.pi/agent/install/current-version', '1.0.4\n');
+    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0');
+    expect((await check(0)).launchScript).toBeNull();
+    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0');
+    expect((await check(0)).launchScript).toBeNull();
+    // A release binary that does not resolve to a JS file is not Pi evidence.
+    files.set('/proc/11/environ', '_=/home/u/.local/bin/pi\0PI_MANAGED_INSTALL_ROOT=/home/u/.pi/agent/install\0');
+    managedLinks({ [release]: '/usr/bin/true' }); expect((await check(0)).launchScript).toBeNull();
+    vi.mocked(realpath).mockImplementation(async path => String(path));
+    files.set('/proc/11/environ', '_=/bin/pi\0TOKEN=private\0');
     files.set('/bin/pi', '# cmd-shim-target=' + script + '\n');
     vi.mocked(fileStat).mockImplementation(async path => {
       if (String(path) === script) files.set('/proc/11/stat', stat(11, 10, '999'));

@@ -49,11 +49,12 @@ export function useAction() {
   const mounted = useRef(true);
   const notify = useNotify();
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  async function run<T>(operation: () => Promise<Result<T>>): Promise<Result<T> | undefined> {
+  /** timeoutMs: 0 waits for user-interactive operations (native dialogs) without a transport deadline. */
+  async function run<T>(operation: () => Promise<Result<T>>, options: { timeoutMs?: number } = {}): Promise<Result<T> | undefined> {
     if (locked.current) return;
     locked.current = true; setPending(true);
     try {
-      const result = await request(operation);
+      const result = await request(operation, options.timeoutMs);
       if (!result.ok && result.error.code !== 'SETTLE_CONFIRM_REQUIRED') notify(result.error);
       if (!mounted.current) return;
       return result;

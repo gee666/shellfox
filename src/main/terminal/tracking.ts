@@ -623,9 +623,29 @@ async function launcherScript(environ: string, signal?: AbortSignal): Promise<st
     const source = await boundedRead(resolved, signal, true);
     const targets = source.split('\n').filter(line => line.startsWith('# cmd-shim-target='));
     const target = targets.length === 1 ? targets[0]!.slice('# cmd-shim-target='.length).trim() : '';
-    if (!target.startsWith('/') || !target.endsWith('.js') || target.includes('\0')) return null;
+    if (!target.startsWith('/') || !target.endsWith('.js') || target.includes('\0')) return managedPiScript(environ, resolved, signal);
     const script = await realpath(target);
     return (await stat(script)).isFile() ? script : null;
+  } catch { return null; }
+}
+/** Pi's managed installer: <agent>/bin/pi is a POSIX wrapper that execs
+ * <agent>/install/releases/<current-version>/node_modules/.bin/pi and exports
+ * PI_MANAGED_INSTALL_ROOT=<agent>/install. Only that exact layout counts:
+ * the resolved launcher must be the install root's sibling bin/pi, and the
+ * release binary must resolve to a regular JS file. Nothing is executed. */
+async function managedPiScript(environ: string, launcher: string, signal?: AbortSignal): Promise<string | null> {
+  const prefix = 'PI_MANAGED_INSTALL_ROOT=';
+  const roots = environ.split('\0').filter(entry => entry.startsWith(prefix));
+  const declared = roots.length === 1 ? roots[0]!.slice(prefix.length) : '';
+  if (!declared.startsWith('/') || declared.includes('\0')) return null;
+  try {
+    const installRoot = await realpath(declared);
+    const agentDir = installRoot.slice(0, installRoot.lastIndexOf('/'));
+    if (!agentDir || await realpath(agentDir + '/bin/pi') !== launcher) return null;
+    const version = (await boundedRead(installRoot + '/current-version', signal, true)).split('\n')[0]!;
+    if (!/^[0-9A-Za-z._+-]{1,128}$/.test(version) || version === '.' || version === '..') return null;
+    const script = await realpath(installRoot + '/releases/' + version + '/node_modules/.bin/pi');
+    return script.endsWith('.js') && (await stat(script)).isFile() ? script : null;
   } catch { return null; }
 }
 async function linuxSnapshot(roots: readonly TrackingRoot[], signal?: AbortSignal): Promise<{ processes: TrackingProcess[]; complete: boolean; rootMarkerRequired: true }> {
@@ -714,8 +734,18 @@ def launcher_script(env):
         if not path: return None
         if path.endswith('.js'): return path
         targets = [l[len('# cmd-shim-target='):].strip() for l in text(read(path, True)).splitlines() if l.startswith('# cmd-shim-target=')]
-        return script_file(targets[0]) if len(targets) == 1 and targets[0].endswith('.js') else None
+        if len(targets) == 1 and targets[0].endswith('.js'): return script_file(targets[0])
+        return managed_pi(env, path)
     except (OSError, ValueError): return None
+def managed_pi(env, launcher):
+    roots = [text(e[len(b'PI_MANAGED_INSTALL_ROOT='):]) for e in env if e.startswith(b'PI_MANAGED_INSTALL_ROOT=')]
+    if len(roots) != 1 or not roots[0].startswith('/') or '\0' in roots[0]: return None
+    root = os.path.realpath(roots[0]); agent = os.path.dirname(root)
+    if os.path.realpath(agent + '/bin/pi') != launcher: return None
+    version = text(read(root + '/current-version', True)).split('\n')[0]
+    if not version or len(version) > 128 or version in ('.', '..') or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-' for c in version): return None
+    script = script_file(root + '/releases/' + version + '/node_modules/.bin/pi')
+    return script if script and script.endswith('.js') else None
 boot = text(read('/proc/sys/kernel/random/boot_id')).strip()
 uid = os.getuid()
 if uid != os.geteuid() or len(boot) != 36: raise ValueError('identity unavailable')

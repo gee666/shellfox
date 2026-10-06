@@ -135,6 +135,20 @@ describe('compact workspace', () => {
     expect(fixture.api.addTab).not.toHaveBeenCalled(); expect(fixture.api.activateSession).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
+  it('keeps waiting for a folder picker left open longer than the IPC deadline', async () => {
+    const fixture = mockApi(); const pick = deferred<Awaited<ReturnType<typeof fixture.api.chooseDirectory>>>();
+    fixture.api.chooseDirectory.mockReturnValueOnce(pick.promise);
+    const { user } = await ready(fixture.api);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+      await act(async () => { vi.advanceTimersByTime(120_000); });
+      expect(screen.queryByText(/did not confirm this request/)).not.toBeInTheDocument();
+      await act(async () => { pick.resolve(success({ cwd: 'C:\\projects\\slow pick' })); });
+    } finally { vi.useRealTimers(); }
+    await waitFor(() => expect(fixture.api.createSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: 'C:\\projects\\slow pick', title: 'slow pick' })));
+    void user;
+  });
   it('does nothing after chooser cancellation and ensures a terminal when creation returns no open tabs', async () => {
     const fixture = mockApi(); fixture.api.chooseDirectory.mockResolvedValueOnce(success(null));
     const create = fixture.api.createSession.getMockImplementation()!;

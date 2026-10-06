@@ -55,7 +55,9 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const available = !!snapshot?.probe.available;
   const canCreate = available && !!snapshot?.probe.capabilities.createWindow && (snapshot.probe.adapterId !== 'embedded-pty' || (!!terminalApi && profiles.some(profile => profile.available && profile.id === effectiveProfile)));
   async function create() {
-    const directory = await action.run(() => api.chooseDirectory());
+    // The native folder picker waits for the user. Browsing may take longer than
+    // the IPC transport deadline, and a timed-out pick would be silently dropped.
+    const directory = await action.run(() => api.chooseDirectory(), { timeoutMs: 0 });
     if (!directory?.ok || !directory.value) return;
     const cwd = directory.value.cwd;
     const title = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || cwd;
