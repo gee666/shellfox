@@ -334,9 +334,15 @@ static bool cleanup_session(void) {
     bool committed = false, result = false;
     double deadline = now() + FREEZE_SECONDS;
     unsigned stable = 0;
+    /* A failed snapshot is treated as transient (e.g. a login-shell helper exiting
+     * mid-read right after launch) and retried within the same freeze deadline.
+     * Retrying a read never authorizes a signal: the commit below still requires
+     * two consecutive authenticated, fully frozen snapshots, and any final failure
+     * still rolls back. Persistent inaccessibility fails at the deadline instead. */
+    const char *transient = NULL;
     for (unsigned pass = 0; pass < 100 && now() < deadline; pass++) {
         size_t count;
-        if (!session_snapshot(members, &count, deadline)) { last_reason = "Owned session membership or credentials are inaccessible or changed."; goto finish; }
+        if (!session_snapshot(members, &count, deadline)) { transient = "Owned session membership or credentials are inaccessible or changed."; stable = 0; sleep_tick(); continue; }
         if (count == 0) { closed_state = true; last_reason = NULL; free(members); return true; }
         bool added = false;
         for (size_t i = 0; i < count; i++) {
@@ -361,7 +367,8 @@ static bool cleanup_session(void) {
         /* Re-read real session members, not just guardian stop acknowledgements.
          * This catches late forks, job-control group changes and partial stops. */
         size_t frozen_count;
-        if (!session_snapshot(members, &frozen_count, deadline)) { last_reason = "Frozen session membership could not be authenticated."; goto finish; }
+        if (!session_snapshot(members, &frozen_count, deadline)) { transient = "Frozen session membership could not be authenticated."; stable = 0; sleep_tick(); continue; }
+        transient = NULL;
         bool all_frozen = true;
         for (size_t i = 0; i < frozen_count; i++) {
             struct guardian *g = find_guardian(members[i].group);
@@ -371,7 +378,7 @@ static bool cleanup_session(void) {
         if (stable >= 2) { result = true; break; }
         sleep_tick();
     }
-    if (!result) { last_reason = "Owned job-control groups did not stabilize before the freeze deadline."; goto finish; }
+    if (!result) { last_reason = transient ? transient : "Owned job-control groups did not stabilize before the freeze deadline."; goto finish; }
     result = false;
     /* No asynchronous exit/exception at the commit boundary. Separate budget;
      * any subsequent failure still enters rollback for surviving guarded groups. */
