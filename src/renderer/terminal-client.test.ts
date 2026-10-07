@@ -4,7 +4,7 @@ import { terminalMocks } from './terminal-test-mocks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { success, failure } from '../shared/contracts';
 import type { Result, TerminalAttachmentDto, TerminalDataEvent } from '../shared/contracts';
-import { TerminalRegistry, createTerminalSurface, type SurfaceFactory } from './terminal-client';
+import { TerminalRegistry, clipboardShortcut, createTerminalSurface, type SurfaceFactory } from './terminal-client';
 import { deferred, mockApi, session } from './test-fixtures';
 
 const tab = session().tabs[0]!;
@@ -219,5 +219,39 @@ describe('xterm safety configuration', () => {
     expect(terminal.options.drawBoldTextInBrightColors).toBe(false);
     expect(terminal.osc.get(52)('c;?')).toBe(true); expect(terminal.osc.get(8)(';javascript:alert(1)')).toBe(true);
     expect(() => terminal.options.linkHandler.activate({}, 'javascript:alert(1)')).not.toThrow(); surface.dispose();
+  });
+});
+
+describe('terminal clipboard shortcuts', () => {
+  const key = (code: string, extra: Partial<KeyboardEventInit> = {}, type = 'keydown') => new KeyboardEvent(type, { code, ctrlKey: true, shiftKey: true, cancelable: true, ...extra });
+  it('recognizes only Ctrl+Shift+C / Ctrl+Shift+V', () => {
+    expect(clipboardShortcut(key('KeyC'))).toBe('copy'); expect(clipboardShortcut(key('KeyV'))).toBe('paste');
+    expect(clipboardShortcut(key('KeyC', { shiftKey: false }))).toBeNull();
+    expect(clipboardShortcut(key('KeyV', { altKey: true }))).toBeNull();
+    expect(clipboardShortcut(key('KeyX'))).toBeNull();
+  });
+  it('copies the selection and pastes clipboard text without sending control characters to the shell', async () => {
+    const sent: string[] = []; const copy = vi.fn(); const read = vi.fn(async () => 'echo hi');
+    const surface = createTerminalSurface(data => sent.push(data), undefined, { copy, read }); const terminal = terminalMocks.terminals.at(-1);
+    terminal.selection = 'selected text';
+    const down = key('KeyC'); expect(terminal.keyHandler(down)).toBe(false); expect(down.defaultPrevented).toBe(true);
+    expect(terminal.keyHandler(key('KeyC', {}, 'keyup'))).toBe(false);
+    expect(copy).toHaveBeenCalledExactlyOnceWith('selected text');
+    terminal.selection = ''; terminal.keyHandler(key('KeyC')); expect(copy).toHaveBeenCalledTimes(1);
+    expect(terminal.keyHandler(key('KeyV'))).toBe(false); await flush();
+    expect(terminal.paste).toHaveBeenCalledWith('echo hi'); expect(sent).toEqual(['echo hi']);
+    expect(terminal.keyHandler(key('KeyC', { shiftKey: false }))).toBe(true);
+    surface.dispose();
+  });
+  it('routes registry clipboard through the main-process bridge', async () => {
+    const fixture = mockApi(); vi.mocked(fixture.api.readClipboardText!).mockResolvedValueOnce(success({ text: 'ls' }));
+    const registry = new TerminalRegistry(fixture.api); registry.start();
+    registry.mount(tab.id, document.createElement('div'), true); await flush();
+    const terminal = terminalMocks.terminals.at(-1); terminal.selection = 'out';
+    terminal.keyHandler(key('KeyC')); await flush();
+    expect(fixture.api.copyText).toHaveBeenCalledWith({ text: 'out' });
+    terminal.keyHandler(key('KeyV')); await flush();
+    expect(terminal.paste).toHaveBeenCalledWith('ls');
+    registry.dispose();
   });
 });

@@ -1,8 +1,8 @@
 import { it, expect, vi } from 'vitest';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
-const ipc = vi.hoisted(() => ({ handler: undefined as undefined | ((e: IpcMainInvokeEvent, raw: unknown) => Promise<any>), remove: vi.fn(), copy: vi.fn(async (_text: string) => {}), open: vi.fn(async (_path: string) => ''), windows: [] as BrowserWindow[] }));
+const ipc = vi.hoisted(() => ({ handler: undefined as undefined | ((e: IpcMainInvokeEvent, raw: unknown) => Promise<any>), remove: vi.fn(), copy: vi.fn(async (_text: string) => {}), read: vi.fn(async () => ''), open: vi.fn(async (_path: string) => ''), windows: [] as BrowserWindow[] }));
 vi.mock('../directory', () => ({ validateDirectory: async (cwd: string) => { if (cwd === '/missing') throw new Error('missing'); return cwd; } }));
-vi.mock('electron', () => ({ clipboard: { writeText: ipc.copy }, shell: { openPath: ipc.open }, BrowserWindow: { getAllWindows: () => ipc.windows }, ipcMain: { handle: (_channel: string, handler: typeof ipc.handler) => { ipc.handler = handler; }, removeHandler: ipc.remove }, dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) } }));
+vi.mock('electron', () => ({ clipboard: { writeText: ipc.copy, readText: ipc.read }, shell: { openPath: ipc.open }, BrowserWindow: { getAllWindows: () => ipc.windows }, ipcMain: { handle: (_channel: string, handler: typeof ipc.handler) => { ipc.handler = handler; }, removeHandler: ipc.remove }, dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) } }));
 import { randomUUID } from 'node:crypto';
 import { installIpc } from '../ipc';
 import { EmbeddedSessionService } from './service';
@@ -25,7 +25,14 @@ it('uses native clipboard/folder operations with validated ownership and awaits 
   expect(ipc.copy).toHaveBeenCalledWith('C:\\path with spaces');
   ipc.copy.mockRejectedValueOnce(new Error('clipboard busy'));
   expect(await f.request('copyText', { text: 'x' })).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
-  expect(await f.request('copyText', { text: 'x'.repeat(32769) })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(await f.request('copyText', { text: 'x'.repeat(1024 * 1024 + 1) })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  ipc.read.mockResolvedValueOnce('echo hi\n');
+  expect(await f.request('readClipboardText', {})).toEqual({ ok: true, value: { text: 'echo hi\n' } });
+  ipc.read.mockResolvedValueOnce('x'.repeat(65537));
+  expect(await f.request('readClipboardText', {})).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  ipc.read.mockRejectedValueOnce(new Error('clipboard busy'));
+  expect(await f.request('readClipboardText', {})).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
+  expect(await f.request('readClipboardText', { extra: 1 })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(await f.request('openSessionFolder', { sessionId: f.session.id })).toEqual({ ok: true, value: { opened: true } });
   expect(ipc.open).toHaveBeenCalledWith('/work');
   expect(await f.request('openSessionFolder', { sessionId: f.session.id, path: '/arbitrary' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });

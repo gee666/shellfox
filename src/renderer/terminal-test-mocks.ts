@@ -7,6 +7,11 @@ vi.mock('@xterm/xterm', () => ({
     options: any; cols = 80; rows = 24; disposed = false; output = ''; element?: HTMLElement;
     input?: (value: string) => void; osc = new Map<number, (value: string) => boolean>();
     parser = { registerOscHandler: (id: number, handler: (value: string) => boolean) => { this.osc.set(id, handler); return { dispose() {} }; } };
+    keyHandler?: (ev: KeyboardEvent) => boolean; selection = '';
+    attachCustomKeyEventHandler(handler: (ev: KeyboardEvent) => boolean) { this.keyHandler = handler; }
+    hasSelection() { return this.selection.length > 0; }
+    getSelection() { return this.selection; }
+    paste = vi.fn((text: string) => { this.input?.(text); });
     focus = vi.fn(); reset = vi.fn(() => { this.output = ''; });
     constructor(options: any) { this.options = options; terminalMocks.terminals.push(this); }
     loadAddon(addon: any) { addon.activate(this); }

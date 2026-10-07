@@ -112,6 +112,7 @@ export function mockApi(initial = snapshot()) {
       current = { ...current, revision: current.revision + 1, explorer }; return success(explorer);
     }),
     copyText: vi.fn<ManagerApi['copyText']>(async () => success({ copied: true })),
+    readClipboardText: vi.fn<NonNullable<ManagerApi['readClipboardText']>>(async () => success({ text: '' })),
     openSessionFolder: vi.fn<ManagerApi['openSessionFolder']>(async () => success({ opened: true })),
     setSessionEnv: vi.fn<ManagerApi['setSessionEnv']>(async input => update({ ...current.sessions.find(item => item.id === input.sessionId)!, env: structuredClone(input.env) })),
     setCliIntegration: vi.fn<ManagerApi['setCliIntegration']>(async input => {

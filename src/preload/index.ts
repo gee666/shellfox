@@ -44,6 +44,7 @@ const api: ManagerApi = {
   saveSettings: input => request('saveSettings', input),
   setExplorerIntegration: input => request('setExplorerIntegration', input),
   copyText: input => request('copyText', input),
+  readClipboardText: () => request('readClipboardText', {}),
   openSessionFolder: input => request('openSessionFolder', input),
   setSessionEnv: input => request('setSessionEnv', input),
   setCliIntegration: input => request('setCliIntegration', input),

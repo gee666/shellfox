@@ -27,8 +27,19 @@ export interface TerminalSurface {
   setTheme?(theme: ITheme): void;
   dispose(): void;
 }
-export type SurfaceFactory = (input: (data: string) => void, theme?: ITheme) => TerminalSurface;
-export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THEME) => {
+/** Clipboard access goes through the main process; the renderer has no clipboard permissions. */
+export interface SurfaceClipboard {
+  copy(text: string): void;
+  /** Resolves with clipboard text, or null when nothing can be pasted. */
+  read(): Promise<string | null>;
+}
+export type SurfaceFactory = (input: (data: string) => void, theme?: ITheme, clipboard?: SurfaceClipboard) => TerminalSurface;
+/** Ctrl+Shift+C / Ctrl+Shift+V (KeyboardEvent.code, so it is keyboard-layout independent). */
+export function clipboardShortcut(ev: KeyboardEvent): 'copy' | 'paste' | null {
+  if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return null;
+  return ev.code === 'KeyC' ? 'copy' : ev.code === 'KeyV' ? 'paste' : null;
+}
+export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THEME, clipboard) => {
   const element = document.createElement('div');
   element.className = 'terminal-surface';
   const terminal = new Terminal({
@@ -47,6 +58,18 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   terminal.parser.registerOscHandler(52, () => true);
   terminal.parser.registerOscHandler(8, () => true);
   terminal.onData(input);
+  if (clipboard) terminal.attachCustomKeyEventHandler(ev => {
+    const action = clipboardShortcut(ev);
+    if (!action) return true;
+    // Swallow keydown/keypress/keyup so xterm never sends ^C/^V, and stop Chromium's
+    // own paste-as-plain-text from firing a second paste event.
+    if (ev.type !== 'keydown') return false;
+    ev.preventDefault();
+    if (action === 'copy') { if (terminal.hasSelection()) clipboard.copy(terminal.getSelection()); }
+    // paste() applies bracketed-paste mode and newline normalization, then emits onData.
+    else void clipboard.read().then(text => { if (text) terminal.paste(text); });
+    return false;
+  });
   let opened = false;
   return {
     element,
@@ -125,7 +148,7 @@ export class TerminalRegistry {
     const existing = this.entries.get(id);
     if (existing) return existing;
     const entry: Entry = {
-      id, surface: this.factory(data => { if (entry.inputEpoch === 0) this.input(entry, data); }, this.theme),
+      id, surface: this.factory(data => { if (entry.inputEpoch === 0) this.input(entry, data); }, this.theme, this.clipboard(() => entry)),
       state: { generation: null, phase: 'connecting', error: null, warning: null, exitCode: null },
       listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0,
       pending: new Map(), pendingBytes: 0, early: [], earlyBytes: 0, retired: new Set(), attaching: false,
@@ -136,6 +159,19 @@ export class TerminalRegistry {
     };
     this.entries.set(id, entry);
     return entry;
+  }
+  private clipboard(current: () => Entry): SurfaceClipboard | undefined {
+    const api = this.api;
+    if (!api?.copyText || !api.readClipboardText) return undefined;
+    const fail = (error: AppError) => { const entry = current(); if (this.entries.get(entry.id) === entry) this.update(entry, { error }); };
+    return {
+      copy: text => { void request(() => api.copyText!({ text })).then(result => { if (!result.ok) fail(result.error); }); },
+      read: async () => {
+        const result = await request(() => api.readClipboardText!());
+        if (!result.ok) { fail(result.error); return null; }
+        return result.value.text;
+      },
+    };
   }
   /** Applies a derived palette to every existing terminal and to terminals created later. */
   setTheme(theme: ITheme) {
@@ -302,7 +338,7 @@ export class TerminalRegistry {
   private resetSurface(entry: Entry, sequence: number) {
     entry.surface.dispose();
     const inputEpoch = ++entry.inputEpoch;
-    entry.surface = this.factory(data => { if (entry.inputEpoch === inputEpoch) this.input(entry, data); }, this.theme);
+    entry.surface = this.factory(data => { if (entry.inputEpoch === inputEpoch) this.input(entry, data); }, this.theme, this.clipboard(() => entry));
     if (entry.host) entry.host.append(entry.surface.element);
     entry.writes = []; entry.writeBytes = 0; entry.writing = false;
     entry.pending.clear(); entry.pendingBytes = 0;

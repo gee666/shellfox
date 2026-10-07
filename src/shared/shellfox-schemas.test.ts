@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { envVarsSchemaFor, requestSchemas, pathSchema } from './schemas';
+import { envVarsSchemaFor, requestSchemas, responseSchemas, pathSchema } from './schemas';
 it('trims env names, bounds entries and rejects NUL, equals and platform duplicates', () => {
   const windows = envVarsSchemaFor(true), unix = envVarsSchemaFor(false);
   expect(windows.parse([{ name: '  API_KEY ', value: 'a=b line' }])).toEqual([{ name: 'API_KEY', value: 'a=b line' }]);
@@ -9,7 +9,9 @@ it('trims env names, bounds entries and rejects NUL, equals and platform duplica
 it('rejects nontransportable env names/values consistently on Windows and Unix', () => { for (const windows of [true, false]) { const schema = envVarsSchemaFor(windows); for (const name of ['BAD:NAME', 'BAD/NAME', 'BAD NAME', 'BAD\tNAME']) expect(schema.safeParse([{ name, value: 'ok' }]).success).toBe(false); for (const value of ['a\rb', 'a\nb', 'a\r\nb']) expect(schema.safeParse([{ name: 'GOOD', value }]).success).toBe(false); } });
 it('bounds clipboard UTF-8 bytes and never accepts arbitrary folder paths', () => {
   expect(requestSchemas.copyText.safeParse({ text: '\n雪' }).success).toBe(true);
-  expect(requestSchemas.copyText.safeParse({ text: '雪'.repeat(11000) }).success).toBe(false);
+  expect(requestSchemas.copyText.safeParse({ text: '雪'.repeat(11000) }).success).toBe(true);
+  expect(requestSchemas.copyText.safeParse({ text: '雪'.repeat(350000) }).success).toBe(false);
+  expect(responseSchemas.readClipboardText.safeParse({ ok: true, value: { text: '雪'.repeat(22000) } }).success).toBe(false);
   expect(requestSchemas.openSessionFolder.safeParse({ sessionId: crypto.randomUUID(), path: 'C:\\arbitrary' }).success).toBe(false);
 });
 it('permits local WSL interop folders without allowing remote UNC or device paths', () => {

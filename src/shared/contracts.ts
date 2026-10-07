@@ -94,6 +94,9 @@ export interface TerminalApi {
   acknowledgeTerminal(input: { tabId: Id; generation: Id; sequence: number }): Promise<Result<{ acknowledged: true }>>;
   detachTerminal(input: { tabId: Id; generation: Id }): Promise<Result<{ detached: true }>>;
   subscribeTerminal(listener: (event: TerminalEvent) => void): () => void;
+  /** Clipboard bridge for terminal Ctrl+Shift+C / Ctrl+Shift+V. Optional for legacy injected clients. */
+  copyText?(input: { text: string }): Promise<Result<{ copied: true }>>;
+  readClipboardText?(): Promise<Result<{ text: string }>>;
 }
 // Optional only for legacy injected clients. The production preload exposes every terminal method.
 export interface UpdateStatusDto { current: string; latest: string | null; available: boolean; command: 'shellfox update'; url: string }
@@ -116,6 +119,7 @@ export interface ManagerApi extends Partial<TerminalApi> {
   saveSettings(input: SettingsDto): Promise<Result<SettingsDto>>;
   setExplorerIntegration(input: { installed: boolean }): Promise<Result<ExplorerIntegrationDto>>;
   copyText(input: { text: string }): Promise<Result<{ copied: true }>>;
+  readClipboardText?(): Promise<Result<{ text: string }>>;
   openSessionFolder(input: { sessionId: Id }): Promise<Result<{ opened: true }>>;
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
   setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;

@@ -1,6 +1,6 @@
 import { ipcMain, dialog, clipboard, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { failure, success } from '../shared/contracts';
-import { requestEnvelopeSchema, requestSchemas, responseSchemas } from '../shared/schemas';
+import { CLIPBOARD_PASTE_BYTES, requestEnvelopeSchema, requestSchemas, responseSchemas } from '../shared/schemas';
 import type { SessionService } from './service';
 import type { EmbeddedSessionService } from './terminal/service';
 import { TerminalDelivery } from './terminal/delivery';
@@ -77,6 +77,16 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'copyText': {
           try { await clipboard.writeText(requestSchemas.copyText.parse(payload).text); result = success({ copied: true }); }
           catch { result = failure('INTERNAL', 'Could not copy text to the system clipboard.', true); }
+          break;
+        }
+        case 'readClipboardText': {
+          requestSchemas.readClipboardText.parse(payload);
+          try {
+            const text = await clipboard.readText();
+            result = new TextEncoder().encode(text).byteLength > CLIPBOARD_PASTE_BYTES
+              ? failure('VALIDATION', 'Clipboard text is too large to paste (limit 64 KiB). Paste smaller sections.')
+              : success({ text });
+          } catch { result = failure('INTERNAL', 'Could not read the system clipboard.', true); }
           break;
         }
         case 'openSessionFolder': {
