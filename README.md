@@ -61,7 +61,7 @@ This host's forced source rebuild failed because Visual Studio's Spectre librari
 
 ## Updating and releases
 
-Run `shellfox update` to download and install the latest published release (`shellfox update --check` only reports). Linux uses the `.deb` (`sudo apt-get install`), macOS replaces `Shellfox.app`, Windows runs `ShellfoxSetup.exe`; zip/loose installs print the releases page instead. Installed builds check for updates at startup and hourly. The sidebar offers Download update with progress, then Install and restart with confirmation before closing terminals. Hiding a notice lasts until the next start. See [in-app updates](docs/self-update.md) for supported installations and verification details.
+Run `shellfox update` to download and install the latest published release (`shellfox update --check` only reports). Linux uses the `.deb` (`sudo apt-get install`), macOS replaces `Shellfox.app`, Windows runs `ShellfoxSetup.exe`; zip/loose installs print the releases page instead. Installed builds check for updates at startup and hourly. The sidebar offers a compact download button, progress with ETA, then install and restart with confirmation before closing terminals. See [in-app updates](docs/self-update.md) for supported installations and verification details.
 
 To publish a release, set `version` in package.json and push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The Release workflow packages Linux (x64, arm64), Windows (x64; runs on ARM via emulation) and macOS (x64, arm64) and attaches the installers to a GitHub Release.
 

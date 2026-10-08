@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ManagerApi, UpdateStatusDto } from '../shared/contracts';
 import { request } from './api';
-import { Icon } from './components';
 
 export const UPDATE_POLL_MS = 60_000;
 export const DOWNLOAD_POLL_MS = 500;
 export function UpdateNotice({ api }: { api: ManagerApi }) {
   const [update, setUpdate] = useState<UpdateStatusDto | null>(null);
-  const [hiddenVersion, setHiddenVersion] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [eta, setEta] = useState<string | null>(null);
+  const sample = useRef<{ version: string | null; time: number; received: number } | null>(null);
   const phase = update?.phase ?? 'idle';
   useEffect(() => {
     if (!api.getUpdateStatus) return;
@@ -18,18 +18,29 @@ export function UpdateNotice({ api }: { api: ManagerApi }) {
     const poll = async () => {
       const result = await request(() => api.getUpdateStatus!());
       if (!active) return;
-      if (result.ok) setUpdate(result.value);
+      if (result.ok) setUpdate({ ...result.value });
       timer = setTimeout(() => { void poll(); }, phase === 'downloading' ? DOWNLOAD_POLL_MS : UPDATE_POLL_MS);
     };
     void poll();
     return () => { active = false; if (timer) clearTimeout(timer); };
   }, [api, phase]);
-  if (!update?.available || hiddenVersion === update.latest && phase !== 'downloading' && phase !== 'ready' && phase !== 'installing') return null;
+  useEffect(() => {
+    if (phase !== 'downloading' || !update) { sample.current = null; setEta(null); return; }
+    const received = update.received ?? 0, now = Date.now(), previous = sample.current;
+    if (!previous || previous.version !== update.latest || received <= previous.received || !update.total) {
+      sample.current = { version: update.latest, time: now, received }; setEta(null); return;
+    }
+    const elapsed = now - previous.time;
+    if (elapsed <= 0) return;
+    const seconds = Math.max(0, Math.ceil((update.total - received) * elapsed / (received - previous.received) / 1000));
+    setEta(seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)}m`);
+    sample.current = { version: update.latest, time: now, received };
+  }, [update, phase]);
+  if (!update?.available) return null;
   const downloading = phase === 'downloading';
   const installing = phase === 'installing';
   const ready = phase === 'ready';
   const supported = update.supported === true && !!api.downloadUpdate && !!api.installUpdate;
-  const percent = update.total ? Math.min(100, Math.floor((update.received ?? 0) / update.total * 100)) : null;
   async function act() {
     if (pending || !supported) return;
     setPending(true); setError(null);
@@ -39,14 +50,12 @@ export function UpdateNotice({ api }: { api: ManagerApi }) {
     setPending(false);
   }
   return <div className="update-notice" role="status">
-    <div className="update-copy">
-      <span>{downloading ? `Downloading Shellfox ${update.latest}` : installing ? 'Closing terminals and starting installer…' : ready ? `Shellfox ${update.latest} is ready to install` : `Shellfox ${update.latest} is available`}</span>
-      {downloading && <><progress aria-label="Update download" max={update.total ?? undefined} value={update.total ? update.received ?? 0 : undefined} /><small>{percent === null ? 'Downloading…' : `${percent}%`} · {((update.received ?? 0) / 1024 / 1024).toFixed(1)} MB{update.total ? ` / ${(update.total / 1024 / 1024).toFixed(1)} MB` : ''}</small></>}
-      {ready && <small>Installing closes all Shellfox terminals. Running commands will stop.</small>}
-      {!supported && !downloading && !ready && <small>{update.reason ?? 'Update this copy manually from the releases page.'} {update.url}</small>}
-      {(error || update.error) && <small role="alert">{error ?? update.error}</small>}
-      {!downloading && !installing && <button disabled={!supported || pending} onClick={() => void act()}>{pending ? 'Please wait…' : ready ? 'Install and restart' : phase === 'error' ? 'Retry download' : 'Download update'}</button>}
-    </div>
-    {!downloading && !ready && !installing && !pending && <button className="icon-button" aria-label="Hide update notice" title="Hide this version until next start" onClick={() => setHiddenVersion(update.latest)}><Icon name="close" /></button>}
+    {downloading ? <div className="update-progress">
+      <progress aria-label="Update download" max={update.total ?? undefined} value={update.total ? update.received ?? 0 : undefined} />
+      <small className="update-eta" aria-label="Estimated time remaining" title="Estimated time remaining">{eta ?? '…'}</small>
+    </div> : <button className="update-button" disabled={!supported || pending || installing}
+      title={!supported ? `${update.reason ?? 'Update manually.'} ${update.url}` : undefined}
+      onClick={() => void act()}>{ready || installing ? 'install and restart' : `download v${update.latest}`}</button>}
+    {(error || update.error) && <small role="alert">{error ?? update.error}</small>}
   </div>;
 }
