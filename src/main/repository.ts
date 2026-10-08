@@ -108,7 +108,7 @@ export class Repository implements RepositoryPort {
   saveTab(t: TabRecord): void {
     this.transaction(() => {
     this.db.prepare(`INSERT INTO tabs VALUES (@id,@sessionId,@title,@cwd,@ordinal,@createdAt,@lifecycle,@operationId,@registration,@error)
-      ON CONFLICT(id) DO UPDATE SET sessionId=excluded.sessionId,ordinal=excluded.ordinal,cwd=excluded.cwd,lifecycle=excluded.lifecycle,operationId=excluded.operationId,registration=excluded.registration,error=excluded.error`).run({ ...t, registration: encode(t.registration), error: encode(t.error) });
+      ON CONFLICT(id) DO UPDATE SET sessionId=excluded.sessionId,title=excluded.title,ordinal=excluded.ordinal,cwd=excluded.cwd,lifecycle=excluded.lifecycle,operationId=excluded.operationId,registration=excluded.registration,error=excluded.error`).run({ ...t, registration: encode(t.registration), error: encode(t.error) });
     if (t.member !== undefined) this.saveMetadata('tab-member:' + t.id, { member: t.member });
     if (t.terminal !== undefined) {
       if (t.terminal) this.db.prepare('INSERT INTO terminal_metadata VALUES (?,?) ON CONFLICT(tabId) DO UPDATE SET value=excluded.value').run(t.id, JSON.stringify(t.terminal));

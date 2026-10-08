@@ -3,7 +3,8 @@ import { useStore } from 'zustand';
 import type { SessionDto, TabDto, TerminalProfileDto } from '../shared/contracts';
 import type { ManagerClient } from './store';
 import type { TerminalRegistry } from './terminal-client';
-import { ContextMenu, Icon, StatusDot, tabDot, useAction } from './components';
+import { ContextMenu, Icon, useAction } from './components';
+import { TerminalTabs } from './TerminalTabs';
 import { TerminalViewport } from './TerminalViewport';
 import { getTerminalApi } from './api';
 
@@ -53,24 +54,13 @@ export function TerminalWorkspace({ session, client, registry, profiles, default
   }
   function requestClose(tab: TabDto) { if (tab.agents > 0) setClosing(tab); else void close(tab); }
   function select(tab: TabDto) { client.selectTab(session, tab.id); registry.focus(tab.id); }
-  function tabKey(event: React.KeyboardEvent, index: number) {
-    const target = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : undefined;
-    if (target === undefined) return;
-    event.preventDefault(); const tab = tabs[target]!; select(tab); document.getElementById(`terminal-tab-${tab.id}`)?.focus();
-  }
   async function restore() {
     const result = await action.run(() => client.api.unsettleSession({ sessionId: session.id }));
     if (result?.ok) client.accept(result.value);
   }
   return <div className="terminal-workspace">
-    <div className="terminal-tab-strip"><div role="tablist" aria-label="Terminals" className="terminal-tabs">{tabs.map((tab, index) => {
-      const active = selected?.id === tab.id;
-      const closeable = !archived && !!tab.generation && tab.terminalKind === 'embedded' && !!terminalApi;
-      return <div key={tab.id} className={`terminal-tab-item${active ? ' active' : ''}`} onAuxClick={event => { if (event.button === 1 && closeable) { event.preventDefault(); requestClose(tab); } }} onMouseDown={event => { if (event.button === 1) event.preventDefault(); }}>
-        <button role="tab" id={`terminal-tab-${tab.id}`} aria-selected={active} aria-controls={`terminal-panel-${tab.id}`} tabIndex={active ? 0 : -1} onClick={() => select(tab)} onKeyDown={event => tabKey(event, index)} title={tab.title}><StatusDot state={tabDot(tab, busy[tab.id])} /><span>{tab.title}</span></button>
-        {closeable && <button className="icon-button tab-close" aria-label={`Close terminal ${tab.title}`} disabled={action.pending} onClick={() => requestClose(tab)}><Icon name="close" /></button>}
-      </div>;
-    })}</div><button className="icon-button new-terminal" aria-label="New terminal" title="New terminal. Right-click to choose a shell." disabled={!canAdd || action.pending} onClick={() => void add()} onContextMenu={event => { event.preventDefault(); if (!archived && available && session.canAddTab && profiles.length) setProfileMenu({ x: event.clientX, y: event.clientY }); }}><Icon name="plus" /></button></div>
+    <div className="terminal-tab-strip"><TerminalTabs key={session.id} session={session} tabs={tabs} selectedId={selected?.id} client={client} busy={busy} disabled={action.pending} editable={!archived && !legacy}
+      canClose={tab => !archived && !!tab.generation && tab.terminalKind === 'embedded' && !!terminalApi} onSelect={select} onClose={requestClose} /><button className="icon-button new-terminal" aria-label="New terminal" title="New terminal. Right-click to choose a shell." disabled={!canAdd || action.pending} onClick={() => void add()} onContextMenu={event => { event.preventDefault(); if (!archived && available && session.canAddTab && profiles.length) setProfileMenu({ x: event.clientX, y: event.clientY }); }}><Icon name="plus" /></button></div>
     {archived ? <div className="empty-terminal"><span>Archived session</span>{!legacy && <button className="text-button" disabled={action.pending} onClick={() => void restore()}>Restore</button>}</div>
       : !selected ? <div className="empty-terminal">No terminals — press +</div>
         : <div className="terminal-panel" role="tabpanel" id={`terminal-panel-${selected.id}`} aria-labelledby={`terminal-tab-${selected.id}`}>

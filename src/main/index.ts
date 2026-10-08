@@ -18,7 +18,10 @@ import { EmbeddedSessionService } from './terminal/service';
 import { TerminalQuitGuard } from './terminal/shutdown';
 import { installIpc } from './ipc';
 import { handleEmbeddedInstaller, installerEvent } from './installer';
-import { UpdateChecker, fetchLatestRelease } from './update-check';
+import { UpdateChecker } from './update-check';
+import { SelfUpdater, type UpdateSource } from './update/self-updater';
+import { createUpdatePlatform } from './update/platform-installer';
+import { UpdateShutdown } from './update/update-shutdown';
 import windowsUpdateScript from './update/shellfox-update.ps1';
 declare const __TEST_BUILD__: boolean;
 declare const __PROJECT_ROOT__: string;
@@ -119,7 +122,7 @@ async function run(): Promise<void> {
   window = new BrowserWindow({
     ...restored.options,
     icon: path.resolve(__dirname, '../icon', process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
-    minWidth: 850, minHeight: 600, backgroundColor: windowBackground, title: 'Shellfox',
+    minWidth: 850, minHeight: 600, backgroundColor: windowBackground, title: `Shellfox v${app.getVersion()}`,
     webPreferences: { preload: path.resolve(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
   });
   if (restored.maximized) window.maximize();
@@ -128,15 +131,52 @@ async function run(): Promise<void> {
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-redirect', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
-  // One release lookup per start: packaged builds ask GitHub; test builds read an env value (no network in tests).
-  const updates = new UpdateChecker({ current: app.getVersion(), check: async () => __TEST_BUILD__ ? process.env.SHELLFOX_TEST_LATEST_RELEASE ?? null : app.isPackaged ? fetchLatestRelease((url, init) => net.fetch(url, init)) : null });
+  let quitting = false;
+  let closingForUpdate = false;
+  let closingForQuit = false;
+  const updateShutdown = new UpdateShutdown({
+    confirm: () => {
+      const options = { type: 'warning' as const, title: 'Install update and close all terminals?',
+        message: 'Close all Shellfox terminals and install the update?',
+        detail: 'All embedded shells and their running commands will stop. Unsaved work may be lost. Shellfox will restart with fresh shells, not restored commands. Legacy external terminals are not touched. The installer may ask for administrator approval.',
+        buttons: ['Cancel', 'Close all terminals and install'], defaultId: 0, cancelId: 0, noLink: true };
+      return (window && !window.isDestroyed() ? dialog.showMessageBoxSync(window, options) : dialog.showMessageBoxSync(options)) === 1;
+    },
+    closeTerminals: () => {
+      if (!(service instanceof EmbeddedSessionService)) throw new Error('Update shutdown requires embedded terminals.');
+      return service.closeForUpdate();
+    },
+    finish: async () => {
+      quitting = true;
+      // Commit is acknowledged. Never retry installation because final cleanup failed.
+      try {
+        await service.dispose();
+        if (updates instanceof SelfUpdater) await updates.dispose(true);
+        uninstallIpc(); windowTracker.dispose(); repository.close();
+      } catch (error) { console.error('Update shutdown cleanup failed:', error); }
+      app.quit();
+    },
+  });
+  // Tests never contact GitHub or launch installers. Development builds report unsupported.
+  const updates: UpdateSource = __TEST_BUILD__
+    ? new UpdateChecker({ current: app.getVersion(), check: async () => process.env.SHELLFOX_TEST_LATEST_RELEASE ?? null })
+    : new SelfUpdater({ current: app.getVersion(),
+      platform: await createUpdatePlatform({ platform: process.platform, arch: process.arch, executable: process.execPath, packaged: app.isPackaged }),
+      fetch: (url, init) => net.fetch(url, init), tempRoot: app.getPath('temp'),
+      quitForUpdate: async start => {
+        if (quitting || closingForUpdate || closingForQuit) return false;
+        closingForUpdate = true;
+        try { return await updateShutdown.run(start); }
+        finally { closingForUpdate = false; }
+      },
+    });
+  if (updates instanceof SelfUpdater && app.isPackaged) updates.start();
   const uninstallIpc = installIpc(window, rendererUrl, service, () => requests.ready(async request => {
     if (!window || window.isDestroyed()) return;
     const result = await handleCliRequest(request, service, window);
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
   }), updates);
   await window.loadFile(rendererFile);
-  let quitting = false;
   const quitGuard = new TerminalQuitGuard({ ownedTerminalCount: () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0, dispose: () => service.dispose() }, count => {
     const options = { type: 'warning' as const, title: 'Close embedded shells and quit?', message: `Quit Shellfox and close ${count} owned terminal${count === 1 ? '' : 's'}?`, detail: 'Embedded shells do not survive manager shutdown. Running commands may be interrupted. Restarting opens fresh shells; it does not restore commands. Legacy external terminals are not touched.', buttons: ['Cancel', 'Close shells and quit'], defaultId: 0, cancelId: 0, noLink: true };
     return (window && !window.isDestroyed() ? dialog.showMessageBoxSync(window, options) : dialog.showMessageBoxSync(options)) === 1;
@@ -148,10 +188,19 @@ async function run(): Promise<void> {
   app.on('before-quit', event => {
     if (quitting) return;
     event.preventDefault();
-    void quitGuard.request().then(approved => {
-      if (!approved || quitting) return;
-      quitting = true; uninstallIpc(); windowTracker.dispose(); repository.close(); app.quit();
-    }).catch(() => dialog.showErrorBox('Shutdown failed', 'Owned terminals could not be closed cleanly. Shellfox has not claimed shell survival.'));
+    if (closingForUpdate || closingForQuit) return;
+    closingForQuit = true;
+    void updateShutdown.cancelPending().then(() => quitGuard.request()).then(async approved => {
+      if (!approved || quitting) { closingForQuit = false; return; }
+      quitting = true;
+      // Terminal disposal succeeded. Non-critical cleanup must not strand an
+      // open manager whose backend has already been irreversibly disposed.
+      try {
+        if (updates instanceof SelfUpdater) await updates.dispose();
+        uninstallIpc(); windowTracker.dispose(); repository.close();
+      } catch (error) { console.error('Quit cleanup failed:', error); }
+      app.quit();
+    }).catch(() => { closingForQuit = false; quitting = false; dialog.showErrorBox('Shutdown failed', 'Owned terminals could not be closed cleanly. Shellfox has not claimed shell survival.'); });
   });
   app.on('window-all-closed', () => app.quit());
 }

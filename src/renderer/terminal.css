@@ -4,6 +4,8 @@
 .terminal-tabs { display: flex; min-width: 0; overflow-x: auto; height: 30px; scrollbar-width: none; }
 .terminal-tabs::-webkit-scrollbar { display: none; }
 .terminal-tab-item { display: flex; align-items: center; flex: 0 0 auto; min-width: 90px; max-width: 180px; height: 30px; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; }
+.terminal-tab-item.tab-drop-target { box-shadow: inset 2px 0 var(--accent); }
+.tab-rename { width: 130px; min-width: 0; height: 24px; margin: 0 4px; padding: 0 4px; font-size: 12px; }
 .terminal-tab-item.active { background: var(--panel); border-bottom-color: var(--accent); }
 .terminal-tab-item [role='tab'] { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; text-align: left; }
 .terminal-tab-item.active [role='tab'] { color: var(--fg); }

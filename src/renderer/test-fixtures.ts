@@ -95,6 +95,14 @@ export function mockApi(initial = snapshot()) {
       const tab = { ...session(100 + item.tabs.length).tabs[0]!, sessionId: item.id, ordinal: item.tabs.length + 1, title: input.title ?? `Shell ${item.tabs.length + 1}`, profileId: input.profileId ?? 'pwsh', cwd: input.cwd ?? item.cwd };
       return update({ ...item, tabs: [...item.tabs, tab] });
     }),
+    renameTab: vi.fn<ManagerApi['renameTab']>(async input => {
+      const item = current.sessions.find(s => s.id === input.sessionId)!;
+      return update({ ...item, tabs: item.tabs.map(tab => tab.id === input.tabId ? { ...tab, title: input.title } : tab) });
+    }),
+    reorderTabs: vi.fn<ManagerApi['reorderTabs']>(async input => {
+      const item = current.sessions.find(s => s.id === input.sessionId)!;
+      return update({ ...item, tabs: input.tabIds.map((id, ordinal) => ({ ...item.tabs.find(tab => tab.id === id)!, ordinal })) });
+    }),
     focusSession: vi.fn<ManagerApi['focusSession']>(async () => success({ focused: true })),
     renameSession: vi.fn<ManagerApi['renameSession']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, title: input.title })),
     setSessionPinned: vi.fn<ManagerApi['setSessionPinned']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, pinnedAt: input.pinned ? '2026-10-05T10:00:00.000Z' : null })),

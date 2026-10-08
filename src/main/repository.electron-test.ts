@@ -5,6 +5,7 @@ import path from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { Repository, SCHEMA_VERSION } from './repository';
+import { EmbeddedSessionService } from './terminal/service';
 import { defaultSettings } from './defaults';
 import type { SessionRecord, TabRecord } from './models';
 declare const __PROJECT_ROOT__: string;
@@ -48,6 +49,33 @@ async function run() {
   repository.saveTab({...tab,lifecycle:'closed',terminal:{kind:'embedded',profileId:'login-shell',exitCode:7}});
   repository.close();repository=new Repository(filename);
   assert.deepEqual(repository.tab(tab.id)?.terminal,{kind:'embedded',profileId:'login-shell',exitCode:7});
+  // Real SQLite: metadata writes, ordinal swaps, rollback and restart persistence.
+  {
+    const saved: SessionRecord = { ...s, id: randomUUID(), adapterId: 'embedded-pty', settledAt: null };
+    const tabs: TabRecord[] = [0, 1, 2].map(ordinal => ({ ...tab, id: randomUUID(), sessionId: saved.id, ordinal, lifecycle: 'closed', terminal: { kind: 'embedded', profileId: 'login-shell', exitCode: ordinal } }));
+    repository.transaction(() => { repository.saveSession(saved); tabs.forEach(t => repository.saveTab(t)); });
+    let service = new EmbeddedSessionService(repository, undefined, () => ({ setWatch: () => {}, dispose: () => {} }));
+    assert.equal((await service.renameTab({ sessionId: saved.id, tabId: tabs[0].id, title: 'Build 雪' })).ok, true);
+    const order = [tabs[2].id, tabs[0].id, tabs[1].id];
+    assert.equal((await service.reorderTabs({ sessionId: saved.id, tabIds: order })).ok, true);
+    assert.deepEqual(repository.tabs(saved.id).map(t => [t.id, t.ordinal]), order.map((id, ordinal) => [id, ordinal]));
+    const before = repository.tabs(saved.id), beforeSession = repository.session(saved.id);
+    const saveSession = repository.saveSession.bind(repository);
+    repository.saveSession = () => { throw new Error('disk full'); };
+    assert.equal((await service.renameTab({ sessionId: saved.id, tabId: tabs[0].id, title: 'unsaved' })).ok, false);
+    assert.equal((await service.reorderTabs({ sessionId: saved.id, tabIds: [...order].reverse() })).ok, false);
+    assert.deepEqual(repository.tabs(saved.id), before);
+    assert.deepEqual(repository.session(saved.id), beforeSession);
+    repository.saveSession = saveSession;
+    await service.dispose(); repository.close(); repository = new Repository(filename);
+    assert.deepEqual(repository.tabs(saved.id), before);
+    assert.equal(repository.tab(tabs[0].id)?.title, 'Build 雪');
+    service = new EmbeddedSessionService(repository, undefined, () => ({ setWatch: () => {}, dispose: () => {} }));
+    assert.equal((await service.renameTab({ sessionId: saved.id, tabId: tabs[1].id, title: 'After restart' })).ok, true);
+    assert.equal(repository.tab(tabs[1].id)?.title, 'After restart');
+    await service.dispose();
+    repository.saveSession({ ...saved, settledAt: now }); assert.equal(repository.deleteSession(saved.id), true);
+  }
   // Permanent deletion removes an archived session with every dependent row and refuses live sessions.
   {
     const doomed:SessionRecord={...s,id:randomUUID(),title:'doomed',settledAt:now,binding:null,windowState:'unknown'};

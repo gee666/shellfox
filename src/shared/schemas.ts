@@ -74,6 +74,8 @@ export const requestSchemas = {
   writeTerminal: z.object({ ...terminalIdentity, data: z.string().min(1).max(65536).refine(s => !s.includes('\u0000') && utf8Size(s) <= 65536) }).strict(),
   resizeTerminal: z.object({ ...terminalIdentity, cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500) }).strict(),
   closeTab: z.object(terminalIdentity).strict(),
+  renameTab: z.object({ sessionId: idSchema, tabId: idSchema, title: titleSchema }).strict(),
+  reorderTabs: z.object({ sessionId: idSchema, tabIds: z.array(idSchema).min(1).max(1000).refine(ids => new Set(ids).size === ids.length, 'Duplicate tab IDs') }).strict(),
   acknowledgeTerminal: z.object({ ...terminalIdentity, sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
   detachTerminal: z.object(terminalIdentity).strict(),
   focusSession: sessionId,
@@ -85,10 +87,19 @@ export const requestSchemas = {
   unsettleSession: sessionId, deleteSession: sessionId, clearSessionError: sessionId,
   retryTab: z.object({ tabId: idSchema, confirmPossibleDuplicate: z.boolean() }).strict(),
   getHistory: historyQuerySchema, saveSettings: settingsSchema,
-  setExplorerIntegration: z.object({ installed: z.boolean() }).strict(), chooseDirectory: empty, getUpdateStatus: empty,
+  setExplorerIntegration: z.object({ installed: z.boolean() }).strict(), chooseDirectory: empty, getUpdateStatus: empty, downloadUpdate: empty,
+  installUpdate: z.object({ confirmCloseTerminals: z.literal(true) }).strict(),
 } as const;
 export type ManagerMethod = keyof typeof requestSchemas;
 export const requestEnvelopeSchema = z.object({ version: z.literal(1), method: z.enum(Object.keys(requestSchemas) as [ManagerMethod, ...ManagerMethod[]]), payload: z.unknown() }).strict();
+export const updateStatusSchema = z.object({
+  current: z.string().max(64), latest: z.string().max(64).nullable(), available: z.boolean(),
+  command: z.literal('shellfox update'), url: z.literal('https://github.com/gee666/shellfox/releases'),
+  phase: z.enum(['idle', 'downloading', 'ready', 'installing', 'error']).optional(),
+  supported: z.boolean().optional(), reason: text(1000).nullable().optional(),
+  received: z.number().int().nonnegative().max(768 * 1024 * 1024).optional(),
+  total: z.number().int().positive().max(768 * 1024 * 1024).nullable().optional(), error: text(1000).nullable().optional(),
+}).strict();
 export const responseSchemas = {
   copyText: resultSchema(z.object({ copied: z.literal(true) }).strict()),
   readClipboardText: resultSchema(z.object({ text: z.string().max(CLIPBOARD_PASTE_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_PASTE_BYTES) }).strict()),
@@ -98,9 +109,11 @@ export const responseSchemas = {
   getTerminalProfiles: resultSchema(terminalProfilesSchema), attachTerminal: resultSchema(terminalAttachmentSchema),
   acknowledgeTerminal: resultSchema(z.object({ acknowledged: z.literal(true) }).strict()), detachTerminal: resultSchema(z.object({ detached: z.literal(true) }).strict()),
   writeTerminal: resultSchema(z.object({ written: z.literal(true) }).strict()), resizeTerminal: resultSchema(z.object({ resized: z.literal(true) }).strict()), closeTab: resultSchema(sessionSchema),
+  renameTab: resultSchema(sessionSchema), reorderTabs: resultSchema(sessionSchema),
   activateSession: resultSchema(sessionSchema), refreshSessionMembership: resultSchema(sessionSchema), prepareSessionRegistration: resultSchema(registrationGuideSchema),
   getSnapshot: resultSchema(snapshotSchema), createSession: resultSchema(sessionSchema), addTab: resultSchema(sessionSchema), focusSession: resultSchema(z.object({ focused: z.literal(true) }).strict()), renameSession: resultSchema(sessionSchema), setSessionPinned: resultSchema(sessionSchema), settleSession: resultSchema(sessionSchema), unsettleSession: resultSchema(sessionSchema), deleteSession: resultSchema(z.object({ deleted: z.literal(true) }).strict()), clearSessionError: resultSchema(sessionSchema), retryTab: resultSchema(sessionSchema), getHistory: resultSchema(historyPageSchema), saveSettings: resultSchema(settingsSchema), setExplorerIntegration: resultSchema(explorerSchema), chooseDirectory: resultSchema(z.object({ cwd: pathSchema }).strict().nullable()),
-  getUpdateStatus: resultSchema(z.object({ current: z.string().max(64), latest: z.string().max(64).nullable(), available: z.boolean(), command: z.literal('shellfox update'), url: z.string().url().max(300) }).strict()),
+  getUpdateStatus: resultSchema(updateStatusSchema),
+  downloadUpdate: resultSchema(updateStatusSchema), installUpdate: resultSchema(updateStatusSchema),
 } as const;
 // Stable descriptive aliases for callers consuming native validation.
 export const shellRegistrationSchema = registrationSchema;

@@ -18,6 +18,17 @@ it('rejects invalid input locally and validates main responses', async () => {
   bridge.invoke.mockResolvedValueOnce({ ok: true, value: { written: true, secret: 'bad' } }); expect(await bridge.api!.writeTerminal!({ ...id, data: '\x03' })).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
   bridge.invoke.mockResolvedValueOnce({ ok: true, value: { written: true } }); expect(await bridge.api!.writeTerminal!({ ...id, data: 'pwd\r' })).toEqual({ ok: true, value: { written: true } });
 });
+it('exposes validated tab metadata methods through only the manager request channel', async () => {
+  const sessionId = randomUUID(), tabId = randomUUID();
+  expect(await bridge.api!.renameTab({ sessionId, tabId, title: ' ' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(await bridge.api!.reorderTabs({ sessionId, tabIds: [tabId, tabId] })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(bridge.invoke).not.toHaveBeenCalled();
+  bridge.invoke.mockResolvedValue({ ok: false, error: { code: 'NOT_FOUND', message: 'Session not found.', retryable: false } });
+  await bridge.api!.renameTab({ sessionId, tabId, title: 'Build' });
+  expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'renameTab', payload: { sessionId, tabId, title: 'Build' } });
+  await bridge.api!.reorderTabs({ sessionId, tabIds: [tabId] });
+  expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'reorderTabs', payload: { sessionId, tabIds: [tabId] } });
+});
 it('validates terminal event identities, shapes and byte limits but keeps VT control bytes', () => {
   const receive = vi.fn(), stop = bridge.api!.subscribeTerminal!(receive), id = { tabId: randomUUID(), generation: randomUUID() };
   const dispatch = (value: unknown) => { for (const listener of bridge.listeners.get('manager:terminal') ?? []) listener({}, value); };

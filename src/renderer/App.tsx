@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import type { CSSProperties } from 'react';
-import type { ManagerApi, TerminalProfileDto, UpdateStatusDto } from '../shared/contracts';
+import type { ManagerApi, TerminalProfileDto } from '../shared/contracts';
 import { getManagerApi, getTerminalApi, request } from './api';
 import { createManagerClient } from './store';
 import { Icon, Modal, Notifications, useAction, useNotify } from './components';
@@ -10,6 +10,7 @@ import { TerminalWorkspace } from './TerminalWorkspace';
 import { TerminalRegistry } from './terminal-client';
 import { SettingsPanel } from './SettingsPanel';
 import { useSidebarWidth } from './sidebar-width';
+import { UpdateNotice } from './UpdateNotice';
 import { applyPalette, derivePalette } from './theme';
 
 export function App({ api = getManagerApi() }: { api?: ManagerApi }) {
@@ -28,9 +29,6 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const [defaultProfileId, setDefaultProfileId] = useState<string | null>(null);
   const [width, setWidth] = useSidebarWidth();
   const [dragging, setDragging] = useState(false);
-  // Hidden only until the next app start: React state, never persisted.
-  const [update, setUpdate] = useState<UpdateStatusDto | null>(null);
-  const [updateHidden, setUpdateHidden] = useState(false);
   const action = useAction();
   const notify = useNotify();
   useEffect(() => { client.start(); registry.start(); return () => { client.stop(); registry.stop(); }; }, [client, registry]);
@@ -45,11 +43,6 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     // The bridge is stable for the lifetime of this app.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalApi, state.snapshot?.settings.pythonPath]);
-  useEffect(() => {
-    let active = true;
-    if (api.getUpdateStatus) void request(() => api.getUpdateStatus!()).then(result => { if (active && result.ok) setUpdate(result.value); });
-    return () => { active = false; };
-  }, [api]);
   useEffect(() => { if (state.error) notify(state.error); }, [state.error]);
   useEffect(() => { if (settingsError?.toast) notify(settingsError.error); }, [settingsError]);
   const snapshot = state.snapshot;
@@ -91,7 +84,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     <aside className="sidebar" aria-label="Session navigation">
       <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" title={canCreate ? 'New session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => void create()}><Icon name="plus" /></button><button className="icon-button" aria-label="Settings" title="Settings" disabled={!snapshot} onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button></div>
       {snapshot && <SessionSidebar client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={snapshot.settings.historyPageSize} />}
-      {update?.available && !updateHidden && <div className="update-notice" role="status"><span>Shellfox {update.latest} is available — run <code>{update.command}</code></span><button className="icon-button" aria-label="Hide update notice" title="Hide until next start" onClick={() => setUpdateHidden(true)}><Icon name="close" /></button></div>}
+      <UpdateNotice api={api} />
     </aside>
     <div className="sidebar-resizer" role="separator" aria-label="Sidebar width" aria-orientation="vertical" aria-valuemin={160} aria-valuemax={Math.max(160, window.innerWidth / 2)} aria-valuenow={width} tabIndex={0}
       onDoubleClick={() => setWidth(220)}

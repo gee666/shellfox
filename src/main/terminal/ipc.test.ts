@@ -19,6 +19,18 @@ async function fixture(rendererReady?: () => void) {
   const stop = installIpc(window, url, service, rendererReady), request = (method: string, payload: unknown, e = event) => ipc.handler!(e, { version: 1, method, payload });
   return { ...f, service, session: created.value, frame, contents, window, event, stop, request };
 }
+it('routes validated tab rename/order requests and rejects untrusted senders', async () => {
+  const f = await fixture(), first = f.session.tabs[0];
+  const added = await f.request('addTab', { sessionId: f.session.id }), second = added.value.tabs[1];
+  expect(await f.request('renameTab', { sessionId: f.session.id, tabId: first.id, title: 'Build' })).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ title: 'Build' }), expect.anything()] } });
+  expect(await f.request('reorderTabs', { sessionId: f.session.id, tabIds: [second.id, first.id] })).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ id: second.id, ordinal: 0 }), expect.objectContaining({ id: first.id, ordinal: 1 })] } });
+  expect(await f.request('renameTab', { sessionId: f.session.id, tabId: first.id, title: 'bad\n' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(await f.request('reorderTabs', { sessionId: f.session.id, tabIds: [first.id, first.id] })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(await f.request('renameTab', { sessionId: f.session.id, tabId: first.id, title: 'foreign' }, { ...f.event, sender: {} } as IpcMainInvokeEvent)).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
+  expect(await f.request('reorderTabs', { sessionId: f.session.id, tabIds: [first.id, second.id] }, { ...f.event, senderFrame: { url } } as IpcMainInvokeEvent)).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
+  expect(f.service.repository.tab(first.id)?.title).toBe('Build');
+  f.stop(); await f.service.dispose();
+});
 it('uses native clipboard/folder operations with validated ownership and awaits clipboard rejection', async () => {
   const f = await fixture(); ipc.copy.mockClear(); ipc.open.mockClear();
   expect(await f.request('copyText', { text: 'C:\\path with spaces' })).toEqual({ ok: true, value: { copied: true } });

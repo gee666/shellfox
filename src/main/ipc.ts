@@ -5,13 +5,13 @@ import type { SessionService } from './service';
 import type { EmbeddedSessionService } from './terminal/service';
 import { TerminalDelivery } from './terminal/delivery';
 import { validateDirectory } from './directory';
-import type { UpdateChecker } from './update-check';
+import type { UpdateSource } from './update/self-updater';
 
 export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow, rendererUrl: string): boolean {
   return !window.isDestroyed() && event.sender === window.webContents && !!event.senderFrame &&
     event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === rendererUrl;
 }
-export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateChecker): () => void {
+export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource): () => void {
   let announcedReady = false;
   const embedded = 'attachTerminal' in service ? service : null;
   const delivery = embedded ? new TerminalDelivery(input => embedded.attachTerminal(input), event => {
@@ -61,6 +61,8 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'prepareSessionRegistration': result = await service.prepareSessionRegistration(requestSchemas.prepareSessionRegistration.parse(payload)); break;
         case 'createSession': result = await service.createSession(requestSchemas.createSession.parse(payload)); break;
         case 'addTab': result = await service.addTab(requestSchemas.addTab.parse(payload)); break;
+        case 'renameTab': result = embedded ? await embedded.renameTab(requestSchemas.renameTab.parse(payload)) : failure('UNSUPPORTED', 'External tabs are read-only.'); break;
+        case 'reorderTabs': result = embedded ? await embedded.reorderTabs(requestSchemas.reorderTabs.parse(payload)) : failure('UNSUPPORTED', 'External tabs are read-only.'); break;
         case 'focusSession': result = await service.focusSession(requestSchemas.focusSession.parse(payload)); break;
         case 'renameSession': result = await service.renameSession(requestSchemas.renameSession.parse(payload)); break;
         case 'setSessionPinned': result = await service.setSessionPinned(requestSchemas.setSessionPinned.parse(payload)); break;
@@ -100,6 +102,8 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
           break;
         }
         case 'getUpdateStatus': result = updates ? success(await updates.status()) : failure('UNSUPPORTED', 'Update checks are unavailable.'); break;
+        case 'downloadUpdate': result = updates?.download ? await updates.download() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;
+        case 'installUpdate': result = updates?.install ? await updates.install() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;
         case 'chooseDirectory': {
           const selection = await dialog.showOpenDialog(window, { properties: ['openDirectory'], title: 'Choose default working directory' });
           if (selection.canceled || !selection.filePaths[0]) result = success(null);

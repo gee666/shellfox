@@ -13,7 +13,6 @@ describe('launchers route `update`', () => {
     expect(launcher).toContain('shellfox update [--check]');
     expect(launcher).toContain('SHELLFOX_APP_EXECUTABLE=\'/Applications/Shellfox.app/Contents/MacOS/Shellfox\' exec /bin/sh -c "$shellfox_update_script" shellfox-update "$@"');
     expect(launcher).toContain('dpkg-query -W');
-    expect(spawnSync('/bin/sh', ['-n'], { input: launcher }).status).toBe(0);
   });
   it.skipIf(process.platform !== 'linux')('the generated launcher runs the embedded updater with the app executable, never launching the app', async () => {
     await mkdir(path.resolve('tmp'), { recursive: true });
@@ -40,7 +39,15 @@ describe('launchers route `update`', () => {
     expect(shims.posix).toContain('cygpath -w "$script"'); expect(shims.posix).toContain('wslpath -w "$script"');
     expect(shims.posix).toContain('shellfox-update.ps1');
     expect(shims.update).toBe(updatePs1);
-    expect(spawnSync('/bin/sh', ['-n'], { input: shims.posix }).status).toBe(0);
+  });
+  it.skipIf(process.platform === 'win32')('generated POSIX launcher and shim pass /bin/sh syntax checks', () => {
+    const launcher = linuxLauncher({ executable: '/Applications/Shellfox.app/Contents/MacOS/Shellfox' });
+    const shims = shellfoxShims({ executable: 'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe', updateScript: updatePs1 });
+    for (const script of [launcher, shims.posix]) {
+      const result = spawnSync('/bin/sh', ['-n'], { input: script, encoding: 'utf8', timeout: 5000 });
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+    }
   });
   it('the update scripts are bundled text with the documented overrides', () => {
     for (const text of [updateSh, updatePs1]) { expect(text).toContain('SHELLFOX_UPDATE_API'); expect(text).toContain('SHELLFOX_UPDATE_REPO'); expect(text).toContain('Restart Shellfox to use'); }

@@ -99,7 +99,11 @@ export interface TerminalApi {
   readClipboardText?(): Promise<Result<{ text: string }>>;
 }
 // Optional only for legacy injected clients. The production preload exposes every terminal method.
-export interface UpdateStatusDto { current: string; latest: string | null; available: boolean; command: 'shellfox update'; url: string }
+export interface UpdateStatusDto {
+  current: string; latest: string | null; available: boolean; command: 'shellfox update'; url: string;
+  phase?: 'idle' | 'downloading' | 'ready' | 'installing' | 'error';
+  supported?: boolean; reason?: string | null; received?: number; total?: number | null; error?: string | null;
+}
 export interface ManagerApi extends Partial<TerminalApi> {
   getSnapshot(): Promise<Result<ManagerSnapshot>>;
   activateSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
@@ -109,6 +113,9 @@ export interface ManagerApi extends Partial<TerminalApi> {
   addTab(input: { sessionId: Id; title?: string; profileId?: string; cwd?: string }): Promise<Result<SessionDto>>;
   focusSession(input: { sessionId: Id }): Promise<Result<{ focused: true }>>;
   renameSession(input: { sessionId: Id; title: string }): Promise<Result<SessionDto>>;
+  renameTab(input: { sessionId: Id; tabId: Id; title: string }): Promise<Result<SessionDto>>;
+  /** Complete saved tab permutation, including closed tabs. */
+  reorderTabs(input: { sessionId: Id; tabIds: Id[] }): Promise<Result<SessionDto>>;
   setSessionPinned(input: { sessionId: Id; pinned: boolean }): Promise<Result<SessionDto>>;
   settleSession(input: { sessionId: Id; confirmActive: boolean }): Promise<Result<SessionDto>>;
   unsettleSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
@@ -125,6 +132,8 @@ export interface ManagerApi extends Partial<TerminalApi> {
   setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;
   getUpdateStatus?(): Promise<Result<UpdateStatusDto>>;
+  downloadUpdate?(): Promise<Result<UpdateStatusDto>>;
+  installUpdate?(input: { confirmCloseTerminals: true }): Promise<Result<UpdateStatusDto>>;
   subscribe(listener: (event: ChangedEvent) => void): () => void;
 }
 export const success = <T>(value: T): Result<T> => ({ ok: true, value });

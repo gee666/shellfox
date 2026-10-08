@@ -33,6 +33,7 @@ export class EmbeddedSessionService {
   private readonly reportedExitFailures = new Set<string>();
   private unsubscribe?: () => void;
   private disposed = false;
+  private updateClosing = false;
   constructor(readonly repository: RepositoryPort, readonly backend = new PtyBackend(), trackerFactory: (emit: (items: TabObservation[]) => void) => TrackerPort = emit => new ProcessTracker(emit), private readonly explorerIntegration?: ExplorerPort, private readonly cliIntegration?: CliPort) {
     this.tracker = trackerFactory(items => {
       if (this.disposed) return;
@@ -57,7 +58,7 @@ export class EmbeddedSessionService {
     for (const listener of this.listeners) { try { listener(event); } catch { /* Renderer failures do not roll back ownership. */ } }
   }
   private serialize<T>(id: string, action: () => Promise<Result<T>>): Promise<Result<T>> {
-    const next = (this.queues.get(id) ?? Promise.resolve()).catch(() => undefined).then(() => this.disposed ? failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.') : action()).catch(() => failure('STORAGE_FAILED', 'The embedded operation could not be saved.', true)) as Promise<Result<T>>;
+    const next = (this.queues.get(id) ?? Promise.resolve()).catch(() => undefined).then(() => this.disposed || this.updateClosing ? failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.') : action()).catch(() => failure('STORAGE_FAILED', 'The embedded operation could not be saved.', true)) as Promise<Result<T>>;
     this.queues.set(id, next);
     void next.finally(() => { if (this.queues.get(id) === next) this.queues.delete(id); });
     return next;
@@ -298,6 +299,43 @@ export class EmbeddedSessionService {
     if (!requestSchemas.renameSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid title.'));
     return this.mutate(input.sessionId, s => { s.title = input.title; });
   }
+  renameTab(input: { sessionId: string; tabId: string; title: string }): Promise<Result<SessionDto>> {
+    const parsed = requestSchemas.renameTab.safeParse(input);
+    if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid tab title.'));
+    return this.serialize(parsed.data.sessionId, async () => {
+      const session = this.repository.session(parsed.data.sessionId);
+      if (!session) return failure('NOT_FOUND', 'Session not found.');
+      const tab = this.repository.tab(parsed.data.tabId);
+      if (!tab || tab.sessionId !== session.id) return failure('NOT_FOUND', 'Tab not found in this session.');
+      if (!tab.terminal) return failure('UNSUPPORTED', 'External tabs are read-only.');
+      this.repository.transaction(() => {
+        tab.title = parsed.data.title.trim();
+        this.repository.saveTab(tab);
+        session.updatedAt = new Date().toISOString(); this.repository.saveSession(session);
+      });
+      this.changed(); return success(this.toDto(session));
+    });
+  }
+  reorderTabs(input: { sessionId: string; tabIds: string[] }): Promise<Result<SessionDto>> {
+    const parsed = requestSchemas.reorderTabs.safeParse(input);
+    if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid tab order.'));
+    return this.serialize(parsed.data.sessionId, async () => {
+      const session = this.repository.session(parsed.data.sessionId);
+      if (!session) return failure('NOT_FOUND', 'Session not found.');
+      const tabs = this.repository.tabs(session.id), byId = new Map(tabs.map(tab => [tab.id, tab]));
+      if (tabs.length !== parsed.data.tabIds.length || parsed.data.tabIds.some(id => !byId.has(id))) return failure('VALIDATION', 'Tab order must contain every saved tab in this session exactly once. Refresh and try again.');
+      if (!tabs.some(tab => tab.terminal)) return failure('UNSUPPORTED', 'External tabs are read-only.');
+      this.repository.transaction(() => {
+        // SQLite checks UNIQUE(sessionId, ordinal) on each write. Stage above the
+        // current maximum before assigning dense ordinals, all in one transaction.
+        const offset = Math.max(...tabs.map(tab => tab.ordinal)) + 1;
+        tabs.forEach((tab, index) => this.repository.saveTab({ ...tab, ordinal: offset + index }));
+        parsed.data.tabIds.forEach((id, ordinal) => this.repository.saveTab({ ...byId.get(id)!, ordinal }));
+        session.updatedAt = new Date().toISOString(); this.repository.saveSession(session);
+      });
+      this.changed(); return success(this.toDto(session));
+    });
+  }
   settleSession(input: { sessionId: string; confirmActive: boolean }): Promise<Result<SessionDto>> {
     if (!requestSchemas.settleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid settle request.'));
     return this.mutate(input.sessionId, s => {
@@ -407,14 +445,30 @@ export class EmbeddedSessionService {
     });
   }
   ownedTerminalCount(): number { return this.backend.live().length + this.repository.tabs().filter(t => t.terminal && t.lifecycle === 'launching' && !this.backend.get(t.id)).length; }
+  private async closeOwnedTerminals(): Promise<void> {
+    await Promise.allSettled([...this.queues.values()]);
+    const results = await Promise.all(this.backend.live().map(e => this.backend.close({ tabId: e.tabId, generation: e.generation })));
+    if (results.some(r => !r.ok)) throw new Error('Owned terminal shutdown was not confirmed.');
+    this.reconcileExits();
+    if (this.pendingExits.size) throw new Error('Shells terminated, but exit metadata remains unsaved. Storage reconciliation is pending.');
+  }
+  /** Close shells without destroying the backend/tracker, so failed handoffs can resume. */
+  async closeForUpdate(): Promise<() => void> {
+    if (this.disposed || this.updateClosing) throw new Error('Terminal shutdown is already in progress.');
+    this.updateClosing = true;
+    const resume = () => { this.updateClosing = false; this.refreshWatch(); };
+    try { await this.closeOwnedTerminals(); return resume; }
+    catch (error) { resume(); throw error; }
+  }
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    await Promise.allSettled([...this.queues.values()]);
-    try { await this.backend.dispose(); }
-    catch { this.disposed = false; this.refreshWatch(); throw new Error('Owned terminal shutdown failed. The manager and failed handles remain available for retry.'); }
-    this.reconcileExits();
-    if (this.pendingExits.size) { this.disposed = false; throw new Error('Shells terminated, but exit metadata remains unsaved. Storage reconciliation is pending.'); }
+    try {
+      // Save confirmed exits before irreversibly disposing the backend. Storage
+      // failures must leave a backend capable of opening fresh shells on retry.
+      await this.closeOwnedTerminals();
+      await this.backend.dispose();
+    } catch (error) { this.disposed = false; this.refreshWatch(); throw error; }
     this.tracker.dispose();
     if (this.exitRetryTimer) clearInterval(this.exitRetryTimer);
     this.unsubscribe?.(); this.listeners.clear(); this.streams.clear();

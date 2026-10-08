@@ -16,7 +16,16 @@ test('real local and WSL PTYs advertise truecolor and preserve RGB cells through
     for (const profile of profiles) {
       value(await page.evaluate(settings => window.shellfox.saveSettings(settings), { ...initial.settings, shellExecutable: null, terminalProfileId: profile.id }));
       const session = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID(), title: profile.label }));
-      const tab = session.tabs[0];
+      // Implicit Windows-folder launches stay local even with a global WSL
+      // preference. Select the guest explicitly so this test really exercises WSL.
+      let tab = session.tabs[0];
+      if (tab.profileId !== profile.id) {
+        const original = tab;
+        const selected = value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: session.id, profileId: profile.id }));
+        tab = selected.tabs.at(-1)!;
+        value(await page.evaluate(input => window.shellfox.closeTab!(input), { tabId: original.id, generation: original.generation! }));
+      }
+      expect(tab.profileId).toBe(profile.id);
       const powershell = ['pwsh', 'windows-powershell'].includes(profile.id);
       const command = powershell
         ? "[Console]::WriteLine('COLOR_ENV=' + $env:TERM + ',' + $env:COLORTERM); [Console]::WriteLine(([char]27 + '[38;2;255;100;0mRGB_TEST' + [char]27 + '[0m')); $g=''; 0..63 | ForEach-Object { $g += [char]27 + '[38;2;' + ($_ * 4) + ';' + (255 - $_ * 4) + ';123m#' }; [Console]::WriteLine($g + [char]27 + '[0m'); [Console]::WriteLine('COLOR_DONE')\r"
@@ -29,9 +38,12 @@ test('real local and WSL PTYs advertise truecolor and preserve RGB cells through
           await new Promise<void>(resolve => terminal.write(chunks.map(c => c.data).join(''), resolve));
           const lines = Array.from({ length: terminal.buffer.active.length }, (_, y) => terminal.buffer.active.getLine(y).translateToString(true));
           terminal.dispose();
-          return lines.find(line => line.trim().startsWith('COLOR_ENV='))?.trim() ?? '';
+          return {
+            env: lines.find(line => line.trim().startsWith('COLOR_ENV='))?.trim() ?? '',
+            done: lines.some(line => line.trim() === 'COLOR_DONE'),
+          };
         }, replay.chunks);
-      }, { timeout: 15000 }).toBe('COLOR_ENV=xterm-256color,truecolor');
+      }, { timeout: 15000 }).toEqual({ env: 'COLOR_ENV=xterm-256color,truecolor', done: true });
       const replay: any = value(await app.evaluate((_electron, tabId) => (globalThis as any).__shellfoxTest.backend.attach({ tabId }), tab.id));
       const colors = await page.evaluate(async (chunks: Array<{ data: string }>) => {
         const terminal = new (window as any).Terminal({ allowProposedApi: true, cols: 500, rows: 100, scrollback: 3000 });
@@ -48,7 +60,8 @@ test('real local and WSL PTYs advertise truecolor and preserve RGB cells through
       expect(colors.test).toEqual({ rgb: true, color: 0xff6400 });
       expect(colors.gradient).toEqual(Array.from({ length: 64 }, (_, i) => (i * 4 << 16) | ((255 - i * 4) << 8) | 123));
       value(await page.evaluate(input => window.shellfox.setSessionEnv(input), { sessionId: session.id, env: [{ name: 'TERM', value: 'vt100' }, { name: 'COLORTERM', value: '24bit' }] }));
-      const overridden = value(await page.evaluate(sessionId => window.shellfox.addTab({ sessionId }), session.id)).tabs[1];
+      const overridden = value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: session.id, profileId: profile.id })).tabs.at(-1)!;
+      expect(overridden.profileId).toBe(profile.id);
       const printOverride = powershell
         ? "[Console]::WriteLine(('OVERRIDE_' + 'ENV=') + $env:TERM + ',' + $env:COLORTERM)\r"
         : "printf 'OVERRIDE_%s=%s,%s\\n' ENV \"$TERM\" \"$COLORTERM\"\r";

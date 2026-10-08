@@ -16,6 +16,8 @@ const api: ManagerApi = {
   writeTerminal: input => request('writeTerminal', input),
   resizeTerminal: input => request('resizeTerminal', input),
   closeTab: input => request('closeTab', input),
+  renameTab: input => request('renameTab', input),
+  reorderTabs: input => request('reorderTabs', input),
   acknowledgeTerminal: input => request('acknowledgeTerminal', input),
   detachTerminal: input => request('detachTerminal', input),
   subscribeTerminal(listener: (event: TerminalEvent) => void): () => void {
@@ -50,6 +52,8 @@ const api: ManagerApi = {
   setCliIntegration: input => request('setCliIntegration', input),
   chooseDirectory: () => request('chooseDirectory', {}),
   getUpdateStatus: () => request('getUpdateStatus', {}),
+  downloadUpdate: () => request('downloadUpdate', {}),
+  installUpdate: input => request('installUpdate', input),
   subscribe(listener: (event: ChangedEvent) => void): () => void {
     if (typeof listener !== 'function') return () => {};
     const receive = (_event: unknown, value: unknown) => {

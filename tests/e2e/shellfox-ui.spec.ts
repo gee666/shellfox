@@ -21,7 +21,7 @@ test('Shellfox env editor, native menu actions, and Terminal command settings', 
     const before = (await snapshot(page)).sessions[0];
     await row.click({ button: 'right' });
     const menu = page.getByRole('menu');
-    await expect(menu.getByRole('menuitem')).toHaveText(['Rename', 'Environment variables…', 'Open in File Explorer', 'Copy path', 'Archive']);
+    await expect(menu.getByRole('menuitem')).toHaveText(['Pin to top', 'Rename', 'Environment variables…', 'Open in File Explorer', 'Copy path', 'Archive']);
     await menu.getByRole('menuitem', { name: 'Environment variables…', exact: true }).click();
     const modal = page.getByRole('dialog', { name: `Environment · ${path.basename(cwd)}`, exact: true });
     const editor = modal.getByRole('textbox', { name: 'Environment variables', exact: true });

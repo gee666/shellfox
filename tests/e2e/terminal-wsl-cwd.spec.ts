@@ -151,7 +151,9 @@ for (const kind of ['mounted drive', 'guest filesystem'] as const) {
         const actual = await shellCwd(app, page, tab, environment);
         const expected = environment === 'wsl' ? guestCwd : hostCwd;
         evidence.push({ kind, profileId: tab.profileId, tabCwd: tab.cwd, actual, expected, output: await output(app, tab.id) });
-        expect(tab.cwd).toBe(expected);
+        // Saved WSL UNC paths remain host-readable; drive folders are translated
+        // for explicit guest tabs. Read the shell CWD independently in both cases.
+        expect(tab.cwd).toBe(environment === 'wsl' && kind === 'mounted drive' ? guestCwd : hostCwd);
         if (environment === 'wsl') expect(actual).toBe(guestCwd);
         else expect(actual.replace(/^Microsoft\.PowerShell\.Core\\FileSystem::/, '').toLowerCase()).toBe(hostCwd.toLowerCase());
       };
@@ -161,21 +163,29 @@ for (const kind of ['mounted drive', 'guest filesystem'] as const) {
       for (const local of locals) {
         value(await page.evaluate(settings => window.shellfox.saveSettings(settings), { ...initial.settings, terminalProfileId: local.id, shellExecutable: null }));
         const session = await startFromWsl();
-        await check(session.tabs[0], 'local');
-        const mixed = value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: session.id, profileId: guestProfile!.id }));
+        const implicitGuest = kind === 'guest filesystem';
+        expect(session.tabs[0].profileId).toBe(implicitGuest ? guestProfile!.id : local.id);
+        await check(session.tabs[0], implicitGuest ? 'wsl' : 'local');
+        const mixed = value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: session.id, profileId: implicitGuest ? local.id : guestProfile!.id }));
         expect(mixed.cwd).toBe(hostCwd);
-        await check(mixed.tabs[1], 'wsl');
+        expect(mixed.tabs.at(-1)!.profileId).toBe(implicitGuest ? local.id : guestProfile!.id);
+        await check(mixed.tabs.at(-1)!, implicitGuest ? 'local' : 'wsl');
         await close(mixed.tabs);
         const reopened = value(await page.evaluate(input => window.shellfox.activateSession(input), { sessionId: session.id }));
-        await check(reopened.tabs.at(-1)!, 'local');
+        expect(reopened.tabs.at(-1)!.profileId).toBe(implicitGuest ? guestProfile!.id : local.id);
+        await check(reopened.tabs.at(-1)!, implicitGuest ? 'wsl' : 'local');
         await close([reopened.tabs.at(-1)!]);
       }
       value(await page.evaluate(settings => window.shellfox.saveSettings(settings), { ...initial.settings, terminalProfileId: guestProfile!.id, shellExecutable: null }));
       const session = await startFromWsl();
-      await check(session.tabs[0], 'wsl');
-      const mixed = value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: session.id, profileId: locals[0].id }));
+      const implicitGuest = kind === 'guest filesystem';
+      const fallbackLocal = locals.find(profile => profile.id === 'pwsh') ?? locals[0];
+      expect(session.tabs[0].profileId).toBe(implicitGuest ? guestProfile!.id : fallbackLocal.id);
+      await check(session.tabs[0], implicitGuest ? 'wsl' : 'local');
+      const mixed = value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: session.id, profileId: implicitGuest ? locals[0].id : guestProfile!.id }));
       expect(mixed.cwd).toBe(hostCwd);
-      await check(mixed.tabs[1], 'local');
+      expect(mixed.tabs.at(-1)!.profileId).toBe(implicitGuest ? locals[0].id : guestProfile!.id);
+      await check(mixed.tabs.at(-1)!, implicitGuest ? 'local' : 'wsl');
       await close(mixed.tabs);
       const beforeDisable = (await snapshot(page)).sessions.map(s => s.id);
       const disabled = await setWslCli(false, bin, { home: guestHome, run: startupRun });

@@ -50,7 +50,8 @@ test('SQLite history literal search, stable pagination, settings and identities 
       const db = (globalThis as any).__shellfoxTest.repository.db;
       return [db.pragma('user_version', { simple: true }), db.pragma('foreign_keys', { simple: true }), db.pragma('journal_mode', { simple: true })];
     });
-    expect(pragmas).toEqual([3, 1, 'wal']);
+    // Schema 4 stores pinned session state; foreign keys and WAL remain required.
+    expect(pragmas).toEqual([4, 1, 'wal']);
     await app.close(); closed = true;
     ({ app, page } = await launch(data)); closed = false;
     expect((await snapshot(page)).settings.accentColor).toBe('#2dd4bf');

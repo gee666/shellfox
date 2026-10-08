@@ -31,6 +31,9 @@ for (const file of platform === 'win32'
 }
 assert.ok(existsSync(path.join(unpacked, 'node-pty/lib/conpty_console_list_agent.js')), 'Forked JS agent must be unpacked too.');
 if (platform === 'darwin') {
+  // Match the updater and @electron/osx-sign's default strict bundle verification,
+  // including ad-hoc Forge builds. Do not weaken update verification for previews.
+  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', path.dirname(app)], 60000);
   accessSync(path.join(pty, 'spawn-helper'), constants.X_OK);
   for (const { basename } of darwinHelpers) accessSync(path.join(resources, 'terminal-native', basename), constants.X_OK);
   assert.ok(!files.some(file => file.startsWith('/terminal-native/')), 'Native helpers must be outside ASAR.');

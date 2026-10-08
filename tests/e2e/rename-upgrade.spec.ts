@@ -24,7 +24,9 @@ for (const legacy of ['Pi Manager', 'pi-manager']) test(`Shellfox startup copies
     const openNew = () => _electron.launch({ cwd: root, env: { ...env(), SHELLFOX_TEST_APP_DATA: dir }, args: [testMain, '--test-user-data', newData, '--test-backend', 'fake'], timeout: 30000 });
     current = await openNew();
     let page = await current.firstWindow(); await page.waitForFunction(() => !!window.shellfox);
-    expect(await page.title()).toBe('Shellfox');
+    // The built document title uses the product manifest, not the loose Electron entry's runtime version.
+    const version = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version;
+    expect(await page.title()).toBe(`Shellfox v${version}`);
     expect(await current.evaluate(({ app }) => [app.getName(), app.getPath('userData')])).toEqual(['Shellfox', newData]);
     expect((await snapshot(page)).settings.accentColor).toBe('#2dd4bf');
     expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: 'Upgrade history', status: 'all', page: 1, pageSize: 20 }))).items[0].id).toBe(session.id);

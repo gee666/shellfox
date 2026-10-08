@@ -48,10 +48,19 @@ async function fixture() {
     closeTab: async () => { throw new Error('must not close'); },
   };
   const registry = new TerminalRegistry(api, factory); registry.start();
-  cleanups.push(async () => { registry.dispose(); off(); delivery.dispose(); await backend.dispose(); });
   const reference = new Terminal({ ...VIEW, scrollback: 3000, allowProposedApi: true });
+  cleanups.push(async () => { registry.dispose(); reference.dispose(); off(); delivery.dispose(); await backend.dispose(); });
   const host = document.createElement('div'); document.body.append(host);
-  const pump = async (chunks: string[]) => { for (const chunk of chunks) { pty.processes[0]!.output(chunk); reference.write(chunk); await tick(); } };
+  const pump = async (chunks: string[]) => {
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]!;
+      pty.processes[0]!.output(chunk);
+      // Keep every individual PTY update, but yield on actual parser completion
+      // in small batches. Per-chunk setTimeout(0) costs about 15 ms on Windows.
+      if ((i + 1) % 32 === 0 || i === chunks.length - 1) await new Promise<void>(resolve => reference.write(chunk, resolve));
+      else reference.write(chunk);
+    }
+  };
   return { ...pty, backend, api, registry, host, input, terminals, sizes, reference, pump, latest: () => terminals.at(-1)! };
 }
 

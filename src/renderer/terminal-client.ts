@@ -205,7 +205,7 @@ export class TerminalRegistry {
   }
   focus(id: string) {
     const entry = this.entries.get(id);
-    if (entry?.visible && !document.querySelector('[role="dialog"]')) entry.surface.focus();
+    if (entry?.visible && !document.querySelector('[role="dialog"], .tab-rename')) entry.surface.focus();
   }
   fit(id: string) {
     const entry = this.entries.get(id);

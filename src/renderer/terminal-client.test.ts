@@ -35,6 +35,17 @@ function setup(delayed = false) {
 }
 
 describe('terminal stream ownership', () => {
+  it('does not steal tab rename focus when an attachment finishes late', async () => {
+    const fixture = setup(); await flush(); fixture.latest().focus.mockClear();
+    const pending = deferred<Result<TerminalAttachmentDto>>();
+    fixture.api.attachTerminal.mockReturnValueOnce(pending.promise);
+    fixture.registry.refresh(tab.id);
+    const input = document.createElement('input'); input.className = 'tab-rename'; document.body.append(input); input.focus();
+    pending.resolve(success(attachment())); await flush();
+    fixture.registry.focus(tab.id);
+    expect(fixture.latest().focus).not.toHaveBeenCalled(); expect(document.activeElement).toBe(input);
+    input.remove(); fixture.registry.focus(tab.id); expect(fixture.latest().focus).toHaveBeenCalledOnce();
+  });
   it('subscribes before attach and deduplicates live output arriving during replay', async () => {
     const fixture = setup(); const pending = deferred<Result<TerminalAttachmentDto>>();
     // Initial mount already attached; defer the explicit next read.

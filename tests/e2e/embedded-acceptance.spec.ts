@@ -57,7 +57,7 @@ test('real PowerShell 7 Pi shim becomes running/green and output produces busy t
     const session = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID(), title: 'Pi detection' }));
     const tab = session.tabs[0];
     await expect.poll(async () => (await snapshot(page)).sessions[0].tabs[0].status, { timeout: 20000 }).toBe('waiting');
-    await expect(page.getByRole('tab').locator('.status-dot')).toHaveAttribute('title', 'Shell');
+    await expect(page.getByRole('tab').locator('.status-dot')).toHaveAttribute('aria-label', 'Shell');
     await page.evaluate(id => {
       (window as any).acceptanceActivity = [];
       window.shellfox.subscribeTerminal!(event => { if (event.type === 'activity' && event.tabId === id) (window as any).acceptanceActivity.push(event); });
@@ -66,7 +66,7 @@ test('real PowerShell 7 Pi shim becomes running/green and output produces busy t
     await expect.poll(async () => (await snapshot(page)).sessions[0].tabs[0].status, { timeout: 25000 }).toBe('running');
     expect((await snapshot(page)).sessions[0].tabs[0].agents).toBeGreaterThan(0);
     await expect.poll(async () => page.evaluate(() => (window as any).acceptanceActivity.some((event: any) => event.busy)), { timeout: 20000 }).toBe(true);
-    await expect(page.getByRole('tab').locator('.status-dot')).toHaveAttribute('title', /Agent (working|idle)/);
+    await expect(page.getByRole('tab').locator('.status-dot')).toHaveAttribute('aria-label', /Agent (working|idle)/);
     await expect.poll(async () => page.evaluate(() => {
       const events = (window as any).acceptanceActivity, busyAt = events.findIndex((event: any) => event.busy);
       return busyAt >= 0 && events.slice(busyAt + 1).some((event: any) => !event.busy);
