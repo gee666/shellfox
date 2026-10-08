@@ -13,6 +13,7 @@ test('UI creates independent same-folder sessions, tabs, focus and settled live 
     await app.evaluate(({ dialog }, cwd) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [cwd] }); }, cwd);
     for (const title of ['First session', 'Second session']) {
       await page.getByRole('button', { name: 'New session', exact: true }).click();
+      await page.getByRole('button', { name: 'Browse folders', exact: true }).click();
       const selected = page.getByRole('button', { name: `Select session ${path.basename(cwd)}`, exact: true }).last();
       await expect(selected).toHaveAttribute('aria-pressed', 'true');
       await selected.click({ button: 'right' });

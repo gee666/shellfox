@@ -16,6 +16,7 @@ test('Shellfox env editor, native menu actions, and Terminal command settings', 
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [cwd] });
     }, cwd);
     await page.getByRole('button', { name: 'New session', exact: true }).click();
+    await page.getByRole('button', { name: 'Browse folders', exact: true }).click();
     const row = page.getByRole('button', { name: `Select session ${path.basename(cwd)}`, exact: true });
     await expect(row).toBeVisible();
     const before = (await snapshot(page)).sessions[0];

@@ -131,6 +131,9 @@ export interface ManagerApi extends Partial<TerminalApi> {
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
   setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;
+  getHomeDirectory(): Promise<Result<{ cwd: string }>>;
+  resolveDirectory(input: { path: string }): Promise<Result<{ cwd: string }>>;
+  completeDirectory(input: { path: string }): Promise<Result<{ matches: string[] }>>;
   getUpdateStatus?(): Promise<Result<UpdateStatusDto>>;
   downloadUpdate?(): Promise<Result<UpdateStatusDto>>;
   installUpdate?(input: { confirmCloseTerminals: true }): Promise<Result<UpdateStatusDto>>;

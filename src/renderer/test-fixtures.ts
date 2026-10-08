@@ -129,6 +129,9 @@ export function mockApi(initial = snapshot()) {
       listeners.forEach(listener => listener({ revision: current.revision, reason: 'settings' }));
       return success(cli);
     }),
+    getHomeDirectory: vi.fn<ManagerApi['getHomeDirectory']>(async () => success({ cwd: 'C:\\Users\\user' })),
+    resolveDirectory: vi.fn<ManagerApi['resolveDirectory']>(async ({ path }) => success({ cwd: path ? `C:\\Users\\user\\${path}` : 'C:\\Users\\user' })),
+    completeDirectory: vi.fn<ManagerApi['completeDirectory']>(async () => success({ matches: ['Documents\\'] })),
     chooseDirectory: vi.fn<ManagerApi['chooseDirectory']>(async () => success({ cwd: 'C:\\projects\\same folder' })),
     subscribe: vi.fn<ManagerApi['subscribe']>(listener => { listeners.add(listener); return () => { listeners.delete(listener); unsubscribe(); }; }),
   } satisfies ManagerApi;

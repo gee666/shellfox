@@ -10,6 +10,7 @@ import { TerminalWorkspace } from './TerminalWorkspace';
 import { TerminalRegistry } from './terminal-client';
 import { SettingsPanel } from './SettingsPanel';
 import { useSidebarWidth } from './sidebar-width';
+import { DirectoryPrompt } from './DirectoryPrompt';
 import { UpdateNotice } from './UpdateNotice';
 import { applyPalette, derivePalette } from './theme';
 
@@ -25,6 +26,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const terminalApi = useMemo(() => getTerminalApi(api), [api]);
   const registry = useMemo(() => new TerminalRegistry(terminalApi), [terminalApi]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [profiles, setProfiles] = useState<TerminalProfileDto[]>([]);
   const [defaultProfileId, setDefaultProfileId] = useState<string | null>(null);
   const [width, setWidth] = useSidebarWidth();
@@ -57,15 +59,10 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const effectiveProfile = snapshot?.settings.terminalProfileId ?? defaultProfileId;
   const available = !!snapshot?.probe.available;
   const canCreate = available && !!snapshot?.probe.capabilities.createWindow && (snapshot.probe.adapterId !== 'embedded-pty' || (!!terminalApi && profiles.some(profile => profile.available && (snapshot.probe.platform === 'win32' || profile.id === effectiveProfile))));
-  async function create() {
-    // The native folder picker waits for the user. Browsing may take longer than
-    // the IPC transport deadline, and a timed-out pick would be silently dropped.
-    const directory = await action.run(() => api.chooseDirectory(), { timeoutMs: 0 });
-    if (!directory?.ok || !directory.value) return;
-    const cwd = directory.value.cwd;
+  async function create(cwd: string): Promise<boolean> {
     const title = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || cwd;
     const result = await action.run(() => api.createSession({ cwd, title, requestId: crypto.randomUUID() }));
-    if (!result?.ok) { client.refresh(); return; }
+    if (!result?.ok) { client.refresh(); return false; }
     let session = result.value;
     client.accept(session);
     if (!session.tabs.some(tab => tab.lifecycle !== 'closed')) {
@@ -74,6 +71,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     }
     const tab = session.tabs.find(tab => tab.lifecycle !== 'closed');
     if (tab) client.selectTab(session, tab.id);
+    return true;
   }
   function closeSettings() {
     setSettingsOpen(false);
@@ -82,7 +80,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   }
   return <div className={`app-shell${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
     <aside className="sidebar" aria-label="Session navigation">
-      <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" title={canCreate ? 'New session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => void create()}><Icon name="plus" /></button><button className="icon-button" aria-label="Settings" title="Settings" disabled={!snapshot} onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button></div>
+      <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" title={canCreate ? 'New session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => setDirectoryOpen(true)}><Icon name="plus" /></button><button className="icon-button" aria-label="Settings" title="Settings" disabled={!snapshot} onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button></div>
       {snapshot && <SessionSidebar client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={snapshot.settings.historyPageSize} />}
       <UpdateNotice api={api} />
     </aside>
@@ -96,6 +94,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     <main className="workspace" aria-label="Workspace">
       {selected ? <TerminalWorkspace key={selected.id} session={selected} client={client} registry={registry} profiles={profiles} defaultProfileId={effectiveProfile} platform={snapshot?.probe.platform} available={available} /> : <div className="empty-terminal">{state.loading ? 'Loading…' : 'Choose a session or press +'}</div>}
     </main>
+    {directoryOpen && <DirectoryPrompt api={api} onCreate={create} onClose={() => setDirectoryOpen(false)} />}
     {settingsOpen && snapshot && <Modal title="Settings" onClose={closeSettings}><SettingsPanel client={client} settings={snapshot.settings} explorer={snapshot.explorer} cli={snapshot.cli} profiles={profiles} defaultProfileId={defaultProfileId} /></Modal>}
   </div>;
 }

@@ -125,8 +125,10 @@ describe('compact workspace', () => {
   it('creates from the native chooser with basename and distinct request IDs', async () => {
     const fixture = mockApi(); const { user } = await ready(fixture.api);
     await user.click(screen.getByRole('button', { name: 'New session' }));
+    await user.click(screen.getByRole('button', { name: 'Browse folders' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Select session same folder' })).toHaveAttribute('aria-pressed', 'true'));
     await user.click(screen.getByRole('button', { name: 'New session' }));
+    await user.click(screen.getByRole('button', { name: 'Browse folders' }));
     await waitFor(() => expect(fixture.api.createSession).toHaveBeenCalledTimes(2));
     const [first, second] = fixture.api.createSession.mock.calls.map(call => call[0]);
     expect(first).toMatchObject({ title: 'same folder', cwd: 'C:\\projects\\same folder' });
@@ -142,6 +144,7 @@ describe('compact workspace', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Browse folders' }));
       await act(async () => { vi.advanceTimersByTime(120_000); });
       expect(screen.queryByText(/did not confirm this request/)).not.toBeInTheDocument();
       await act(async () => { pick.resolve(success({ cwd: 'C:\\projects\\slow pick' })); });
@@ -157,8 +160,9 @@ describe('compact workspace', () => {
       return result.ok ? success({ ...result.value, tabs: [] }) : result;
     });
     const { user } = await ready(fixture.api);
-    await user.click(screen.getByRole('button', { name: 'New session' })); expect(fixture.api.createSession).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'New session' }));
+    await user.click(screen.getByRole('button', { name: 'Browse folders' })); expect(fixture.api.createSession).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Browse folders' }));
     await waitFor(() => expect(fixture.api.addTab).toHaveBeenCalledWith({ sessionId: session(2).id }));
   });
   it('lets the backend choose the cwd default or sends an explicit profile from the plus context menu', async () => {

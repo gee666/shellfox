@@ -26,10 +26,12 @@ export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: Env
     for (const key of Object.keys(env)) if (key.toLowerCase() === 'shellfox_terminal_marker') delete env[key];
     set('SHELLFOX_TERMINAL_MARKER', options.marker);
   }
-  if (options.wsl || options.windows && options.marker !== undefined) {
+  // Every Windows shell can launch wsl.exe later. Prepare the same transfer
+  // list for local and direct WSL tabs, without exporting the whole host env.
+  if (options.windows || options.wsl) {
     const key = Object.keys(env).find(key => key.toLowerCase() === 'wslenv') ?? 'WSLENV';
     const transfer = [...new Set([
-      ...(options.wsl ? ['TERM', 'COLORTERM', ...parsed.map(v => v.name)] : []),
+      'TERM', 'COLORTERM', ...parsed.map(v => v.name),
       ...(options.marker !== undefined ? ['SHELLFOX_TERMINAL_MARKER'] : []),
     ]
       .map(name => Object.keys(env).find(key => key.toLowerCase() === name.toLowerCase()) ?? name))]

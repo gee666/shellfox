@@ -5,6 +5,7 @@ import type { SessionService } from './service';
 import type { EmbeddedSessionService } from './terminal/service';
 import { TerminalDelivery } from './terminal/delivery';
 import { validateDirectory } from './directory';
+import { getHomeDirectory, resolveDirectory, completeDirectory } from './directory-prompt';
 import type { UpdateSource } from './update/self-updater';
 
 export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow, rendererUrl: string): boolean {
@@ -104,6 +105,9 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'getUpdateStatus': result = updates ? success(await updates.status()) : failure('UNSUPPORTED', 'Update checks are unavailable.'); break;
         case 'downloadUpdate': result = updates?.download ? await updates.download() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;
         case 'installUpdate': result = updates?.install ? await updates.install() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;
+        case 'getHomeDirectory': result = getHomeDirectory(); break;
+        case 'resolveDirectory': result = await resolveDirectory(requestSchemas.resolveDirectory.parse(payload)); break;
+        case 'completeDirectory': result = await completeDirectory(requestSchemas.completeDirectory.parse(payload)); break;
         case 'chooseDirectory': {
           const selection = await dialog.showOpenDialog(window, { properties: ['openDirectory'], title: 'Choose default working directory' });
           if (selection.canceled || !selection.filePaths[0]) result = success(null);

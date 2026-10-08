@@ -56,12 +56,20 @@ export const terminalProfilesSchema = z.object({ profiles: z.array(terminalProfi
 export const terminalAttachmentSchema = z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, firstSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), lastSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), chunks: z.array(terminalDataSchema).max(8192), truncated: z.boolean(), snapshot: z.boolean().optional(), state: z.enum(['open', 'closed']), exitCode: z.number().int().nullable(), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500), lifetime: z.literal('app-owned') }).strict().refine(a => a.chunks.reduce((sum, c) => sum + utf8Size(c.data), 0) <= 262144 && a.firstSequence <= a.lastSequence + 1 && a.chunks.every((c,i) => c.tabId === a.tabId && c.generation === a.generation && c.sequence >= a.firstSequence && c.sequence <= a.lastSequence && (!i || c.sequence > a.chunks[i-1].sequence)));
 const terminalIdentity = { tabId: idSchema, generation: idSchema };
 const empty = z.object({}).strict();
+// Prompt text is not a stored cwd: empty, relative and quoted paths are allowed.
+export const directoryPromptPathSchema = text(32767);
+export const DIRECTORY_COMPLETION_LIMIT = 100;
+export const DIRECTORY_COMPLETION_BYTES = 65536;
+const directoryPromptRequest = z.object({ path: directoryPromptPathSchema }).strict();
 // Terminal selections can span scrollback; pasted text is bounded by the terminal input limit.
 export const CLIPBOARD_COPY_BYTES = 1024 * 1024;
 export const CLIPBOARD_PASTE_BYTES = 65536;
 const sessionId = z.object({ sessionId: idSchema }).strict();
 export const requestSchemas = {
   getSnapshot: empty,
+  getHomeDirectory: empty,
+  resolveDirectory: directoryPromptRequest,
+  completeDirectory: directoryPromptRequest,
   copyText: z.object({ text: z.string().max(CLIPBOARD_COPY_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_COPY_BYTES) }).strict(),
   readClipboardText: empty,
   openSessionFolder: sessionId,
@@ -101,6 +109,9 @@ export const updateStatusSchema = z.object({
   total: z.number().int().positive().max(768 * 1024 * 1024).nullable().optional(), error: text(1000).nullable().optional(),
 }).strict();
 export const responseSchemas = {
+  getHomeDirectory: resultSchema(z.object({ cwd: pathSchema }).strict()),
+  resolveDirectory: resultSchema(z.object({ cwd: pathSchema }).strict()),
+  completeDirectory: resultSchema(z.object({ matches: z.array(directoryPromptPathSchema.min(1)).max(DIRECTORY_COMPLETION_LIMIT).refine(matches => matches.reduce((sum, match) => sum + utf8Size(match), 0) <= DIRECTORY_COMPLETION_BYTES) }).strict()),
   copyText: resultSchema(z.object({ copied: z.literal(true) }).strict()),
   readClipboardText: resultSchema(z.object({ text: z.string().max(CLIPBOARD_PASTE_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_PASTE_BYTES) }).strict()),
   openSessionFolder: resultSchema(z.object({ opened: z.literal(true) }).strict()),

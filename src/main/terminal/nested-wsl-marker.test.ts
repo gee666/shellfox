@@ -33,7 +33,7 @@ it.each([false, true])('protects the marker and transfers it bidirectionally on 
   ], { windows: true, wsl, marker: 'owned' });
   expect(Object.keys(env).filter(k => k.toLowerCase() === 'shellfox_terminal_marker')).toEqual(['SHELLFOX_TERMINAL_MARKER']);
   expect(env.SHELLFOX_TERMINAL_MARKER).toBe('owned');
-  expect(env.WSLENV).toBe(wsl ? 'KEEP/ul:TERM:COLORTERM:SHELLFOX_TERMINAL_MARKER' : 'KEEP/ul:TERM/w:SHELLFOX_TERMINAL_MARKER');
+  expect(env.WSLENV).toBe('KEEP/ul:TERM:COLORTERM:SHELLFOX_TERMINAL_MARKER');
 });
 it('does not introduce WSLENV on native Linux', () => {
   expect(terminalEnvironment({}, [{ name: 'shellfox_terminal_marker', value: 'override' }], { windows: false, wsl: false, marker: 'owned' }))
