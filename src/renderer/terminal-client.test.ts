@@ -233,6 +233,118 @@ describe('xterm safety configuration', () => {
   });
 });
 
+describe('terminal any-motion selection preservation', () => {
+  function openedSurface(clipboard?: Parameters<typeof createTerminalSurface>[2]) {
+    const surface = createTerminalSurface(() => {}, undefined, clipboard);
+    document.body.append(surface.element); surface.fit();
+    const terminal = terminalMocks.terminals.at(-1);
+    terminal.modes.mouseTrackingMode = 'any';
+    const received = vi.fn();
+    const documentReceived = vi.fn();
+    terminal.element.addEventListener('mousemove', received);
+    document.addEventListener('mousemove', documentReceived);
+    return {
+      surface, terminal, received, documentReceived,
+      move(extra: MouseEventInit = {}) {
+        const event = new MouseEvent('mousemove', { bubbles: true, cancelable: true, buttons: 0, ...extra });
+        terminal.element.dispatchEvent(event);
+        return event;
+      },
+      dispose() { document.removeEventListener('mousemove', documentReceived); surface.dispose(); },
+    };
+  }
+
+  it('preserves selection after Shift is released so Ctrl+Shift+C can copy it', () => {
+    const copy = vi.fn();
+    const fixture = openedSurface({ copy, read: async () => null });
+    try {
+      fixture.terminal.selection = 'selected text';
+      // Model the xterm SGR hover handler that clears selection as user input.
+      fixture.received.mockImplementation(() => { fixture.terminal.selection = ''; });
+      expect(fixture.move().defaultPrevented).toBe(false);
+      expect(fixture.received).not.toHaveBeenCalled();
+      expect(fixture.documentReceived).not.toHaveBeenCalled();
+      expect(fixture.terminal.getSelection()).toBe('selected text');
+      fixture.terminal.keyHandler(new KeyboardEvent('keydown', { code: 'KeyC', ctrlKey: true, shiftKey: true, cancelable: true }));
+      expect(copy).toHaveBeenCalledExactlyOnceWith('selected text');
+      expect(fixture.terminal.keyHandler(new KeyboardEvent('keydown', { code: 'KeyC', ctrlKey: true }))).toBe(true);
+    } finally { fixture.dispose(); }
+  });
+
+  it('blocks Shift-hover before a local selection exists, without needing a clipboard bridge', () => {
+    const fixture = openedSurface();
+    try {
+      expect(fixture.move({ shiftKey: true }).defaultPrevented).toBe(false);
+      expect(fixture.received).not.toHaveBeenCalled();
+      expect(fixture.documentReceived).not.toHaveBeenCalled();
+    } finally { fixture.dispose(); }
+  });
+
+  it('passes ordinary TUI hover when neither selection nor Shift is present', () => {
+    const fixture = openedSurface();
+    try {
+      expect(fixture.move().defaultPrevented).toBe(false);
+      expect(fixture.received).toHaveBeenCalledOnce();
+      expect(fixture.documentReceived).toHaveBeenCalledOnce();
+    } finally { fixture.dispose(); }
+  });
+
+  it.each([1, 2, 4])('passes button-held movement with buttons=%i, including Shift-drag', buttons => {
+    const fixture = openedSurface();
+    try {
+      for (const shiftKey of [false, true]) {
+        fixture.terminal.selection = shiftKey ? 'selected text' : '';
+        fixture.received.mockClear(); fixture.documentReceived.mockClear();
+        expect(fixture.move({ buttons, shiftKey }).defaultPrevented).toBe(false);
+        expect(fixture.received).toHaveBeenCalledOnce();
+        expect(fixture.documentReceived).toHaveBeenCalledOnce();
+      }
+    } finally { fixture.dispose(); }
+  });
+
+  it.each(['mousedown', 'mouseup'])('leaves ordinary and Shift-selection %s alone', type => {
+    const fixture = openedSurface();
+    const received = vi.fn(); const bubbled = vi.fn();
+    fixture.terminal.element.addEventListener(type, received);
+    fixture.surface.element.addEventListener(type, bubbled);
+    try {
+      for (const shiftKey of [false, true]) {
+        fixture.terminal.selection = shiftKey ? 'selected text' : '';
+        received.mockClear(); bubbled.mockClear();
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, buttons: type === 'mousedown' ? 1 : 0, shiftKey });
+        fixture.terminal.element.dispatchEvent(event);
+        expect(received).toHaveBeenCalledOnce();
+        expect(bubbled).toHaveBeenCalledOnce();
+        expect(event.defaultPrevented).toBe(false);
+      }
+    } finally { fixture.dispose(); }
+  });
+
+  it.each(['none', 'x10', 'vt200', 'drag'])('leaves hover alone in %s mode', mode => {
+    const fixture = openedSurface();
+    try {
+      fixture.terminal.modes.mouseTrackingMode = mode;
+      fixture.terminal.selection = 'selected text';
+      expect(fixture.move({ shiftKey: true }).defaultPrevented).toBe(false);
+      expect(fixture.received).toHaveBeenCalledOnce();
+      expect(fixture.documentReceived).toHaveBeenCalledOnce();
+    } finally { fixture.dispose(); }
+  });
+
+  it('removes the capture listener on disposal', () => {
+    const fixture = openedSurface();
+    const remove = vi.spyOn(fixture.surface.element, 'removeEventListener');
+    fixture.terminal.selection = 'selected text';
+    fixture.dispose();
+    expect(remove).toHaveBeenCalledWith('mousemove', expect.any(Function), true);
+    // Retain the wrapper and dispatch from a child to verify removal, not just detachment.
+    const child = document.createElement('div'); fixture.surface.element.append(child);
+    const received = vi.fn(); child.addEventListener('mousemove', received);
+    child.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, buttons: 0, shiftKey: true }));
+    expect(received).toHaveBeenCalledOnce();
+  });
+});
+
 describe('terminal clipboard shortcuts', () => {
   const key = (code: string, extra: Partial<KeyboardEventInit> = {}, type = 'keydown') => new KeyboardEvent(type, { code, ctrlKey: true, shiftKey: true, cancelable: true, ...extra });
   it('recognizes only Ctrl+Shift+C / Ctrl+Shift+V', () => {

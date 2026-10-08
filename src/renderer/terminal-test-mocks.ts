@@ -8,6 +8,7 @@ vi.mock('@xterm/xterm', () => ({
     input?: (value: string) => void; osc = new Map<number, (value: string) => boolean>();
     parser = { registerOscHandler: (id: number, handler: (value: string) => boolean) => { this.osc.set(id, handler); return { dispose() {} }; } };
     keyHandler?: (ev: KeyboardEvent) => boolean; selection = '';
+    modes: { mouseTrackingMode: 'none' | 'x10' | 'vt200' | 'drag' | 'any' } = { mouseTrackingMode: 'none' };
     attachCustomKeyEventHandler(handler: (ev: KeyboardEvent) => boolean) { this.keyHandler = handler; }
     hasSelection() { return this.selection.length > 0; }
     getSelection() { return this.selection; }

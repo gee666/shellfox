@@ -13,6 +13,7 @@ This is an embedded-terminal preview. Windows x64 dependency/build/package check
 - After a restart all saved sessions are listed, but no terminals open until you select a session.
 - Right-click a session → Pin to top keeps it above the others (in pin order); Unpin returns it to the normal order. Archived sessions remember the pin; it applies again after Restore.
 - The tab-strip plus creates another independent shell. Right-click it to choose a discovered profile.
+- Copy selected terminal text with Ctrl+Shift+C; paste with Ctrl+Shift+V. In mouse-enabled apps, hold Shift while dragging to select text. Windows-hosted PowerShell and WSL tabs use the Windows clipboard; `xclip` is not needed.
 - Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
 - Closing a tab explicitly terminates its owned shell and verified descendants. Closure requires exit evidence, not just a sent signal. Do not use it on work you want to keep running.
 - Archive moves a saved task into history without stopping shells or agents. Embedded archived sessions can be restored; retired external sessions remain read-only. Rename and agent-rule settings are available.

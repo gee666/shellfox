@@ -58,6 +58,14 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   terminal.parser.registerOscHandler(52, () => true);
   terminal.parser.registerOscHandler(8, () => true);
   terminal.onData(input);
+  // xterm 6 treats SGR hover reports as user input and clears local selection.
+  // Capture only button-free motion; drag events must still reach selection/TUI handlers.
+  const preserveSelection = (ev: MouseEvent) => {
+    if (terminal.modes.mouseTrackingMode === 'any' && ev.buttons === 0 && (ev.shiftKey || terminal.hasSelection())) {
+      ev.stopPropagation();
+    }
+  };
+  element.addEventListener('mousemove', preserveSelection, true);
   if (clipboard) terminal.attachCustomKeyEventHandler(ev => {
     const action = clipboardShortcut(ev);
     if (!action) return true;
@@ -89,7 +97,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     focus: () => { if (opened) terminal.focus(); },
     setInput: enabled => { terminal.options.disableStdin = !enabled; },
     setTheme: next => { terminal.options.theme = next; },
-    dispose: () => { terminal.dispose(); element.remove(); },
+    dispose: () => { element.removeEventListener('mousemove', preserveSelection, true); terminal.dispose(); element.remove(); },
   };
 };
 
