@@ -16,7 +16,7 @@ const attachment = (chunks: TerminalDataEvent[] = [], extras: Partial<TerminalAt
   chunks, truncated: false, state: 'open', exitCode: null, cols: 80, rows: 24, lifetime: 'app-owned', ...extras,
 });
 function surfaces(delayed = false) {
-  const values: { output: string; input: (data: string) => void; callbacks: (() => void)[]; dispose: ReturnType<typeof vi.fn>; fit: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }[] = [];
+  const values: { output: string; input: (data: string, userInitiated?: boolean) => void; callbacks: (() => void)[]; dispose: ReturnType<typeof vi.fn>; fit: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }[] = [];
   const factory: SurfaceFactory = input => {
     const item = { output: '', input, callbacks: [] as (() => void)[], dispose: vi.fn(), fit: vi.fn(() => ({ cols: 80, rows: 24 })), focus: vi.fn() };
     values.push(item);
@@ -185,7 +185,75 @@ describe('terminal stream ownership', () => {
     fixture.latest().input('one'); fixture.latest().input('two'); await flush(); expect(fixture.api.writeTerminal).toHaveBeenCalledTimes(1);
     pending.resolve(failure('INTERNAL', 'Input not confirmed')); await flush();
     expect(fixture.api.writeTerminal.mock.calls.map(call => call[0].data)).toEqual(['one', 'two']);
-    expect(fixture.registry.getState(tab.id).error?.message).toBe('Input not confirmed');
+    expect(fixture.registry.getState(tab.id).operationError?.message).toBe('Input not confirmed');
+  });
+  it('recovers ACK failures without publishing transient errors', async () => {
+    const fixture = setup(); await flush();
+    fixture.api.acknowledgeTerminal.mockResolvedValueOnce(failure('INTERNAL', 'Credit view expired'));
+    const errors: unknown[] = [];
+    fixture.registry.subscribe(tab.id, () => errors.push(fixture.registry.getState(tab.id).error));
+    fixture.emitTerminal(chunk(1)); await flush();
+    expect(errors.every(error => error === null)).toBe(true);
+    expect(fixture.api.attachTerminal).toHaveBeenCalledTimes(2);
+    expect(fixture.registry.getState(tab.id).phase).toBe('open');
+  });
+  it('ignores resize failures and retries the unconfirmed size on the next fit', async () => {
+    const fixture = setup(); await flush();
+    fixture.api.resizeTerminal.mockResolvedValueOnce(failure('TARGET_LOST', 'Runtime exited'));
+    fixture.latest().fit.mockReturnValue({ cols: 100, rows: 30 });
+    fixture.registry.fit(tab.id); await flush();
+    expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'open', error: null, operationError: null });
+    fixture.registry.fit(tab.id); await flush();
+    expect(fixture.api.resizeTerminal.mock.calls.filter(([size]) => size.cols === 100)).toHaveLength(2);
+  });
+  it('does not poison a retained screen with cleanup errors and can attach past a retired runtime', async () => {
+    const fixture = setup(); await flush();
+    fixture.api.detachTerminal.mockResolvedValue(failure('TARGET_LOST', 'Old runtime gone'));
+    fixture.unmount(); await flush();
+    expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'open', error: null });
+    fixture.registry.mount(tab.id, fixture.host, true); await flush();
+    expect(fixture.api.attachTerminal).toHaveBeenCalledTimes(2);
+    expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'open', error: null });
+  });
+  it('keeps an unsafe detach failure actionable when it blocks attach and allows retry', async () => {
+    const fixture = setup(); await flush();
+    fixture.api.detachTerminal.mockResolvedValueOnce(failure('INTERNAL', 'Cannot detach view'));
+    fixture.registry.refresh(tab.id); await flush();
+    expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'unavailable', error: { message: 'Cannot detach view' } });
+    expect(fixture.api.attachTerminal).toHaveBeenCalledTimes(1);
+    fixture.registry.refresh(tab.id); await flush();
+    expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'open', error: null });
+  });
+  it('does not publish failures from parser replies or writes whose view has unmounted', async () => {
+    const fixture = setup(true); await flush();
+    fixture.api.writeTerminal.mockResolvedValueOnce(failure('INTERNAL', 'Device reply rejected'));
+    fixture.emitTerminal(chunk(1, '\u001b[6n')); fixture.latest().input('\u001b[1;1R'); await flush();
+    expect(fixture.registry.getState(tab.id).operationError).toBeNull();
+    fixture.latest().callbacks.shift()!(); await flush();
+    const pending = deferred<Result<{ written: true }>>();
+    fixture.api.writeTerminal.mockReturnValueOnce(pending.promise);
+    fixture.latest().input('user command'); await flush(); fixture.unmount();
+    pending.resolve(failure('INTERNAL', 'Late failure')); await flush();
+    expect(fixture.registry.getState(tab.id).operationError).toBeNull();
+    expect(fixture.api.writeTerminal).toHaveBeenCalledTimes(2);
+  });
+  it('keeps a user write failure actionable across same-generation display recovery', async () => {
+    const fixture = setup(); await flush();
+    const pending = deferred<Result<{ written: true }>>();
+    fixture.api.writeTerminal.mockReturnValueOnce(pending.promise);
+    fixture.latest().input('user command'); await flush();
+    fixture.registry.refresh(tab.id); await flush();
+    pending.resolve(failure('INTERNAL', 'Command input not confirmed')); await flush();
+    expect(fixture.registry.getState(tab.id).operationError?.message).toBe('Command input not confirmed');
+    expect(fixture.api.writeTerminal).toHaveBeenCalledTimes(1);
+  });
+  it('reports explicit user input failures even while output parsing is pending', async () => {
+    const fixture = setup(true); await flush();
+    fixture.emitTerminal(chunk(1, 'slow output'));
+    fixture.api.writeTerminal.mockResolvedValueOnce(failure('INTERNAL', 'User input rejected'));
+    fixture.latest().input('typed command', true); await flush();
+    expect(fixture.registry.getState(tab.id).operationError?.message).toBe('User input rejected');
+    expect(fixture.api.writeTerminal).toHaveBeenCalledTimes(1);
   });
   it('validates resize dimensions and coalesces unchanged sizes', async () => {
     const fixture = setup(); await flush(); fixture.api.resizeTerminal.mockClear();
@@ -213,9 +281,9 @@ describe('terminal stream ownership', () => {
     fixture.registry.dispose(); pending.resolve(success(attachment([chunk(1, 'late')]))); fixture.emitTerminal(chunk(1, 'late')); await flush();
     expect(screen.output).toBe(''); expect(fixture.terminalUnsubscribe).toHaveBeenCalledTimes(1);
   });
-  it('reports genuine stream errors and exit state without claiming command success', async () => {
+  it('recovers stream errors quietly and preserves exit state without claiming command success', async () => {
     const fixture = setup(); await flush(); fixture.emitTerminal({ type: 'error', tabId: tab.id, generation: tab.generation, error: { code: 'MONITOR_UNAVAILABLE', message: 'Unavailable evidence', retryable: true } });
-    expect(fixture.registry.getState(tab.id).error?.code).toBe('MONITOR_UNAVAILABLE');
+    expect(fixture.registry.getState(tab.id).error).toBeNull();
     fixture.emitTerminal({ type: 'exit', tabId: tab.id, generation: tab.generation, lastSequence: 0, exitCode: 3, signal: null }); await flush();
     expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'closed', exitCode: 3 });
   });
@@ -365,6 +433,20 @@ describe('terminal clipboard shortcuts', () => {
     expect(terminal.paste).toHaveBeenCalledWith('echo hi'); expect(sent).toEqual(['echo hi']);
     expect(terminal.keyHandler(key('KeyC', { shiftKey: false }))).toBe(true);
     surface.dispose();
+  });
+  it('distinguishes parser replies from typing and clipboard paste during a pending write', async () => {
+    const sent: [string, boolean | undefined][] = [];
+    const surface = createTerminalSurface((data, user) => sent.push([data, user]), undefined, { copy() {}, read: async () => 'paste' });
+    const terminal = terminalMocks.terminals.at(-1);
+    let parsed = () => {};
+    terminal.write = (_data: string, done: () => void) => { parsed = done; };
+    surface.write('output', () => {});
+    terminal.input('device reply');
+    surface.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
+    terminal.input('a'); await flush();
+    terminal.keyHandler(key('KeyV')); await flush();
+    expect(sent).toEqual([['device reply', false], ['a', true], ['paste', true]]);
+    parsed(); surface.dispose();
   });
   it('routes registry clipboard through the main-process bridge', async () => {
     const fixture = mockApi(); vi.mocked(fixture.api.readClipboardText!).mockResolvedValueOnce(success({ text: 'ls' }));

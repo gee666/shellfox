@@ -24,7 +24,7 @@ describe('terminal tab metadata', () => {
     expect(renamed.tabs[0].title).toBe('Build 雪');
     const reordered = value(await f.service.reorderTabs({ sessionId: f.session.id, tabIds: [b.id, a.id] }));
     expect(reordered.tabs.map(tab => [tab.id, tab.ordinal])).toEqual([[b.id, 0], [a.id, 1]]);
-    expect(f.repository.tab(a.id)).toEqual({ ...original[0], title: 'Build 雪', ordinal: 1 });
+    expect(f.repository.tab(a.id)).toEqual({ ...original[0], title: 'Build 雪', ordinal: 1, terminal: { ...original[0].terminal, userTitle: 'Build 雪' } });
     expect(f.repository.tab(b.id)).toEqual({ ...original[1], ordinal: 0 });
     expect(events).toHaveBeenCalledTimes(2);
     expect(value(f.service.attachTerminal({ tabId: a.id })).chunks[0].data).toBe('retained output');

@@ -126,10 +126,10 @@ export class LinuxFileMenus implements ExplorerPort {
     return found;
   }
   private async hasNautilusPython():Promise<boolean>{if(this.options.nautilusPython!==undefined)return this.options.nautilusPython;return new Promise(resolve=>execFile('/usr/bin/dpkg-query',['-W','-f=${Status}','python3-nautilus'],{timeout:3000,encoding:'utf8',maxBuffer:4096},(error,stdout)=>resolve(!error&&stdout.includes('install ok installed'))));}
-  private async files(found:FileManager[]):Promise<MenuFile[]> {
+  private async files(found:FileManager[],nautilusPython:boolean):Promise<MenuFile[]> {
     const data=this.env.XDG_DATA_HOME??path.join(this.home,'.local/share'), config=this.env.XDG_CONFIG_HOME??path.join(this.home,'.config'), launcher=this.cli.launcher, result:MenuFile[]=[];
     for(const manager of found){
-      if(manager==='nautilus'){result.push({file:path.join(data,'nautilus-python/extensions/shellfox.py'),content:nautilusExtension(launcher)});if(!await this.hasNautilusPython())result.push({file:path.join(data,'nautilus/scripts/Open in Shellfox'),content:fileManagerScript(launcher,'NAUTILUS'),executable:true});}
+      if(manager==='nautilus'){result.push({file:path.join(data,'nautilus-python/extensions/shellfox.py'),content:nautilusExtension(launcher)});if(!nautilusPython)result.push({file:path.join(data,'nautilus/scripts/Open in Shellfox'),content:fileManagerScript(launcher,'NAUTILUS'),executable:true});}
       if(manager==='nemo')for(const background of [false,true])result.push({file:path.join(data,'nemo/actions/shellfox'+(background?'-background':'')+'.nemo_action'),content:nemoAction(launcher,background)});
       if(manager==='dolphin')for(const directory of ['kio/servicemenus','kservices5/ServiceMenus'])result.push({file:path.join(data,directory,'shellfox.desktop'),content:dolphinMenu(launcher),executable:true});
       if(manager==='caja')result.push({file:path.join(config,'caja/scripts/Open in Shellfox'),content:fileManagerScript(launcher,'CAJA'),executable:true});
@@ -137,12 +137,22 @@ export class LinuxFileMenus implements ExplorerPort {
     }
     return result;
   }
-  private async status(found:FileManager[],installed:boolean):Promise<ExplorerIntegrationDto>{const reasons:string[]=[];if(found.includes('nautilus')){if(!await this.hasNautilusPython())reasons.push('For a top-level menu item install python3-nautilus: sudo apt install python3-nautilus');reasons.push('Restart Files to see the menu item (or log out and in)');}if(!found.length)reasons.push('No supported file manager found: Files, Nemo, Dolphin, Thunar or Caja.');return {supported:found.length>0,installed,folderItemInstalled:installed,backgroundInstalled:installed,reason:reasons.join('. ')||null};}
-  async get():Promise<Result<ExplorerIntegrationDto>> {try{const found=await this.detect(),files=await this.files(found);let installed=files.length>0;for(const item of files){const current=await readFile(item.file,'utf8').catch(()=>null);if(item.xml){if(!current?.includes(ACTION_ID)||!current.includes(LINUX_OWNER))installed=false;else { const doc=new DOMParser().parseFromString(current,'text/xml'); const action=Array.from(doc.getElementsByTagName('action')).find(action=>action.getElementsByTagName('unique-id')[0]?.textContent===ACTION_ID); if(!action || !ownsThunarAction(action) || action.getElementsByTagName('command')[0]?.textContent!==shQuote(this.cli.launcher)+' start %f')installed=false; }}else if(current!==item.content)installed=false;if(item.executable)try{await access(item.file,constants.X_OK);}catch{installed=false;}}const cli=await this.cli.get();installed=installed&&cli.ok&&cli.value.installed;return success(await this.status(found,installed));}catch{return failure('STORAGE_FAILED','File-manager integration could not be inspected.',true);}}
+  private status(found:FileManager[],installed:boolean,nautilusPython:boolean):ExplorerIntegrationDto{const reasons:string[]=[];if(found.includes('nautilus')){if(!nautilusPython)reasons.push('For a top-level menu item install python3-nautilus: sudo apt install python3-nautilus');reasons.push('Restart Files to see the menu item (or log out and in)');}if(!found.length)reasons.push('No supported file manager found: Files, Nemo, Dolphin, Thunar or Caja.');return {supported:found.length>0,installed,folderItemInstalled:installed,backgroundInstalled:installed,reason:reasons.join('. ')||null};}
+  async get():Promise<Result<ExplorerIntegrationDto>> {
+    try {
+      const found=await this.detect();
+      return await this.inspect(found,found.includes('nautilus')?await this.hasNautilusPython():false);
+    } catch { return failure('STORAGE_FAILED','File-manager integration could not be inspected.',true); }
+  }
+  private async inspect(found:FileManager[],nautilusPython:boolean):Promise<Result<ExplorerIntegrationDto>> {const files=await this.files(found,nautilusPython);let installed=files.length>0;for(const item of files){const current=await readFile(item.file,'utf8').catch(()=>null);if(item.xml){if(!current?.includes(ACTION_ID)||!current.includes(LINUX_OWNER))installed=false;else { const doc=new DOMParser().parseFromString(current,'text/xml'); const action=Array.from(doc.getElementsByTagName('action')).find(action=>action.getElementsByTagName('unique-id')[0]?.textContent===ACTION_ID); if(!action || !ownsThunarAction(action) || action.getElementsByTagName('command')[0]?.textContent!==shQuote(this.cli.launcher)+' start %f')installed=false; }}else if(current!==item.content)installed=false;if(item.executable)try{await access(item.file,constants.X_OK);}catch{installed=false;}}const cli=await this.cli.get();installed=installed&&cli.ok&&cli.value.installed;return success(this.status(found,installed,nautilusPython));}
   async set(installed:boolean):Promise<Result<ExplorerIntegrationDto>> {try{
     const found=await this.detect();if(installed&&!found.length)return failure('UNSUPPORTED','No supported file manager is present.');
     // Disable also checks managers no longer installed; only owned files are removed.
-    const files=await this.files(installed?found:managers), changes:{item:MenuFile;content:string|null}[]=[];
+    // Share one package probe across file selection, verification and guidance.
+    // A later operation probes again so package changes are not hidden.
+    const targets=installed?found:managers;
+    const nautilusPython=targets.includes('nautilus')?await this.hasNautilusPython():false;
+    const files=await this.files(targets,nautilusPython), changes:{item:MenuFile;content:string|null}[]=[];
     for(const item of files){const metadata=await lstat(item.file).catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(metadata?.isSymbolicLink()){if(installed)return failure('AUTH_FAILED','A file-manager action is a foreign symbolic link: '+item.file);continue;}const old=await readFile(item.file,'utf8').catch(error=>{if(error.code==='ENOENT')return null;throw error;});
       if(item.xml){if(!old&&!installed)continue;const content=thunarActions(old,this.cli.launcher,installed);if(content!==old)changes.push({item,content});}
       else{if(old!==null&&!ownsLinuxFile(old)){if(installed)return failure('AUTH_FAILED','A file-manager action at '+item.file+' is not owned by Shellfox.');continue;}changes.push({item,content:installed?item.content:null});}
@@ -151,6 +161,6 @@ export class LinuxFileMenus implements ExplorerPort {
     for(const {item,content} of changes){if(content===null)await unlink(item.file).catch(error=>{if(error.code!=='ENOENT')throw error;});else{await mkdir(path.dirname(item.file),{recursive:true});await writeFile(item.file,content);if(item.executable)await chmod(item.file,0o755);}}
     // Always remove a previously installed owned Nautilus fallback on disable.
     if(!installed){const fallback=path.join(this.env.XDG_DATA_HOME??path.join(this.home,'.local/share'),'nautilus/scripts/Open in Shellfox');const old=await readFile(fallback,'utf8').catch(()=>null);if(old && ownsLinuxFile(old) && !(await lstat(fallback)).isSymbolicLink())await unlink(fallback);}
-    return installed?this.get():success(await this.status(found,false));
+    return installed?await this.inspect(found,nautilusPython):success(this.status(found,false,nautilusPython));
   }catch(error){return failure('STORAGE_FAILED','File-manager integration could not be completed: '+(error as Error).message,true);}}
 }

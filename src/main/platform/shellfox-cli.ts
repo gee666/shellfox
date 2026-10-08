@@ -57,7 +57,11 @@ try {
       $remaining=@($parts | Where-Object { (Normalize-PathEntry $_) -ne $bin })
       if ($p.installed) { $remaining+= $p.bin }
       $key.SetValue('Path',($remaining -join ';'),$kind)
-      $present=[bool]$p.installed
+      # Verify persisted state in this process, without a second PowerShell launch.
+      $raw=[string]$key.GetValue('Path','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+      $parts=@()
+      if ($raw.Length -gt 0) { $parts=@($raw.Split(';')) }
+      $present=@($parts | Where-Object { (Normalize-PathEntry $_) -eq $bin }).Count -gt 0
     }
   } finally { $key.Dispose() }
   if ($null -ne $p.installed) {
@@ -76,11 +80,18 @@ try {
   private files(): { cmd: string; posix: string; dispatcher: string; update: string; marker: string } { return { ...shellfoxShims(this.options), marker: JSON.stringify({ owner: OWNER, executable: this.options.executable, appPath: this.options.appPath ?? null }) }; }
   async get(): Promise<Result<CliIntegrationDto>> {
     if (this.platform() !== 'win32') return success(this.state(false, 'Shellfox CLI integration requires Windows.'));
+    // Missing/stale shims cannot be installed, regardless of PATH. Avoid starting
+    // PowerShell just to prove an already-known negative on a normal app launch.
+    const files = await this.inspectFiles(true);
+    if (!files.ok || !files.value.installed) return files;
     const registry = await this.pathState(); if (!registry.ok) return registry;
+    return this.inspectFiles(registry.value.installed);
+  }
+  private async inspectFiles(onPath: boolean): Promise<Result<CliIntegrationDto>> {
     const expected = this.files();
     let present = false;
     try { await access(this.options.executable); if (this.options.appPath) await access(this.options.appPath); present = (await readFile(path.join(this.binDir,'shellfox.cmd'),'utf8')) === expected.cmd && (await readFile(path.join(this.binDir,'shellfox'),'utf8')) === expected.posix && (await readFile(path.join(this.binDir,'shellfox-owner.json'),'utf8')) === expected.marker && (await readFile(path.join(this.binDir,'shellfox-dispatch.ps1'),'utf8')) === expected.dispatcher && (await readFile(path.join(this.binDir,'shellfox-update.ps1'),'utf8')) === expected.update; } catch { /* Missing files mean not installed. */ }
-    return success(this.state(present && registry.value.installed));
+    return success(this.state(present && onPath));
   }
   async set(installed: boolean): Promise<Result<CliIntegrationDto>> {
     if (this.platform() !== 'win32') return failure('UNSUPPORTED', 'Shellfox CLI integration requires Windows.');
@@ -104,7 +115,9 @@ try {
       const wslEnabled = this.options.wsl !== false && (this.options.wsl !== undefined ||
         !this.options.binDir && !this.options.registryKey && !this.options.run);
       const reason = wslEnabled ? await setWslCli(installed, this.binDir, this.options.wsl || {}) : null;
-      const result = await this.get();
+      // The mutation returns PATH state. Recheck files, not the registry in a
+      // second PowerShell process; no state is cached across operations.
+      const result = await this.inspectFiles(registry.value.installed);
       return result.ok && reason ? success({ ...result.value, reason }) : result;
     } catch { return failure('STORAGE_FAILED', 'Shellfox shims could not be updated.', true); }
   }

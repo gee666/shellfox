@@ -14,7 +14,11 @@ export interface TabRecord {
   id: string; sessionId: string; title: string; cwd: string; ordinal: number; createdAt: string;
   lifecycle: TabLifecycle; operationId: string; registration: ShellRegistration | null; error: AppError | null;
   member?: MemberRegistration | null;
-  terminal?: { kind: 'embedded'; profileId: string; exitCode: number | null } | null;
+  terminal?: {
+    kind: 'embedded'; profileId: string; exitCode: number | null;
+    /** Null permits process titles. Missing preserves pre-title-support names, which may be user renames. */
+    userTitle?: string | null;
+  } | null;
 }
 export interface OperationRecord {
   id: string; sessionId: string; tabId: string | null; requestId: string | null;

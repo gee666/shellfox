@@ -25,6 +25,17 @@
 .terminal-surface .xterm .xterm-viewport { overflow: hidden; background: transparent; }
 .terminal-surface .xterm .xterm-scrollable-element { overflow: hidden; }
 .terminal-surface .xterm .scrollbar.horizontal { display: none; }
-.terminal-connecting, .terminal-buffer-note { position: absolute; z-index: 1; top: 8px; right: 12px; font-size: 11px; color: var(--muted); background: var(--bg); pointer-events: none; }
+.terminal-buffer-note { position: absolute; z-index: 1; top: 8px; right: 12px; font-size: 11px; color: var(--muted); background: var(--bg); pointer-events: none; }
 .terminal-buffer-note { top: auto; bottom: 8px; }
 .terminal-reconnect { position: absolute; z-index: 1; top: 8px; right: 12px; }
+.terminal-loading { flex: 1; align-self: stretch; padding: 12px; color: var(--accent); font: 14px/20px 'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace; }
+.terminal-loading-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: var(--bg); }
+.terminal-loading-dots > span { animation: terminal-dot 1.2s steps(2, end) infinite; }
+.terminal-loading-dots > span:nth-child(2) { animation-delay: .2s; }
+.terminal-loading-dots > span:nth-child(3) { animation-delay: .4s; }
+@keyframes terminal-dot { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+.terminal-brand { color: var(--accent); text-align: center; user-select: none; }
+.terminal-brand pre { margin: 0 0 26px; font: 8px/9px Consolas, 'DejaVu Sans Mono', monospace; white-space: pre; text-align: left; opacity: var(--brand-opacity); }
+.terminal-brand > span { font: 13px/20px Consolas, 'DejaVu Sans Mono', monospace; letter-spacing: 2px; opacity: var(--brand-label-opacity); }
+.terminal-empty-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .terminal-loading-dots > span { animation: none; } }

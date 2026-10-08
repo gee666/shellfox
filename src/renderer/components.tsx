@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { AppError, Result, SessionDto, TabDto } from '../shared/contracts';
@@ -32,15 +32,23 @@ export function Notifications({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<{ id: number; message: string; info: boolean }[]>([]);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const serial = useRef(0);
+  const recent = useRef(new Map<string, number>());
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
-  function notify(notice: ShellfoxNotice) {
-    const id = ++serial.current;
+  const notify = useCallback((notice: ShellfoxNotice) => {
     const info = 'tone' in notice && notice.tone === 'info';
+    const duration = ('durationMs' in notice ? notice.durationMs : undefined) ?? (info ? 2000 : 6000);
+    const key = JSON.stringify([info ? 'info' : 'code' in notice ? notice.code : 'error', notice.message]);
+    const now = Date.now();
+    for (const [key, expires] of recent.current) if (expires <= now) recent.current.delete(key);
+    if (recent.current.has(key)) return;
+    // Do not extend the timer on repeats, or immediately recreate a dismissed toast.
+    // A later user attempt can report the same failure once this short window expires.
+    recent.current.set(key, now + duration);
+    const id = ++serial.current;
     setMessages(items => [...items.slice(-3), { message: notice.message, info, id }]);
-    const duration = 'durationMs' in notice ? notice.durationMs : undefined;
-    const timer = setTimeout(() => { setMessages(items => items.filter(item => item.id !== id)); timers.current.delete(timer); }, duration ?? (info ? 2000 : 6000));
+    const timer = setTimeout(() => { setMessages(items => items.filter(item => item.id !== id)); timers.current.delete(timer); }, duration);
     timers.current.add(timer);
-  }
+  }, []);
   return <NotificationContext.Provider value={notify}>{children}<div className="toasts" aria-live="polite">{messages.map(message => <div className={`toast${message.info ? ' shellfox-toast-info' : ''}`} role={message.info ? 'status' : 'alert'} key={message.id}><span>{message.message}</span><button className="icon-button" aria-label="Dismiss message" onClick={() => setMessages(items => items.filter(item => item.id !== message.id))}><Icon name="close" /></button></div>)}</div></NotificationContext.Provider>;
 }
 export function useAction() {

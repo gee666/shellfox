@@ -14,6 +14,7 @@ export interface ManagerState {
   archiveVersion: number;
   selectionEpoch: number;
   busyTabIds: Record<string, boolean>;
+  openingSessionIds: Record<string, boolean>;
 }
 
 // One subscription per mounted application. Fetches are serialized so an older
@@ -21,7 +22,7 @@ export interface ManagerState {
 export function createManagerClient(api: ManagerApi) {
   const store = createStore<ManagerState>(() => ({
     snapshot: null, loading: true, error: null,
-    selectedId: null, historical: null, activeTabIds: {}, historyStatusVersion: 0, archiveVersion: 0, selectionEpoch: 0, busyTabIds: {},
+    selectedId: null, historical: null, activeTabIds: {}, historyStatusVersion: 0, archiveVersion: 0, selectionEpoch: 0, busyTabIds: {}, openingSessionIds: {},
   }));
   let active = false;
   let generation = 0;

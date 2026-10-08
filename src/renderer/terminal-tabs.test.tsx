@@ -38,6 +38,12 @@ it('double-click renames on Enter, trims, retains selection and does not close o
   expect(tab('Build 雪')).toHaveFocus();
   expect(f.api.closeTab).not.toHaveBeenCalled(); expect(f.api.addTab).not.toHaveBeenCalled();
 });
+it('saves an unchanged displayed title so it becomes a user override', async () => {
+  const f = await ready();
+  await f.user.dblClick(tab('Shell 1'));
+  await f.user.keyboard('{Enter}');
+  await waitFor(() => expect(f.api.renameTab).toHaveBeenCalledExactlyOnceWith({ sessionId: f.item.id, tabId: f.item.tabs[0].id, title: 'Shell 1' }));
+});
 it('supports F2, Escape cancellation, context-menu rename and blur save', async () => {
   const f = await ready();
   tab('Shell 1').focus(); await f.user.keyboard('{F2}');

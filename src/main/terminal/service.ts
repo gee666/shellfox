@@ -16,6 +16,8 @@ import type { ExplorerPort } from '../platform/explorer';
 import type { CliPort } from '../platform/shellfox-cli';
 
 export const LIFETIME_NOTICE = 'Embedded shells run only while Shellfox is running. Quitting closes owned terminals after confirmation; restarting does not restore commands.';
+const INTEGRATION_FRESHNESS_MS = 5000;
+interface IntegrationCheck { checkedAt?: number; revision: number; mutations: number }
 const shellId = (p: TerminalProfileDto): ShellId => p.environment === 'wsl' ? 'wsl' : p.id === 'pwsh' ? 'pwsh' : p.id === 'windows-powershell' ? 'windows-powershell' : 'login-shell';
 export interface TrackerPort { setWatch: ProcessTracker['setWatch']; dispose(): void; poll?: ProcessTracker['poll']; resolveIdentity?: ProcessTracker['resolveIdentity']; resolveDescendants?: ProcessTracker['resolveDescendants'] }
 export class EmbeddedSessionService {
@@ -32,6 +34,7 @@ export class EmbeddedSessionService {
   private exitRetryTimer?: ReturnType<typeof setInterval>;
   private readonly reportedExitFailures = new Set<string>();
   private unsubscribe?: () => void;
+  private unsubscribeTitle?: () => void;
   private disposed = false;
   private updateClosing = false;
   constructor(readonly repository: RepositoryPort, readonly backend = new PtyBackend(), trackerFactory: (emit: (items: TabObservation[]) => void) => TrackerPort = emit => new ProcessTracker(emit), private readonly explorerIntegration?: ExplorerPort, private readonly cliIntegration?: CliPort) {
@@ -65,22 +68,42 @@ export class EmbeddedSessionService {
   }
   async initialize(_input?: NativeInit): Promise<void> {
     this.unsubscribe = this.backend.subscribe(event => this.terminalEvent(event));
+    this.unsubscribeTitle = this.backend.subscribeTitle(event => {
+      if (this.disposed) return;
+      const owned = this.backend.get(event.tabId), tab = this.repository.tab(event.tabId);
+      if (owned?.generation === event.generation && tab?.operationId === event.generation && tab.terminal?.userTitle === null) this.changed();
+    });
     this.backend.configurePythonPath(this.repository.settings().pythonPath ?? null);
-    const result = await this.backend.initialize();
-    if (this.explorerIntegration) {
+    const initializeExplorer = async () => {
+      if (!this.explorerIntegration) return;
       // Reapply saved opt-in with the new identity; get() also removes owned legacy verbs.
       const integration = this.repository.explorerPreference()
         ? await this.explorerIntegration.set(true) : await this.explorerIntegration.get();
       this.explorer = integration.ok ? integration.value : { ...unavailableExplorer, supported: ['win32', 'linux'].includes(process.platform), reason: integration.error.message };
-    }
-    if (this.cliIntegration) {
+    };
+    const initializeCli = async () => {
+      if (!this.cliIntegration) return;
       // Round 3 already used Shellfox shims. Refresh their executable after the rename.
       const integration = this.repository.cliPreference?.() === true
         ? await this.cliIntegration.set(true) : await this.cliIntegration.get();
       this.cli = integration.ok ? integration.value : { ...unavailableCli, supported: ['win32', 'linux'].includes(process.platform), reason: integration.error.message };
-    }
+    };
+    const initializeIntegrations = async () => {
+      // Linux menus inspect/install the same CLI launcher. Keep that dependency
+      // ordered; Windows Explorer verbs and CLI files/PATH are independent.
+      if (process.platform === 'linux') { await initializeExplorer(); await initializeCli(); }
+      else {
+        const integrations = [initializeExplorer(), initializeCli()];
+        await Promise.allSettled(integrations);
+        await Promise.all(integrations);
+      }
+    };
+    // Drain even unexpected rejections before returning, so no startup mutation
+    // outlives initialize. Result failures still feed the probe and migrations.
+    const readiness = [this.backend.initialize(), initializeIntegrations(), getProcessTrackingCapability()] as const;
+    await Promise.allSettled(readiness);
+    const [result, , tracking] = await Promise.all(readiness);
     const profiles = this.backend.getProfiles();
-    const tracking = await getProcessTrackingCapability();
     const available = result.ok && profiles.profiles.some(p => p.available);
     this.probe = { ...this.probe, available, platform: process.platform, arch: process.arch,
       ...(process.platform === 'linux' ? { python: this.backend.getPython() } : {}),
@@ -115,7 +138,10 @@ export class EmbeddedSessionService {
         this.repository.saveSettings({ ...settings, adapterId: 'embedded-pty', shellId: selected ? shellId(selected) : settings.shellId, shellExecutable: selected?.executable ?? null, terminalProfileId: selected?.id ?? null, processRules: rules });
       }
     });
-    this.refreshWatch(); this.changed('native');
+    this.refreshWatch();
+    const checkedAt = Date.now();
+    this.integrationChecks.explorer.checkedAt = this.integrationChecks.cli.checkedAt = checkedAt;
+    this.changed('native');
   }
   private refreshWatch(): void {
     const live = this.backend.live();
@@ -161,7 +187,10 @@ export class EmbeddedSessionService {
       const exit = this.pendingExits.get(tab.id);
       const runtimeClosed = owned?.generation === tab.operationId && owned.state === 'closed' || exit?.generation === tab.operationId;
       const lifecycle = runtimeClosed ? 'closed' : tab.lifecycle;
-      return { id: tab.id, sessionId: tab.sessionId, title: tab.title, cwd: tab.cwd, ordinal: tab.ordinal, createdAt: tab.createdAt,
+      // Only explicitly automatic tabs accept titles from the matching runtime generation.
+      const title = tab.terminal?.userTitle === null && owned?.generation === tab.operationId
+        ? owned.processTitle ?? tab.title : tab.terminal?.userTitle ?? tab.title;
+      return { id: tab.id, sessionId: tab.sessionId, title, cwd: tab.cwd, ordinal: tab.ordinal, createdAt: tab.createdAt,
         lifecycle, status: tabStatus(lifecycle, tab.error, embedded ? observation : undefined),
         agents: embedded && owned?.state === 'open' && observation?.root === 'alive' ? observation.agents : 0,
         monitoringReason: !embedded ? 'Legacy external terminal metadata only. Its process is not adopted, watched or terminated.' : lifecycle === 'closed' ? owned?.cleanupPending ? 'The root shell exited, but owned descendant cleanup is still pending. No replacement or complete shutdown is claimed.' : exit ? 'Runtime shell exit is confirmed. Saved closure metadata is being retried.' : 'The app-owned shell is closed. Commands are not restored.' : observation ? observation.reason ?? (observation.agents > 0 ? 'A matched agent process is running in this shell.' : 'The shell is alive; no matched agent process is running.') : 'Awaiting owned shell process evidence.',
@@ -241,7 +270,7 @@ export class EmbeddedSessionService {
     const tabs = this.repository.tabs(session.id);
     if (tabs.length >= 1000 || this.backend.live().length >= 64) return failure('VALIDATION', 'The embedded terminal limit is reached.');
     const ordinal = tabs.reduce((n, t) => Math.max(n, t.ordinal), -1) + 1, now = new Date().toISOString();
-    const tab: TabRecord = { id: randomUUID(), sessionId: session.id, title: title ?? `Shell ${ordinal + 1}`, cwd: cwd ?? session.cwd, ordinal, createdAt: now, lifecycle: 'launching', operationId: randomUUID(), registration: null, error: null, terminal: { kind: 'embedded', profileId: profile.id, exitCode: null } };
+    const tab: TabRecord = { id: randomUUID(), sessionId: session.id, title: title ?? `Shell ${ordinal + 1}`, cwd: cwd ?? session.cwd, ordinal, createdAt: now, lifecycle: 'launching', operationId: randomUUID(), registration: null, error: null, terminal: { kind: 'embedded', profileId: profile.id, exitCode: null, userTitle: title ?? null } };
     const operation: OperationRecord = { id: tab.operationId, sessionId: session.id, tabId: tab.id, requestId, kind, state: 'intent', createdAt: now, updatedAt: now, error: null };
     this.repository.transaction(() => { this.repository.saveSession(session); this.repository.saveTab(tab); this.repository.saveOperation(operation); }); this.changed();
     const launched = await this.backend.launch({ tabId: tab.id, sessionId: session.id, generation: tab.operationId, profileId: profile.id, cwd: tab.cwd, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
@@ -310,6 +339,7 @@ export class EmbeddedSessionService {
       if (!tab.terminal) return failure('UNSUPPORTED', 'External tabs are read-only.');
       this.repository.transaction(() => {
         tab.title = parsed.data.title.trim();
+        tab.terminal!.userTitle = tab.title;
         this.repository.saveTab(tab);
         session.updatedAt = new Date().toISOString(); this.repository.saveSession(session);
       });
@@ -408,16 +438,53 @@ export class EmbeddedSessionService {
     });
   }
   private integrationRefresh?: Promise<void>;
+  // Only integration status metadata is cached. Backend/profile/ownership checks
+  // and explicit integration writes do not use this freshness window.
+  private readonly integrationChecks: Record<'explorer' | 'cli', IntegrationCheck> = {
+    explorer: { revision: 0, mutations: 0 }, cli: { revision: 0, mutations: 0 },
+  };
+  private needsIntegrationCheck(kind: 'explorer' | 'cli'): boolean {
+    const check = this.integrationChecks[kind];
+    if (check.mutations) return false; // Keep the last stable metadata during a write.
+    const age = check.checkedAt === undefined ? Infinity : Date.now() - check.checkedAt;
+    return age < 0 || age >= INTEGRATION_FRESHNESS_MS;
+  }
+  private beginIntegrationMutation(kind: 'explorer' | 'cli'): () => void {
+    // Linux menu status depends on the CLI launcher, and menu installation can
+    // update that launcher. Invalidate both, without changing write behavior.
+    const affected = process.platform === 'linux' ? ['explorer', 'cli'] as const : [kind];
+    for (const name of affected) {
+      const check = this.integrationChecks[name];
+      check.revision++; check.mutations++; check.checkedAt = undefined;
+    }
+    return () => {
+      for (const name of affected) {
+        const check = this.integrationChecks[name];
+        check.revision++; check.mutations--;
+        if (name !== kind) check.checkedAt = undefined;
+      }
+    };
+  }
   async refreshIntegrations(): Promise<void> {
     if (this.integrationRefresh) return this.integrationRefresh;
+    if (!(this.explorerIntegration && this.needsIntegrationCheck('explorer')) &&
+        !(this.cliIntegration && this.needsIntegrationCheck('cli'))) return;
     this.integrationRefresh = (async () => {
-      if (this.explorerIntegration) {
+      if (this.explorerIntegration && this.needsIntegrationCheck('explorer')) {
+        const check = this.integrationChecks.explorer, revision = check.revision;
         const current = await this.explorerIntegration.get();
-        this.explorer = current.ok ? current.value : { ...this.explorer, installed: false, reason: current.error.message };
+        if (check.revision === revision && !check.mutations) {
+          this.explorer = current.ok ? current.value : { ...this.explorer, installed: false, reason: current.error.message };
+          check.checkedAt = Date.now();
+        }
       }
-      if (this.cliIntegration) {
+      if (this.cliIntegration && this.needsIntegrationCheck('cli')) {
+        const check = this.integrationChecks.cli, revision = check.revision;
         const current = await this.cliIntegration.get();
-        this.cli = current.ok ? current.value : { ...this.cli, installed: false, reason: current.error.message };
+        if (check.revision === revision && !check.mutations) {
+          this.cli = current.ok ? current.value : { ...this.cli, installed: false, reason: current.error.message };
+          check.checkedAt = Date.now();
+        }
       }
     })().finally(() => { this.integrationRefresh = undefined; });
     return this.integrationRefresh;
@@ -426,22 +493,30 @@ export class EmbeddedSessionService {
     if (!requestSchemas.setCliIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid Shellfox CLI request.'));
     return this.serialize('cli', async () => {
       if (!this.cliIntegration) return failure('UNSUPPORTED', 'Shellfox CLI integration requires Windows.');
-      const result = await this.cliIntegration.set(input.installed);
-      if (!result.ok) return result;
-      this.cli = result.value; this.repository.saveCliPreference?.(input.installed);
-      this.changed('settings'); return result;
+      const finish = this.beginIntegrationMutation('cli');
+      try {
+        const result = await this.cliIntegration.set(input.installed);
+        if (!result.ok) return result;
+        this.cli = result.value; this.repository.saveCliPreference?.(input.installed);
+        this.integrationChecks.cli.checkedAt = Date.now();
+        this.changed('settings'); return result;
+      } finally { finish(); }
     });
   }
   setExplorerIntegration(input: { installed: boolean }): Promise<Result<ExplorerIntegrationDto>> {
     if (!requestSchemas.setExplorerIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid integration request.'));
     return this.serialize('explorer', async () => {
       if (!this.explorerIntegration) return failure('UNSUPPORTED', 'Explorer integration requires Windows.');
-      const result = await this.explorerIntegration.set(input.installed);
-      if (!result.ok) return result;
-      this.explorer = result.value;
-      this.repository.saveExplorerPreference(input.installed);
-      this.changed('settings');
-      return result;
+      const finish = this.beginIntegrationMutation('explorer');
+      try {
+        const result = await this.explorerIntegration.set(input.installed);
+        if (!result.ok) return result;
+        this.explorer = result.value;
+        this.repository.saveExplorerPreference(input.installed);
+        this.integrationChecks.explorer.checkedAt = Date.now();
+        this.changed('settings');
+        return result;
+      } finally { finish(); }
     });
   }
   ownedTerminalCount(): number { return this.backend.live().length + this.repository.tabs().filter(t => t.terminal && t.lifecycle === 'launching' && !this.backend.get(t.id)).length; }
@@ -471,6 +546,6 @@ export class EmbeddedSessionService {
     } catch (error) { this.disposed = false; this.refreshWatch(); throw error; }
     this.tracker.dispose();
     if (this.exitRetryTimer) clearInterval(this.exitRetryTimer);
-    this.unsubscribe?.(); this.listeners.clear(); this.streams.clear();
+    this.unsubscribe?.(); this.unsubscribeTitle?.(); this.listeners.clear(); this.streams.clear();
   }
 }

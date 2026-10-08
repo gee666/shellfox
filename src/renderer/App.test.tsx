@@ -46,7 +46,7 @@ describe('compact workspace', () => {
     await user.click(screen.getByRole('button', { name: 'Close terminal Third' }));
     await waitFor(() => expect(screen.getByRole('tab', { name: /Shell 1/ })).toHaveAttribute('aria-selected', 'true'));
     await user.click(screen.getByRole('button', { name: 'Close terminal Shell 1' }));
-    expect(await screen.findByText('No terminals — press +')).toBeVisible();
+    expect(await screen.findByText('>. Shellfox')).toBeVisible();
     expect(screen.getByRole('button', { name: 'New terminal' })).toBeEnabled();
     expect(fixture.api.activateSession).not.toHaveBeenCalled();
   });

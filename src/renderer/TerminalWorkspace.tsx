@@ -6,6 +6,7 @@ import type { TerminalRegistry } from './terminal-client';
 import { ContextMenu, Icon, useAction } from './components';
 import { TerminalTabs } from './TerminalTabs';
 import { TerminalViewport } from './TerminalViewport';
+import { TerminalLoading, TerminalPlaceholder } from './TerminalPlaceholder';
 import { getTerminalApi } from './api';
 
 export function TerminalWorkspace({ session, client, registry, profiles, defaultProfileId, platform, available }: {
@@ -13,6 +14,7 @@ export function TerminalWorkspace({ session, client, registry, profiles, default
 }) {
   const chosen = useStore(client.store, state => state.activeTabIds[session.id]);
   const busy = useStore(client.store, state => state.busyTabIds);
+  const opening = useStore(client.store, state => state.openingSessionIds[session.id]);
   const [closing, setClosing] = useState<TabDto | null>(null);
   const [closedIds, setClosedIds] = useState<string[]>([]);
   const [profileMenu, setProfileMenu] = useState<{ x: number; y: number } | null>(null);
@@ -61,10 +63,10 @@ export function TerminalWorkspace({ session, client, registry, profiles, default
   return <div className="terminal-workspace">
     <div className="terminal-tab-strip"><TerminalTabs key={session.id} session={session} tabs={tabs} selectedId={selected?.id} client={client} busy={busy} disabled={action.pending} editable={!archived && !legacy}
       canClose={tab => !archived && !!tab.generation && tab.terminalKind === 'embedded' && !!terminalApi} onSelect={select} onClose={requestClose} /><button className="icon-button new-terminal" aria-label="New terminal" title="New terminal. Right-click to choose a shell." disabled={!canAdd || action.pending} onClick={() => void add()} onContextMenu={event => { event.preventDefault(); if (!archived && available && session.canAddTab && profiles.length) setProfileMenu({ x: event.clientX, y: event.clientY }); }}><Icon name="plus" /></button></div>
-    {archived ? <div className="empty-terminal"><span>Archived session</span>{!legacy && <button className="text-button" disabled={action.pending} onClick={() => void restore()}>Restore</button>}</div>
-      : !selected ? <div className="empty-terminal">No terminals — press +</div>
+    {archived ? <TerminalPlaceholder><span>Archived session</span>{!legacy && <button className="text-button" disabled={action.pending} onClick={() => void restore()}>Restore</button>}</TerminalPlaceholder>
+      : !selected ? opening || action.pending ? <TerminalLoading /> : <TerminalPlaceholder />
         : <div className="terminal-panel" role="tabpanel" id={`terminal-panel-${selected.id}`} aria-labelledby={`terminal-tab-${selected.id}`}>
-          {!legacy && <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible />}
+          {selected.lifecycle === 'launching' ? <TerminalLoading /> : !legacy ? <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible /> : <TerminalPlaceholder />}
         </div>}
     {profileMenu && <ContextMenu {...profileMenu} onClose={() => setProfileMenu(null)}>{profiles.map(profile => <button role="menuitem" key={profile.id} disabled={!profile.available || action.pending} title={profile.unavailableReason ?? profile.label} onClick={() => void add(profile.id)}>{profile.label}</button>)}</ContextMenu>}
     {closing && <div className="inline-confirm close-confirm" role="dialog" aria-label={`Close terminal ${closing.title}?`} onKeyDown={event => { if (event.key === 'Escape') setClosing(null); }}><p>An agent is running in this tab. Close?</p><div><button autoFocus disabled={action.pending} onClick={() => void close(closing)}>Close</button><button onClick={() => setClosing(null)}>Cancel</button></div></div>}

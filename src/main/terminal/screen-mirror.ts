@@ -28,6 +28,7 @@ export class ScreenMirror {
   private parsed = 0;
   private disposed = false;
   private broken = false;
+  private processTitle: string | null = null;
   /**
    * xterm's public `write` parses on later timer ticks, so a burst leaves the mirror behind the
    * replay ring exactly when a snapshot is needed. The input handler's `parse` is what that queue
@@ -35,14 +36,25 @@ export class ScreenMirror {
    * xterm version: fall back to the queue (the snapshot is then skipped while it lags).
    */
   private readonly parseNow: ((data: string) => unknown) | null;
-  constructor(cols: number, rows: number) {
+  constructor(cols: number, rows: number, onTitle?: (title: string | null) => void) {
     this.term = new Terminal({ cols, rows, scrollback: MIRROR_SCROLLBACK, allowProposedApi: true, convertEol: false, logLevel: 'off' });
+    this.term.onTitleChange(raw => {
+      if (this.disposed || this.broken) return;
+      // Process-controlled text must fit the same bound as saved tab titles.
+      let title = raw.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, 200);
+      if (/[\uD800-\uDBFF]$/.test(title)) title = title.slice(0, -1);
+      const next = title.trim() || null;
+      if (next === this.processTitle) return;
+      this.processTitle = next;
+      try { onTitle?.(next); } catch { /* Title observers cannot break VT parsing. */ }
+    });
     const handler = (this.term as unknown as { _core?: { _inputHandler?: { parse?: (data: string) => unknown } } })._core?._inputHandler;
     this.parseNow = typeof handler?.parse === 'function' ? (data: string) => handler.parse!(data) : null;
     // The addon is typed for the DOM terminal but only uses the shared buffer/mode API.
     this.term.loadAddon(this.serializer as unknown as Parameters<Terminal['loadAddon']>[0]);
   }
   get sequence(): number { return this.parsed; }
+  get title(): string | null { return this.processTitle; }
   /** `sequence` advances once the chunk has been parsed into the mirror. */
   write(sequence: number, data: string): void {
     if (this.disposed || this.broken) return;

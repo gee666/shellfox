@@ -85,6 +85,43 @@ function registryRunner() {
     return { ok: true, value: { installed } };
   });
 }
+it('uses one PATH subprocess per write and skips PATH reads for stale shims', async () => {
+  const binDir = await isolatedBin(), run = registryRunner();
+  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run, wsl: false });
+  expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true } });
+  expect(run).toHaveBeenCalledTimes(1);
+  await writeFile(path.join(binDir, 'shellfox.cmd'), 'stale');
+  expect(await cli.get()).toMatchObject({ ok: true, value: { installed: false } });
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true } });
+  expect(run).toHaveBeenCalledTimes(2);
+  expect(await cli.get()).toMatchObject({ ok: true, value: { installed: true } });
+  expect(run).toHaveBeenCalledTimes(3);
+  expect(await cli.set(false)).toMatchObject({ ok: true, value: { installed: false } });
+  expect(run).toHaveBeenCalledTimes(4);
+});
+it('does not start PowerShell to check PATH when CLI files are missing', async () => {
+  const binDir = await isolatedBin(), run = registryRunner();
+  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run, wsl: false });
+  expect(await cli.get()).toMatchObject({ ok: true, value: { installed: false } });
+  expect(run).not.toHaveBeenCalled();
+});
+it('rechecks shim contents after WSL work without a second PATH subprocess', async () => {
+  const binDir = await isolatedBin(), run = registryRunner();
+  vi.spyOn(wslCli, 'setWslCli').mockImplementation(async () => {
+    await writeFile(path.join(binDir, 'shellfox-owner.json'), 'foreign');
+    return 'Restart WSL shells.';
+  });
+  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run, wsl: {} });
+  expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: false, reason: 'Restart WSL shells.' } });
+  expect(run).toHaveBeenCalledOnce();
+});
+it('uses the returned PATH state, not an assumed successful install', async () => {
+  const binDir = await isolatedBin(), run = vi.fn(async () => ({ ok: true, value: { installed: false } }));
+  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run, wsl: false });
+  expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: false } });
+  expect(run).toHaveBeenCalledOnce();
+});
 it('production defaults invoke WSL on enable and disable, but never on a read', async () => {
   const directory = await isolatedBin();
   isolateLocalAppData(directory);

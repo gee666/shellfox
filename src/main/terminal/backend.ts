@@ -31,12 +31,15 @@ export interface PtyProcess {
 }
 export type PtyFactory = (file: string, args: string[], options: { name: string; cols: number; rows: number; cwd?: string; env: Record<string, string>; useConpty: boolean; useConptyDll?: boolean }) => PtyProcess;
 export interface TerminalLaunch { tabId: string; sessionId: string; generation: string; profileId: string; cwd: string; env?: EnvVar[]; cliBin?: string }
+/** Main-process notification only; viewers receive the effective title in session snapshots. */
+export interface TerminalTitleEvent { tabId: string; generation: string; title: string | null }
 export interface OwnedTerminal {
   tabId: string; sessionId: string; generation: string; profileId: string; cwd: string;
   state: 'open' | 'closed'; exitCode: number | null; cols: number; rows: number; root: TrackingRoot;
   cleanupPending: boolean;
+  processTitle: string | null;
 }
-interface Entry extends OwnedTerminal {
+interface Entry extends Omit<OwnedTerminal, 'processTitle'> {
   activity: TerminalActivity;
   pty: PtyProcess; chunks: { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number; order: number }[];
   bytes: number; sequence: number; inputBytes: number; inputWindow: number;
@@ -79,6 +82,7 @@ export class PtyBackend {
   private profiles: TerminalProfilesDto = { profiles: [], defaultProfileId: null, lifetime: 'app-owned', shellSurvival: false };
   private readonly entries = new Map<string, Entry>();
   private readonly listeners = new Set<(event: TerminalEvent) => void>();
+  private readonly titleListeners = new Set<(event: TerminalTitleEvent) => void>();
   private disposed = false;
   private initialized = false;
   private order = 0;
@@ -116,7 +120,7 @@ export class PtyBackend {
   getProfiles(): TerminalProfilesDto { return structuredClone(this.profiles); }
   get(tabId: string): OwnedTerminal | undefined {
     const e = this.entries.get(tabId);
-    return e && { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, profileId: e.profileId, cwd: e.cwd, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, root: { ...e.root }, cleanupPending: e.cleanupPending };
+    return e && { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, profileId: e.profileId, cwd: e.cwd, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, root: { ...e.root }, cleanupPending: e.cleanupPending, processTitle: e.mirror.title };
   }
   live(): OwnedTerminal[] { return [...this.entries.keys()].map(id => this.get(id)!).filter(e => e.state === 'open' || e.cleanupPending); }
   async awaitCleanup(sessionId: string): Promise<Result<{ confirmed: true }>> {
@@ -125,6 +129,7 @@ export class PtyBackend {
     return success({ confirmed: true });
   }
   subscribe(listener: (event: TerminalEvent) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  subscribeTitle(listener: (event: TerminalTitleEvent) => void): () => void { this.titleListeners.add(listener); return () => { this.titleListeners.delete(listener); }; }
   private emit(event: TerminalEvent): void { for (const listener of this.listeners) { try { listener(event); } catch { /* Views cannot break PTY ownership. */ } } }
   async launch(input: TerminalLaunch): Promise<Result<OwnedTerminal>> {
     if (!z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, profileId: profileIdSchema, cwd: pathSchema, env: envVarsSchema.optional(), cliBin: pathSchema.optional() }).strict().safeParse(input).success) return failure('VALIDATION', 'Invalid embedded launch identity.');
@@ -176,7 +181,11 @@ export class PtyBackend {
     catch { await supervisor?.control.disposeConfirmed(); return failure('LAUNCH_FAILED', 'The selected interactive shell could not start.'); }
     const bornAfter = (BigInt(Date.now()) + 11644473600000n) * 10000n + 9999n;
     if (current) { current.activity.stop(); this.replayBytes -= current.bytes; current.handles.forEach(h => h.dispose()); current.mirror.dispose(); }
-    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), cwd, state: 'open', exitCode: null, cols: 80, rows: 24, pty, root: { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: false, cleanupPending: profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control, mirror: new ScreenMirror(80, 24) };
+    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), cwd, state: 'open', exitCode: null, cols: 80, rows: 24, pty, root: { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: false, cleanupPending: profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control, mirror: new ScreenMirror(80, 24, title => {
+      if (this.disposed || this.entries.get(e.tabId) !== e) return;
+      const event = { tabId: e.tabId, generation: e.generation, title };
+      for (const listener of this.titleListeners) { try { listener(event); } catch { /* Title observers cannot break PTY ownership. */ } }
+    }) };
     this.entries.set(input.tabId, e);
     try {
       e.handles.push(pty.onData(data => this.output(e, data)));
@@ -353,6 +362,6 @@ export class PtyBackend {
     const results = await Promise.all(this.live().map(e => this.close({ tabId: e.tabId, generation: e.generation })));
     if (results.some(r => !r.ok)) { this.disposed = false; throw new Error('Owned terminal termination was not confirmed.'); }
     for (const e of this.entries.values()) { e.activity.stop(); e.handles.forEach(h => h.dispose()); e.mirror.dispose(); }
-    this.entries.clear(); this.listeners.clear(); this.replayBytes = 0;
+    this.entries.clear(); this.listeners.clear(); this.titleListeners.clear(); this.replayBytes = 0;
   }
 }

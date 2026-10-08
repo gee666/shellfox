@@ -46,7 +46,7 @@ export function TerminalTabs({ session, tabs, selectedId, client, busy, disabled
       return;
     }
     const title = draft.title.trim();
-    if (tabs.find(tab => tab.id === draft.id)?.title === title) { cancel(); return; }
+    // Saving the displayed process title also makes it a user override.
     committing.current = true;
     try {
       const result = await action.run(() => client.api.renameTab({ sessionId: session.id, tabId: draft.id, title }));

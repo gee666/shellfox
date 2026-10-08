@@ -25,19 +25,23 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   const [deleting, setDeleting] = useState<SessionDto | null>(null);
   const [morePending, setMorePending] = useState(false);
   const historyToken = useRef(0);
+  const historyIntent = useRef(false);
   const action = useAction();
-  const opening = useAction();
   const notify = useNotify();
   const statusRefresh = expanded ? invalidation : 0;
   useEffect(() => {
     const token = ++historyToken.current;
+    const userRequested = historyIntent.current;
+    historyIntent.current = false;
     setMorePending(true);
     const pages = expanded ? Array.from({ length: page }, (_, index) => index + 1) : [1];
     void Promise.all(pages.map(number => request(() => client.api.getHistory({ search: '', status: 'all', page: number, pageSize: expanded ? pageSize : 1 })))).then(results => {
       if (token !== historyToken.current) return;
       setMorePending(false);
       const failed = results.find(result => !result.ok);
-      if (failed && !failed.ok) { notify(failed.error); return; }
+      // Count/status refreshes run in the background. Opening history or asking
+      // for another page is a user operation and must still report its failure.
+      if (failed && !failed.ok) { if (userRequested) notify(failed.error); return; }
       const values = results.flatMap(result => result.ok ? [result.value] : []);
       setTotal(values[0]?.total ?? 0);
       if (!expanded) return; // Only a cheap count request while collapsed.
@@ -49,17 +53,28 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
     });
     return () => { historyToken.current++; };
   }, [client, statusRefresh, archiveInvalidation, pageSize, expanded, page]);
-  function more() { setPage(value => value + 1); }
+  function more() { historyIntent.current = true; setPage(value => value + 1); }
   /** Selecting a live session with no open terminal (e.g. after a restart) opens one fresh shell.
    * The backend serializes activation and returns the existing shell if one is already live. */
   async function open(session: SessionDto) {
     client.select(session);
     if (session.settledAt || session.status === 'settled' || session.tabs.some(tab => tab.lifecycle !== 'closed')) return;
-    const result = await opening.run(() => client.api.activateSession({ sessionId: session.id }));
-    if (!result?.ok || client.store.getState().selectedId !== session.id) return;
-    client.accept(result.value);
-    const tab = result.value.tabs.find(item => item.lifecycle !== 'closed');
-    if (tab) client.selectTab(result.value, tab.id);
+    if (client.store.getState().openingSessionIds[session.id]) return;
+    client.store.setState(state => ({ openingSessionIds: { ...state.openingSessionIds, [session.id]: true } }));
+    try {
+      const result = await request(() => client.api.activateSession({ sessionId: session.id }));
+      if (!result.ok) { notify(result.error); return; }
+      if (client.store.getState().selectedId !== session.id) return;
+      client.accept(result.value);
+      const tab = result.value.tabs.find(item => item.lifecycle !== 'closed');
+      if (tab) client.selectTab(result.value, tab.id);
+    } finally {
+      client.store.setState(state => {
+        const openingSessionIds = { ...state.openingSessionIds };
+        delete openingSessionIds[session.id];
+        return { openingSessionIds };
+      });
+    }
   }
   async function pin(session: SessionDto, pinned: boolean) {
     setMenu(null);
@@ -103,7 +118,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   }
   const live = sessions.filter(session => !session.settledAt && session.status !== 'settled');
   return <div className="sidebar-scroll"><div role="region" aria-label="Sessions">{live.length ? live.map(row) : <p className="empty-small">No sessions — press +</p>}</div>
-    <button className="archive-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><span>Archived · {total}</span><span className={expanded ? 'expanded' : ''}><Icon name="chevron" /></span></button>
+    <button className="archive-toggle" aria-expanded={expanded} onClick={() => { historyIntent.current = !expanded; setExpanded(value => !value); }}><span>Archived · {total}</span><span className={expanded ? 'expanded' : ''}><Icon name="chevron" /></span></button>
     {expanded && <div role="region" aria-label="Archived sessions">{history.map(row)}{history.length < total && <button className="text-button history-more" disabled={morePending} onClick={() => void more()}>More</button>}</div>}
     {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
       {!menu.session.settledAt && <button role="menuitem" disabled={action.pending} onClick={() => void pin(menu.session, !menu.session.pinnedAt)}>{menu.session.pinnedAt ? 'Unpin' : 'Pin to top'}</button>}

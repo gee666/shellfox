@@ -1,8 +1,45 @@
-import { expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import * as childProcess from 'node:child_process';
 import path from 'node:path';
 import { mkdir, mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { LinuxCliIntegration } from './linux-cli';
 import { LinuxFileMenus, thunarActions, nautilusExtension, nemoAction, dolphinMenu, fileManagerScript } from './linux-menus';
+vi.mock('node:child_process', async importOriginal => {
+ const actual=await importOriginal<typeof import('node:child_process')>();
+ return {...actual,execFile:vi.fn(actual.execFile)};
+});
+afterEach(() => vi.resetAllMocks());
+it('probes Nautilus once per operation and observes package changes on the next read', async () => {
+ await mkdir(path.resolve('tmp'),{recursive:true});const home=await mkdtemp(path.resolve('tmp/linux-menu-probes-'));
+ let available=false;
+ const run=vi.mocked(childProcess.execFile).mockImplementation(((file:string,args:string[],options:unknown,callback:(error:Error|null,stdout:string,stderr:string)=>void)=>{
+  expect(file).toBe('/usr/bin/dpkg-query');expect(args).toEqual(['-W','-f=${Status}','python3-nautilus']);
+  expect(options).toMatchObject({timeout:3000,maxBuffer:4096});
+  callback(null,available?'install ok installed':'not installed','');
+  return {} as ReturnType<typeof childProcess.execFile>;
+ }) as typeof childProcess.execFile);
+ const cli=new LinuxCliIntegration({executable:'/fake/app',home}),menus=new LinuxFileMenus(cli,{home,env:{},managers:['nautilus']});
+ try {
+  expect(await menus.get()).toMatchObject({ok:true,value:{installed:false,reason:expect.stringContaining('sudo apt install')}});
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(await menus.set(true)).toMatchObject({ok:true,value:{installed:true,reason:expect.stringContaining('sudo apt install')}});
+  expect(run).toHaveBeenCalledTimes(2);
+  available=true;
+  const read=await menus.get();expect(read).toMatchObject({ok:true,value:{installed:true}});
+  if(read.ok)expect(read.value.reason).not.toContain('sudo apt install');
+  expect(run).toHaveBeenCalledTimes(3);
+  expect(await menus.set(false)).toMatchObject({ok:true,value:{installed:false}});
+  expect(run).toHaveBeenCalledTimes(4);
+  expect(await readFile(path.join(home,'.local/share/nautilus/scripts/Open in Shellfox'),'utf8').catch(()=>null)).toBeNull();
+ } finally {await rm(home,{recursive:true,force:true});}
+});
+it('does not run a Nautilus package probe when inspecting other managers', async () => {
+ await mkdir(path.resolve('tmp'),{recursive:true});const home=await mkdtemp(path.resolve('tmp/linux-menu-no-probe-'));
+ const run=vi.mocked(childProcess.execFile);
+ const cli=new LinuxCliIntegration({executable:'/fake/app',home}),menus=new LinuxFileMenus(cli,{home,env:{},managers:['nemo']});
+ try {await menus.get();await menus.set(true);expect(run).not.toHaveBeenCalled();}
+ finally {await rm(home,{recursive:true,force:true});}
+});
 it('generates both Nautilus API variants and safe local argv for every supported manager',()=>{
  const extension=nautilusExtension('/home/a space/shellfox');expect(extension).toContain("require_version('Nautilus', '4.0')");expect(extension).toContain("require_version('Nautilus', '3.0')");expect(extension).toContain('def get_file_items(self, *args)');expect(extension).toContain('start_new_session=True');expect(extension).not.toContain('shell=True');expect(extension).toContain("raw.lower().startswith('file://')");expect(extension).toContain("value.startswith('/')");
  expect(nemoAction('/app')).toContain('Selection=s');expect(nemoAction('/app',true)).toContain('Selection=none');expect(nemoAction('/app',true)).toContain('start %P');

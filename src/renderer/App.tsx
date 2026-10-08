@@ -7,6 +7,7 @@ import { createManagerClient } from './store';
 import { Icon, Modal, Notifications, useAction, useNotify } from './components';
 import { SessionSidebar } from './SessionSidebar';
 import { TerminalWorkspace } from './TerminalWorkspace';
+import { TerminalLoading, TerminalPlaceholder } from './TerminalPlaceholder';
 import { TerminalRegistry } from './terminal-client';
 import { SettingsPanel } from './SettingsPanel';
 import { useSidebarWidth } from './sidebar-width';
@@ -38,14 +39,17 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     let active = true;
     if (terminalApi) void request(() => terminalApi.getTerminalProfiles()).then(result => {
       if (!active) return;
-      if (!result.ok) { if (result.error.code !== 'UNSUPPORTED') notify(result.error); return; }
+      // Automatic discovery is reflected by unavailable shell controls, not toasts.
+      if (!result.ok) return;
       setProfiles(result.value.profiles); setDefaultProfileId(result.value.defaultProfileId);
     });
     return () => { active = false; };
     // The bridge is stable for the lifetime of this app.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalApi, state.snapshot?.settings.pythonPath]);
-  useEffect(() => { if (state.error) notify(state.error); }, [state.error]);
+  // Keep initial connection failures visible, but do not toast failed background
+  // refreshes when the existing snapshot remains usable. Mutations use useAction.
+  useEffect(() => { if (state.error && !state.snapshot) notify(state.error); }, [state.error, state.snapshot]);
   useEffect(() => { if (settingsError?.toast) notify(settingsError.error); }, [settingsError]);
   const snapshot = state.snapshot;
   useEffect(() => {
@@ -92,7 +96,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
       onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDragging(false); }}
       onPointerCancel={() => setDragging(false)} onLostPointerCapture={() => setDragging(false)} />
     <main className="workspace" aria-label="Workspace">
-      {selected ? <TerminalWorkspace key={selected.id} session={selected} client={client} registry={registry} profiles={profiles} defaultProfileId={effectiveProfile} platform={snapshot?.probe.platform} available={available} /> : <div className="empty-terminal">{state.loading ? 'Loading…' : 'Choose a session or press +'}</div>}
+      {selected ? <TerminalWorkspace key={selected.id} session={selected} client={client} registry={registry} profiles={profiles} defaultProfileId={effectiveProfile} platform={snapshot?.probe.platform} available={available} /> : state.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
     </main>
     {directoryOpen && <DirectoryPrompt api={api} onCreate={create} onClose={() => setDirectoryOpen(false)} />}
     {settingsOpen && snapshot && <Modal title="Settings" onClose={closeSettings}><SettingsPanel client={client} settings={snapshot.settings} explorer={snapshot.explorer} cli={snapshot.cli} profiles={profiles} defaultProfileId={defaultProfileId} /></Modal>}

@@ -86,6 +86,21 @@ describe('accent adjustment', () => {
     const [r, g, b] = [1, 3, 5].map(i => parseInt(palette.accent.slice(i, i + 2), 16));
     expect(palette.vars['--accent-rgb']).toBe(`${r}, ${g}, ${b}`);
   });
+  it.each(ACCENTS.flatMap(accent => BACKGROUNDS.map(background => [accent, background] as const)))('keeps dark styling and strengthens light contrast for %s on %s', (accent, background) => {
+    const palette = derivePalette(accent, background);
+    if (palette.scheme === 'dark') {
+      expect(palette.accent).toBe(ensureContrast(accent, background, 3, 'lighter'));
+      expect(palette.vars['--brand-opacity']).toBe('.72');
+      expect(palette.vars['--brand-label-opacity']).toBe('.6');
+    } else {
+      expect(contrastRatio(palette.accent, background)).toBeGreaterThanOrEqual(4.5);
+      expect(palette.vars['--brand-opacity']).toBe('1');
+      expect(palette.vars['--brand-label-opacity']).toBe('1');
+    }
+  });
+  it('preserves a dark accent on light backgrounds instead of fading it', () => {
+    expect(derivePalette('#880044', '#ffffff').accent).toBe('#880044');
+  });
   it('leaves a sufficiently contrasting accent untouched and keeps the hue otherwise', () => {
     expect(derivePalette('#ec4899', '#111016').accent).toBe('#ec4899');
     const adjusted = derivePalette('#ec4899', '#ffb6d5').accent;

@@ -101,7 +101,8 @@ export function derivePalette(accentInput: string, backgroundInput: string): Pal
   const foreground = ensureContrast(lift(bg, pole, 0.9), bg, 7, preferred);
   const muted = ensureContrast(mix(bg, foreground, 0.7), bg, 4.5, preferred);
   const placeholder = ensureContrast(mix(bg, foreground, 0.45), inputBg, 3, preferred);
-  const accent = ensureContrast(accentBase, bg, 3, preferred);
+  // Small accent text needs stronger contrast on light backgrounds. Keep dark themes unchanged.
+  const accent = ensureContrast(accentBase, bg, dark ? 3 : 4.5, preferred);
   const onAccent = contrastRatio('#ffffff', accent) >= 3 || contrastRatio('#ffffff', accent) >= contrastRatio('#000000', accent) ? '#ffffff' : '#000000';
   const status = (color: string) => ensureContrast(color, bg, 3, preferred);
   const [shell, running, error] = [status('#60a5fa'), status('#4ade80'), status('#fc8397')];
@@ -126,6 +127,7 @@ export function derivePalette(accentInput: string, backgroundInput: string): Pal
       '--border': border, '--panel': panel, '--sidebar': sidebar, '--surface': button, '--hover': hover, '--row-hover': rowHover,
       '--input-bg': inputBg, '--input-border': inputBorder,
       '--accent': accent, '--accent-rgb': `${r}, ${g}, ${b}`, '--on-accent': onAccent,
+      '--brand-opacity': dark ? '.72' : '1', '--brand-label-opacity': dark ? '.6' : '1',
       '--dot-shell': shell, '--dot-running': running, '--dot-error': error,
       '--shadow': dark ? 'rgba(0, 0, 0, .4)' : 'rgba(0, 0, 0, .18)',
       '--shadow-strong': dark ? 'rgba(0, 0, 0, .53)' : 'rgba(0, 0, 0, .28)',

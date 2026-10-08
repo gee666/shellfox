@@ -59,6 +59,8 @@ describe('runtime theme', () => {
     await waitFor(() => expect(root.style.getPropertyValue('--bg')).toBe('#ffffff'));
     expect(root.style.getPropertyValue('--fg')).toBe(light.foreground);
     expect(root.style.getPropertyValue('color-scheme')).toBe('light');
+    expect(root.style.getPropertyValue('--brand-opacity')).toBe('1');
+    expect(root.style.getPropertyValue('--brand-label-opacity')).toBe('1');
     await waitFor(() => expect(terminalMocks.terminals.length).toBeGreaterThan(0));
     expect(terminalMocks.terminals.at(-1).options.theme).toEqual(light.terminal);
     await user.click(screen.getByRole('button', { name: 'Settings' }));
@@ -66,6 +68,8 @@ describe('runtime theme', () => {
     const dark = derivePalette('#ec4899', '#111016');
     await waitFor(() => expect(root.style.getPropertyValue('--bg')).toBe('#111016'));
     expect(root.style.getPropertyValue('color-scheme')).toBe('dark');
+    expect(root.style.getPropertyValue('--brand-opacity')).toBe('.72');
+    expect(root.style.getPropertyValue('--brand-label-opacity')).toBe('.6');
     expect(terminalMocks.terminals.every(terminal => terminal.disposed || JSON.stringify(terminal.options.theme) === JSON.stringify(dark.terminal))).toBe(true);
   });
 });

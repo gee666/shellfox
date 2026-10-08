@@ -70,6 +70,7 @@ async function run() {
     await service.dispose(); repository.close(); repository = new Repository(filename);
     assert.deepEqual(repository.tabs(saved.id), before);
     assert.equal(repository.tab(tabs[0].id)?.title, 'Build 雪');
+    assert.equal(repository.tab(tabs[0].id)?.terminal?.userTitle, 'Build 雪');
     service = new EmbeddedSessionService(repository, undefined, () => ({ setWatch: () => {}, dispose: () => {} }));
     assert.equal((await service.renameTab({ sessionId: saved.id, tabId: tabs[1].id, title: 'After restart' })).ok, true);
     assert.equal(repository.tab(tabs[1].id)?.title, 'After restart');
