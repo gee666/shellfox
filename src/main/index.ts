@@ -119,13 +119,17 @@ async function run(): Promise<void> {
   // Paint the saved theme background before the renderer loads (no flash on light themes).
   let windowBackground = '#111016';
   try { const saved = repository.settings().backgroundColor; if (/^#[0-9a-fA-F]{6}$/.test(saved)) windowBackground = saved; } catch { /* default */ }
+  // Only validated, isolated test launches can suppress native window presentation.
+  // Keep rendering active so Playwright can exercise the real UI without stealing focus.
+  const backgroundTest = !!parsed.value.userData && process.env.SHELLFOX_TEST_MODE === '1' && process.env.SHELLFOX_TEST_VISIBLE !== '1';
   window = new BrowserWindow({
     ...restored.options,
+    ...(backgroundTest ? { show: false, focusable: false, skipTaskbar: true } : {}),
     icon: path.resolve(__dirname, '../icon', process.platform === 'win32' ? 'icon.ico' : 'icon-256.png'),
     minWidth: 850, minHeight: 600, backgroundColor: windowBackground, title: `Shellfox v${app.getVersion()}`,
-    webPreferences: { preload: path.resolve(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
+    webPreferences: { ...(backgroundTest ? { backgroundThrottling: false } : {}), preload: path.resolve(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
   });
-  if (restored.maximized) window.maximize();
+  if (restored.maximized && !backgroundTest) window.maximize();
   const windowTracker = trackWindowState(window, state => repository.saveWindowState(state));
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
@@ -173,7 +177,7 @@ async function run(): Promise<void> {
   if (updates instanceof SelfUpdater && app.isPackaged) updates.start();
   const uninstallIpc = installIpc(window, rendererUrl, service, () => requests.ready(async request => {
     if (!window || window.isDestroyed()) return;
-    const result = await handleCliRequest(request, service, window);
+    const result = await handleCliRequest(request, service, window, !backgroundTest);
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
   }), updates);
   await window.loadFile(rendererFile);

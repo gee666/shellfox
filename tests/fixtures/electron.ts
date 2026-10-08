@@ -17,6 +17,9 @@ export async function launch(userData: string, backend: 'fake' | 'real' = 'fake'
   const page = await app.firstWindow();
   await page.waitForFunction(() => !!window.shellfox);
   await expect(page.getByRole('main', { name: 'Workspace' })).toBeVisible();
+  if (process.env.SHELLFOX_TEST_VISIBLE !== '1') {
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every(window => !window.isVisible() && !window.isFocused() && !window.isFocusable()))).toBe(true);
+  }
   return { app, page };
 }
 export async function snapshot(page: Page): Promise<ManagerSnapshot> {

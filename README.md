@@ -61,7 +61,7 @@ This host's forced source rebuild failed because Visual Studio's Spectre librari
 
 ## Updating and releases
 
-Run `shellfox update` to download and install the latest published release (`shellfox update --check` only reports). Linux uses the `.deb` (`sudo apt-get install`), macOS replaces `Shellfox.app`, Windows runs `ShellfoxSetup.exe`; zip/loose installs print the releases page instead. When a newer release exists the app shows a small "run shellfox update" notice in the sidebar; hiding it lasts until the next start.
+Run `shellfox update` to download and install the latest published release (`shellfox update --check` only reports). Linux uses the `.deb` (`sudo apt-get install`), macOS replaces `Shellfox.app`, Windows runs `ShellfoxSetup.exe`; zip/loose installs print the releases page instead. Installed builds check for updates at startup and hourly. The sidebar offers Download update with progress, then Install and restart with confirmation before closing terminals. Hiding a notice lasts until the next start. See [in-app updates](docs/self-update.md) for supported installations and verification details.
 
 To publish a release, set `version` in package.json and push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The Release workflow packages Linux (x64, arm64), Windows (x64; runs on ARM via emulation) and macOS (x64, arm64) and attaches the installers to a GitHub Release.
 
@@ -82,6 +82,10 @@ Run on the target OS with target-native x64 or arm64 Node. Do not reuse another 
 | Windows arm64 | Loose app and ZIP; no Squirrel installer claim |
 | Linux x64/arm64 | Loose app, ZIP and DEB |
 | macOS x64/arm64 | App bundle and ZIP, ad-hoc signed previews or optional Developer ID signature; unnotarized |
+
+Isolated test launches keep their windows hidden, non-focusable and off the taskbar by default. Rendering stays active for UI automation. Set `SHELLFOX_TEST_VISIBLE=1` only when you want to watch or debug test windows. Normal app launches are unchanged.
+
+Terminal tabs can be renamed by double-click, F2 or their context menu. Drag tabs left or right within a session to reorder them, or use Alt+Arrow. Names and order persist after restart.
 
 Outputs live under `tmp/build/`, `tmp/build-test/` and `tmp/packages/`. For Windows x64 the runnable package is `tmp/packages/Shellfox-win32-x64/Shellfox.exe`. Makers produce artifacts under `tmp/packages/make/`. Building an installer does not install it or verify its lifecycle.
 

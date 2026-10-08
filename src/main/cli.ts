@@ -70,7 +70,7 @@ interface ExternalSessionHost {
 }
 interface MainWindowHost { isDestroyed(): boolean; isMinimized(): boolean; restore(): void; show(): void; focus(): void }
 /** Used for both cold-start and second-instance requests, after the renderer loads. */
-export async function handleCliRequest(request: CliRequest, service: ExternalSessionHost, window: MainWindowHost): Promise<Result<{ handled: true }>> {
+export async function handleCliRequest(request: CliRequest, service: ExternalSessionHost, window: MainWindowHost, presentWindow = true): Promise<Result<{ handled: true }>> {
   if (window.isDestroyed()) return failure('TARGET_LOST', 'The manager window is closed.');
   if (request.kind === 'new-session') {
     const paths = /^[a-z]:[\\/]/i.test(request.cwd) || /^\\\\/.test(request.cwd) ? path.win32 : path.posix;
@@ -82,7 +82,7 @@ export async function handleCliRequest(request: CliRequest, service: ExternalSes
     if (!result.ok) return result;
     service.selectSession(result.value.id);
   }
-  if (!window.isDestroyed()) {
+  if (presentWindow && !window.isDestroyed()) {
     if (window.isMinimized()) window.restore();
     window.show(); window.focus();
   }

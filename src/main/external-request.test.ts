@@ -29,6 +29,11 @@ it('routes cold-start/forwarded Explorer argv through the queue to one selected 
   expect(repository.sessions()).toHaveLength(2); expect(f.factory).toHaveBeenCalledTimes(2);
   await service.dispose();
 });
+it('handles background test requests without showing, restoring or focusing the window', async () => {
+  const window = windowFixture(), host = { createSession: vi.fn(), selectSession: vi.fn() };
+  expect(await handleCliRequest({ version: 1, kind: 'show' }, host, window, false)).toEqual(success({ handled: true }));
+  expect(window.show).not.toHaveBeenCalled(); expect(window.restore).not.toHaveBeenCalled(); expect(window.focus).not.toHaveBeenCalled();
+});
 it('keeps POSIX CLI paths in POSIX syntax even when reviewing on Windows', async () => {
   const f = factoryFixture(), repository = new MemoryRepository();
   const service = new EmbeddedSessionService(repository, new PtyBackend(f.options), () => ({ setWatch() {}, dispose() {} }));
