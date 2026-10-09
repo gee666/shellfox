@@ -53,9 +53,24 @@ export function UpdateNotice({ api }: { api: ManagerApi }) {
     {downloading ? <div className="update-progress">
       <progress aria-label="Update download" max={update.total ?? undefined} value={update.total ? update.received ?? 0 : undefined} />
       <small className="update-eta" aria-label="Estimated time remaining" title="Estimated time remaining">{eta ?? '…'}</small>
-    </div> : <button className="update-button" disabled={!supported || pending || installing}
-      title={!supported ? `${update.reason ?? 'Update manually.'} ${update.url}` : undefined}
-      onClick={() => void act()}>{ready || installing ? 'install and restart' : `download v${update.latest}`}</button>}
+    </div> : ready || installing ? <button className="update-button" disabled={!supported || pending || installing}
+      title="Also installs automatically when you close Shellfox"
+      onClick={() => void act()}>
+      <span>install and restart</span>
+      <svg className="update-symbol" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M19.5 10a8 8 0 1 0-.8 6M19.5 4.5V10H14" />
+      </svg>
+    </button> : <div className="update-available">
+      <span><span className="update-prompt">{'>.'}</span>new version available</span>
+      <button className="update-download" aria-label={`Download v${update.latest}`} disabled={!supported || pending}
+        title={!supported ? `${update.reason ?? 'Update manually.'} ${update.url}` : `Download v${update.latest}`}
+        onClick={() => void act()}>
+        <svg className="update-symbol" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 8v8m-3-3 3 3 3-3" />
+        </svg>
+      </button>
+    </div>}
     {(error || update.error) && <small role="alert">{error ?? update.error}</small>}
   </div>;
 }

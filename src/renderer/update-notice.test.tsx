@@ -24,13 +24,13 @@ async function open(api: ManagerApi) {
   return user;
 }
 describe('update notice', () => {
-  it('shows only one compact download button', async () => {
+  it('shows the new version label and one round download icon', async () => {
     const { api, getUpdateStatus } = setup(success(status()));
     await open(api);
     const notice = await screen.findByRole('status');
-    expect(notice.textContent).toBe('download v0.3.5');
+    expect(notice.textContent).toBe('>.new version available');
     expect(notice.querySelectorAll('button')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'download v0.3.5' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download v0.3.5' })).toBeEnabled();
     expect(getUpdateStatus).toHaveBeenCalledTimes(1);
   });
   it('is hidden when up to date, on failure, and when the API lacks the method', async () => {
@@ -46,7 +46,7 @@ describe('update notice', () => {
     const downloadUpdate = vi.fn(async () => { current = status({ phase: 'downloading', received: 25, total: 100 }); return success(current); });
     const installUpdate = vi.fn(async () => success(status({ phase: 'ready' })));
     const api: ManagerApi = { ...f.api, getUpdateStatus: async () => success(current), downloadUpdate, installUpdate };
-    const user = await open(api); await user.click(await screen.findByRole('button', { name: 'download v0.3.5' }));
+    const user = await open(api); await user.click(await screen.findByRole('button', { name: 'Download v0.3.5' }));
     expect(await screen.findByRole('progressbar', { name: 'Update download' })).toHaveAttribute('value', '25');
     expect(screen.getByRole('status').textContent).toBe('…');
     expect(screen.getByRole('status').querySelector('button')).toBeNull();
@@ -80,12 +80,12 @@ describe('update notice', () => {
   it('keeps unsupported details in the tooltip and preserves actionable errors', async () => {
     const { api } = setup(success(status({ supported: false, reason: 'Portable ZIP builds cannot self-update.' })));
     await open(api);
-    const button = await screen.findByRole('button', { name: 'download v0.3.5' });
+    const button = await screen.findByRole('button', { name: 'Download v0.3.5' });
     expect(button).toBeDisabled(); expect(button.title).toContain('Portable ZIP');
-    expect(screen.getByRole('status').textContent).toBe('download v0.3.5'); cleanup();
+    expect(screen.getByRole('status').textContent).toBe('>.new version available'); cleanup();
     render(<UpdateNotice api={{ ...api, getUpdateStatus: async () => success(status({ phase: 'error', error: 'Checksum mismatch.' })) }} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Checksum mismatch.');
-    expect(screen.getByRole('button', { name: 'download v0.3.5' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Download v0.3.5' })).toBeEnabled();
   });
   it('keeps the install button disabled during handoff without extra text', async () => {
     const { api } = setup(success(status({ phase: 'installing' })));
@@ -101,7 +101,7 @@ describe('update notice', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     current = status({ latest: '0.4.0' });
     await act(async () => { await vi.advanceTimersByTimeAsync(UPDATE_POLL_MS); });
-    expect(screen.getByRole('status').textContent).toBe('download v0.4.0');
+    expect(screen.getByRole('status').textContent).toBe('>.new version available');
     cleanup(); await vi.advanceTimersByTimeAsync(UPDATE_POLL_MS); expect(getUpdateStatus).toHaveBeenCalledTimes(2);
   });
 });

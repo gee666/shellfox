@@ -139,7 +139,10 @@ async function run(): Promise<void> {
   let closingForUpdate = false;
   let closingForQuit = false;
   const updateShutdown = new UpdateShutdown({
-    confirm: () => {
+    confirm: onQuit => {
+      // Closing an idle app needs no extra update prompt. Owned shells still
+      // require native confirmation before interrupting their commands.
+      if (onQuit && service instanceof EmbeddedSessionService && !service.ownedTerminalCount()) return true;
       const options = { type: 'warning' as const, title: 'Install update and close all terminals?',
         message: 'Close all Shellfox terminals and install the update?',
         detail: 'All embedded shells and their running commands will stop. Unsaved work may be lost. Shellfox will restart with fresh shells, not restored commands. Legacy external terminals are not touched. The installer may ask for administrator approval.',
@@ -167,10 +170,10 @@ async function run(): Promise<void> {
     : new SelfUpdater({ current: app.getVersion(),
       platform: await createUpdatePlatform({ platform: process.platform, arch: process.arch, executable: process.execPath, packaged: app.isPackaged }),
       fetch: (url, init) => net.fetch(url, init), tempRoot: app.getPath('temp'),
-      quitForUpdate: async start => {
-        if (quitting || closingForUpdate || closingForQuit) return false;
+      quitForUpdate: async (start, onQuit) => {
+        if (quitting || closingForUpdate || closingForQuit && !onQuit) return false;
         closingForUpdate = true;
-        try { return await updateShutdown.run(start); }
+        try { return await updateShutdown.run(start, onQuit); }
         finally { closingForUpdate = false; }
       },
     });
@@ -194,7 +197,12 @@ async function run(): Promise<void> {
     event.preventDefault();
     if (closingForUpdate || closingForQuit) return;
     closingForQuit = true;
-    void updateShutdown.cancelPending().then(() => quitGuard.request()).then(async approved => {
+    void updateShutdown.cancelPending().then(async () => {
+      // Use the verified handoff before normal quit disposes the service and
+      // deletes staged files. Cancellation or failure must not fall through.
+      if (updates instanceof SelfUpdater && await updates.installOnQuit() !== 'not-ready') return false;
+      return quitGuard.request();
+    }).then(async approved => {
       if (!approved || quitting) { closingForQuit = false; return; }
       quitting = true;
       // Terminal disposal succeeded. Non-critical cleanup must not strand an
@@ -204,7 +212,7 @@ async function run(): Promise<void> {
         uninstallIpc(); windowTracker.dispose(); repository.close();
       } catch (error) { console.error('Quit cleanup failed:', error); }
       app.quit();
-    }).catch(() => { closingForQuit = false; quitting = false; dialog.showErrorBox('Shutdown failed', 'Owned terminals could not be closed cleanly. Shellfox has not claimed shell survival.'); });
+    }).catch(() => { closingForQuit = false; quitting = false; dialog.showErrorBox('Shutdown failed', 'The update or owned terminal shutdown could not finish safely. Shellfox is still open. Closed terminals must be reopened as fresh shells.'); });
   });
   app.on('window-all-closed', () => app.quit());
 }

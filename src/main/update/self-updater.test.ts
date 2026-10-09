@@ -71,6 +71,43 @@ async function ready(updater: SelfUpdater) {
   await expect.poll(async () => (await updater.status()).phase).toBe('ready');
 }
 describe('updater lifecycle', () => {
+  it('quit installation does not check releases or download an available update', async () => {
+    const f = fixture();
+    expect(await f.updater.installOnQuit()).toBe('not-ready'); expect(f.fetch).not.toHaveBeenCalled();
+    await f.updater.status();
+    expect(await f.updater.installOnQuit()).toBe('not-ready');
+    expect(f.fetch).toHaveBeenCalledTimes(1); expect(f.prepare).not.toHaveBeenCalled(); expect(f.quit).not.toHaveBeenCalled();
+    await f.updater.dispose();
+  });
+  it('does not install at 100% download progress until platform preparation finishes', async () => {
+    const f = fixture(); let prepared!: () => void;
+    f.prepare.mockImplementationOnce(() => new Promise(resolve => { prepared = () => resolve(f.launch); }));
+    await f.updater.download(); await expect.poll(() => typeof prepared).toBe('function');
+    expect(await f.updater.status()).toMatchObject({ phase: 'downloading', received: content.length, total: content.length });
+    expect(await f.updater.installOnQuit()).toBe('not-ready'); expect(f.quit).not.toHaveBeenCalled();
+    prepared(); await ready(f.updater);
+    expect(await f.updater.installOnQuit()).toBe('installed');
+    expect(f.quit).toHaveBeenCalledWith(expect.any(Function), true); expect(f.handoff.commit).toHaveBeenCalledTimes(1);
+    expect(await f.updater.installOnQuit()).toBe('not-ready');
+    await f.updater.dispose(); expect(await readdir(root)).toHaveLength(1);
+  });
+  it('keeps a cancelled quit installation ready for a later attempt', async () => {
+    const f = fixture({ quit: async () => false });
+    await f.updater.download(); await ready(f.updater);
+    expect(await f.updater.installOnQuit()).toBe('cancelled');
+    expect(await f.updater.status()).toMatchObject({ phase: 'ready' }); expect(f.launch).not.toHaveBeenCalled();
+    f.quit.mockImplementationOnce(async start => { const h = await start(); await h.commit(); return true; });
+    expect(await f.updater.installOnQuit()).toBe('installed');
+    await f.updater.dispose();
+  });
+  it.each(['changed', 'missing'])('rechecks a %s installer before automatic quit handoff', async kind => {
+    const f = fixture(); await f.updater.download(); await ready(f.updater);
+    const file = f.prepare.mock.calls[0]![0];
+    if (kind === 'changed') await writeFile(file, 'tampered'); else await rm(file);
+    await expect(f.updater.installOnQuit()).rejects.toThrow('Downloaded installer changed');
+    expect(await f.updater.status()).toMatchObject({ phase: 'error' }); expect(f.launch).not.toHaveBeenCalled();
+    expect(await f.updater.installOnQuit()).toBe('not-ready'); await f.updater.dispose();
+  });
   it('deduplicates checks and rechecks hourly while running, preserving known releases offline', async () => {
     vi.useFakeTimers(); const f = fixture();
     f.updater.start(); await f.updater.status();
@@ -105,6 +142,7 @@ describe('updater lifecycle', () => {
     expect(await f.updater.install()).toMatchObject({ ok: false });
     await f.updater.download();
     await expect.poll(async () => (await f.updater.status()).phase).toBe('error');
+    expect(await f.updater.installOnQuit()).toBe('not-ready');
     expect(f.prepare).not.toHaveBeenCalled(); expect(f.quit).not.toHaveBeenCalled(); expect(await readdir(root)).toEqual([]);
     f.fetch.mockImplementation(async url => url === LATEST_RELEASE_URL ? Response.json(release()) : body());
     await f.updater.download(); await ready(f.updater); await f.updater.dispose();
@@ -127,6 +165,7 @@ describe('updater lifecycle', () => {
       abort = () => reject(new Error('abort')); init.signal?.addEventListener('abort', abort);
     }) });
     await f.updater.download(); await expect.poll(() => typeof abort).toBe('function');
+    expect(await f.updater.installOnQuit()).toBe('not-ready');
     await f.updater.dispose(); expect(f.quit).not.toHaveBeenCalled(); expect(await readdir(root)).toEqual([]);
   });
   it('bounds metadata responses and never offers an installer for malformed release data', async () => {

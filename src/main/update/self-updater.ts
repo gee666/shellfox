@@ -21,6 +21,7 @@ export interface UpdateSource {
   download?(): Promise<Result<UpdateStatusDto>>;
   install?(): Promise<Result<UpdateStatusDto>>;
 }
+export type QuitInstallResult = 'not-ready' | 'cancelled' | 'installed';
 export type UpdateFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 async function readReleaseBody(response: Response): Promise<unknown> {
@@ -118,7 +119,7 @@ export class SelfUpdater implements UpdateSource {
   constructor(private readonly options: {
     current: string; platform: UpdatePlatform; fetch: UpdateFetch; tempRoot: string;
     // Confirm, start/acknowledge the helper, reversibly close terminals, then commit.
-    quitForUpdate: (start: () => Promise<InstallHandoff>) => Promise<boolean>;
+    quitForUpdate: (start: () => Promise<InstallHandoff>, onQuit: boolean) => Promise<boolean>;
     now?: () => number;
   }) {
     this.state = { current: options.current, latest: null, available: false, command: UPDATE_COMMAND, url: RELEASES_URL,
@@ -210,19 +211,35 @@ export class SelfUpdater implements UpdateSource {
       await this.cleanWork();
     } finally { controller.abort(); clearTimeout(timer); if (this.controller === controller) this.controller = null; }
   }
+  private canInstall(): boolean {
+    return !this.disposed && !this.installing && !this.handedOff && this.state.phase === 'ready' && !!this.launch;
+  }
   async install(): Promise<Result<UpdateStatusDto>> {
-    if (this.disposed || this.installing || this.handedOff || this.state.phase !== 'ready' || !this.launch) return failure('VALIDATION', 'Download and verify the update before installing.');
-    const launch = this.launch;
+    if (!this.canInstall()) return failure('VALIDATION', 'Download and verify the update before installing.');
+    try {
+      await this.installReady(false);
+      return success({ ...this.state });
+    } catch {
+      return failure('INTERNAL', 'The update did not start. Retry the installation or update manually. Closed terminals must be reopened as fresh shells.', true);
+    }
+  }
+  /** Inspect staged state only. Quit must not start or wait for a download. */
+  async installOnQuit(): Promise<QuitInstallResult> {
+    if (!this.canInstall()) return 'not-ready';
+    return await this.installReady(true) ? 'installed' : 'cancelled';
+  }
+  private async installReady(onQuit: boolean): Promise<boolean> {
+    const launch = this.launch!;
     this.installing = true;
     this.state.phase = 'installing'; this.state.error = null;
     try {
-      const approved = await this.options.quitForUpdate(launch);
+      const approved = await this.options.quitForUpdate(launch, onQuit);
       if (!approved && !this.handedOff) this.state.phase = 'ready';
-      return success({ ...this.state });
-    } catch {
+      return approved;
+    } catch (error) {
       this.handedOff ||= this.activeHandoff?.committed === true;
       if (!this.handedOff && this.state.phase === 'installing') this.state.phase = 'ready';
-      return failure('INTERNAL', 'The update did not start. Retry the installation or update manually. Closed terminals must be reopened as fresh shells.', true);
+      throw error;
     } finally { this.installing = false; }
   }
   private async cleanWork(): Promise<void> {

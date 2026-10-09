@@ -113,8 +113,16 @@ try {
   } catch { Stop-Update "download failed: $($asset.browser_download_url)" }
   if (-not (Test-Path -LiteralPath $setup) -or (Get-Item -LiteralPath $setup).Length -eq 0) { Stop-Update 'the downloaded installer is empty.' }
   Write-Output 'Running the installer...'
-  $process = Start-Process -FilePath $setup -Wait -PassThru
-  if ($process.ExitCode -ne 0) { Stop-Update "the installer failed (exit code $($process.ExitCode))." }
+  # -Wait waits for the entire process tree on Windows, including Shellfox
+  # launched by Squirrel after installation. Wait for only the installer.
+  $process = Start-Process -FilePath $setup -PassThru
+  try {
+    # Cache the handle before it exits so PowerShell 5.1 retains the exit code.
+    [void]$process.Handle
+    $process.WaitForExit()
+    $installerExitCode = $process.ExitCode
+  } finally { $process.Dispose() }
+  if ($installerExitCode -ne 0) { Stop-Update "the installer failed (exit code $installerExitCode)." }
   Write-Output "Shellfox $latest installed."
   Write-Output "Restart Shellfox to use $latest (quitting Shellfox closes its terminals)."
   $exitCode = 0
