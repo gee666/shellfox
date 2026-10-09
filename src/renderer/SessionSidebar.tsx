@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SessionDto } from '../shared/contracts';
 import { parseWslUnc } from '../shared/wsl-path';
 import { request } from './api';
 import type { ManagerClient } from './store';
 import { ContextMenu, Icon, StatusDot, sessionDot, useAction, useNotify } from './components';
 import { ShellfoxEnvModal } from './shellfox-env-modal';
+import { WindowedSessionList } from './WindowedSessionList';
 
 export function shortenHome(cwd: string) {
   cwd = parseWslUnc(cwd)?.guestPath ?? cwd;
@@ -17,6 +18,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   const [history, setHistory] = useState<SessionDto[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [historyAttempt, setHistoryAttempt] = useState(0);
   const [menu, setMenu] = useState<{ session: SessionDto; x: number; y: number } | null>(null);
   const [editingEnv, setEditingEnv] = useState<SessionDto | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -24,8 +26,16 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   const [archiving, setArchiving] = useState<SessionDto | null>(null);
   const [deleting, setDeleting] = useState<SessionDto | null>(null);
   const [morePending, setMorePending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const historyToken = useRef(0);
   const historyIntent = useRef(false);
+  const historyLoading = useRef(false);
+  const historyCache = useRef<{
+    client: ManagerClient; pageSize: number; statusRefresh: number; archiveInvalidation: number;
+    page: number; items: SessionDto[]; total: number;
+  } | null>(null);
+  const moreFocus = useRef<HTMLElement | null>(null);
+  const completedMoreFocus = useRef<HTMLElement | null>(null);
   const action = useAction();
   const notify = useNotify();
   const statusRefresh = expanded ? invalidation : 0;
@@ -33,10 +43,32 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
     const token = ++historyToken.current;
     const userRequested = historyIntent.current;
     historyIntent.current = false;
+    const previous = historyCache.current;
+    const cached = expanded && previous?.client === client && previous.pageSize === pageSize
+      && previous.statusRefresh === statusRefresh && previous.archiveInvalidation === archiveInvalidation ? previous : null;
+    if (!expanded) historyCache.current = null; // Reopening refreshes the loaded range.
+    if (cached && page <= cached.page) return () => { historyToken.current++; };
+    historyLoading.current = true;
     setMorePending(true);
-    const pages = expanded ? Array.from({ length: page }, (_, index) => index + 1) : [1];
-    void Promise.all(pages.map(number => request(() => client.api.getHistory({ search: '', status: 'all', page: number, pageSize: expanded ? pageSize : 1 })))).then(results => {
+    // More only appends missing pages. Invalidations refresh the loaded range
+    // because archive/restore can shift every later page's offset.
+    const firstPage = cached ? cached.page + 1 : 1;
+    const pages = expanded ? Array.from({ length: page - firstPage + 1 }, (_, index) => index + firstPage) : [1];
+    void Promise.all(pages.map(number => request(() => client.api.getHistory({ search: '', status: 'all', page: number, pageSize: expanded ? pageSize : 1 })))).then(async results => {
       if (token !== historyToken.current) return;
+      const first = results[0];
+      const shifted = cached && first?.ok && first.value.total !== cached.total;
+      if (shifted && results.every(result => result.ok)) {
+        // The count changed before its invalidation reached us. Re-read prior
+        // offsets, otherwise appending can leave deleted rows or miss inserts.
+        const priorPages = Array.from({ length: cached.page }, (_, index) => index + 1);
+        const priorResults = await Promise.all(priorPages.map(number => request(() => client.api.getHistory({ search: '', status: 'all', page: number, pageSize }))));
+        if (token !== historyToken.current) return;
+        results = [...priorResults, ...results];
+      }
+      historyLoading.current = false;
+      completedMoreFocus.current = moreFocus.current;
+      moreFocus.current = null;
       setMorePending(false);
       const failed = results.find(result => !result.ok);
       // Count/status refreshes run in the background. Opening history or asking
@@ -45,15 +77,38 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
       const values = results.flatMap(result => result.ok ? [result.value] : []);
       setTotal(values[0]?.total ?? 0);
       if (!expanded) return; // Only a cheap count request while collapsed.
-      const items = [...new Map(values.flatMap(value => value.items).map(item => [item.id, item])).values()];
+      const items = [...new Map([...(shifted ? [] : cached?.items ?? []), ...values.flatMap(value => value.items)].map(item => [item.id, item])).values()];
+      const nextTotal = values[0]?.total ?? 0;
+      const lastPage = Math.max(1, Math.ceil(nextTotal / pageSize));
+      historyCache.current = { client, pageSize, statusRefresh, archiveInvalidation, page: Math.min(page, lastPage), items, total: nextTotal };
       setHistory(items);
       client.updateHistory(items);
-      const lastPage = Math.max(1, Math.ceil((values[0]?.total ?? 0) / pageSize));
       if (page > lastPage) setPage(lastPage);
     });
     return () => { historyToken.current++; };
-  }, [client, statusRefresh, archiveInvalidation, pageSize, expanded, page]);
-  function more() { historyIntent.current = true; setPage(value => value + 1); }
+  }, [client, statusRefresh, archiveInvalidation, pageSize, expanded, page, historyAttempt]);
+  useLayoutEffect(() => {
+    const prior = completedMoreFocus.current;
+    completedMoreFocus.current = null;
+    if (!prior || (document.activeElement !== document.body && document.activeElement !== prior)) return;
+    // A disabled or exhausted More button must not strand keyboard focus on
+    // body. Don't steal focus if the user moved elsewhere during the request.
+    const lastRow = scrollRef.current?.querySelector('[aria-label="Archived sessions"] [role="listitem"]:last-child');
+    const target = prior.isConnected ? prior : lastRow?.querySelector<HTMLElement>('input:not(:disabled), button:not(:disabled)')
+      ?? scrollRef.current?.querySelector<HTMLElement>('.archive-toggle');
+    target?.focus();
+  });
+  function more() {
+    if (historyLoading.current) return;
+    historyLoading.current = true;
+    setMorePending(true);
+    const active = document.activeElement;
+    moreFocus.current = active instanceof HTMLElement && active.classList.contains('history-more') ? active : null;
+    historyIntent.current = true;
+    // Retry the failed next page instead of skipping it on another click.
+    setPage((historyCache.current?.page ?? 0) + 1);
+    setHistoryAttempt(value => value + 1);
+  }
   /** Selecting a live session with no open terminal (e.g. after a restart) opens one fresh shell.
    * The backend serializes activation and returns the existing shell if one is already live. */
   async function open(session: SessionDto) {
@@ -110,16 +165,23 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   function row(session: SessionDto) {
     const editing = renaming === session.id;
     return <div key={session.id} className={`session-row${selectedId === session.id ? ' selected' : ''}`}
-      onContextMenu={event => { event.preventDefault(); setMenu({ session, x: event.clientX, y: event.clientY }); }}>
+      onContextMenu={event => { event.preventDefault(); setMenu({ session, x: event.clientX, y: event.clientY }); }}
+      onKeyDown={event => {
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+        event.preventDefault();
+        const rect = event.currentTarget.getBoundingClientRect();
+        setMenu({ session, x: rect.left, y: rect.bottom });
+      }}>
       <StatusDot state={sessionDot(session, busy)} />
       {editing ? <div className="session-copy"><input autoFocus aria-label="Session title" value={name} maxLength={160} disabled={action.pending} onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void saveName(session); if (event.key === 'Escape') setRenaming(null); }} /><small title={session.cwd}>{shortenHome(session.cwd)}</small></div>
         : <button className="session-copy" aria-label={`Select session ${session.title}`} aria-pressed={selectedId === session.id} onClick={() => void open(session)}><span className="session-title-line"><span className="session-title" title={session.title} onDoubleClick={() => rename(session)}>{session.title}</span>{session.pinnedAt && !session.settledAt && <span className="session-pin" title="Pinned" aria-label="Pinned"><Icon name="pin" /></span>}</span><small title={session.cwd}>{shortenHome(session.cwd)}</small></button>}
     </div>;
   }
-  const live = sessions.filter(session => !session.settledAt && session.status !== 'settled');
-  return <div className="sidebar-scroll"><div role="region" aria-label="Sessions">{live.length ? live.map(row) : <p className="empty-small">No sessions — press +</p>}</div>
+  const live = useMemo(() => sessions.filter(session => !session.settledAt && session.status !== 'settled'), [sessions]);
+  const retainedIds = [renaming, menu?.session.id ?? null];
+  return <div className="sidebar-scroll" ref={scrollRef}><div role="region" aria-label="Sessions">{live.length ? <WindowedSessionList sessions={live} scrollRef={scrollRef} selectedId={selectedId} retainedIds={retainedIds} renderRow={row} /> : <p className="empty-small">No sessions — press +</p>}</div>
     <button className="archive-toggle" aria-expanded={expanded} onClick={() => { historyIntent.current = !expanded; setExpanded(value => !value); }}><span>Archived · {total}</span><span className={expanded ? 'expanded' : ''}><Icon name="chevron" /></span></button>
-    {expanded && <div role="region" aria-label="Archived sessions">{history.map(row)}{history.length < total && <button className="text-button history-more" disabled={morePending} onClick={() => void more()}>More</button>}</div>}
+    {expanded && <div role="region" aria-label="Archived sessions"><WindowedSessionList sessions={history} scrollRef={scrollRef} selectedId={selectedId} retainedIds={retainedIds} renderRow={row} />{history.length < total && <button className="text-button history-more" disabled={morePending} onClick={() => void more()}>More</button>}</div>}
     {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
       {!menu.session.settledAt && <button role="menuitem" disabled={action.pending} onClick={() => void pin(menu.session, !menu.session.pinnedAt)}>{menu.session.pinnedAt ? 'Unpin' : 'Pin to top'}</button>}
       <button role="menuitem" disabled={action.pending} onClick={() => rename(menu.session)}>Rename</button>

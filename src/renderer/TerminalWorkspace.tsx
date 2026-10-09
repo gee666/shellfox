@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import type { SessionDto, TabDto, TerminalProfileDto } from '../shared/contracts';
 import type { ManagerClient } from './store';
 import type { TerminalRegistry } from './terminal-client';
@@ -9,17 +10,21 @@ import { TerminalViewport } from './TerminalViewport';
 import { TerminalLoading, TerminalPlaceholder } from './TerminalPlaceholder';
 import { getTerminalApi } from './api';
 
-export function TerminalWorkspace({ session, client, registry, profiles, defaultProfileId, platform, available }: {
+export const TerminalWorkspace = memo(function TerminalWorkspace({ session, client, registry, profiles, defaultProfileId, platform, available }: {
   session: SessionDto; client: ManagerClient; registry: TerminalRegistry; profiles: TerminalProfileDto[]; defaultProfileId: string | null; platform?: string; available: boolean;
 }) {
   const chosen = useStore(client.store, state => state.activeTabIds[session.id]);
-  const busy = useStore(client.store, state => state.busyTabIds);
+  // Activity in other sessions must not rerender this workspace or its tab strip.
+  const busy = useStore(client.store, useShallow(state => Object.fromEntries(session.tabs.map(tab => [tab.id, !!state.busyTabIds[tab.id]]))));
   const opening = useStore(client.store, state => state.openingSessionIds[session.id]);
   const [closing, setClosing] = useState<TabDto | null>(null);
   const [closedIds, setClosedIds] = useState<string[]>([]);
   const [profileMenu, setProfileMenu] = useState<{ x: number; y: number } | null>(null);
   const action = useAction();
-  const tabs = session.tabs.filter(tab => tab.terminalKind !== 'external-legacy' && tab.lifecycle !== 'closed' && !closedIds.includes(tab.id));
+  const tabs = useMemo(() => {
+    const closed = new Set(closedIds);
+    return session.tabs.filter(tab => tab.terminalKind !== 'external-legacy' && tab.lifecycle !== 'closed' && !closed.has(tab.id));
+  }, [session.tabs, closedIds]);
   const selected = tabs.find(tab => tab.id === chosen) ?? tabs[0];
   const archived = !!session.settledAt || session.status === 'settled';
   const terminalApi = getTerminalApi(client.api);
@@ -71,4 +76,4 @@ export function TerminalWorkspace({ session, client, registry, profiles, default
     {profileMenu && <ContextMenu {...profileMenu} onClose={() => setProfileMenu(null)}>{profiles.map(profile => <button role="menuitem" key={profile.id} disabled={!profile.available || action.pending} title={profile.unavailableReason ?? profile.label} onClick={() => void add(profile.id)}>{profile.label}</button>)}</ContextMenu>}
     {closing && <div className="inline-confirm close-confirm" role="dialog" aria-label={`Close terminal ${closing.title}?`} onKeyDown={event => { if (event.key === 'Escape') setClosing(null); }}><p>An agent is running in this tab. Close?</p><div><button autoFocus disabled={action.pending} onClick={() => void close(closing)}>Close</button><button onClick={() => setClosing(null)}>Cancel</button></div></div>}
   </div>;
-}
+});

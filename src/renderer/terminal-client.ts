@@ -24,6 +24,8 @@ export interface TerminalSurface {
   resize?(cols: number, rows: number): void;
   focus(): void;
   setInput(enabled: boolean): void;
+  /** Pause display-only work while retaining the parser, buffers and device replies. */
+  setVisible?(visible: boolean): void;
   setTheme?(theme: ITheme): void;
   dispose(): void;
 }
@@ -45,7 +47,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   const terminal = new Terminal({
     allowProposedApi: true, scrollback: 3000, fontSize: 14,
     fontFamily: "'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace",
-    cursorBlink: true, convertEol: false, disableStdin: true,
+    cursorBlink: false, convertEol: false, disableStdin: true,
     // Preserve application RGB choices; bold must not remap ANSI palette colors.
     minimumContrastRatio: 1, drawBoldTextInBrightColors: false,
     overviewRuler: { width: 8 },
@@ -58,6 +60,9 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   terminal.parser.registerOscHandler(52, () => true);
   terminal.parser.registerOscHandler(8, () => true);
   let parsing = false;
+  let disposed = false;
+  let visible = false;
+  let needsRefresh = true;
   let userInput = false;
   // Output parsing emits device replies through onData too. Browser input and
   // explicit clipboard paste remain user operations even during a slow write.
@@ -83,7 +88,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     if (action === 'copy') { if (terminal.hasSelection()) clipboard.copy(terminal.getSelection()); }
     // paste() applies bracketed-paste mode and newline normalization, then emits onData.
     else void clipboard.read().then(text => {
-      if (text) { userInput = true; try { terminal.paste(text); } finally { userInput = false; } }
+      if (text && !disposed) { userInput = true; try { terminal.paste(text); } finally { userInput = false; } }
     });
     return false;
   });
@@ -101,15 +106,21 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       if (!size || !Number.isFinite(size.cols) || !Number.isFinite(size.rows)) return null;
       const cols = Math.max(2, Math.min(500, Math.floor(size.cols)));
       const rows = Math.max(2, Math.min(500, Math.floor(size.rows)));
-      terminal.resize(cols, rows);
-      terminal.refresh(0, terminal.rows - 1);
+      if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows);
+      if (needsRefresh) { terminal.refresh(0, terminal.rows - 1); needsRefresh = false; }
       return { cols, rows };
     },
     resize: (cols, rows) => { if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows); },
     focus: () => { if (opened) terminal.focus(); },
     setInput: enabled => { terminal.options.disableStdin = !enabled; },
+    setVisible: next => {
+      if (visible === next) return;
+      visible = next; terminal.options.cursorBlink = next;
+      if (next) needsRefresh = true;
+    },
     setTheme: next => { terminal.options.theme = next; },
     dispose: () => {
+      disposed = true;
       inputEvents.forEach(type => element.removeEventListener(type, markUserInput, true));
       element.removeEventListener('mousemove', preserveSelection, true); terminal.dispose(); element.remove();
     },
@@ -129,13 +140,13 @@ export interface TerminalViewState {
 interface Entry {
   id: string; surface: TerminalSurface; state: TerminalViewState; listeners: Set<() => void>;
   host: HTMLElement | null; visible: boolean; used: number; sequence: number;
-  pending: Map<number, Extract<TerminalEvent, { type: 'data' }>>; pendingBytes: number;
+  pending: Map<number, { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number }>; pendingBytes: number;
   early: DeliveryEvent[]; earlyBytes: number; retired: Set<string>;
   attaching: boolean; attachToken: number; replayAgain: boolean; fullReplay: boolean;
   writes: { sequence: number; data: string; bytes: number }[]; writeBytes: number; writing: boolean; epoch: number; inputEpoch: number;
   consumed: number; nextAck: number; ackTask: Promise<void> | null; detachQueue: Promise<Result<{ detached: true }>>;
   inputQueue: Promise<void>; inputBytes: number;
-  resized: string; resizing: boolean; nextSize: { cols: number; rows: number } | null;
+  resized: string; resizing: boolean; nextSize: { cols: number; rows: number } | null; fitPending: boolean;
   // Set when a view was rebuilt from a partial raw tail: the app is asked to repaint itself.
   repaint: boolean;
 }
@@ -144,6 +155,10 @@ interface Entry {
 // screen buffers independently of React session/settings component lifetimes.
 export class TerminalRegistry {
   private entries = new Map<string, Entry>();
+  // Survives screen eviction/disposal: an old attach and its cleanup must finish
+  // before a replacement screen for the same tab can acquire a delivery view.
+  private deliveryQueues = new Map<string, Promise<unknown>>();
+  private retiredAttachments = new Map<string, string>();
   private unsubscribe?: () => void;
   private shutdown?: ReturnType<typeof setTimeout>;
   private active = false;
@@ -181,7 +196,7 @@ export class TerminalRegistry {
       attachToken: 0, replayAgain: false, fullReplay: false,
       writes: [], writeBytes: 0, writing: false, epoch: 0, inputEpoch: 0,
       consumed: 0, nextAck: 0, ackTask: null, detachQueue: Promise.resolve({ ok: true, value: { detached: true } }),
-      inputQueue: Promise.resolve(), inputBytes: 0, resized: '', resizing: false, nextSize: null, repaint: false,
+      inputQueue: Promise.resolve(), inputBytes: 0, resized: '', resizing: false, nextSize: null, fitPending: false, repaint: false,
     };
     this.entries.set(id, entry);
     return entry;
@@ -218,25 +233,27 @@ export class TerminalRegistry {
   }
   subscribe(id: string, listener: () => void) {
     const entry = this.ensure(id); entry.listeners.add(listener);
-    return () => { entry.listeners.delete(listener); };
+    return () => { entry.listeners.delete(listener); this.trim(); };
   }
   mount(id: string, host: HTMLElement, visible: boolean) {
     const entry = this.ensure(id);
     entry.host = host; entry.visible = visible; entry.used = Date.now();
     host.append(entry.surface.element);
+    entry.surface.setVisible?.(visible);
     entry.surface.setInput(entry.state.phase === 'open');
     if (!this.active) this.update(entry, { phase: 'unavailable', error: { code: 'INTERNAL', message: 'Terminal connection unavailable. Refresh the terminal to reconnect.', retryable: true } });
     else void this.attach(entry);
     this.trim();
     return () => {
       if (entry.host === host) {
-        entry.host = null; entry.visible = false; entry.surface.element.remove();
-        this.detach(entry);
+        entry.host = null; entry.visible = false; entry.surface.setVisible?.(false); entry.surface.element.remove();
+        this.detach(entry); this.trim();
       }
     };
   }
   visibility(id: string, visible: boolean) {
     const entry = this.ensure(id); entry.visible = visible;
+    entry.surface.setVisible?.(visible && !!entry.host);
     entry.surface.setInput(entry.state.phase === 'open');
     if (visible) this.fit(id);
   }
@@ -247,6 +264,10 @@ export class TerminalRegistry {
   fit(id: string) {
     const entry = this.entries.get(id);
     if (!entry?.visible || !entry.host) return;
+    // xterm parses writes asynchronously. Resizing before a replay has parsed
+    // changes the grid under cursor-addressed output and corrupts its layout.
+    if (entry.attaching || entry.writing || entry.writes.length) { entry.fitPending = true; return; }
+    entry.fitPending = false;
     const size = entry.surface.fit();
     if (entry.state.phase !== 'open' || !entry.state.generation) return;
     if (!size || !Number.isInteger(size.cols) || !Number.isInteger(size.rows) || size.cols < 2 || size.cols > 500 || size.rows < 2 || size.rows > 500) return;
@@ -255,6 +276,7 @@ export class TerminalRegistry {
   }
   refresh(id: string) { if (!this.active) this.start(); const entry = this.ensure(id); void this.attach(entry); }
   private trim() {
+    if (this.entries.size <= 24) return;
     // Detached screens can be recovered from backend replay, never by relaunch.
     const detached = [...this.entries.values()].filter(e => !e.host && !e.listeners.size).sort((a, b) => a.used - b.used);
     while (this.entries.size > 24 && detached.length) {
@@ -292,8 +314,9 @@ export class TerminalRegistry {
       return;
     }
     if (event.sequence <= entry.sequence || entry.pending.has(event.sequence)) return;
-    entry.pending.set(event.sequence, event);
-    entry.pendingBytes += encoder.encode(event.data).length;
+    const bytes = encoder.encode(event.data).length;
+    entry.pending.set(event.sequence, { event, bytes });
+    entry.pendingBytes += bytes;
     if (entry.pending.size > MAX_QUEUED_CHUNKS || entry.pendingBytes > MAX_BUFFER) {
       entry.fullReplay = true; void this.attach(entry); return;
     }
@@ -301,10 +324,10 @@ export class TerminalRegistry {
       const next = entry.pending.get(entry.sequence + 1)!;
       // Never move the received cursor past data that was not admitted. A full
       // queue deliberately discards this view through detach/full replay.
-      if (!this.write(entry, next.data, next.sequence)) return;
-      entry.pending.delete(next.sequence);
-      entry.pendingBytes -= encoder.encode(next.data).length;
-      entry.sequence = next.sequence;
+      if (!this.write(entry, next.event.data, next.event.sequence, next.bytes)) return;
+      entry.pending.delete(next.event.sequence);
+      entry.pendingBytes -= next.bytes;
+      entry.sequence = next.event.sequence;
     }
     if (entry.pending.size) void this.attach(entry);
   }
@@ -334,9 +357,26 @@ export class TerminalRegistry {
       this.update(entry, { phase: 'unavailable', error: detached.error });
       return;
     }
-    const result = await request(() => api.attachTerminal({ tabId: entry.id,
-      ...(entry.state.generation && !full ? { generation: entry.state.generation, afterSequence: entry.consumed } : {}),
-    }));
+    const result = await this.deliver(entry.id, async () => {
+      if (!this.active || entry.attachToken !== token || this.entries.get(entry.id) !== entry) {
+        return { ok: false as const, error: { code: 'TARGET_LOST' as const, message: 'Terminal view retired.', retryable: true } };
+      }
+      const retired = this.retiredAttachments.get(entry.id);
+      if (retired) {
+        const detached = await request(() => api.detachTerminal({ tabId: entry.id, generation: retired }));
+        if (!detached.ok && detached.error.code !== 'TARGET_LOST' && detached.error.code !== 'NOT_FOUND') return detached;
+        this.retiredAttachments.delete(entry.id);
+      }
+      const result = await request(() => api.attachTerminal({ tabId: entry.id,
+        ...(entry.state.generation && !full ? { generation: entry.state.generation, afterSequence: entry.consumed } : {}),
+      }));
+      if (result.ok && (!this.active || entry.attachToken !== token || this.entries.get(entry.id) !== entry)) {
+        this.retiredAttachments.set(entry.id, result.value.generation);
+        const detached = await request(() => api.detachTerminal({ tabId: entry.id, generation: result.value.generation }));
+        if (detached.ok || detached.error.code === 'TARGET_LOST' || detached.error.code === 'NOT_FOUND') this.retiredAttachments.delete(entry.id);
+      }
+      return result;
+    });
     if (!this.active || entry.attachToken !== token || this.entries.get(entry.id) !== entry) return;
     if (!result.ok) {
       entry.attaching = false;
@@ -351,7 +391,10 @@ export class TerminalRegistry {
         if (entry.retired.size > 64) entry.retired.delete(entry.retired.values().next().value!);
       }
       entry.epoch++;
-      this.resetSurface(entry, attachment.firstSequence - 1);
+      // A full recovery already replaced the parser before the request. A
+      // first attachment also has an untouched surface. Reuse those instead
+      // of constructing and immediately disposing another xterm instance.
+      this.resetSurface(entry, attachment.firstSequence - 1, !full && !!entry.state.generation);
       // Cursor-addressed output (and a snapshot above all) only reproduces the app's layout when it
       // is parsed at the grid the app was drawing for, not a fresh terminal's 80x24. The following
       // fit resizes to the real viewport.
@@ -382,17 +425,19 @@ export class TerminalRegistry {
     const again = generationRefresh || (entry.replayAgain && entry.pending.size > 0); entry.replayAgain = false;
     if (again || entry.fullReplay) void this.attach(entry);
   }
-  private resetSurface(entry: Entry, sequence: number) {
-    entry.surface.dispose();
-    const inputEpoch = ++entry.inputEpoch;
-    entry.surface = this.factory((data, userInitiated) => { if (entry.inputEpoch === inputEpoch) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry));
-    if (entry.host) entry.host.append(entry.surface.element);
+  private resetSurface(entry: Entry, sequence: number, rebuild = true) {
+    if (rebuild) {
+      entry.surface.dispose();
+      const inputEpoch = ++entry.inputEpoch;
+      entry.surface = this.factory((data, userInitiated) => { if (entry.inputEpoch === inputEpoch) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry));
+    }
+    if (entry.host && entry.surface.element.parentElement !== entry.host) entry.host.append(entry.surface.element);
+    entry.surface.setVisible?.(entry.visible && !!entry.host);
     entry.writes = []; entry.writeBytes = 0; entry.writing = false;
     entry.pending.clear(); entry.pendingBytes = 0;
     entry.sequence = sequence; entry.consumed = sequence; entry.nextAck = 0; entry.resized = '';
   }
-  private write(entry: Entry, data: string, sequence: number): boolean {
-    const bytes = encoder.encode(data).length;
+  private write(entry: Entry, data: string, sequence: number, bytes: number): boolean {
     if (entry.writeBytes + bytes > MAX_BUFFER) {
       entry.fullReplay = true;
       this.update(entry, { warning: 'Output exceeded the display queue. Reloading the retained buffer.' });
@@ -417,7 +462,15 @@ export class TerminalRegistry {
       entry.writeBytes -= bytes; entry.writing = false;
       entry.consumed = sequence; entry.nextAck = Math.max(entry.nextAck, sequence);
       void this.acknowledge(entry); this.drain(entry);
+      if (!entry.writing && !entry.writes.length && entry.fitPending) this.fit(entry.id);
     });
+  }
+  private deliver<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    const task = Promise.resolve(this.deliveryQueues.get(id)).then(operation);
+    this.deliveryQueues.set(id, task);
+    const cleanup = () => { if (this.deliveryQueues.get(id) === task) this.deliveryQueues.delete(id); };
+    void task.then(cleanup, cleanup);
+    return task;
   }
   private detach(entry: Entry) {
     const api = this.api; const generation = entry.state.generation;
@@ -425,7 +478,7 @@ export class TerminalRegistry {
     // Serialize detach before a rapid reattachment so a late detach cannot
     // switch off the newly visible view for the same runtime generation.
     const ackTask = entry.ackTask;
-    entry.detachQueue = entry.detachQueue.then(async () => {
+    entry.detachQueue = this.deliver(entry.id, async () => {
       await ackTask;
       const result = await request(() => api.detachTerminal({ tabId: entry.id, generation }));
       // Unmount cleanup must not notify or poison a newer view. An attach waiting
@@ -461,7 +514,7 @@ export class TerminalRegistry {
   }
   private input(entry: Entry, data: string, userInitiated?: boolean) {
     const generation = entry.state.generation; const api = this.api;
-    if (!api || (!entry.visible && !entry.writing) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
+    if (!api || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
     // xterm emits device replies while parsing output, including hidden replay.
     const userOperation = entry.visible && (userInitiated ?? !entry.writing);
     const epoch = entry.epoch;

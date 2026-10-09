@@ -93,6 +93,37 @@ describe('owned PTY backend', () => {
     const f = await fixture(); for (let i = 0; i < 9000; i++) f.pty.output('x');
     const a = value(f.backend.attach({ tabId: f.input.tabId })); expect(a.chunks.length).toBeLessThanOrEqual(8192); expect(a.truncated).toBe(true); await f.backend.dispose();
   });
+  it('evicts the oldest raw replay across many closed terminals without losing their screen snapshots', async () => {
+    const f = await fixture(); const inputs = [f.input];
+    for (let i = 0; i < 66; i++) {
+      if (i) { const input = launchInput(); value(await f.backend.launch(input)); inputs.push(input); }
+      f.processes[i].output('x'.repeat(REPLAY_BYTES)); f.processes[i].exit(0);
+    }
+    // 64 full rings fill the 16 MiB global budget; the two oldest rings must go first.
+    for (let i = 0; i < inputs.length; i++) {
+      const replay = value(f.backend.attach({ tabId: inputs[i].tabId }));
+      expect(replay.state).toBe('closed'); expect(replay.truncated).toBe(i < 2);
+      if (i < 2) expect(replay.snapshot).toBe(true);
+      else expect(replay.chunks.map(chunk => chunk.data).join('')).toBe('x'.repeat(REPLAY_BYTES));
+    }
+    expect(f.processes.every(pty => !pty.kill.mock.calls.length)).toBe(true); await f.backend.dispose();
+  });
+  it('selects the contiguous replay suffix correctly after tiny-chunk eviction', async () => {
+    const f = await fixture();
+    for (let i = 1; i <= 9000; i++) f.pty.output(`${i},`);
+    const first = 9000 - 8192 + 1;
+    const raw = value(f.backend.attach({ tabId: f.input.tabId, generation: f.input.generation, afterSequence: first - 1 }));
+    expect(raw.truncated).toBe(false); expect(raw.firstSequence).toBe(first); expect(raw.chunks).toHaveLength(8192);
+    for (const afterSequence of [first - 1, first, 4500, 8999, 9000]) {
+      const tail = value(f.backend.attach({ tabId: f.input.tabId, generation: f.input.generation, afterSequence }));
+      expect(tail.chunks).toEqual(raw.chunks.filter(chunk => chunk.sequence > afterSequence));
+      expect(tail.truncated).toBe(false); expect(tail.lastSequence).toBe(9000);
+    }
+    raw.chunks[0].data = 'caller mutation';
+    const fresh = value(f.backend.attach({ tabId: f.input.tabId, afterSequence: first - 1 }));
+    expect(fresh.chunks[0].data).toBe(`${first},`);
+    expect(f.pty.kill).not.toHaveBeenCalled(); await f.backend.dispose();
+  });
   it('reattach and unsubscribe do not spawn or close shells', async () => {
     const f = await fixture(); f.backend.attach({ tabId: f.input.tabId }); f.backend.attach({ tabId: f.input.tabId }); f.backend.subscribe(() => {})();
     expect(f.factory).toHaveBeenCalledTimes(1); expect(f.pty.kill).not.toHaveBeenCalled(); await f.backend.dispose();

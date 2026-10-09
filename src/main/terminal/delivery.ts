@@ -2,7 +2,7 @@ import type { Result, TerminalAttachmentDto, TerminalEvent } from '../../shared/
 import { failure, success } from '../../shared/contracts';
 import { requestSchemas, terminalEventSchema } from '../../shared/schemas';
 const CREDIT = 128 * 1024;
-interface Attachment { generation: string; sent: number; acked: number; replayPending: number | null; pending: { sequence: number; bytes: number }[]; blocked: boolean; exit?: Extract<TerminalEvent, { type: 'exit' }> }
+interface Attachment { generation: string; sent: number; acked: number; replayPending: number | null; pending: { sequence: number; bytes: number }[]; pendingBytes: number; blocked: boolean; exit?: Extract<TerminalEvent, { type: 'exit' }> }
 /** Per renderer view. No output queue here: unsent data lives only in the bounded PTY replay. */
 export class TerminalDelivery {
   private readonly attachments = new Map<string, Attachment>();
@@ -11,7 +11,7 @@ export class TerminalDelivery {
     const current = this.attachments.get(snapshot.tabId);
     if (current?.generation === snapshot.generation && (current.pending.length || current.replayPending !== null)) return failure('RETRY_CONFIRM_REQUIRED', 'Consume and acknowledge the previous terminal output, or explicitly detach the view before reattaching.');
     if (!current && this.attachments.size >= 16) return failure('VALIDATION', 'At most 16 terminal views may be attached. Detach unused views first.');
-    this.attachments.set(snapshot.tabId, { generation: snapshot.generation, sent: snapshot.lastSequence, acked: 0, replayPending: snapshot.chunks.length ? snapshot.lastSequence : null, pending: [], blocked: false });
+    this.attachments.set(snapshot.tabId, { generation: snapshot.generation, sent: snapshot.lastSequence, acked: 0, replayPending: snapshot.chunks.length ? snapshot.lastSequence : null, pending: [], pendingBytes: 0, blocked: false });
     return success({ attached: true });
   }
   detach(input: { tabId: string; generation: string }): Result<{ detached: true }> {
@@ -25,7 +25,10 @@ export class TerminalDelivery {
     const a = this.attachments.get(input.tabId);
     if (!a || a.generation !== input.generation) return failure('TARGET_LOST', 'This terminal view is no longer attached.');
     if (input.sequence < a.acked || input.sequence > a.sent) return failure('VALIDATION', 'Acknowledgement is outside the delivered sequence range.');
-    a.acked = input.sequence; a.pending = a.pending.filter(p => p.sequence > input.sequence);
+    a.acked = input.sequence;
+    let consumed = 0;
+    while (consumed < a.pending.length && a.pending[consumed].sequence <= input.sequence) a.pendingBytes -= a.pending[consumed++].bytes;
+    if (consumed) a.pending.splice(0, consumed);
     if (a.replayPending !== null && input.sequence >= a.replayPending) a.replayPending = null;
     this.pump(input.tabId, a); return success({ acknowledged: true });
   }
@@ -37,6 +40,17 @@ export class TerminalDelivery {
     if (!a || a.generation !== e.generation) return;
     if (e.type === 'error') { this.send(e); return; }
     if (e.type === 'exit') a.exit = e;
+    // The usual live path already has the next chunk. Avoid asking the backend
+    // to copy and validate a replay suffix on every PTY output event.
+    if (e.type === 'data' && !a.blocked && a.replayPending === null && e.sequence === a.sent + 1) {
+      const bytes = Buffer.byteLength(e.data);
+      if (a.pending.length < 256 && a.pendingBytes + bytes <= CREDIT) {
+        a.pending.push({ sequence: e.sequence, bytes }); a.pendingBytes += bytes; a.sent = e.sequence;
+        this.send(e);
+      }
+      // Credit exhaustion is recovered by ACK/pump, not by dropping PTY output.
+      return;
+    }
     this.pump(e.tabId, a);
   }
   private pump(tabId: string, a: Attachment): void {
@@ -48,11 +62,10 @@ export class TerminalDelivery {
       this.send({ type: 'error', tabId, generation: a.generation, error: { code: 'NATIVE_UNAVAILABLE', message: 'Terminal output exceeded the view replay window. Reattach to the current bounded output; older output was discarded.', retryable: true } });
       return;
     }
-    let bytes = a.pending.reduce((n, p) => n + p.bytes, 0);
     for (const e of replay.value.chunks) {
       const size = Buffer.byteLength(e.data);
-      if (bytes + size > CREDIT || a.pending.length >= 256) break;
-      a.pending.push({ sequence: e.sequence, bytes: size }); bytes += size; a.sent = e.sequence; this.send(e);
+      if (a.pendingBytes + size > CREDIT || a.pending.length >= 256) break;
+      a.pending.push({ sequence: e.sequence, bytes: size }); a.pendingBytes += size; a.sent = e.sequence; this.send(e);
     }
     if (a.exit && a.sent >= a.exit.lastSequence) { this.send(a.exit); a.exit = undefined; }
   }

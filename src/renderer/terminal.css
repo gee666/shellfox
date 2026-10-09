@@ -3,6 +3,9 @@
 .terminal-tab-strip { display: flex; align-items: center; flex: 0 0 30px; height: 30px; min-width: 0; background: var(--sidebar); border-bottom: 1px solid var(--border); }
 .terminal-tabs { display: flex; min-width: 0; overflow-x: auto; height: 30px; scrollbar-width: none; }
 .terminal-tabs::-webkit-scrollbar { display: none; }
+.terminal-tabs-windowed { flex: 1; overflow-anchor: none; }
+.terminal-tabs-windowed > .terminal-tab-item { box-sizing: border-box; }
+.terminal-tab-spacer { flex: 0 0 auto; pointer-events: none; }
 .terminal-tab-item { display: flex; align-items: center; flex: 0 0 auto; min-width: 90px; max-width: 180px; height: 30px; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; }
 .terminal-tab-item.tab-drop-target { box-shadow: inset 2px 0 var(--accent); }
 .tab-rename { width: 130px; min-width: 0; height: 24px; margin: 0 4px; padding: 0 4px; font-size: 12px; }
@@ -17,7 +20,7 @@
 .new-terminal { width: 28px; height: 28px; margin: 0 4px; }
 .terminal-panel, .terminal-viewport { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .terminal-viewport { position: relative; }
-.terminal-host { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; padding: 8px; }
+.terminal-host { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; padding: 8px 2px 8px 8px; }
 .terminal-surface { width: 100%; height: 100%; overflow: hidden; }
 .terminal-surface .xterm { height: 100%; overflow: hidden; background: var(--bg); }
 /* xterm 6 scrolls through .xterm-scrollable-element. The retained viewport

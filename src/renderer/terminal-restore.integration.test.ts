@@ -29,12 +29,13 @@ async function fixture() {
   const delivery = new TerminalDelivery(args => backend.attach(args), event => { for (const listener of listeners) listener(event); });
   const off = backend.subscribe(event => delivery.event(event));
   const terminals: Terminal[] = []; const sizes: string[] = [];
+  const disposed = new Set<Terminal>(); const viewport = { ...VIEW };
   const factory: SurfaceFactory = () => {
     const term = new Terminal({ cols: 80, rows: 24, scrollback: 3000, allowProposedApi: true }); terminals.push(term);
     return {
       element: document.createElement('div'), write: (data, done) => term.write(data, done), reset: () => term.reset(),
-      fit: () => { if (term.cols !== VIEW.cols || term.rows !== VIEW.rows) term.resize(VIEW.cols, VIEW.rows); return { ...VIEW }; }, resize: (cols, rows) => { sizes.push(`${cols}x${rows}`); term.resize(cols, rows); },
-      focus() {}, setInput() {}, dispose: () => term.dispose(),
+      fit: () => { if (term.cols !== viewport.cols || term.rows !== viewport.rows) term.resize(viewport.cols, viewport.rows); return { ...viewport }; }, resize: (cols, rows) => { sizes.push(`${cols}x${rows}`); term.resize(cols, rows); },
+      focus() {}, setInput() {}, dispose: () => { disposed.add(term); term.dispose(); },
     };
   };
   const api: TerminalApi = {
@@ -61,7 +62,7 @@ async function fixture() {
       else reference.write(chunk);
     }
   };
-  return { ...pty, backend, api, registry, host, input, terminals, sizes, reference, pump, latest: () => terminals.at(-1)! };
+  return { ...pty, backend, api, registry, host, input, terminals, disposed, viewport, sizes, reference, pump, latest: () => terminals.at(-1)! };
 }
 
 describe('TUI screen restoration after output the replay ring no longer holds', () => {
@@ -93,6 +94,49 @@ describe('TUI screen restoration after output the replay ring no longer holds', 
     // Live output keeps landing on the restored screen.
     await f.pump([tuiUpdate(options, 77)]);
     await until(() => rowsOf(f.latest()).join('\n') === rowsOf(f.reference).join('\n'));
+  }, 30000);
+
+  it('restores an evicted TUI after visiting 39 other running terminals with only 24 retained screens', async () => {
+    const f = await fixture(); const options = { ...VIEW };
+    const unmount = f.registry.mount(f.input.tabId, f.host, true);
+    await until(() => f.backend.get(f.input.tabId)?.cols === VIEW.cols);
+    await f.pump(tuiStream({ ...options, frames: 20 }));
+    await until(() => rowsOf(f.latest()).some(row => row.includes('Working 19')));
+    const first = f.latest(); unmount(); await tick();
+    await f.pump(Array.from({ length: 2000 }, (_, i) => tuiUpdate(options, 100 + i)));
+    for (let i = 1; i < 40; i++) {
+      const input = launchInput(); value(await f.backend.launch(input));
+      const leave = f.registry.mount(input.tabId, f.host, true);
+      await until(() => f.backend.get(input.tabId)?.cols === VIEW.cols);
+      f.processes[i].output(`screen ${i}`);
+      await until(() => rowsOf(f.latest()).some(row => row.includes(`screen ${i}`)));
+      leave(); await tick();
+    }
+    expect(f.disposed.has(first)).toBe(true);
+    expect(f.terminals.filter(term => !f.disposed.has(term))).toHaveLength(24);
+    expect(f.backend.live()).toHaveLength(40); expect(f.factory).toHaveBeenCalledTimes(40);
+    f.registry.mount(f.input.tabId, f.host, true);
+    await until(() => rowsOf(f.latest()).join('\n') === rowsOf(f.reference).join('\n'));
+    expect(f.registry.getState(f.input.tabId).warning).toBeNull();
+    expect(f.terminals.filter(term => !f.disposed.has(term))).toHaveLength(24);
+    expect(f.processes.every(pty => !pty.kill.mock.calls.length)).toBe(true);
+    expect(f.factory).toHaveBeenCalledTimes(40);
+  }, 30000);
+
+  it('parses a retained snapshot at its old grid before fitting to a changed viewport', async () => {
+    const f = await fixture(); const options = { ...VIEW, alt: true };
+    const unmount = f.registry.mount(f.input.tabId, f.host, true);
+    await until(() => f.backend.get(f.input.tabId)?.cols === VIEW.cols);
+    await f.pump(tuiStream({ ...options, frames: 20 }));
+    await until(() => rowsOf(f.latest()).some(row => row.includes('Working 19')));
+    unmount(); await tick();
+    await f.pump(Array.from({ length: 2000 }, (_, i) => tuiUpdate(options, 100 + i)));
+    f.viewport.cols = 100; f.viewport.rows = 26; f.reference.resize(100, 26);
+    f.registry.mount(f.input.tabId, f.host, true);
+    await until(() => f.latest().cols === 100 && f.latest().rows === 26);
+    expect(f.sizes.at(-1)).toBe('120x30');
+    expect(rowsOf(f.latest())).toEqual(rowsOf(f.reference));
+    expect(f.registry.getState(f.input.tabId).warning).toBeNull();
   }, 30000);
 
   it('recovers a live burst that overruns the view by restoring the screen, not a tail', async () => {

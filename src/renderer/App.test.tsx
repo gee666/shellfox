@@ -285,8 +285,9 @@ describe('compact workspace', () => {
     expect(screen.getAllByLabelText('Agent idle')).toHaveLength(2);
     act(() => fixture.emitTerminal({ type: 'activity', tabId: item.tabs[0]!.id, busy: true } as TerminalEvent));
     expect(screen.getAllByLabelText('Agent working').every(dot => dot.classList.contains('dot-busy'))).toBe(true);
-    item.tabs[0]!.status = 'waiting';
-    act(() => fixture.emit({ ...snapshot([item]), revision: 2 }));
+    // IPC snapshots are fresh DTOs. Do not mutate the previous render's props.
+    const waiting = { ...item, tabs: item.tabs.map(tab => ({ ...tab, status: 'waiting' as const })) };
+    act(() => fixture.emit({ ...snapshot([waiting]), revision: 2 }));
     await waitFor(() => expect(screen.getAllByLabelText('Shell')).toHaveLength(2));
   });
   it('shows errors as dismissable toasts and never repeats a failed mutation', async () => {

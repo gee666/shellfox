@@ -56,10 +56,13 @@ export function createManagerClient(api: ManagerApi) {
           const sessions = result.value.sessions;
           settings.observe(result.value.settings, result.value.revision);
           const previous = state.snapshot?.sessions ?? [];
+          // Snapshot comparison must stay linear even with thousands of sessions.
+          const nextById = new Map(sessions.map(session => [session.id, session]));
+          const previousIds = new Set(previous.map(session => session.id));
           const archiveChanged = previous.some(item => {
-            const next = sessions.find(session => session.id === item.id);
+            const next = nextById.get(item.id);
             return !next || next.settledAt !== item.settledAt;
-          }) || sessions.some(item => item.settledAt && !previous.some(session => session.id === item.id));
+          }) || sessions.some(item => item.settledAt && !previousIds.has(item.id));
           const selectedId = state.selectedId ?? sessions.find(session => !session.settledAt)?.id ?? null;
           const activeTabIds = { ...state.activeTabIds };
           const busyTabIds = { ...state.busyTabIds };
@@ -112,9 +115,11 @@ export function createManagerClient(api: ManagerApi) {
           if (!active) return;
           const activity = event as { type: string; tabId: string; busy?: boolean };
           if (activity.type === 'activity' && typeof activity.busy === 'boolean') {
-            store.setState(state => ({ busyTabIds: { ...state.busyTabIds, [activity.tabId]: activity.busy! } }));
+            store.setState(state => state.busyTabIds[activity.tabId] === activity.busy ? state
+              : { busyTabIds: { ...state.busyTabIds, [activity.tabId]: activity.busy! } });
           } else if (activity.type === 'exit') {
-            store.setState(state => ({ busyTabIds: { ...state.busyTabIds, [activity.tabId]: false } }));
+            store.setState(state => state.busyTabIds[activity.tabId] === false ? state
+              : { busyTabIds: { ...state.busyTabIds, [activity.tabId]: false } });
           }
         });
         refresh();

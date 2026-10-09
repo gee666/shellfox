@@ -1,4 +1,4 @@
-import { it, expect } from 'vitest';
+import { it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { Result, TerminalEvent } from '../../shared/contracts';
 import { PtyBackend } from './backend';
@@ -10,6 +10,33 @@ async function fixture() {
   const received: TerminalEvent[] = [], delivery = new TerminalDelivery(args => backend.attach(args), e => received.push(e));
   backend.subscribe(e => delivery.event(e)); return { ...f, backend, input, received, delivery };
 }
+it('delivers contiguous live output for 16 views without replay reads or process changes', async () => {
+  const f = await fixture(); const inputs = [f.input];
+  for (let i = 1; i < 16; i++) { const input = launchInput(); value(await f.backend.launch(input)); inputs.push(input); }
+  for (const input of inputs) value(f.delivery.attached(value(f.backend.attach({ tabId: input.tabId }))));
+  const replay = vi.spyOn(f.backend, 'attach');
+  for (const pty of f.processes) for (let i = 0; i < 100; i++) pty.output('界🙂');
+  expect(replay).not.toHaveBeenCalled();
+  const data = f.received.filter(e => e.type === 'data'); expect(data).toHaveLength(1600);
+  for (const input of inputs) {
+    expect(data.filter(e => e.tabId === input.tabId).map(e => e.sequence)).toEqual(Array.from({ length: 100 }, (_, i) => i + 1));
+    value(f.delivery.acknowledge({ tabId: input.tabId, generation: input.generation, sequence: 100 }));
+  }
+  expect(replay).toHaveBeenCalledTimes(16); expect(f.backend.live()).toHaveLength(16);
+  expect(f.processes.every(pty => !pty.kill.mock.calls.length)).toBe(true); await f.backend.dispose();
+});
+it('accounts for UTF-8 credit across partial and duplicate acknowledgements', async () => {
+  const f = await fixture(); value(f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId }))));
+  const data = () => f.received.filter(e => e.type === 'data');
+  const ack = (sequence: number) => value(f.delivery.acknowledge({ tabId: f.input.tabId, generation: f.input.generation, sequence }));
+  for (let i = 0; i < 12; i++) f.processes[0].output('界'.repeat(4096));
+  expect(data()).toHaveLength(10); ack(3); expect(data()).toHaveLength(12);
+  f.processes[0].output('界'.repeat(4096)); expect(data()).toHaveLength(13);
+  ack(3); f.processes[0].output('界'.repeat(4096)); expect(data()).toHaveLength(13);
+  ack(13); expect(data()).toHaveLength(14);
+  expect(data().map(e => e.sequence)).toEqual(Array.from({ length: 14 }, (_, i) => i + 1));
+  await f.backend.dispose();
+});
 it('reattachment cannot reset outstanding live or replay credit without acknowledgement', async () => {
   const f = await fixture(); value(f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId })))); f.processes[0].output('x'.repeat(128 * 1024));
   for (let i = 0; i < 10; i++) expect(f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId })))).toMatchObject({ ok: false, error: { code: 'RETRY_CONFIRM_REQUIRED' } });

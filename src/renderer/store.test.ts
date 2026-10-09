@@ -156,6 +156,30 @@ describe('manager client', () => {
     expect(client.store.getState().busyTabIds[tab.id]).toBe(false);
   });
 
+  it('does not notify subscribers for repeated terminal activity', async () => {
+    const fixture = mockApi(); const client = createManagerClient(fixture.api);
+    client.start(); await flush();
+    const listener = vi.fn(); const unsubscribe = client.store.subscribe(listener);
+    const tabId = session().tabs[0]!.id;
+    for (let i = 0; i < 100; i += 1) fixture.emitTerminal({ type: 'activity', tabId, busy: true } as TerminalEvent);
+    expect(listener).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 100; i += 1) fixture.emitTerminal({ type: 'exit', tabId } as TerminalEvent);
+    expect(listener).toHaveBeenCalledTimes(2);
+    unsubscribe(); client.stop();
+  });
+
+  it('compares large snapshots without per-session array searches', async () => {
+    const sessions = Array.from({ length: 2000 }, (_, index) => session(index + 1));
+    const fixture = mockApi(snapshot(sessions)); const client = createManagerClient(fixture.api);
+    client.start(); await flush();
+    const version = client.store.getState().archiveVersion;
+    const find = vi.spyOn(sessions, 'find');
+    fixture.emit({ ...snapshot(sessions), revision: 2 }, 'native'); await flush();
+    expect(client.store.getState().archiveVersion).toBe(version);
+    expect(find.mock.calls.length).toBeLessThan(5);
+    find.mockRestore(); client.stop();
+  });
+
   it('maps dots with error > busy agent > idle agent > shell and ignores closed tabs', () => {
     const item = session(); const tab = item.tabs[0]!;
     expect(tabDot(tab, true).kind).toBe('shell');

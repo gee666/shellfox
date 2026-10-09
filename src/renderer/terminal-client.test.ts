@@ -112,6 +112,19 @@ describe('terminal stream ownership', () => {
     // The grid is changed to the viewport only afterwards, through the normal fit/resize path.
     expect(fixture.api.resizeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, cols: 120, rows: 30 });
   });
+  it('does not fit a replay to the viewport until all asynchronous writes have parsed', async () => {
+    const f = setup(true); await flush(); f.emitTerminal(chunk(1, 'pending old output'));
+    f.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(8, 'screen'), chunk(9, 'diff')], { snapshot: true, truncated: true, cols: 132, rows: 43 })));
+    f.registry.refresh(tab.id); await flush();
+    const screen = f.latest();
+    f.registry.fit(tab.id); f.registry.fit(tab.id);
+    expect(screen.fit).not.toHaveBeenCalled();
+    screen.callbacks.shift()!(); await flush();
+    expect(screen.fit).not.toHaveBeenCalled();
+    screen.callbacks.shift()!(); await flush();
+    expect(screen.fit).toHaveBeenCalledOnce(); expect(screen.output).toBe('screendiff');
+    expect(f.values).toHaveLength(2); // Initial surface, then one recovery surface.
+  });
   it('also sizes the grid before a raw full replay, so cursor-addressed output lands where the app drew it', async () => {
     const order: string[] = [];
     const factory: SurfaceFactory = () => ({ element: document.createElement('div'), write(data, done) { order.push(`write:${data}`); done(); }, reset() {}, fit: () => ({ cols: 100, rows: 40 }), resize: (cols, rows) => { order.push(`resize:${cols}x${rows}`); }, focus() {}, setInput() {}, dispose() {} });
@@ -255,6 +268,79 @@ describe('terminal stream ownership', () => {
     expect(fixture.registry.getState(tab.id).operationError?.message).toBe('User input rejected');
     expect(fixture.api.writeTerminal).toHaveBeenCalledTimes(1);
   });
+  it('rejects hidden user input even while parsing, but accepts device replies', async () => {
+    const f = setup(true); await flush(); f.registry.visibility(tab.id, false);
+    f.emitTerminal(chunk(1, '\u001b[6n'));
+    f.latest().input('hidden paste', true); f.latest().input('\u001b[1;1R', false); await flush();
+    expect(f.api.writeTerminal.mock.calls.map(([input]) => input.data)).toEqual(['\u001b[1;1R']);
+  });
+  it('measures each admitted UTF-8 output chunk only once', async () => {
+    const f = setup(); await flush();
+    const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+    try {
+      for (let i = 1; i <= 256; i++) f.emitTerminal(chunk(i, '界🙂'));
+      await flush();
+      expect(encode).toHaveBeenCalledTimes(256);
+      expect(f.latest().output).toBe('界🙂'.repeat(256));
+    } finally { encode.mockRestore(); }
+  });
+  it('cleans up a late initial attach before a replacement view can attach', async () => {
+    const f = setup(); const pending = deferred<Result<TerminalAttachmentDto>>();
+    f.api.attachTerminal.mockReturnValueOnce(pending.promise); await flush();
+    const old = f.latest(); f.registry.dispose();
+    expect(f.api.detachTerminal).not.toHaveBeenCalled();
+    f.registry.start(); f.registry.mount(tab.id, f.host, true); await flush();
+    expect(f.api.attachTerminal).toHaveBeenCalledTimes(1);
+    const cleanup = deferred<Result<{ detached: true }>>(); f.api.detachTerminal.mockReturnValueOnce(cleanup.promise);
+    pending.resolve(success(attachment([chunk(1, 'late')]))); await flush();
+    expect(old.dispose).toHaveBeenCalledOnce(); expect(old.output).toBe('');
+    expect(f.api.detachTerminal).toHaveBeenCalledExactlyOnceWith({ tabId: tab.id, generation: tab.generation });
+    expect(f.api.attachTerminal).toHaveBeenCalledTimes(1);
+    cleanup.resolve(success({ detached: true })); await flush();
+    expect(f.api.attachTerminal).toHaveBeenCalledTimes(2);
+    f.emitTerminal(chunk(1, 'replacement')); expect(f.latest().output).toBe('replacement');
+    expect(f.api.closeTab).not.toHaveBeenCalled(); expect(f.api.activateSession).not.toHaveBeenCalled();
+  });
+  it('can retry a failed retired-view cleanup instead of leaking credit permanently', async () => {
+    const f = setup(); const pending = deferred<Result<TerminalAttachmentDto>>();
+    f.api.attachTerminal.mockReturnValueOnce(pending.promise); await flush(); f.registry.dispose();
+    f.api.detachTerminal.mockResolvedValueOnce(failure('INTERNAL', 'Detach unavailable')).mockResolvedValueOnce(failure('INTERNAL', 'Detach unavailable'));
+    f.registry.start(); f.registry.mount(tab.id, f.host, true);
+    pending.resolve(success(attachment([chunk(1, 'late')]))); await flush();
+    expect(f.registry.getState(tab.id)).toMatchObject({ phase: 'unavailable', error: { message: 'Detach unavailable' } });
+    expect(f.api.attachTerminal).toHaveBeenCalledTimes(1);
+    f.registry.refresh(tab.id); await flush();
+    expect(f.registry.getState(tab.id)).toMatchObject({ phase: 'open', error: null });
+    expect(f.api.attachTerminal).toHaveBeenCalledTimes(2); expect(f.api.closeTab).not.toHaveBeenCalled();
+  });
+  it('serializes late attach cleanup across LRU eviction and reopening the same tab', async () => {
+    const f = setup(); const pending = deferred<Result<TerminalAttachmentDto>>();
+    f.api.attachTerminal.mockReturnValueOnce(pending.promise); await flush();
+    const old = f.latest(); f.unmount();
+    for (let i = 2; i <= 40; i++) {
+      const unmount = f.registry.mount(session(i).tabs[0].id, f.host, true); await flush(); unmount();
+    }
+    expect(old.dispose).toHaveBeenCalledOnce();
+    expect(f.values.filter(value => !value.dispose.mock.calls.length)).toHaveLength(24);
+    f.registry.mount(tab.id, f.host, true); await flush();
+    expect(f.api.attachTerminal.mock.calls.filter(([input]) => input.tabId === tab.id)).toHaveLength(1);
+    pending.resolve(success(attachment([chunk(1, 'stale')]))); await flush();
+    expect(f.api.attachTerminal.mock.calls.filter(([input]) => input.tabId === tab.id)).toHaveLength(2);
+    expect(old.output).toBe(''); expect(f.latest().output).toBe('');
+    expect(f.api.closeTab).not.toHaveBeenCalled();
+  });
+  it('trims on the last unsubscribe without disposing a mounted or subscribed screen', async () => {
+    const f = setup(); await flush(); f.unmount();
+    const unsubscribers: (() => void)[] = [];
+    for (let i = 2; i <= 30; i++) {
+      const id = session(i).tabs[0].id;
+      unsubscribers.push(f.registry.subscribe(id, () => {}));
+      const unmount = f.registry.mount(id, f.host, true); await flush(); unmount();
+    }
+    expect(f.values.filter(value => !value.dispose.mock.calls.length)).toHaveLength(29);
+    unsubscribers.forEach(unsubscribe => unsubscribe());
+    expect(f.values.filter(value => !value.dispose.mock.calls.length)).toHaveLength(24);
+  });
   it('validates resize dimensions and coalesces unchanged sizes', async () => {
     const fixture = setup(); await flush(); fixture.api.resizeTerminal.mockClear();
     fixture.registry.fit(tab.id); fixture.registry.fit(tab.id); await flush(); expect(fixture.api.resizeTerminal).not.toHaveBeenCalled();
@@ -290,6 +376,21 @@ describe('terminal stream ownership', () => {
 });
 
 describe('xterm safety configuration', () => {
+  it('skips unchanged-grid repaints and pauses cursor blinking on detached screens', () => {
+    const surface = createTerminalSurface(() => {}); document.body.append(surface.element);
+    const terminal = terminalMocks.terminals.at(-1);
+    const resize = vi.spyOn(terminal, 'resize');
+    expect(terminal.options.cursorBlink).toBe(false);
+    surface.setVisible?.(true); surface.fit();
+    for (let i = 0; i < 20; i++) surface.fit();
+    expect(terminal.refresh).toHaveBeenCalledOnce(); expect(resize).not.toHaveBeenCalled();
+    const dimensions = vi.spyOn(terminalMocks.fits.at(-1), 'proposeDimensions').mockReturnValue({ cols: 100, rows: 30 });
+    surface.fit(); expect(resize).toHaveBeenCalledExactlyOnceWith(100, 30);
+    surface.setVisible?.(false); expect(terminal.options.cursorBlink).toBe(false);
+    surface.setVisible?.(true); surface.fit(); expect(terminal.refresh).toHaveBeenCalledTimes(2);
+    expect(terminal.options.cursorBlink).toBe(true);
+    dimensions.mockRestore(); surface.dispose();
+  });
   it('bounds scrollback and consumes clipboard/hyperlink escape handlers without browser effects', () => {
     const surface = createTerminalSurface(() => {}); const terminal = terminalMocks.terminals.at(-1);
     expect(terminal.options.scrollback).toBe(3000); expect(terminal.options.linkHandler.allowNonHttpProtocols).toBe(false);
@@ -447,6 +548,13 @@ describe('terminal clipboard shortcuts', () => {
     terminal.keyHandler(key('KeyV')); await flush();
     expect(sent).toEqual([['device reply', false], ['a', true], ['paste', true]]);
     parsed(); surface.dispose();
+  });
+  it('does not paste into a disposed surface after a late clipboard read', async () => {
+    const pending = deferred<string | null>();
+    const surface = createTerminalSurface(() => {}, undefined, { copy() {}, read: () => pending.promise });
+    const terminal = terminalMocks.terminals.at(-1);
+    terminal.keyHandler(key('KeyV')); surface.dispose(); pending.resolve('late paste'); await flush();
+    expect(terminal.paste).not.toHaveBeenCalled();
   });
   it('routes registry clipboard through the main-process bridge', async () => {
     const fixture = mockApi(); vi.mocked(fixture.api.readClipboardText!).mockResolvedValueOnce(success({ text: 'ls' }));

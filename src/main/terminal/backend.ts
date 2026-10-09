@@ -222,7 +222,10 @@ export class PtyBackend {
       e.chunks.push({ event, bytes, order: ++this.order }); e.bytes += bytes; this.replayBytes += bytes;
       while (e.bytes > REPLAY_BYTES || e.chunks.length > MAX_CHUNKS) this.evict(e);
       while (this.replayBytes > GLOBAL_REPLAY_BYTES) {
-        const oldest = [...this.entries.values()].filter(p => p.chunks.length).sort((a, b) => a.chunks[0].order - b.chunks[0].order)[0];
+        let oldest: Entry | undefined;
+        for (const candidate of this.entries.values()) {
+          if (candidate.chunks.length && (!oldest || candidate.chunks[0].order < oldest.chunks[0].order)) oldest = candidate;
+        }
         if (!oldest) break;
         this.evict(oldest);
       }
@@ -260,7 +263,8 @@ export class PtyBackend {
     // evicted from the ring, restore from the parsed screen instead of replaying a partial tail.
     const restored = after < first - 1 ? this.restore(e, first) : null;
     if (restored) return success({ ...base, firstSequence: restored.firstSequence, lastSequence: e.sequence, chunks: restored.chunks, truncated: true, snapshot: true, cols: restored.cols, rows: restored.rows });
-    return success({ ...base, firstSequence: first, lastSequence: e.sequence, chunks: e.chunks.filter(c => c.event.sequence > after).map(c => ({ ...c.event })), truncated, cols: e.cols, rows: e.rows });
+    // Eviction removes only a prefix, so sequence numbers index the retained suffix directly.
+    return success({ ...base, firstSequence: first, lastSequence: e.sequence, chunks: e.chunks.slice(Math.max(0, after - first + 1)).map(c => ({ ...c.event })), truncated, cols: e.cols, rows: e.rows });
   }
   /**
    * Serialized screen as numbered chunks ending at the mirror's parsed sequence P, followed by
@@ -269,7 +273,7 @@ export class PtyBackend {
   private restore(e: Entry, ringFirst: number): { firstSequence: number; chunks: Extract<TerminalEvent, { type: 'data' }>[]; cols: number; rows: number } | null {
     const parsed = e.mirror.sequence;
     if (parsed + 1 < ringFirst || parsed < 1) return null;
-    const rest = e.chunks.filter(c => c.event.sequence > parsed);
+    const rest = e.chunks.slice(Math.max(0, parsed - ringFirst + 1));
     const budget = ATTACHMENT_BYTES - rest.reduce((n, c) => n + c.bytes, 0);
     const snapshot = budget > 0 ? e.mirror.snapshot(budget) : null;
     if (!snapshot || snapshot.sequence !== parsed) return null;
