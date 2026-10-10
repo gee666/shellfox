@@ -9,6 +9,7 @@ import { SshProfileStore } from '../../src/main/ssh/storage';
 import { shellfoxShims } from '../../src/main/platform/shellfox-cli';
 import { linuxLauncher } from '../../src/main/platform/linux-cli';
 import { remoteCommand } from '../../src/main/ssh/presentation';
+import { generatedTestKey, generatedPpk, TEST_KEY_PASSPHRASE } from './ssh-test-keys';
 async function main(){
  const root=process.cwd(),directory=process.argv[2],helper=process.argv[3],windows=process.platform==='win32',fixture=await sshFixture();
  const folder=path.join(directory,'shims');await mkdir(folder,{recursive:true});
@@ -56,7 +57,9 @@ async function main(){
  }
  try{
   const cmdArgs=['/d','/c','call',shim,'ssh','--profile','fixture'],terminal=windows?'cmd.exe':'/bin/sh',plainArgs=windows?cmdArgs:[shim,'ssh','fixture'];
-  await store.save({...profile,password:null,keyFile:path.resolve('tests/fixtures/ssh-keys/ed25519-v3.ppk')});await interactive(terminal,plainArgs,'key');await store.save(profile);
+  const encryptedKey=path.join(directory,'generated-ed25519-v3.ppk');
+  await writeFile(encryptedKey,await generatedPpk(generatedTestKey('ed25519'),3,{passphrase:TEST_KEY_PASSPHRASE,newline:'\r\n'}),{mode:0o600});
+  await store.save({...profile,password:null,keyFile:encryptedKey});await interactive(terminal,plainArgs,'key');await store.save(profile);
   await interactive(terminal,plainArgs);await interactive(terminal,plainArgs,'lost');
   fixture.settings.denyAuth=true;await interactive(terminal,plainArgs,'auth-failed');fixture.settings.denyAuth=false;
   await new Promise<void>(resolve=>fixture.server.close(()=>resolve()));await interactive(terminal,plainArgs,'refused');await new Promise<void>(resolve=>{fixture.server.listen(fixture.port,'0.0.0.0',resolve);});
