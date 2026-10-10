@@ -31,7 +31,7 @@ it.skipIf(process.platform !== 'win32')('writes owned shims, reflects files+PATH
   try {
     await ps(`$k=[Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('${key}'); try { $k.SetValue('Path','%USERPROFILE%\\bin;;C:\\keep;',[Microsoft.Win32.RegistryValueKind]::ExpandString) } finally { $k.Dispose() }`);
     expect(await cli.get()).toMatchObject({ ok: true, value: { installed: false } });
-    expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true, command: 'shellfox start <path>' } });
+    expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true, command: 'shellfox' } });
     expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true } });
     const state = JSON.parse(await ps(`$k=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('${key}'); try { @{ path=$k.GetValue('Path','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); kind=$k.GetValueKind('Path').ToString() } | ConvertTo-Json -Compress } finally { $k.Dispose() }`));
     expect(state.kind).toBe('ExpandString'); expect(state.path).toBe('%USERPROFILE%\\bin;;C:\\keep;;' + binDir);
@@ -151,7 +151,7 @@ it('custom registry/bin/runner options and an explicit opt-out cannot touch real
 it('explicit isolated WSL opt-in uses its runner and does not fail Windows when WSL is unavailable', async () => {
   const binDir = await isolatedBin();
   const run = vi.fn(async () => { throw new Error('WSL unavailable'); });
-  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run: registryRunner(), wsl: { run, home: '/tmp/shellfox-test-home' } });
+  const cli = new WindowsCliIntegration({ executable: process.execPath, platform: 'win32', binDir, run: registryRunner(), wsl: { run, home: '/tmp/shellfox-isolated-home' } });
   expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true, reason: expect.stringContaining('Windows CLI is unaffected') } });
   expect(await readFile(path.join(binDir, 'shellfox'), 'utf8')).toContain('Shellfox/cli-v1');
   expect(run).toHaveBeenCalledTimes(1);

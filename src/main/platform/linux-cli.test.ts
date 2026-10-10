@@ -19,7 +19,7 @@ it.skipIf(process.platform!=='linux')('real sh launcher handles cold spawn, spac
   await exec('/bin/sh',[shim],{cwd:root,timeout:4000});
   expect(Date.now()-before).toBeLessThan(1500);
   await new Promise(resolve=>setTimeout(resolve,2200)); // Let only our fake child exit naturally.
-  await expect(exec('/bin/sh',[shim,'start','missing'],{cwd:root,timeout:3000})).rejects.toMatchObject({code:1});expect((await exec('/bin/sh',[shim,'--help'],{timeout:3000})).stdout).toContain('Usage: shellfox start');
+  await expect(exec('/bin/sh',[shim,'start','missing'],{cwd:root,timeout:3000})).rejects.toMatchObject({code:1});expect(await readFile(shim,'utf8')).toContain('cli/main/cli.cjs');
  }finally{await rm(root,{recursive:true,force:true});}
 });
 it('requires an exact ownership comment and preserves a foreign launcher',async()=>{

@@ -4,17 +4,20 @@ import { access, readFile, writeFile, mkdir, chmod, unlink, lstat } from 'node:f
 import { constants } from 'node:fs';
 import type { CliIntegrationDto, Result } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
+import { posixHelper } from './cli-helper';
 import type { CliPort } from './shellfox-cli';
 import updateScript from '../update/shellfox-update.sh';
 export const LINUX_OWNER = 'Shellfox/linux-v1';
 export const ownsLinuxFile = (content: string) => content.split(/\r?\n/).includes('# ' + LINUX_OWNER);
-export interface LinuxCliOptions { executable: string; appPath?: string; home?: string; env?: NodeJS.ProcessEnv; prefixArgs?: string[]; launchEnv?: Record<string,string>; systemLauncher?: string }
+export interface LinuxCliOptions { executable: string; appPath?: string; cliHelper?: string; userData?: string; home?: string; env?: NodeJS.ProcessEnv; prefixArgs?: string[]; launchEnv?: Record<string,string>; systemLauncher?: string }
 export const shQuote = (value: string) => "'"+value.replaceAll("'","'\\''")+"'";
 export function linuxLauncher(options: LinuxCliOptions): string {
   const target=[options.executable,...(options.appPath?[options.appPath]:[]),...(options.prefixArgs??[])].map(shQuote).join(' ');
   return `#!/bin/sh
 # ${LINUX_OWNER}
-if [ "\${1:-}" = '--help' ]; then printf '%s\\n' 'Usage: shellfox start [path]' '       shellfox update [--check]' 'Without arguments, open Shellfox.' 'update installs the latest published release.'; exit 0; fi
+if [ "\${1:-}" = '--help' ] || [ "\${1:-}" = ssh ]; then
+${posixHelper(options, false)}fi
+unset ELECTRON_RUN_AS_NODE
 if [ "\${1:-}" = update ]; then
   shift
   shellfox_update_script=${shQuote(updateScript)}
@@ -26,7 +29,8 @@ elif [ "$1" = start ] && [ "$#" -le 2 ]; then
   case "$target" in /*) ;; *) target=./$target ;; esac
   folder=$(CDPATH='' cd -P -- "$target" 2>/dev/null && pwd -P) || { printf '%s\\n' 'Shellfox: directory does not exist or is inaccessible.' >&2; exit 1; }
   mode=start
-else printf '%s\\n' 'Usage: shellfox start [path] | shellfox update [--check]' >&2; exit 2; fi
+else
+${posixHelper(options, false)}fi
 if [ ! -x ${shQuote(options.executable)} ]; then printf '%s\\n' 'Shellfox: application executable is missing.' >&2; exit 1; fi
 ${Object.entries(options.launchEnv??{}).map(([key,value])=>`export ${key}=${shQuote(value)}`).join('\n')}
 launch() {
@@ -56,7 +60,7 @@ export class LinuxCliIntegration implements CliPort {
     this.binDir=this.packaged?'/usr/bin':path.join(options.home??homedir(),'.local','bin');
     this.launcher=this.packaged?(options.systemLauncher??'/usr/bin/shellfox'):path.join(this.binDir,'shellfox');
   }
-  private state(installed: boolean): CliIntegrationDto { const onPath=(this.options.env??process.env).PATH?.split(':').some(dir=>path.resolve(dir)===path.resolve(this.binDir));return {supported:true,installed,command:'shellfox start <path>',reason:this.packaged?'Installed with the package':onPath?null:'Add ~/.local/bin to PATH (or log out and in)'}; }
+  private state(installed: boolean): CliIntegrationDto { const onPath=(this.options.env??process.env).PATH?.split(':').some(dir=>path.resolve(dir)===path.resolve(this.binDir));return {supported:true,installed,command:'shellfox',reason:this.packaged?'Installed with the package':onPath?null:'Add ~/.local/bin to PATH (or log out and in)'}; }
   async get(): Promise<Result<CliIntegrationDto>> {
     let installed=false;try { await access(this.launcher,constants.X_OK);const content=await readFile(this.launcher,'utf8');installed=this.packaged?ownsLinuxFile(content):content===linuxLauncher(this.options); } catch { /* Missing file is not installed. */ }
     return success(this.state(installed));

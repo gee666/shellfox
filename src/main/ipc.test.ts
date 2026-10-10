@@ -1,6 +1,10 @@
 import { beforeEach, it, expect, vi } from 'vitest';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import type { SessionService } from './service';
+import { SshProfileStore } from './ssh/storage';
+import * as putty from './ssh/putty';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import path from 'node:path';
 const state=vi.hoisted(()=>({handler:undefined as undefined | ((event: unknown,request: unknown)=>Promise<unknown>),removed:false}));
 vi.mock('electron',()=>({
   ipcMain:{handle:(_channel:string,fn:typeof state.handler)=>{state.handler=fn;},removeHandler:()=>{state.removed=true;}},
@@ -17,6 +21,13 @@ function fixture(){
   return {window,event,service};
 }
 beforeEach(()=>{state.handler=undefined;state.removed=false;});
+it('returns a specific PuTTY import error rather than the generic IPC toast',async()=>{
+  const {window,event,service}=fixture();const read=vi.spyOn(putty,'readPuttySessions').mockRejectedValue(new Error('PuTTY sessions exceed the 8 MiB import limit.'));
+  try{
+    installIpc(window,url,service,undefined,undefined,new SshProfileStore(path.resolve('tmp/ssh-ipc-import-unused')));
+    expect(await state.handler!(event,{version:1,method:'importPuttySessions',payload:{}})).toMatchObject({ok:false,error:{code:'STORAGE_FAILED',message:'PuTTY import failed: PuTTY sessions exceed the 8 MiB import limit.'}});
+  }finally{read.mockRestore();}
+});
 it('accepts only the exact app webContents, main frame, and URL',()=>{
   const {window,event}=fixture();
   expect(isTrustedSender(event,window,url)).toBe(true);
@@ -71,4 +82,18 @@ it('routes deleteSession only with a strict session id payload and validates the
   expect(await state.handler!(event,{version:1,method:'deleteSession',payload:{sessionId}})).toMatchObject({ok:false,error:{code:'INTERNAL'}});
   await state.handler!({...event,sender:{}},{version:1,method:'deleteSession',payload:{sessionId}});
   expect(service.deleteSession).toHaveBeenCalledTimes(1);
+});
+it('routes SSH storage through trusted validated IPC without exposing the saved password',async()=>{
+  await mkdir('tmp',{recursive:true});const directory=await mkdtemp(path.resolve('tmp/ssh-ipc-'));
+  try {
+    const {window,event,service}=fixture(),store=new SshProfileStore(directory);installIpc(window,url,service,undefined,undefined,store);
+    const request=(method:string,payload:unknown={})=>state.handler!(event,{version:1,method,payload});
+    const input={id:'00000000-0000-4000-8000-000000000001',name:'prod',host:'host',port:22,user:'user',password:'private-secret',keyFile:null,remoteCwd:null};
+    expect(await request('listSshProfiles')).toEqual({ok:true,value:[]});
+    const saved=await request('saveSshProfile',input);expect(saved).toMatchObject({ok:true,value:[{name:'prod',hasPassword:true}]});expect(JSON.stringify(saved)).not.toContain('private-secret');
+    expect(await request('saveSshProfile',{...input,port:0})).toMatchObject({ok:false,error:{code:'VALIDATION'}});
+    expect(await request('chooseSshKeyFile')).toEqual({ok:true,value:null});
+    expect(await state.handler!({...event,sender:{}},{version:1,method:'deleteSshProfile',payload:{id:input.id}})).toMatchObject({ok:false,error:{code:'AUTH_FAILED'}});
+    expect(await request('deleteSshProfile',{id:input.id})).toEqual({ok:true,value:[]});
+  }finally{await rm(directory,{recursive:true,force:true});}
 });

@@ -10,6 +10,11 @@ async function request(method: ManagerMethod, payload: unknown): Promise<any> {
   } catch { return failure('INTERNAL', 'Application request failed', true); }
 }
 const api: ManagerApi = {
+  listSshProfiles: () => request('listSshProfiles', {}),
+  saveSshProfile: input => request('saveSshProfile', input),
+  deleteSshProfile: input => request('deleteSshProfile', input),
+  importPuttySessions: () => request('importPuttySessions', {}),
+  chooseSshKeyFile: () => request('chooseSshKeyFile', {}),
   getSnapshot: () => request('getSnapshot', {}),
   getTerminalProfiles: () => request('getTerminalProfiles', {}),
   attachTerminal: input => request('attachTerminal', input),

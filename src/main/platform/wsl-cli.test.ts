@@ -132,7 +132,7 @@ describe.skipIf(!hasPython)('guest startup editor', () => {
     await edit(home, true, posix(bin));
     // Native Bash or Git Bash, not WSL. All paths remain separate argv values.
     const script = 'PATH="$1:$PATH"; shellfox; . "$2"; . "$2"; command -v shellfox; printf "%s\\n" "$PATH"';
-    const { stdout } = await exec(bash, ['--noprofile', '--norc', '-c', script, 'shellfox-test', posix(old), posix(path.join(home, '.bashrc'))], { timeout: 8000, windowsHide: true });
+    const { stdout } = await exec(bash, ['--noprofile', '--norc', '-c', script, 'shellfox-startup-fixture', posix(old), posix(path.join(home, '.bashrc'))], { timeout: 8000, windowsHide: true });
     const lines = stdout.trimEnd().split(/\r?\n/);
     expect(lines[0]).toBe(posix(bin) + '/shellfox');
     expect(lines[1].split(':').filter(entry => entry === posix(bin))).toHaveLength(1);

@@ -4,7 +4,7 @@ import type { CSSProperties } from 'react';
 import type { ManagerApi, TerminalProfileDto } from '../shared/contracts';
 import { getManagerApi, getTerminalApi, request } from './api';
 import { createManagerClient } from './store';
-import { Icon, Modal, Notifications, useAction, useNotify } from './components';
+import { Icon, Notifications, useAction, useNotify } from './components';
 import { SessionSidebar } from './SessionSidebar';
 import { TerminalWorkspace } from './TerminalWorkspace';
 import { TerminalLoading, TerminalPlaceholder } from './TerminalPlaceholder';
@@ -64,6 +64,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const available = !!snapshot?.probe.available;
   const canCreate = available && !!snapshot?.probe.capabilities.createWindow && (snapshot.probe.adapterId !== 'embedded-pty' || (!!terminalApi && profiles.some(profile => profile.available && (snapshot.probe.platform === 'win32' || profile.id === effectiveProfile))));
   async function create(cwd: string): Promise<boolean> {
+    setSettingsOpen(false);
     const title = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || cwd;
     const result = await action.run(() => api.createSession({ cwd, title, requestId: crypto.randomUUID() }));
     if (!result?.ok) { client.refresh(); return false; }
@@ -82,10 +83,21 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     const tab = selected?.tabs.find(tab => tab.id === state.activeTabIds[selected.id]) ?? selected?.tabs.find(tab => tab.lifecycle !== 'closed');
     if (tab) requestAnimationFrame(() => registry.focus(tab.id));
   }
+  useEffect(() => {
+    if (!settingsOpen || directoryOpen) return;
+    const keydown = (event: KeyboardEvent) => {
+      const overlay = Array.from(document.querySelectorAll('[role="dialog"], [role="menu"]')).some(node => !node.closest('[hidden], [inert]'));
+      if (event.key === 'Escape' && !event.defaultPrevented && !overlay) {
+        event.preventDefault(); closeSettings();
+      }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => document.removeEventListener('keydown', keydown);
+  });
   return <div className={`app-shell${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
     <aside className="sidebar" aria-label="Session navigation">
-      <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" title={canCreate ? 'New session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => setDirectoryOpen(true)}><Icon name="plus" /></button><button className="icon-button" aria-label="Settings" title="Settings" disabled={!snapshot} onClick={() => setSettingsOpen(true)}><Icon name="settings" /></button></div>
-      {snapshot && <SessionSidebar client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={snapshot.settings.historyPageSize} />}
+      <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" title={canCreate ? 'New session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => { setSettingsOpen(false); setDirectoryOpen(true); }}><Icon name="plus" /></button><button className={`icon-button${settingsOpen ? ' active' : ''}`} aria-label="Settings" aria-pressed={settingsOpen} title="Settings" disabled={!snapshot} onClick={() => settingsOpen ? closeSettings() : setSettingsOpen(true)}><Icon name="settings" /></button></div>
+      {snapshot && <SessionSidebar onSelect={() => setSettingsOpen(false)} client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={snapshot.settings.historyPageSize} />}
       <UpdateNotice api={api} />
     </aside>
     <div className="sidebar-resizer" role="separator" aria-label="Sidebar width" aria-orientation="vertical" aria-valuemin={160} aria-valuemax={Math.max(160, window.innerWidth / 2)} aria-valuenow={width} tabIndex={0}
@@ -96,9 +108,11 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
       onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDragging(false); }}
       onPointerCancel={() => setDragging(false)} onLostPointerCapture={() => setDragging(false)} />
     <main className="workspace" aria-label="Workspace">
-      {selected ? <TerminalWorkspace key={selected.id} session={selected} client={client} registry={registry} profiles={profiles} defaultProfileId={effectiveProfile} platform={snapshot?.probe.platform} available={available} /> : state.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
+      <div className="workspace-content" hidden={settingsOpen} inert={settingsOpen}>
+        {selected ? <TerminalWorkspace visible={!settingsOpen} key={selected.id} session={selected} client={client} registry={registry} profiles={profiles} defaultProfileId={effectiveProfile} platform={snapshot?.probe.platform} available={available} /> : state.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
+      </div>
+      {settingsOpen && snapshot && <SettingsPanel onClose={closeSettings} client={client} settings={snapshot.settings} explorer={snapshot.explorer} cli={snapshot.cli} profiles={profiles} defaultProfileId={defaultProfileId} />}
     </main>
     {directoryOpen && <DirectoryPrompt api={api} onCreate={create} onClose={() => setDirectoryOpen(false)} />}
-    {settingsOpen && snapshot && <Modal title="Settings" onClose={closeSettings}><SettingsPanel client={client} settings={snapshot.settings} explorer={snapshot.explorer} cli={snapshot.cli} profiles={profiles} defaultProfileId={defaultProfileId} /></Modal>}
   </div>;
 }

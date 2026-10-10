@@ -86,7 +86,7 @@ export class EmbeddedSessionService {
       // Round 3 already used Shellfox shims. Refresh their executable after the rename.
       const integration = this.repository.cliPreference?.() === true
         ? await this.cliIntegration.set(true) : await this.cliIntegration.get();
-      this.cli = integration.ok ? integration.value : { ...unavailableCli, supported: ['win32', 'linux'].includes(process.platform), reason: integration.error.message };
+      this.cli = integration.ok ? integration.value : { ...unavailableCli, supported: ['win32', 'linux', 'darwin'].includes(process.platform), reason: integration.error.message };
     };
     const initializeIntegrations = async () => {
       // Linux menus inspect/install the same CLI launcher. Keep that dependency

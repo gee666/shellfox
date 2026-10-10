@@ -6,6 +6,8 @@ allowBuilds:
   better-sqlite3: false
   node-pty: false # Rebuilt explicitly for Electron by scripts/rebuild.mjs.
   electron-winstaller: true
+  ssh2: false # Pure JS crypto; native acceleration is optional.
+  cpu-features: false
 storeDir: tmp/pnpm-store
 nodeLinker: hoisted
 cacheDir: tmp/npm-cache

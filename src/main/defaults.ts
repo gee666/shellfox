@@ -63,5 +63,5 @@ export const unavailableProbe = (reason: string): NativeProbe => ({
   capabilities: { createWindow: false, addTab: false, focusWindow: false, activateTab: false, splitPane: false, attachExisting: false, closeTerminal: false, commandExitStatus: false, processTracking: false, explorerContextMenu: false },
   shells: [], reasons: [reason],
 });
-export const unavailableCli: CliIntegrationDto = { supported: false, installed: false, command: 'shellfox start <path>', reason: 'Shellfox CLI integration requires Windows.' };
+export const unavailableCli: CliIntegrationDto = { supported: false, installed: false, command: 'shellfox', reason: 'Shellfox CLI integration is unavailable.' };
 export const unavailableExplorer: ExplorerIntegrationDto = { supported: false, installed: false, folderItemInstalled: false, backgroundInstalled: false, reason: 'Native integration is unavailable' };

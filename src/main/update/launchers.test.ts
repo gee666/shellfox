@@ -33,7 +33,7 @@ describe('launchers route `update`', () => {
     const updateAt = shims.cmd.indexOf('if /i "%~1"=="update" goto update'), startAt = shims.cmd.indexOf('if /i not "%~1"=="start" goto invalid');
     expect(updateAt).toBeGreaterThan(0); expect(updateAt).toBeLessThan(startAt);
     expect(shims.cmd).toContain('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0shellfox-update.ps1" -Executable "C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe" %shellfox_update_args%');
-    expect(shims.cmd).toContain('exit /b %errorlevel%'); expect(shims.cmd).toContain('shellfox update [--check]');
+    expect(shims.cmd).toContain('exit /b %errorlevel%'); expect(shims.cmd).toContain('cli\\main\\cli.cjs\" --help');
     expect(shims.posix).toContain('if [ "$1" = update ]; then');
     expect(shims.posix).toContain('-File "$script" -Executable \'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe\'');
     expect(shims.posix).toContain('cygpath -w "$script"'); expect(shims.posix).toContain('wslpath -w "$script"');

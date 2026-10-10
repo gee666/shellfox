@@ -95,7 +95,7 @@ for name in all_names:
         else:
             content = b''
         matches = list(pattern.finditer(content))
-        if content.count(b'# >>> Shellfox/wsl-cli-v1 >>>') != len(matches) or content.count(b'# <<< Shellfox/wsl-cli-v1 <<<') != len(matches) or len(matches) > 1:
+        if content.count(begin.rstrip(b'\n')) != len(matches) or content.count(end.rstrip(b'\n')) != len(matches) or len(matches) > 1:
             raise ValueError('Malformed Shellfox block')
         created = not exists or bool(matches and matches[0].group(1) == b'yes')
         remaining = pattern.sub(b'', content)

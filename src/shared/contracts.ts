@@ -104,6 +104,17 @@ export interface UpdateStatusDto {
   phase?: 'idle' | 'downloading' | 'ready' | 'installing' | 'error';
   supported?: boolean; reason?: string | null; received?: number; total?: number | null; error?: string | null;
 }
+/** Saved SSH connection. Passwords never leave the main process; the renderer only sees hasPassword. */
+export interface SshProfileDto {
+  id: Id; name: string; host: string; port: number; user: string;
+  hasPassword: boolean; keyFile: string | null; remoteCwd: string | null; source: 'manual' | 'putty';
+}
+/** Upsert by id (new id = add). password: undefined keeps the saved one, null clears it, string replaces it. */
+export interface SshProfileInput {
+  id: Id; name: string; host: string; port: number; user: string;
+  password?: string | null; keyFile: string | null; remoteCwd: string | null;
+}
+export interface SshImportResultDto { profiles: SshProfileDto[]; added: number; updated: number; found: number }
 export interface ManagerApi extends Partial<TerminalApi> {
   getSnapshot(): Promise<Result<ManagerSnapshot>>;
   activateSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
@@ -131,6 +142,14 @@ export interface ManagerApi extends Partial<TerminalApi> {
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
   setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;
+  listSshProfiles(): Promise<Result<SshProfileDto[]>>;
+  /** Names are unique case-insensitively; a clash fails with VALIDATION. Returns the full sorted list. */
+  saveSshProfile(input: SshProfileInput): Promise<Result<SshProfileDto[]>>;
+  deleteSshProfile(input: { id: Id }): Promise<Result<SshProfileDto[]>>;
+  /** Same name (case-insensitive) updates host/port/user/keyFile of the existing profile; new names are added. */
+  importPuttySessions(): Promise<Result<SshImportResultDto>>;
+  /** Native open-file dialog for a private key (.ppk, OpenSSH). null when cancelled. */
+  chooseSshKeyFile(): Promise<Result<{ path: string } | null>>;
   getHomeDirectory(): Promise<Result<{ cwd: string }>>;
   resolveDirectory(input: { path: string }): Promise<Result<{ cwd: string }>>;
   completeDirectory(input: { path: string }): Promise<Result<{ matches: string[] }>>;

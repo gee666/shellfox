@@ -17,6 +17,8 @@ import { SessionService } from './service';
 import { EmbeddedSessionService } from './terminal/service';
 import { TerminalQuitGuard } from './terminal/shutdown';
 import { installIpc } from './ipc';
+import { helpText } from './ssh/presentation';
+import { SshProfileStore } from './ssh/storage';
 import { handleEmbeddedInstaller, installerEvent } from './installer';
 import { UpdateChecker } from './update-check';
 import { SelfUpdater, type UpdateSource } from './update/self-updater';
@@ -56,7 +58,7 @@ async function run(): Promise<void> {
     catch { app.exit(1); }
     return;
   }
-  if (args.includes('--help')) { console.log('Usage: shellfox start [path]'); app.exit(0); return; }
+  if (args.includes('--help')) { process.stdout.write(helpText(app.getVersion(), process.stdout.isTTY === true && process.env.NO_COLOR === undefined, process.platform !== 'win32')); app.exit(0); return; }
   const parsed = parseCli(args.filter(a => a !== '--squirrel-firstrun'), { testMode: process.env.SHELLFOX_TEST_MODE === '1', testBuild: __TEST_BUILD__, projectRoot: __TEST_BUILD__ ? __PROJECT_ROOT__ : process.env.SHELLFOX_TEST_ROOT });
   if (!parsed.ok) { console.error('Shellfox: ' + parsed.error.message); app.exit(1); return; }
   if (parsed.value.userData) app.setPath('userData', parsed.value.userData);
@@ -66,6 +68,7 @@ async function run(): Promise<void> {
     catch { console.error('Shellfox: directory does not exist or is not accessible.'); app.exit(1); return; }
   }
   const cliOptions = {
+    userData: app.getPath('userData'), cliHelper: app.isPackaged ? path.join(process.resourcesPath, 'cli/main/cli.cjs') : path.join(__dirname, '../cli/main/cli.cjs'),
     updateScript: windowsUpdateScript, executable: process.execPath, ...(app.isPackaged ? {} : { appPath: path.join(__dirname, 'index.cjs') }),
     ...(parsed.value.userData ? {
       binDir: path.join(parsed.value.userData, 'Shellfox', 'bin'),
@@ -182,7 +185,7 @@ async function run(): Promise<void> {
     if (!window || window.isDestroyed()) return;
     const result = await handleCliRequest(request, service, window, !backgroundTest);
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
-  }), updates);
+  }), updates, new SshProfileStore(app.getPath('userData')));
   await window.loadFile(rendererFile);
   const quitGuard = new TerminalQuitGuard({ ownedTerminalCount: () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0, dispose: () => service.dispose() }, count => {
     const options = { type: 'warning' as const, title: 'Close embedded shells and quit?', message: `Quit Shellfox and close ${count} owned terminal${count === 1 ? '' : 's'}?`, detail: 'Embedded shells do not survive manager shutdown. Running commands may be interrupted. Restarting opens fresh shells; it does not restore commands. Legacy external terminals are not touched.', buttons: ['Cancel', 'Close shells and quit'], defaultId: 0, cancelId: 0, noLink: true };

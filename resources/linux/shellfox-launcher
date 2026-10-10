@@ -1,6 +1,9 @@
 #!/bin/sh
 # Shellfox/linux-v1
-if [ "${1:-}" = --help ]; then printf '%s\n' 'Usage: shellfox start [path]' '       shellfox update [--check]' 'Without arguments, open Shellfox.' 'update installs the latest published release.'; exit 0; fi
+if [ "${1:-}" = --help ] || [ "${1:-}" = ssh ]; then
+  ELECTRON_RUN_AS_NODE=1 exec /usr/lib/shellfox/shellfox /usr/lib/shellfox/resources/cli/main/cli.cjs "$@"
+fi
+unset ELECTRON_RUN_AS_NODE
 if [ "${1:-}" = update ]; then shift; exec /bin/sh /usr/lib/shellfox/resources/shellfox-update.sh "$@"; fi
 if [ "$#" -eq 0 ]; then mode=show
 elif [ "$1" = start ] && [ "$#" -le 2 ]; then
@@ -8,7 +11,7 @@ elif [ "$1" = start ] && [ "$#" -le 2 ]; then
   case "$target" in /*) ;; *) target=./$target ;; esac
   folder=$(CDPATH='' cd -P -- "$target" 2>/dev/null && pwd -P) || { printf '%s\n' 'Shellfox: directory does not exist or is inaccessible.' >&2; exit 1; }
   mode=start
-else printf '%s\n' 'Usage: shellfox start [path] | shellfox update [--check]' >&2; exit 2; fi
+else ELECTRON_RUN_AS_NODE=1 exec /usr/lib/shellfox/shellfox /usr/lib/shellfox/resources/cli/main/cli.cjs "$@"; fi
 launch() { exec setsid --fork --wait /usr/lib/shellfox/shellfox "$@" </dev/null >/dev/null 2>&1; }
 # Do not retain saved copies of the caller's output pipes in a shell function.
 if [ "$mode" = start ]; then launch start "$folder" &

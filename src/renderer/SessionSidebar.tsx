@@ -11,8 +11,8 @@ export function shortenHome(cwd: string) {
   cwd = parseWslUnc(cwd)?.guestPath ?? cwd;
   return cwd.replace(/^[a-z]:[\\/]Users[\\/][^\\/]+(?=[\\/]|$)/i, '~').replace(/^\/home\/[^/]+(?=\/|$)|^\/Users\/[^/]+(?=\/|$)/, '~');
 }
-export function SessionSidebar({ client, sessions, selectedId, busy, invalidation, archiveInvalidation = 0, pageSize }: {
-  client: ManagerClient; sessions: SessionDto[]; selectedId: string | null; busy: Record<string, boolean>; invalidation: number; archiveInvalidation?: number; pageSize: number;
+export function SessionSidebar({ client, sessions, selectedId, busy, invalidation, archiveInvalidation = 0, pageSize, onSelect }: {
+  client: ManagerClient; sessions: SessionDto[]; selectedId: string | null; busy: Record<string, boolean>; invalidation: number; archiveInvalidation?: number; pageSize: number; onSelect?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [history, setHistory] = useState<SessionDto[]>([]);
@@ -112,6 +112,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
   /** Selecting a live session with no open terminal (e.g. after a restart) opens one fresh shell.
    * The backend serializes activation and returns the existing shell if one is already live. */
   async function open(session: SessionDto) {
+    onSelect?.();
     client.select(session);
     if (session.settledAt || session.status === 'settled' || session.tabs.some(tab => tab.lifecycle !== 'closed')) return;
     if (client.store.getState().openingSessionIds[session.id]) return;
@@ -173,7 +174,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, invalidatio
         setMenu({ session, x: rect.left, y: rect.bottom });
       }}>
       <StatusDot state={sessionDot(session, busy)} />
-      {editing ? <div className="session-copy"><input autoFocus aria-label="Session title" value={name} maxLength={160} disabled={action.pending} onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void saveName(session); if (event.key === 'Escape') setRenaming(null); }} /><small title={session.cwd}>{shortenHome(session.cwd)}</small></div>
+      {editing ? <div className="session-copy"><input autoFocus aria-label="Session title" value={name} maxLength={160} disabled={action.pending} onChange={event => setName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void saveName(session); if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setRenaming(null); } }} /><small title={session.cwd}>{shortenHome(session.cwd)}</small></div>
         : <button className="session-copy" aria-label={`Select session ${session.title}`} aria-pressed={selectedId === session.id} onClick={() => void open(session)}><span className="session-title-line"><span className="session-title" title={session.title} onDoubleClick={() => rename(session)}>{session.title}</span>{session.pinnedAt && !session.settledAt && <span className="session-pin" title="Pinned" aria-label="Pinned"><Icon name="pin" /></span>}</span><small title={session.cwd}>{shortenHome(session.cwd)}</small></button>}
     </div>;
   }

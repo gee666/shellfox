@@ -24,10 +24,10 @@ export function explorerCommand(executable: string, background: boolean, appPath
   return `${quoteArgument(executable)}${appPath ? ' ' + quoteArgument(appPath) : ''} --new-session --cwd "${background ? '%V' : '%1'}\\."`;
 }
 export type RegistryRunner = (script: string) => Promise<unknown>;
-export const runRegistry: RegistryRunner = script => new Promise((resolve, reject) => {
+export const runRegistry = (script: string, options: { maxBuffer?:number } = {}): Promise<unknown> => new Promise((resolve, reject) => {
   const powershell = path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32\\WindowsPowerShell\\v1.0\\powershell.exe');
   execFile(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-    { shell: false, windowsHide: true, timeout: 10000, maxBuffer: 64 * 1024, encoding: 'utf8' }, (error, stdout) => {
+    { shell: false, windowsHide: true, timeout: 10000, maxBuffer: options.maxBuffer ?? 64 * 1024, encoding: 'utf8' }, (error, stdout) => {
       if (error) reject(error);
       else { try { resolve(JSON.parse(stdout.replace(/^\uFEFF/, '').trim())); } catch (parseError) { reject(parseError); } }
     });

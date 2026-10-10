@@ -63,6 +63,11 @@ jobs:
         run: bash .github/scripts/ci-step.sh typecheck pnpm typecheck
       - name: Packaging configuration tests
         run: bash .github/scripts/ci-step.sh packaging-tests pnpm test:packaging
+      # SSH's real PTY fixture needs the target-native addon before unit tests.
+      # Install scripts for node-pty stay disabled; this also validates in Electron.
+      - name: Unit-test native prerequisites
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        run: bash .github/scripts/ci-step.sh unit-native pnpm rebuild
       - name: Unit tests
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
         run: bash .github/scripts/ci-step.sh unit-tests pnpm test:unit

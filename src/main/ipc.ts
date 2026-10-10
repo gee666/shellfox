@@ -6,13 +6,15 @@ import type { EmbeddedSessionService } from './terminal/service';
 import { TerminalDelivery } from './terminal/delivery';
 import { validateDirectory } from './directory';
 import { getHomeDirectory, resolveDirectory, completeDirectory } from './directory-prompt';
+import { SshProfileStore } from './ssh/storage';
+import { readPuttySessions } from './ssh/putty';
 import type { UpdateSource } from './update/self-updater';
 
 export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow, rendererUrl: string): boolean {
   return !window.isDestroyed() && event.sender === window.webContents && !!event.senderFrame &&
     event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === rendererUrl;
 }
-export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource): () => void {
+export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource, ssh?: SshProfileStore): () => void {
   let announcedReady = false;
   const embedded = 'attachTerminal' in service ? service : null;
   const delivery = embedded ? new TerminalDelivery(input => embedded.attachTerminal(input), event => {
@@ -40,6 +42,19 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
       let result: unknown;
       // Keep methods explicit. There is no property lookup into the service.
       switch (method) {
+        case 'listSshProfiles': result = ssh ? await ssh.list() : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
+        case 'saveSshProfile': result = ssh ? await ssh.save(requestSchemas.saveSshProfile.parse(payload)) : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
+        case 'deleteSshProfile': result = ssh ? await ssh.delete(requestSchemas.deleteSshProfile.parse(payload).id) : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
+        case 'importPuttySessions': {
+          if(!ssh){result=failure('UNSUPPORTED','SSH storage is unavailable.');break;}
+          try {result=await ssh.import(await readPuttySessions());}
+          catch(error){result=failure('STORAGE_FAILED',('PuTTY import failed: '+(error as Error).message).replace(/[\x00-\x1f\x7f]/g,' ').slice(0,1000),true);}
+          break;
+        }
+        case 'chooseSshKeyFile': {
+          const selection = await dialog.showOpenDialog(window, { properties: ['openFile'], title: 'Choose SSH private key' });
+          result = success(selection.canceled || !selection.filePaths[0] ? null : { path: selection.filePaths[0] }); break;
+        }
         case 'getSnapshot':
           if (embedded) await embedded.refreshIntegrations();
           result = service.getSnapshot();

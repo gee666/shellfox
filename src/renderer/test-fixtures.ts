@@ -1,6 +1,6 @@
 // Typed fixtures. Never imported by the production entry point.
 import { vi } from 'vitest';
-import type { ChangedEvent, ManagerApi, ManagerSnapshot, SessionDto, SettingsDto, TabDto, TerminalApi, TerminalEvent, TerminalProfileDto } from '../shared/contracts';
+import type { ChangedEvent, ManagerApi, ManagerSnapshot, SessionDto, SettingsDto, SshProfileDto, TabDto, TerminalApi, TerminalEvent, TerminalProfileDto } from '../shared/contracts';
 import { success } from '../shared/contracts';
 
 export const profiles: TerminalProfileDto[] = [
@@ -52,6 +52,7 @@ export function snapshot(sessions: SessionDto[] = [session()]): ManagerSnapshot 
 }
 export function mockApi(initial = snapshot()) {
   let current = initial;
+  let sshProfiles: SshProfileDto[] = [];
   const listeners = new Set<(event: ChangedEvent) => void>();
   const terminalListeners = new Set<(event: TerminalEvent) => void>();
   const unsubscribe = vi.fn(); const terminalUnsubscribe = vi.fn();
@@ -132,6 +133,16 @@ export function mockApi(initial = snapshot()) {
     getHomeDirectory: vi.fn<ManagerApi['getHomeDirectory']>(async () => success({ cwd: 'C:\\Users\\user' })),
     resolveDirectory: vi.fn<ManagerApi['resolveDirectory']>(async ({ path }) => success({ cwd: path ? `C:\\Users\\user\\${path}` : 'C:\\Users\\user' })),
     completeDirectory: vi.fn<ManagerApi['completeDirectory']>(async () => success({ matches: ['Documents\\'] })),
+    listSshProfiles: vi.fn<ManagerApi['listSshProfiles']>(async () => success(sshProfiles)),
+    saveSshProfile: vi.fn<ManagerApi['saveSshProfile']>(async input => {
+      const previous = sshProfiles.find(profile => profile.id === input.id);
+      const profile: SshProfileDto = { id: input.id, name: input.name, host: input.host, port: input.port, user: input.user, keyFile: input.keyFile, remoteCwd: input.remoteCwd, hasPassword: input.password === undefined ? previous?.hasPassword ?? false : !!input.password, source: previous?.source ?? 'manual' };
+      sshProfiles = [...sshProfiles.filter(item => item.id !== input.id), profile].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+      return success(sshProfiles);
+    }),
+    deleteSshProfile: vi.fn<ManagerApi['deleteSshProfile']>(async ({ id }) => { sshProfiles = sshProfiles.filter(profile => profile.id !== id); return success(sshProfiles); }),
+    importPuttySessions: vi.fn<ManagerApi['importPuttySessions']>(async () => success({ profiles: sshProfiles, added: 0, updated: 0, found: 0 })),
+    chooseSshKeyFile: vi.fn<ManagerApi['chooseSshKeyFile']>(async () => success(null)),
     chooseDirectory: vi.fn<ManagerApi['chooseDirectory']>(async () => success({ cwd: 'C:\\projects\\same folder' })),
     subscribe: vi.fn<ManagerApi['subscribe']>(listener => { listeners.add(listener); return () => { listeners.delete(listener); unsubscribe(); }; }),
   } satisfies ManagerApi;

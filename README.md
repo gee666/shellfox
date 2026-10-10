@@ -14,7 +14,7 @@ This is an embedded-terminal preview. Windows x64 dependency/build/package check
 - Right-click a session → Pin to top keeps it above the others (in pin order); Unpin returns it to the normal order. Archived sessions remember the pin; it applies again after Restore.
 - The tab-strip plus creates another independent shell. Right-click it to choose a discovered profile.
 - Copy selected terminal text with Ctrl+Shift+C; paste with Ctrl+Shift+V. In mouse-enabled apps, hold Shift while dragging to select text. Windows-hosted PowerShell and WSL tabs use the Windows clipboard; `xclip` is not needed.
-- Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
+- Settings opens as a full page in the workspace, with the sidebar still usable. Press Esc or × to return. Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
 - Closing a tab explicitly terminates its owned shell and verified descendants. Closure requires exit evidence, not just a sent signal. Do not use it on work you want to keep running.
 - Archive moves a saved task into history without stopping shells or agents. Embedded archived sessions can be restored; retired external sessions remain read-only. Rename and agent-rule settings are available.
 
@@ -64,7 +64,7 @@ This host's forced source rebuild failed because Visual Studio's Spectre librari
 
 Run `shellfox update` to download and install the latest published release (`shellfox update --check` only reports). Linux uses the `.deb` (`sudo apt-get install`), macOS replaces `Shellfox.app`, Windows runs `ShellfoxSetup.exe`; zip/loose installs print the releases page instead. Installed builds check for updates at startup and hourly. The sidebar offers a compact download button, progress with ETA, then install and restart with confirmation before closing terminals. See [in-app updates](docs/self-update.md) for supported installations and verification details.
 
-To publish a release, set `version` in package.json and push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The Release workflow packages Linux (x64, arm64), Windows (x64; runs on ARM via emulation) and macOS (x64, arm64) and attaches the installers to a GitHub Release.
+To publish a release, set `version` in package.json and push a matching tag (`git tag v0.4.0 && git push origin v0.4.0`). The Release workflow packages Linux (x64, arm64), Windows (x64; runs on ARM via emulation) and macOS (x64, arm64) and attaches the installers to a GitHub Release.
 
 ## Packaging
 
@@ -106,7 +106,7 @@ pnpm exec electron . --new-session --cwd "C:\work\project"
 
 On Ubuntu/Debian, install with `sudo apt install ./shellfox_*.deb`; `/usr/bin/shellfox` is included. `shellfox` opens the app and `shellfox start .` selects a session for your current folder. Linux Settings also installs per-user right-click entries for Files/Nautilus, Nemo, Dolphin, Thunar and Caja. See [Ubuntu install and usage](docs/ubuntu.md), including Python path and sandbox details.
 
-For Windows or loose/from-source Linux builds, enable `shellfox start <path>` in Settings to install the terminal command. Run `shellfox start .` or `shellfox start "C:\folder with spaces"` from cmd, PowerShell, Git Bash or WSL. Paths resolve against the caller's working directory. The command returns without waiting for the app to close. Run `shellfox --help` for usage. New external terminals pick up the user PATH change; new embedded terminals receive it immediately.
+For Windows or loose/from-source Linux/macOS builds, enable **Enable shellfox command in terminals** in Settings to install the terminal command. Run `shellfox start .` or `shellfox start "C:\folder with spaces"` from cmd, PowerShell, Git Bash or WSL. Paths resolve against the caller's working directory. The command returns without waiting for the app to close. Run `shellfox --help` for usage. New external terminals pick up the user PATH change; new embedded terminals receive it immediately.
 
 On Windows, enabling the CLI also prepends the Windows launcher directory in each registered WSL distribution's default user's shell startup files. This makes bare `shellfox` resolve to the Windows launcher before an older `/usr/bin/shellfox`. Bash uses `~/.bashrc` and the first existing login file among `~/.bash_profile`, `~/.bash_login`, and `~/.profile`, creating `.profile` only if none exists. Zsh uses `~/.zprofile`, `~/.zshrc`, and `~/.zlogin` when zsh or its startup files are present. Shellfox adds marked blocks, preserves other content, and removes only its blocks when disabled. It does not use sudo or change the Linux launcher.
 
@@ -119,6 +119,47 @@ WSL integration is best-effort and can boot registered distributions. It require
 Tests with a custom CLI bin, registry key, or registry runner skip WSL by default. `ShellfoxCliOptions.wsl` accepts an explicit injected `run` and/or an absolute guest `home` for isolated testing; `wsl: false` disables guest updates. Do not opt test builds into a real guest HOME.
 
 The older `--new-session --cwd` flags are also supported, with both flags required. Each invocation creates a separate saved session, even in the same folder. Request UUIDs prevent duplicate delivery. Early requests wait for initialization. Settings also offers `Open in Shellfox` for Explorer folder and background menus. On Windows 11, use Show more options. Registry changes affect only app-owned verbs.
+
+## SSH connections
+
+Add connections in Settings → SSH connections, or import PuTTY sessions. Windows reads the current user's PuTTY registry; Linux/macOS read `~/.putty/sessions`. Import merges case-insensitive names and keeps existing passwords and remote folders. Host parsing follows PuTTY: the part before the last `@` overrides UserName, spaces/tabs are removed from the hostname, and a single colon suffix outside IPv6 brackets is discarded without changing the separate port field. The same normalisation applies before IPC saves and at legacy-profile read/connect time. IPv6 brackets are removed for the resolver. Key filenames are literal, as in PuTTY, not environment-variable expressions. AddressFamily, TryAgent and AgentFwd are retained internally; proxy/jump-host sessions import but produce a clear unsupported message rather than attempting a misleading direct connection.
+
+```sh
+shellfox ssh
+shellfox ssh --profile prod-web
+shellfox ssh --help
+```
+
+The picker accepts arrows, j/k, Enter or 1–9. Esc, q and Ctrl+C cancel. Connections use a remote xterm-256color PTY, raw input, UTF-8, live resize and 30-second keepalives. With no remote folder they make a normal SSH shell request, like PuTTY/OpenSSH; a remote folder uses an explicitly interactive login shell. COLORTERM=truecolor and local LANG/LC_* are offered through environment requests, which the server may decline. PTY modes include UTF-8 erase and sane cooked-mode defaults. Remote ANSI/16-color, 256-color and truecolor bytes are never filtered by Shellfox's NO_COLOR setting. Colored prompts and automatic ls colors still depend on the remote shell's rc files. Authentication tries the private key, agent, saved password, keyboard-interactive and prompted passwords. OpenSSH, PKCS8 and PuTTY v2/v3 RSA, ECDSA and Ed25519 keys are supported, including encrypted keys. Private keys are decrypted only in memory. Windows tries Pageant then the OpenSSH agent pipe; Unix uses SSH_AUTH_SOCK.
+
+A new host requires confirmation of its SHA256 fingerprint. Changed keys are refused. After independently verifying a server's new key, remove only its entry in `<userData>/ssh-known-hosts.json`. Corrupt profile/trust files fail without being overwritten. Profiles are stored in `<userData>/ssh-profiles.json`; passwords are local plaintext, never renderer DTO fields. Both JSON files use atomic replacement and mode 0600 on Unix. Protect that directory and your backups.
+
+Each connection runs one independent plain login shell, preserving the outer terminal's scrollback and selection. There is no automatic reconnect or persistent wrapper. Credentials are used only for that connection. SSH-level keepalives run every 30 seconds without a missed-reply deadline; TCP keepalive is enabled with a 30-second initial idle period, and no socket/stdio idle timeout is set. The 120-second ready timeout applies only to the initial handshake. Idle sessions and delayed SSH replies do not end the shell. A genuinely broken socket prints one red `connection lost` line with its reason, restores the terminal and exits 255. Normal remote exit codes are propagated. Server policies, network/IP changes and OS dead-peer detection can still end a connection; Shellfox cannot preserve an already broken TCP session.
+
+The SSH helper has no Electron GUI or app-instance dependency. Every installed shim passes the app's exact userData directory, including `--test-user-data` instances. Direct helper launches default to `%APPDATA%\\Shellfox`, `$XDG_CONFIG_HOME/Shellfox` or `~/.config/Shellfox`, and `~/Library/Application Support/Shellfox`. Enabling the command also adds its bin directory to new embedded terminals. With integration disabled, Shellfox does not add it to PATH. Owned enabled shims are rewritten on app startup after upgrades.
+
+Windows uses a checksum-pinned, bundled console Node runtime because Electron's GUI binary cannot read a raw console TTY. WSL also launches that same Windows node.exe through interop; its pseudoconsole passed raw input, UTF-8, resize and terminal-restoration tests. Git Bash's mintty needs its supplied winpty; ConPTY-based shells run directly. Linux/macOS run the helper using their Electron binary with ELECTRON_RUN_AS_NODE scoped to that invocation. SSH2 and its JavaScript crypto are bundled outside ASAR, with optional native accelerators disabled. No installed Node or SSH client is needed. Windows builds download the pinned official Node runtime once into `tmp/ssh-runtime-cache`; node.exe is 87.45 MiB uncompressed. The former 117.20 MiB Linux Node copy is no longer shipped.
+
+Development test instances use isolated data and CLI registry keys, never the real user's PATH or WSL startup files by default. After `pnpm build:test`, from the project root:
+
+```powershell
+$env:SHELLFOX_TEST_MODE='1'
+pnpm exec electron .\tmp\build-test\main\index.cjs --test-user-data "$PWD\tmp\ssh-dev" --test-backend real
+```
+
+After adding profiles and enabling the command in that instance, invoke its isolated shim explicitly:
+
+```powershell
+& .\tmp\ssh-dev\Shellfox\bin\shellfox.cmd ssh
+```
+
+Or call the helper without installing a shim:
+
+```powershell
+& .\tmp\build-test\cli\cli-runtime\node.exe .\tmp\build-test\cli\main\cli.cjs --user-data "$PWD\tmp\ssh-dev" ssh
+```
+
+`pnpm test:unit src/main/ssh` uses an in-process SSH server and real PTYs/shims. `SHELLFOX_SSH_TEST_WSL=1 pnpm test:unit src/main/ssh/client.e2e.test.ts` also tests the Windows Node interop path in Debian. Fixtures cover authentication, host trust/refusal, control bytes, resize, single-connection loss/exit codes, and many short keepalive intervals with replies stalled beyond ssh2's default deadline. macOS and ARM64 execution remain unverified.
 
 ## Storage, tracking and security
 

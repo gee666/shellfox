@@ -1,8 +1,9 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { build as esbuild } from 'esbuild';
 import { build as viteBuild } from 'vite';
 import { env, runNode, root } from './common.mjs';
+import { stageSshRuntime } from './ssh-runtime.mjs';
 import { sourceDigest } from './source-digest.mjs';
 Object.assign(process.env, env);
 const testBuild = process.argv.includes('--test');
@@ -19,6 +20,15 @@ runNode('scripts/terminal-native.mjs', [], 300000);
 const options = { bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['electron', 'better-sqlite3', 'node-pty'], loader: { '.sh': 'text', '.ps1': 'text' }, sourcemap: false, minifySyntax: true, logLevel: 'info', alias: testBuild ? { '#test-native-backend': path.resolve('tests/fixtures/fake-native.ts') } : {}, define: { __TEST_BUILD__: String(testBuild), __PROJECT_ROOT__: JSON.stringify(testBuild ? root : '') } };
 await esbuild({ ...options, entryPoints: ['src/main/index.ts'], outfile: output + '/main/index.cjs' });
 await esbuild({ ...options, entryPoints: ['src/preload/index.ts'], outfile: output + '/preload/index.cjs' });
+await esbuild({ ...options, external: [...options.external, 'cpu-features', '*.node'], entryPoints: ['src/main/ssh/cli.ts'], outfile: output + '/cli/main/cli.cjs', define: { __SHELLFOX_VERSION__: JSON.stringify(JSON.parse(await (await import('node:fs/promises')).readFile('package.json','utf8')).version) } });
+rmSync(output + '/cli/util', {recursive:true,force:true});
+if(process.platform==='win32'){
+  mkdirSync(output + '/cli/util', { recursive: true });
+  copyFileSync('node_modules/ssh2/util/pagent.exe', output + '/cli/util/pagent.exe');
+}
+copyFileSync('node_modules/ssh2/LICENSE', output + '/cli/SSH2-LICENSE');
+copyFileSync('node_modules/hash-wasm/LICENSE', output + '/cli/HASH-WASM-LICENSE');
+await stageSshRuntime(output + '/cli');
 process.env.SHELLFOX_BUILD_DIR = output;
 await viteBuild({ configFile: path.resolve('vite.config.ts') });
 if (sourceDigest(root) !== sourceHash) throw new Error('Sources changed during build; wait for backend/renderer settlement and rebuild.');

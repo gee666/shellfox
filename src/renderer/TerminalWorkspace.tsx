@@ -10,8 +10,8 @@ import { TerminalViewport } from './TerminalViewport';
 import { TerminalLoading, TerminalPlaceholder } from './TerminalPlaceholder';
 import { getTerminalApi } from './api';
 
-export const TerminalWorkspace = memo(function TerminalWorkspace({ session, client, registry, profiles, defaultProfileId, platform, available }: {
-  session: SessionDto; client: ManagerClient; registry: TerminalRegistry; profiles: TerminalProfileDto[]; defaultProfileId: string | null; platform?: string; available: boolean;
+export const TerminalWorkspace = memo(function TerminalWorkspace({ session, client, registry, profiles, defaultProfileId, platform, available, visible = true }: {
+  session: SessionDto; client: ManagerClient; registry: TerminalRegistry; profiles: TerminalProfileDto[]; defaultProfileId: string | null; platform?: string; available: boolean; visible?: boolean;
 }) {
   const chosen = useStore(client.store, state => state.activeTabIds[session.id]);
   // Activity in other sessions must not rerender this workspace or its tab strip.
@@ -30,7 +30,7 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
   const terminalApi = getTerminalApi(client.api);
   const legacy = session.adapterId !== 'embedded-pty' || !session.tabs.some(tab => tab.terminalKind === 'embedded');
   const canAdd = !archived && available && session.canAddTab && (legacy || (!!terminalApi && profiles.some(profile => profile.available)));
-  useEffect(() => { if (selected && !archived) registry.focus(selected.id); }, [registry, selected?.id, archived]);
+  useEffect(() => { if (visible && selected && !archived) registry.focus(selected.id); }, [registry, selected?.id, archived, visible]);
   async function add(profileId = platform === 'win32' ? undefined : defaultProfileId ?? undefined) {
     setProfileMenu(null);
     if (archived || !available || !session.canAddTab || (!legacy && (!terminalApi || (profileId !== undefined ? !profiles.some(profile => profile.id === profileId && profile.available) : platform !== 'win32')))) return;
@@ -71,7 +71,7 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
     {archived ? <TerminalPlaceholder><span>Archived session</span>{!legacy && <button className="text-button" disabled={action.pending} onClick={() => void restore()}>Restore</button>}</TerminalPlaceholder>
       : !selected ? opening || action.pending ? <TerminalLoading /> : <TerminalPlaceholder />
         : <div className="terminal-panel" role="tabpanel" id={`terminal-panel-${selected.id}`} aria-labelledby={`terminal-tab-${selected.id}`}>
-          {selected.lifecycle === 'launching' ? <TerminalLoading /> : !legacy ? <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible /> : <TerminalPlaceholder />}
+          {selected.lifecycle === 'launching' ? <TerminalLoading /> : !legacy ? <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible={visible} /> : <TerminalPlaceholder />}
         </div>}
     {profileMenu && <ContextMenu {...profileMenu} onClose={() => setProfileMenu(null)}>{profiles.map(profile => <button role="menuitem" key={profile.id} disabled={!profile.available || action.pending} title={profile.unavailableReason ?? profile.label} onClick={() => void add(profile.id)}>{profile.label}</button>)}</ContextMenu>}
     {closing && <div className="inline-confirm close-confirm" role="dialog" aria-label={`Close terminal ${closing.title}?`} onKeyDown={event => { if (event.key === 'Escape') setClosing(null); }}><p>An agent is running in this tab. Close?</p><div><button autoFocus disabled={action.pending} onClick={() => void close(closing)}>Close</button><button onClick={() => setClosing(null)}>Cancel</button></div></div>}

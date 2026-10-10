@@ -5,6 +5,7 @@ import type { ManagerClient } from './store';
 import { executablePathSchema, validateSettingsDraft } from './settings-controller';
 import { Icon, useAction } from './components';
 import { ColorSwatches } from './ColorSwatches';
+import { SshConnections } from './SshConnections';
 
 const BUILTIN_LABELS: Record<string, string> = { 'f919fb1a-fb03-4a93-8b9b-1cde465d5870': 'Pi', 'f919fb1a-fb03-4a93-8b9b-1cde465d5871': 'Claude', 'f919fb1a-fb03-4a93-8b9b-1cde465d5872': 'Codex', 'f919fb1a-fb03-4a93-8b9b-1cde465d5874': 'OpenCode' };
 const BUILTIN_IDS = new Set(Object.keys(BUILTIN_LABELS));
@@ -23,17 +24,19 @@ export function createAgentRule(value: string): ProcessRule {
 function ruleSummary(rule: ProcessRule) {
   return [rule.executableBasenames.length ? `Process name: ${rule.executableBasenames.join(', ')}` : '', ...rule.executablePaths.map(path => `Exact path: ${path}`)].filter(Boolean).join('; ');
 }
-export function SettingsPanel({ client, settings, explorer, cli, profiles, defaultProfileId }: {
-  client: ManagerClient; settings: SettingsDto; explorer: ExplorerIntegrationDto; cli: CliIntegrationDto; profiles: TerminalProfileDto[]; defaultProfileId: string | null;
+export function SettingsPanel({ client, settings, explorer, cli, profiles, defaultProfileId, onClose }: {
+  client: ManagerClient; settings: SettingsDto; explorer: ExplorerIntegrationDto; cli: CliIntegrationDto; profiles: TerminalProfileDto[]; defaultProfileId: string | null; onClose?: () => void;
 }) {
   const controller = client.settings;
   const state = useStore(controller.store);
   const draft = state.draft ?? settings;
   const [saved, setSaved] = useState(false);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => { closeButton.current?.focus(); }, []);
   const saveError = state.error;
   const previousProps = useRef(settings);
   useEffect(() => {
-    // Reopening uses the controller's latest draft, not the last modal props.
+    // Reopening uses the controller's latest draft, not the last page props.
     // Standalone panels can still receive authoritative updates through props.
     if (!controller.store.getState().draft || previousProps.current !== settings) controller.observe(settings);
     previousProps.current = settings;
@@ -69,8 +72,9 @@ export function SettingsPanel({ client, settings, explorer, cli, profiles, defau
     change(current => ({ ...current, processRules: [...current.processRules, createAgentRule(input)] })); setAgentName(''); setAgentError('');
   }
   function fieldError(field: string) { const message = errors[field] ?? (saveError?.field === field ? saveError.error.message : null); return message ? <small className="field-error" role="alert">{message}</small> : null; }
-  return <div className="settings-body">
-    <span className={`saved-indicator${saved ? ' visible' : ''}`} role="status" aria-hidden={!saved}>Saved</span>
+  return <div className="settings-page" role="region" aria-label="Settings">
+    <header className="settings-header"><h2>Settings</h2><div><span className={`saved-indicator${saved ? ' visible' : ''}`} role="status" aria-hidden={!saved}>Saved</span>{onClose && <button ref={closeButton} className="icon-button" aria-label="Close settings" title="Close settings (Esc)" onClick={onClose}><Icon name="close" /></button>}</div></header>
+    <div className="settings-scroll"><div className="settings-body">
     <section><h3>Accent color</h3><ColorSwatches kind="accent" presets={SWATCHES} value={draft.accentColor} onChange={color => change(current => ({ ...current, accentColor: color }))} />{fieldError('accent')}</section>
     <section><h3>Background color</h3><ColorSwatches kind="background" presets={BACKGROUNDS} value={draft.backgroundColor} onChange={color => change(current => ({ ...current, backgroundColor: color }))} /><p className="settings-hint">Text and all other colors adapt automatically.</p>{fieldError('background')}</section>
     <section><h3>Default shell</h3><select aria-label="Default shell" value={draft.terminalProfileId ?? defaultProfileId ?? ''} onChange={event => change(current => ({ ...current, terminalProfileId: event.target.value }))}>{!profiles.length && <option value="">No shells available</option>}{profiles.map(profile => <option key={profile.id} value={profile.id} disabled={!profile.available} title={profile.unavailableReason ?? undefined}>{profile.label}</option>)}</select>{fieldError('shell')}</section>
@@ -79,7 +83,9 @@ export function SettingsPanel({ client, settings, explorer, cli, profiles, defau
       const label = BUILTIN_LABELS[rule.id] ?? rule.label;
       return <div className="agent-rule" key={rule.id}><div className="agent-row"><button role="switch" aria-checked={rule.enabled} aria-label={`Track ${label}`} className="toggle" onClick={() => updateRule(rule.id, { enabled: !rule.enabled })}><span /></button><div className="agent-copy"><span>{label}</span>{!BUILTIN_IDS.has(rule.id) && <small>{ruleSummary(rule)}</small>}</div>{!BUILTIN_IDS.has(rule.id) && <button className="icon-button" aria-label={`Remove ${label}`} onClick={() => change(current => ({ ...current, processRules: current.processRules.filter(item => item.id !== rule.id) }))}><Icon name="close" /></button>}</div>{fieldError(`${rule.id}.paths`)}{fieldError(`${rule.id}.suffixes`)}</div>;
     })}</div><form className="add-agent" onSubmit={event => { event.preventDefault(); addAgent(); }}><input aria-label="Add agent" placeholder="Process name or absolute executable path" value={agentName} onChange={event => { setAgentName(event.target.value); setAgentError(''); }} aria-invalid={!!agentError} aria-describedby={agentError ? 'add-agent-error' : undefined} maxLength={32760} /><button type="submit" disabled={!agentName.trim()}>Add</button></form>{agentError && <small id="add-agent-error" className="field-error" role="alert">{agentError}</small>}{fieldError('agents')}</section>
+    <SshConnections api={client.api} />
     <section><h3>Explorer</h3><div className="explorer-row"><button className="toggle" role="switch" aria-label={linux ? 'Add Open in Shellfox to the file manager right-click menu' : 'Add Open in Shellfox to Explorer right-click menu'} aria-checked={explorerState.installed} disabled={!explorerState.supported || action.pending} onClick={() => void action.run(() => client.api.setExplorerIntegration({ installed: !explorerState.installed })).then(result => { if (result?.ok) { setExplorerState(result.value); client.refresh(); } })}><span /></button><span>{linux ? 'Add “Open in Shellfox” to the file manager right-click menu' : 'Add “Open in Shellfox” to Explorer right-click menu'}</span></div>{(explorerState.reason || !explorerState.supported) && <small className="settings-hint">{explorerState.reason ?? 'Unavailable on this system.'}</small>}</section>
-    <section><h3>Terminal command</h3><div className="explorer-row"><button className="toggle" role="switch" aria-label="Enable shellfox start <path> in terminals" aria-checked={cliState.installed} disabled={!cliState.supported || action.pending || cliState.reason === 'Installed with the package'} onClick={() => void action.run(() => client.api.setCliIntegration({ installed: !cliState.installed })).then(result => { if (result?.ok) { setCliState(result.value); client.refresh(); } })}><span /></button><span>Enable <code>shellfox start &lt;path&gt;</code> in terminals</span></div>{(cliState.reason || !cliState.supported) && <small className="settings-hint">{cliState.reason ?? 'Unavailable on this system.'}</small>}<code className="shellfox-cli-example">shellfox start .</code></section>
+    <section><h3>Terminal command</h3><div className="explorer-row"><button className="toggle" role="switch" aria-label="Enable shellfox command in terminals" aria-checked={cliState.installed} disabled={!cliState.supported || action.pending || cliState.reason === 'Installed with the package'} onClick={() => void action.run(() => client.api.setCliIntegration({ installed: !cliState.installed })).then(result => { if (result?.ok) { setCliState(result.value); client.refresh(); } })}><span /></button><span>Enable <code>shellfox</code> command in terminals</span></div>{(cliState.reason || !cliState.supported) && <small className="settings-hint">{cliState.reason ?? 'Unavailable on this system.'}</small>}<code className="shellfox-cli-example">shellfox start .</code><code className="shellfox-cli-example">shellfox ssh</code></section>
+    </div></div>
   </div>;
 }

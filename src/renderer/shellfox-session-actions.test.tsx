@@ -100,7 +100,7 @@ describe('Shellfox session actions', () => {
       if (integration === 'cli') fixture.api.setCliIntegration.mockReturnValueOnce(pending.promise);
       else fixture.api.setExplorerIntegration.mockReturnValueOnce(explorerPending.promise);
       await user.click(screen.getByRole('button', { name: 'Settings' }));
-      await user.click(screen.getByRole('switch', { name: integration === 'cli' ? 'Enable shellfox start <path> in terminals' : 'Add Open in Shellfox to Explorer right-click menu' }));
+      await user.click(screen.getByRole('switch', { name: integration === 'cli' ? 'Enable shellfox command in terminals' : 'Add Open in Shellfox to Explorer right-click menu' }));
       await user.keyboard('{Escape}');
       await act(async () => {
         if (integration === 'cli') pending.resolve(failure('STORAGE_FAILED', 'Could not install Shellfox command.'));

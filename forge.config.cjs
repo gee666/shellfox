@@ -48,13 +48,14 @@ module.exports = {
     executableName: platform === 'linux' ? 'shellfox' : 'Shellfox',
     name: 'Shellfox', appBundleId: 'local.shellfox',
     icon: path.join(__dirname, 'resources/icon/icon'),
-    ...(platform === 'linux' ? { extraResource: [path.join(__dirname, 'resources/linux/shellfox-launcher'), path.join(__dirname, 'src/main/update/shellfox-update.sh')] } : {}),
+    ...(platform === 'linux' ? { extraResource: [path.join(__dirname, 'resources/linux/shellfox-launcher'), path.join(__dirname, 'src/main/update/shellfox-update.sh'), path.join(__dirname, 'tmp/build/cli')] } : {}),
     ...(platform === 'darwin' ? {
-      extraResource: [path.join(__dirname, 'tmp/package-resources/terminal-native')],
+      extraResource: [path.join(__dirname, 'tmp/package-resources/terminal-native'), path.join(__dirname, 'tmp/build/cli')],
       // Packager signs resources and unpacked native code inside-out before
       // sealing the app. Never add/chmod native resources after this step.
       osxSign: macSigning,
     } : {}),
+    ...(platform === 'win32' ? { extraResource: [path.join(__dirname, 'tmp/build/cli')] } : {}),
     prune: false, // scripts/forge.mjs stages only the external native runtime.
     // Entire node-pty is unpacked, including JS child-process agents, DLLs,
     // OpenConsole.exe, winpty-agent.exe and the macOS spawn-helper.
@@ -62,6 +63,8 @@ module.exports = {
     ignore: file => {
       const relative = file.replace(/\\/g, '/').replace(/^\//, '');
       if (!relative) return false;
+      // The standalone CLI and runtimes ship once, outside ASAR.
+      if (relative === 'tmp/build/cli' || relative.startsWith('tmp/build/cli/')) return true;
       if (relative === 'package.json' || relative === 'node_modules' ||
           /^node_modules\/(better-sqlite3|node-addon-api|node-pty)(\/|$)/.test(relative)) return false;
       return !(relative === 'tmp' || relative === 'tmp/build' || relative.startsWith('tmp/build/'));

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, writeFile, rm, access } from 'node:fs/promises';
+import { stageSshRuntime } from './ssh-runtime.mjs';
 import { createRequire } from 'node:module';
 import { darwinCompilerArgs, darwinHelpers } from './terminal-native-helpers.mjs';
 const require = createRequire(import.meta.url);
@@ -23,6 +25,8 @@ test('makers match each native OS/architecture without an arm64 Squirrel claim',
     assert.equal(c.packagerConfig.asar.unpack, '**/{node-pty,better-sqlite3}/**');
     assert.equal(c.packagerConfig.ignore('/src/main/terminal/native/source.c'), true);
     assert.equal(c.packagerConfig.ignore('/node_modules/node-pty/build/Release/spawn-helper'), false);
+    assert.equal(c.packagerConfig.ignore('/tmp/build/cli/cli-runtime/node.exe'), true);
+    assert.ok(c.packagerConfig.extraResource.includes(path.resolve('tmp/build/cli')));
   }
 });
 test('Debian installs an owned launcher, setuid sandbox and guarded unconfined AppArmor profile', () => {
@@ -34,16 +38,17 @@ test('Debian installs an owned launcher, setuid sandbox and guarded unconfined A
 });
 test('Debian ships the launcher with its update script, which the launcher routes to', () => {
   const c = config('linux', 'x64').packagerConfig;
-  assert.deepEqual([...c.extraResource], [path.resolve('resources/linux/shellfox-launcher'), path.resolve('src/main/update/shellfox-update.sh')]);
-  for (const file of c.extraResource) assert.ok(existsSync(file));
+  assert.deepEqual([...c.extraResource], [path.resolve('resources/linux/shellfox-launcher'), path.resolve('src/main/update/shellfox-update.sh'), path.resolve('tmp/build/cli')]);
+  for (const file of c.extraResource.slice(0,2)) assert.ok(existsSync(file));
   const launcher = readFileSync(c.extraResource[0], 'utf8');
   assert.ok(launcher.includes('exec /bin/sh /usr/lib/shellfox/resources/shellfox-update.sh "$@"'));
-  assert.ok(launcher.includes('shellfox update [--check]'));
+  assert.ok(launcher.includes('/resources/cli/main/cli.cjs'));
 });
 test('Darwin native resources are outside ASAR and covered by preview signing', () => {
   for (const arch of ['x64', 'arm64']) {
     const c = config('darwin', arch).packagerConfig;
-    assert.equal(c.extraResource.length, 1);
+    assert.equal(c.extraResource.length, 2);
+    assert.equal(c.extraResource[1], path.resolve('tmp/build/cli'));
     assert.equal(c.extraResource[0], path.resolve('tmp/package-resources/terminal-native'));
     assert.equal(c.osxSign.identity, '-');
     assert.equal(c.osxSign.identityValidation, false);
@@ -52,7 +57,7 @@ test('Darwin native resources are outside ASAR and covered by preview signing', 
     assert.equal(native.timestamp, 'none');
     assert.equal(native.entitlements.length, 0);
   }
-  assert.equal(config('win32', 'x64').packagerConfig.extraResource, undefined);
+  assert.deepEqual([...config('win32', 'x64').packagerConfig.extraResource], [path.resolve('tmp/build/cli')]);
   assert.equal(config('linux', 'arm64').packagerConfig.osxSign, undefined);
 });
 test('explicit certificate signing validates identity and enables hardened runtime', () => {
@@ -75,6 +80,21 @@ test('Darwin compiler args use strict target-native SDK compilation into scratch
     assert.equal(args[args.indexOf('-o') + 1], path.join(process.cwd(), 'tmp/terminal-native', 'darwin-' + arch, helper.basename));
   }
   assert.throws(() => darwinCompilerArgs(process.cwd(), 'ia32', darwinHelpers[0]));
+});
+test('SSH runtime staging skips downloads on Linux/macOS and refuses unverified Windows downloads',async()=>{
+  const originalPlatform=process.platform,originalCwd=process.cwd(),originalFetch=globalThis.fetch;
+  await mkdir('tmp',{recursive:true});const scratch=await mkdtemp(path.resolve('tmp/ssh-runtime-gate-'));
+  try {
+    process.chdir(scratch);
+    for(const platform of ['linux','darwin']){
+      Object.defineProperty(process,'platform',{value:platform});globalThis.fetch=async()=>{throw new Error('must not fetch on '+platform);};
+      const output=path.join(scratch,platform);await mkdir(path.join(output,'cli-runtime'),{recursive:true});await writeFile(path.join(output,'cli-runtime/node.exe'),'stale Windows file');
+      await stageSshRuntime(output);await assert.rejects(access(path.join(output,'cli-runtime')));
+    }
+    Object.defineProperty(process,'platform',{value:'win32'});let downloads=0;
+    globalThis.fetch=async()=>{downloads++;return new Response('tampered',{status:200});};
+    await assert.rejects(stageSshRuntime(path.join(scratch,'windows')),/checksum mismatch/);assert.equal(downloads,1);
+  }finally{Object.defineProperty(process,'platform',{value:originalPlatform});globalThis.fetch=originalFetch;process.chdir(originalCwd);await rm(scratch,{recursive:true,force:true});}
 });
 test('Darwin helper source contracts point to existing backend-owned sources', () => {
   for (const helper of darwinHelpers) {

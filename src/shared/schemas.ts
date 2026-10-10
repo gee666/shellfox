@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sshProfileInputSchema, sshProfileDtoSchema } from './ssh-schemas';
 import { parseWslUnc } from './wsl-path';
 export const idSchema = z.string().uuid();
 export const adapterSchema = z.enum(['windows-terminal', 'gnome-terminal', 'embedded-pty']);
@@ -29,7 +30,7 @@ export const envVarSchema = z.object({ name: z.string().trim().min(1).max(256).r
 export const envVarsSchemaFor = (windows: boolean) => z.array(envVarSchema).max(200).refine(vars => new Set(vars.map(v => windows ? v.name.toLowerCase() : v.name)).size === vars.length, 'Duplicate environment variable names');
 export const storedEnvVarsSchema = z.array(storedEnvVarSchema).max(200).refine(vars => new Set(vars.map(v => typeof process === 'undefined' || process.platform === 'win32' ? v.name.toLowerCase() : v.name)).size === vars.length, 'Duplicate environment variable names');
 export const envVarsSchema = envVarsSchemaFor(typeof process === 'undefined' || process.platform === 'win32');
-export const cliIntegrationSchema = z.object({ supported: z.boolean(), installed: z.boolean(), command: z.literal('shellfox start <path>'), reason: text(1000).nullable() }).strict();
+export const cliIntegrationSchema = z.object({ supported: z.boolean(), installed: z.boolean(), command: z.enum(['shellfox', 'shellfox start <path>']), reason: text(1000).nullable() }).strict();
 export const tabSchema = z.object({ id: idSchema, sessionId: idSchema, title: titleSchema, cwd: pathSchema, ordinal: count, createdAt: timestampSchema, lifecycle: lifecycleSchema, status: tabStatusSchema, agents: count, monitoringReason: text(1000).nullable(), error: errorSchema.nullable(), generation: idSchema.optional(), terminalKind: z.enum(['embedded', 'external-legacy']).optional(), profileId: profileIdSchema.nullable().optional(), exitCode: z.number().int().nullable().optional() }).strict();
 export const sessionWindowSchema = z.object({ state: z.enum(['alive', 'closed', 'unknown', 'opening', 'launch-uncertain', 'unsupported']), canReopen: z.boolean(), canRegister: z.boolean(), reason: text(1000) }).strict();
 export const registrationGuideSchema = z.object({ command: text(65536).min(1), expiresAt: timestampSchema, titleMarker: text(200), instructions: text(1000) }).strict();
@@ -66,6 +67,11 @@ export const CLIPBOARD_COPY_BYTES = 1024 * 1024;
 export const CLIPBOARD_PASTE_BYTES = 65536;
 const sessionId = z.object({ sessionId: idSchema }).strict();
 export const requestSchemas = {
+  listSshProfiles: empty,
+  saveSshProfile: sshProfileInputSchema,
+  deleteSshProfile: z.object({ id: idSchema }).strict(),
+  importPuttySessions: empty,
+  chooseSshKeyFile: empty,
   getSnapshot: empty,
   getHomeDirectory: empty,
   resolveDirectory: directoryPromptRequest,
@@ -109,6 +115,11 @@ export const updateStatusSchema = z.object({
   total: z.number().int().positive().max(768 * 1024 * 1024).nullable().optional(), error: text(1000).nullable().optional(),
 }).strict();
 export const responseSchemas = {
+  listSshProfiles: resultSchema(z.array(sshProfileDtoSchema)),
+  saveSshProfile: resultSchema(z.array(sshProfileDtoSchema)),
+  deleteSshProfile: resultSchema(z.array(sshProfileDtoSchema)),
+  importPuttySessions: resultSchema(z.object({ profiles: z.array(sshProfileDtoSchema), added: count, updated: count, found: count }).strict()),
+  chooseSshKeyFile: resultSchema(z.object({ path: pathSchema }).strict().nullable()),
   getHomeDirectory: resultSchema(z.object({ cwd: pathSchema }).strict()),
   resolveDirectory: resultSchema(z.object({ cwd: pathSchema }).strict()),
   completeDirectory: resultSchema(z.object({ matches: z.array(directoryPromptPathSchema.min(1)).max(DIRECTORY_COMPLETION_LIMIT).refine(matches => matches.reduce((sum, match) => sum + utf8Size(match), 0) <= DIRECTORY_COMPLETION_BYTES) }).strict()),
