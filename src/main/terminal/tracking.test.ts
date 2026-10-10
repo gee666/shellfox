@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { access, open, readdir, readlink, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -589,6 +589,209 @@ describe('poll lifetime', () => {
     deliver([snapshot([shell()])]);
     await pending;
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('visibility polling scope', () => {
+  beforeEach(() => vi.useFakeTimers());
+  const flush = () => vi.advanceTimersByTimeAsync(0);
+  const second = () => root({ tabId: 'tab-b', sessionId: 'session-b', pid: 20, marker: 'secret-b' });
+
+  it('starts paused when configured before setWatch and only public poll inspects all roots', async () => {
+    const provider = vi.fn<SnapshotProvider>(async () => [snapshot([shell(), shell(20)])]);
+    const listener = vi.fn(), tracker = new ProcessTracker(listener, provider); trackers.push(tracker);
+    tracker.setVisibleSessions([]);
+    tracker.setWatch([root(), second()], [rule()]);
+    await flush();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(provider).not.toHaveBeenCalled();
+    expect(listener).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    await tracker.poll();
+    expect(provider).toHaveBeenCalledExactlyOnceWith([root(), second()], expect.any(AbortSignal));
+    expect(listener.mock.lastCall![0].map((item: TabObservation) => item.tabId)).toEqual(['tab-a', 'tab-b']);
+    tracker.setWatch([root(), second()], [rule({ enabled: false })]);
+    await flush();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(tracker.resolveIdentity(root())).not.toBeNull();
+  });
+
+  it('automatically inspects only visible sessions among 100 owned roots and stops its timer when hidden', async () => {
+    const roots = Array.from({ length: 100 }, (_, index) => root({ tabId: `tab-${index}`, sessionId: `session-${index}`, pid: 10 + index * 10, marker: `marker-${index}` }));
+    const provider = vi.fn<SnapshotProvider>(async selected => [snapshot(selected.map(r => shell(r.pid)))]);
+    const listener = vi.fn(), tracker = new ProcessTracker(listener, provider); trackers.push(tracker);
+    tracker.setVisibleSessions([]);
+    tracker.setWatch(roots, [rule()]);
+    const ids = [roots[40]!.sessionId, roots[60]!.sessionId, roots[40]!.sessionId, 'not-owned'];
+    tracker.setVisibleSessions(ids);
+    ids.splice(0); // Caller mutation must not change the configured scope.
+    await flush();
+    expect(provider.mock.lastCall![0]).toEqual([roots[40], roots[60]]);
+    expect(listener.mock.lastCall![0]).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(provider).toHaveBeenCalledTimes(2);
+    tracker.setVisibleSessions([roots[60]!.sessionId, roots[40]!.sessionId, 'not-owned']);
+    await flush();
+    expect(provider).toHaveBeenCalledTimes(2); // Same set does not restart inspection.
+    tracker.setVisibleSessions([roots[60]!.sessionId]);
+    await flush();
+    expect(provider.mock.lastCall![0]).toEqual([roots[60]]);
+    tracker.setVisibleSessions([]);
+    await flush();
+    const calls = provider.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(provider).toHaveBeenCalledTimes(calls);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(tracker.resolveIdentity(roots[40]!)).not.toBeNull();
+    expect(tracker.resolveIdentity(roots[60]!)).not.toBeNull();
+  });
+
+  it('retains hidden identities and reparented owners when a complete visible snapshot omits their namespace rows', async () => {
+    const h = harness([snapshot([shell(), proc(11, 10), shell(20), proc(21, 20)])], [root(), second()]);
+    await h.tracker.poll();
+    const pinned = h.tracker.resolveIdentity(second());
+    h.provider.mockResolvedValue([snapshot([shell(), proc(11, 10)])]);
+    h.tracker.setVisibleSessions([root().sessionId]);
+    await flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(h.tracker.resolveIdentity(second())).toEqual(pinned);
+    expect(h.tracker.resolveDescendants(second())).toEqual([{ domain: 'host/local', pid: 21, birth: 'boot:21' }]);
+    h.tracker.setVisibleSessions([]);
+    h.tracker.setWatch([root(), second()], [rule({ label: 'Changed rules while hidden' })]);
+    await flush();
+    expect(h.tracker.resolveIdentity(second())).toEqual(pinned);
+    h.provider.mockResolvedValue([snapshot([shell(20), proc(21, 1)])]);
+    h.tracker.setVisibleSessions([second().sessionId]);
+    await flush();
+    expect(h.last()).toMatchObject([{ tabId: 'tab-b', root: 'alive', agents: 1 }]);
+    expect(h.tracker.resolveDescendants(root())).toEqual([{ domain: 'host/local', pid: 11, birth: 'boot:11' }]);
+    // Absence does prune evidence for the root that actually was inspected.
+    h.provider.mockResolvedValue([snapshot([shell(20)])]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.tracker.resolveDescendants(second())).toEqual([]);
+    expect(h.tracker.resolveDescendants(root())).toHaveLength(1);
+  });
+
+  it('preserves unresolved parent-generation links across scoped snapshots to reject recycled-parent adoption', async () => {
+    const child = proc(30, 40, '/usr/bin/node', { birthOrder: '300' });
+    const oldParent = proc(40, 1, '/bin/bash', { birth: 'boot:400', birthOrder: '200' });
+    const h = harness([snapshot([shell(), shell(20), oldParent, child])], [root(), second()]);
+    await h.tracker.poll();
+    expect(h.tracker.resolveDescendants(second())).toEqual([]);
+    h.provider.mockResolvedValue([snapshot([shell()])]);
+    h.tracker.setVisibleSessions([root().sessionId]);
+    await flush();
+    const replacement = proc(40, 20, '/bin/bash', { birth: 'boot:100', birthOrder: '100' });
+    h.provider.mockResolvedValue([snapshot([shell(20), replacement, child])]);
+    h.tracker.setVisibleSessions([second().sessionId]);
+    await flush();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(h.last()).toMatchObject([{ tabId: 'tab-b', agents: 0 }]);
+    expect(h.tracker.resolveDescendants(second()).map(p => p.pid)).toEqual([40]);
+  });
+
+  it('does not adopt an uninspected nested owned shell or its descendants into the visible root', async () => {
+    const provider = vi.fn<SnapshotProvider>(async () => [snapshot([shell(), proc(11, 10), shell(20, { parentPid: 10 }), proc(21, 20)])]);
+    const listener = vi.fn(), tracker = new ProcessTracker(listener, provider); trackers.push(tracker);
+    tracker.setVisibleSessions([root().sessionId]);
+    tracker.setWatch([root(), second()], [rule()]);
+    await flush();
+    expect(listener.mock.lastCall![0]).toMatchObject([{ tabId: 'tab-a', agents: 1 }]);
+    expect(tracker.resolveDescendants(root()).map(p => p.pid)).toEqual([11]);
+    expect(tracker.resolveIdentity(second())).toBeNull();
+    tracker.setVisibleSessions([second().sessionId]);
+    await flush();
+    expect(listener.mock.lastCall![0]).toMatchObject([{ tabId: 'tab-b', agents: 1 }]);
+    expect(tracker.resolveDescendants(second()).map(p => p.pid)).toEqual([21]);
+  });
+
+  it('never substitutes a surviving WSL marked shell for the original guest root after hide/resume', async () => {
+    const guest = root({ pid: 9000, environment: 'wsl', distro: 'Ubuntu', shellExecutable: '/bin/bash' });
+    const h = harness([snapshot([shell(40, { marker: guest.marker }), shell(50, { parentPid: 40, marker: guest.marker }), proc(60, 40)], { domain: 'host/wsl/Ubuntu', environment: 'wsl', distro: 'Ubuntu' })], [guest]);
+    await h.tracker.poll();
+    const original = h.tracker.resolveIdentity(guest);
+    h.tracker.setVisibleSessions([]);
+    h.tracker.setWatch([guest], [rule()]);
+    await flush();
+    expect(h.tracker.resolveIdentity(guest)).toEqual(original);
+    h.provider.mockResolvedValue([snapshot([shell(50, { marker: guest.marker }), proc(60, 1)], { domain: 'host/wsl/Ubuntu', environment: 'wsl', distro: 'Ubuntu' })]);
+    h.tracker.setVisibleSessions([guest.sessionId]);
+    await flush();
+    expect(h.tracker.resolveIdentity(guest)).toEqual({ domain: 'host/wsl/Ubuntu', pid: 40, birth: 'boot:40' });
+    expect(h.last()).toMatchObject([{ root: 'exited', agents: 0 }]);
+    expect(h.tracker.resolveDescendants(guest).map(p => p.pid)).toEqual([50, 60]);
+  });
+
+  it('prunes hidden evidence on actual watch removal or generation replacement, not visibility changes', async () => {
+    const h = harness([snapshot([shell(), proc(11, 10), shell(20), proc(21, 20)])], [root(), second()]);
+    await h.tracker.poll();
+    h.tracker.setVisibleSessions([]);
+    await flush();
+    h.tracker.setWatch([second()], [rule()]);
+    expect(h.tracker.resolveIdentity(root())).toBeNull();
+    expect(h.tracker.resolveDescendants(root())).toEqual([]);
+    expect(h.tracker.resolveDescendants(second())).toHaveLength(1);
+    h.tracker.setWatch([second(), root({ generation: 'replacement' })], [rule()]);
+    await flush();
+    expect(h.tracker.resolveIdentity(root({ generation: 'replacement' }))).toBeNull();
+    expect(h.tracker.resolveDescendants(root())).toEqual([]);
+    h.tracker.dispose();
+    h.tracker.setVisibleSessions([second().sessionId]);
+    await h.tracker.poll();
+    expect(h.tracker.resolveIdentity(second())).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('discards an in-flight automatic snapshot when hidden without issuing another provider call', async () => {
+    let deliver!: (items: TrackingSnapshot[]) => void;
+    const provider = vi.fn<SnapshotProvider>(() => new Promise(resolve => { deliver = resolve; }));
+    const listener = vi.fn(), tracker = new ProcessTracker(listener, provider); trackers.push(tracker);
+    tracker.setVisibleSessions([root().sessionId]);
+    tracker.setWatch([root()], [rule()]);
+    tracker.setVisibleSessions([]);
+    deliver([snapshot([shell(), proc(11, 10)])]);
+    await flush();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(listener).not.toHaveBeenCalled();
+    expect(tracker.resolveIdentity(root())).toBeNull();
+    expect(tracker.resolveDescendants(root())).toEqual([]);
+  });
+
+  it('retries the latest automatic scope after a visibility revision during inspection', async () => {
+    let deliver!: (items: TrackingSnapshot[]) => void;
+    const provider = vi.fn<SnapshotProvider>().mockImplementationOnce(() => new Promise(resolve => { deliver = resolve; }))
+      .mockResolvedValue([snapshot([shell(20), proc(21, 20)])]);
+    const listener = vi.fn(), tracker = new ProcessTracker(listener, provider); trackers.push(tracker);
+    tracker.setVisibleSessions([root().sessionId]);
+    tracker.setWatch([root(), second()], [rule()]);
+    tracker.setVisibleSessions([second().sessionId]);
+    deliver([snapshot([shell(), proc(11, 10)])]);
+    await flush();
+    expect(provider.mock.calls.map(call => call[0].map(r => r.tabId))).toEqual([['tab-a'], ['tab-b']]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener.mock.lastCall![0]).toMatchObject([{ tabId: 'tab-b', agents: 1 }]);
+    expect(tracker.resolveIdentity(root())).toBeNull();
+  });
+
+  it('upgrades an in-flight scoped poll for explicit cleanup and returns to paused automatic polling afterward', async () => {
+    let deliver!: (items: TrackingSnapshot[]) => void;
+    const provider = vi.fn<SnapshotProvider>().mockImplementationOnce(() => new Promise(resolve => { deliver = resolve; }))
+      .mockResolvedValue([snapshot([shell(), proc(11, 10), shell(20), proc(21, 20)])]);
+    const listener = vi.fn(), tracker = new ProcessTracker(listener, provider); trackers.push(tracker);
+    tracker.setVisibleSessions([root().sessionId]);
+    tracker.setWatch([root(), second()], [rule()]);
+    const pending = tracker.poll();
+    expect(tracker.poll()).toBe(pending);
+    tracker.setVisibleSessions([]); // Must not cancel an explicit cleanup request.
+    deliver([snapshot([shell(), proc(11, 10)])]);
+    await pending;
+    expect(provider.mock.calls.map(call => call[0].map(r => r.tabId))).toEqual([['tab-a'], ['tab-a', 'tab-b']]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(tracker.resolveDescendants(second())).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(provider).toHaveBeenCalledTimes(2);
   });
 });
 

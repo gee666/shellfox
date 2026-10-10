@@ -63,6 +63,7 @@ export function mockApi(initial = snapshot()) {
   }
   const api = {
     getSnapshot: vi.fn<ManagerApi['getSnapshot']>(async () => success(current)),
+    setVisibleSessions: vi.fn<ManagerApi['setVisibleSessions']>(async () => success({ configured: true })),
     getTerminalProfiles: vi.fn<TerminalApi['getTerminalProfiles']>(async () => success({ profiles, defaultProfileId: 'pwsh', lifetime: 'app-owned', shellSurvival: false })),
     attachTerminal: vi.fn<TerminalApi['attachTerminal']>(async input => {
       const item = current.sessions.find(s => s.tabs.some(t => t.id === input.tabId)) ?? session();

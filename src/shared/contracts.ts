@@ -117,6 +117,8 @@ export interface SshProfileInput {
 export interface SshImportResultDto { profiles: SshProfileDto[]; added: number; updated: number; found: number }
 export interface ManagerApi extends Partial<TerminalApi> {
   getSnapshot(): Promise<Result<ManagerSnapshot>>;
+  /** Renderer viewport rows plus the displayed terminal session. Empty while the document is hidden. */
+  setVisibleSessions(input: { sessionIds: string[] }): Promise<Result<{ configured: true }>>;
   activateSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
   refreshSessionMembership(input: { sessionId: Id }): Promise<Result<SessionDto>>;
   prepareSessionRegistration(input: { sessionId: Id; shellId: ShellId }): Promise<Result<RegistrationGuideDto>>;

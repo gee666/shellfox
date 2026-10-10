@@ -29,6 +29,22 @@ it('exposes validated tab metadata methods through only the manager request chan
   await bridge.api!.reorderTabs({ sessionId, tabIds: [tabId] });
   expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'reorderTabs', payload: { sessionId, tabIds: [tabId] } });
 });
+it('validates viewport session configuration through the manager request channel', async () => {
+  const sessionId = randomUUID();
+  for (const input of [{}, { sessionIds: ['bad'] }, { sessionIds: [sessionId, sessionId] }, { sessionIds: [], extra: true }, { sessionIds: Array(10001).fill(sessionId) }]) {
+    expect(await bridge.api!.setVisibleSessions(input as { sessionIds: string[] })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  }
+  expect(bridge.invoke).not.toHaveBeenCalled();
+  bridge.invoke.mockResolvedValue({ ok: true, value: { configured: true } });
+  for (const sessionIds of [[sessionId], []]) {
+    expect(await bridge.api!.setVisibleSessions({ sessionIds })).toEqual({ ok: true, value: { configured: true } });
+    expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'setVisibleSessions', payload: { sessionIds } });
+  }
+  for (const value of [{ configured: false }, { configured: true, extra: true }]) {
+    bridge.invoke.mockResolvedValueOnce({ ok: true, value });
+    expect(await bridge.api!.setVisibleSessions({ sessionIds: [] })).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
+  }
+});
 it('validates terminal event identities, shapes and byte limits but keeps VT control bytes', () => {
   const receive = vi.fn(), stop = bridge.api!.subscribeTerminal!(receive), id = { tabId: randomUUID(), generation: randomUUID() };
   const dispatch = (value: unknown) => { for (const listener of bridge.listeners.get('manager:terminal') ?? []) listener({}, value); };

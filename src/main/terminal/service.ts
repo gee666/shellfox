@@ -19,7 +19,7 @@ export const LIFETIME_NOTICE = 'Embedded shells run only while Shellfox is runni
 const INTEGRATION_FRESHNESS_MS = 5000;
 interface IntegrationCheck { checkedAt?: number; revision: number; mutations: number }
 const shellId = (p: TerminalProfileDto): ShellId => p.environment === 'wsl' ? 'wsl' : p.id === 'pwsh' ? 'pwsh' : p.id === 'windows-powershell' ? 'windows-powershell' : 'login-shell';
-export interface TrackerPort { setWatch: ProcessTracker['setWatch']; dispose(): void; poll?: ProcessTracker['poll']; resolveIdentity?: ProcessTracker['resolveIdentity']; resolveDescendants?: ProcessTracker['resolveDescendants'] }
+export interface TrackerPort { setVisibleSessions?: ProcessTracker['setVisibleSessions']; setWatch: ProcessTracker['setWatch']; dispose(): void; poll?: ProcessTracker['poll']; resolveIdentity?: ProcessTracker['resolveIdentity']; resolveDescendants?: ProcessTracker['resolveDescendants'] }
 export class EmbeddedSessionService {
   revision = 0;
   probe: NativeProbe = { ...unavailableProbe('Embedded backend has not initialized.'), adapterId: 'embedded-pty' };
@@ -30,6 +30,12 @@ export class EmbeddedSessionService {
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly observations = new Map<string, TabObservation & { generation: string }>();
   private readonly tracker: TrackerPort;
+  setVisibleSessions(input: { sessionIds: string[] }): Result<{ configured: true }> {
+    const parsed = requestSchemas.setVisibleSessions.safeParse(input);
+    if (!parsed.success) return failure('VALIDATION', 'Invalid visible sessions.');
+    this.tracker.setVisibleSessions?.(parsed.data.sessionIds);
+    return success({ configured: true });
+  }
   private readonly pendingExits = new Map<string, Extract<TerminalEvent, { type: 'exit' }>>();
   private exitRetryTimer?: ReturnType<typeof setInterval>;
   private readonly reportedExitFailures = new Set<string>();
@@ -40,7 +46,6 @@ export class EmbeddedSessionService {
   constructor(readonly repository: RepositoryPort, readonly backend = new PtyBackend(), trackerFactory: (emit: (items: TabObservation[]) => void) => TrackerPort = emit => new ProcessTracker(emit), private readonly explorerIntegration?: ExplorerPort, private readonly cliIntegration?: CliPort) {
     this.tracker = trackerFactory(items => {
       if (this.disposed) return;
-      this.observations.clear();
       for (const owned of backend.live()) backend.rememberOwnership(owned.tabId, owned.generation, this.tracker.resolveIdentity?.(owned.root) ?? null, this.tracker.resolveDescendants?.(owned.root) ?? []);
       for (const item of items) {
         const tab = repository.tab(item.tabId), owned = backend.get(item.tabId);
@@ -48,9 +53,11 @@ export class EmbeddedSessionService {
       }
       this.changed('native');
     });
+    this.tracker.setVisibleSessions?.([]);
     backend.configureGuestTermination(async (root, captured, known) => {
+      // Explicit cleanup polls all owned roots; automatic status polls are viewport-scoped.
       await this.tracker.poll?.();
-      await closeGuest(root, this.tracker.resolveIdentity?.(root) ?? captured, undefined, [...known, ...(this.tracker.resolveDescendants?.(root) ?? [])]);
+      await closeGuest(root, captured ?? this.tracker.resolveIdentity?.(root) ?? null, undefined, [...known, ...(this.tracker.resolveDescendants?.(root) ?? [])]);
     });
   }
   subscribe(listener: (event: ChangedEvent) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }

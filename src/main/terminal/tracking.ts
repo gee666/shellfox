@@ -196,11 +196,14 @@ function matchAgent(p: TrackingProcess, rules: ProcessRule[], windows: boolean):
 /** No native helper, persistent child, or command launch until there is a watch. */
 export class ProcessTracker {
   private roots: TrackingRoot[] = [];
+  // Undefined preserves all-root automatic polling for non-renderer callers.
+  private visibleSessionIds: Set<string> | undefined;
   private rules: ProcessRule[] = [];
   private revision = 0;
   private disposed = false;
   private timer: ReturnType<typeof setInterval> | undefined;
   private pending: Promise<void> | undefined;
+  private pendingAll = false;
   private readonly abort = new AbortController();
   private readonly identities = new Map<string, string>();
   private readonly rootExecutables = new Map<string, string>();
@@ -230,16 +233,34 @@ export class ProcessTracker {
     const retained = new Set(this.roots.map(watchKey));
     for (const id of this.identities.keys()) if (!retained.has(id)) { this.identities.delete(id); this.rootExecutables.delete(id); }
     for (const [id, owner] of this.owners) if (!retained.has(owner)) this.owners.delete(id);
+    if (!roots.length) this.parentLinks.clear();
     this.revision++;
-    if (roots.length && !this.timer) {
-      this.timer = setInterval(() => { void this.poll().catch(() => {}); }, 1000);
+    this.updateAutomaticPolling();
+  }
+
+  /** Changes polling interest, never the lifetime watch or ownership evidence. */
+  setVisibleSessions(sessionIds: string[]): void {
+    if (this.disposed) return;
+    const next = new Set(sessionIds);
+    if (this.visibleSessionIds && next.size === this.visibleSessionIds.size && [...next].every(id => this.visibleSessionIds!.has(id))) return;
+    this.visibleSessionIds = next;
+    this.revision++;
+    this.updateAutomaticPolling();
+  }
+
+  private visibleRoots(): TrackingRoot[] {
+    return this.visibleSessionIds === undefined ? this.roots : this.roots.filter(root => this.visibleSessionIds!.has(root.sessionId));
+  }
+
+  private updateAutomaticPolling(): void {
+    if (this.visibleRoots().length && !this.timer) {
+      this.timer = setInterval(() => { void this.requestPoll(false).catch(() => {}); }, 1000);
       this.timer.unref?.();
-    } else if (!roots.length && this.timer) {
+    } else if (!this.visibleRoots().length && this.timer) {
       clearInterval(this.timer);
       this.timer = undefined;
-      this.parentLinks.clear();
     }
-    void this.poll().catch(() => {});
+    void this.requestPoll(false).catch(() => {});
   }
 
   resolveIdentity(root: TrackingRoot): { domain: string; pid: number; birth: string } | null {
@@ -277,10 +298,24 @@ export class ProcessTracker {
     this.parentLinks.clear();
   }
 
-  poll(): Promise<void> {
+  /** Explicit cleanup exception: inspect ALL owned roots, even while hidden.
+   * Automatic setWatch/visibility/timer work always uses visibleRoots instead. */
+  poll(): Promise<void> { return this.requestPoll(true); }
+
+  private requestPoll(all: boolean): Promise<void> {
     if (this.disposed) return Promise.resolve();
-    if (this.pending) return this.pending;
-    this.pending = this.pollCurrent().finally(() => { this.pending = undefined; });
+    if (this.pending) {
+      if (all && !this.pendingAll) {
+        this.pendingAll = true;
+        // Do not reuse a subset snapshot to satisfy an explicit cleanup poll.
+        // If the automatic scope already covers every root, reuse its work.
+        if (this.visibleRoots().length !== this.roots.length) this.revision++;
+      }
+      return this.pending;
+    }
+    if (!(all ? this.roots : this.visibleRoots()).length) return Promise.resolve();
+    this.pendingAll = all;
+    this.pending = this.pollCurrent().finally(() => { this.pending = undefined; this.pendingAll = false; });
     return this.pending;
   }
 
@@ -288,7 +323,8 @@ export class ProcessTracker {
     let revision: number;
     do {
       revision = this.revision;
-      const roots = this.roots;
+      const roots = this.pendingAll ? this.roots : this.visibleRoots();
+      if (!roots.length) return;
       let snapshots: TrackingSnapshot[] = [];
       try {
         if (roots.length) snapshots = await this.snapshotProvider(roots, this.abort.signal);
@@ -422,23 +458,39 @@ export class ProcessTracker {
       rootOwners.set(identity, id);
     }
     const retained = new Set(this.roots.map(watchKey));
+    const selected = new Set(watched.map(watchKey));
+    const namespaceRoots = this.roots.filter(r => r.environment === s.environment && r.distro === s.distro);
+    const fullNamespaceScope = namespaceRoots.every(r => selected.has(watchKey(r)));
+    const inDomain = (identity: string) => identity.startsWith(JSON.stringify([s.domain]).slice(0, -1) + ',');
     for (const [identity, owner] of this.owners) {
-      // A failed/partial enumeration is not proof that a descendant exited.
-      if (!retained.has(owner) || s.complete && identity.startsWith(JSON.stringify([s.domain]).slice(0, -1) + ',') && !alive.has(identity)) this.owners.delete(identity);
+      // Complete enumeration is complete only for the requested root scope.
+      // Absence in a visible-root snapshot says nothing about hidden owners.
+      if (!retained.has(owner) || selected.has(owner) && s.complete && inDomain(identity) && !alive.has(identity)) this.owners.delete(identity);
     }
     for (const identity of this.parentLinks.keys()) {
-      if (s.complete && identity.startsWith(JSON.stringify([s.domain]).slice(0, -1) + ',') && !alive.has(identity)) this.parentLinks.delete(identity);
+      // Parent links also cover unresolved ancestry, so they have no owner to
+      // scope by. Preserve absent links until the whole namespace is inspected.
+      if (fullNamespaceScope && s.complete && inDomain(identity) && !alive.has(identity)) this.parentLinks.delete(identity);
     }
     for (const [identity, owner] of rootOwners) this.owners.set(identity, owner);
+    const hiddenRoots = namespaceRoots.filter(r => !selected.has(watchKey(r)));
+    const hiddenPids = new Set(hiddenRoots.filter(r => r.environment === 'local').map(r => r.pid));
+    for (const r of hiddenRoots) {
+      const pinned = this.resolveIdentity(r);
+      if (pinned?.domain === s.domain) hiddenPids.add(pinned.pid);
+    }
+    const hiddenMarkers = new Set(hiddenRoots.filter(r => r.environment === 'wsl').map(r => r.marker));
+    const hiddenBoundary = (p: TrackingProcess) => hiddenPids.has(p.pid) || !!p.marker && hiddenMarkers.has(p.marker);
     const resolve = (p: TrackingProcess): string | undefined => {
       const trail: TrackingProcess[] = [];
       const seen = new Set<number>();
       let current: TrackingProcess | undefined = p, owner: string | undefined;
       while (current && !seen.has(current.pid)) {
         seen.add(current.pid);
-        if (current.birth === null || !current.accessible) break;
+        if (current.birth === null || !current.accessible || hiddenBoundary(current)) break;
         const identity = key(s.domain, current);
         owner = rootOwners.get(identity) ?? this.owners.get(identity);
+        if (owner && !selected.has(owner)) return undefined;
         if (owner) break;
         trail.push(current);
         const parent = rows.get(current.parentPid);
@@ -471,7 +523,7 @@ export class ProcessTracker {
       let agents = 0;
       for (const p of s.processes) {
         const owned = p.birth !== null && this.owners.get(key(s.domain, p)) === id;
-        if (rootOwners.has(key(s.domain, p))) continue;
+        if (rootOwners.has(key(s.domain, p)) || hiddenBoundary(p)) continue;
         const parent = rows.get(p.parentPid);
         if (!owned) {
           if (parent?.birth && this.owners.get(key(s.domain, parent)) === id) {

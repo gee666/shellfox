@@ -10,7 +10,7 @@ import { MemoryRepository, factoryFixture } from './test-fixtures';
 const value = <T>(r: Result<T>): T => { if (!r.ok) throw new Error(r.error.code); return r.value; };
 async function fixture(repository = new MemoryRepository()) {
   const f = factoryFixture(), backend = new PtyBackend(f.options); let emit!: (items: TabObservation[]) => void;
-  const tracker = { setWatch: vi.fn(), dispose: vi.fn() };
+  const tracker = { setWatch: vi.fn(), setVisibleSessions: vi.fn(), dispose: vi.fn() };
   const service = new EmbeddedSessionService(repository, backend, callback => { emit = callback; return tracker; }); await service.initialize();
   const create = async (requestId = randomUUID()) => value(await service.createSession({ cwd: '/work', requestId }));
   const observe = (session: SessionDto, agents: number, health: 'healthy' | 'unknown' = 'healthy') => emit(session.tabs.filter(t => t.terminalKind === 'embedded').map(t => ({ sessionId: session.id, tabId: t.id, observedAt: new Date().toISOString(), root: 'alive', health, agents, reason: health === 'unknown' ? 'snapshot incomplete' : null })));
@@ -23,6 +23,29 @@ function seedLegacy(repository: MemoryRepository) {
   tab.registration!.tabId = tab.id; tab.registration!.operationId = tab.operationId; repository.saveSession(session); repository.saveTab(tab); return { session, tab };
 }
 describe('embedded saved-task lifecycle', () => {
+  it('starts polling paused and forwards viewport interest without dropping lifetime roots', async () => {
+    const f = await fixture(), a = await f.create(), b = await f.create();
+    expect(f.tracker.setVisibleSessions).toHaveBeenCalledWith([]);
+    value(f.service.setVisibleSessions({ sessionIds: [a.id] }));
+    expect(f.tracker.setVisibleSessions).toHaveBeenLastCalledWith([a.id]);
+    expect(f.tracker.setWatch.mock.lastCall![0].map((root: { sessionId: string }) => root.sessionId)).toEqual([a.id, b.id]);
+    value(f.service.setVisibleSessions({ sessionIds: [] }));
+    expect(f.tracker.setVisibleSessions).toHaveBeenLastCalledWith([]);
+    expect(f.service.setVisibleSessions({ sessionIds: ['invalid'] }).ok).toBe(false);
+    await f.service.dispose();
+  });
+  it('keeps cached offscreen statuses when a visible-only observation arrives', async () => {
+    const f = await fixture(), a = await f.create(), b = await f.create();
+    f.observe(a, 2); f.observe(b, 1);
+    value(f.service.setVisibleSessions({ sessionIds: [a.id] }));
+    f.observe(a, 0);
+    const sessions = value(f.service.getSnapshot()).sessions;
+    expect(sessions.find(s => s.id === a.id)!.tabs[0].agents).toBe(0);
+    expect(sessions.find(s => s.id === b.id)!.tabs[0].agents).toBe(1);
+    f.processes[1].exit(0);
+    expect(value(f.service.getSnapshot()).sessions.find(s => s.id === b.id)!.tabs[0].lifecycle).toBe('closed');
+    await f.service.dispose();
+  });
   it('forwards confirmed exit independently of a failed save and overlays/reconciles closure', async () => {
     const f = await fixture(), s = await f.create(), received: { type: string }[] = []; f.service.subscribeTerminal(e => received.push(e));
     const save = f.repository.saveTab.bind(f.repository), spy = vi.spyOn(f.repository, 'saveTab').mockImplementation(() => { throw new Error('disk full'); });

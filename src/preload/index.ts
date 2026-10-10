@@ -16,6 +16,7 @@ const api: ManagerApi = {
   importPuttySessions: () => request('importPuttySessions', {}),
   chooseSshKeyFile: () => request('chooseSshKeyFile', {}),
   getSnapshot: () => request('getSnapshot', {}),
+  setVisibleSessions: input => request('setVisibleSessions', input),
   getTerminalProfiles: () => request('getTerminalProfiles', {}),
   attachTerminal: input => request('attachTerminal', input),
   writeTerminal: input => request('writeTerminal', input),

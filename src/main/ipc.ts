@@ -61,6 +61,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
           // The renderer subscribes before its first snapshot request. Load completion alone is not enough.
           if (!announcedReady) { announcedReady = true; rendererReady?.(); }
           break;
+        case 'setVisibleSessions': result = embedded ? embedded.setVisibleSessions(requestSchemas.setVisibleSessions.parse(payload)) : success({ configured: true }); break;
         case 'getTerminalProfiles': result = embedded ? embedded.getTerminalProfiles() : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
         case 'attachTerminal': {
           const attachment = embedded ? embedded.attachTerminal(requestSchemas.attachTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.');
@@ -140,8 +141,14 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
   const unsubscribe = service.subscribe(event => {
     if (!window.isDestroyed()) window.webContents.send('manager:changed', event);
   });
-  const resetViews = () => delivery?.dispose();
+  const resetDelivery = () => delivery?.dispose();
+  const resetViews = () => {
+    resetDelivery();
+    try { embedded?.setVisibleSessions({ sessionIds: [] }); } catch { /* Renderer teardown must still finish. */ }
+  };
   window.webContents.on?.('render-process-gone', resetViews);
-  window.webContents.on?.('did-start-navigation', resetViews);
-  return () => { unsubscribe(); unsubscribeTerminal?.(); delivery?.dispose(); window.webContents.removeListener?.('render-process-gone', resetViews); window.webContents.removeListener?.('did-start-navigation', resetViews); ipcMain.removeHandler('manager:request'); };
+  // did-navigate excludes same-document/subframe and aborted navigation.
+  window.webContents.on?.('did-navigate', resetViews);
+  window.webContents.on?.('did-start-navigation', resetDelivery);
+  return () => { unsubscribe(); unsubscribeTerminal?.(); resetViews(); window.webContents.removeListener?.('render-process-gone', resetViews); window.webContents.removeListener?.('did-navigate', resetViews); window.webContents.removeListener?.('did-start-navigation', resetDelivery); ipcMain.removeHandler('manager:request'); };
 }

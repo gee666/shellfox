@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { CSSProperties } from 'react';
 import type { ManagerApi, TerminalProfileDto } from '../shared/contracts';
@@ -14,6 +14,7 @@ import { useSidebarWidth } from './sidebar-width';
 import { DirectoryPrompt } from './DirectoryPrompt';
 import { UpdateNotice } from './UpdateNotice';
 import { applyPalette, derivePalette } from './theme';
+import { useVisibleSessions } from './visible-sessions';
 
 export function App({ api = getManagerApi() }: { api?: ManagerApi }) {
   if (!api) return <main className="disconnected">Manager connection unavailable</main>;
@@ -21,6 +22,8 @@ export function App({ api = getManagerApi() }: { api?: ManagerApi }) {
 }
 
 function ConnectedApp({ api }: { api: ManagerApi }) {
+  const root = useRef<HTMLDivElement>(null);
+  useVisibleSessions(api, root);
   const client = useMemo(() => createManagerClient(api), [api]);
   const state = useStore(client.store);
   const settingsError = useStore(client.settings.store, state => state.error);
@@ -94,7 +97,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     document.addEventListener('keydown', keydown);
     return () => document.removeEventListener('keydown', keydown);
   });
-  return <div className={`app-shell${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
+  return <div ref={root} className={`app-shell${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
     <aside className="sidebar" aria-label="Session navigation">
       <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" title={canCreate ? 'New session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => { setSettingsOpen(false); setDirectoryOpen(true); }}><Icon name="plus" /></button><button className={`icon-button${settingsOpen ? ' active' : ''}`} aria-label="Settings" aria-pressed={settingsOpen} title="Settings" disabled={!snapshot} onClick={() => settingsOpen ? closeSettings() : setSettingsOpen(true)}><Icon name="settings" /></button></div>
       {snapshot && <SessionSidebar onSelect={() => setSettingsOpen(false)} client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={snapshot.settings.historyPageSize} />}
