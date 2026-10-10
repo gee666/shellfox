@@ -17,6 +17,7 @@ const electronPath = process.platform === 'win32' ? 'electron.exe' : process.pla
 if (!existsSync(path.join('node_modules/electron/dist', electronPath))) runNode('node_modules/electron/install.js');
 runNode('scripts/rebuild.mjs', [], 600000);
 runNode('scripts/terminal-native.mjs', [], 300000);
+console.log('[build] bundling main, preload and SSH client');
 const options = { bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['electron', 'better-sqlite3', 'node-pty'], loader: { '.sh': 'text', '.ps1': 'text' }, sourcemap: false, minifySyntax: true, logLevel: 'info', alias: testBuild ? { '#test-native-backend': path.resolve('tests/fixtures/fake-native.ts') } : {}, define: { __TEST_BUILD__: String(testBuild), __PROJECT_ROOT__: JSON.stringify(testBuild ? root : '') } };
 await esbuild({ ...options, entryPoints: ['src/main/index.ts'], outfile: output + '/main/index.cjs' });
 await esbuild({ ...options, entryPoints: ['src/preload/index.ts'], outfile: output + '/preload/index.cjs' });
@@ -28,8 +29,11 @@ if(process.platform==='win32'){
 }
 copyFileSync('node_modules/ssh2/LICENSE', output + '/cli/SSH2-LICENSE');
 copyFileSync('node_modules/hash-wasm/LICENSE', output + '/cli/HASH-WASM-LICENSE');
+console.log('[build] staging checksum-pinned SSH runtime');
 await stageSshRuntime(output + '/cli');
+console.log('[build] SSH runtime ready; starting renderer build');
 process.env.SHELLFOX_BUILD_DIR = output;
 await viteBuild({ configFile: path.resolve('vite.config.ts') });
+console.log('[build] renderer build complete');
 if (sourceDigest(root) !== sourceHash) throw new Error('Sources changed during build; wait for backend/renderer settlement and rebuild.');
 writeFileSync(testBuild ? 'tmp/build-test-source-stamp.json' : 'tmp/build-source-stamp.json', JSON.stringify({ sourceHash, platform: process.platform, arch: process.arch, builtAt: new Date().toISOString() }, null, 2));

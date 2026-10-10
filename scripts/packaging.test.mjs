@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import path from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, writeFile, rm, access } from 'node:fs/promises';
-import { stageSshRuntime } from './ssh-runtime.mjs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdir, mkdtemp, writeFile, rm, access, readdir } from 'node:fs/promises';
+import { stageSshRuntime, fileSha256 } from './ssh-runtime.mjs';
+import { run } from './common.mjs';
 import { createRequire } from 'node:module';
 import { darwinCompilerArgs, darwinHelpers } from './terminal-native-helpers.mjs';
 const require = createRequire(import.meta.url);
@@ -92,9 +93,25 @@ test('SSH runtime staging skips downloads on Linux/macOS and refuses unverified 
       await stageSshRuntime(output);await assert.rejects(access(path.join(output,'cli-runtime')));
     }
     Object.defineProperty(process,'platform',{value:'win32'});let downloads=0;
-    globalThis.fetch=async()=>{downloads++;return new Response('tampered',{status:200});};
-    await assert.rejects(stageSshRuntime(path.join(scratch,'windows')),/checksum mismatch/);assert.equal(downloads,1);
+    globalThis.fetch=async()=>{throw new Error('Node fetch must not be used by runtime staging');};
+    await assert.rejects(stageSshRuntime(path.join(scratch,'windows'),{download:async(url,file)=>{assert.ok(url.startsWith('https://nodejs.org/'));downloads++;await writeFile(file,'tampered');},log:()=>{}}),/checksum mismatch/);assert.equal(downloads,1);
+    const files=await readdir(path.join(scratch,'tmp/ssh-runtime-cache'));assert.ok(!files.some(file=>file.endsWith('.part')));
   }finally{Object.defineProperty(process,'platform',{value:originalPlatform});globalThis.fetch=originalFetch;process.chdir(originalCwd);await rm(scratch,{recursive:true,force:true});}
+});
+test('streaming asset hashes include all bytes without whole-download buffering',async()=>{
+  const scratch=await mkdtemp(path.resolve('tmp/ssh-hash-gate-'));try{const file=path.join(scratch,'asset');await writeFile(file,'abc');assert.equal(await fileSha256(file),'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');}finally{await rm(scratch,{recursive:true,force:true});}
+});
+test('child failure reports identify the script, exit code and diagnostics rather than just node.exe',()=>{
+  assert.throws(()=>run(process.execPath,['-e','process.exit(7)'],10000),error=>{
+    assert.match(error.message,/Child command failed:.*process.exit\(7\).*status=7 0x00000007.*diagnostics=/);
+    const file=error.message.split('diagnostics=')[1];const details=JSON.parse(readFileSync(file,'utf8'));
+    assert.equal(details.hex,'0x00000007');assert.equal(details.args[0],'-e');unlinkSync(file);return true;
+  });
+});
+test('Windows native failure exit codes are diagnosed in hexadecimal', {skip:process.platform!=='win32'},()=>{
+  assert.throws(()=>run(process.execPath,['-e','process.exit(0xC0000409)'],10000),error=>{
+    assert.match(error.message,/0xC0000409.*native fail-fast/);unlinkSync(error.message.split('diagnostics=')[1]);return true;
+  });
 });
 test('Darwin helper source contracts point to existing backend-owned sources', () => {
   for (const helper of darwinHelpers) {

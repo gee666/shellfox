@@ -87,6 +87,15 @@ jobs:
       - name: Packaged native smoke
         if: matrix.platform != 'linux'
         run: bash .github/scripts/ci-step.sh packaged-smoke pnpm test:packaged
+      - name: Upload build failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            tmp/ci-*.log
+            tmp/build-diagnostics/*.json
+          if-no-files-found: ignore
       - name: List artifacts
         run: find tmp/packages/make -type f \( -name '*.deb' -o -name '*.zip' -o -name '*.exe' -o -name '*.nupkg' \) -exec ls -l {} \;
       - uses: actions/upload-artifact@v4
