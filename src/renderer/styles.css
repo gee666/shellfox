@@ -84,6 +84,8 @@ button.session-copy:hover { background: transparent; }
 .workspace-content { display: flex; width: 100%; min-width: 0; min-height: 0; }
 .workspace-content[hidden] { display: none; }
 .sidebar-toolbar .icon-button.active { color: var(--accent); }
+.sidebar-toolbar [data-tip] { position: relative; }
+.sidebar-toolbar [data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 2px); right: 0; z-index: 20; padding: 1px 4px; white-space: nowrap; font-size: 11px; line-height: 14px; color: var(--fg); background: var(--sidebar); border: 1px solid var(--border); pointer-events: none; }
 .empty-terminal, .disconnected { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 4px; width: 100%; height: 100%; color: var(--muted); font-size: 12px; }
 .context-menu { position: fixed; z-index: 40; min-width: 144px; max-width: min(280px, calc(100vw - 8px)); max-height: calc(100vh - 8px); overflow: auto; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); }
 .context-menu button { display: block; width: 100%; border: 0; background: transparent; text-align: left; padding: 6px 8px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

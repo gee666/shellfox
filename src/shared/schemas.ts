@@ -6,6 +6,7 @@ export const adapterSchema = z.enum(['windows-terminal', 'gnome-terminal', 'embe
 export const shellIdSchema = z.enum(['pwsh', 'windows-powershell', 'bash', 'login-shell', 'wsl']);
 export const profileIdSchema = z.string().min(1).max(200).refine(s => !/[\u0000-\u001f\u007f]/.test(s));
 const utf8Size = (s: string) => new TextEncoder().encode(s).byteLength;
+const isWebUrl = (s: string) => { try { const url = new URL(s); return (url.protocol === 'http:' || url.protocol === 'https:') && !!url.hostname; } catch { return false; } };
 export const timestampSchema = z.iso.datetime({ offset: false });
 const text = (max: number) => z.string().max(max).refine(s => !/[\u0000-\u001f\u007f]/.test(s), 'Control characters are not allowed');
 export const titleSchema = text(200).min(1).refine(s => s.trim().length > 0);
@@ -79,6 +80,9 @@ export const requestSchemas = {
   completeDirectory: directoryPromptRequest,
   copyText: z.object({ text: z.string().max(CLIPBOARD_COPY_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_COPY_BYTES) }).strict(),
   readClipboardText: empty,
+  getKeepAwake: empty,
+  openExternal: z.object({ url: z.string().min(1).max(2048).refine(isWebUrl) }).strict(),
+  setKeepAwake: z.object({ active: z.boolean() }).strict(),
   openSessionFolder: sessionId,
   setSessionEnv: z.object({ sessionId: idSchema, env: envVarsSchema }).strict(),
   setCliIntegration: z.object({ installed: z.boolean() }).strict(),
@@ -128,6 +132,9 @@ export const responseSchemas = {
   copyText: resultSchema(z.object({ copied: z.literal(true) }).strict()),
   readClipboardText: resultSchema(z.object({ text: z.string().max(CLIPBOARD_PASTE_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_PASTE_BYTES) }).strict()),
   openSessionFolder: resultSchema(z.object({ opened: z.literal(true) }).strict()),
+  openExternal: resultSchema(z.object({ opened: z.literal(true) }).strict()),
+  getKeepAwake: resultSchema(z.object({ active: z.boolean() }).strict()),
+  setKeepAwake: resultSchema(z.object({ active: z.boolean() }).strict()),
   setSessionEnv: resultSchema(sessionSchema),
   setCliIntegration: resultSchema(cliIntegrationSchema),
   getTerminalProfiles: resultSchema(terminalProfilesSchema), attachTerminal: resultSchema(terminalAttachmentSchema),

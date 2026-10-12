@@ -97,6 +97,8 @@ export interface TerminalApi {
   /** Clipboard bridge for terminal Ctrl+Shift+C / Ctrl+Shift+V. Optional for legacy injected clients. */
   copyText?(input: { text: string }): Promise<Result<{ copied: true }>>;
   readClipboardText?(): Promise<Result<{ text: string }>>;
+  /** Opens an http(s) URL clicked in a terminal in the system browser. */
+  openExternal?(input: { url: string }): Promise<Result<{ opened: true }>>;
 }
 // Optional only for legacy injected clients. The production preload exposes every terminal method.
 export interface UpdateStatusDto {
@@ -141,6 +143,9 @@ export interface ManagerApi extends Partial<TerminalApi> {
   copyText(input: { text: string }): Promise<Result<{ copied: true }>>;
   readClipboardText?(): Promise<Result<{ text: string }>>;
   openSessionFolder(input: { sessionId: Id }): Promise<Result<{ opened: true }>>;
+  /** Prevent system and display sleep while Shellfox runs. Not persisted. */
+  getKeepAwake?(): Promise<Result<{ active: boolean }>>;
+  setKeepAwake?(input: { active: boolean }): Promise<Result<{ active: boolean }>>;
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
   setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;

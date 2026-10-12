@@ -391,14 +391,25 @@ describe('xterm safety configuration', () => {
     expect(terminal.options.cursorBlink).toBe(true);
     dimensions.mockRestore(); surface.dispose();
   });
-  it('bounds scrollback and consumes clipboard/hyperlink escape handlers without browser effects', () => {
+  it('opens only left-clicked http(s) hyperlinks through the bridge', () => {
+    const openLink = vi.fn();
+    const surface = createTerminalSurface(() => {}, undefined, { copy: vi.fn(), read: async () => null, openLink }); const terminal = terminalMocks.terminals.at(-1);
+    expect(terminal.osc.has(8)).toBe(false); expect(terminal.linkProviders).toHaveLength(1);
+    terminal.options.linkHandler.activate({ button: 0 }, 'javascript:alert(1)');
+    terminal.options.linkHandler.activate({ button: 0 }, 'file:///etc/passwd');
+    terminal.options.linkHandler.activate({ button: 2 }, 'https://example.com');
+    expect(openLink).not.toHaveBeenCalled();
+    terminal.options.linkHandler.activate({ button: 0 }, 'https://example.com/a');
+    expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/a'); surface.dispose();
+  });
+  it('bounds scrollback and consumes clipboard escape handlers without browser effects', () => {
     const surface = createTerminalSurface(() => {}); const terminal = terminalMocks.terminals.at(-1);
     expect(terminal.options.scrollback).toBe(3000); expect(terminal.options.linkHandler.allowNonHttpProtocols).toBe(false);
     expect(terminal.options.allowProposedApi).toBe(true);
     expect(terminal.options.minimumContrastRatio).toBe(1);
     expect(terminal.options.drawBoldTextInBrightColors).toBe(false);
-    expect(terminal.osc.get(52)('c;?')).toBe(true); expect(terminal.osc.get(8)(';javascript:alert(1)')).toBe(true);
-    expect(() => terminal.options.linkHandler.activate({}, 'javascript:alert(1)')).not.toThrow(); surface.dispose();
+    expect(terminal.osc.get(52)('c;?')).toBe(true); expect(terminal.linkProviders).toHaveLength(0);
+    expect(() => terminal.options.linkHandler.activate({ button: 0 }, 'https://example.com')).not.toThrow(); surface.dispose();
   });
 });
 

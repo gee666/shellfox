@@ -26,6 +26,19 @@ describe('compact workspace', () => {
     render(<App />); expect(screen.getByText('Manager connection unavailable')).toBeVisible();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+  it('toggles keep awake between Add a session and Settings with minimal tooltips', async () => {
+    const fixture = mockApi(); let active = true;
+    const setKeepAwake = vi.fn(async (input: { active: boolean }) => { active = input.active; return success({ active }); });
+    const { user } = await ready({ ...fixture.api, getKeepAwake: async () => success({ active }), setKeepAwake } as typeof fixture.api);
+    const button = await screen.findByRole('button', { name: 'Keep awake' });
+    await waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'true'));
+    const toolbar = Array.from(button.parentElement!.children).map(node => node.getAttribute('data-tip'));
+    expect(toolbar).toEqual(['Add a session', 'Keep awake', 'Settings']);
+    await user.click(button); expect(setKeepAwake).toHaveBeenLastCalledWith({ active: false });
+    await waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'false'));
+    await user.click(button); expect(setKeepAwake).toHaveBeenLastCalledWith({ active: true });
+    await waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'true'));
+  });
   it('shows no heading, details, badges or nested terminal lists', async () => {
     await ready();
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();

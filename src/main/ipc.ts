@@ -9,12 +9,13 @@ import { getHomeDirectory, resolveDirectory, completeDirectory } from './directo
 import { SshProfileStore } from './ssh/storage';
 import { readPuttySessions } from './ssh/putty';
 import type { UpdateSource } from './update/self-updater';
+import type { KeepAwake } from './keep-awake';
 
 export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow, rendererUrl: string): boolean {
   return !window.isDestroyed() && event.sender === window.webContents && !!event.senderFrame &&
     event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === rendererUrl;
 }
-export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource, ssh?: SshProfileStore): () => void {
+export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource, ssh?: SshProfileStore, keepAwake?: KeepAwake): () => void {
   let announcedReady = false;
   const embedded = 'attachTerminal' in service ? service : null;
   const delivery = embedded ? new TerminalDelivery(input => embedded.attachTerminal(input), event => {
@@ -118,6 +119,14 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
           } catch { result = failure('NOT_FOUND', 'The session folder is missing or inaccessible.'); }
           break;
         }
+        case 'openExternal': {
+          const { url } = requestSchemas.openExternal.parse(payload);
+          try { await shell.openExternal(new URL(url).href); result = success({ opened: true }); }
+          catch { result = failure('INTERNAL', 'The link could not be opened.'); }
+          break;
+        }
+        case 'getKeepAwake': result = keepAwake ? success({ active: keepAwake.active }) : failure('UNSUPPORTED', 'Keep awake is unavailable.'); break;
+        case 'setKeepAwake': result = keepAwake ? success({ active: keepAwake.set(requestSchemas.setKeepAwake.parse(payload).active) }) : failure('UNSUPPORTED', 'Keep awake is unavailable.'); break;
         case 'getUpdateStatus': result = updates ? success(await updates.status()) : failure('UNSUPPORTED', 'Update checks are unavailable.'); break;
         case 'downloadUpdate': result = updates?.download ? await updates.download() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;
         case 'installUpdate': result = updates?.install ? await updates.install() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;

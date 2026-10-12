@@ -81,6 +81,12 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     if (tab) client.selectTab(session, tab.id);
     return true;
   }
+  const [awake, setAwake] = useState(false);
+  useEffect(() => { void api.getKeepAwake?.().then(result => { if (result.ok) setAwake(result.value.active); }); }, [api]);
+  async function toggleAwake() {
+    const result = await action.run(() => api.setKeepAwake!({ active: !awake }));
+    if (result?.ok) setAwake(result.value.active);
+  }
   function closeSettings() {
     setSettingsOpen(false);
     const tab = selected?.tabs.find(tab => tab.id === state.activeTabIds[selected.id]) ?? selected?.tabs.find(tab => tab.lifecycle !== 'closed');
@@ -99,7 +105,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   });
   return <div ref={root} className={`app-shell${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
     <aside className="sidebar" aria-label="Session navigation">
-      <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" title={canCreate ? 'New session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => { setSettingsOpen(false); setDirectoryOpen(true); }}><Icon name="plus" /></button><button className={`icon-button${settingsOpen ? ' active' : ''}`} aria-label="Settings" aria-pressed={settingsOpen} title="Settings" disabled={!snapshot} onClick={() => settingsOpen ? closeSettings() : setSettingsOpen(true)}><Icon name="settings" /></button></div>
+      <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" data-tip={canCreate ? 'Add a session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => { setSettingsOpen(false); setDirectoryOpen(true); }}><Icon name="plus" /></button>{api.setKeepAwake && <button className={`icon-button${awake ? ' active' : ''}`} aria-label="Keep awake" aria-pressed={awake} data-tip="Keep awake" onClick={() => void toggleAwake()}><Icon name={awake ? 'eye' : 'eye-off'} /></button>}<button className={`icon-button${settingsOpen ? ' active' : ''}`} aria-label="Settings" aria-pressed={settingsOpen} data-tip="Settings" disabled={!snapshot} onClick={() => settingsOpen ? closeSettings() : setSettingsOpen(true)}><Icon name="settings" /></button></div>
       {snapshot && <SessionSidebar onSelect={() => setSettingsOpen(false)} client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={snapshot.settings.historyPageSize} />}
       <UpdateNotice api={api} />
     </aside>

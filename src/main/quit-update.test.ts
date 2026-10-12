@@ -26,7 +26,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('electron', () => ({
   app: state.app, BrowserWindow: class { constructor() { return state.window; } },
-  dialog: state.dialog, net: { fetch: state.fetch }, Menu: { setApplicationMenu: vi.fn() },
+  dialog: state.dialog, net: { fetch: state.fetch }, Menu: { setApplicationMenu: vi.fn() }, powerSaveBlocker: { start: vi.fn(() => 1), stop: vi.fn() },
   screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1220, height: 820 } }) },
   session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() }, setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } },
 }));

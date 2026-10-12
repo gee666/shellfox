@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, net, screen, session } from 'electron';
+import { app, BrowserWindow, dialog, Menu, net, powerSaveBlocker, screen, session } from 'electron';
 import { parseWindowState, restoreBounds, trackWindowState } from './window-state';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -17,6 +17,7 @@ import { SessionService } from './service';
 import { EmbeddedSessionService } from './terminal/service';
 import { TerminalQuitGuard } from './terminal/shutdown';
 import { installIpc } from './ipc';
+import { KeepAwake } from './keep-awake';
 import { helpText } from './ssh/presentation';
 import { SshProfileStore } from './ssh/storage';
 import { handleEmbeddedInstaller, installerEvent } from './installer';
@@ -181,11 +182,13 @@ async function run(): Promise<void> {
       },
     });
   if (updates instanceof SelfUpdater && app.isPackaged) updates.start();
+  const keepAwake = new KeepAwake(powerSaveBlocker);
+  app.on('will-quit', () => keepAwake.dispose());
   const uninstallIpc = installIpc(window, rendererUrl, service, () => requests.ready(async request => {
     if (!window || window.isDestroyed()) return;
     const result = await handleCliRequest(request, service, window, !backgroundTest);
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
-  }), updates, new SshProfileStore(app.getPath('userData')));
+  }), updates, new SshProfileStore(app.getPath('userData')), keepAwake);
   await window.loadFile(rendererFile);
   const quitGuard = new TerminalQuitGuard({ ownedTerminalCount: () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0, dispose: () => service.dispose() }, count => {
     const options = { type: 'warning' as const, title: 'Close embedded shells and quit?', message: `Quit Shellfox and close ${count} owned terminal${count === 1 ? '' : 's'}?`, detail: 'Embedded shells do not survive manager shutdown. Running commands may be interrupted. Restarting opens fresh shells; it does not restore commands. Legacy external terminals are not touched.', buttons: ['Cancel', 'Close shells and quit'], defaultId: 0, cancelId: 0, noLink: true };

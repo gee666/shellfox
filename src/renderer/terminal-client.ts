@@ -2,6 +2,7 @@ import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import type { AppError, Result, TerminalApi, TerminalAttachmentDto, TerminalEvent } from '../shared/contracts';
 import { request } from './api';
+import { isWebLink, webLinkProvider } from './terminal-links';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from './theme';
 
 const DEFAULT_THEME: ITheme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
@@ -34,6 +35,8 @@ export interface SurfaceClipboard {
   copy(text: string): void;
   /** Resolves with clipboard text, or null when nothing can be pasted. */
   read(): Promise<string | null>;
+  /** Opens an http(s) link in the system browser. */
+  openLink?(url: string): void;
 }
 export type SurfaceFactory = (input: (data: string, userInitiated?: boolean) => void, theme?: ITheme, clipboard?: SurfaceClipboard) => TerminalSurface;
 /** Ctrl+Shift+C / Ctrl+Shift+V (KeyboardEvent.code, so it is keyboard-layout independent). */
@@ -52,13 +55,14 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     minimumContrastRatio: 1, drawBoldTextInBrightColors: false,
     overviewRuler: { width: 8 },
     theme,
-    linkHandler: { activate: () => {}, allowNonHttpProtocols: false },
+    // OSC 8 hyperlinks: only http(s), opened by the main process in the system browser.
+    linkHandler: { activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) clipboard?.openLink?.(uri); }, allowNonHttpProtocols: false },
   });
+  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, url => clipboard.openLink!(url)));
   const fit = new FitAddon();
   terminal.loadAddon(fit);
-  // Shell output must not read/write the OS clipboard or open hyperlinks.
+  // Shell output must not read/write the OS clipboard.
   terminal.parser.registerOscHandler(52, () => true);
-  terminal.parser.registerOscHandler(8, () => true);
   let parsing = false;
   let disposed = false;
   let visible = false;
@@ -219,6 +223,10 @@ export class TerminalRegistry {
         if (!result.ok) { fail(result.error, epoch); return null; }
         return result.value.text;
       },
+      ...(api.openExternal ? { openLink: (url: string) => {
+        const epoch = current().epoch;
+        void request(() => api.openExternal!({ url })).then(result => { if (!result.ok) fail(result.error, epoch); });
+      } } : {}),
     };
   }
   /** Applies a derived palette to every existing terminal and to terminals created later. */
