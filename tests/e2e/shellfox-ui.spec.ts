@@ -56,7 +56,8 @@ test('Shellfox env editor, native menu actions, and Terminal command settings', 
     await expect(page.getByRole('heading', { name: 'Terminal command', exact: true })).toBeVisible();
     await expect(page.getByText('shellfox start .', { exact: true })).toBeVisible();
     const cli = (await snapshot(page)).cli;
-    const toggle = page.getByRole('switch', { name: 'Enable shellfox start <path> in terminals', exact: true });
+    const toggle = page.getByRole('region', { name: 'Settings', exact: true })
+      .getByRole('switch', { name: 'Enable shellfox command in terminals', exact: true });
     await expect(toggle).toHaveAttribute('aria-checked', String(cli.installed));
     if (!cli.supported) await expect(toggle).toBeDisabled();
     // Do not install or remove the user's real PATH integration in a UI test.

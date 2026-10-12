@@ -66,6 +66,7 @@ export interface ManagerSnapshot {
   revision: number; sessions: SessionDto[]; settings: SettingsDto; probe: NativeProbe; explorer: ExplorerIntegrationDto; cli: CliIntegrationDto;
 }
 export interface ChangedEvent { revision: number; reason: 'sessions' | 'settings' | 'native' | 'history'; selectSessionId?: Id }
+export interface KeepAwakeState { active: boolean }
 export interface TerminalProfileDto {
   id: string; label: string; environment: 'local' | 'wsl'; executable: string;
   args: string[]; distro: string | null; available: boolean;
@@ -144,8 +145,9 @@ export interface ManagerApi extends Partial<TerminalApi> {
   readClipboardText?(): Promise<Result<{ text: string }>>;
   openSessionFolder(input: { sessionId: Id }): Promise<Result<{ opened: true }>>;
   /** Prevent system and display sleep while Shellfox runs. Not persisted. */
-  getKeepAwake?(): Promise<Result<{ active: boolean }>>;
-  setKeepAwake?(input: { active: boolean }): Promise<Result<{ active: boolean }>>;
+  getKeepAwake?(): Promise<Result<KeepAwakeState>>;
+  setKeepAwake?(input: { active: boolean }): Promise<Result<KeepAwakeState>>;
+  subscribeKeepAwake?(listener: (state: KeepAwakeState) => void): () => void;
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
   setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;

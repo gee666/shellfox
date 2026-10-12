@@ -14,7 +14,7 @@ function fixture() {
   const window = { webContents: contents, isDestroyed: () => false, isFocused: () => true } as unknown as BrowserWindow;
   const event = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
   const service = { backend: {}, subscribe: vi.fn(() => () => {}) } as unknown as SessionService;
-  return { window, event, service };
+  return { window, event, service, contents, frame };
 }
 const call = (event: unknown, method: string, payload: unknown) => state.handler!(event, { version: 1, method, payload });
 beforeEach(() => { state.handler = undefined; state.openExternal.mockClear(); });
@@ -28,6 +28,27 @@ it('toggles keep awake for the trusted renderer', async () => {
   expect(await call({ ...event, sender: {} }, 'setKeepAwake', { active: false })).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
   expect(await call(event, 'setKeepAwake', { active: false })).toEqual({ ok: true, value: { active: false } });
   expect(power.stop).toHaveBeenCalledExactlyOnceWith(3);
+});
+it('forwards external model toggles on the dedicated event channel and unsubscribes on teardown', async () => {
+  const { window, event, service, contents } = fixture();
+  const keep = new KeepAwake({ start: () => 3, stop() {} }, { platform: 'freebsd' as NodeJS.Platform });
+  const uninstall = installIpc(window, url, service, undefined, undefined, undefined, keep);
+  keep.set(true); // Same path used by the external CLI control server.
+  expect(contents.send).toHaveBeenCalledExactlyOnceWith('manager:keep-awake', { active: true });
+  keep.set(true); expect(contents.send).toHaveBeenCalledOnce();
+  await call(event, 'setKeepAwake', { active: false });
+  expect(contents.send).toHaveBeenLastCalledWith('manager:keep-awake', { active: false });
+  expect(contents.send).toHaveBeenCalledTimes(2);
+  expect(service.subscribe).toHaveBeenCalledOnce();
+  uninstall(); keep.set(true); expect(contents.send).toHaveBeenCalledTimes(2); keep.dispose();
+});
+it('does not send keep-awake events to navigated or destroyed windows', () => {
+  const { window, service, contents, frame } = fixture();
+  const keep = new KeepAwake({ start: () => 3, stop() {} }, { platform: 'freebsd' as NodeJS.Platform });
+  const uninstall = installIpc(window, url, service, undefined, undefined, undefined, keep);
+  frame.url = 'https://untrusted.example'; keep.set(true); expect(contents.send).not.toHaveBeenCalled();
+  frame.url = url; window.isDestroyed = () => true; keep.set(false); expect(contents.send).not.toHaveBeenCalled();
+  uninstall(); keep.dispose();
 });
 it('is unsupported without a keep-awake controller', async () => {
   const { window, event, service } = fixture(); installIpc(window, url, service);

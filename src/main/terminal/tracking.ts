@@ -298,7 +298,7 @@ export class ProcessTracker {
     this.parentLinks.clear();
   }
 
-  /** Explicit cleanup exception: inspect ALL owned roots, even while hidden.
+  /** Explicit cleanup/CLI refresh: inspect ALL owned roots, even while hidden.
    * Automatic setWatch/visibility/timer work always uses visibleRoots instead. */
   poll(): Promise<void> { return this.requestPoll(true); }
 
@@ -307,7 +307,7 @@ export class ProcessTracker {
     if (this.pending) {
       if (all && !this.pendingAll) {
         this.pendingAll = true;
-        // Do not reuse a subset snapshot to satisfy an explicit cleanup poll.
+        // Do not reuse a subset snapshot to satisfy an explicit all-root poll.
         // If the automatic scope already covers every root, reuse its work.
         if (this.visibleRoots().length !== this.roots.length) this.revision++;
       }

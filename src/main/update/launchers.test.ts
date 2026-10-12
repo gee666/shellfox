@@ -14,15 +14,18 @@ describe('launchers route `update`', () => {
     expect(launcher).toContain('SHELLFOX_APP_EXECUTABLE=\'/Applications/Shellfox.app/Contents/MacOS/Shellfox\' exec /bin/sh -c "$shellfox_update_script" shellfox-update "$@"');
     expect(launcher).toContain('dpkg-query -W');
   });
-  it.skipIf(process.platform !== 'linux')('the generated launcher runs the embedded updater with the app executable, never launching the app', async () => {
+  it.skipIf(process.platform !== 'linux')('routes updater help through the CLI and invalid update arguments to the updater, never launching the GUI', async () => {
     await mkdir(path.resolve('tmp'), { recursive: true });
     const root = await mkdtemp(path.resolve('tmp/update-launcher-'));
     try {
       const marker = path.join(root, 'launched'), exe = path.join(root, "app 'x'"), launcher = path.join(root, 'shellfox');
-      await writeFile(exe, `#!/bin/sh\necho launched > '${marker}'\n`); await chmod(exe, 0o755);
-      await writeFile(launcher, linuxLauncher({ executable: exe })); await chmod(launcher, 0o755);
-      const help = await new Promise<string>((resolve, reject) => execFile('/bin/sh', [launcher, 'update', '--help'], { timeout: 5000 }, (error, out) => error ? reject(error) : resolve(out)));
-      expect(help).toContain('Usage: shellfox update [--check]');
+      const helper = path.join(root, 'helper'), args = path.join(root, 'helper-args');
+      await writeFile(exe, `#!/bin/sh\nif [ "$1" = "$SHELLFOX_TEST_HELPER" ]; then printf '%s\\n' "$@" > "$SHELLFOX_TEST_ARGS"; printf '%s\\n' 'shellfox update [--check]'; exit 0; fi\necho launched > '${marker}'\n`); await chmod(exe, 0o755);
+      const env = { ...process.env, SHELLFOX_TEST_HELPER: helper, SHELLFOX_TEST_ARGS: args };
+      await writeFile(launcher, linuxLauncher({ executable: exe, cliHelper: helper })); await chmod(launcher, 0o755);
+      const help = await new Promise<string>((resolve, reject) => execFile('/bin/sh', [launcher, 'update', '--help'], { timeout: 5000, env }, (error, out) => error ? reject(error) : resolve(out)));
+      expect(help).toContain('shellfox update [--check]');
+      expect(await readFile(args, 'utf8')).toBe([helper, 'update', '--help', ''].join('\n'));
       const bad = await new Promise<number>(resolve => execFile('/bin/sh', [launcher, 'update', '--nope'], { timeout: 5000 }, error => resolve((error as { code?: number } | null)?.code ?? 0)));
       expect(bad).toBe(2);
       await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
@@ -30,8 +33,8 @@ describe('launchers route `update`', () => {
   });
   it('routes `update` in the Windows cmd and POSIX shims to the PowerShell updater', () => {
     const shims = shellfoxShims({ executable: 'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe', updateScript: updatePs1 });
-    const updateAt = shims.cmd.indexOf('if /i "%~1"=="update" goto update'), startAt = shims.cmd.indexOf('if /i not "%~1"=="start" goto invalid');
-    expect(updateAt).toBeGreaterThan(0); expect(updateAt).toBeLessThan(startAt);
+    const updateAt = shims.cmd.indexOf('if /i "%~1"=="update" goto update'), startAt = shims.cmd.indexOf('if /i "%~1"=="start" goto start_session');
+    expect(updateAt).toBeGreaterThan(0); expect(startAt).toBeGreaterThan(0); expect(updateAt).toBeLessThan(startAt);
     expect(shims.cmd).toContain('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0shellfox-update.ps1" -Executable "C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe" %shellfox_update_args%');
     expect(shims.cmd).toContain('exit /b %errorlevel%'); expect(shims.cmd).toContain('cli\\main\\cli.cjs\" --help');
     expect(shims.posix).toContain('if [ "$1" = update ]; then');

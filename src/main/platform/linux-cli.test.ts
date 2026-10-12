@@ -10,8 +10,8 @@ it.skipIf(process.platform!=='linux')('real sh launcher handles cold spawn, spac
  try{
   const output=path.join(root,'argv.txt'),fake=path.join(root,'fake'),shim=path.join(root,'shellfox'),folder=path.join(root,"space 'quote' & %");await mkdir(folder);await mkdir(path.join(root,'--leading'));await mkdir(path.join(root,'-'));await symlink(folder,path.join(root,'link'));const physical=path.join(root,'physical','child');await mkdir(physical,{recursive:true});await symlink(physical,path.join(root,'deep-link'));
   await writeFile(fake,'#!/bin/sh\nprintf "%s\\n" "$@" > "$SHELLFOX_LAUNCH_TEST"\n');await chmod(fake,0o755);await writeFile(shim,linuxLauncher({executable:fake}));await chmod(shim,0o755);
-  for(const target of ['.',"space 'quote' & %",'link','--leading','-','deep-link/..']){
-   const result=await exec('/bin/sh',[shim,'start',target],{cwd:root,env:{...process.env,SHELLFOX_LAUNCH_TEST:output,OLDPWD:folder},timeout:3000});expect(result.stdout).toContain('Shellfox: started session');
+  for(const [alias, target] of ['.',"space 'quote' & %",'link','--leading','-','deep-link/..'].map(target=>['start',target]).concat(['add','new','create'].map(alias=>[alias,'.']))){
+   const result=await exec('/bin/sh',[shim,alias,target],{cwd:root,env:{...process.env,SHELLFOX_LAUNCH_TEST:output,OLDPWD:folder},timeout:3000});expect(result.stdout).toContain('Shellfox: started session');
    const args=await readFile(output,'utf8');expect(args.split('\n')[0]).toBe('start');expect(args).toContain(target==='.'?root:target==='link'?folder:target==='deep-link/..'?path.dirname(physical):path.join(root,target));
   }
   await writeFile(fake,'#!/bin/sh\nsleep 2\n');
@@ -21,6 +21,18 @@ it.skipIf(process.platform!=='linux')('real sh launcher handles cold spawn, spac
   await new Promise(resolve=>setTimeout(resolve,2200)); // Let only our fake child exit naturally.
   await expect(exec('/bin/sh',[shim,'start','missing'],{cwd:root,timeout:3000})).rejects.toMatchObject({code:1});expect(await readFile(shim,'utf8')).toContain('cli/main/cli.cjs');
  }finally{await rm(root,{recursive:true,force:true});}
+});
+it.skipIf(process.platform!=='linux')('routes control commands, help and version to the helper with argv, data and exit code intact', async()=>{
+ await mkdir(path.resolve('tmp'),{recursive:true}); const root=await mkdtemp(path.resolve('tmp/linux-cli-routing-'));
+ try {
+  const fake=path.join(root,'runtime'), shim=path.join(root,'shellfox'), helper=path.join(root,'cli helper'), data=path.join(root,"data 'quoted'");
+  await writeFile(fake,'#!/bin/sh\nprintf "%s\\n" "$@"\nexit 17\n'); await chmod(fake,0o755);
+  await writeFile(shim,linuxLauncher({executable:fake,cliHelper:helper,userData:data}));
+  for(const args of [['ls','--name','two words'],['status','--current'],['proc','--pid','42'],['delete'],['settle'],['tab','new'],['awake'],['--version'],['-v'],['version'],['-h'],['help','ls'],['start','--help'],['add','-h'],['create','help'],['unknown']]) {
+   const result=await exec('/bin/sh',[shim,...args],{cwd:root,timeout:3000}).catch(error=>error);
+   expect(result.code).toBe(17); expect(result.stdout).toBe([helper,'--user-data',data,...args,''].join('\n'));
+  }
+ } finally { await rm(root,{recursive:true,force:true}); }
 });
 it('requires an exact ownership comment and preserves a foreign launcher',async()=>{
  expect(ownsLinuxFile('# Documentation: Shellfox/linux-v1')).toBe(false);

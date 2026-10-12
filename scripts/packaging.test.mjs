@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import path from 'node:path';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { mkdir, mkdtemp, writeFile, rm, access, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm, access, readdir, readFile, chmod } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { stageSshRuntime, fileSha256 } from './ssh-runtime.mjs';
 import { run } from './common.mjs';
 import { createRequire } from 'node:module';
@@ -44,6 +46,80 @@ test('Debian ships the launcher with its update script, which the launcher route
   const launcher = readFileSync(c.extraResource[0], 'utf8');
   assert.ok(launcher.includes('exec /bin/sh /usr/lib/shellfox/resources/shellfox-update.sh "$@"'));
   assert.ok(launcher.includes('/resources/cli/main/cli.cjs'));
+  for (const alias of ['start', 'add', 'new', 'create']) assert.ok(launcher.includes(`[ "$1" = ${alias} ]`));
+  for (const help of ['--help', '-h', 'help']) assert.ok(launcher.includes(`[ "\${2:-}" = ${help} ]`));
+  assert.ok(readFileSync(config('linux', 'x64').makers.find(m => m.name === '@electron-forge/maker-deb').config.options.scripts.postinst, 'utf8')
+    .includes('install -m 755 "$root/resources/shellfox-launcher" /usr/bin/shellfox'));
+});
+const launcherShell = process.platform === 'win32' ? path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe') : '/bin/sh';
+test('the real Debian launcher forwards controls/help and dispatches all start aliases to the GUI', { skip: !existsSync(launcherShell) }, async () => {
+  const exec = promisify(execFile);
+  const posix = value => process.platform === 'win32' ? value.replace(/^([A-Za-z]):/, (_, drive) => '/' + drive.toLowerCase()).replaceAll('\\', '/') : value;
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  await mkdir('tmp', { recursive: true });
+  const root = await mkdtemp(path.resolve('tmp/debian-launcher-'));
+  try {
+    const appRoot = path.join(root, "app space 'quoted' & %"), bin = path.join(root, 'bin');
+    const launcher = path.join(root, 'shellfox'), log = path.join(root, 'argv.log');
+    await mkdir(path.join(appRoot, 'resources', 'cli', 'main'), { recursive: true }); await mkdir(bin);
+    await writeFile(path.join(appRoot, 'shellfox'), `#!/bin/sh
+if [ "\${ELECTRON_RUN_AS_NODE:-}" = 1 ]; then
+  printf '%s\\n' helper "$ELECTRON_RUN_AS_NODE" "\${SHELLFOX_TERMINAL_MARKER:-}" "$@" > "$SHELLFOX_TEST_LOG"
+  exit 17
+fi
+printf '%s\\n' gui "\${ELECTRON_RUN_AS_NODE-unset}" "$@" > "$SHELLFOX_TEST_LOG"
+`);
+    await chmod(path.join(appRoot, 'shellfox'), 0o755);
+    // The fake executable records helper argv; the shipped helper path is still checked.
+    await writeFile(path.join(appRoot, 'resources', 'cli', 'main', 'cli.cjs'), 'fixture');
+    await writeFile(path.join(appRoot, 'resources', 'shellfox-update.sh'), `#!/bin/sh
+printf '%s\\n' updater "\${ELECTRON_RUN_AS_NODE-unset}" "$@" > "$SHELLFOX_TEST_LOG"
+exit 23
+`);
+    // Only detachment is stubbed. Run the actual shipped shell routing under sh/bash,
+    // including on Windows CI without installing files into /usr/lib or /usr/bin.
+    await writeFile(path.join(bin, 'setsid'), '#!/bin/sh\n[ "$1" = --fork ] && shift\n[ "$1" = --wait ] && shift\nexec "$@"\n');
+    await chmod(path.join(bin, 'setsid'), 0o755);
+    const shipped = config('linux', 'x64').packagerConfig.extraResource.find(file => path.basename(file) === 'shellfox-launcher');
+    const source = await readFile(shipped, 'utf8');
+    // Redirect fixed installation paths only; no routing conditions are replaced.
+    await writeFile(launcher, source.replaceAll('/usr/lib/shellfox', () => quote(posix(appRoot))));
+    const marker = 'c36951c8-03f5-49c7-bb11-ad8828044a31';
+    const env = { ...process.env, PATH: posix(bin) + (process.platform === 'win32' ? ':/usr/bin:/bin' : ':' + process.env.PATH),
+      ELECTRON_RUN_AS_NODE: '1', SHELLFOX_TEST_LOG: posix(log), SHELLFOX_TERMINAL_MARKER: marker };
+    const invoke = async args => {
+      await rm(log, { force: true });
+      try { return { ...await exec(launcherShell, [posix(launcher), ...args], { cwd: root, env, timeout: 5000 }), code: 0 }; }
+      catch (error) { if (typeof error.code !== 'number') throw error; return error; }
+    };
+    await exec(launcherShell, ['-n', posix(launcher)], { timeout: 5000 });
+    const helperCommands = [
+      ['ls', '--name', 'two words'], ['list'], ['sessions'], ['stats', '--current'], ['status'], ['usage'],
+      ['processes'], ['proc', '--pid', '42'], ['ps'], ['delete', marker], ['remove', marker], ['rm', marker], ['archive'], ['settle'],
+      ['tab', 'open'], ['tab', 'add'], ['tab', 'new'], ['tab', 'close'], ['tab', 'remove'], ['tab', 'rm'],
+      ['keep-alive'], ['keepalive'], ['awake'], ['ssh', '--profile', 'prod'], ['--version'], ['-v'], ['version'],
+      ['--help'], ['-h'], ['help', 'ls'], ['help', 'tab', 'close'], ['unknown'], ['start', '.', 'surplus'],
+      ...['start', 'add', 'new', 'create', 'update'].flatMap(command => ['--help', '-h', 'help'].map(help => [command, help])),
+    ];
+    for (const args of helperCommands) {
+      const result = await invoke(args);
+      assert.equal(result.code, 17, JSON.stringify(args) + ': ' + result.stderr);
+      assert.equal(await readFile(log, 'utf8'), ['helper', '1', marker, posix(path.join(appRoot, 'resources', 'cli', 'main', 'cli.cjs')), ...args, ''].join('\n'));
+    }
+    const folder = path.join(root, "project 'quotes' & % !"); await mkdir(folder); await mkdir(path.join(root, '--leading'));
+    for (const alias of ['start', 'add', 'new', 'create']) for (const target of [undefined, path.basename(folder), '--leading']) {
+      const result = await invoke([alias, ...(target ? [target] : [])]);
+      assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /Shellfox: started session/);
+      assert.equal(await readFile(log, 'utf8'), ['gui', 'unset', 'start', posix(target ? path.join(root, target) : root), ''].join('\n'));
+    }
+    assert.equal((await invoke([])).code, 0);
+    assert.equal(await readFile(log, 'utf8'), 'gui\nunset\n');
+    assert.equal((await invoke(['update', '--check'])).code, 23);
+    assert.equal(await readFile(log, 'utf8'), 'updater\nunset\n--check\n');
+    const missing = await invoke(['create', 'missing']);
+    assert.equal(missing.code, 1); assert.match(missing.stderr, /directory does not exist/);
+    await assert.rejects(access(log), { code: 'ENOENT' });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 test('Darwin native resources are outside ASAR and covered by preview signing', () => {
   for (const arch of ['x64', 'arm64']) {

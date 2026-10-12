@@ -40,6 +40,7 @@ export const historyQuerySchema = z.object({ search: text(500), status: z.enum([
 export const historyPageSchema = z.object({ items: z.array(sessionSchema).max(100), total: count, page: z.number().int().min(1), pageSize: z.number().int().min(1).max(100) }).strict();
 export const snapshotSchema = z.object({ revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), sessions: z.array(sessionSchema).max(10000), settings: settingsSchema, probe: probeSchema, explorer: explorerSchema, cli: cliIntegrationSchema }).strict();
 export const changedEventSchema = z.object({ revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), reason: z.enum(['sessions', 'settings', 'native', 'history']), selectSessionId: idSchema.optional() }).strict();
+export const keepAwakeStateSchema = z.object({ active: z.boolean() }).strict();
 export const processIdentitySchema = z.object({ pid: z.number().int().min(1).max(4294967295), startTime: z.string().regex(/^\d{1,80}$/) }).strict();
 export const registrationSchema = z.object({ sessionId: idSchema, tabId: idSchema, operationId: idSchema, shell: processIdentitySchema, shellExecutable: pathSchema, cwd: pathSchema, registeredAt: timestampSchema }).strict();
 export const windowTargetSchema = z.object({ kind: z.literal('windows-terminal'), windowName: text(100).min(1), hwnd: z.string().regex(/^\d{1,20}$/), owner: processIdentitySchema, sessionId: idSchema, markerPrefix: text(200).min(1), verification: z.literal('native-title') }).strict();
@@ -133,8 +134,8 @@ export const responseSchemas = {
   readClipboardText: resultSchema(z.object({ text: z.string().max(CLIPBOARD_PASTE_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_PASTE_BYTES) }).strict()),
   openSessionFolder: resultSchema(z.object({ opened: z.literal(true) }).strict()),
   openExternal: resultSchema(z.object({ opened: z.literal(true) }).strict()),
-  getKeepAwake: resultSchema(z.object({ active: z.boolean() }).strict()),
-  setKeepAwake: resultSchema(z.object({ active: z.boolean() }).strict()),
+  getKeepAwake: resultSchema(keepAwakeStateSchema),
+  setKeepAwake: resultSchema(keepAwakeStateSchema),
   setSessionEnv: resultSchema(sessionSchema),
   setCliIntegration: resultSchema(cliIntegrationSchema),
   getTerminalProfiles: resultSchema(terminalProfilesSchema), attachTerminal: resultSchema(terminalAttachmentSchema),

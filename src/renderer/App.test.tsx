@@ -7,14 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { failure, success } from '../shared/contracts';
-import type { TerminalEvent } from '../shared/contracts';
+import type { KeepAwakeState, ManagerApi, Result, TerminalEvent } from '../shared/contracts';
 import { App } from './App';
 import { deferred, mockApi, profiles, session, snapshot } from './test-fixtures';
 import { SIDEBAR_WIDTH_KEY } from './sidebar-width';
 
 afterEach(cleanup);
 beforeEach(() => localStorage.clear());
-async function ready(api = mockApi().api) {
+async function ready(api: ManagerApi = mockApi().api) {
   const user = userEvent.setup(); const rendered = render(<App api={api} />);
   await screen.findByRole('button', { name: 'Select session Session 1' });
   await waitFor(() => expect(screen.getByRole('button', { name: 'New session' })).toBeEnabled());
@@ -38,6 +38,59 @@ describe('compact workspace', () => {
     await waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'false'));
     await user.click(button); expect(setKeepAwake).toHaveBeenLastCalledWith({ active: true });
     await waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'true'));
+  });
+  it('subscribes before the initial keep-awake query and ignores stale reads after external toggles', async () => {
+    const fixture = mockApi(), initial = deferred<Result<KeepAwakeState>>(), unsubscribe = vi.fn();
+    let notify!: (state: KeepAwakeState) => void;
+    const subscribeKeepAwake = vi.fn((listener: typeof notify) => { notify = listener; return unsubscribe; });
+    const getKeepAwake = vi.fn(() => initial.promise);
+    const rendered = await ready({ ...fixture.api, getKeepAwake, setKeepAwake: async input => success(input), subscribeKeepAwake });
+    const button = screen.getByRole('button', { name: 'Keep awake' });
+    expect(subscribeKeepAwake.mock.invocationCallOrder[0]).toBeLessThan(getKeepAwake.mock.invocationCallOrder[0]!);
+    const snapshots = fixture.api.getSnapshot.mock.calls.length;
+    await act(async () => notify({ active: true }));
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => initial.resolve(success({ active: false })));
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => notify({ active: false }));
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+    expect(fixture.api.getSnapshot).toHaveBeenCalledTimes(snapshots);
+    rendered.unmount(); expect(unsubscribe).toHaveBeenCalledOnce();
+    await act(async () => notify({ active: true }));
+  });
+  it('does not overwrite an external toggle with a delayed UI mutation response', async () => {
+    const fixture = mockApi(), pending = deferred<Result<KeepAwakeState>>();
+    let notify!: (state: KeepAwakeState) => void;
+    const setKeepAwake = vi.fn(() => pending.promise);
+    const { user } = await ready({ ...fixture.api, getKeepAwake: async () => success({ active: false }), setKeepAwake,
+      subscribeKeepAwake: listener => { notify = listener; return () => {}; } });
+    const button = screen.getByRole('button', { name: 'Keep awake' });
+    await user.click(button); expect(setKeepAwake).toHaveBeenCalledWith({ active: true });
+    await act(async () => { notify({ active: true }); notify({ active: false }); });
+    await act(async () => pending.resolve(success({ active: true })));
+    expect(button).toHaveAttribute('aria-pressed', 'false');
+  });
+  it('ignores an old initial query after toggling through an API without subscriptions', async () => {
+    const fixture = mockApi(), initial = deferred<Result<KeepAwakeState>>();
+    const { user } = await ready({ ...fixture.api, getKeepAwake: () => initial.promise, setKeepAwake: async input => success(input) });
+    const button = screen.getByRole('button', { name: 'Keep awake' });
+    await user.click(button); expect(button).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => initial.resolve(success({ active: false })));
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+  });
+  it('cleans up keep-awake notifications under StrictMode without duplicate subscriptions', async () => {
+    const fixture = mockApi(), listeners = new Set<(state: KeepAwakeState) => void>(), stop = vi.fn();
+    const subscribeKeepAwake = vi.fn((listener: (state: KeepAwakeState) => void) => {
+      listeners.add(listener); return () => { listeners.delete(listener); stop(); };
+    });
+    const rendered = render(<StrictMode><App api={{ ...fixture.api, getKeepAwake: async () => success({ active: false }),
+      setKeepAwake: async input => success(input), subscribeKeepAwake }} /></StrictMode>);
+    await screen.findByRole('button', { name: 'Keep awake' });
+    expect(listeners.size).toBe(1);
+    await act(async () => { for (const listener of listeners) listener({ active: true }); });
+    expect(screen.getByRole('button', { name: 'Keep awake' })).toHaveAttribute('aria-pressed', 'true');
+    rendered.unmount(); expect(listeners.size).toBe(0);
+    expect(stop).toHaveBeenCalledTimes(subscribeKeepAwake.mock.calls.length);
   });
   it('shows no heading, details, badges or nested terminal lists', async () => {
     await ready();

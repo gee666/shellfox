@@ -44,7 +44,9 @@ test('SQLite history literal search, stable pagination, settings and identities 
     }));
     await page.getByRole('button', { name: 'Use #2dd4bf', exact: true }).click();
     await expect.poll(async () => (await snapshot(page)).settings.accentColor).toBe('#2dd4bf');
-    await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+    const settings = page.getByRole('region', { name: 'Settings', exact: true });
+    await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
+    await expect(settings).toBeHidden();
     const identities = await app.evaluate(() => (globalThis as any).__shellfoxTest.backend.watch.map((t: any) => t.registration));
     const pragmas = await app.evaluate(() => {
       const db = (globalThis as any).__shellfoxTest.repository.db;

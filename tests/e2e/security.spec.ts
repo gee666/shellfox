@@ -11,7 +11,21 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
     const isolation = await page.evaluate(() => ({ require: typeof (window as any).require, process: typeof (window as any).process, raw: typeof (window as any).ipcRenderer, test: typeof (window as any).__shellfoxTest, keys: Object.keys(window.shellfox).sort() }));
     expect(isolation.require).toBe('undefined'); expect(isolation.process).toBe('undefined');
     expect(isolation.raw).toBe('undefined'); expect(isolation.test).toBe('undefined');
-    expect(isolation.keys).toEqual(['activateSession', 'prepareSessionRegistration', 'refreshSessionMembership', 'addTab', 'chooseDirectory', 'getHomeDirectory', 'resolveDirectory', 'completeDirectory', 'clearSessionError', 'createSession', 'focusSession', 'getHistory', 'getSnapshot', 'renameSession', 'retryTab', 'saveSettings', 'setExplorerIntegration', 'settleSession', 'subscribe', 'unsettleSession', 'getTerminalProfiles', 'attachTerminal', 'writeTerminal', 'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'subscribeTerminal', 'copyText', 'readClipboardText', 'openSessionFolder', 'setSessionEnv', 'setCliIntegration', 'setSessionPinned', 'getUpdateStatus', 'deleteSession', 'renameTab', 'reorderTabs', 'downloadUpdate', 'installUpdate'].sort());
+    // Keep this explicit: deriving it from the implementation would silently
+    // approve any newly exposed capability, including accidental raw IPC.
+    expect(isolation.keys).toEqual([
+      'activateSession', 'prepareSessionRegistration', 'refreshSessionMembership', 'addTab',
+      'chooseDirectory', 'getHomeDirectory', 'resolveDirectory', 'completeDirectory',
+      'clearSessionError', 'createSession', 'focusSession', 'getHistory', 'getSnapshot',
+      'renameSession', 'retryTab', 'saveSettings', 'setExplorerIntegration', 'settleSession',
+      'subscribe', 'unsettleSession', 'getTerminalProfiles', 'attachTerminal', 'writeTerminal',
+      'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'subscribeTerminal',
+      'copyText', 'readClipboardText', 'openSessionFolder', 'setSessionEnv', 'setCliIntegration',
+      'setSessionPinned', 'getUpdateStatus', 'deleteSession', 'renameTab', 'reorderTabs',
+      'downloadUpdate', 'installUpdate', 'listSshProfiles', 'saveSshProfile', 'deleteSshProfile',
+      'importPuttySessions', 'chooseSshKeyFile', 'getKeepAwake', 'setKeepAwake',
+      'subscribeKeepAwake', 'openExternal', 'setVisibleSessions',
+    ].sort());
     const prefs = await app.evaluate(({ BrowserWindow }) => (BrowserWindow.getAllWindows()[0].webContents as any).getLastWebPreferences());
     expect(prefs.sandbox).toBe(true); expect(prefs.contextIsolation).toBe(true); expect(prefs.nodeIntegration).toBe(false);
     // Invoke Electron's installed handler from main to supply hostile sender frames.
@@ -32,10 +46,20 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
         [trusted, { version: 1, method: 'reorderTabs', payload: { sessionId: '11111111-1111-4111-8111-111111111111', tabIds: ['11111111-1111-4111-8111-111111111111', '11111111-1111-4111-8111-111111111111'] } }],
         [trusted, { version: 1, method: 'downloadUpdate', payload: { url: 'https://example.com/hostile.zip' } }],
         [trusted, { version: 1, method: 'installUpdate', payload: {} }],
+        [{ sender: {}, senderFrame: wc.mainFrame }, { version: 1, method: 'setKeepAwake', payload: { active: true } }],
+        [trusted, { version: 1, method: 'setKeepAwake', payload: { active: 'true' } }],
+        [trusted, { version: 1, method: 'subscribeKeepAwake', payload: {} }],
+        [trusted, { version: 1, method: 'setVisibleSessions', payload: { sessionIds: ['bad'] } }],
+        [trusted, { version: 1, method: 'openExternal', payload: { url: 'file:///etc/passwd' } }],
+        [trusted, { version: 1, method: 'saveSshProfile', payload: { id: 'bad' } }],
       ];
       return Promise.all(cases.map(async ([event, raw]) => { const r = await handler(event, raw); return r.ok ? 'unexpected success' : r.error.code; }));
     });
-    expect(codes).toEqual(['AUTH_FAILED', 'AUTH_FAILED', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION']);
+    expect(codes).toEqual([
+      'AUTH_FAILED', 'AUTH_FAILED', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION',
+      'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'AUTH_FAILED', 'VALIDATION',
+      'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION',
+    ]);
     const title = '<img src=x onerror="window.pwned=1">';
     value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID(), title }));
     await expect(page.getByRole('complementary', { name: 'Session navigation' })).toContainText(title);

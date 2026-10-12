@@ -15,7 +15,7 @@ export function linuxLauncher(options: LinuxCliOptions): string {
   const target=[options.executable,...(options.appPath?[options.appPath]:[]),...(options.prefixArgs??[])].map(shQuote).join(' ');
   return `#!/bin/sh
 # ${LINUX_OWNER}
-if [ "\${1:-}" = '--help' ] || [ "\${1:-}" = ssh ]; then
+if [ "\${1:-}" = '--help' ] || [ "\${1:-}" = ssh ] || [ "\${2:-}" = '--help' ] || [ "\${2:-}" = '-h' ] || [ "\${2:-}" = help ]; then
 ${posixHelper(options, false)}fi
 unset ELECTRON_RUN_AS_NODE
 if [ "\${1:-}" = update ]; then
@@ -24,7 +24,7 @@ if [ "\${1:-}" = update ]; then
   SHELLFOX_APP_EXECUTABLE=${shQuote(options.executable)} exec /bin/sh -c "$shellfox_update_script" shellfox-update "$@"
 fi
 if [ "$#" -eq 0 ]; then mode=show
-elif [ "$1" = start ] && [ "$#" -le 2 ]; then
+elif { [ "$1" = start ] || [ "$1" = add ] || [ "$1" = new ] || [ "$1" = create ]; } && [ "$#" -le 2 ]; then
   target=\${2:-.}
   case "$target" in /*) ;; *) target=./$target ;; esac
   folder=$(CDPATH='' cd -P -- "$target" 2>/dev/null && pwd -P) || { printf '%s\\n' 'Shellfox: directory does not exist or is inaccessible.' >&2; exit 1; }

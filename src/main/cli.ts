@@ -26,7 +26,7 @@ export function parseCli(args: string[], options: { testMode?: boolean; testBuil
     const flag = args[i];
     if (seen.has(flag)) return failure('VALIDATION', 'Duplicate CLI flag');
     seen.add(flag);
-    if (flag === 'start') {
+    if (['start', 'add', 'new', 'create'].includes(flag)) {
       if (newSession || cwd !== undefined || start) return failure('VALIDATION', 'Do not combine start with legacy session flags.');
       start = newSession = true;
       const target = args[i + 1] && !['--test-user-data', '--test-backend', '--new-session', '--cwd'].includes(args[i + 1]!) ? args[++i]! : '.';

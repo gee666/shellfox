@@ -45,6 +45,23 @@ it('validates viewport session configuration through the manager request channel
     expect(await bridge.api!.setVisibleSessions({ sessionIds: [] })).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
   }
 });
+it('validates keep-awake notifications and removes only the subscribed callback', () => {
+  const receive = vi.fn(), other = vi.fn();
+  const stop = bridge.api!.subscribeKeepAwake!(receive), stopOther = bridge.api!.subscribeKeepAwake!(other);
+  const dispatch = (value: unknown) => { for (const listener of bridge.listeners.get('manager:keep-awake') ?? []) listener({}, value); };
+  for (const value of [null, {}, { active: 1 }, { active: 'true' }, { active: true, extra: 1 }, { active: false, revision: 1 }]) dispatch(value);
+  expect(receive).not.toHaveBeenCalled();
+  dispatch({ active: true }); expect(receive).toHaveBeenCalledExactlyOnceWith({ active: true });
+  stop(); stop(); dispatch({ active: false });
+  expect(receive).toHaveBeenCalledOnce(); expect(other).toHaveBeenLastCalledWith({ active: false });
+  stopOther(); expect(bridge.listeners.get('manager:keep-awake')?.size).toBe(0);
+  expect(bridge.removed).toHaveBeenCalledWith('manager:keep-awake');
+});
+it('ignores invalid keep-awake subscribers without exposing raw IPC', () => {
+  const stop = bridge.api!.subscribeKeepAwake!(null as never); stop();
+  expect(bridge.listeners.get('manager:keep-awake')?.size ?? 0).toBe(0);
+  expect(bridge.api).not.toHaveProperty('ipcRenderer');
+});
 it('validates terminal event identities, shapes and byte limits but keeps VT control bytes', () => {
   const receive = vi.fn(), stop = bridge.api!.subscribeTerminal!(receive), id = { tabId: randomUUID(), generation: randomUUID() };
   const dispatch = (value: unknown) => { for (const listener of bridge.listeners.get('manager:terminal') ?? []) listener({}, value); };

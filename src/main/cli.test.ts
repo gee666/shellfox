@@ -2,6 +2,11 @@ import { it, expect } from 'vitest';
 import { EarlyRequestQueue, parseCli, productArguments, validateForwarded } from './cli';
 const id = 'c36951c8-03f5-49c7-bb11-ad8828044a31';
 it.each([{ cwd: 'C:\\project space', args: ['start'], expected: 'C:\\project space' }, { cwd: 'C:\\project space', args: ['start', '..\\next'], expected: 'C:\\next' }, { cwd: '/tmp/project', args: ['start', '.'], expected: '/tmp/project' }])('resolves shellfox start relative to caller cwd before forwarding $cwd', ({ cwd, args, expected }) => { expect(parseCli(args, { cwd })).toMatchObject({ ok: true, value: { request: { kind: 'new-session', cwd: expected } } }); });
+it.each(['add', 'new', 'create'])('starts a GUI session through alias %s', alias => {
+  expect(parseCli([alias, './child'], { cwd: '/work/project' })).toMatchObject({ ok: true, value: { request: { kind: 'new-session', cwd: '/work/project/child' } } });
+  expect(parseCli([alias], { cwd: '/work/project' })).toMatchObject({ ok: true, value: { request: { kind: 'new-session', cwd: '/work/project' } } });
+  expect(parseCli([alias, '.', '--new-session']).ok).toBe(false);
+});
 it('rejects combined start/legacy arguments and surplus paths', () => { for (const args of [['start', '.', 'extra'], ['start', '.', '--new-session'], ['--new-session', '--cwd', 'C:\\work', 'start', '.']]) expect(parseCli(args).ok).toBe(false); });
 it('shows manager without product flags', () => expect(parseCli([])).toEqual({ok:true,value:{request:{version:1,kind:'show'}}}));
 it.each([['--cwd','C:\\work'],['--new-session'],['--new-session','--cwd','relative'],['--new-session','--cwd',''],['--new-session','--new-session','--cwd','C:\\work'],['--run','bad'],['--new-session','--cwd','C:\\work','--cwd','C:\\other']].map(args => ({ args })))('rejects invalid CLI $args', ({ args }) => expect(parseCli(args).ok).toBe(false));

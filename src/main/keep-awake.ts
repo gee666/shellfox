@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import type { KeepAwakeState } from '../shared/contracts';
 
 /** Subset of Electron's powerSaveBlocker, injected so the module stays testable. */
 export interface PowerBlocker {
@@ -42,8 +43,13 @@ export function helperCommand(platform: NodeJS.Platform, pid: number): { command
 export class KeepAwake {
   private blocker: number | null = null;
   private helper: ChildProcess | null = null;
+  private readonly listeners = new Set<(state: KeepAwakeState) => void>();
   constructor(private readonly power: PowerBlocker, private readonly options: { platform?: NodeJS.Platform; pid?: number; spawn?: Spawn } = {}) {}
   get active(): boolean { return this.blocker !== null; }
+  subscribe(listener: (state: KeepAwakeState) => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
   set(active: boolean): boolean {
     if (active === this.active) return this.active;
     if (active) {
@@ -52,13 +58,18 @@ export class KeepAwake {
       this.blocker = this.power.start('prevent-display-sleep');
       this.startHelper();
     } else {
-      const id = this.blocker; this.blocker = null;
+      const id = this.blocker;
       if (id !== null) this.power.stop(id);
+      this.blocker = null;
       this.stopHelper();
+    }
+    const state = Object.freeze({ active: this.active });
+    for (const listener of [...this.listeners]) {
+      try { listener(state); } catch { /* Observers cannot roll back the switch or suppress other listeners. */ }
     }
     return this.active;
   }
-  dispose(): void { this.set(false); }
+  dispose(): void { this.set(false); this.listeners.clear(); }
   private startHelper(): void {
     const target = helperCommand(this.options.platform ?? process.platform, this.options.pid ?? process.pid);
     if (!target) return;

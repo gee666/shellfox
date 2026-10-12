@@ -32,15 +32,17 @@ test('terminal clipboard shortcuts use the host clipboard for local and WSL shel
       const textarea = page.locator('.xterm-helper-textarea');
       await expect(textarea).toBeEditable();
       const powershell = ['pwsh', 'windows-powershell'].includes(profile.id);
+      // Split the marker so echoed input cannot pass. ConPTY may rewrite cursor
+      // sequences, so check executed output and rendered cells, not exact VT bytes.
       const command = powershell
-        ? "[Console]::Write(([char]27 + '[2J' + [char]27 + '[HCLIPBOARD_COPY_OK' + [char]27 + '[?1003h' + [char]27 + '[?1006h')); [Console]::WriteLine()\r"
-        : "printf '\\033[2J\\033[HCLIPBOARD_COPY_OK\\033[?1003h\\033[?1006h\\n'\r";
+        ? "[Console]::Write(([char]27 + '[2J' + [char]27 + '[HCLIPBOARD_' + 'COPY_OK' + [char]27 + '[?1003h' + [char]27 + '[?1006h')); [Console]::WriteLine()\r"
+        : "printf '\\033[2J\\033[HCLIPBOARD_%s\\033[?1003h\\033[?1006h\\n' COPY_OK\r";
       value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: command }));
       await expect.poll(() => app.evaluate((_electron, tabId) => {
         const replay = (globalThis as any).__shellfoxTest.backend.attach({ tabId });
-        return replay.ok && replay.value.chunks.map((c: any) => c.data).join('').includes('\x1b[HCLIPBOARD_COPY_OK');
-      }, tab.id)).toBe(true);
-      await page.waitForTimeout(500);
+        return replay.ok ? replay.value.chunks.map((c: any) => c.data).join('') : JSON.stringify(replay);
+      }, tab.id)).toContain('CLIPBOARD_COPY_OK');
+      await expect(page.locator('.xterm-rows > div').first()).toContainText('CLIPBOARD_COPY_OK');
       const screen = await page.locator('.xterm-screen').boundingBox();
       expect(screen).not.toBeNull();
       await page.keyboard.down('Shift');

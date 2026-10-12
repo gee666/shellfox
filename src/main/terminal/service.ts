@@ -14,6 +14,8 @@ import { ProcessTracker, getProcessTrackingCapability } from './tracking';
 import { closeGuest } from './guest-close';
 import type { ExplorerPort } from '../platform/explorer';
 import type { CliPort } from '../platform/shellfox-cli';
+import type { ControlRequest, ControlResponse } from '../control-types';
+import { controlRequestSchema } from '../control-protocol';
 
 export const LIFETIME_NOTICE = 'Embedded shells run only while Shellfox is running. Quitting closes owned terminals after confirmation; restarting does not restore commands.';
 const INTEGRATION_FRESHNESS_MS = 5000;
@@ -212,6 +214,15 @@ export class EmbeddedSessionService {
       window: { state: 'unsupported', canReopen: false, canRegister: false, reason: 'Embedded tabs do not use native window ownership or external shell registration.' } };
   }
   getSnapshot(): Result<ManagerSnapshot> { return success({ revision: this.revision, sessions: sortSessions(this.repository.sessions().filter(s => !s.settledAt).map(s => this.toDto(s))), settings: this.repository.settings(), probe: this.probe, explorer: this.explorer, cli: this.cli }); }
+  /** CLI filters need fresh evidence for hidden sessions as well as visible ones.
+   * Explicit poll() covers the lifetime watch without changing renderer interest. */
+  async getControlSnapshot(): Promise<Result<ManagerSnapshot>> {
+    if (this.disposed || this.updateClosing) return failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.');
+    try { await this.tracker.poll?.(); }
+    catch { return failure('MONITOR_UNAVAILABLE', 'Session status could not be refreshed.'); }
+    if (this.disposed || this.updateClosing) return failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.');
+    return this.getSnapshot();
+  }
   getHistory(input: HistoryQuery): Result<HistoryPage> {
     const parsed = requestSchemas.getHistory.safeParse(input); if (!parsed.success) return failure('VALIDATION', 'Invalid history query.');
     const { search, status, page, pageSize } = parsed.data;
@@ -401,6 +412,75 @@ export class EmbeddedSessionService {
       if (!this.repository.deleteSession(s.id)) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
       for (const tab of tabs) this.observations.delete(tab.id);
       this.changed('history'); return success({ deleted: true as const });
+    });
+  }
+  /** CLI mutations share the renderer's session queue, but never enqueue another
+   * session operation while holding it. Context is checked again after waiting. */
+  controlSession(input: ControlRequest, signal?: AbortSignal): Promise<Result<ControlResponse>> {
+    const parsed = controlRequestSchema.safeParse(input);
+    if (!parsed.success || !['inspect', 'archive', 'delete', 'tab-open', 'tab-close'].includes(parsed.data.action)) return Promise.resolve(failure('VALIDATION', 'Invalid session control request.'));
+    input = parsed.data; // Capture validated values before waiting in the queue.
+    if ((input.action === 'delete' || input.action === 'archive') && input.confirmed !== true) return Promise.resolve(failure('SETTLE_CONFIRM_REQUIRED', 'Explicit confirmation is required to close all session terminals.'));
+    const resolveContext = () => {
+      const matches = this.backend.live().filter(e => e.state === 'open' && e.root.marker === input.marker);
+      if (matches.length !== 1) return undefined;
+      const owned = matches[0]!, tab = this.repository.tab(owned.tabId);
+      return tab?.terminal && tab.sessionId === owned.sessionId && tab.operationId === owned.generation ? owned : undefined;
+    };
+    const context = input.id ? undefined : resolveContext();
+    let id: string;
+    if (input.id) {
+      const exact = this.repository.session(input.id);
+      const matches = exact ? [exact] : this.repository.sessions().filter(s => s.id.toLowerCase().startsWith(input.id!.toLowerCase()));
+      if (!matches.length) return Promise.resolve(failure('NOT_FOUND', 'Session ID not found.'));
+      if (matches.length !== 1) return Promise.resolve(failure('TARGET_AMBIGUOUS', 'Session ID prefix is ambiguous. Use the full ID.'));
+      id = matches[0]!.id;
+    } else {
+      if (!context) return Promise.resolve(failure('TARGET_LOST', 'Live terminal context not found. Run this command in an owned Shellfox terminal.'));
+      id = context.sessionId;
+    }
+    return this.serialize<ControlResponse>(id, async () => {
+      if (signal?.aborted) return failure('TARGET_LOST', 'The control request was cancelled before execution.');
+      const session = this.repository.session(id);
+      if (!session) return failure('NOT_FOUND', 'Session not found.');
+      if (context) {
+        const current = resolveContext();
+        if (!current || current.sessionId !== id || current.tabId !== context.tabId || current.generation !== context.generation) return failure('TARGET_LOST', 'The invoking terminal context is no longer live.');
+      }
+      if (input.action === 'inspect') return success({ session: this.toDto(session) });
+      if (session.adapterId !== 'embedded-pty') return failure('UNSUPPORTED', 'Legacy external sessions are not controlled.');
+      if (input.action === 'tab-open') {
+        if (session.settledAt) return failure('UNSUPPORTED', 'Unsettle this session before adding a tab.');
+        const profile = this.profile(session.cwd, session);
+        if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
+        const opened = await this.open(session, profile, 'add');
+        return opened.ok ? success({ session: opened.value }) : opened;
+      }
+      if (input.action === 'tab-close') {
+        const closed = await this.backend.close({ tabId: context!.tabId, generation: context!.generation });
+        if (!closed.ok) return closed;
+        this.changed(); return success({ session: this.toDto(session) });
+      }
+      const tabs = this.repository.tabs(id);
+      if (tabs.some(t => t.terminal && t.lifecycle === 'launching')) return failure('UNSUPPORTED', 'A terminal in this session is still starting. Try again in a moment.');
+      // Closing the invoking shell also kills its CLI process/socket. Once
+      // closure starts, finish the authorized operation even if its reply peer
+      // disappears. Only requests still waiting in the session queue cancel.
+      for (const live of this.backend.live().filter(e => e.sessionId === id)) {
+        const closed = await this.backend.close({ tabId: live.tabId, generation: live.generation });
+        if (!closed.ok) return closed;
+      }
+      if (this.backend.live().some(e => e.sessionId === id)) return failure('TARGET_LOST', 'Session terminal closure is not confirmed.');
+      this.reconcileExits();
+      if (tabs.some(t => this.pendingExits.has(t.id))) return failure('STORAGE_FAILED', 'Terminal exit metadata could not be saved. Retry after storage is available.', true);
+      this.repository.transaction(() => {
+        session.settledAt ??= new Date().toISOString(); session.updatedAt = new Date().toISOString();
+        this.repository.saveSession(session);
+        if (input.action === 'delete' && !this.repository.deleteSession(id)) throw new Error('Session deletion was not saved.');
+      });
+      for (const tab of tabs) this.observations.delete(tab.id);
+      this.changed('history');
+      return success(input.action === 'delete' ? { message: 'Session deleted.' } : { session: this.toDto(session), message: 'Session archived.' });
     });
   }
   clearSessionError(input: { sessionId: string }): Promise<Result<SessionDto>> { return this.mutate(input.sessionId, s => { s.error = null; for (const tab of this.repository.tabs(s.id)) { tab.error = null; this.repository.saveTab(tab); } }); }

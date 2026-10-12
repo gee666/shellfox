@@ -100,6 +100,16 @@ The manual [CI workflow](.github/workflows/embedded-packages.yml) configures six
 
 ## CLI
 
+See the [command reference](docs/cli.md) for all aliases, filters, UUID targeting and confirmation behavior. `start` also accepts `add`, `new` and `create`. With the app running, use `ls` for sessions, `stats` for RSS/duration, `processes` for PIDs, `tab open`/`tab close` inside an owned terminal, and `keep-alive` to toggle sleep prevention. `delete`/`archive` inspect the target and require explicit TTY confirmation. Help and version do not require the app.
+
+```sh
+shellfox ls --running --no-agents
+shellfox stats --current
+shellfox processes --name project --pid 4242
+shellfox help tab
+shellfox --version
+```
+
 After build:
 
 ```sh
@@ -138,7 +148,7 @@ A new host requires confirmation of its SHA256 fingerprint. Changed keys are ref
 
 Each connection runs one independent plain login shell, preserving the outer terminal's scrollback and selection. There is no automatic reconnect or persistent wrapper. Credentials are used only for that connection. SSH-level keepalives run every 30 seconds without a missed-reply deadline; TCP keepalive is enabled with a 30-second initial idle period, and no socket/stdio idle timeout is set. The 120-second ready timeout applies only to the initial handshake. Idle sessions and delayed SSH replies do not end the shell. A genuinely broken socket prints one red `connection lost` line with its reason, restores the terminal and exits 255. Normal remote exit codes are propagated. Server policies, network/IP changes and OS dead-peer detection can still end a connection; Shellfox cannot preserve an already broken TCP session.
 
-The SSH helper has no Electron GUI or app-instance dependency. Every installed shim passes the app's exact userData directory, including `--test-user-data` instances. Direct helper launches default to `%APPDATA%\\Shellfox`, `$XDG_CONFIG_HOME/Shellfox` or `~/.config/Shellfox`, and `~/Library/Application Support/Shellfox`. Enabling the command also adds its bin directory to new embedded terminals. With integration disabled, Shellfox does not add it to PATH. Owned enabled shims are rewritten on app startup after upgrades.
+The SSH command in the CLI helper has no Electron GUI or app-instance dependency; session controls connect to the running app. Every installed shim passes the app's exact userData directory, including `--test-user-data` instances. Direct helper launches default to `%APPDATA%\\Shellfox`, `$XDG_CONFIG_HOME/Shellfox` or `~/.config/Shellfox`, and `~/Library/Application Support/Shellfox`. Enabling the command also adds its bin directory to new embedded terminals. With integration disabled, Shellfox does not add it to PATH. Owned enabled shims are rewritten on app startup after upgrades.
 
 Windows uses a checksum-pinned, bundled console Node runtime because Electron's GUI binary cannot read a raw console TTY. WSL also launches that same Windows node.exe through interop; its pseudoconsole passed raw input, UTF-8, resize and terminal-restoration tests. Git Bash's mintty needs its supplied winpty; ConPTY-based shells run directly. Linux/macOS run the helper using their Electron binary with ELECTRON_RUN_AS_NODE scoped to that invocation. SSH2 and its JavaScript crypto are bundled outside ASAR, with optional native accelerators disabled. No installed Node or SSH client is needed. Windows builds download the pinned official Node runtime once into `tmp/ssh-runtime-cache`; node.exe is 87.45 MiB uncompressed. The former 117.20 MiB Linux Node copy is no longer shipped.
 

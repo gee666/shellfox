@@ -41,6 +41,9 @@ test('second real PowerShell tab detects idle Pi ten times', async () => {
         await page.getByRole('menuitem', { name: 'Windows PowerShell', exact: true }).click();
       } else await page.getByRole('button', { name: 'New terminal', exact: true }).click();
       await expect.poll(async () => (await snapshot(page)).sessions.find(s => s.id === session.id)!.tabs.length).toBe(2);
+      // The saved launching tab precedes its runtime. Input requires an open tab,
+      // not just the metadata count published by the New terminal action.
+      await expect.poll(async () => (await snapshot(page)).sessions.find(s => s.id === session.id)!.tabs[1].lifecycle, { timeout: 15000 }).toBe('open');
       const added = (await snapshot(page)).sessions.find(s => s.id === session.id)!;
       if (n % 2) expect(added.tabs[0].status).toBe('running');
       const tab = added.tabs[1];

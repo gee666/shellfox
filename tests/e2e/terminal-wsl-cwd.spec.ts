@@ -142,6 +142,9 @@ for (const kind of ['mounted drive', 'guest filesystem'] as const) {
         expect(result.stdout).not.toContain('OLD_SHELLFOX_0.1.1');
         expect(result.stdout).toContain('Shellfox: started session');
         await expect.poll(async () => (await snapshot(page)).sessions.filter(s => !before.has(s.id)).length, { timeout: 20000 }).toBe(1);
+        // Dispatch acknowledges before shell startup. A saved launching tab is
+        // not evidence that the runtime can execute the CWD probe yet.
+        await expect.poll(async () => (await snapshot(page)).sessions.find(s => !before.has(s.id))?.tabs[0]?.lifecycle, { timeout: 20000 }).toBe('open');
         const session = (await snapshot(page)).sessions.find(s => !before.has(s.id))!;
         expect(session.cwd.toLowerCase()).toBe(hostCwd.toLowerCase());
         expect(await appState()).toEqual(originalApp);

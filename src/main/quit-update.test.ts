@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SelfUpdater } from './update/self-updater';
 
 // Exercise the actual main close/before-quit wiring and updater transaction.
-// Only Electron, storage and terminal/installer effects are replaced.
+// Electron, storage, control transport and terminal/installer effects are replaced.
 const state = vi.hoisted(() => ({
   root: '', userData: '', owned: 0, committed: false, updater: undefined as SelfUpdater | undefined,
   app: {
@@ -15,11 +15,12 @@ const state = vi.hoisted(() => ({
     on: vi.fn(), quit: vi.fn(), exit: vi.fn(),
   },
   window: {
-    on: vi.fn(), isDestroyed: () => false, loadFile: async () => {},
+    on: vi.fn(), isDestroyed: () => false, loadFile: vi.fn(),
     webContents: { on: vi.fn(), setWindowOpenHandler: vi.fn() },
   },
   dialog: { showMessageBoxSync: vi.fn(), showErrorBox: vi.fn() },
-  service: { initialize: async () => {}, ownedTerminalCount: vi.fn(), closeForUpdate: vi.fn(), dispose: vi.fn() },
+  service: { initialize: vi.fn(), ownedTerminalCount: vi.fn(), closeForUpdate: vi.fn(), dispose: vi.fn() },
+  control: { start: vi.fn(), dispose: vi.fn() },
   repository: { windowState: () => null, settings: () => ({}), close: vi.fn() },
   fetch: vi.fn(), prepare: vi.fn(), start: vi.fn(), commit: vi.fn(), cancel: vi.fn(), resume: vi.fn(),
   uninstallIpc: vi.fn(), trackerDispose: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock('./terminal/service', () => ({ EmbeddedSessionService: class {
   closeForUpdate = state.service.closeForUpdate;
   dispose = state.service.dispose;
 } }));
+vi.mock('./control-server', () => ({ startControlServer: state.control.start }));
 vi.mock('./ipc', () => ({ installIpc: (_window: unknown, _url: unknown, _service: unknown, _ready: unknown, updates: SelfUpdater) => {
   state.updater = updates; return state.uninstallIpc;
 } }));
@@ -81,7 +83,11 @@ beforeEach(async () => {
   state.dialog.showMessageBoxSync.mockReturnValue(1);
   state.service.ownedTerminalCount.mockImplementation(() => state.owned);
   state.service.closeForUpdate.mockImplementation(async () => { state.owned = 0; return state.resume; });
+  state.window.loadFile.mockResolvedValue(undefined);
+  state.service.initialize.mockResolvedValue(undefined);
   state.service.dispose.mockResolvedValue(undefined);
+  state.control.dispose.mockResolvedValue(undefined);
+  state.control.start.mockResolvedValue({ dispose: state.control.dispose });
   state.fetch.mockImplementation(async url => url.includes('/releases/latest') ? Response.json(release) : new Response(installer));
   state.prepare.mockResolvedValue(state.start);
   state.start.mockImplementation(async () => ({
@@ -91,6 +97,8 @@ beforeEach(async () => {
   await import('./index');
   await expect.poll(() => state.app.on.mock.calls.some(([name]) => name === 'before-quit')).toBe(true);
   expect(state.app.exit).not.toHaveBeenCalled(); expect(state.dialog.showErrorBox).not.toHaveBeenCalled();
+  expect(state.control.start).toHaveBeenCalledWith(state.userData, expect.anything(), expect.anything());
+  expect(state.service.initialize.mock.invocationCallOrder[0]).toBeLessThan(state.control.start.mock.invocationCallOrder[0]!);
 });
 afterEach(async () => {
   await state.updater?.dispose();
@@ -112,6 +120,7 @@ describe('main automatic update on close/quit', () => {
     expect(state.commit.mock.invocationCallOrder[0]).toBeLessThan(state.service.dispose.mock.invocationCallOrder[0]!);
     expect(state.service.dispose).toHaveBeenCalledTimes(1); expect(state.cancel).not.toHaveBeenCalled();
     expect(state.uninstallIpc).toHaveBeenCalledTimes(1); expect(state.trackerDispose).toHaveBeenCalledTimes(1);
+    expect(state.control.dispose).toHaveBeenCalledTimes(1);
     expect(await readdir(state.root)).toContainEqual(expect.stringMatching(/^shellfox-update-/));
     expect(quit().preventDefault).not.toHaveBeenCalled(); expect(state.start).toHaveBeenCalledTimes(1);
   });
@@ -121,6 +130,7 @@ describe('main automatic update on close/quit', () => {
     await expect.poll(async () => ({ phase: (await state.updater!.status()).phase, prompts: state.dialog.showMessageBoxSync.mock.calls.length })).toEqual({ phase: 'ready', prompts: 1 });
     expect(state.start).not.toHaveBeenCalled(); expect(state.service.dispose).not.toHaveBeenCalled();
     expect(state.service.closeForUpdate).not.toHaveBeenCalled(); expect(state.repository.close).not.toHaveBeenCalled();
+    expect(state.control.dispose).not.toHaveBeenCalled();
     expect(state.owned).toBe(2); expect(await readdir(state.root)).toContainEqual(expect.stringMatching(/^shellfox-update-/));
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
     expect(state.dialog.showMessageBoxSync).toHaveBeenCalledTimes(2); expect(state.start).toHaveBeenCalledTimes(1);
@@ -130,6 +140,7 @@ describe('main automatic update on close/quit', () => {
     await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
     expect(state.prepare).not.toHaveBeenCalled(); expect(state.start).not.toHaveBeenCalled();
     expect(state.service.closeForUpdate).not.toHaveBeenCalled(); expect(state.service.dispose).toHaveBeenCalledTimes(1);
+    expect(state.control.dispose).toHaveBeenCalledTimes(1);
   });
   it('preserves explicit install confirmation, even when no terminals are owned', async () => {
     await stage();
@@ -166,6 +177,7 @@ describe('main automatic update on close/quit', () => {
     effect.mockRejectedValueOnce(new Error('failed'));
     quit(); await expect.poll(() => state.dialog.showErrorBox.mock.calls.length).toBe(1);
     expect(state.service.dispose).not.toHaveBeenCalled(); expect(state.repository.close).not.toHaveBeenCalled();
+    expect(state.control.dispose).not.toHaveBeenCalled();
     expect(state.committed).toBe(false);
     if (failure === 'startup') expect(state.service.closeForUpdate).not.toHaveBeenCalled();
     else expect(state.cancel).toHaveBeenCalledTimes(1);
@@ -181,6 +193,39 @@ describe('main automatic update on close/quit', () => {
       expect(logged).toHaveBeenCalled(); expect(state.commit).toHaveBeenCalledTimes(1);
       expect(quit().preventDefault).not.toHaveBeenCalled();
       expect(state.start).toHaveBeenCalledTimes(1); expect(state.cancel).not.toHaveBeenCalled();
+    } finally { logged.mockRestore(); }
+  });
+  it('preserves control transport after failed normal terminal disposal and permits retry', async () => {
+    state.service.dispose.mockRejectedValueOnce(new Error('Close unconfirmed.'));
+    quit(); await expect.poll(() => state.dialog.showErrorBox.mock.calls.length).toBe(1);
+    expect(state.control.dispose).not.toHaveBeenCalled(); expect(state.repository.close).not.toHaveBeenCalled();
+    quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
+    expect(state.control.dispose).toHaveBeenCalledTimes(1);
+  });
+  it('does not strand a disposed manager if control endpoint cleanup fails', async () => {
+    state.control.dispose.mockRejectedValueOnce(new Error('Endpoint cleanup failed.'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
+      expect(logged).toHaveBeenCalled(); expect(state.service.dispose).toHaveBeenCalledTimes(1);
+      expect(state.app.quit).toHaveBeenCalledTimes(1); expect(state.dialog.showErrorBox).not.toHaveBeenCalled();
+    } finally { logged.mockRestore(); }
+  });
+  it.each(['initialize', 'listener', 'renderer'] as const)('cleans up resources after %s startup failure', async phase => {
+    await state.updater?.dispose(); state.updater = undefined;
+    vi.resetModules(); vi.clearAllMocks();
+    const effect = phase === 'initialize' ? state.service.initialize : phase === 'listener' ? state.control.start : state.window.loadFile;
+    effect.mockRejectedValueOnce(new Error('Startup failed.'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await import('./index');
+      await expect.poll(() => state.app.exit.mock.calls.length).toBe(1);
+      expect(state.app.exit).toHaveBeenCalledWith(1);
+      expect(state.service.dispose).toHaveBeenCalledTimes(1); expect(state.repository.close).toHaveBeenCalledTimes(1);
+      if (phase === 'renderer') {
+        expect(state.control.dispose).toHaveBeenCalledTimes(1); expect(state.uninstallIpc).toHaveBeenCalledTimes(1);
+        expect(state.control.dispose.mock.invocationCallOrder[0]).toBeLessThan(state.service.dispose.mock.invocationCallOrder[0]!);
+      } else expect(state.control.dispose).not.toHaveBeenCalled();
     } finally { logged.mockRestore(); }
   });
   it('ignores repeated close/quit and explicit install requests during handoff', async () => {

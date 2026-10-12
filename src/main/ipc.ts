@@ -150,6 +150,9 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
   const unsubscribe = service.subscribe(event => {
     if (!window.isDestroyed()) window.webContents.send('manager:changed', event);
   });
+  const unsubscribeKeepAwake = keepAwake?.subscribe(state => {
+    if (!window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send('manager:keep-awake', state);
+  });
   const resetDelivery = () => delivery?.dispose();
   const resetViews = () => {
     resetDelivery();
@@ -159,5 +162,5 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
   // did-navigate excludes same-document/subframe and aborted navigation.
   window.webContents.on?.('did-navigate', resetViews);
   window.webContents.on?.('did-start-navigation', resetDelivery);
-  return () => { unsubscribe(); unsubscribeTerminal?.(); resetViews(); window.webContents.removeListener?.('render-process-gone', resetViews); window.webContents.removeListener?.('did-navigate', resetViews); window.webContents.removeListener?.('did-start-navigation', resetDelivery); ipcMain.removeHandler('manager:request'); };
+  return () => { unsubscribe(); unsubscribeTerminal?.(); unsubscribeKeepAwake?.(); resetViews(); window.webContents.removeListener?.('render-process-gone', resetViews); window.webContents.removeListener?.('did-navigate', resetViews); window.webContents.removeListener?.('did-start-navigation', resetDelivery); ipcMain.removeHandler('manager:request'); };
 }

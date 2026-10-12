@@ -18,6 +18,7 @@ import { EmbeddedSessionService } from './terminal/service';
 import { TerminalQuitGuard } from './terminal/shutdown';
 import { installIpc } from './ipc';
 import { KeepAwake } from './keep-awake';
+import { startControlServer } from './control-server';
 import { helpText } from './ssh/presentation';
 import { SshProfileStore } from './ssh/storage';
 import { handleEmbeddedInstaller, installerEvent } from './installer';
@@ -50,6 +51,9 @@ const nativePaths = (): NativeInit => ({
     : app.isPackaged ? path.join(process.resourcesPath, 'shell') : path.resolve(process.platform === 'linux' ? 'resources/shell-linux' : 'resources/shell'),
   packagedExecutable: app.isPackaged ? process.execPath : null,
 });
+// Startup can fail after the listener has published credentials. Normal quit
+// owns these resources only after run() finishes installing its lifecycle hooks.
+const startupCleanups: Array<() => void | Promise<void>> = [];
 async function run(): Promise<void> {
   if (lifecycle) {
     try {
@@ -97,6 +101,7 @@ async function run(): Promise<void> {
   await mkdir(app.getPath('userData'), { recursive: true });
   if (!parsed.value.userData || __TEST_BUILD__ && parsed.value.userData === productData) await migrateUserData(appData, productData);
   const repository = new Repository(path.join(app.getPath('userData'), 'manager.sqlite3'));
+  startupCleanups.push(() => repository.close());
   let service: SessionService | EmbeddedSessionService;
   if (__TEST_BUILD__ && parsed.value.backend === 'fake') {
     const { createFakeNativeBackend } = await import('#test-native-backend');
@@ -107,7 +112,13 @@ async function run(): Promise<void> {
     service = new SessionService(repository, backend, undefined, app.isPackaged ? process.execPath : null);
   } else service = new EmbeddedSessionService(repository, undefined, undefined, folderIntegration, cliIntegration);
   if (__TEST_BUILD__) (globalThis as any).__shellfoxTest = { service, repository, backend: service.backend };
+  startupCleanups.push(() => service.dispose());
   await service.initialize(nativePaths());
+  const keepAwake = new KeepAwake(powerSaveBlocker);
+  startupCleanups.push(() => keepAwake.dispose());
+  app.on('will-quit', () => keepAwake.dispose());
+  const controlServer = await startControlServer(app.getPath('userData'), service, keepAwake);
+  startupCleanups.push(() => controlServer.dispose());
   const rendererFile = path.resolve(__dirname, '../renderer/index.html');
   const rendererUrl = pathToFileURL(rendererFile).href;
   const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'";
@@ -135,6 +146,7 @@ async function run(): Promise<void> {
   });
   if (restored.maximized && !backgroundTest) window.maximize();
   const windowTracker = trackWindowState(window, state => repository.saveWindowState(state));
+  startupCleanups.push(() => windowTracker.dispose());
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-redirect', event => event.preventDefault());
@@ -161,6 +173,7 @@ async function run(): Promise<void> {
       quitting = true;
       // Commit is acknowledged. Never retry installation because final cleanup failed.
       try {
+        await controlServer.dispose().catch(error => console.error('Control shutdown cleanup failed:', error));
         await service.dispose();
         if (updates instanceof SelfUpdater) await updates.dispose(true);
         uninstallIpc(); windowTracker.dispose(); repository.close();
@@ -181,14 +194,14 @@ async function run(): Promise<void> {
         finally { closingForUpdate = false; }
       },
     });
+  if (updates instanceof SelfUpdater) startupCleanups.push(() => updates.dispose());
   if (updates instanceof SelfUpdater && app.isPackaged) updates.start();
-  const keepAwake = new KeepAwake(powerSaveBlocker);
-  app.on('will-quit', () => keepAwake.dispose());
   const uninstallIpc = installIpc(window, rendererUrl, service, () => requests.ready(async request => {
     if (!window || window.isDestroyed()) return;
     const result = await handleCliRequest(request, service, window, !backgroundTest);
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
   }), updates, new SshProfileStore(app.getPath('userData')), keepAwake);
+  startupCleanups.push(uninstallIpc);
   await window.loadFile(rendererFile);
   const quitGuard = new TerminalQuitGuard({ ownedTerminalCount: () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0, dispose: () => service.dispose() }, count => {
     const options = { type: 'warning' as const, title: 'Close embedded shells and quit?', message: `Quit Shellfox and close ${count} owned terminal${count === 1 ? '' : 's'}?`, detail: 'Embedded shells do not survive manager shutdown. Running commands may be interrupted. Restarting opens fresh shells; it does not restore commands. Legacy external terminals are not touched.', buttons: ['Cancel', 'Close shells and quit'], defaultId: 0, cancelId: 0, noLink: true };
@@ -214,6 +227,7 @@ async function run(): Promise<void> {
       // Terminal disposal succeeded. Non-critical cleanup must not strand an
       // open manager whose backend has already been irreversibly disposed.
       try {
+        await controlServer.dispose().catch(error => console.error('Control shutdown cleanup failed:', error));
         if (updates instanceof SelfUpdater) await updates.dispose();
         uninstallIpc(); windowTracker.dispose(); repository.close();
       } catch (error) { console.error('Quit cleanup failed:', error); }
@@ -221,5 +235,12 @@ async function run(): Promise<void> {
     }).catch(() => { closingForQuit = false; quitting = false; dialog.showErrorBox('Shutdown failed', 'The update or owned terminal shutdown could not finish safely. Shellfox is still open. Closed terminals must be reopened as fresh shells.'); });
   });
   app.on('window-all-closed', () => app.quit());
+  startupCleanups.length = 0;
 }
-void run().catch(error => { console.error('Shellfox startup failed:', error); dialog.showErrorBox('Shellfox', 'The manager could not start. Check the installed application and data directory.'); app.exit(1); });
+void run().catch(async error => {
+  for (const cleanup of startupCleanups.splice(0).reverse()) {
+    try { await cleanup(); } catch (cleanupError) { console.error('Startup shutdown cleanup failed:', cleanupError); }
+  }
+  console.error('Shellfox startup failed:', error);
+  dialog.showErrorBox('Shellfox', 'The manager could not start. Check the installed application and data directory.'); app.exit(1);
+});

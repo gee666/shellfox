@@ -82,10 +82,25 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     return true;
   }
   const [awake, setAwake] = useState(false);
-  useEffect(() => { void api.getKeepAwake?.().then(result => { if (result.ok) setAwake(result.value.active); }); }, [api]);
+  const awakeVersion = useRef(0);
+  useEffect(() => {
+    let mounted = true;
+    const unsubscribe = api.subscribeKeepAwake?.(next => {
+      if (!mounted) return;
+      awakeVersion.current++; setAwake(next.active);
+    });
+    // Subscribe before reading, and never overwrite a newer notification with
+    // an older initial query or a delayed mutation response.
+    const version = awakeVersion.current;
+    if (api.getKeepAwake) void request(() => api.getKeepAwake!()).then(result => {
+      if (mounted && result.ok && awakeVersion.current === version) setAwake(result.value.active);
+    });
+    return () => { mounted = false; awakeVersion.current++; unsubscribe?.(); };
+  }, [api]);
   async function toggleAwake() {
+    const version = awakeVersion.current;
     const result = await action.run(() => api.setKeepAwake!({ active: !awake }));
-    if (result?.ok) setAwake(result.value.active);
+    if (result?.ok && awakeVersion.current === version) { awakeVersion.current++; setAwake(result.value.active); }
   }
   function closeSettings() {
     setSettingsOpen(false);

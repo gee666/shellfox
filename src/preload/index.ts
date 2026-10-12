@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ChangedEvent, ManagerApi, TerminalEvent } from '../shared/contracts';
+import type { ChangedEvent, KeepAwakeState, ManagerApi, TerminalEvent } from '../shared/contracts';
 import { failure } from '../shared/contracts';
-import { changedEventSchema, terminalEventSchema, requestSchemas, responseSchemas, type ManagerMethod } from '../shared/schemas';
+import { changedEventSchema, keepAwakeStateSchema, terminalEventSchema, requestSchemas, responseSchemas, type ManagerMethod } from '../shared/schemas';
 async function request(method: ManagerMethod, payload: unknown): Promise<any> {
   if (!requestSchemas[method].safeParse(payload).success) return failure('VALIDATION', 'Invalid request');
   try {
@@ -57,6 +57,15 @@ const api: ManagerApi = {
   openExternal: input => request('openExternal', input),
   getKeepAwake: () => request('getKeepAwake', {}),
   setKeepAwake: input => request('setKeepAwake', input),
+  subscribeKeepAwake(listener: (state: KeepAwakeState) => void): () => void {
+    if (typeof listener !== 'function') return () => {};
+    const receive = (_event: unknown, value: unknown) => {
+      const parsed = keepAwakeStateSchema.safeParse(value);
+      if (parsed.success) listener(parsed.data);
+    };
+    ipcRenderer.on('manager:keep-awake', receive);
+    return () => ipcRenderer.removeListener('manager:keep-awake', receive);
+  },
   setSessionEnv: input => request('setSessionEnv', input),
   setCliIntegration: input => request('setCliIntegration', input),
   chooseDirectory: () => request('chooseDirectory', {}),
