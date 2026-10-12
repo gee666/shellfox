@@ -85,12 +85,12 @@ export async function startHandoff(file: string, args: string[], control: string
     const deadline = Date.now() + waitMs;
     for (;;) {
       if (exited || cancelled || (windows && await hasFile(path.join(control, 'helper-exited')))) throw error ?? new Error('Installer helper exited before handoff.');
-      try {
-        await access(path.join(control, name));
+      // The helper can exit while access() is pending; report that, not the missing file.
+      if (await hasFile(path.join(control, name))) {
         if (exited || cancelled || (windows && await hasFile(path.join(control, 'helper-exited')))) throw new Error('Installer helper exited or was cancelled.');
         return;
       }
-      catch (e) { if (exited || cancelled) throw e; }
+      if (exited || cancelled) throw error ?? new Error('Installer helper exited before handoff.');
       if (Date.now() >= deadline) throw new Error('Installer helper did not acknowledge handoff.');
       await delay(25);
     }
