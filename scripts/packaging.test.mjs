@@ -87,6 +87,10 @@ exit 23
     const marker = 'c36951c8-03f5-49c7-bb11-ad8828044a31';
     const env = { ...process.env, PATH: posix(bin) + (process.platform === 'win32' ? ':/usr/bin:/bin' : ':' + process.env.PATH),
       ELECTRON_RUN_AS_NODE: '1', SHELLFOX_TEST_LOG: posix(log), SHELLFOX_TERMINAL_MARKER: marker };
+    // MSYS can mount the CI workspace's scratch directory as /tmp. Ask the
+    // same shell for its physical cwd instead of assuming /<drive>/... is its
+    // canonical spelling. This still checks the exact directory and argv.
+    const canonicalRoot = (await exec(launcherShell, ['-c', 'pwd -P'], { cwd: root, env, timeout: 5000 })).stdout.trim();
     const invoke = async args => {
       await rm(log, { force: true });
       try { return { ...await exec(launcherShell, [posix(launcher), ...args], { cwd: root, env, timeout: 5000 }), code: 0 }; }
@@ -110,7 +114,7 @@ exit 23
     for (const alias of ['start', 'add', 'new', 'create']) for (const target of [undefined, path.basename(folder), '--leading']) {
       const result = await invoke([alias, ...(target ? [target] : [])]);
       assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /Shellfox: started session/);
-      assert.equal(await readFile(log, 'utf8'), ['gui', 'unset', 'start', posix(target ? path.join(root, target) : root), ''].join('\n'));
+      assert.equal(await readFile(log, 'utf8'), ['gui', 'unset', 'start', target ? path.posix.join(canonicalRoot, target) : canonicalRoot, ''].join('\n'));
     }
     assert.equal((await invoke([])).code, 0);
     assert.equal(await readFile(log, 'utf8'), 'gui\nunset\n');
