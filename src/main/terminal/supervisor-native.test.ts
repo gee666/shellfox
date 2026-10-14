@@ -66,6 +66,27 @@ it('uses real identity/image and real member-state checks, with rollback after p
   expect(source).toContain('closed_state = true');
 });
 
+it.runIf(process.platform !== 'win32')('executes production C snapshot/cleanup control flow against deterministic OS races', async () => {
+  const result = await run(process.execPath, ['scripts/darwin-supervisor-model-test.mjs'], { cwd: projectRoot, timeout: 60000, maxBuffer: 1024 * 1024 });
+  expect(result.stdout).toContain('failed frozen read restores groups');
+  expect(result.stdout).toContain('persistent denial and failed rollback never commit');
+  expect(result.stdout).toContain('birth/SID/group/credential changes');
+}, 60000);
+
+it('restores reversible freezes after unreadable snapshots without relaxing identity or extending the deadline', async () => {
+  const source = await readFile(sourcePath, 'utf8');
+  const cleanup = source.slice(source.indexOf('static bool cleanup_session('), source.indexOf('static void observe_shell('));
+  expect(cleanup).not.toContain('pass < 100');
+  expect(cleanup.match(/deadline = now\(\) \+ FREEZE_SECONDS/g)).toHaveLength(1);
+  for (const name of ['count', 'frozen_count']) {
+    const failedRead = cleanup.slice(cleanup.indexOf(`if (!session_snapshot(members, &${name}, deadline))`));
+    expect(failedRead.slice(0, failedRead.indexOf('sleep_tick(); continue;'))).toContain('rollback_groups()');
+  }
+  expect(source).toContain('pid=%d errno=%d');
+  expect(source).toContain('((a.pbi_flags ^ b.pbi_flags) & PROC_FLAG_PSUGID)');
+  expect(source).toContain('!readable_member(&a) || !readable_member(&b)');
+});
+
 it('strips child secrets and keeps status JSON off the PTY stream', async () => {
   const source = await readFile(sourcePath, 'utf8');
   expect(source).toContain('SHELLFOX_SUPERVISOR_'); expect(source).toContain('wipe(environ[i], strlen(environ[i]))');
@@ -95,8 +116,9 @@ function request(socket: string, token: string, command: 'STATUS' | 'CLOSE'): Pr
   });
 }
 
-/* Opt-in, actual native macOS acceptance. This Windows host only runs the source
- * regression checks above. A missing compiler/addon or false preflight FAILS here,
+/* Opt-in, actual native macOS acceptance. Windows runs the source checks above;
+ * the portable C model can also run under WSL, but is not Darwin acceptance.
+ * A missing compiler/addon or false preflight FAILS here,
  * not a fake success or a deliberate permanently unavailable profile. */
 it.runIf(native)('native Darwin builds supervisor and verifies real PTY job-control cleanup/isolation/exit 7', async () => {
   await mkdir(resolve(projectRoot, 'tmp/terminal-native', `darwin-${process.arch}`), { recursive: true });
@@ -109,11 +131,11 @@ it.runIf(native)('native Darwin builds supervisor and verifies real PTY job-cont
   const shell = await realpath('/bin/bash');
   const root = await realpath(projectRoot);
   const active: Array<{ socket: string; nonce: string; directory: string; ended: boolean; output: string; process: ReturnType<typeof pty.spawn>; exit: Promise<number> }> = [];
-  async function launch() {
+  async function launch(image = shell, args = ['--noprofile', '--norc', '-i']) {
     const directory = await mkdtemp(join(root, 'tmp', 'sv-')); await chmod(directory, 0o700);
     const socket = join(directory, 'c'); expect(Buffer.byteLength(socket)).toBeLessThan(104);
     const nonce = randomBytes(32).toString('hex');
-    const proc = pty.spawn(executable, ['--supervise', socket, shell, '--noprofile', '--norc', '-i'], { name: 'xterm-256color', cols: 80, rows: 24, cwd: root,
+    const proc = pty.spawn(executable, ['--supervise', socket, image, ...args], { name: 'xterm-256color', cols: 80, rows: 24, cwd: root,
       env: { ...process.env, SHELLFOX_SUPERVISOR_TOKEN: nonce, SHELLFOX_TERMINAL_MARKER: randomUUID(), SHELLFOX_SUPERVISOR_SENTINEL: 'must-not-leak' } });
     const entry = { socket, nonce, directory, ended: false, output: '', process: proc, exit: Promise.resolve(0) };
     entry.exit = new Promise<number>(resolveExit => proc.onExit(e => { entry.ended = true; resolveExit(e.exitCode); }));
@@ -149,6 +171,14 @@ it.runIf(native)('native Darwin builds supervisor and verifies real PTY job-cont
     expect((await request(unrelated.socket, unrelated.nonce, 'STATUS')).shellAlive).toBe(true);
     unrelated.process.write('exit 7\r');
     expect(await unrelated.exit).toBe(7);
+    // Match packaged profile discovery, including macOS login startup helpers.
+    // Each immediate close must pass on its first authenticated request.
+    const zsh = await realpath('/bin/zsh');
+    for (let index = 0; index < 5; index++) {
+      const login = await launch(zsh, ['-l', '-i']);
+      expect(await request(login.socket, login.nonce, 'CLOSE')).toMatchObject({ ok: true, state: 'closed', shellAlive: false });
+      await login.exit;
+    }
   } finally {
     // Only authenticated owned supervisor control, never test cleanup by raw PID.
     for (const entry of active) {

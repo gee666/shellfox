@@ -66,6 +66,7 @@ static ino_t socket_inode;
 static bool socket_bound, shell_authenticated, shell_exited, closed_state, closing_state;
 static int shell_exit_code;
 static const char *last_reason;
+static char snapshot_reason[512];
 static volatile sig_atomic_t close_requested, child_event;
 
 static double now(void) {
@@ -246,32 +247,49 @@ static bool acquire_guardian(pid_t group, double deadline) {
     g->joined = true;
     return protected_guardian(g);
 }
+static bool snapshot_failure(const char *stage, pid_t pid, int error) {
+    /* Numeric/stage evidence only: no argv, paths, environment or control secret. */
+    (void)snprintf(snapshot_reason, sizeof(snapshot_reason),
+        "Owned session snapshot refused: %s; pid=%d errno=%d.", stage, pid, error);
+    return false;
+}
 static bool session_snapshot(struct member *members, size_t *length, double deadline) {
     /* The supervisor is the live immutable session leader. A foreign or reused
-     * session can never acquire this live SID. Each row is read twice. */
-    if (getsid(0) != supervisor_pid || getpgrp() != supervisor_pid) return false;
+     * session can never acquire this live SID. Birth reads bracket SID lookups. */
+    if (getsid(0) != supervisor_pid || getpgrp() != supervisor_pid) return snapshot_failure("session anchor changed", supervisor_pid, 0);
     int *pids = calloc(MAX_PIDS + 1, sizeof(*pids));
-    if (!pids) return false;
+    if (!pids) return snapshot_failure("allocation", 0, ENOMEM);
+    errno = 0;
     int count = proc_listallpids(pids, (MAX_PIDS + 1) * (int)sizeof(*pids));
-    if (count <= 0 || count > MAX_PIDS) { free(pids); return false; }
+    if (count <= 0 || count > MAX_PIDS) { int error = errno; free(pids); return snapshot_failure("enumeration bound", 0, error); }
     *length = 0;
     for (int i = 0; i < count; i++) {
-        if (now() >= deadline) { free(pids); return false; }
+        if (now() >= deadline) { free(pids); return snapshot_failure("deadline", 0, 0); }
         pid_t pid = pids[i];
         if (pid <= 0 || pid == supervisor_pid) continue;
+        errno = 0;
         pid_t sid = getsid(pid);
-        if (sid < 0) { if (errno == ESRCH) continue; free(pids); return false; }
+        if (sid < 0) { int error = errno; if (error == ESRCH) continue; free(pids); return snapshot_failure("initial SID lookup", pid, error); }
         if (sid != supervisor_pid) continue;
         struct proc_bsdinfo a, b;
-        if (!info(pid, &a) || !info(pid, &b) || !same_birth(&a, &b) || a.pbi_pgid != b.pbi_pgid ||
-            a.pbi_uid != b.pbi_uid || a.pbi_ruid != b.pbi_ruid || a.pbi_svuid != b.pbi_svuid || getsid(pid) != supervisor_pid) {
+        errno = 0;
+        if (!info(pid, &a)) { int error = errno; free(pids); return snapshot_failure("initial birth/credentials read", pid, error); }
+        errno = 0;
+        sid = getsid(pid);
+        if (sid != supervisor_pid) { int error = errno; free(pids); return snapshot_failure("member SID changed", pid, error); }
+        errno = 0;
+        if (!info(pid, &b)) { int error = errno; free(pids); return snapshot_failure("final birth/credentials read", pid, error); }
+        if (!same_birth(&a, &b) || a.pbi_pgid != b.pbi_pgid ||
+            a.pbi_uid != b.pbi_uid || a.pbi_ruid != b.pbi_ruid || a.pbi_svuid != b.pbi_svuid ||
+            ((a.pbi_flags ^ b.pbi_flags) & PROC_FLAG_PSUGID)) {
             /* A racing exit or membership change is not a safe empty snapshot. */
-            free(pids); return false;
+            free(pids); return snapshot_failure("birth/group/credentials changed", pid, 0);
         }
         if (b.pbi_status == SZOMB) continue;
-        if (!readable_member(&b) || b.pbi_pgid == 0 || b.pbi_pgid == (uint32_t)supervisor_pid) { free(pids); return false; }
-        for (size_t j = 0; j < *length; j++) if (members[j].pid == pid) { free(pids); return false; }
-        if (*length >= MAX_PIDS) { free(pids); return false; }
+        if (!readable_member(&a) || !readable_member(&b)) { free(pids); return snapshot_failure("member credentials inaccessible or elevated", pid, 0); }
+        if (b.pbi_pgid == 0 || b.pbi_pgid > INT_MAX || b.pbi_pgid == (uint32_t)supervisor_pid) { free(pids); return snapshot_failure("invalid member group", pid, 0); }
+        for (size_t j = 0; j < *length; j++) if (members[j].pid == pid) { free(pids); return snapshot_failure("duplicate member", pid, 0); }
+        if (*length >= MAX_PIDS) { free(pids); return snapshot_failure("member bound", pid, 0); }
         members[*length].pid = pid; members[*length].group = (pid_t)b.pbi_pgid; members[*length].info = b; (*length)++;
     }
     free(pids); return true;
@@ -331,18 +349,21 @@ static bool cleanup_session(void) {
     closing_state = true;
     struct member *members = calloc(MAX_PIDS, sizeof(*members));
     if (!members) { last_reason = "Owned cleanup allocation failed."; return false; }
-    bool committed = false, result = false;
+    bool committed = false, result = false, rollback_failed = false;
     double deadline = now() + FREEZE_SECONDS;
     unsigned stable = 0;
-    /* A failed snapshot is treated as transient (e.g. a login-shell helper exiting
-     * mid-read right after launch) and retried within the same freeze deadline.
-     * Retrying a read never authorizes a signal: the commit below still requires
-     * two consecutive authenticated, fully frozen snapshots, and any final failure
-     * still rolls back. Persistent inaccessibility fails at the deadline instead. */
+    /* A fork/exec/exit can overlap F. Never wait for that transition while its
+     * group is stopped: restore every reversible freeze before reading again.
+     * The original deadline is NOT renewed, and no failed read authorizes K.
+     * Persistent inaccessibility still refuses cleanup and retains ownership. */
     const char *transient = NULL;
-    for (unsigned pass = 0; pass < 100 && now() < deadline; pass++) {
+    while (now() < deadline) {
         size_t count;
-        if (!session_snapshot(members, &count, deadline)) { transient = "Owned session membership or credentials are inaccessible or changed."; stable = 0; sleep_tick(); continue; }
+        if (!session_snapshot(members, &count, deadline)) {
+            transient = snapshot_reason; stable = 0;
+            if (!rollback_groups()) { rollback_failed = true; last_reason = "Snapshot refused and frozen groups could not be restored; supervisor retained for retry."; goto finish; }
+            sleep_tick(); continue;
+        }
         if (count == 0) { closed_state = true; last_reason = NULL; free(members); return true; }
         bool added = false;
         for (size_t i = 0; i < count; i++) {
@@ -367,7 +388,11 @@ static bool cleanup_session(void) {
         /* Re-read real session members, not just guardian stop acknowledgements.
          * This catches late forks, job-control group changes and partial stops. */
         size_t frozen_count;
-        if (!session_snapshot(members, &frozen_count, deadline)) { transient = "Frozen session membership could not be authenticated."; stable = 0; sleep_tick(); continue; }
+        if (!session_snapshot(members, &frozen_count, deadline)) {
+            transient = snapshot_reason; stable = 0;
+            if (!rollback_groups()) { rollback_failed = true; last_reason = "Frozen snapshot refused and groups could not be restored; supervisor retained for retry."; goto finish; }
+            sleep_tick(); continue;
+        }
         transient = NULL;
         bool all_frozen = true;
         for (size_t i = 0; i < frozen_count; i++) {
@@ -376,6 +401,9 @@ static bool cleanup_session(void) {
         }
         stable = !added && all_frozen ? stable + 1 : 0;
         if (stable >= 2) { result = true; break; }
+        /* SIDL/late-fork members may need their stopped parent to finish a
+         * transition too. Start a fresh freeze, never count partial evidence. */
+        if (!all_frozen && !rollback_groups()) { rollback_failed = true; last_reason = "Incomplete freeze could not be restored; supervisor retained for retry."; goto finish; }
         sleep_tick();
     }
     if (!result) { last_reason = transient ? transient : "Owned job-control groups did not stabilize before the freeze deadline."; goto finish; }
@@ -401,7 +429,7 @@ finish:
     free(members);
     if (!result) {
         /* Even after commit, surviving non-killed groups must be resumed. */
-        if (!rollback_groups()) last_reason = committed ? "Cleanup was partial and a surviving group could not be restored; supervisor retained for retry." : "Cleanup refused and a frozen group could not be restored; supervisor retained for retry.";
+        if (!rollback_failed && !rollback_groups()) last_reason = committed ? "Cleanup was partial and a surviving group could not be restored; supervisor retained for retry." : "Cleanup refused and a frozen group could not be restored; supervisor retained for retry.";
     }
     return result;
 }

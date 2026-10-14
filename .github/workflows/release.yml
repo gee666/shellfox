@@ -81,6 +81,12 @@ jobs:
       - name: Linux packaged Electron sandbox helper
         if: matrix.platform == 'linux'
         run: sudo chown root:root 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox' && sudo chmod 4755 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox'
+      - name: macOS supervisor lifecycle regression
+        if: matrix.platform == 'darwin'
+        timeout-minutes: 3
+        env:
+          SHELLFOX_DARWIN_SUPERVISOR_NATIVE: '1'
+        run: bash .github/scripts/ci-step.sh darwin-supervisor pnpm exec vitest run src/main/terminal/supervisor-native.test.ts
       - name: Packaged native smoke (Linux)
         if: matrix.platform == 'linux'
         run: bash .github/scripts/ci-step.sh packaged-smoke dbus-run-session -- xvfb-run -a pnpm test:packaged

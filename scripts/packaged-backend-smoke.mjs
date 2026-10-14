@@ -20,7 +20,7 @@ import { PtyBackend } from './src/main/terminal/backend';
 import { discoverProfiles } from './src/main/terminal/profiles';
 const addonPath = createRequire(__filename).resolve('node-pty').replaceAll('\\', '/').replace('app.asar.unpacked', 'app.asar');
 assert.ok(addonPath.startsWith(process.argv[4].replaceAll('\\', '/') + '/node_modules/node-pty/'), 'Native factory must resolve node-pty from this package, not dev node_modules.');
-const value = r => { if (!r.ok) throw Error(r.error.code + ': ' + r.error.message); return r.value; };
+const value = (r, operation = 'backend operation') => { if (!r.ok) throw Error(operation + ': ' + r.error.code + ': ' + r.error.message); return r.value; };
 const backend = new PtyBackend({discover: () => discoverProfiles({supervisorOptions:{packaged:true,resourcesPath:process.resourcesPath,projectRoot:process.argv[3]}})});
 const waitFor = async condition => {
   const deadline = Date.now() + 20000;
@@ -49,10 +49,10 @@ void (async () => {
     value(backend.write({...identity,data:'exit 7\r'}));
     await waitFor(() => backend.get(identity.tabId)?.state==='closed');
     assert.equal(backend.get(identity.tabId)?.exitCode,7);
-    value(await backend.close(identity));
+    value(await backend.close(identity), 'close after exit 7');
     const second = {tabId:randomUUID(),generation:randomUUID()};
     value(await backend.launch({...second,sessionId,profileId:profile.id,cwd:process.argv[2]}));
-    value(await backend.close(second));
+    value(await backend.close(second), 'immediate live login-shell close');
     assert.equal(backend.get(second.tabId)?.state,'closed');
   } catch(error) { failure=error; }
   try { await backend.dispose(); } catch(error) { failure ??=error; }
