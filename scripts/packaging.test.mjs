@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import path from 'node:path';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { mkdir, mkdtemp, writeFile, rm, access, readdir, readFile, chmod } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm, access, readdir, readFile, chmod, cp, stat, realpath } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { stageSshRuntime, fileSha256 } from './ssh-runtime.mjs';
 import { run } from './common.mjs';
 import { createRequire } from 'node:module';
 import { darwinCompilerArgs, darwinHelpers } from './terminal-native-helpers.mjs';
+import { prepareDarwinPtyHelper, verifyBuiltUnixPty } from './pty-runtime.cjs';
 const require = createRequire(import.meta.url);
 const source = readFileSync('forge.config.cjs', 'utf8');
 function config(platform, arch, env = {}) {
@@ -203,6 +204,66 @@ test('Windows native failure exit codes are diagnosed in hexadecimal', {skip:pro
   assert.throws(()=>run(process.execPath,['-e','process.exit(0xC0000409)'],10000),error=>{
     assert.match(error.message,/0xC0000409.*native fail-fast/);unlinkSync(error.message.split('diagnostics=')[1]);return true;
   });
+});
+// Only loader selection is stubbed here. Native rebuild/lifecycle tests use the
+// real pinned loader and addon; these checks exercise paths and filesystem modes.
+function ptyLoaderFixture(root, dir) {
+  const load = name => {
+    assert.equal(name, 'node-pty/lib/utils');
+    return { loadNativeModule(name) { assert.equal(name, 'pty'); return { dir, module: {} }; } };
+  };
+  load.resolve = name => path.join(root, name === 'node-pty/package.json' ? 'package.json' : 'lib/utils.js');
+  return load;
+}
+test('Darwin node-pty rebuild restores copied spawn-helper mode and verifies the built pair', async () => {
+  await mkdir('tmp', { recursive: true });
+  const scratch = await mkdtemp(path.resolve('tmp/pty-runtime-'));
+  try {
+    const prebuild = path.join(scratch, 'prebuilds/darwin-arm64');
+    await mkdir(prebuild, { recursive: true }); await mkdir(path.join(scratch, 'lib'));
+    await writeFile(path.join(prebuild, 'pty.node'), 'native fixture');
+    await writeFile(path.join(prebuild, 'spawn-helper'), 'helper fixture');
+    await chmod(path.join(prebuild, 'spawn-helper'), 0o644);
+    await cp(prebuild, path.join(scratch, 'build/Release'), { recursive: true });
+    const load = ptyLoaderFixture(scratch, '../build/Release/');
+    if (process.platform !== 'win32') assert.throws(() => verifyBuiltUnixPty(load, 'darwin'), /spawn-helper is not executable/);
+    prepareDarwinPtyHelper(scratch);
+    const selected = await realpath(path.join(scratch, 'build/Release'));
+    assert.deepEqual(verifyBuiltUnixPty(load, 'darwin'), { addon: path.join(selected, 'pty.node'), helper: path.join(selected, 'spawn-helper') });
+    if (process.platform !== 'win32') {
+      assert.equal((await stat(path.join(selected, 'spawn-helper'))).mode & 0o777, 0o755);
+      assert.equal((await stat(path.join(prebuild, 'spawn-helper'))).mode & 0o777, 0o644);
+    }
+    assert.equal(await readFile(path.join(selected, 'spawn-helper'), 'utf8'), 'helper fixture');
+    await rm(path.join(selected, 'spawn-helper'));
+    assert.throws(() => verifyBuiltUnixPty(load, 'darwin'), /ENOENT/);
+    assert.throws(() => prepareDarwinPtyHelper(scratch), /ENOENT/);
+  } finally { await rm(scratch, { recursive: true, force: true }); }
+});
+test('node-pty prerequisite refuses Debug and prebuild loader fallback instead of testing another runtime', async () => {
+  await mkdir('tmp', { recursive: true });
+  const scratch = await mkdtemp(path.resolve('tmp/pty-loader-'));
+  try {
+    for (const dir of ['build/Release', 'build/Debug', 'prebuilds/darwin-x64']) await mkdir(path.join(scratch, dir), { recursive: true });
+    for (const dir of ['../build/Debug/', '../prebuilds/darwin-x64/']) {
+      assert.throws(() => verifyBuiltUnixPty(ptyLoaderFixture(scratch, dir), 'darwin'), /expected built runtime.*Run pnpm rebuild/);
+    }
+    const rebuild = readFileSync('scripts/rebuild.mjs', 'utf8');
+    const postInstall = rebuild.indexOf("runNode('node_modules/node-pty/scripts/post-install.js'");
+    const prepare = rebuild.indexOf('prepareDarwinPtyHelper(ptyDir)');
+    const smoke = rebuild.indexOf("runNode('node_modules/electron/cli.js'");
+    assert.ok(postInstall >= 0 && postInstall < prepare && prepare < smoke);
+    assert.ok(readFileSync('src/main/terminal/supervisor-native.test.ts', 'utf8').includes('verifyBuiltUnixPty(require)'));
+    assert.ok(readFileSync('scripts/native-load-smoke.cjs', 'utf8').includes("pty.spawn('/bin/sh', ['-c', 'exit 7']"));
+  } finally { await rm(scratch, { recursive: true, force: true }); }
+});
+test('Darwin release collects packaged close diagnostics before independent lifecycle regression', () => {
+  const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
+  assert.ok(workflow.includes('id: make'));
+  assert.ok(workflow.indexOf('- name: Packaged native smoke\n') < workflow.indexOf('- name: macOS supervisor lifecycle regression'));
+  const lifecycle = workflow.slice(workflow.indexOf('- name: macOS supervisor lifecycle regression'), workflow.indexOf('- name: Upload build failure diagnostics'));
+  assert.ok(lifecycle.includes("!cancelled() && matrix.platform == 'darwin' && steps.make.outcome == 'success'"));
+  assert.ok(!lifecycle.includes('continue-on-error'));
 });
 test('Darwin helper source contracts point to existing backend-owned sources', () => {
   for (const helper of darwinHelpers) {

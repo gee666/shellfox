@@ -72,6 +72,7 @@ jobs:
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
         run: bash .github/scripts/ci-step.sh unit-tests pnpm test:unit
       - name: Package and make installers
+        id: make
         run: bash .github/scripts/ci-step.sh make pnpm make
       - name: SQLite storage and migration smoke (Linux)
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
@@ -81,18 +82,20 @@ jobs:
       - name: Linux packaged Electron sandbox helper
         if: matrix.platform == 'linux'
         run: sudo chown root:root 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox' && sudo chmod 4755 'tmp/packages/Shellfox-linux-${{ matrix.arch }}/chrome-sandbox'
-      - name: macOS supervisor lifecycle regression
-        if: matrix.platform == 'darwin'
-        timeout-minutes: 3
-        env:
-          SHELLFOX_DARWIN_SUPERVISOR_NATIVE: '1'
-        run: bash .github/scripts/ci-step.sh darwin-supervisor pnpm exec vitest run src/main/terminal/supervisor-native.test.ts
       - name: Packaged native smoke (Linux)
         if: matrix.platform == 'linux'
         run: bash .github/scripts/ci-step.sh packaged-smoke dbus-run-session -- xvfb-run -a pnpm test:packaged
       - name: Packaged native smoke
         if: matrix.platform != 'linux'
         run: bash .github/scripts/ci-step.sh packaged-smoke pnpm test:packaged
+      - name: macOS supervisor lifecycle regression
+        # Preserve packaged close diagnostics, and run lifecycle even if that
+        # smoke fails. A failed/cancelled make must not launch the fixture.
+        if: ${{ !cancelled() && matrix.platform == 'darwin' && steps.make.outcome == 'success' }}
+        timeout-minutes: 3
+        env:
+          SHELLFOX_DARWIN_SUPERVISOR_NATIVE: '1'
+        run: bash .github/scripts/ci-step.sh darwin-supervisor pnpm exec vitest run src/main/terminal/supervisor-native.test.ts
       - name: Upload build failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

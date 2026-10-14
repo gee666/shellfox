@@ -2,6 +2,7 @@ import path from 'node:path';
 import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { rebuild } from '@electron/rebuild';
 import { env, root, runNode } from './common.mjs';
+import { prepareDarwinPtyHelper } from './pty-runtime.cjs';
 Object.assign(process.env, env);
 if (!['win32', 'linux', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) {
   throw new Error('Native builds require Windows, Linux or macOS with x64/arm64 Node on the target OS/architecture.');
@@ -24,4 +25,5 @@ await rebuild({
 });
 // Copy the matching ConPTY DLL/executable and retain Unix spawn-helper.
 runNode('node_modules/node-pty/scripts/post-install.js', [], 60000, { npm_config_arch: process.arch });
+if (process.platform === 'darwin') prepareDarwinPtyHelper(ptyDir);
 runNode('node_modules/electron/cli.js', ['scripts/native-load-smoke.cjs'], 60000, { ELECTRON_RUN_AS_NODE: '1' });

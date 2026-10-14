@@ -127,6 +127,9 @@ it.runIf(native)('native Darwin builds supervisor and verifies real PTY job-cont
   const cap = await run(executable, ['--capabilities'], { timeout: 5000, maxBuffer: 16384 });
   expect(JSON.parse(cap.stdout)).toMatchObject({ version: 1, platform: 'darwin', arch: process.arch, available: true, ownedSession: true, guardians: true, termination: true });
   const require = createRequire(import.meta.url);
+  const { verifyBuiltUnixPty } = require('../../../scripts/pty-runtime.cjs');
+  const runtime = verifyBuiltUnixPty(require);
+  console.log('Darwin lifecycle PTY prerequisite:', { ...runtime, node: process.versions.node, napi: process.versions.napi });
   const pty = require('node-pty') as { spawn(file: string, args: string[], options: object): { pid: number; write(data: string): void; onData(fn: (data: string) => void): { dispose(): void }; onExit(fn: (e: { exitCode: number }) => void): { dispose(): void } } };
   const shell = await realpath('/bin/bash');
   const root = await realpath(projectRoot);
