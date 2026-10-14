@@ -50,6 +50,14 @@ Cleanup now rolls back every reversible freeze after an unreadable or incomplete
 
 The opt-in Darwin PTY fixture also closes five newly authenticated `/bin/zsh -l -i` sessions immediately, with no close retries or startup delay. The release workflow now runs this fixture on both Darwin architectures in addition to the unchanged packaged backend smoke. Native validation of this patch remains required. Passing the C model establishes the liveness defect and its repair, but does not prove that defect caused this particular CI run.
 
+## Native fixture prerequisites
+
+Validation dispatch `38519044672` compiled and preflighted the supervisor and passed the C model on both Macs, but failed at the fixture's first PTY spawn with `posix_spawnp failed.` It did not reach session cleanup. The pinned `node-pty@1.1.0` npm archive stores both Darwin prebuilt `spawn-helper` files as `0644`. Rebuild copied that mode into `node_modules/node-pty/build/Release`; upstream post-install retained the helper without changing its mode. Forge separately normalized the staged package to `0755`, explaining why earlier packaged PTY tests could pass while this source-tree fixture failed.
+
+Rebuild now sets the built Darwin helper to `0755` after post-install and before verification. The pinned Electron prerequisite smoke checks the actual loader's selected addon directory and runs a real PTY shell through its adjacent helper, requiring exit 7. The lifecycle fixture verifies the same `build/Release` selection and executable helper before spawning; Debug/prebuild fallback or a missing/non-executable helper is a prerequisite failure, not a skipped lifecycle test. It reports the selected paths and Node/N-API versions. The supervisor protocol and identity checks are unchanged by this prerequisite fix.
+
+Release runs packaged smoke before lifecycle. Lifecycle still runs after a packaged-smoke failure if make succeeded and the job was not cancelled, so both diagnostics are retained and either failure still fails the job. Native arm64/x64 reruns remain required.
+
 ## Signing
 
 Build artifacts receive ad-hoc signatures for local development. Forge stages executable helpers before Packager's inside-out signing pass, including resources, unpacked native addons and node-pty's spawn-helper. No signed resources are added or modified afterward.
