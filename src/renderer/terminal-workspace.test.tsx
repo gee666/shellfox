@@ -39,6 +39,20 @@ it('mounts only the selected viewport among 64 tabs and ignores unrelated activi
   expect(f.api.createSession).not.toHaveBeenCalled(); expect(f.api.activateSession).not.toHaveBeenCalled(); expect(f.api.closeTab).not.toHaveBeenCalled();
 });
 
+it('opens Administrator PowerShell only from an explicit right-click shell choice', async () => {
+  const item = session(), f = mockApi(snapshot([item])), client = createManagerClient(f.api);
+  const registry = new TerminalRegistry(f.api); registries.push(registry); registry.start();
+  const admin = { ...profiles[0], id: 'administrator-powershell', label: 'Administrator Windows PowerShell', elevation: 'administrator' as const };
+  render(<TerminalWorkspace session={item} client={client} registry={registry} profiles={[...profiles, admin]} defaultProfileId="pwsh" platform="win32" available />);
+  await act(flush); expect(f.api.addTab).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.contextMenu(screen.getByRole('button', { name: 'New terminal' })); await flush(); });
+  const choice = screen.getByRole('menuitem', { name: 'Administrator Windows PowerShell' });
+  expect(choice).toHaveAttribute('title', 'Prompts for Windows administrator approval for this tab only.');
+  expect(f.api.addTab).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.click(choice); await flush(); });
+  expect(f.api.addTab).toHaveBeenCalledExactlyOnceWith({ sessionId: item.id, profileId: admin.id });
+});
+
 it('skips workspace work when a broad store subscriber rerenders its parent', async () => {
   const item = session(); const f = mockApi(); const client = createManagerClient(f.api);
   const registry = new TerminalRegistry(f.api); registries.push(registry); registry.start();

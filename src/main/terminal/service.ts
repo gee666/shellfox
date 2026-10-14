@@ -20,7 +20,7 @@ import { controlRequestSchema } from '../control-protocol';
 export const LIFETIME_NOTICE = 'Embedded shells run only while Shellfox is running. Quitting closes owned terminals after confirmation; restarting does not restore commands.';
 const INTEGRATION_FRESHNESS_MS = 5000;
 interface IntegrationCheck { checkedAt?: number; revision: number; mutations: number }
-const shellId = (p: TerminalProfileDto): ShellId => p.environment === 'wsl' ? 'wsl' : p.id === 'pwsh' ? 'pwsh' : p.id === 'windows-powershell' ? 'windows-powershell' : 'login-shell';
+const shellId = (p: TerminalProfileDto): ShellId => p.environment === 'wsl' ? 'wsl' : p.id === 'pwsh' ? 'pwsh' : p.id === 'windows-powershell' || p.elevation === 'administrator' ? 'windows-powershell' : 'login-shell';
 export interface TrackerPort { setVisibleSessions?: ProcessTracker['setVisibleSessions']; setWatch: ProcessTracker['setWatch']; dispose(): void; poll?: ProcessTracker['poll']; resolveIdentity?: ProcessTracker['resolveIdentity']; resolveDescendants?: ProcessTracker['resolveDescendants'] }
 export class EmbeddedSessionService {
   revision = 0;
@@ -116,7 +116,7 @@ export class EmbeddedSessionService {
     const available = result.ok && profiles.profiles.some(p => p.available);
     this.probe = { ...this.probe, available, platform: process.platform, arch: process.arch,
       ...(process.platform === 'linux' ? { python: this.backend.getPython() } : {}),
-      shells: profiles.profiles.filter(p => p.environment === 'local').map(p => ({ id: shellId(p), executable: p.executable, available: p.available, reason: null })),
+      shells: profiles.profiles.filter(p => p.environment === 'local' && !p.elevation).map(p => ({ id: shellId(p), executable: p.executable, available: p.available, reason: null })),
       reasons: [LIFETIME_NOTICE, ...(result.ok ? [] : [result.error.message]), ...profiles.profiles.filter(p => !p.available).map(p => p.unavailableReason ?? `${p.label} is unavailable.`), ...(tracking.reason ? [tracking.reason] : [])],
       capabilities: { createWindow: available, addTab: available, focusWindow: available, activateTab: available, closeTerminal: available, splitPane: false, attachExisting: false, commandExitStatus: false, processTracking: tracking.available, explorerContextMenu: this.explorer.supported, embeddedTerminal: true, terminalLifetime: 'app-owned', shellSurvival: false } };
     this.repository.transaction(() => {
@@ -244,15 +244,15 @@ export class EmbeddedSessionService {
       const unc = parseWslUnc(cwd);
       if (unc) return profiles.profiles.find(p => p.environment === 'wsl' && p.distro?.toLowerCase() === unc.distro.toLowerCase() && p.available);
       // A global WSL preference or an old WSL tab must not route a Windows folder into WSL.
-      const configured = profiles.profiles.find(p => p.id === settings.terminalProfileId && p.environment === 'local');
+      const configured = profiles.profiles.find(p => p.id === settings.terminalProfileId && p.environment === 'local' && !p.elevation);
       if (configured) return configured.available ? configured : undefined;
       return profiles.profiles.find(p => p.id === 'pwsh' && p.available)
         ?? profiles.profiles.find(p => p.id === 'windows-powershell' && p.available)
-        ?? profiles.profiles.find(p => p.environment === 'local' && p.available);
+        ?? profiles.profiles.find(p => p.environment === 'local' && p.available && !p.elevation);
     }
     const existing = session && this.repository.tabs(session.id).find(t => t.terminal)?.terminal?.profileId;
     const id = existing ?? settings.terminalProfileId ?? profiles.defaultProfileId;
-    return profiles.profiles.find(p => p.id === id && p.available);
+    return profiles.profiles.find(p => p.id === id && p.available && !p.elevation);
   }
   createSession(input: { cwd: string; requestId: string; title?: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.createSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session request.'));
@@ -288,7 +288,7 @@ export class EmbeddedSessionService {
     const tabs = this.repository.tabs(session.id);
     if (tabs.length >= 1000 || this.backend.live().length >= 64) return failure('VALIDATION', 'The embedded terminal limit is reached.');
     const ordinal = tabs.reduce((n, t) => Math.max(n, t.ordinal), -1) + 1, now = new Date().toISOString();
-    const tab: TabRecord = { id: randomUUID(), sessionId: session.id, title: title ?? `Shell ${ordinal + 1}`, cwd: cwd ?? session.cwd, ordinal, createdAt: now, lifecycle: 'launching', operationId: randomUUID(), registration: null, error: null, terminal: { kind: 'embedded', profileId: profile.id, exitCode: null, userTitle: title ?? null } };
+    const tab: TabRecord = { id: randomUUID(), sessionId: session.id, title: title ?? (profile.elevation ? profile.label : `Shell ${ordinal + 1}`), cwd: cwd ?? session.cwd, ordinal, createdAt: now, lifecycle: 'launching', operationId: randomUUID(), registration: null, error: null, terminal: { kind: 'embedded', profileId: profile.id, exitCode: null, userTitle: title ?? null } };
     const operation: OperationRecord = { id: tab.operationId, sessionId: session.id, tabId: tab.id, requestId, kind, state: 'intent', createdAt: now, updatedAt: now, error: null };
     this.repository.transaction(() => { this.repository.saveSession(session); this.repository.saveTab(tab); this.repository.saveOperation(operation); }); this.changed();
     const launched = await this.backend.launch({ tabId: tab.id, sessionId: session.id, generation: tab.operationId, profileId: profile.id, cwd: tab.cwd, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
@@ -309,17 +309,27 @@ export class EmbeddedSessionService {
       throw new Error('Ownership persistence failed.');
     }
     this.refreshWatch(); this.changed();
+    // Approval denial and helper errors must reach the explicit user action;
+    // saving a closed tab is not a successful administrator-tab launch.
+    if (profile.elevation && !launched.ok) return launched;
     return success(this.toDto(this.repository.session(session.id)!));
   }
   closeTab(input: { tabId: string; generation: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.closeTab.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid close request.'));
     const initial = this.repository.tab(input.tabId); if (!initial) return Promise.resolve(failure('NOT_FOUND', 'Tab not found.'));
+    if (!initial.terminal) return Promise.resolve(failure('UNSUPPORTED', 'Legacy external processes are not owned by this manager.'));
+    if (initial.operationId !== input.generation) return Promise.resolve(failure('TARGET_LOST', 'This terminal generation is stale.'));
+    // The add/reopen operation may be waiting for UAC in this very session's
+    // queue. Interrupt its exact startup now, not inside the queued close.
+    const interruption = this.backend.cancelStartup(input);
     return this.serialize(initial.sessionId, async () => {
+      const interrupted = await interruption;
+      if (interrupted && !interrupted.ok) return interrupted;
       const tab = this.repository.tab(input.tabId)!;
       if (!tab.terminal) return failure('UNSUPPORTED', 'Legacy external processes are not owned by this manager.');
       if (tab.operationId !== input.generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
       if (tab.lifecycle === 'closed' && !this.backend.get(tab.id)) return success(this.toDto(this.repository.session(tab.sessionId)!));
-      const closed = await this.backend.close(input); if (!closed.ok) return closed;
+      const closed = interrupted ?? await this.backend.close(input); if (!closed.ok) return closed;
       // The PTY exit event is authoritative. A pending OS close must not authorize a replacement shell.
       this.changed(); return success(this.toDto(this.repository.session(tab.sessionId)!));
     });
@@ -509,7 +519,7 @@ export class EmbeddedSessionService {
         await this.backend.refreshProfiles(parsed.data.pythonPath);
       }
       const profiles = this.backend.getProfiles(), requested = input.terminalProfileId ?? profiles.profiles.find(p => p.id === input.shellId && (!input.shellExecutable || p.executable === input.shellExecutable))?.id ?? profiles.defaultProfileId;
-      const selected = profiles.profiles.find(p => p.id === requested && p.available);
+      const selected = profiles.profiles.find(p => p.id === requested && p.available && !p.elevation);
       if (!selected) { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); return failure('VALIDATION', 'Choose a discovered terminal profile.'); }
       // An explicit discovered profile owns its derived fields. Full DTOs may still carry the old executable.
       const unchangedExecutable = !!input.terminalProfileId && input.shellExecutable === previous.shellExecutable;
@@ -519,7 +529,7 @@ export class EmbeddedSessionService {
       catch { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); this.tracker.setWatch(this.backend.live().map(e => e.root), previous.processRules); return failure('STORAGE_FAILED', 'Settings could not be applied.', true); }
       if (pythonChanged) {
         const available = profiles.profiles.some(p => p.available);
-        this.probe = { ...this.probe, available, python: this.backend.getPython(), reasons: [LIFETIME_NOTICE, ...profiles.profiles.filter(p => !p.available).map(p => p.unavailableReason ?? 'Shell unavailable')], shells: profiles.profiles.filter(p => p.environment === 'local').map(p => ({ id: shellId(p), executable: p.executable, available: p.available, reason: p.unavailableReason ?? null })), capabilities: { ...this.probe.capabilities, createWindow: available, addTab: available, closeTerminal: available, focusWindow: available, activateTab: available } };
+        this.probe = { ...this.probe, available, python: this.backend.getPython(), reasons: [LIFETIME_NOTICE, ...profiles.profiles.filter(p => !p.available).map(p => p.unavailableReason ?? 'Shell unavailable')], shells: profiles.profiles.filter(p => p.environment === 'local' && !p.elevation).map(p => ({ id: shellId(p), executable: p.executable, available: p.available, reason: p.unavailableReason ?? null })), capabilities: { ...this.probe.capabilities, createWindow: available, addTab: available, closeTerminal: available, focusWindow: available, activateTab: available } };
       }
       this.changed('settings'); return success(settings);
     });
@@ -608,6 +618,9 @@ export class EmbeddedSessionService {
   }
   ownedTerminalCount(): number { return this.backend.live().length + this.repository.tabs().filter(t => t.terminal && t.lifecycle === 'launching' && !this.backend.get(t.id)).length; }
   private async closeOwnedTerminals(): Promise<void> {
+    // UAC/readiness waits are inside operation queues. Abort them before waiting
+    // for those queues, while keeping every unconfirmed helper handle owned.
+    await this.backend.cancelPendingStartups();
     await Promise.allSettled([...this.queues.values()]);
     const results = await Promise.all(this.backend.live().map(e => this.backend.close({ tabId: e.tabId, generation: e.generation })));
     if (results.some(r => !r.ok)) throw new Error('Owned terminal shutdown was not confirmed.');

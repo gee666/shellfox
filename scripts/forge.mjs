@@ -22,6 +22,13 @@ const stage = path.join(root, 'tmp/package-source');
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(path.join(stage, 'tmp'), { recursive: true });
 cpSync('tmp/build', path.join(stage, 'tmp/build'), { recursive: true });
+if (platform === 'win32') {
+  const helper = path.join(root, 'tmp/terminal-native', 'win-' + arch);
+  const resources = path.join(root, 'tmp/package-resources/elevated-terminal');
+  if (!existsSync(path.join(helper, 'Shellfox.ElevatedTerminal.exe'))) throw new Error('Missing elevated ConPTY helper.');
+  rmSync(resources, { recursive: true, force: true });
+  cpSync(helper, resources, { recursive: true });
+}
 if (platform === 'darwin') {
   const resources = path.join(root, 'tmp/package-resources/terminal-native');
   rmSync(resources, { recursive: true, force: true });

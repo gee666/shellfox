@@ -6,7 +6,11 @@ import { resultSchema } from '../../shared/schemas';
 import { z } from 'zod';
 import { shellfoxDispatcher } from './shellfox-dispatcher';
 import { runRegistry, type RegistryRunner } from './explorer';
-import { helperPath, helperData, posixHelper } from './cli-helper';
+import { helperPath, helperData, posixHelper as basePosixHelper } from './cli-helper';
+import { customScriptContext } from './shellfox-cli-scripts';
+import { launchConfig } from './shellfox-cli-launch';
+import { powershellShim } from './shellfox-cli-powershell';
+const posixHelper = (options: ShellfoxCliOptions, windows: boolean) => customScriptContext(basePosixHelper(options, windows));
 import { setWslCli, type WslCliOptions } from './wsl-cli';
 
 export const SHELLFOX_COMMAND = 'shellfox';
@@ -26,20 +30,17 @@ function cmdQuote(s: string): string {
   if (/["\r\n\0]/.test(s)) throw new Error('Unsafe application argument.');
   return '"' + s.replaceAll('%', '%%') + '"';
 }
-export function shellfoxShims(options: ShellfoxCliOptions): { cmd: string; posix: string; dispatcher: string; update: string } {
+export function shellfoxShims(options: ShellfoxCliOptions): { cmd: string; powershell: string; posix: string; dispatcher: string; update: string } {
   const args = [...(options.appPath ? [options.appPath] : []), ...(options.prefixArgs ?? [])];
   const environment = options.launchEnv ?? {};
-  let cmd = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE="\r\nif "%~1"=="" goto usage\r\nif "%~1"=="--help" goto usage\r\nif /i "%~1"=="update" goto update\r\nif /i not "%~1"=="start" goto invalid\r\nif not "%~3"=="" goto invalid\r\nset "shellfox_folder=%~f2"\r\nif "%~2"=="" set "shellfox_folder=%CD%"\r\nif not exist "%shellfox_folder%\\." (\r\n  >&2 echo Shellfox: directory not found "%shellfox_folder%"\r\n  exit /b 1\r\n)\r\nif not exist ${cmdQuote(options.executable)} (\r\n  >&2 echo Shellfox: application executable is missing.\r\n  exit /b 1\r\n)\r\n${Object.entries(environment).map(([name,value]) => `set ${cmdQuote(name + '=' + value)}`).join('\r\n')}\r\nstart "" /D "%CD%" ${[options.executable,...args].map(cmdQuote).join(' ')} start "%shellfox_folder%\\." >nul 2>&1\r\nif errorlevel 1 exit /b 1\r\necho Shellfox: started session in "%shellfox_folder%"\r\nexit /b 0\r\n:update\r\nif not "%~3"=="" goto invalid\r\nset "shellfox_update_args="\r\nif /i "%~2"=="--check" set "shellfox_update_args=-Check"\r\nif /i "%~2"=="--help" set "shellfox_update_args=-Help"\r\nif not "%~2"=="" if not defined shellfox_update_args goto invalid\r\npowershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0shellfox-update.ps1" -Executable ${cmdQuote(options.executable)} %shellfox_update_args%\r\nexit /b %errorlevel%\r\n:invalid\r\n>&2 echo Usage: shellfox start [path]\r\n>&2 echo        shellfox update [--check]\r\nexit /b 2\r\n:usage\r\necho Usage: shellfox start [path]\r\necho        shellfox update [--check]\r\necho Starts a session. Path defaults to the current directory.\r\necho update installs the latest published release.\r\nexit /b 0\r\n`;
   let posix = `#!/bin/sh\n# ${OWNER}\nif [ "$#" -eq 0 ] || [ "$1" = '--help' ]; then\n  printf '%s\\n' 'Usage: shellfox start [path]' '       shellfox update [--check]' 'Starts a session. Path defaults to the current directory.' 'update installs the latest published release.'\n  exit 0\nfi\nif [ "$1" = update ]; then\n  shift\n  case "\${1:-}" in ''|--check|--help) ;; *) printf '%s\\n' 'Usage: shellfox update [--check]' >&2; exit 2 ;; esac\n  if [ "$#" -gt 1 ]; then printf '%s\\n' 'Usage: shellfox update [--check]' >&2; exit 2; fi\n  script=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)/shellfox-update.ps1 || exit 1\n  launcher=powershell.exe\n  if [ -n "\${WSL_DISTRO_NAME:-}" ]; then\n    launcher=$(wslpath -u ${shQuote(path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'))}) || exit 1\n    script=$(wslpath -w "$script") || exit 1\n  elif command -v cygpath >/dev/null 2>&1; then script=$(cygpath -w "$script") || exit 1; fi\n  extra=\n  case "\${1:-}" in --check) extra=-Check ;; --help) extra=-Help ;; esac\n  # shellcheck disable=SC2086\n  MSYS_ARG_CONV_EXCL='*' exec "$launcher" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$script" -Executable ${shQuote(options.executable)} $extra\nfi\nif [ "$1" != start ] || [ "$#" -gt 2 ]; then printf '%s\\n' 'Usage: shellfox start [path] | shellfox update [--check]' >&2; exit 2; fi\nfolder=$(cd -- "\${2:-.}" && pwd -P) || exit 1\nexe=${shQuote(options.executable)}\nif [ -n "\${WSL_DISTRO_NAME:-}" ]; then\n  folder=$(wslpath -w "$(realpath "$folder")") || exit 1\n  exe=$(wslpath -u "$exe") || exit 1\nelif command -v cygpath >/dev/null 2>&1; then\n  folder=$(cygpath -w "$folder") || exit 1\n  exe=$(cygpath -u "$exe") || exit 1\nfi\nif [ ! -f "$exe" ]; then printf '%s\\n' 'Shellfox: application executable is missing.' >&2; exit 1; fi\n(\n  export MSYS_ARG_CONV_EXCL='*'\n${Object.entries(environment).map(([name,value])=> `  export ${name}=${shQuote(value)}`).join('\n')}\n  if [ -n "\${WSL_DISTRO_NAME:-}" ]; then\n    launcher=${shQuote(path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'))}\n    launcher=$(wslpath -u "$launcher") || exit 1\n    script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1\n    dispatcher=$(wslpath -w "$script_dir/shellfox-dispatch.ps1") || exit 1\n    "$launcher" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$dispatcher" -Folder "$folder" >/dev/null || exit 1\n  else\n    "$exe" ${args.map(shQuote).join(' ')} start "$folder" >/dev/null 2>&1 &\n  fi\n) || exit $?\nprintf 'Shellfox: started session in %s\\n' "$folder"\n`;
   const helper = helperPath(options), runtime = path.win32.join(path.win32.dirname(helper), '../cli-runtime/node.exe'), data = helperData(options);
   const helperCall = [runtime, helper, ...(data ? ['--user-data', data] : [])].map(cmdQuote).join(' ');
-  cmd = cmd.replace('if "%~1"=="" goto usage', 'if "%~1"=="" goto usage\r\nif /i "%~1"=="ssh" goto helper\r\nif /i "%~2"=="--help" goto helper\r\nif /i "%~2"=="-h" goto helper\r\nif /i "%~2"=="help" goto helper');
-  cmd = cmd.replace('if /i not "%~1"=="start" goto invalid', ['start','add','new','create'].map(alias => `if /i "%~1"=="${alias}" goto start_session`).join('\r\n') + '\r\ngoto helper\r\n:start_session');
-  cmd = cmd.slice(0, cmd.indexOf(':invalid\r\n')) + `:invalid\r\nset "ELECTRON_RUN_AS_NODE="\r\n${helperCall} %*\r\nexit /b %errorlevel%\r\n:usage\r\nset "ELECTRON_RUN_AS_NODE="\r\n${helperCall} --help\r\nexit /b %errorlevel%\r\n:helper\r\nset "ELECTRON_RUN_AS_NODE="\r\n${helperCall} %*\r\nexit /b %errorlevel%\r\n`;
+  const cmd = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE="\r\nset "SHELLFOX_CLI_DISTRO="\r\nset "SHELLFOX_CLI_WSL_CWD="\r\nset "SHELLFOX_CLI_GIT_BASH="\r\nset "SHELLFOX_CLI_GIT_CWD="\r\nset "SHELLFOX_CLI_LAUNCH=${launchConfig(options.executable, args, environment)}"\r\nset "SHELLFOX_CLI_UPDATE=%~dp0shellfox-update.ps1"\r\n${helperCall} %*\r\nexit /b %errorlevel%\r\n`;
   const start = posix.indexOf('if [ "$1" = update ]');
   posix = '#!/bin/sh\n# ' + OWNER + '\nunset ELECTRON_RUN_AS_NODE\nif [ "$#" -eq 0 ] || [ "$1" = --help ] || [ "$1" = ssh ] || [ "\${2:-}" = --help ] || [ "\${2:-}" = -h ] || [ "\${2:-}" = help ]; then\n  if [ "$#" -eq 0 ]; then set -- --help; fi\n' + posixHelper(options, true) + 'fi\n' + posix.slice(start);
   posix = posix.replace(`if [ "$1" != start ] || [ "$#" -gt 2 ]; then printf '%s\\n' 'Usage: shellfox start [path] | shellfox update [--check]' >&2; exit 2; fi`, 'if { [ "$1" != start ] && [ "$1" != add ] && [ "$1" != new ] && [ "$1" != create ]; } || [ "$#" -gt 2 ] || [ "\${2:-}" = --help ] || [ "\${2:-}" = -h ] || [ "\${2:-}" = help ]; then\n' + posixHelper(options, true) + 'fi');
-  return { cmd, posix, dispatcher: shellfoxDispatcher(options), update: options.updateScript ?? '' };
+  return { cmd, powershell: powershellShim(runtime, helper, data, options.executable, args, environment), posix, dispatcher: shellfoxDispatcher(options), update: options.updateScript ?? '' };
 }
 const registryState = z.object({ installed: z.boolean() }).strict();
 export class WindowsCliIntegration implements CliPort {
@@ -86,7 +87,7 @@ try {
       return result.success ? result.data : failure('NATIVE_UNAVAILABLE', 'Invalid Shellfox PATH response.', true);
     } catch { return failure('NATIVE_UNAVAILABLE', 'Shellfox user PATH access failed.', true); }
   }
-  private files(): { cmd: string; posix: string; dispatcher: string; update: string; marker: string } { return { ...shellfoxShims(this.options), marker: JSON.stringify({ owner: OWNER, executable: this.options.executable, appPath: this.options.appPath ?? null }) }; }
+  private files(): { cmd: string; powershell: string; posix: string; dispatcher: string; update: string; marker: string } { return { ...shellfoxShims(this.options), marker: JSON.stringify({ owner: OWNER, executable: this.options.executable, appPath: this.options.appPath ?? null }) }; }
   async get(): Promise<Result<CliIntegrationDto>> {
     if (this.platform() !== 'win32') return success(this.state(false, 'Shellfox CLI integration requires Windows.'));
     // Missing/stale shims cannot be installed, regardless of PATH. Avoid starting
@@ -99,7 +100,7 @@ try {
   private async inspectFiles(onPath: boolean): Promise<Result<CliIntegrationDto>> {
     const expected = this.files();
     let present = false;
-    try { await access(this.options.executable); if (this.options.appPath) await access(this.options.appPath); present = (await readFile(path.join(this.binDir,'shellfox.cmd'),'utf8')) === expected.cmd && (await readFile(path.join(this.binDir,'shellfox'),'utf8')) === expected.posix && (await readFile(path.join(this.binDir,'shellfox-owner.json'),'utf8')) === expected.marker && (await readFile(path.join(this.binDir,'shellfox-dispatch.ps1'),'utf8')) === expected.dispatcher && (await readFile(path.join(this.binDir,'shellfox-update.ps1'),'utf8')) === expected.update; } catch { /* Missing files mean not installed. */ }
+    try { await access(this.options.executable); if (this.options.appPath) await access(this.options.appPath); present = (await readFile(path.join(this.binDir,'shellfox.cmd'),'utf8')) === expected.cmd && (await readFile(path.join(this.binDir,'shellfox.ps1'),'utf8')) === expected.powershell && (await readFile(path.join(this.binDir,'shellfox'),'utf8')) === expected.posix && (await readFile(path.join(this.binDir,'shellfox-owner.json'),'utf8')) === expected.marker && (await readFile(path.join(this.binDir,'shellfox-dispatch.ps1'),'utf8')) === expected.dispatcher && (await readFile(path.join(this.binDir,'shellfox-update.ps1'),'utf8')) === expected.update; } catch { /* Missing files mean not installed. */ }
     return success(this.state(present && onPath));
   }
   async set(installed: boolean): Promise<Result<CliIntegrationDto>> {
@@ -107,20 +108,21 @@ try {
     try {
       let owned = false;
       try { owned = JSON.parse(await readFile(path.join(this.binDir,'shellfox-owner.json'),'utf8')).owner === OWNER; } catch { /* No marker. */ }
-      for (const file of ['shellfox.cmd','shellfox','shellfox-owner.json','shellfox-dispatch.ps1','shellfox-update.ps1']) {
+      for (const file of ['shellfox.cmd','shellfox.ps1','shellfox','shellfox-owner.json','shellfox-dispatch.ps1','shellfox-update.ps1']) {
         try { await readFile(path.join(this.binDir,file)); if (!owned) return failure('AUTH_FAILED', 'Existing shellfox shims belong to another installation.'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       }
       if (installed) {
         await access(this.options.executable); if (this.options.appPath) await access(this.options.appPath);
         const files = this.files(); await mkdir(this.binDir, { recursive: true });
         await writeFile(path.join(this.binDir,'shellfox.cmd'), files.cmd);
+        await writeFile(path.join(this.binDir,'shellfox.ps1'), files.powershell);
         await writeFile(path.join(this.binDir,'shellfox'), files.posix, { mode: 0o755 });
         await writeFile(path.join(this.binDir,'shellfox-dispatch.ps1'), files.dispatcher);
         await writeFile(path.join(this.binDir,'shellfox-update.ps1'), files.update);
         await writeFile(path.join(this.binDir,'shellfox-owner.json'), files.marker);
       }
       const registry = await this.pathState(installed); if (!registry.ok) return registry;
-      if (!installed && owned) for (const file of ['shellfox.cmd','shellfox','shellfox-owner.json','shellfox-dispatch.ps1','shellfox-update.ps1']) await unlink(path.join(this.binDir,file)).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      if (!installed && owned) for (const file of ['shellfox.cmd','shellfox.ps1','shellfox','shellfox-owner.json','shellfox-dispatch.ps1','shellfox-update.ps1']) await unlink(path.join(this.binDir,file)).catch(error => { if (error.code !== 'ENOENT') throw error; });
       const wslEnabled = this.options.wsl !== false && (this.options.wsl !== undefined ||
         !this.options.binDir && !this.options.registryKey && !this.options.run);
       const reason = wslEnabled ? await setWslCli(installed, this.binDir, this.options.wsl || {}) : null;

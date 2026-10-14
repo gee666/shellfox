@@ -30,6 +30,14 @@ describe('autosaving settings', () => {
     expect(screen.queryByLabelText('History page size')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save settings' })).not.toBeInTheDocument();
   });
+  it('excludes administrator profiles from automatic default-shell selection', () => {
+    const initial = snapshot(), fixture = mockApi(initial), client = createManagerClient(fixture.api);
+    const administrator = { ...profiles[0], id: 'administrator-powershell', label: 'Administrator PowerShell', elevation: 'administrator' as const };
+    render(<SettingsPanel client={client} settings={initial.settings} explorer={initial.explorer} cli={initial.cli} profiles={[...profiles, administrator]} defaultProfileId="pwsh" />);
+    expect(screen.queryByRole('option', { name: 'Administrator PowerShell' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'PowerShell 7' })).toBeInTheDocument();
+    expect(fixture.api.saveSettings).not.toHaveBeenCalled();
+  });
   it('saves the default shell from discovered profiles', async () => {
     const { fixture, user } = setup();
     await user.selectOptions(screen.getByLabelText('Default shell'), 'wsl:Ubuntu');

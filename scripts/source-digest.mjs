@@ -11,5 +11,7 @@ export function sourceDigest(root) {
     }
   }
   visit(path.join(root, 'src'));
+  visit(path.join(root, 'native/Shellfox.ElevatedTerminal'));
+  for (const name of ['scripts/terminal-native.mjs', 'scripts/forge.mjs', 'forge.config.cjs']) entries.push([name, createHash('sha256').update(readFileSync(path.join(root, name))).digest('hex')]);
   return createHash('sha256').update(JSON.stringify(entries)).digest('hex');
 }

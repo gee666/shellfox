@@ -4,7 +4,9 @@ if [ "${1:-}" = --help ] || [ "${1:-}" = ssh ] || [ "${2:-}" = --help ] || [ "${
   ELECTRON_RUN_AS_NODE=1 exec /usr/lib/shellfox/shellfox /usr/lib/shellfox/resources/cli/main/cli.cjs "$@"
 fi
 unset ELECTRON_RUN_AS_NODE
-if [ "${1:-}" = update ]; then shift; exec /bin/sh /usr/lib/shellfox/resources/shellfox-update.sh "$@"; fi
+if [ "${1:-}" = update ]; then
+  shift; exec /bin/sh /usr/lib/shellfox/resources/shellfox-update.sh "$@"
+fi
 if [ "$#" -eq 0 ]; then mode=show
 elif { [ "$1" = start ] || [ "$1" = add ] || [ "$1" = new ] || [ "$1" = create ]; } && [ "$#" -le 2 ]; then
   target=${2:-.}

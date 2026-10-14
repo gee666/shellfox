@@ -32,6 +32,17 @@ test('makers match each native OS/architecture without an arm64 Squirrel claim',
     assert.ok(c.packagerConfig.extraResource.includes(path.resolve('tmp/build/cli')));
   }
 });
+test('Windows ships the self-contained elevated ConPTY helper outside ASAR on both architectures', () => {
+  for (const arch of ['x64', 'arm64']) {
+    const c = config('win32', arch).packagerConfig;
+    assert.ok(c.extraResource.includes(path.resolve('tmp/package-resources/elevated-terminal')));
+  }
+  assert.ok(!config('linux', 'x64').packagerConfig.extraResource.some(file => file.includes('elevated-terminal')));
+  const build = readFileSync('scripts/terminal-native.mjs', 'utf8');
+  assert.ok(build.includes("'win-' + process.arch")); assert.ok(build.includes("'--self-contained', 'true'"));
+  const project = readFileSync('native/Shellfox.ElevatedTerminal/Shellfox.ElevatedTerminal.csproj', 'utf8');
+  assert.ok(!project.includes('ForSelfExtract')); assert.ok(!project.includes('<PublishSingleFile>true'));
+});
 test('Debian installs an owned launcher, setuid sandbox and guarded unconfined AppArmor profile', () => {
  const options=config('linux','x64').makers.find(m=>m.name==='@electron-forge/maker-deb').config.options;
  assert.ok(options.depends.includes('python3'));assert.ok(options.depends.includes('libasound2t64 | libasound2'));assert.ok(options.recommends.includes('python3-nautilus'));assert.ok(!options.depends.includes('gnome-terminal'));
@@ -138,7 +149,7 @@ test('Darwin native resources are outside ASAR and covered by preview signing', 
     assert.equal(native.timestamp, 'none');
     assert.equal(native.entitlements.length, 0);
   }
-  assert.deepEqual([...config('win32', 'x64').packagerConfig.extraResource], [path.resolve('tmp/build/cli')]);
+  assert.deepEqual([...config('win32', 'x64').packagerConfig.extraResource], [path.resolve('tmp/build/cli'), path.resolve('tmp/package-resources/elevated-terminal')]);
   assert.equal(config('linux', 'arm64').packagerConfig.osxSign, undefined);
 });
 test('explicit certificate signing validates identity and enables hardened runtime', () => {

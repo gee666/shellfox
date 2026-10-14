@@ -222,7 +222,7 @@ export class ProcessTracker {
         r.environment !== 'local' && r.environment !== 'wsl' ||
         r.environment === 'local' && r.distro !== null || r.environment === 'wsl' && (!r.distro || !r.marker) ||
         r.shellExecutable !== undefined && (typeof r.shellExecutable !== 'string' || !r.shellExecutable || r.shellExecutable.includes('\0')) ||
-        r.authenticatedBirth !== undefined && (r.environment !== 'local' || !/^darwin:\d{1,20}:\d{6}$/.test(r.authenticatedBirth)) ||
+        r.authenticatedBirth !== undefined && (r.environment !== 'local' || !/^(?:darwin:\d{1,20}:\d{6}|windows:\d{1,20})$/.test(r.authenticatedBirth)) ||
         r.ancestorPid !== undefined && (r.environment !== 'local' || !Number.isSafeInteger(r.ancestorPid) || r.ancestorPid <= 0 || r.ancestorPid === r.pid) ||
         r.birthOrderBounds !== undefined && (!/^\d{1,80}$/.test(r.birthOrderBounds.min) || !/^\d{1,80}$/.test(r.birthOrderBounds.max) ||
           BigInt(r.birthOrderBounds.min) > BigInt(r.birthOrderBounds.max)))) {
@@ -419,7 +419,12 @@ export class ProcessTracker {
           if (sorted[0]!.birthOrder !== sorted[1]!.birthOrder) p = sorted[0];
         }
       }
-      if (!pinned && r.authenticatedBirth !== undefined && p?.birth !== r.authenticatedBirth) {
+      // CIM timestamps have microsecond precision; GetProcessTimes has 100ns
+      // precision. Access/executable checks still apply to elevated shells.
+      const authenticated = r.authenticatedBirth?.startsWith('windows:')
+        ? p?.birthOrder !== undefined && BigInt(p.birthOrder) / 10n === BigInt(r.authenticatedBirth.slice(8)) / 10n
+        : p?.birth === r.authenticatedBirth;
+      if (!pinned && r.authenticatedBirth !== undefined && !authenticated) {
         rootErrors.set(id, 'Owned shell birth does not match its authenticated supervisor identity.');
         continue;
       }
@@ -441,7 +446,7 @@ export class ProcessTracker {
       if (!pinned) {
         const bounds = r.birthOrderBounds;
         const bounded = bounds && p.birthOrder !== undefined && BigInt(p.birthOrder) >= BigInt(bounds.min) && BigInt(p.birthOrder) <= BigInt(bounds.max);
-        if (s.rootLaunchEvidenceRequired && (!r.shellExecutable || !bounds || r.ancestorPid === undefined) ||
+        if (s.rootLaunchEvidenceRequired && r.authenticatedBirth === undefined && (!r.shellExecutable || !bounds || r.ancestorPid === undefined) ||
           bounds && !bounded || r.ancestorPid !== undefined && !hasAncestor(p, r.ancestorPid)) {
           rootErrors.set(id, 'Initial shell birth window or manager ancestry could not be verified.');
           continue;

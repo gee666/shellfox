@@ -16,7 +16,7 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.getByRole('button', { name: 'New session', exact: true }).waitFor({ timeout: 15000 });
-  assert.equal(await page.title(), 'Shellfox');
+  assert.equal(await page.title(), `Shellfox v${await application.evaluate(({ app }) => app.getVersion())}`);
   assert.equal(await application.evaluate(({ app }) => app.getName()), 'Shellfox');
   const profiles = await page.evaluate(() => window.shellfox.getTerminalProfiles());
   assert.equal(profiles.ok, true, JSON.stringify(profiles));

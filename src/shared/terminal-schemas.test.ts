@@ -1,6 +1,13 @@
 import { it, expect } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { requestSchemas, terminalEventSchema, terminalAttachmentSchema } from './schemas';
+import { requestSchemas, terminalEventSchema, terminalAttachmentSchema, terminalProfileSchema } from './schemas';
+it('allows only declared administrator elevation, not arbitrary runas options', () => {
+  const profile = { id: 'administrator-powershell', label: 'Administrator PowerShell', environment: 'local', executable: 'C:\\\\Windows\\\\powershell.exe', args: ['-NoLogo'], distro: null, available: true, elevation: 'administrator' };
+  expect(terminalProfileSchema.safeParse(profile).success).toBe(true);
+  expect(terminalProfileSchema.safeParse({ ...profile, elevation: 'system' }).success).toBe(false);
+  expect(terminalProfileSchema.safeParse({ ...profile, runas: 'someone' }).success).toBe(false);
+  expect(requestSchemas.addTab.safeParse({ sessionId: randomUUID(), profileId: profile.id, elevation: true }).success).toBe(false);
+});
 const identity = () => ({ tabId: randomUUID(), generation: randomUUID() });
 it('strictly validates every terminal control method and rejects arbitrary launch templates', () => {
   const id = identity();

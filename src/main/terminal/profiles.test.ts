@@ -19,8 +19,17 @@ describe('discovered native shell profiles', () => {
   });
   it('prefers installed PowerShell and falls back to Windows PowerShell', async () => {
     const both = await discoverProfiles({ platform: 'win32', env: {}, exists: async p => p.endsWith('pwsh.exe') || p.endsWith('powershell.exe') });
-    expect(both.defaultProfileId).toBe('pwsh'); expect(both.profiles.map(p => p.id)).toEqual(['pwsh', 'windows-powershell']);
+    expect(both.defaultProfileId).toBe('pwsh'); expect(both.profiles.map(p => p.id)).toEqual(['pwsh', 'windows-powershell', 'administrator-powershell']);
     const fallback = await discoverProfiles({ platform: 'win32', env: {}, exists: async p => p.endsWith('powershell.exe') }); expect(fallback.defaultProfileId).toBe('windows-powershell');
+  });
+  it('probes the administrator helper without UAC and never makes it the default', async () => {
+    const probe = vi.fn(async () => ({ available: true, reason: null }));
+    const found = await discoverProfiles({ platform: 'win32', env: {}, exists: async p => p.endsWith('powershell.exe'), administratorCapability: probe });
+    expect(probe).toHaveBeenCalledOnce(); expect(found.defaultProfileId).toBe('windows-powershell');
+    expect(found.profiles[1]).toMatchObject({ id: 'administrator-powershell', label: 'Administrator Windows PowerShell', elevation: 'administrator', available: true });
+    expect(() => spawnArguments(found.profiles[1], 'C:\\work', 'marker')).toThrow('authenticated');
+    const missing = await discoverProfiles({ platform: 'win32', env: {}, exists: async p => p.endsWith('powershell.exe'), administratorCapability: async () => ({ available: false, reason: 'Missing helper.' }) });
+    expect(missing.profiles[1]).toMatchObject({ available: false, unavailableReason: 'Missing helper.' });
   });
   it('decodes UTF-16 discovery, deduplicates distros and preflights each guest before launch permission', async () => {
     const run = vi.fn(async (_file: string, args: string[]) => args.includes('--quiet') ? Buffer.from('\uFEFFUbuntu\r\nDebian\r\nUbuntu\r\n', 'utf16le') : Buffer.from(PIDFD_READY));

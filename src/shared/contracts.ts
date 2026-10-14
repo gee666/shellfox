@@ -1,3 +1,4 @@
+export const ADMIN_POWERSHELL_PROFILE = 'administrator-powershell';
 export type Id = string;
 export type Timestamp = string;
 export type Status = 'waiting' | 'error' | 'running' | 'unknown' | 'settled';
@@ -71,6 +72,8 @@ export interface TerminalProfileDto {
   id: string; label: string; environment: 'local' | 'wsl'; executable: string;
   args: string[]; distro: string | null; available: boolean;
   unavailableReason?: string | null; canTerminateDescendants?: boolean;
+  /** Explicit tab choice only. Never an automatic/default shell. */
+  elevation?: 'administrator';
 }
 export interface TerminalProfilesDto {
   profiles: TerminalProfileDto[]; defaultProfileId: string | null; lifetime: 'app-owned'; shellSurvival: false;

@@ -11,6 +11,7 @@ import { PIDFD_PREFLIGHT, PIDFD_READY } from './pidfd-preflight';
 import { resolvePython, type PythonProbe } from './python';
 import { getDarwinSupervisorCapability } from './darwin-supervisor';
 import type { TrackingHelperOptions } from './tracking';
+import { ADMIN_POWERSHELL_PROFILE, elevatedCapability } from './windows-elevated';
 
 export type Execute = (file: string, args: string[]) => Promise<Buffer>;
 export const execute: Execute = (file, args) => new Promise((resolve, reject) => {
@@ -24,6 +25,7 @@ export interface ProfileOptions {
   exists?: (file: string) => Promise<boolean>; run?: Execute; loginShell?: string | null;
   canonical?: (file: string) => Promise<string>;
   supervisorOptions?: TrackingHelperOptions; pythonPath?: string | null; python?: PythonProbe;
+  administratorCapability?: () => Promise<{ available: boolean; reason: string | null }>;
 }
 export async function discoverProfiles(options: ProfileOptions = {}): Promise<TerminalProfilesDto> {
   const platform = options.platform ?? process.platform, env = options.env ?? process.env, run = options.run ?? execute;
@@ -35,6 +37,11 @@ export async function discoverProfiles(options: ProfileOptions = {}): Promise<Te
       { id: 'windows-powershell', label: 'Windows PowerShell', executable: path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') },
     ];
     for (const p of candidates) if (await exists(p.executable)) profiles.push({ ...p, environment: 'local', args: ['-NoLogo'], distro: null, available: true, canTerminateDescendants: true, unavailableReason: null });
+    const powershell = profiles.find(p => p.id === 'windows-powershell');
+    if (powershell) {
+      const capability = await (options.administratorCapability ?? elevatedCapability)();
+      profiles.push({ ...powershell, id: ADMIN_POWERSHELL_PROFILE, label: 'Administrator Windows PowerShell', elevation: 'administrator', available: capability.available, canTerminateDescendants: capability.available, unavailableReason: capability.reason });
+    }
     const wsl = path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'wsl.exe');
     if (await exists(wsl)) {
       try {
@@ -68,7 +75,7 @@ export async function discoverProfiles(options: ProfileOptions = {}): Promise<Te
       profiles.push({ id: original === candidates[0] ? 'login-shell' : `shell:${original}`, label: `${path.posix.basename(original)} login shell`, environment: 'local', executable, args: ['-l', '-i'], distro: null, available, canTerminateDescendants: available, unavailableReason: !canonicalReady ? 'The canonical shell executable could not be verified.' : platform === 'darwin' && !closeReady ? `macOS supervisor preflight unavailable: ${supervisorReason ?? 'Bundled native helper is unavailable.'}` : !closeReady ? python?.reason ?? 'Python 3 not found. Set its path in Settings → Python.' : null });
     }
   }
-  return { profiles: profiles.filter(p => terminalProfileSchema.safeParse(p).success), defaultProfileId: profiles.find(p => p.available)?.id ?? null, lifetime: 'app-owned', shellSurvival: false };
+  return { profiles: profiles.filter(p => terminalProfileSchema.safeParse(p).success), defaultProfileId: profiles.find(p => p.available && !p.elevation)?.id ?? null, lifetime: 'app-owned', shellSurvival: false };
 }
 export async function validateProfileCwd(profile: TerminalProfileDto, cwd: string, run: Execute = execute): Promise<string> {
   pathSchema.parse(cwd);
@@ -86,6 +93,7 @@ export async function validateProfileCwd(profile: TerminalProfileDto, cwd: strin
   return guest;
 }
 export function spawnArguments(profile: TerminalProfileDto, cwd: string, marker: string): { file: string; args: string[]; cwd?: string } {
+  if (profile.elevation || profile.id === ADMIN_POWERSHELL_PROFILE) throw new Error('Administrator tabs require the authenticated ConPTY helper.');
   if (profile.environment === 'local') return { file: profile.executable, args: [...profile.args], cwd };
   return { file: profile.executable, args: ['--distribution', profile.distro!, '--cd', cwd, '--exec', '/usr/bin/env', `SHELLFOX_TERMINAL_MARKER=${marker}`, '/bin/bash', '-l', '-i'] };
 }

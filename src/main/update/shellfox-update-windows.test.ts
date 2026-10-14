@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { execFile, type ChildProcess, type ExecFileException } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { build } from 'esbuild';
 import { pathToFileURL } from 'node:url';
 import { shellfoxShims } from '../platform/shellfox-cli';
 import updatePs1 from './shellfox-update.ps1';
@@ -12,7 +13,7 @@ const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
 const powershell = (code: string, env: NodeJS.ProcessEnv) => exec('powershell.exe', [
   '-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(code, 'utf16le').toString('base64'),
 ], { env, timeout: 20000 });
-let root = '', installer = '';
+let root = '', installer = '', helper = '';
 
 // A Squirrel-like installer exits after launching an app that remains alive.
 // Use a GUI executable so its child cannot hold the test runner's stdio open.
@@ -48,12 +49,17 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
     await mkdir(path.resolve('tmp'), { recursive: true });
     root = await mkdtemp(path.resolve('tmp/cli updater-'));
     installer = path.join(root, 'ShellfoxSetup.exe');
+    helper = path.join(root, 'cli', 'main', 'cli.cjs');
+    await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
+    const runtime = path.join(root, 'cli', 'cli-runtime', 'node.exe');
+    await mkdir(path.dirname(runtime), { recursive: true }); await copyFile(process.execPath, runtime);
     // Keep compiler scratch files inside the project's tmp directory too.
     await powershell(`$ErrorActionPreference='Stop'; Add-Type -TypeDefinition ${quote(fixture)} -OutputAssembly ${quote(installer)} -OutputType WindowsApplication`, { ...process.env, TEMP: root, TMP: root });
   }, 30000);
   afterAll(async () => { if (root) await rm(root, { recursive: true, force: true }); });
 
-  async function run(route: 'powershell' | 'cmd', installerExit = 0, check = false) {
+  async function run(route: 'powershell' | 'cmd', installerExit = 0, check = false, flag?: string) {
+    const noInstall = check || flag !== undefined;
     const scratch = await mkdtemp(path.join(root, 'run-'));
     const app = path.join(scratch, 'install', 'app-0.1.1', 'Shellfox.exe');
     const bin = path.join(scratch, 'bin'), tmp = path.join(scratch, 'tmp');
@@ -62,7 +68,7 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
     await writeFile(path.join(path.dirname(path.dirname(app)), 'Update.exe'), 'fixture');
     const api = path.join(scratch, 'release.json');
     await writeFile(api, JSON.stringify({ tag_name: 'v0.2.0', assets: [{ name: 'ShellfoxSetup.exe', browser_download_url: pathToFileURL(installer).href }] }));
-    const shims = shellfoxShims({ executable: app, updateScript: updatePs1 });
+    const shims = shellfoxShims({ executable: app, cliHelper: helper, userData: path.join(scratch, 'data'), updateScript: updatePs1 });
     await writeFile(path.join(bin, 'shellfox.cmd'), shims.cmd);
     const script = path.join(bin, 'shellfox-update.ps1'); await writeFile(script, shims.update);
     const started = path.join(scratch, 'started'), finish = path.join(scratch, 'finish');
@@ -74,9 +80,9 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
     try {
       const done = (error: ExecFileException | null, out: string, err: string) => { result = { code: error?.code ?? 0, out, err }; };
       updater = route === 'cmd'
-        ? execFile('cmd.exe', ['/d', '/c', 'shellfox.cmd', 'update', ...(check ? ['--check'] : [])], { cwd: bin, env }, done)
+        ? execFile('cmd.exe', ['/d', '/c', 'shellfox.cmd', 'update', ...(noInstall ? [flag ?? '--check'] : [])], { cwd: bin, env }, done)
         : execFile('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-Executable', app, ...(check ? ['-Check'] : [])], { env }, done);
-      if (!check) {
+      if (!noInstall) {
         childPid = await eventually(async () => {
           try { return Number(await readFile(started, 'utf8')); } catch { return undefined; }
         });
@@ -88,7 +94,7 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
       const completed = await eventually(async () => result);
       if (childPid) expect(() => process.kill(childPid!, 0)).not.toThrow();
       expect(await readdir(tmp)).toEqual([]);
-      if (check) await expect(readFile(started)).rejects.toMatchObject({ code: 'ENOENT' });
+      if (noInstall) await expect(readFile(started)).rejects.toMatchObject({ code: 'ENOENT' });
       return completed;
     } finally {
       // Also clean up the old -Wait implementation's blocked process tree on failure.
@@ -112,6 +118,18 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
     expect(result.err).toContain('the installer failed (exit code 37)');
     expect(result.out).not.toContain('Shellfox 0.2.0 installed.');
   }, 25000);
+  it('updater help stays in the CLI helper without starting an installer', async () => {
+    for (const flag of ['--help', '-h', 'help']) {
+      const result = await run('cmd', 0, false, flag);
+      expect(result.code, result.err).toBe(0);
+      expect(result.out).toContain('shellfox update [--check]');
+    }
+  }, 15000);
+  it('invalid update arguments return usage code 2 without starting an installer', async () => {
+    const result = await run('cmd', 0, false, '--bad');
+    expect(result.code, result.err).toBe(2);
+    expect(result.err).toContain('Usage: shellfox update [--check]');
+  }, 15000);
   it('--check exits without starting an installer', async () => {
     const result = await run('cmd', 0, true);
     expect(result.code, result.err).toBe(0);

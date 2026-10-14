@@ -80,16 +80,47 @@ describe('real embedded-service recovery', () => {
     const resume = await f.service.closeForUpdate(); expect(await f.create()).toMatchObject({ ok: false }); resume();
     expect(await f.create()).toMatchObject({ ok: true }); await f.service.dispose();
   });
-  it('drains a shell already launching before acknowledging reversible terminal closure', async () => {
-    const f = factoryFixture(), repo = new MemoryRepository(); let spawn!: () => void;
-    const barrier = new Promise<void>(resolve => { spawn = resolve; });
-    const backend = new PtyBackend({ ...f.options, validateCwd: async (_profile, cwd) => { await barrier; return cwd; } });
+  it('cancels ordinary cwd validation before acknowledging reversible closure, without spawning a late shell', async () => {
+    const f = factoryFixture(), repo = new MemoryRepository(); let validate!: () => void;
+    const barrier = new Promise<void>(resolve => { validate = resolve; });
+    const validateCwd = vi.fn(async (_profile: unknown, cwd: string) => { await barrier; return cwd; });
+    const backend = new PtyBackend({ ...f.options, validateCwd });
     const service = new EmbeddedSessionService(repo, backend, () => ({ setWatch: vi.fn(), dispose: vi.fn() })); await service.initialize();
     const creating = service.createSession({ cwd: '/work', requestId: randomUUID() });
-    await expect.poll(() => service.ownedTerminalCount()).toBe(1);
-    let closed = false; const shuttingDown = service.closeForUpdate().then(resume => { closed = true; return resume; });
-    expect(closed).toBe(false); spawn(); expect(await creating).toMatchObject({ ok: true });
-    const resume = await shuttingDown; expect(service.ownedTerminalCount()).toBe(0); expect(f.processes[0]!.kill).toHaveBeenCalled();
-    resume(); expect(await service.createSession({ cwd: '/work', requestId: randomUUID() })).toMatchObject({ ok: true }); await service.dispose();
+    // Wait for backend startup registration, not only the saved launch intent.
+    await expect.poll(() => validateCwd.mock.calls.length).toBe(1);
+    expect(service.ownedTerminalCount()).toBe(1);
+    const resume = await service.closeForUpdate();
+    // Shutdown must finish while validation is still blocked. Ordinary create
+    // preserves its session metadata, but the tab/operation records the abort.
+    expect(await creating).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ lifecycle: 'closed', error: expect.objectContaining({ code: 'LAUNCH_FAILED' }) })] } });
+    expect(repo.tabs()[0]!.lifecycle).toBe('closed');
+    expect(repo.operation(repo.tabs()[0]!.operationId)?.state).toBe('failed');
+    expect(service.ownedTerminalCount()).toBe(0); expect(f.factory).not.toHaveBeenCalled(); expect(f.processes).toHaveLength(0);
+    validate(); await Promise.resolve(); await Promise.resolve();
+    expect(f.factory).not.toHaveBeenCalled(); expect(backend.live()).toHaveLength(0);
+    expect(await service.createSession({ cwd: '/work', requestId: randomUUID() })).toMatchObject({ ok: false });
+    resume();
+    expect(await service.createSession({ cwd: '/work', requestId: randomUUID() })).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ lifecycle: 'open' })] } });
+    expect(f.processes).toHaveLength(1); await service.dispose(); expect(f.processes[0]!.kill).toHaveBeenCalledOnce();
+  });
+  it('closes an ordinary PTY already acquired before readiness and ignores readiness arriving after shutdown', async () => {
+    const f = factoryFixture(), repo = new MemoryRepository(); let ready!: () => void;
+    const barrier = new Promise<void>(resolve => { ready = resolve; });
+    const whenReady = vi.fn(() => barrier);
+    const backend = new PtyBackend({ ...f.options, factory: (...args) => Object.assign(f.factory(...args), { whenReady }) });
+    const service = new EmbeddedSessionService(repo, backend, () => ({ setWatch: vi.fn(), dispose: vi.fn() })); await service.initialize();
+    const creating = service.createSession({ cwd: '/work', requestId: randomUUID() });
+    await expect.poll(() => whenReady.mock.calls.length).toBe(1);
+    expect(f.processes).toHaveLength(1); expect(service.ownedTerminalCount()).toBe(1);
+    const resume = await service.closeForUpdate();
+    expect(await creating).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ lifecycle: 'closed', error: expect.objectContaining({ code: 'NATIVE_UNAVAILABLE' }) })] } });
+    expect(f.processes[0]!.kill).toHaveBeenCalledOnce(); expect(backend.live()).toHaveLength(0);
+    ready(); await Promise.resolve(); await Promise.resolve();
+    expect(f.processes).toHaveLength(1); expect(service.ownedTerminalCount()).toBe(0);
+    resume();
+    expect(await service.createSession({ cwd: '/work', requestId: randomUUID() })).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ lifecycle: 'open' })] } });
+    expect(f.processes).toHaveLength(2); await service.dispose();
+    expect(f.processes[0]!.kill).toHaveBeenCalledOnce(); expect(f.processes[1]!.kill).toHaveBeenCalledOnce();
   });
 });

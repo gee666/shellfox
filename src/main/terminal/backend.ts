@@ -15,6 +15,7 @@ import { TerminalActivity } from './activity';
 import { nativeQueuedInputBytes, MAX_NATIVE_INPUT_BYTES } from './native-input';
 import { prepareDarwinSupervisor, type SupervisorLaunch, type SupervisorControl } from './darwin-supervisor';
 import { ScreenMirror } from './screen-mirror';
+import { ADMIN_POWERSHELL_PROFILE, launchElevatedPty, type ElevatedLaunch, type ElevatedPty } from './windows-elevated';
 
 export const REPLAY_BYTES = 256 * 1024;
 /** terminalAttachmentSchema rejects attachments above this many UTF-8 bytes of chunk data. */
@@ -46,6 +47,7 @@ interface Entry extends Omit<OwnedTerminal, 'processTitle'> {
   handles: { dispose(): void }[]; closing?: Promise<Result<{ closed: true }>>;
   identity: UnixIdentity | null; known: UnixIdentity[]; ready: boolean;
   supervisor?: SupervisorControl;
+  elevated?: ElevatedPty;
   /** Parsed VT state of the whole output stream; restores screens the replay ring can no longer rebuild. */
   mirror: ScreenMirror;
 }
@@ -69,6 +71,7 @@ export interface BackendOptions {
   closeTimeoutMs?: number;
   platform?: NodeJS.Platform;
   prepareSupervisor?: (profile: TerminalProfileDto, cwd: string, marker: string) => Promise<SupervisorLaunch>;
+  elevatedFactory?: (launch: ElevatedLaunch) => ElevatedPty;
   /** How long a failed Darwin CLOSE waits for the supervisor's own trusted exit (it may exit before replying). */
   supervisorExitGraceMs?: number;
 }
@@ -81,6 +84,7 @@ export class PtyBackend {
   private readonly platform: NodeJS.Platform;
   private profiles: TerminalProfilesDto = { profiles: [], defaultProfileId: null, lifetime: 'app-owned', shellSurvival: false };
   private readonly entries = new Map<string, Entry>();
+  private readonly startups = new Map<string, { tabId: string; generation: string; controllers: Set<AbortController> }>();
   private readonly listeners = new Set<(event: TerminalEvent) => void>();
   private readonly titleListeners = new Set<(event: TerminalTitleEvent) => void>();
   private disposed = false;
@@ -133,6 +137,39 @@ export class PtyBackend {
   private emit(event: TerminalEvent): void { for (const listener of this.listeners) { try { listener(event); } catch { /* Views cannot break PTY ownership. */ } } }
   async launch(input: TerminalLaunch): Promise<Result<OwnedTerminal>> {
     if (!z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, profileId: profileIdSchema, cwd: pathSchema, env: envVarsSchema.optional(), cliBin: pathSchema.optional() }).strict().safeParse(input).success) return failure('VALIDATION', 'Invalid embedded launch identity.');
+    const key = `${input.tabId}/${input.generation}`, controller = new AbortController();
+    const startup = this.startups.get(key) ?? { tabId: input.tabId, generation: input.generation, controllers: new Set<AbortController>() };
+    startup.controllers.add(controller); this.startups.set(key, startup);
+    try { return await this.launchOwned(input, controller.signal); }
+    finally { startup.controllers.delete(controller); if (!startup.controllers.size) this.startups.delete(key); }
+  }
+  /** Interrupt readiness before service mutation queues are drained. An exit or
+   * retained cleanup ownership still comes from the exact backend handle. */
+  async cancelStartup(input: { tabId: string; generation: string }): Promise<Result<{ closed: true }> | null> {
+    if (!requestSchemas.closeTab.safeParse(input).success) return failure('VALIDATION', 'Invalid startup cancellation.');
+    const startup = this.startups.get(`${input.tabId}/${input.generation}`);
+    if (!startup) return null;
+    for (const controller of startup.controllers) controller.abort();
+    const owned = this.entries.get(input.tabId);
+    if (owned?.generation === input.generation) return this.close(input);
+    // Directory validation/preflight may finish later, but its aborted launch
+    // must pass the cancellation check before it can acquire any PTY.
+    return success({ closed: true });
+  }
+  async cancelPendingStartups(): Promise<Result<{ closed: true }>[]> {
+    return Promise.all([...this.startups.values()].map(startup => this.cancelStartup({ tabId: startup.tabId, generation: startup.generation }).then(result => result ?? success({ closed: true }))));
+  }
+  private async startupWait<T>(signal: AbortSignal, work: Promise<T>): Promise<T> {
+    if (signal.aborted) { void work.catch(() => {}); throw new Error('Terminal startup was cancelled.'); }
+    let cancel!: () => void;
+    try {
+      return await Promise.race([work, new Promise<never>((_, reject) => {
+        cancel = () => reject(new Error('Terminal startup was cancelled.'));
+        signal.addEventListener('abort', cancel, { once: true });
+      })]);
+    } finally { signal.removeEventListener('abort', cancel); }
+  }
+  private async launchOwned(input: TerminalLaunch, signal: AbortSignal): Promise<Result<OwnedTerminal>> {
     if (this.disposed || !this.initialized || !this.factory) return failure('NATIVE_UNAVAILABLE', 'Embedded terminal backend is not ready.');
     const prior = this.entries.get(input.tabId);
     if (prior?.generation === input.generation) return success(this.get(input.tabId)!);
@@ -140,9 +177,11 @@ export class PtyBackend {
     if (this.live().length >= 64) return failure('VALIDATION', 'The live embedded terminal limit is 64.');
     const profile = this.profiles.profiles.find(p => p.id === input.profileId && p.available);
     if (!profile) return failure('DEPENDENCY_MISSING', 'Choose a discovered terminal profile.');
+    const administrator = profile.id === ADMIN_POWERSHELL_PROFILE && profile.elevation === 'administrator';
+    if ((profile.elevation || profile.id === ADMIN_POWERSHELL_PROFILE) && (!administrator || this.platform !== 'win32' || profile.environment !== 'local')) return failure('UNSUPPORTED', 'Administrator PowerShell requires the Windows ConPTY helper.');
     let cwd: string;
-    try { cwd = await (this.options.validateCwd ?? validateProfileCwd)(profile, input.cwd); }
-    catch { return failure('VALIDATION', 'Choose an accessible directory in the selected shell environment.'); }
+    try { cwd = await this.startupWait(signal, (this.options.validateCwd ?? validateProfileCwd)(profile, input.cwd)); }
+    catch { return signal.aborted ? failure('LAUNCH_FAILED', 'Terminal startup was cancelled.') : failure('VALIDATION', 'Choose an accessible directory in the selected shell environment.'); }
     if (this.disposed) return failure('NATIVE_UNAVAILABLE', 'Terminal backend is shutting down.');
     // A second launch may have won while directory validation was awaiting the OS.
     let current = this.entries.get(input.tabId);
@@ -158,13 +197,14 @@ export class PtyBackend {
     // Native preflight/private endpoint preparation awaited again. Recheck all
     // ownership and capacity guards before spawning, not the earlier snapshot.
     current = this.entries.get(input.tabId);
-    if (this.disposed || current?.generation === input.generation || current?.state === 'open' || current?.cleanupPending || this.live().length >= 64) {
+    if (signal.aborted || this.disposed || current?.generation === input.generation || current?.state === 'open' || current?.cleanupPending || this.live().length >= 64) {
       await supervisor?.control.disposeConfirmed();
       if (this.disposed) return failure('NATIVE_UNAVAILABLE', 'Terminal backend is shutting down.');
+      if (signal.aborted) return failure('LAUNCH_FAILED', 'Terminal startup was cancelled.');
       if (current?.generation === input.generation) return success(this.get(input.tabId)!);
       return failure('VALIDATION', 'Terminal ownership changed or the live terminal limit was reached during preparation.');
     }
-    const command = supervisor ?? spawnArguments(profile, cwd, marker);
+    const command = administrator ? { file: profile.executable, args: [], cwd } : supervisor ?? spawnArguments(profile, cwd, marker);
     const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin, marker });
     if (supervisor) Object.assign(env, supervisor.env);
     // Unix node-pty writes options.name back to env.TERM, so use the session value.
@@ -176,12 +216,16 @@ export class PtyBackend {
       ? { ...command, file: '/usr/bin/env', args: ['TERM=', command.file, ...command.args] }
       : command;
     let pty: PtyProcess;
+    let elevated: ElevatedPty | undefined;
     const bornBefore = (BigInt(Date.now()) + 11644473600000n) * 10000n;
-    try { pty = this.factory(spawn.file, spawn.args, { name: termName, cols: 80, rows: 24, cwd: spawn.cwd, env, useConpty: true, useConptyDll: true }); }
+    try {
+      if (administrator) pty = elevated = (this.options.elevatedFactory ?? launchElevatedPty)({ cwd, env, cols: 80, rows: 24 });
+      else pty = this.factory(spawn.file, spawn.args, { name: termName, cols: 80, rows: 24, cwd: spawn.cwd, env, useConpty: true, useConptyDll: true });
+    }
     catch { await supervisor?.control.disposeConfirmed(); return failure('LAUNCH_FAILED', 'The selected interactive shell could not start.'); }
     const bornAfter = (BigInt(Date.now()) + 11644473600000n) * 10000n + 9999n;
     if (current) { current.activity.stop(); this.replayBytes -= current.bytes; current.handles.forEach(h => h.dispose()); current.mirror.dispose(); }
-    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), cwd, state: 'open', exitCode: null, cols: 80, rows: 24, pty, root: { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: false, cleanupPending: profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control, mirror: new ScreenMirror(80, 24, title => {
+    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), cwd, state: 'open', exitCode: null, cols: 80, rows: 24, pty, root: { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' && !administrator ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: false, cleanupPending: administrator || profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control, elevated, mirror: new ScreenMirror(80, 24, title => {
       if (this.disposed || this.entries.get(e.tabId) !== e) return;
       const event = { tabId: e.tabId, generation: e.generation, title };
       for (const listener of this.titleListeners) { try { listener(event); } catch { /* Title observers cannot break PTY ownership. */ } }
@@ -204,8 +248,16 @@ export class PtyBackend {
       } catch { return failure('LAUNCH_FAILED', 'Darwin shell startup could not be authenticated. Its supervisor remains owned for explicit close/retry.'); }
     }
     if (!this.options.factory && this.platform === 'linux' && profile.environment === 'local') e.identity = await captureLinuxRoot(e.root);
-    try { await pty.whenReady?.(); e.ready = true; }
-    catch { return failure('NATIVE_UNAVAILABLE', 'The PTY input channel cannot safely report outstanding writes. Its owned handle was retained.'); }
+    try {
+      await this.startupWait(signal, pty.whenReady?.() ?? Promise.resolve());
+      if (elevated) {
+        if (!elevated.birth || !/^\d{1,20}$/.test(elevated.birth) || !Number.isSafeInteger(elevated.pid) || elevated.pid <= 0) throw new Error('Invalid authenticated shell identity.');
+        e.root.pid = elevated.pid; e.root.authenticatedBirth = `windows:${elevated.birth}`;
+      }
+      if (signal.aborted || e.closing || this.disposed) return failure('LAUNCH_FAILED', 'Terminal startup was cancelled during cleanup.');
+      e.ready = true;
+    }
+    catch (error) { return failure(elevated ? 'LAUNCH_FAILED' : 'NATIVE_UNAVAILABLE', elevated ? (error instanceof Error ? error.message : 'Administrator PowerShell could not start.') : 'The PTY input channel cannot safely report outstanding writes. Its owned handle was retained.', true); }
     return success(this.get(e.tabId)!);
   }
   private output(e: Entry, data: string): void {
@@ -239,6 +291,7 @@ export class PtyBackend {
     e.activity.stop();
     // Trusted native supervisor normal exit occurs only after verified cleanup or before any child launch.
     // External SIGKILL/crash is not that contract and keeps cleanup ownership unconfirmed.
+    if (e.elevated && (signal === null || signal === 0)) e.cleanupPending = false;
     if (e.supervisor && (signal === null || signal === 0)) { e.cleanupPending = false; void e.supervisor.disposeConfirmed(); }
     this.emit({ type: 'exit', tabId: e.tabId, generation: e.generation, exitCode, signal, lastSequence: e.sequence });
     if (e.cleanupPending && !e.closing) void this.close({ tabId: e.tabId, generation: e.generation }).then(result => { if (!result.ok) this.emit({ type: 'error', tabId: e.tabId, generation: e.generation, error: result.error }); });
@@ -329,7 +382,11 @@ export class PtyBackend {
     return e.closing;
   }
   private async closeOwned(e: Entry): Promise<Result<{ closed: true }>> {
-    if (e.supervisor) {
+    if (e.elevated) {
+      try { await e.elevated.closeConfirmed(); e.cleanupPending = false; }
+      catch { return failure('MONITOR_UNAVAILABLE', 'The elevated helper did not confirm job cleanup. Ownership is retained; no PID-only kill or external window fallback was attempted.', true); }
+    }
+    else if (e.supervisor) {
       try { await e.supervisor.close(); e.cleanupPending = false; }
       catch (error) {
         // Natural verified cleanup can unlink the endpoint while CLOSE is in
@@ -363,6 +420,7 @@ export class PtyBackend {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    await this.cancelPendingStartups();
     const results = await Promise.all(this.live().map(e => this.close({ tabId: e.tabId, generation: e.generation })));
     if (results.some(r => !r.ok)) { this.disposed = false; throw new Error('Owned terminal termination was not confirmed.'); }
     for (const e of this.entries.values()) { e.activity.stop(); e.handles.forEach(h => h.dispose()); e.mirror.dispose(); }

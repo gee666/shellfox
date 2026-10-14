@@ -33,4 +33,4 @@ export async function runCli(argv: string[]): Promise<number> {
   }catch(e){terminal.restore();if(e instanceof Cancelled)return 130;process.stdout.write('  '+s.red(escapeTerminal((e as Error).message))+'\n');return e instanceof SshConnectionError?255:1;}
   finally{terminal.restore();}
 }
-if(require.main===module)void runCli(process.argv.slice(2)).then(code=>{process.exitCode=code;}).catch(e=>{console.error('  '+escapeTerminal((e as Error).message));process.exitCode=1;});
+// The platform/shellfox-cli-entry module owns the bundled CLI bootstrap.

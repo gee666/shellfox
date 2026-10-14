@@ -73,7 +73,7 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
         : <div className="terminal-panel" data-terminal-session-id={visible && !legacy && selected.lifecycle !== 'launching' ? session.id : undefined} role="tabpanel" id={`terminal-panel-${selected.id}`} aria-labelledby={`terminal-tab-${selected.id}`}>
           {selected.lifecycle === 'launching' ? <TerminalLoading /> : !legacy ? <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible={visible} /> : <TerminalPlaceholder />}
         </div>}
-    {profileMenu && <ContextMenu {...profileMenu} onClose={() => setProfileMenu(null)}>{profiles.map(profile => <button role="menuitem" key={profile.id} disabled={!profile.available || action.pending} title={profile.unavailableReason ?? profile.label} onClick={() => void add(profile.id)}>{profile.label}</button>)}</ContextMenu>}
+    {profileMenu && <ContextMenu {...profileMenu} onClose={() => setProfileMenu(null)}>{profiles.map(profile => <button role="menuitem" key={profile.id} disabled={!profile.available || action.pending} title={profile.unavailableReason ?? (profile.elevation ? 'Prompts for Windows administrator approval for this tab only.' : profile.label)} onClick={() => void add(profile.id)}>{profile.label}</button>)}</ContextMenu>}
     {closing && <div className="inline-confirm close-confirm" role="dialog" aria-label={`Close terminal ${closing.title}?`} onKeyDown={event => { if (event.key === 'Escape') setClosing(null); }}><p>An agent is running in this tab. Close?</p><div><button autoFocus disabled={action.pending} onClick={() => void close(closing)}>Close</button><button onClick={() => setClosing(null)}>Cancel</button></div></div>}
   </div>;
 });

@@ -55,7 +55,7 @@ module.exports = {
       // sealing the app. Never add/chmod native resources after this step.
       osxSign: macSigning,
     } : {}),
-    ...(platform === 'win32' ? { extraResource: [path.join(__dirname, 'tmp/build/cli')] } : {}),
+    ...(platform === 'win32' ? { extraResource: [path.join(__dirname, 'tmp/build/cli'), path.join(__dirname, 'tmp/package-resources/elevated-terminal')] } : {}),
     prune: false, // scripts/forge.mjs stages only the external native runtime.
     // Entire node-pty is unpacked, including JS child-process agents, DLLs,
     // OpenConsole.exe, winpty-agent.exe and the macOS spawn-helper.

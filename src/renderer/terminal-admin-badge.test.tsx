@@ -1,0 +1,30 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+import './terminal-test-mocks';
+import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { ADMIN_POWERSHELL_PROFILE } from '../shared/contracts';
+import { TerminalTabs } from './TerminalTabs';
+import { createManagerClient } from './store';
+import { mockApi, session } from './test-fixtures';
+afterEach(cleanup);
+it('keeps a compact administrator badge through mutable OSC titles, user renames and editing', () => {
+  const item = session();
+  const admin = { ...item.tabs[0], profileId: ADMIN_POWERSHELL_PROFILE, title: 'Build' };
+  const ordinary = { ...session(2).tabs[0], sessionId: item.id, title: 'Administrator-looking ordinary title' };
+  const f = mockApi(), client = createManagerClient(f.api);
+  const props = { session: { ...item, tabs: [admin, ordinary] }, tabs: [admin, ordinary], selectedId: admin.id, client, busy: {}, disabled: false, editable: true, canClose: () => true, onSelect: vi.fn(), onClose: vi.fn() };
+  const view = render(<TerminalTabs {...props} />);
+  const badge = () => screen.getByRole('img', { name: 'Administrator Windows PowerShell' });
+  expect(badge()).toHaveTextContent('Admin'); expect(badge()).toBeVisible();
+  expect(screen.getAllByRole('img', { name: 'Administrator Windows PowerShell' })).toHaveLength(1);
+  const changed = { ...admin, title: 'OSC changed it to a harmless name' };
+  view.rerender(<TerminalTabs {...props} tabs={[changed, ordinary]} />);
+  expect(badge()).toBeVisible(); expect(screen.getByRole('tab', { name: /OSC changed it.*Administrator Windows PowerShell/ })).toBeVisible();
+  fireEvent.doubleClick(screen.getByRole('tab', { name: /OSC changed it/ }));
+  expect(screen.getByRole('textbox', { name: 'Terminal tab name' })).toBeVisible(); expect(badge()).toBeVisible();
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Terminal tab name' }), { key: 'Escape' });
+  view.rerender(<TerminalTabs {...props} tabs={[{ ...changed, title: 'User renamed tab' }, ordinary]} />);
+  expect(badge()).toBeVisible(); expect(screen.getAllByRole('img', { name: 'Administrator Windows PowerShell' })).toHaveLength(1);
+  expect(f.api.addTab).not.toHaveBeenCalled(); expect(f.api.closeTab).not.toHaveBeenCalled();
+});

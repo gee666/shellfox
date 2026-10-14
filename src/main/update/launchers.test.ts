@@ -26,17 +26,20 @@ describe('launchers route `update`', () => {
       const help = await new Promise<string>((resolve, reject) => execFile('/bin/sh', [launcher, 'update', '--help'], { timeout: 5000, env }, (error, out) => error ? reject(error) : resolve(out)));
       expect(help).toContain('shellfox update [--check]');
       expect(await readFile(args, 'utf8')).toBe([helper, 'update', '--help', ''].join('\n'));
-      const bad = await new Promise<number>(resolve => execFile('/bin/sh', [launcher, 'update', '--nope'], { timeout: 5000 }, error => resolve((error as { code?: number } | null)?.code ?? 0)));
+      const bad = await new Promise<number>(resolve => execFile('/bin/sh', [launcher, 'update', '--nope'], { timeout: 5000, env }, error => resolve((error as { code?: number } | null)?.code ?? 0)));
       expect(bad).toBe(2);
       await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     } finally { await rm(root, { recursive: true, force: true }); }
   });
   it('routes `update` in the Windows cmd and POSIX shims to the PowerShell updater', () => {
     const shims = shellfoxShims({ executable: 'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe', updateScript: updatePs1 });
-    const updateAt = shims.cmd.indexOf('if /i "%~1"=="update" goto update'), startAt = shims.cmd.indexOf('if /i "%~1"=="start" goto start_session');
-    expect(updateAt).toBeGreaterThan(0); expect(startAt).toBeGreaterThan(0); expect(updateAt).toBeLessThan(startAt);
-    expect(shims.cmd).toContain('powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0shellfox-update.ps1" -Executable "C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe" %shellfox_update_args%');
-    expect(shims.cmd).toContain('exit /b %errorlevel%'); expect(shims.cmd).toContain('cli\\main\\cli.cjs\" --help');
+    // cmd forwards argv to the bundled helper, which spawns the updater without cmd /c.
+    const config = JSON.parse(Buffer.from(/SHELLFOX_CLI_LAUNCH=([^"\r\n]+)/.exec(shims.cmd)![1], 'base64').toString());
+    expect(config).toEqual({ executable: 'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe', args: [], env: {} });
+    expect(shims.cmd).toContain('set "SHELLFOX_CLI_UPDATE=%~dp0shellfox-update.ps1"');
+    expect(shims.cmd).toContain('cli\\main\\cli.cjs" %*');
+    expect(shims.cmd).toContain('exit /b %errorlevel%');
+    expect(shims.cmd).not.toContain('%~1'); expect(shims.cmd).not.toContain('%~2');
     expect(shims.posix).toContain('if [ "$1" = update ]; then');
     expect(shims.posix).toContain('-File "$script" -Executable \'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe\'');
     expect(shims.posix).toContain('cygpath -w "$script"'); expect(shims.posix).toContain('wslpath -w "$script"');

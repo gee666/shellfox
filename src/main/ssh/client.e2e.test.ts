@@ -6,16 +6,17 @@ import { promisify } from 'node:util';
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 import { helpText, sshHelp } from './presentation';
+import { CUSTOM_COMMAND_HELP } from '../platform/shellfox-cli-dispatch';
 const exec=promisify(execFile);
 it('connects through real shims in a PTY, forwards controls/resize, authenticates, checks TOFU and propagates exit',async()=>{
   await mkdir('tmp',{recursive:true});const directory=await mkdtemp(path.resolve('tmp/ssh-e2e-'));
   try {
     const helper=path.join(directory,'cli/main/cli.cjs'),driver=path.join(directory,'driver.cjs');
     const options={bundle:true,platform:'node' as const,format:'cjs' as const,target:'node24',external:['node-pty','cpu-features','*.node'],loader:{'.sh':'text' as const,'.ps1':'text' as const}};
-    await build({...options,entryPoints:['src/main/ssh/cli.ts'],outfile:helper,define:{__SHELLFOX_VERSION__:JSON.stringify('test')}});
+    await build({...options,entryPoints:['src/main/platform/shellfox-cli-entry.ts'],outfile:helper,define:{__SHELLFOX_VERSION__:JSON.stringify('test')}});
     await mkdir(path.join(directory,'cli/util'),{recursive:true});await copyFile('node_modules/ssh2/util/pagent.exe',path.join(directory,'cli/util/pagent.exe'));
     if(process.platform==='win32'){await mkdir(path.join(directory,'cli/cli-runtime'));await copyFile(process.execPath,path.join(directory,'cli/cli-runtime/node.exe'));}
-    const help=await exec(process.execPath,[helper,'--help'],{timeout:5000});expect(help.stdout).toBe(helpText('test',false,process.platform!=='win32'));
+    const help=await exec(process.execPath,[helper,'--help'],{timeout:5000});expect(help.stdout).toBe(helpText('test',false,process.platform!=='win32')+'\n'+CUSTOM_COMMAND_HELP);
     const sshUsage=await exec(process.execPath,[helper,'ssh','--help'],{timeout:5000});expect(sshUsage.stdout).toBe(sshHelp(false));
     await expect(exec(process.execPath,[helper,'ssh','--bad'],{timeout:5000})).rejects.toMatchObject({code:2,stdout:'  invalid ssh arguments\n  run shellfox --help\n'});
     await expect(exec(process.execPath,[helper,'--user-data',directory,'ssh'],{timeout:5000})).rejects.toMatchObject({code:2,stdout:expect.stringContaining('no ssh connections yet')});

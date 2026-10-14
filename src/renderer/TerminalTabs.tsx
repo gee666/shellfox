@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import type { SessionDto, TabDto } from '../shared/contracts';
-import { failure } from '../shared/contracts';
+import { ADMIN_POWERSHELL_PROFILE, failure } from '../shared/contracts';
 import { titleSchema } from '../shared/schemas';
 import type { ManagerClient } from './store';
 import { ContextMenu, Icon, StatusDot, tabDot, useAction } from './components';
@@ -11,14 +11,15 @@ import { TAB_WINDOW_WIDTH, useTerminalTabWindow } from './terminal-tab-window';
 
 // Primitive display props survive fresh metadata DTOs and busy-map updates.
 // Events are delegated to the strip, so memoized rows never hold stale actions.
-const TerminalTabItem = memo(function TerminalTabItem({ id, title, index, count, active, closeable, locked, editable, editing, dropTarget, dotKind, dotTitle, windowed, editor }: {
+const TerminalTabItem = memo(function TerminalTabItem({ id, title, index, count, active, closeable, locked, editable, editing, dropTarget, dotKind, dotTitle, windowed, editor, administrator }: {
   id: string; title: string; index: number; count: number; active: boolean; closeable: boolean;
   locked: boolean; editable: boolean; editing: boolean; dropTarget: boolean;
-  dotKind: DotState['kind']; dotTitle: string; windowed: boolean; editor: ReactNode;
+  dotKind: DotState['kind']; dotTitle: string; windowed: boolean; editor: ReactNode; administrator: boolean;
 }) {
   return <div data-tab-id={id} data-tab-index={index} className={`terminal-tab-item${active ? ' active' : ''}${dropTarget ? ' tab-drop-target' : ''}`}
     style={windowed ? { flexBasis: TAB_WINDOW_WIDTH, width: TAB_WINDOW_WIDTH, minWidth: TAB_WINDOW_WIDTH, maxWidth: TAB_WINDOW_WIDTH } : undefined}>
-    <button role="tab" id={`terminal-tab-${id}`} aria-selected={active} aria-controls={`terminal-panel-${id}`} aria-posinset={index + 1} aria-setsize={count} tabIndex={active ? 0 : -1}
+    {administrator && <span className="terminal-admin-badge" role="img" aria-label="Administrator Windows PowerShell" title="Administrator Windows PowerShell">Admin</span>}
+    <button role="tab" aria-label={administrator ? `${title}, Administrator Windows PowerShell` : undefined} id={`terminal-tab-${id}`} aria-selected={active} aria-controls={`terminal-panel-${id}`} aria-posinset={index + 1} aria-setsize={count} tabIndex={active ? 0 : -1}
       style={editor ? { display: 'none' } : undefined} draggable={editable && !locked && !editing}
       title={`${title}. Double-click or F2 to rename. Drag or Alt+Arrow to reorder.`}><StatusDot state={{ kind: dotKind, title: dotTitle }} /><span>{title}</span></button>
     {editor}
@@ -171,7 +172,7 @@ export function TerminalTabs({ session, tabs, selectedId, client, busy, disabled
       onFocus={event => event.currentTarget.select()} disabled={action.pending} onChange={event => setEditing({ ...editing, title: event.target.value })}
       onBlur={() => void save()} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel(); } else if (event.key === 'Enter') { event.preventDefault(); void save(); } }} /> : null;
     children.push(<TerminalTabItem key={tab.id} id={tab.id} title={tab.title} index={index} count={tabs.length} active={selectedId === tab.id} closeable={canClose(tab)} locked={locked} editable={editable}
-      editing={!!editing} dropTarget={dropTarget === tab.id} dotKind={dot.kind} dotTitle={dot.title} windowed={window.windowed} editor={editor} />);
+      administrator={tab.profileId === ADMIN_POWERSHELL_PROFILE} editing={!!editing} dropTarget={dropTarget === tab.id} dotKind={dot.kind} dotTitle={dot.title} windowed={window.windowed} editor={editor} />);
     cursor = index + 1;
   }
   gap(tabs.length);

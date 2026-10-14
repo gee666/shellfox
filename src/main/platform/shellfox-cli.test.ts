@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { build } from 'esbuild';
 import { WindowsCliIntegration, shellfoxShims } from './shellfox-cli';
 import * as wslCli from './wsl-cli';
 import * as explorer from './explorer';
@@ -11,9 +12,10 @@ const exec = promisify(execFile);
 const ps = async (script: string) => (await exec('powershell.exe', ['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')], { timeout: 10000, maxBuffer: 65536 })).stdout;
 it('generates immediate-return cmd and quoted POSIX/WSL launchers with usage and caller-directory resolution', () => {
   const scripts = shellfoxShims({ executable: 'C:\\Program Files\\Shellfox.exe', appPath: 'P:\\project space' });
-  expect(scripts.cmd).toContain('start "" /D "%CD%" "C:\\Program Files\\Shellfox.exe" "P:\\project space" start');
+  const config = JSON.parse(Buffer.from(/SHELLFOX_CLI_LAUNCH=([^"\r\n]+)/.exec(scripts.cmd)![1], 'base64').toString());
+  expect(config).toEqual({ executable: 'C:\\Program Files\\Shellfox.exe', args: ['P:\\project space'], env: {} });
   expect(scripts.cmd).toContain('setlocal DisableDelayedExpansion'); expect(scripts.cmd).not.toContain('/WAIT');
-  expect(scripts.cmd).toContain('shellfox_folder=%~f2');
+  expect(scripts.cmd).not.toContain('%~1'); expect(scripts.cmd).not.toContain('%~2');
   expect(scripts.posix).toContain('wslpath -w "$(realpath "$folder")"');
   expect(scripts.posix).toContain("export MSYS_ARG_CONV_EXCL='*'");
   expect(scripts.posix).toContain('>/dev/null 2>&1 &'); // Git Bash stays detached.
@@ -25,11 +27,11 @@ it('generates immediate-return cmd and quoted POSIX/WSL launchers with usage and
 });
 it('routes every non-start command to the helper and forwards start aliases to the GUI', () => {
  const scripts=shellfoxShims({executable:'C:\\app.exe',userData:'C:\\test data'});
- for(const alias of ['start','add','new','create']) expect(scripts.cmd).toContain(`if /i "%~1"=="${alias}" goto start_session`);
- expect(scripts.cmd).toContain('goto helper\r\n:start_session');
+ expect(scripts.cmd).toContain('SHELLFOX_CLI_LAUNCH=');
+ expect(scripts.cmd).not.toContain('goto');
  for(const alias of ['add','new','create']) expect(scripts.posix).toContain(`[ "$1" != ${alias} ]`);
  expect(scripts.posix).toContain('[ "${2:-}" = -h ]');
- expect(scripts.cmd).toContain('if /i "%~2"=="-h" goto helper');
+ expect(scripts.cmd).not.toContain('if /i');
  expect(scripts.posix).toContain('SHELLFOX_TERMINAL_MARKER');
  expect(scripts.cmd).toContain('"--user-data" "C:\\test data" %*');
 });
@@ -55,14 +57,22 @@ it.skipIf(process.platform !== 'win32')('runs all start aliases through the GUI 
   const gui=path.join(root,'gui.cjs'), shim=path.join(root,'shellfox.cmd'), log=path.join(root,'gui-args.json');
   const folder=path.join(root,'project space'); await mkdir(folder);
   await writeFile(gui,'require("node:fs").writeFileSync(process.env.SHELLFOX_TEST_ARGS,JSON.stringify(process.argv.slice(2)));');
-  await writeFile(shim,shellfoxShims({executable:process.execPath,appPath:gui}).cmd);
+  const helper = path.join(root, 'main', 'cli.cjs');
+  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
+  const runtime = path.win32.join(path.dirname(helper), '../cli-runtime/node.exe');
+  await writeFile(shim,shellfoxShims({executable:process.execPath,appPath:gui,cliHelper:helper,userData:path.join(root,'data')}).cmd.replaceAll(runtime,process.execPath));
   for(const alias of ['start','add','new','create']) {
    await rm(log,{force:true});
    const result=await exec('cmd.exe',['/d','/c',shim,alias,folder],{cwd:root,timeout:5000,env:{...process.env,SHELLFOX_TEST_ARGS:log}});
    expect(result.stdout).toContain('Shellfox: started session');
-   await vi.waitFor(async()=>expect(JSON.parse(await readFile(log,'utf8'))).toEqual(['start',folder+'\\.']),{timeout:3000});
+   await vi.waitFor(async()=>expect(JSON.parse(await readFile(log,'utf8'))).toEqual(['start',folder]),{timeout:3000});
   }
- } finally { await rm(root,{recursive:true,force:true}); }
+  await mkdir(path.join(root, 'data'), { recursive: true });
+  await writeFile(path.join(root, 'data', 'cli-commands.json'), JSON.stringify({ version: 1, commands: [{ name: 'start', path: path.join(root, 'never-run.sh') }] }));
+  const collision = await exec('cmd.exe', ['/d', '/c', shim, 'start', folder], { cwd: root, timeout: 5000, env: { ...process.env, SHELLFOX_TEST_ARGS: log } });
+  expect(collision.stderr).toBe('');
+  expect(collision.stdout).toContain('started session');
+ } finally { await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100}); }
 });
 it.skipIf(process.platform !== 'win32')('writes owned shims, reflects files+PATH, preserves expandable PATH, deduplicates and removes only its entry', async () => {
   await mkdir(path.resolve('tmp'), { recursive: true });
@@ -78,7 +88,7 @@ it.skipIf(process.platform !== 'win32')('writes owned shims, reflects files+PATH
     expect(state.kind).toBe('ExpandString'); expect(state.path).toBe('%USERPROFILE%\\bin;;C:\\keep;;' + binDir);
     await writeFile(path.join(binDir,'shellfox.cmd'), 'stale'); expect(await cli.get()).toMatchObject({ ok: true, value: { installed: false } });
     expect(await cli.set(true)).toMatchObject({ ok: true, value: { installed: true } });
-    expect((await readFile(path.join(binDir,'shellfox.cmd'),'utf8')).includes('Shellfox: started')).toBe(true);
+    expect((await readFile(path.join(binDir,'shellfox.cmd'),'utf8')).includes('SHELLFOX_CLI_LAUNCH=')).toBe(true);
     expect(await cli.set(false)).toMatchObject({ ok: true, value: { installed: false } });
     expect((await ps(`$k=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('${key}'); try { $k.GetValue('Path','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } finally { $k.Dispose() }`)).trim()).toBe('%USERPROFILE%\\bin;;C:\\keep;');
   } finally {

@@ -1,7 +1,7 @@
 {
   "name": "shellfox",
   "productName": "Shellfox",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Shellfox — terminal manager",
   "author": "Shellfox contributors",
   "license": "MIT",
@@ -28,6 +28,7 @@
     "test:pty": "node scripts/pty-test.mjs",
     "build:terminal-native": "node scripts/terminal-native.mjs",
     "test:terminal-native": "node scripts/terminal-native-preflight.mjs",
+    "test:administrator": "node scripts/elevated-terminal-test.mjs",
     "test:packaging": "node --test scripts/packaging.test.mjs"
   },
   "dependencies": {

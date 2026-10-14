@@ -79,6 +79,14 @@ describe('root executable continuity and launch attestation', () => {
     expect(h.tracker.resolveIdentity(root({ authenticatedBirth: 'darwin:1711111111:000123' }))).toBeNull();
   });
 
+  it('uses Windows helper birth at CIM precision without requiring manager ancestry', async () => {
+    const watched = root({ authenticatedBirth: 'windows:133000000000000009', shellExecutable: 'C:\\Windows\\powershell.exe' });
+    const h = harness([snapshot([shell(10, { executable: 'C:\\Windows\\powershell.exe', birth: '133000000000000000', birthOrder: '133000000000000000', marker: null })], { rootLaunchEvidenceRequired: true })], [watched]);
+    await h.tracker.poll(); expect(h.last()[0]).toMatchObject({ root: 'alive' });
+    const wrong = harness([snapshot([shell(10, { executable: 'C:\\Windows\\powershell.exe', birth: '133000000000000100', birthOrder: '133000000000000100' })])], [watched]);
+    await wrong.tracker.poll(); expect(wrong.last()[0]).toMatchObject({ root: 'unavailable', health: 'unknown' });
+  });
+
   it('does not waive the marker requirement without authenticated native birth', async () => {
     const h = harness([snapshot([shell(10, { birth: 'darwin:1711111111:000123', marker: null })], { rootMarkerRequired: true })]);
     await h.tracker.poll();
