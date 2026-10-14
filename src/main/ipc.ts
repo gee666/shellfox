@@ -57,7 +57,9 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
           result = success(selection.canceled || !selection.filePaths[0] ? null : { path: selection.filePaths[0] }); break;
         }
         case 'getSnapshot':
-          if (embedded) await embedded.refreshIntegrations();
+          // Registry/PATH status is metadata, not terminal readiness. Return
+          // runtime state now; changed metadata publishes its own notification.
+          if (embedded) void embedded.refreshIntegrations().catch(() => {});
           result = service.getSnapshot();
           // The renderer subscribes before its first snapshot request. Load completion alone is not enough.
           if (!announcedReady) { announcedReady = true; rendererReady?.(); }

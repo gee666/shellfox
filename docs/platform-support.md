@@ -50,8 +50,8 @@ Stored bundled launcher rules migrate to the unified switches. An existing per-a
 - Add tab owns another independent PTY, not an HWND-routed append.
 - Session/Settings switches retain shells while the app runs. Closed/stale generations cannot receive input.
 - Native quit confirmation is independent of renderer confirmation. Cancel keeps shells running; failed cleanup keeps the manager open.
-- Settlement is history bookkeeping, never process termination.
-- Legacy external-window records remain history metadata; the runtime does not adopt, watch or kill them.
+- Archiving closes owned terminals before retaining the session metadata. It removes all session tabs and launch operations.
+- Legacy external sessions remain read-only session history without tab/root records; the runtime does not adopt, watch or kill their processes. See [database retention](database-retention.md).
 - Interactive shell exit status is not arbitrary command-status detection.
 - Inaccessible tracking evidence stays unknown. Very short-lived, detached, elevated, remote/container or multiplexer activity is not guaranteed.
 

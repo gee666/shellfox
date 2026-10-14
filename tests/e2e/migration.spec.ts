@@ -20,13 +20,13 @@ test('failed v0 migration rolls back partial DDL; future schema is refused witho
       const tables = reopened.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((r: any) => r.name);
       const sentinel = reopened.prepare('SELECT sentinel FROM tabs').get().sentinel;
       reopened.close();
-      const future = new Database(filenames[1]); future.pragma('user_version=4'); future.close();
+      const future = new Database(filenames[1]); future.pragma('user_version=999'); future.close();
       let futureRejected = false;
       try { new Repository(filenames[1]); } catch { futureRejected = true; }
       const unchanged = new Database(filenames[1]);
       const futureVersion = unchanged.pragma('user_version', { simple: true }); unchanged.close();
       return { migrationRejected, version, tables, sentinel, futureRejected, futureVersion };
     }, [path.join(dir, 'collision.sqlite3'), path.join(dir, 'future.sqlite3')]);
-    expect(result).toEqual({ migrationRejected: true, version: 0, tables: ['tabs'], sentinel: 'preserved', futureRejected: true, futureVersion: 4 });
+    expect(result).toEqual({ migrationRejected: true, version: 0, tables: ['tabs'], sentinel: 'preserved', futureRejected: true, futureVersion: 999 });
   } finally { await app.close(); }
 });

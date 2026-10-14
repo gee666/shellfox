@@ -65,7 +65,7 @@ describe('real embedded-service recovery', () => {
     expect(await shutdown.run(async () => handoff)).toBe(true); expect(f.service.ownedTerminalCount()).toBe(0); expect(f.tracker.dispose).toHaveBeenCalledTimes(1);
   });
   it('exit persistence failure during normal shutdown does not irreversibly dispose the backend', async () => {
-    const f = await serviceFixture(); const save = f.repo.saveTab.bind(f.repo), spy = vi.spyOn(f.repo, 'saveTab').mockImplementation(() => { throw new Error('disk full'); });
+    const f = await serviceFixture(); const save = f.repo.deleteTab.bind(f.repo), spy = vi.spyOn(f.repo, 'deleteTab').mockImplementation(() => { throw new Error('disk full'); });
     await expect(f.service.dispose()).rejects.toThrow('metadata remains unsaved');
     expect(f.tracker.dispose).not.toHaveBeenCalled(); spy.mockImplementation(save);
     expect(await f.create()).toMatchObject({ ok: true }); expect(f.service.ownedTerminalCount()).toBe(1);
@@ -92,10 +92,9 @@ describe('real embedded-service recovery', () => {
     expect(service.ownedTerminalCount()).toBe(1);
     const resume = await service.closeForUpdate();
     // Shutdown must finish while validation is still blocked. Ordinary create
-    // preserves its session metadata, but the tab/operation records the abort.
-    expect(await creating).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ lifecycle: 'closed', error: expect.objectContaining({ code: 'LAUNCH_FAILED' }) })] } });
-    expect(repo.tabs()[0]!.lifecycle).toBe('closed');
-    expect(repo.operation(repo.tabs()[0]!.operationId)?.state).toBe('failed');
+    // preserves session error metadata, but removes the aborted tab/operation.
+    expect(await creating).toMatchObject({ ok: true, value: { tabs: [], error: { code: 'LAUNCH_FAILED' } } });
+    expect(repo.tabs()).toEqual([]); expect(repo.operationMap.size).toBe(0);
     expect(service.ownedTerminalCount()).toBe(0); expect(f.factory).not.toHaveBeenCalled(); expect(f.processes).toHaveLength(0);
     validate(); await Promise.resolve(); await Promise.resolve();
     expect(f.factory).not.toHaveBeenCalled(); expect(backend.live()).toHaveLength(0);
@@ -114,7 +113,7 @@ describe('real embedded-service recovery', () => {
     await expect.poll(() => whenReady.mock.calls.length).toBe(1);
     expect(f.processes).toHaveLength(1); expect(service.ownedTerminalCount()).toBe(1);
     const resume = await service.closeForUpdate();
-    expect(await creating).toMatchObject({ ok: true, value: { tabs: [expect.objectContaining({ lifecycle: 'closed', error: expect.objectContaining({ code: 'NATIVE_UNAVAILABLE' }) })] } });
+    expect(await creating).toMatchObject({ ok: true, value: { tabs: [], error: { code: 'NATIVE_UNAVAILABLE' } } });
     expect(f.processes[0]!.kill).toHaveBeenCalledOnce(); expect(backend.live()).toHaveLength(0);
     ready(); await Promise.resolve(); await Promise.resolve();
     expect(f.processes).toHaveLength(1); expect(service.ownedTerminalCount()).toBe(0);

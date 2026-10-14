@@ -28,6 +28,19 @@ export class MemoryRepository implements RepositoryPort {
   tab(id: string) { const t = this.tabMap.get(id); return t && structuredClone(t); }
   saveSession(s: SessionRecord) { this.sessionMap.set(s.id, structuredClone(s)); }
   saveTab(t: TabRecord) { this.tabMap.set(t.id, structuredClone(t)); }
+  deleteTab(id: string) {
+    const operationId = this.tabMap.get(id)?.operationId;
+    for (const op of [...this.operationMap.values()]) if (op.tabId === id || op.id === operationId) this.operationMap.delete(op.id);
+    return this.tabMap.delete(id);
+  }
+  archiveSession(s: SessionRecord) {
+    if (!s.settledAt) throw new Error('An archive timestamp is required.');
+    this.transaction(() => {
+      this.saveSession({ ...s, target: null, binding: null });
+      for (const tab of this.tabs(s.id)) this.deleteTab(tab.id);
+      for (const op of [...this.operationMap.values()]) if (op.sessionId === s.id) this.operationMap.delete(op.id);
+    });
+  }
   deleteSession(id: string) {
     if (!this.sessionMap.get(id)?.settledAt) return false;
     for (const tab of this.tabs(id)) this.tabMap.delete(tab.id);

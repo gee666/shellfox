@@ -78,29 +78,30 @@ describe('terminal tab metadata', () => {
     const creating = service.createSession({ cwd: '/work', requestId: randomUUID() });
     await new Promise(resolve => setImmediate(resolve));
     const session = repository.sessions()[0], tab = repository.tabs(session.id)[0];
-    const closed = { ...tab, id: randomUUID(), ordinal: 1, lifecycle: 'closed' as const };
+    const closed = { ...tab, id: randomUUID(), ordinal: 1, lifecycle: 'launching' as const };
     repository.saveTab(closed);
     value(await service.renameTab({ sessionId: session.id, tabId: tab.id, title: 'Starting build' }));
     value(await service.reorderTabs({ sessionId: session.id, tabIds: [closed.id, tab.id] }));
     finish();
     const completed = value(await creating);
-    expect(completed.tabs.map(item => [item.id, item.title, item.ordinal, item.lifecycle])).toEqual([[closed.id, closed.title, 0, 'closed'], [tab.id, 'Starting build', 1, 'open']]);
+    expect(completed.tabs.map(item => [item.id, item.title, item.ordinal, item.lifecycle])).toEqual([[closed.id, closed.title, 0, 'launching'], [tab.id, 'Starting build', 1, 'open']]);
     await service.dispose();
   });
-  it('serializes concurrent changes, keeps closed tabs in the permutation and restores metadata after restart', async () => {
+  it('serializes metadata changes and rejects removed tabs after closure and restart', async () => {
     const f = await fixture(), [a, b] = f.session.tabs;
     await Promise.all([
       f.service.renameTab({ sessionId: f.session.id, tabId: a.id, title: 'Build' }),
       f.service.reorderTabs({ sessionId: f.session.id, tabIds: [b.id, a.id] }),
     ]);
     value(await f.service.closeTab({ tabId: a.id, generation: a.generation! }));
-    value(await f.service.reorderTabs({ sessionId: f.session.id, tabIds: [a.id, b.id] }));
-    value(await f.service.renameTab({ sessionId: f.session.id, tabId: a.id, title: 'Closed build' }));
+    expect(await f.service.reorderTabs({ sessionId: f.session.id, tabIds: [a.id, b.id] })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+    expect(await f.service.renameTab({ sessionId: f.session.id, tabId: a.id, title: 'Closed build' })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    value(await f.service.reorderTabs({ sessionId: f.session.id, tabIds: [b.id] }));
     await f.service.dispose();
     const backend = new PtyBackend(factoryFixture().options), restarted = new EmbeddedSessionService(f.repository, backend, () => ({ setWatch: () => {}, dispose: () => {} }));
     await restarted.initialize();
     const restored = value(restarted.getSnapshot()).sessions.find(session => session.id === f.session.id)!;
-    expect(restored.tabs.map(tab => [tab.id, tab.title, tab.ordinal, tab.lifecycle])).toEqual([[a.id, 'Closed build', 0, 'closed'], [b.id, b.title, 1, 'closed']]);
+    expect(restored.tabs).toEqual([]);
     expect(backend.live()).toHaveLength(0); await restarted.dispose();
   });
 });

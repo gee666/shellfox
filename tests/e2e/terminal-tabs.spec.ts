@@ -4,7 +4,7 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { launch, scratch, snapshot, value } from '../fixtures/electron';
 
-test('real terminal tab rename and drag order preserve shells and survive restart', async () => {
+test('real terminal tab rename and drag order preserve shells until closure removes their records', async () => {
   const dir = await scratch('terminal-tabs'), data = path.join(dir, 'data');
   let running = await launch(data, 'real');
   try {
@@ -33,7 +33,10 @@ test('real terminal tab rename and drag order preserve shells and survive restar
     for (const tab of saved.tabs) value(await running.page.evaluate(input => window.shellfox.closeTab!(input), { tabId: tab.id, generation: tab.generation! }));
     await running.app.close(); running = await launch(data, 'real');
     const restored = (await snapshot(running.page)).sessions.find(session => session.id === created.id)!;
-    expect(restored.tabs.map(tab => [tab.id, tab.title, tab.ordinal, tab.lifecycle])).toEqual([[c.id, c.title, 0, 'closed'], [a.id, a.title, 1, 'closed'], [b.id, 'Tests 雪', 2, 'closed']]);
+    expect(restored.tabs).toEqual([]);
+    expect(await running.app.evaluate(() => new Promise<any>((resolve, reject) => setImmediate(() => {
+      try { resolve((globalThis as any).__shellfoxTest.repository.db.prepare('SELECT count(*) n FROM terminal_metadata').get()); } catch (error) { reject(error); }
+    })))).toEqual({ n: 0 });
     expect(second.tabs).toHaveLength(2);
   } finally {
     await running.page.evaluate(async () => {

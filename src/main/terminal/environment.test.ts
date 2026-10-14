@@ -84,7 +84,7 @@ it('stores canonical env, changes only later tabs/retries, emits sessions and ne
     expect((f.factory as any).mock.calls[0][2].env.SHELLFOX_TEST).toBeUndefined();
     expect((f.factory as any).mock.calls[1][2].env.SHELLFOX_TEST).toBe('round3'); expect((f.factory as any).mock.calls[1][2].env.TERM).toBe('dumb');
     f.processes.forEach(p => p.exit(0));
-    await service.retryTab({ tabId: created.value.tabs[0].id, confirmPossibleDuplicate: false });
+    await service.activateSession({ sessionId: created.value.id });
     expect((f.factory as any).mock.calls[2][2].env.SHELLFOX_TEST).toBe('round3');
     expect((await service.setSessionEnv({ sessionId: created.value.id, env: [{ name: 'A=B', value: '' }] })).ok).toBe(false);
   } finally { await service.dispose(); }

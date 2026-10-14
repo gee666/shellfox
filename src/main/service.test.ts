@@ -17,6 +17,19 @@ class MemoryRepository implements RepositoryPort {
   tab(id: string) { const t = this.tabMap.get(id); return t && structuredClone(t); }
   saveSession(s: SessionRecord) { this.sessionMap.set(s.id,structuredClone(s)); }
   saveTab(t: TabRecord) { this.tabMap.set(t.id,structuredClone(t)); }
+  deleteTab(id: string) {
+    const operationId = this.tabMap.get(id)?.operationId;
+    for (const op of [...this.operationMap.values()]) if (op.tabId === id || op.id === operationId) this.operationMap.delete(op.id);
+    return this.tabMap.delete(id);
+  }
+  archiveSession(s: SessionRecord) {
+    if (!s.settledAt) throw new Error('An archive timestamp is required.');
+    this.transaction(() => {
+      this.saveSession({ ...s, target: null, binding: null });
+      for (const tab of this.tabs(s.id)) this.deleteTab(tab.id);
+      for (const op of [...this.operationMap.values()]) if (op.sessionId === s.id) this.operationMap.delete(op.id);
+    });
+  }
   deleteSession(id: string) {
     if (!this.sessionMap.get(id)?.settledAt) return false;
     for (const tab of this.tabs(id)) this.tabMap.delete(tab.id);
@@ -135,15 +148,15 @@ describe('session service with mock native transport and in-memory repository', 
     f.observe(s,2); expect(value(f.service.getSnapshot()).sessions[0].status).toBe('error');
     const cleared=value(await f.service.clearSessionError({sessionId:s.id})); expect(cleared.status).toBe('running');
   });
-  it('requires active/unknown confirmation and keeps observing settled sessions', async () => {
+  it('requires active/unknown confirmation and removes archived tab metadata', async () => {
     const f=fixture(); await f.start(); const s=await f.create();
     expect(await f.service.settleSession({sessionId:s.id,confirmActive:false})).toMatchObject({ok:false,error:{code:'SETTLE_CONFIRM_REQUIRED'}});
     f.observe(s,2);
-    const settled=value(await f.service.settleSession({sessionId:s.id,confirmActive:true})); expect(settled.status).toBe('settled'); expect(settled.activityStatus).toBe('running');
+    const settled=value(await f.service.settleSession({sessionId:s.id,confirmActive:true})); expect(settled.status).toBe('settled'); expect(settled.activityStatus).toBe('unknown'); expect(settled.tabs).toEqual([]);
     expect(value(f.service.getSnapshot()).sessions).toHaveLength(0);
-    f.observe(s,0); expect(value(f.service.getHistory({search:'',status:'waiting',page:1,pageSize:20})).total).toBe(1);
+    f.observe(s,0); expect(value(f.service.getHistory({search:'',status:'unknown',page:1,pageSize:20})).total).toBe(1);
     expect((await f.service.addTab({sessionId:s.id})).ok).toBe(false);
-    expect(value(await f.service.unsettleSession({sessionId:s.id})).status).toBe('waiting');
+    expect(value(await f.service.unsettleSession({sessionId:s.id})).status).toBe('unknown');
   });
   it('registration timeout is uncertain and requires explicit duplicate confirmation', async () => {
     const f=fixture(); f.setRegister(false); await f.start(); const s=await f.create(); const launch=f.launches[0];
@@ -449,8 +462,8 @@ describe('session service with mock native transport and in-memory repository', 
     const f=fixture(); await f.start(); const a=await f.create(); const b=await f.create(); f.observe(a,2); f.observe(b,0);
     // The full batch contains both watched tabs.
     f.emit({type:'observations',items:[{sessionId:a.id,tabId:a.tabs[0].id,observedAt:new Date().toISOString(),root:'alive',health:'healthy',agents:2,reason:null},{sessionId:b.id,tabId:b.tabs[0].id,observedAt:new Date().toISOString(),root:'alive',health:'healthy',agents:0,reason:null}]});
-    await f.service.renameSession({sessionId:a.id,title:'100%_literal'}); await f.service.settleSession({sessionId:a.id,confirmActive:true}); await f.service.settleSession({sessionId:b.id,confirmActive:false});
-    expect(value(f.service.getHistory({search:'%_',status:'running',page:1,pageSize:1}))).toMatchObject({total:1,items:[{id:a.id,status:'settled',activityStatus:'running'}]});
+    await f.service.renameSession({sessionId:a.id,title:'100%_literal'}); await f.service.settleSession({sessionId:a.id,confirmActive:true}); await f.service.settleSession({sessionId:b.id,confirmActive:true});
+    expect(value(f.service.getHistory({search:'%_',status:'unknown',page:1,pageSize:1}))).toMatchObject({total:1,items:[{id:a.id,status:'settled',activityStatus:'unknown',tabs:[]}]});
     expect(value(f.service.getHistory({search:'',status:'all',page:2,pageSize:1})).items).toHaveLength(1);
     expect(value(f.service.getHistory({search:'',status:'settled',page:1,pageSize:20})).total).toBe(2);
   });

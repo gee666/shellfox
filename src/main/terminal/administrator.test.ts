@@ -52,14 +52,15 @@ it('can cancel pending UAC startup during shutdown without losing the owned help
   await f.backend.dispose(); expect(await launch).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
   expect(f.elevated.closeConfirmed).toHaveBeenCalledOnce(); expect(f.factory).not.toHaveBeenCalled();
 });
-it('reports UAC denial to the user action while preserving closed tab metadata', async () => {
+it('reports UAC denial and keeps the session error without retaining a closed tab', async () => {
   const f = fixture(), repository = new MemoryRepository();
   const service = new EmbeddedSessionService(repository, f.backend, () => ({ setWatch: vi.fn(), dispose: vi.fn() }));
   await service.initialize();
   const session = value(await service.createSession({ cwd: 'C:\\\\work', requestId: randomUUID() }));
   f.elevated.whenReady.mockImplementation(async () => { f.elevated.exit(1, 0); throw new Error('Administrator PowerShell was cancelled.'); });
   expect(await service.addTab({ sessionId: session.id, profileId: administrator.id })).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED', message: 'Administrator PowerShell was cancelled.' } });
-  expect(repository.tabs(session.id).at(-1)).toMatchObject({ lifecycle: 'closed', terminal: { profileId: administrator.id } });
+  expect(repository.tabs(session.id).map(t => t.id)).toEqual([session.tabs[0].id]);
+  expect(repository.session(session.id)?.error).toMatchObject({ code: 'LAUNCH_FAILED' });
   await service.dispose();
 });
 

@@ -45,10 +45,13 @@ describe('discovered native shell profiles', () => {
     const fallback = await discoverProfiles({ platform: 'linux', env: {}, loginShell: '/missing', exists: async p => p === '/bin/bash' || p === '/usr/bin/python3', canonical: async p => p, run: async () => Buffer.from(PIDFD_READY) }); expect(fallback.profiles[0].executable).toBe('/bin/bash'); expect(fallback.defaultProfileId).toBe('shell:/bin/bash');
   });
   it('translates host WSL paths and validates guest directories without interpolation', async () => {
-    const run = vi.fn(async (_file: string, args: string[]) => Buffer.from(args.includes('wslpath') ? "/mnt/c/a';& folder\n" : ''));
+    const run = vi.fn(async (_file: string, _args: string[]) => Buffer.from("/mnt/c/a';& folder\n"));
     const cwd = await validateProfileCwd(profiles.profiles[1], "C:\\a';& folder", run); expect(cwd).toBe("/mnt/c/a';& folder");
-    expect(run).toHaveBeenNthCalledWith(1, profiles.profiles[1].executable, ['--distribution', 'Ubuntu', '--exec', 'wslpath', '-a', '-u', "C:\\a';& folder"]);
-    expect(run).toHaveBeenNthCalledWith(2, profiles.profiles[1].executable, ['--distribution', 'Ubuntu', '--exec', '/bin/sh', '-c', 'test -d "$1" && test -x "$1"', 'shellfox-cwd', cwd]);
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(profiles.profiles[1].executable, ['--distribution', 'Ubuntu', '--exec', '/bin/sh', '-c', expect.stringContaining('dir=$(wslpath -a -u "$1")'), 'shellfox-cwd', "C:\\a';& folder"]);
+    const script = run.mock.calls[0]![1]![5]!;
+    expect(script).not.toContain("a';& folder");
+    expect(script).toContain('set -e;'); expect(script).toContain('test -d "$dir"; test -x "$dir";');
     expect(spawnArguments(profiles.profiles[1], cwd, 'marker').args).toContain('SHELLFOX_TERMINAL_MARKER=marker');
   });
   it.each([
@@ -62,6 +65,11 @@ describe('discovered native shell profiles', () => {
     run.mockClear();
     await expect(validateProfileCwd(profiles.profiles[1], String.raw`\\wsl.localhost\Debian\home\user`, run)).rejects.toThrow('different WSL');
     expect(run).not.toHaveBeenCalled();
+  });
+  it('preserves trailing spaces in translated guest paths', async () => {
+    const run = vi.fn(async () => Buffer.from('/mnt/c/work  \n'));
+    expect(await validateProfileCwd(profiles.profiles[1], 'C:\\work  ', run)).toBe('/mnt/c/work  ');
+    expect(run).toHaveBeenCalledOnce();
   });
   it('rejects bad guest cwd and failed accessibility checks', async () => {
     await expect(validateProfileCwd(profiles.profiles[1], '/guest', async () => { throw new Error('not accessible'); })).rejects.toThrow();

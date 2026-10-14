@@ -110,10 +110,10 @@ describe('serialized CLI session control', () => {
   });
   it('does not archive when authoritative exits cannot be persisted', async () => {
     const { service, repository, a } = await fixture();
-    const save = repository.saveTab.bind(repository);
-    const spy = vi.spyOn(repository, 'saveTab').mockImplementation(tab => {
-      if (tab.sessionId === a.id && tab.lifecycle === 'closed') throw new Error('Storage unavailable.');
-      save(tab);
+    const remove = repository.deleteTab.bind(repository);
+    const spy = vi.spyOn(repository, 'deleteTab').mockImplementation(id => {
+      if (repository.tab(id)?.sessionId === a.id) throw new Error('Storage unavailable.');
+      return remove(id);
     });
     try {
       expect(await service.controlSession({ action: 'archive', id: a.id, confirmed: true })).toMatchObject({ ok: false, error: { code: 'STORAGE_FAILED' } });
@@ -126,8 +126,7 @@ describe('serialized CLI session control', () => {
     try {
       expect(await service.controlSession({ action: 'delete', id: a.id, confirmed: true })).toMatchObject({ ok: false, error: { code: 'STORAGE_FAILED' } });
       expect(repository.session(a.id)?.settledAt).toBeNull();
-      expect(repository.tabs(a.id)).toHaveLength(1);
-      expect(repository.tabs(a.id)[0]!.lifecycle).toBe('closed');
+      expect(repository.tabs(a.id)).toEqual([]);
     } finally { deleting.mockRestore(); await service.dispose(); }
   });
   it('captures validated request values before queuing, preventing confirmation bypass by mutation', async () => {

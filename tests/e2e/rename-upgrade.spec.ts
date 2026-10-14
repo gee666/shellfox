@@ -11,13 +11,17 @@ for (const legacy of ['Pi Manager', 'pi-manager']) test(`Shellfox startup copies
   try {
     const session = value(await old.page.evaluate(cwd => window.shellfox.createSession({ cwd, title: 'Upgrade history', requestId: crypto.randomUUID() }), dir));
     value(await old.page.evaluate(sessionId => window.shellfox.settleSession({ sessionId, confirmActive: true }), session.id));
-    await old.app.evaluate(() => {
+    // CDP evaluation can interrupt a native SQLite query. Defer DB access to the event loop.
+    await old.app.evaluate(() => new Promise<void>((resolve, reject) => setImmediate(() => {
+      try {
       const repository = (globalThis as any).__shellfoxTest.repository;
       repository.db.pragma('wal_autocheckpoint = 0');
       repository.saveSettings({ ...repository.settings(), accentColor: '#2dd4bf' });
       repository.saveExplorerPreference(true);
       repository.saveCliPreference(true);
-    });
+      resolve();
+      } catch (error) { reject(error); }
+    })));
     expect((await stat(path.join(oldData, 'manager.sqlite3-wal'))).size).toBeGreaterThan(0);
     await writeFile(path.join(oldData, 'settings.json'), '{"fixture":"preserved"}');
     await old.page.evaluate(() => localStorage.setItem('pi-manager.sidebarWidth', '280'));
@@ -30,10 +34,12 @@ for (const legacy of ['Pi Manager', 'pi-manager']) test(`Shellfox startup copies
     expect(await current.evaluate(({ app }) => [app.getName(), app.getPath('userData')])).toEqual(['Shellfox', newData]);
     expect((await snapshot(page)).settings.accentColor).toBe('#2dd4bf');
     expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: 'Upgrade history', status: 'all', page: 1, pageSize: 20 }))).items[0].id).toBe(session.id);
-    expect(await current.evaluate(() => {
-      const r = (globalThis as any).__shellfoxTest.repository;
-      return [r.explorerPreference(), r.cliPreference(), r.db.pragma('integrity_check', { simple: true })];
-    })).toEqual([true, true, 'ok']);
+    expect(await current.evaluate(() => new Promise<unknown[]>((resolve, reject) => setImmediate(() => {
+      try {
+        const r = (globalThis as any).__shellfoxTest.repository;
+        resolve([r.explorerPreference(), r.cliPreference(), r.db.pragma('integrity_check', { simple: true })]);
+      } catch (error) { reject(error); }
+    })))).toEqual([true, true, 'ok']);
     expect(await readFile(path.join(newData, 'settings.json'), 'utf8')).toBe('{"fixture":"preserved"}');
     for (const suffix of ['', '-wal', '-shm']) expect((await stat(path.join(newData, 'legacy-backup', 'manager.sqlite3' + suffix))).size).toBeGreaterThan(0);
     // Old app still has its history and remains usable. No process was stopped by migration.

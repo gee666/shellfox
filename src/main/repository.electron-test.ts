@@ -16,113 +16,118 @@ async function run() {
   await app.whenReady();
   const filename = path.join(folder, 'manager.sqlite3');
   let repository = new Repository(filename);
-  assert.equal(repository.db.pragma('user_version', {simple:true}),SCHEMA_VERSION);
-  assert.equal(repository.db.pragma('journal_mode', {simple:true}),'wal');
-  assert.equal(repository.db.pragma('foreign_keys', {simple:true}),1);
-  assert.deepEqual(repository.settings(),defaultSettings);
   const now = new Date().toISOString();
-  const s: SessionRecord = {id:randomUUID(),title:"100%_ 雪 ' OR 1=1 --",cwd:'C:\\same',adapterId:'windows-terminal',shellId:'pwsh',shellExecutable:'C:\\PowerShell\\pwsh.exe',createdAt:now,updatedAt:now,settledAt:now,error:null,target:null};
-  const tab: TabRecord = {id:randomUUID(),sessionId:s.id,title:'Shell 1',cwd:s.cwd,ordinal:0,createdAt:now,lifecycle:'launching',operationId:randomUUID(),registration:null,error:null};
-  const requestId=randomUUID();
-  repository.transaction(()=>{repository.saveSession(s);repository.saveTab(tab);repository.saveOperation({id:tab.operationId,sessionId:s.id,tabId:tab.id,requestId,kind:'create',state:'intent',createdAt:now,updatedAt:now,error:null});});
-  assert.equal(repository.sessionByRequest(requestId)?.id,s.id);
-  assert.equal(repository.tabs(s.id).length,1);
-  assert.equal(repository.settled('%_')[0].id,s.id);
-  assert.equal(repository.settled("' OR 1=1 --")[0].id,s.id);
-  assert.equal(repository.settled('no match').length,0);
-  assert.throws(()=>repository.saveTab({...tab,id:randomUUID(),sessionId:randomUUID()}));
-  assert.throws(()=>repository.transaction(()=>{repository.saveSession({...s,id:'rollback',title:'rollback'});throw new Error('rollback');}));
-  assert.equal(repository.session('rollback'),undefined);
-  repository.saveSession({ ...s, env: [{ name: 'SHELLFOX_STORAGE_TEST', value: 'persisted' }] });
-  repository.saveSettings({...defaultSettings,accentColor:'#123456'});
-  repository.saveExplorerPreference(true);
-  assert.equal(repository.windowState(),undefined);
-  repository.saveWindowState({x:1,y:2,width:900,height:700,maximized:true});
+  const session = (extra: Partial<SessionRecord> = {}): SessionRecord => ({ id: randomUUID(), title: "100%_ 雪 ' OR 1=1 --", cwd: 'C:\\same', adapterId: 'embedded-pty', shellId: 'pwsh', shellExecutable: 'C:\\pwsh.exe', createdAt: now, updatedAt: now, settledAt: null, error: null, target: null, env: [{ name: 'CUSTOM', value: 'persisted' }], pinnedAt: now, binding: null, ...extra });
+  const tab = (s: SessionRecord, ordinal = 0, extra: Partial<TabRecord> = {}): TabRecord => ({ id: randomUUID(), sessionId: s.id, title: `Shell ${ordinal + 1}`, cwd: s.cwd, ordinal, createdAt: now, lifecycle: 'open', operationId: randomUUID(), registration: null, error: null, member: null, terminal: { kind: 'embedded', profileId: 'login-shell', exitCode: null, userTitle: null }, ...extra });
+  const seed = (s: SessionRecord, tabs: TabRecord[]) => repository.transaction(() => {
+    repository.saveSession(s);
+    for (const t of tabs) {
+      repository.saveTab(t);
+      repository.saveOperation({ id: t.operationId, sessionId: s.id, tabId: t.id, requestId: randomUUID(), kind: 'create', state: 'registered', createdAt: now, updatedAt: now, error: null });
+    }
+  });
+  const count = (table: string, column: string, id: string) => (repository.db.prepare(`SELECT count(*) n FROM ${table} WHERE ${column}=?`).get(id) as { n: number }).n;
+  const removed = (t: TabRecord) => {
+    assert.equal(repository.tab(t.id), undefined);
+    assert.equal(repository.operation(t.operationId), undefined);
+    assert.equal(count('operations', 'tabId', t.id), 0);
+    assert.equal(count('terminal_metadata', 'tabId', t.id), 0);
+    assert.equal(count('preferences', 'key', 'tab-member:' + t.id), 0);
+  };
+  assert.equal(repository.db.pragma('user_version', { simple: true }), SCHEMA_VERSION);
+  assert.equal(repository.db.pragma('journal_mode', { simple: true }), 'wal');
+  assert.equal(repository.db.pragma('foreign_keys', { simple: true }), 1);
+  assert.deepEqual(repository.settings(), defaultSettings);
+  repository.saveSettings({ ...defaultSettings, accentColor: '#123456' });
+  repository.saveExplorerPreference(true); repository.saveCliPreference(true);
+  repository.saveWindowState({ x: 1, y: 2, width: 900, height: 700, maximized: true });
+  const live = session(), a = tab(live), b = tab(live, 1);
+  seed(live, [a, b]);
+  assert.throws(() => repository.saveTab({ ...a, id: randomUUID(), sessionId: randomUUID() }));
+  // Tab deletion is atomic, removes every retry operation, and does not affect siblings.
+  repository.saveOperation({ ...repository.operation(a.operationId)!, id: randomUUID(), requestId: randomUUID(), kind: 'retry' });
+  assert.throws(() => repository.transaction(() => { repository.deleteTab(a.id); throw new Error('rollback'); }));
+  assert.ok(repository.tab(a.id)); assert.equal(repository.operationsForTab(a.id).length, 2);
+  // Old session-only intents can still be referenced by the tab's operationId.
+  repository.saveOperation({ ...repository.operation(a.operationId)!, tabId: null });
+  assert.equal(repository.deleteTab(a.id), true); removed(a); assert.ok(repository.tab(b.id));
+  assert.equal(repository.deleteTab(a.id), false);
+  // Real SQLite title/order transactions retain open tabs until they close.
+  const c = tab(live, 2); seed(live, [c]);
+  const service = new EmbeddedSessionService(repository, undefined, () => ({ setWatch() {}, dispose() {} }));
+  assert.equal((await service.renameTab({ sessionId: live.id, tabId: b.id, title: 'Build 雪' })).ok, true);
+  assert.equal((await service.reorderTabs({ sessionId: live.id, tabIds: [c.id, b.id] })).ok, true);
+  const before = repository.tabs(live.id), saveSession = repository.saveSession.bind(repository);
+  repository.saveSession = () => { throw new Error('disk full'); };
+  assert.equal((await service.renameTab({ sessionId: live.id, tabId: b.id, title: 'unsaved' })).ok, false);
+  assert.equal((await service.reorderTabs({ sessionId: live.id, tabIds: [b.id, c.id] })).ok, false);
+  assert.deepEqual(repository.tabs(live.id), before); repository.saveSession = saveSession;
+  await service.dispose(); // No backend owns these fixture tabs.
+  repository.close(); repository = new Repository(filename);
+  assert.deepEqual(repository.tabs(live.id), before); assert.equal(repository.tab(b.id)?.terminal?.userTitle, 'Build 雪');
+  // Archive removes all tabs/operations, including session-only launch records, but keeps configured session data.
+  const archived = session({ settledAt: now }), d = tab(archived);
+  seed(archived, [d]);
+  repository.saveOperation({ id: randomUUID(), sessionId: archived.id, tabId: null, requestId: randomUUID(), kind: 'adopt', state: 'failed', createdAt: now, updatedAt: now, error: null });
+  assert.throws(() => repository.transaction(() => { repository.archiveSession(archived); throw new Error('rollback'); }));
+  assert.ok(repository.tab(d.id));
+  repository.archiveSession(archived); removed(d);
+  assert.equal(count('operations', 'sessionId', archived.id), 0);
+  assert.equal(count('preferences', 'key', 'session-window:' + archived.id), 0);
+  assert.deepEqual(repository.session(archived.id)?.env, archived.env); assert.equal(repository.session(archived.id)?.pinnedAt, now);
+  assert.equal(repository.settled('%_')[0].id, archived.id);
+  assert.equal(repository.settled("' OR 1=1 --")[0].id, archived.id);
+  assert.equal(repository.settled('no match').length, 0);
+  assert.equal(repository.deleteSession(live.id), false); assert.equal(repository.deleteSession(randomUUID()), false);
+  assert.throws(() => repository.transaction(() => { repository.deleteSession(archived.id); throw new Error('rollback'); }));
+  assert.ok(repository.session(archived.id));
+  assert.equal(repository.deleteSession(archived.id), true); assert.equal(repository.session(archived.id), undefined);
+  assert.equal(repository.deleteSession(archived.id), false); assert.deepEqual(repository.tabs(live.id), before);
+  // Version 4 data: closed and archived tabs, launch requests, dangling legacy preferences.
+  const oldArchive = session({ settledAt: now, adapterId: 'windows-terminal' }), oldTab = tab(oldArchive, 0, { terminal: null });
+  const oldClosed = tab(live, 3, { lifecycle: 'closed' }); seed(oldArchive, [oldTab]); seed(live, [oldClosed]);
+  repository.db.prepare('INSERT INTO preferences VALUES (?,?)').run('tab-member:missing-tab', '{"member":null}');
+  repository.db.prepare('INSERT INTO preferences VALUES (?,?)').run('session-window:missing-session', '{"binding":null}');
+  // Simulate old writes made with foreign-key checks disabled.
+  const orphan = tab(session());
+  repository.db.pragma('foreign_keys = OFF');
+  repository.saveTab(orphan);
+  repository.saveOperation({ id: orphan.operationId, sessionId: orphan.sessionId, tabId: orphan.id, requestId: randomUUID(), kind: 'create', state: 'failed', createdAt: now, updatedAt: now, error: null });
+  repository.db.prepare('INSERT INTO terminal_metadata VALUES (?,?)').run('missing-tab', '{}');
+  repository.db.pragma('foreign_keys = ON');
+  repository.db.pragma('user_version = 4');
+  // A failed migration must roll back deletion and keep the previous schema version.
+  repository.db.exec("CREATE TRIGGER refuse_retention BEFORE DELETE ON tabs BEGIN SELECT RAISE(ABORT, 'storage failure'); END");
+  repository.close(); assert.throws(() => new Repository(filename), /storage failure/);
+  // Open without migrations to inspect the rollback and remove only our test trigger.
+  const Database = (await import('better-sqlite3')).default;
+  const raw = new Database(filename);
+  assert.equal(raw.pragma('user_version', { simple: true }), 4);
+  assert.ok(raw.prepare('SELECT id FROM tabs WHERE id=?').get(oldClosed.id));
+  assert.ok(raw.prepare('SELECT id FROM operations WHERE id=?').get(oldTab.operationId));
+  raw.exec('DROP TRIGGER refuse_retention'); raw.close();
+  repository = new Repository(filename); removed(oldClosed); removed(oldTab); removed(orphan);
+  assert.equal(count('terminal_metadata', 'tabId', 'missing-tab'), 0);
+  assert.ok(repository.session(oldArchive.id)); assert.deepEqual(repository.tabs(live.id), before);
+  assert.equal(count('preferences', 'key', 'tab-member:missing-tab'), 0);
+  assert.equal(count('preferences', 'key', 'session-window:missing-session'), 0);
+  assert.equal(count('preferences', 'key', 'session-window:' + oldArchive.id), 0);
+  assert.equal(repository.settings().accentColor, '#123456'); assert.equal(repository.explorerPreference(), true); assert.equal(repository.cliPreference(), true);
+  assert.deepEqual(repository.windowState(), { x: 1, y: 2, width: 900, height: 700, maximized: true });
+  assert.deepEqual(repository.db.pragma('foreign_key_check'), []);
+  repository.close(); repository = new Repository(filename);
+  assert.equal(repository.db.pragma('user_version', { simple: true }), SCHEMA_VERSION); removed(oldClosed); removed(oldTab);
+  // Older schema upgrades still work, including env and pin columns.
+  repository.db.exec('DROP TABLE terminal_metadata; ALTER TABLE sessions DROP COLUMN env; ALTER TABLE sessions DROP COLUMN pinnedAt');
+  repository.db.pragma('user_version = 1'); repository.close(); repository = new Repository(filename);
+  assert.equal(repository.db.pragma('user_version', { simple: true }), SCHEMA_VERSION);
+  assert.equal(repository.session(live.id)?.pinnedAt, null); assert.equal(repository.tab(b.id)?.terminal, null);
+  const beforeCount = repository.settled('').length;
+  for (let i = 0; i < 24; i++) repository.saveSession(session({ title: 'page ' + i, settledAt: now }));
+  assert.equal(repository.settled('').length, beforeCount + 24);
+  const ids = repository.settled('').map(s => s.id); assert.deepEqual(ids, [...ids].sort());
   repository.close();
-  repository=new Repository(filename);
-  assert.equal(repository.settings().accentColor,'#123456');
-  assert.deepEqual(repository.windowState(),{x:1,y:2,width:900,height:700,maximized:true});
-  assert.equal(repository.explorerPreference(),true);
-  assert.equal(repository.session(s.id)?.title,s.title);
-  assert.equal(repository.operation(tab.operationId)?.state,'intent');
-  assert.deepEqual(repository.session(s.id)?.env, [{ name: 'SHELLFOX_STORAGE_TEST', value: 'persisted' }]);
-  repository.saveTab({...tab,lifecycle:'closed',terminal:{kind:'embedded',profileId:'login-shell',exitCode:7}});
-  repository.close();repository=new Repository(filename);
-  assert.deepEqual(repository.tab(tab.id)?.terminal,{kind:'embedded',profileId:'login-shell',exitCode:7});
-  // Real SQLite: metadata writes, ordinal swaps, rollback and restart persistence.
-  {
-    const saved: SessionRecord = { ...s, id: randomUUID(), adapterId: 'embedded-pty', settledAt: null };
-    const tabs: TabRecord[] = [0, 1, 2].map(ordinal => ({ ...tab, id: randomUUID(), sessionId: saved.id, ordinal, lifecycle: 'closed', terminal: { kind: 'embedded', profileId: 'login-shell', exitCode: ordinal } }));
-    repository.transaction(() => { repository.saveSession(saved); tabs.forEach(t => repository.saveTab(t)); });
-    let service = new EmbeddedSessionService(repository, undefined, () => ({ setWatch: () => {}, dispose: () => {} }));
-    assert.equal((await service.renameTab({ sessionId: saved.id, tabId: tabs[0].id, title: 'Build 雪' })).ok, true);
-    const order = [tabs[2].id, tabs[0].id, tabs[1].id];
-    assert.equal((await service.reorderTabs({ sessionId: saved.id, tabIds: order })).ok, true);
-    assert.deepEqual(repository.tabs(saved.id).map(t => [t.id, t.ordinal]), order.map((id, ordinal) => [id, ordinal]));
-    const before = repository.tabs(saved.id), beforeSession = repository.session(saved.id);
-    const saveSession = repository.saveSession.bind(repository);
-    repository.saveSession = () => { throw new Error('disk full'); };
-    assert.equal((await service.renameTab({ sessionId: saved.id, tabId: tabs[0].id, title: 'unsaved' })).ok, false);
-    assert.equal((await service.reorderTabs({ sessionId: saved.id, tabIds: [...order].reverse() })).ok, false);
-    assert.deepEqual(repository.tabs(saved.id), before);
-    assert.deepEqual(repository.session(saved.id), beforeSession);
-    repository.saveSession = saveSession;
-    await service.dispose(); repository.close(); repository = new Repository(filename);
-    assert.deepEqual(repository.tabs(saved.id), before);
-    assert.equal(repository.tab(tabs[0].id)?.title, 'Build 雪');
-    assert.equal(repository.tab(tabs[0].id)?.terminal?.userTitle, 'Build 雪');
-    service = new EmbeddedSessionService(repository, undefined, () => ({ setWatch: () => {}, dispose: () => {} }));
-    assert.equal((await service.renameTab({ sessionId: saved.id, tabId: tabs[1].id, title: 'After restart' })).ok, true);
-    assert.equal(repository.tab(tabs[1].id)?.title, 'After restart');
-    await service.dispose();
-    repository.saveSession({ ...saved, settledAt: now }); assert.equal(repository.deleteSession(saved.id), true);
-  }
-  // Permanent deletion removes an archived session with every dependent row and refuses live sessions.
-  {
-    const doomed:SessionRecord={...s,id:randomUUID(),title:'doomed',settledAt:now,binding:null,windowState:'unknown'};
-    const live:SessionRecord={...s,id:randomUUID(),title:'live',settledAt:null};
-    const doomedTab:TabRecord={...tab,id:randomUUID(),sessionId:doomed.id,operationId:randomUUID(),member:null,terminal:{kind:'embedded',profileId:'login-shell',exitCode:0}};
-    const liveTab:TabRecord={...tab,id:randomUUID(),sessionId:live.id,operationId:randomUUID()};
-    const count=(sql:string,...args:unknown[])=>(repository.db.prepare(sql).get(...args) as {n:number}).n;
-    repository.transaction(()=>{
-      repository.saveSession(doomed);repository.saveSession(live);repository.saveTab(doomedTab);repository.saveTab(liveTab);
-      repository.saveOperation({id:doomedTab.operationId,sessionId:doomed.id,tabId:doomedTab.id,requestId:randomUUID(),kind:'create',state:'registered',createdAt:now,updatedAt:now,error:null});
-      repository.saveOperation({id:liveTab.operationId,sessionId:live.id,tabId:liveTab.id,requestId:randomUUID(),kind:'create',state:'registered',createdAt:now,updatedAt:now,error:null});
-    });
-    assert.equal(count("SELECT count(*) n FROM preferences WHERE key IN (?,?)",'session-window:'+doomed.id,'tab-member:'+doomedTab.id),2);
-    assert.equal(count('SELECT count(*) n FROM terminal_metadata WHERE tabId=?',doomedTab.id),1);
-    assert.equal(repository.deleteSession(live.id),false);
-    assert.equal(repository.deleteSession(randomUUID()),false);
-    assert.ok(repository.session(live.id));assert.equal(repository.tabs(live.id).length,1);
-    assert.equal(repository.deleteSession(doomed.id),true);
-    assert.equal(repository.session(doomed.id),undefined);assert.equal(repository.tabs(doomed.id).length,0);
-    assert.equal(repository.operation(doomedTab.operationId),undefined);
-    assert.equal(count('SELECT count(*) n FROM terminal_metadata WHERE tabId=?',doomedTab.id),0);
-    assert.equal(count("SELECT count(*) n FROM preferences WHERE key IN (?,?)",'session-window:'+doomed.id,'tab-member:'+doomedTab.id),0);
-    assert.ok(repository.operation(liveTab.operationId));assert.equal(repository.tabs(live.id).length,1);
-    assert.equal(repository.deleteSession(doomed.id),false);
-    repository.db.exec("DELETE FROM operations WHERE sessionId='"+live.id+"'; DELETE FROM tabs WHERE sessionId='"+live.id+"'; DELETE FROM sessions WHERE id='"+live.id+"'");
-  }
-  // Simulate the previous version's schema and verify a real migration keeps task/root history.
-  // Pinned state survives a close/reopen at the current schema version (reopening must not be refused).
-  repository.saveSession({...s,pinnedAt:now});repository.close();repository=new Repository(filename);
-  assert.equal(repository.session(s.id)?.pinnedAt,now);
-  repository.saveSession({...repository.session(s.id)!,pinnedAt:null});assert.equal(repository.session(s.id)?.pinnedAt,null);
-  repository.db.exec('DROP TABLE terminal_metadata; ALTER TABLE sessions DROP COLUMN env; ALTER TABLE sessions DROP COLUMN pinnedAt');repository.db.pragma('user_version = 1');repository.close();
-  repository=new Repository(filename);
-  assert.equal(repository.db.pragma('user_version',{simple:true}),SCHEMA_VERSION);
-  assert.equal(repository.session(s.id)?.pinnedAt,null);
-  repository.close();repository=new Repository(filename);
-  assert.equal(repository.db.pragma('user_version',{simple:true}),SCHEMA_VERSION);
-  assert.equal(repository.session(s.id)?.title,s.title);
-  assert.equal(repository.tab(tab.id)?.terminal,null);
-  const before=repository.sessions().length;
-  for(let i=0;i<24;i++)repository.saveSession({...s,id:randomUUID(),title:'page '+i});
-  assert.equal(repository.settled('').length,before+24);
-  const ids=repository.settled('').map(s=>s.id);
-  assert.deepEqual(ids,[...ids].sort());
-  repository.close();
-  console.log('SQLite Electron smoke: storage and embedded metadata/migration assertions passed; DB '+filename);
+  console.log('SQLite Electron storage: retention, rollback, migration and restart assertions passed; DB ' + filename);
   app.exit(0);
 }
-void run().catch(()=>{console.error('SQLite Electron smoke failed');app.exit(1);});
+void run().catch(error => { console.error('SQLite Electron storage failed', error); app.exit(1); });

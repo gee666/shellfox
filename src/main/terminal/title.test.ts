@@ -93,7 +93,7 @@ describe('terminal process titles', () => {
     await f.service.dispose();
   });
 
-  it('preserves overrides after restart while process titles remain tied to their runtime generation', async () => {
+  it('removes old tab overrides at restart and starts a fresh automatic title', async () => {
     const f = await fixture(), tab = f.session.tabs[0];
     value(await f.service.renameTab({ sessionId: f.session.id, tabId: tab.id, title: 'User name' }));
     const added = value(await f.service.addTab({ sessionId: f.session.id })), automatic = added.tabs[1];
@@ -102,11 +102,12 @@ describe('terminal process titles', () => {
     const next = factoryFixture(), backend = new PtyBackend(next.options);
     const service = new EmbeddedSessionService(f.repository, backend, () => ({ setWatch: () => {}, dispose: () => {} }));
     await service.initialize();
-    expect(service.toDto(f.repository.session(f.session.id)!).tabs.map(t => t.title)).toEqual(['User name', automatic.title]);
-    // Reattach a test generation to the same saved record to verify persisted override precedence.
-    value(await backend.launch({ tabId: tab.id, sessionId: f.session.id, generation: tab.generation!, profileId: 'login-shell', cwd: '/work' }));
+    expect(service.toDto(f.repository.session(f.session.id)!).tabs).toEqual([]);
+    expect(f.repository.tab(automatic.id)).toBeUndefined();
+    const opened = value(await service.activateSession({ sessionId: f.session.id }));
+    expect(opened.tabs[0].id).not.toBe(tab.id);
     next.processes[0].output('\x1b]2;New command\x07');
-    expect(service.toDto(f.repository.session(f.session.id)!).tabs[0].title).toBe('User name');
+    expect(service.toDto(f.repository.session(f.session.id)!).tabs[0].title).toBe('New command');
     await service.dispose();
   });
 
@@ -144,14 +145,15 @@ describe('terminal process titles', () => {
     const changed = vi.fn(); service.subscribe(changed);
     notify({ tabId: tab.id, generation: randomUUID(), title: 'Stale title' });
     expect(changed).not.toHaveBeenCalled();
+    const savedTab = repository.tab(tab.id)!;
     f.processes[0].exit(0);
     const generation = randomUUID();
     value(await backend.launch({ tabId: tab.id, sessionId: session.id, generation, profileId: 'login-shell', cwd: '/work' }));
     f.processes[0].output('\x1b]2;Retired PTY\x07');
     expect(backend.get(tab.id)?.processTitle).toBeNull();
     f.processes[1].output('\x1b]2;Uncommitted generation\x07');
-    expect(service.toDto(repository.session(session.id)!).tabs[0].title).toBe(tab.title);
-    repository.saveTab({ ...repository.tab(tab.id)!, operationId: generation });
+    expect(service.toDto(repository.session(session.id)!).tabs).toEqual([]);
+    repository.saveTab({ ...savedTab, operationId: generation });
     f.processes[1].output('\x1b]2;Current generation\x07');
     expect(service.toDto(repository.session(session.id)!).tabs[0].title).toBe('Current generation');
     await service.dispose();

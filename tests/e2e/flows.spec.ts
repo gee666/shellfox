@@ -4,7 +4,7 @@ import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { launch, scratch, snapshot, observe, calls, value } from '../fixtures/electron';
 
-test('UI creates independent same-folder sessions, tabs, focus and settled live history', async () => {
+test('UI creates independent same-folder sessions, tabs, focus and tab-free archived history', async () => {
   const dir = await scratch('flows');
   const cwd = path.join(dir, "same folder Ω ' & ; % [data]");
   await mkdir(cwd);
@@ -46,11 +46,11 @@ test('UI creates independent same-folder sessions, tabs, focus and settled live 
     await expect(confirm).toBeVisible();
     await confirm.getByRole('button', { name: 'Archive', exact: true }).click();
     await expect.poll(async () => (await snapshot(page)).sessions.length).toBe(1);
-    const history = value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'running', page: 1, pageSize: 20 })));
+    const history = value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'unknown', page: 1, pageSize: 20 })));
     expect(history.total).toBe(1);
-    expect(history.items[0].counts.agents).toBe(2);
+    expect(history.items[0].counts.agents).toBe(0); expect(history.items[0].tabs).toEqual([]);
     expect(history.items[0].status).toBe('settled');
-    expect((await calls(app)).watch).toBe(3);
+    expect((await calls(app)).watch).toBe(1);
     const archived = page.getByRole('button', { name: 'Archived · 1', exact: true });
     await expect(archived).toHaveAttribute('aria-expanded', 'false');
     await archived.click();

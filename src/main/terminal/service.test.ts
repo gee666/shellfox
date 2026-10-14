@@ -43,34 +43,34 @@ describe('embedded saved-task lifecycle', () => {
     expect(sessions.find(s => s.id === a.id)!.tabs[0].agents).toBe(0);
     expect(sessions.find(s => s.id === b.id)!.tabs[0].agents).toBe(1);
     f.processes[1].exit(0);
-    expect(value(f.service.getSnapshot()).sessions.find(s => s.id === b.id)!.tabs[0].lifecycle).toBe('closed');
+    expect(value(f.service.getSnapshot()).sessions.find(s => s.id === b.id)!.tabs).toEqual([]);
     await f.service.dispose();
   });
   it('forwards confirmed exit independently of a failed save and overlays/reconciles closure', async () => {
     const f = await fixture(), s = await f.create(), received: { type: string }[] = []; f.service.subscribeTerminal(e => received.push(e));
-    const save = f.repository.saveTab.bind(f.repository), spy = vi.spyOn(f.repository, 'saveTab').mockImplementation(() => { throw new Error('disk full'); });
+    const save = f.repository.deleteTab.bind(f.repository), spy = vi.spyOn(f.repository, 'deleteTab').mockImplementation(() => { throw new Error('disk full'); });
     f.processes[0].exit(7);
     expect(received.filter(e => e.type === 'exit')).toHaveLength(1); expect(received.filter(e => e.type === 'error')).toHaveLength(1);
     expect(f.repository.tabs(s.id)[0].lifecycle).toBe('open');
     expect(value(f.service.getSnapshot()).sessions[0].tabs[0]).toMatchObject({ lifecycle: 'closed', exitCode: 7 });
-    spy.mockImplementation(save); await f.service.dispose(); expect(f.repository.tabs(s.id)[0]).toMatchObject({ lifecycle: 'closed', terminal: { exitCode: 7 } });
+    spy.mockImplementation(save); await f.service.dispose(); expect(f.repository.tabs(s.id)).toEqual([]); expect(f.repository.operation(s.tabs[0].generation!)).toBeUndefined();
   });
-  it('merges launch completion with concurrent rename and settlement rather than restoring stale metadata', async () => {
+  it('merges launch completion with concurrent rename and refuses archiving a starting terminal', async () => {
     const repo = new MemoryRepository(), f = factoryFixture(); let finish!: () => void;
     const barrier = new Promise<void>(resolve => { finish = resolve; });
     const backend = new PtyBackend({ ...f.options, validateCwd: async (_p, cwd) => { await barrier; return cwd; } });
     const service = new EmbeddedSessionService(repo, backend, () => ({ setWatch: () => {}, dispose: () => {} })); await service.initialize();
     const creating = service.createSession({ cwd: '/work', requestId: randomUUID() }); await new Promise(resolve => setImmediate(resolve));
     const saved = repo.sessions()[0]; expect(service.ownedTerminalCount()).toBe(1);
-    value(await service.renameSession({ sessionId: saved.id, title: 'Renamed while opening' })); value(await service.settleSession({ sessionId: saved.id, confirmActive: true }));
+    value(await service.renameSession({ sessionId: saved.id, title: 'Renamed while opening' })); expect(await service.settleSession({ sessionId: saved.id, confirmActive: true })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
     const pending = value(await service.activateSession({ sessionId: saved.id })); expect(pending.tabs).toHaveLength(1); expect(f.factory).not.toHaveBeenCalled();
-    finish(); const completed = value(await creating); expect(completed.title).toBe('Renamed while opening'); expect(completed.settledAt).not.toBeNull(); expect(completed.tabs).toHaveLength(1); await service.dispose();
+    finish(); const completed = value(await creating); expect(completed.title).toBe('Renamed while opening'); expect(completed.settledAt).toBeNull(); expect(completed.tabs).toHaveLength(1); await service.dispose();
   });
   it('failed shutdown keeps shell ownership and permits a later successful retry', async () => {
     const f = await fixture(), s = await f.create(); f.processes[0].kill.mockImplementation(() => { throw new Error('denied'); });
     await expect(f.service.dispose()).rejects.toThrow(); expect(f.service.ownedTerminalCount()).toBe(1); expect(f.repository.tabs(s.id)[0].lifecycle).toBe('open');
     value(f.service.writeTerminal({ tabId: s.tabs[0].id, generation: s.tabs[0].generation!, data: 'exit\r' }));
-    f.processes[0].kill.mockImplementation(() => f.processes[0].exit(0)); await f.service.dispose(); expect(f.repository.tabs(s.id)[0].lifecycle).toBe('closed');
+    f.processes[0].kill.mockImplementation(() => f.processes[0].exit(0)); await f.service.dispose(); expect(f.repository.tabs(s.id)).toEqual([]);
   });
   it('creates durable intent, shell and DTO without native window targets', async () => {
     const f = await fixture(), s = await f.create(); expect(s).toMatchObject({ adapterId: 'embedded-pty', terminalLifetime: 'app-owned', shellSurvival: false, canAddTab: true, canFocus: true });
@@ -78,14 +78,14 @@ describe('embedded saved-task lifecycle', () => {
     expect(sessionSchema.safeParse(s).success).toBe(true); expect(snapshotSchema.safeParse(value(f.service.getSnapshot())).success).toBe(true);
     expect(f.repository.tab(s.tabs[0].id)?.registration).toBeNull(); expect(f.tracker.setWatch).toHaveBeenLastCalledWith([expect.objectContaining({ pid: 123, environment: 'local' })], expect.any(Array)); await f.service.dispose();
   });
-  it('deduplicates concurrent and persisted create requests without relaunching commands', async () => {
+  it('deduplicates live create requests and removes request IDs with closed tabs', async () => {
     const f = await fixture(), requestId = randomUUID(); const [a, b] = await Promise.all([f.create(requestId), f.create(requestId)]); expect(a.id).toBe(b.id); expect(f.factory).toHaveBeenCalledTimes(1);
-    await f.service.dispose(); const restored = await fixture(f.repository); const c = await restored.create(requestId); expect(c.id).toBe(a.id); expect(restored.factory).not.toHaveBeenCalled(); expect(c.tabs[0].lifecycle).toBe('closed'); await restored.service.dispose();
+    await f.service.dispose(); const restored = await fixture(f.repository); expect(restored.repository.session(a.id)).toBeDefined(); expect(restored.repository.sessionByRequest(requestId)).toBeUndefined(); expect(restored.factory).not.toHaveBeenCalled(); const c = await restored.create(requestId); expect(c.id).not.toBe(a.id); await restored.service.dispose();
   });
   it('activates a live session without spawning and coalesces reopen clicks', async () => {
     const f = await fixture(), s = await f.create(); await Promise.all([f.service.activateSession({ sessionId: s.id }), f.service.activateSession({ sessionId: s.id })]); expect(f.factory).toHaveBeenCalledTimes(1);
     f.processes[0].exit(0); const [a, b] = await Promise.all([f.service.activateSession({ sessionId: s.id }), f.service.activateSession({ sessionId: s.id })]);
-    expect(value(a).tabs).toHaveLength(2); expect(value(b).id).toBe(s.id); expect(f.factory).toHaveBeenCalledTimes(2); await f.service.dispose();
+    expect(value(a).tabs).toHaveLength(1); expect(value(b).id).toBe(s.id); expect(f.factory).toHaveBeenCalledTimes(2); await f.service.dispose();
   });
   it('adds independent shells without HWNDs and supports a WSL tab profile', async () => {
     const f = await fixture(), s = await f.create(); const added = value(await f.service.addTab({ sessionId: s.id, profileId: 'wsl:Ubuntu', cwd: '/home/user', title: 'Guest' }));
@@ -99,26 +99,29 @@ describe('embedded saved-task lifecycle', () => {
     f.observe(added, 2);
     const closed = value(await f.service.closeTab({ tabId: added.tabs[1].id, generation: added.tabs[1].generation! }));
     expect(closed.tabs[0].status).toBe('running');
-    expect(closed.tabs[1].lifecycle).toBe('closed');
+    expect(closed.tabs).toHaveLength(1);
     expect(closed.tabs[0].agents).toBe(2);
     value(await f.service.closeTab({ tabId: added.tabs[0].id, generation: added.tabs[0].generation! }));
-    const retried = value(await f.service.retryTab({ tabId: added.tabs[1].id, confirmPossibleDuplicate: false }));
-    expect(retried.tabs).toHaveLength(3);
-    expect(retried.tabs[2]).toMatchObject({ status: 'unknown', agents: 0 });
-    expect(retried.tabs[2].generation).not.toBe(added.tabs[1].generation);
+    expect(await f.service.retryTab({ tabId: added.tabs[1].id, confirmPossibleDuplicate: false })).toMatchObject({ ok: false });
+    const retried = value(await f.service.activateSession({ sessionId: s.id }));
+    expect(retried.tabs).toHaveLength(1);
+    expect(retried.tabs[0]).toMatchObject({ status: 'unknown', agents: 0 });
+    expect(retried.tabs[0].generation).not.toBe(added.tabs[1].generation);
     expect(retried.tabs[0].agents).toBe(0);
     await f.service.dispose();
   });
-  it('does not close terminals on attach, view switches or history settling', async () => {
+  it('keeps attached terminals running until confirmed archive closes and removes them', async () => {
     const f = await fixture(), s = await f.create(); f.service.attachTerminal({ tabId: s.tabs[0].id }); f.observe(s, 1);
     expect(await f.service.settleSession({ sessionId: s.id, confirmActive: false })).toMatchObject({ ok: false, error: { code: 'SETTLE_CONFIRM_REQUIRED' } });
-    const settled = value(await f.service.settleSession({ sessionId: s.id, confirmActive: true })); expect(settled.status).toBe('settled'); expect(f.backend.live()).toHaveLength(1); expect(f.processes[0].kill).not.toHaveBeenCalled();
-    expect(value(f.service.getSnapshot()).sessions).toHaveLength(0); f.observe(settled, 3); expect(value(f.service.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 })).items[0].counts.agents).toBe(3);
+    const settled = value(await f.service.settleSession({ sessionId: s.id, confirmActive: true })); expect(settled.status).toBe('settled'); expect(f.backend.live()).toHaveLength(0); expect(f.processes[0].kill).toHaveBeenCalledTimes(1); expect(settled.tabs).toEqual([]);
+    expect(value(f.service.getSnapshot()).sessions).toHaveLength(0); f.observe(settled, 3); expect(value(f.service.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 })).items[0].counts.agents).toBe(0);
     expect(await f.service.addTab({ sessionId: s.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } }); await f.service.dispose();
   });
-  it('preserves settled state when reopening the same saved task', async () => {
+  it('requires restore before reopening an archived task with a fresh tab', async () => {
     const f = await fixture(), s = await f.create(); const settled = value(await f.service.settleSession({ sessionId: s.id, confirmActive: true })); f.processes[0].exit(0);
-    const reopened = value(await f.service.activateSession({ sessionId: s.id })); expect(reopened.settledAt).toBe(settled.settledAt); expect(reopened.id).toBe(s.id); await f.service.dispose();
+    expect(await f.service.activateSession({ sessionId: s.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
+    expect(settled.tabs).toEqual([]); value(await f.service.unsettleSession({ sessionId: s.id }));
+    const reopened = value(await f.service.activateSession({ sessionId: s.id })); expect(reopened.settledAt).toBeNull(); expect(reopened.id).toBe(s.id); expect(reopened.tabs).toHaveLength(1); await f.service.dispose();
   });
   it('preserves running/waiting/unknown counts without pretending a prompt is agent completion', async () => {
     const f = await fixture(), s = await f.create(); expect(value(f.service.getSnapshot()).sessions[0].status).toBe('unknown');
@@ -129,7 +132,7 @@ describe('embedded saved-task lifecycle', () => {
   it('explicit close terminates exactly the owned tab and checks generation', async () => {
     const f = await fixture(), s = await f.create(), added = value(await f.service.addTab({ sessionId: s.id })), t = added.tabs[0];
     expect(await f.service.closeTab({ tabId: t.id, generation: randomUUID() })).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
-    const closed = value(await f.service.closeTab({ tabId: t.id, generation: t.generation! })); expect(closed.tabs[0].lifecycle).toBe('closed'); expect(closed.tabs[1].lifecycle).toBe('open');
+    const closed = value(await f.service.closeTab({ tabId: t.id, generation: t.generation! })); expect(closed.tabs.map(tab => [tab.id, tab.lifecycle])).toEqual([[added.tabs[1].id, 'open']]); expect(f.repository.tab(t.id)).toBeUndefined();
     expect(f.processes[0].kill).toHaveBeenCalledTimes(1); expect(f.processes[1].kill).not.toHaveBeenCalled(); await f.service.closeTab({ tabId: t.id, generation: t.generation! }); expect(f.processes[0].kill).toHaveBeenCalledTimes(1); await f.service.dispose();
   });
   it('does not mark a pending OS close as exited or reopen it early', async () => {
@@ -148,38 +151,38 @@ describe('embedded saved-task lifecycle', () => {
     const embedded = { ...tagged, id: randomUUID() }; repo.saveSession(embedded);
     repo.saveTab({ ...legacy.tab, id: randomUUID(), sessionId: embedded.id, terminal: { kind: 'embedded', profileId: 'login-shell', exitCode: null } });
     const f = await fixture(repo);
-    expect(value(f.service.getSnapshot()).sessions.map(s => s.id)).toEqual([embedded.id]);
+    expect(value(f.service.getSnapshot()).sessions.map(s => s.id).sort()).toEqual([embedded.id, empty.id].sort());
     const history = value(f.service.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 }));
-    expect(history.total).toBe(3);
+    expect(history.total).toBe(2);
     const archived = repo.session(legacy.session.id)!;
     expect(archived.settledAt).not.toBeNull();
-    expect(repo.tab(legacy.tab.id)).toEqual(legacy.tab);
+    expect(repo.tab(legacy.tab.id)).toBeUndefined();
     expect(f.factory).not.toHaveBeenCalled(); expect(f.tracker.setWatch).toHaveBeenCalledWith([], expect.anything());
     expect(await f.service.unsettleSession({ sessionId: legacy.session.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
     await f.service.dispose();
     const restarted = await fixture(repo);
     expect(repo.session(legacy.session.id)?.settledAt).toBe(archived.settledAt);
-    expect(value(restarted.service.getSnapshot()).sessions.map(s => s.id)).toEqual([embedded.id]);
+    expect(value(restarted.service.getSnapshot()).sessions.map(s => s.id).sort()).toEqual([embedded.id, empty.id].sort());
     expect(restarted.factory).not.toHaveBeenCalled(); await restarted.service.dispose();
   });
-  it('retains legacy history and roots without adopting, watching or killing them', async () => {
+  it('retains legacy session history but removes roots without adopting, watching or killing them', async () => {
     const repo = new MemoryRepository(), legacy = seedLegacy(repo), f = await fixture(repo);
     expect(f.backend.live()).toHaveLength(0); expect(f.tracker.setWatch).toHaveBeenCalledWith([], expect.anything());
-    const history = value(f.service.getHistory({ search: 'legacy', status: 'all', page: 1, pageSize: 20 })); expect(history.items[0].tabs[0]).toMatchObject({ terminalKind: 'external-legacy', lifecycle: 'open', agents: 0, status: 'unknown' });
-    expect(f.service.attachTerminal({ tabId: legacy.tab.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } }); expect(await f.service.closeTab({ tabId: legacy.tab.id, generation: legacy.tab.operationId })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
-    const active = value(await f.service.activateSession({ sessionId: legacy.session.id })); expect(active.id).toBe(legacy.session.id); expect(active.tabs).toHaveLength(2); expect(active.settledAt).toBe(legacy.session.settledAt);
-    await f.service.dispose(); expect(repo.tab(legacy.tab.id)?.registration?.shell.pid).toBe(777); expect(repo.tab(legacy.tab.id)?.lifecycle).toBe('open');
+    const history = value(f.service.getHistory({ search: 'legacy', status: 'all', page: 1, pageSize: 20 })); expect(history.items[0].tabs).toEqual([]);
+    expect(f.service.attachTerminal({ tabId: legacy.tab.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } }); expect(await f.service.closeTab({ tabId: legacy.tab.id, generation: legacy.tab.operationId })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(await f.service.activateSession({ sessionId: legacy.session.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
+    await f.service.dispose(); expect(repo.tab(legacy.tab.id)).toBeUndefined(); expect(f.factory).not.toHaveBeenCalled();
   });
   it('never persists output or exposes it in snapshots', async () => {
     const f = await fixture(), s = await f.create(); f.processes[0].output('secret-terminal-output');
     expect(JSON.stringify(value(f.service.getSnapshot()))).not.toContain('secret-terminal-output'); expect(JSON.stringify([...f.repository.tabMap.values()])).not.toContain('secret-terminal-output');
     expect(value(f.service.attachTerminal({ tabId: s.tabs[0].id })).chunks[0].data).toBe('secret-terminal-output'); await f.service.dispose();
   });
-  it('restores app-owned tabs as closed without auto-launch and opens a fresh generation on activation', async () => {
+  it('removes obsolete app-owned tabs without auto-launch and opens a fresh generation on activation', async () => {
     const f = await fixture(), s = await f.create(); const repo = f.repository;
     // Simulate restart metadata while the previous process is absent, not shell restoration.
-    const next = await fixture(repo); expect(next.factory).not.toHaveBeenCalled(); expect(repo.tabs(s.id)[0].lifecycle).toBe('closed');
-    const opened = value(await next.service.activateSession({ sessionId: s.id })); expect(opened.tabs[1].generation).not.toBe(s.tabs[0].generation); await next.service.dispose(); await f.service.dispose();
+    const next = await fixture(repo); expect(next.factory).not.toHaveBeenCalled(); expect(repo.tabs(s.id)).toEqual([]);
+    const opened = value(await next.service.activateSession({ sessionId: s.id })); expect(opened.tabs[0].generation).not.toBe(s.tabs[0].generation); await next.service.dispose(); await f.service.dispose();
   });
   it('clears old rule observations and rejects arbitrary profile/executable settings', async () => {
     const f = await fixture(), s = await f.create(); f.observe(s, 1); const settings = f.repository.settings();
@@ -189,6 +192,6 @@ describe('embedded saved-task lifecycle', () => {
   });
   it('validates requests and reports spawn failures as durable errors', async () => {
     const f = await fixture(); expect(await f.service.createSession({ cwd: 'relative', requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
-    vi.mocked(f.factory).mockImplementation(() => { throw new Error('spawn'); }); const failed = await f.create(); expect(failed.tabs[0]).toMatchObject({ lifecycle: 'closed', error: { code: 'LAUNCH_FAILED' } }); await f.service.dispose();
+    vi.mocked(f.factory).mockImplementation(() => { throw new Error('spawn'); }); const failed = await f.create(); expect(failed.tabs).toEqual([]); expect(failed.error).toMatchObject({ code: 'LAUNCH_FAILED' }); await f.service.dispose();
   });
 });

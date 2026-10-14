@@ -34,7 +34,8 @@ describe('permanent session deletion', () => {
   });
   it('keeps the session when a live terminal cannot be confirmed closed', async () => {
     const { service, repository, processes } = await start(); const a = await create(service, 'a');
-    value(await service.settleSession({ sessionId: a.id, confirmActive: true }));
+    // Simulate a pre-retention archived session that still owns a live tab.
+    repository.saveSession({ ...repository.session(a.id)!, settledAt: new Date().toISOString() });
     processes[0]!.kill.mockImplementation(() => { throw new Error('denied'); });
     expect(await service.deleteSession({ sessionId: a.id })).toMatchObject({ ok: false });
     expect(repository.session(a.id)).toBeDefined(); expect(repository.tabs(a.id)).toHaveLength(1);
@@ -52,7 +53,7 @@ describe('permanent session deletion', () => {
     expect(events).toEqual(['history']);
     expect(repository.session(a.id)).toBeUndefined(); expect(repository.tabs(a.id)).toEqual([]);
     expect([...repository.operationMap.values()].filter(o => o.sessionId === a.id)).toEqual([]);
-    expect(repository.tabs(b.id)).toHaveLength(1); expect(repository.session(c.id)).toBeDefined();
+    expect(repository.tabs(b.id)).toEqual([]); expect(repository.session(c.id)).toBeDefined();
     expect(history(service).items.map(item => item.id)).toEqual([b.id]);
     expect(await service.deleteSession({ sessionId: a.id })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
     await service.dispose();

@@ -65,7 +65,7 @@ describe('authenticated live control transport', () => {
     if (!created.ok) throw new Error(created.error.message);
     await service.settleSession({ sessionId: created.value.id, confirmActive: true });
     const live = service.backend.live();
-    expect(live).toHaveLength(2);
+    expect(live).toHaveLength(1); expect(service.repository.tabs(created.value.id)).toEqual([]);
     vi.mocked(collectSessionStats).mockResolvedValueOnce(live.map(t => ({ tabId: t.tabId, processes: [], memoryBytes: null, elapsedSeconds: null })));
     const result = await handleControlRequest(service, awake, { action: 'stats' });
     expect(result.sessions).toHaveLength(1); expect(result.tabs).toHaveLength(1);
@@ -151,7 +151,7 @@ describe('authenticated live control transport', () => {
       expect(service.backend.live().some(t => t.sessionId === created.value.id)).toBe(false);
       if (action === 'delete') expect(service.repository.session(created.value.id)).toBeUndefined();
       else if (action === 'archive') expect(service.repository.session(created.value.id)?.settledAt).toBeTruthy();
-      else expect(service.repository.tab(current.tabId)?.lifecycle).toBe('closed');
+      else expect(service.repository.tab(current.tabId)).toBeUndefined();
     } finally {
       closing.mockRestore(); control.mockRestore(); socket.destroy();
       if (service.repository.session(created.value.id)) await service.controlSession({ action: 'delete', id: created.value.id, confirmed: true });

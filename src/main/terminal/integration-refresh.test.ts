@@ -40,6 +40,27 @@ async function fixture(enabled = false, initialize = true) {
   return { service, backend, explorer, cli, repository };
 }
 
+it('notifies the renderer once when background metadata changes, but not for unchanged checks', async () => {
+  const f = await fixture(), changed = vi.fn(); f.service.subscribe(changed);
+  now = 5000; await f.service.refreshIntegrations(); expect(changed).not.toHaveBeenCalled();
+  f.explorer.get.mockResolvedValue(success(explorerState(true)));
+  f.cli.get.mockResolvedValue(success(cliState(true)));
+  now = 10000; await f.service.refreshIntegrations();
+  expect(changed).toHaveBeenCalledOnce(); expect(changed).toHaveBeenCalledWith(expect.objectContaining({ reason: 'settings' }));
+  now = 15000; await f.service.refreshIntegrations(); expect(changed).toHaveBeenCalledOnce();
+});
+
+it('does not publish a background read or begin another check after disposal', async () => {
+  const f = await fixture(), changed = vi.fn(), pending = deferred<Result<ExplorerIntegrationDto>>();
+  f.service.subscribe(changed); f.explorer.get.mockReturnValueOnce(pending.promise);
+  now = 5000; const refreshing = f.service.refreshIntegrations();
+  await flush(); await f.service.dispose(); changed.mockClear();
+  pending.resolve(success(explorerState(true))); await refreshing;
+  expect(f.service.explorer.installed).toBe(false); expect(changed).not.toHaveBeenCalled();
+  expect(f.cli.get).toHaveBeenCalledOnce();
+  await f.service.refreshIntegrations(); expect(f.explorer.get).toHaveBeenCalledTimes(2);
+});
+
 it.each([false, true])('reuses startup metadata for five seconds, saved opt-in %s', async enabled => {
   const f = await fixture(enabled);
   await Promise.all([f.service.refreshIntegrations(), f.service.refreshIntegrations()]);

@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { launch, scratch, snapshot, value } from '../fixtures/electron';
 
-test('embedded startup archives legacy-only tasks, upgrades untouched rules and leaves external roots untouched', async () => {
+test('embedded startup archives legacy sessions, removes obsolete roots and upgrades untouched rules', async () => {
   const dir = await scratch('legacy-archive'), data = path.join(dir, 'data'), sessionId = randomUUID(), tabId = randomUUID();
   let running = await launch(data, 'real');
   try {
@@ -28,7 +28,7 @@ test('embedded startup archives legacy-only tasks, upgrades untouched rules and 
     running = await launch(data, 'real');
     expect((await snapshot(running.page)).sessions).toHaveLength(0);
     const history = value(await running.page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 })));
-    expect(history.items[0]).toMatchObject({ id: sessionId, status: 'settled', tabs: [{ lifecycle: 'open', terminalKind: 'external-legacy', agents: 0 }] });
+    expect(history.items[0]).toMatchObject({ id: sessionId, status: 'settled', tabs: [] });
     const settings = (await snapshot(running.page)).settings;
     expect(settings.processRules.find(rule => rule.label === 'Pi')).toMatchObject({ enabled: false, processNames: ['pi', 'pi.exe'] });
     expect(settings.processRules.find(rule => rule.label === 'Pi')?.scriptPathSuffixes).toContain('@earendil-works/pi-coding-agent/dist/bundle/cli.js');
@@ -42,8 +42,7 @@ test('embedded startup archives legacy-only tasks, upgrades untouched rules and 
     const savedTab = await running.app.evaluate((_electron, id) => new Promise<any>((resolve, reject) => setImmediate(() => {
       try { resolve((globalThis as any).__shellfoxTest.repository.tab(id)); } catch (error) { reject(error); }
     })), tabId);
-    expect(savedTab.registration.shell).toEqual({ pid: 777, startTime: '123456' });
-    expect(savedTab.lifecycle).toBe('open');
+    expect(savedTab).toBeUndefined();
   } finally { await running.app.close(); }
 });
 
@@ -73,8 +72,8 @@ test('real PowerShell 7 Pi shim becomes running/green and output produces busy t
     }), { timeout: 20000 }).toBe(true);
     await expect(page.getByRole('tab').locator('.status-dot')).toHaveClass(/dot-(running|busy)/);
     const ended = value(await page.evaluate(input => window.shellfox.closeTab!(input), { tabId: tab.id, generation: tab.generation! }));
-    expect(ended.tabs[0].lifecycle).toBe('closed');
-    await expect.poll(async () => (await snapshot(page)).sessions[0].tabs[0].lifecycle).toBe('closed');
+    expect(ended.tabs).toEqual([]);
+    await expect.poll(async () => (await snapshot(page)).sessions[0].tabs).toEqual([]);
   } finally {
     // Close only this test's owned tabs, never the engineer/user's live Pi tree.
     await page.evaluate(async () => { const result = await window.shellfox.getSnapshot(); if (result.ok) for (const s of result.value.sessions) for (const t of s.tabs) if (t.terminalKind === 'embedded' && t.lifecycle !== 'closed') await window.shellfox.closeTab!({ tabId: t.id, generation: t.generation! }); }).catch(() => {});

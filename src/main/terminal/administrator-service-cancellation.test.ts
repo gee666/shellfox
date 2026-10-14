@@ -31,7 +31,7 @@ it('dispose cancels pending UAC before draining the same operation queue, and ig
   expect(f.elevated.closeConfirmed).toHaveBeenCalledOnce();
   expect(await f.adding).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
   expect(await queued).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
-  expect(f.repository.tab(f.tab.id)?.lifecycle).toBe('closed');
+  expect(f.repository.tab(f.tab.id)).toBeUndefined();
   f.approve(); await Promise.resolve();
   expect(f.backend.live()).toHaveLength(0); expect(f.factory).toHaveBeenCalledTimes(1); expect(f.elevate).toHaveBeenCalledOnce();
 });
@@ -52,7 +52,7 @@ it('same-session close interrupts the deferred startup rather than queuing behin
   expect(await f.adding).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
   expect(f.elevated.closeConfirmed).toHaveBeenCalledOnce();
   f.approve(); await Promise.resolve();
-  expect(f.repository.tab(f.tab.id)?.lifecycle).toBe('closed');
+  expect(f.repository.tab(f.tab.id)).toBeUndefined();
   value(await f.service.addTab({ sessionId: f.session.id })); expect(f.elevate).toHaveBeenCalledOnce();
   await f.service.dispose();
 });
@@ -61,7 +61,7 @@ it('close cancels an intent still validating cwd, before any helper exists', asy
   value(await f.service.closeTab({ tabId: f.tab.id, generation: f.tab.operationId }));
   expect(await f.adding).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
   f.directory(); await Promise.resolve(); expect(f.elevate).not.toHaveBeenCalled();
-  expect(f.repository.tab(f.tab.id)?.lifecycle).toBe('closed'); await f.service.dispose();
+  expect(f.repository.tab(f.tab.id)).toBeUndefined(); await f.service.dispose();
 });
 it('shutdown cancels cwd validation before any helper exists, even if validation finishes after shutdown', async () => {
   const f = await fixture(true);

@@ -19,9 +19,11 @@ test('SQLite history literal search, stable pagination, settings and identities 
     const ids = (await snapshot(page)).sessions.map(s => s.id);
     for (const id of ids) value(await page.evaluate(sessionId => window.shellfox.settleSession({ sessionId, confirmActive: true }), id));
     // Deliberate timestamp ties prove ID tie-breaking with actual SQL and IPC pagination.
-    await app.evaluate(() => (globalThis as any).__shellfoxTest.repository.db.prepare('UPDATE sessions SET settledAt=?').run('2026-01-01T00:00:00.000Z'));
+    await app.evaluate(() => new Promise<void>((resolve, reject) => setImmediate(() => {
+      try { (globalThis as any).__shellfoxTest.repository.db.prepare('UPDATE sessions SET settledAt=?').run('2026-01-01T00:00:00.000Z'); resolve(); } catch (error) { reject(error); }
+    })));
     const pages = [];
-    for (let pageNumber = 1; pageNumber <= 3; pageNumber++) pages.push(value(await page.evaluate(page => window.shellfox.getHistory({ search: '', status: 'running', page, pageSize: 3 }), pageNumber)));
+    for (let pageNumber = 1; pageNumber <= 3; pageNumber++) pages.push(value(await page.evaluate(page => window.shellfox.getHistory({ search: '', status: 'unknown', page, pageSize: 3 }), pageNumber)));
     expect(pages.map(p => p.items.length)).toEqual([3, 3, 1]);
     expect(pages.every(p => p.total === 7)).toBe(true);
     expect(pages.flatMap(p => p.items.map(s => s.id))).toEqual([...ids].sort());
@@ -48,12 +50,14 @@ test('SQLite history literal search, stable pagination, settings and identities 
     await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
     await expect(settings).toBeHidden();
     const identities = await app.evaluate(() => (globalThis as any).__shellfoxTest.backend.watch.map((t: any) => t.registration));
-    const pragmas = await app.evaluate(() => {
-      const db = (globalThis as any).__shellfoxTest.repository.db;
-      return [db.pragma('user_version', { simple: true }), db.pragma('foreign_keys', { simple: true }), db.pragma('journal_mode', { simple: true })];
-    });
-    // Schema 4 stores pinned session state; foreign keys and WAL remain required.
-    expect(pragmas).toEqual([4, 1, 'wal']);
+    const pragmas = await app.evaluate(() => new Promise<unknown[]>((resolve, reject) => setImmediate(() => {
+      try {
+        const db = (globalThis as any).__shellfoxTest.repository.db;
+        resolve([db.pragma('user_version', { simple: true }), db.pragma('foreign_keys', { simple: true }), db.pragma('journal_mode', { simple: true })]);
+      } catch (error) { reject(error); }
+    })));
+    // Schema 5 removes obsolete tabs; foreign keys and WAL remain required.
+    expect(pragmas).toEqual([5, 1, 'wal']);
     await app.close(); closed = true;
     ({ app, page } = await launch(data)); closed = false;
     expect((await snapshot(page)).settings.accentColor).toBe('#2dd4bf');
@@ -64,9 +68,10 @@ test('SQLite history literal search, stable pagination, settings and identities 
     expect(unknown.total).toBe(7);
     expect(unknown.items.every(s => s.status === 'settled' && s.activityStatus === 'unknown')).toBe(true);
     await observe(app, 1);
-    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'running', page: 1, pageSize: 20 }))).total).toBe(7);
-    const redelivery = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId }));
-    expect(redelivery.id).toBe(original.id);
+    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'running', page: 1, pageSize: 20 }))).total).toBe(0);
+    expect(await app.evaluate((_electron, id) => new Promise<any>((resolve, reject) => setImmediate(() => {
+      try { resolve((globalThis as any).__shellfoxTest.repository.sessionByRequest(id) ?? null); } catch (error) { reject(error); }
+    })), requestId)).toBeNull();
     expect((await calls(app)).launches).toBe(0);
     value(await page.evaluate(sessionId => window.shellfox.unsettleSession({ sessionId }), original.id));
     expect((await snapshot(page)).sessions.map(s => s.id)).toEqual([original.id]);

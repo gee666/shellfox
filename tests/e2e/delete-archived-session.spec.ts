@@ -43,20 +43,20 @@ test('an archived session is deleted permanently through the UI, only after conf
     await expect(archivedRegion(page)).toContainText('Delete me');
     await page.screenshot({ path: path.join(shots, 'delete-2-archived-listed.png') });
 
-    // Archiving never stops the shell, so the confirmation says deleting will close it. Cancel keeps everything.
-    const shell = (await history(page)).items.find(s => s.id === doomed.id)!.tabs[0]!;
-    expect(shell.lifecycle).toBe('open');
+    // Archive already closed the shell and removed its tab. Cancel keeps session history.
+    const shell = doomed.tabs[0]!;
+    expect((await history(page)).items.find(s => s.id === doomed.id)!.tabs).toEqual([]);
     await archivedRegion(page).getByRole('button', { name: 'Select session Delete me', exact: true }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete permanently…', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Delete session' });
-    await expect(dialog).toContainText('Permanently delete “Delete me”? Its running terminals will be closed. This cannot be undone.');
+    await expect(dialog).toContainText('Permanently delete “Delete me”? This cannot be undone.');
     await page.screenshot({ path: path.join(shots, 'delete-3-confirm-dialog.png') });
     await archivedRegion(page).getByRole('button', { name: 'Select session Delete me', exact: true }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete permanently…', exact: true }).click();
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(dialog).toHaveCount(0);
     expect((await history(page)).total).toBe(1);
-    expect(await running.app.evaluate((_electron, id) => (globalThis as any).__shellfoxTest.backend.get(id)?.state, shell.id)).toBe('open');
+    expect(await running.app.evaluate((_electron, id) => (globalThis as any).__shellfoxTest.backend.get(id)?.state, shell.id)).not.toBe('open');
     await archivedRegion(page).getByRole('button', { name: 'Select session Delete me', exact: true }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete permanently…', exact: true }).click();
     await dialog.getByRole('button', { name: 'Delete', exact: true }).click();

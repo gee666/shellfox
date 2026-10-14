@@ -28,6 +28,10 @@ export interface OperationRecord {
 export interface RepositoryPort {
   sessions(): SessionRecord[]; tabs(sessionId?: string): TabRecord[]; session(id: string): SessionRecord | undefined;
   tab(id: string): TabRecord | undefined; saveSession(s: SessionRecord): void; saveTab(t: TabRecord): void;
+  /** Removes the tab and its operations, terminal and legacy ownership metadata. */
+  deleteTab(id: string): boolean;
+  /** Saves archived session metadata and removes every tab and operation. Call only after confirmed runtime closure. */
+  archiveSession(s: SessionRecord): void;
   /** Deletes an archived session with its tabs, operations and metadata. False when it is missing or not archived. */
   deleteSession(id: string): boolean;
   saveOperation(o: OperationRecord): void; operation(id: string): OperationRecord | undefined;

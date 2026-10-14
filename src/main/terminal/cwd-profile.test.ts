@@ -102,7 +102,7 @@ describe('cwd-aware implicit terminal profiles', () => {
     expect(value(await f.service.addTab({ sessionId: s.id, cwd: '/home/user', profileId: 'wsl:Ubuntu' })).tabs.at(-1)!.profileId).toBe('wsl:Ubuntu');
     const calls = vi.mocked(f.factory).mock.calls.length;
     const mismatch = value(await f.service.addTab({ sessionId: s.id, cwd: unc, profileId: 'wsl:Ubuntu' }));
-    expect(mismatch.tabs.at(-1)).toMatchObject({ profileId: 'wsl:Ubuntu', error: { code: 'VALIDATION' } });
+    expect(mismatch.error).toMatchObject({ code: 'VALIDATION' }); expect(mismatch.tabs).toHaveLength(4);
     expect(await f.service.addTab({ sessionId: s.id, profileId: 'not-discovered' })).toMatchObject({ ok: false, error: { code: 'DEPENDENCY_MISSING' } });
     expect(f.factory).toHaveBeenCalledTimes(calls);
     const unavailable = await fixture(undefined, { ...windowsProfiles, profiles: windowsProfiles.profiles.map(p => p.id === 'wsl:Ubuntu' ? { ...p, available: false } : p) });
@@ -120,7 +120,8 @@ describe('cwd-aware implicit terminal profiles', () => {
     repo.saveSettings({ ...repo.settings(), terminalProfileId: 'wsl:Ubuntu' });
     expect(value(await f.service.addTab({ sessionId: s.id })).tabs.at(-1)!.profileId).toBe('login-shell');
     f.processes.forEach(p => p.exit(0));
-    expect(value(await f.service.activateSession({ sessionId: s.id })).tabs.at(-1)!.profileId).toBe('login-shell');
+    // Removed tabs no longer override the current saved preference.
+    expect(value(await f.service.activateSession({ sessionId: s.id })).tabs.at(-1)!.profileId).toBe('wsl:Ubuntu');
     // A WSL preference still applies on Linux; no host routing or nested-WSL detection.
     expect((await f.create('/home/user')).tabs[0]!.profileId).toBe('wsl:Ubuntu');
   });

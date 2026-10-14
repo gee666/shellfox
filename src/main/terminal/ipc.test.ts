@@ -61,6 +61,23 @@ it('waits for the first trusted snapshot before draining cold-start requests', a
   await f.request('getSnapshot', {}); await f.request('getSnapshot', {});
   expect(ready).toHaveBeenCalledOnce(); f.stop(); await f.service.dispose();
 });
+it.each([false, true])('returns runtime snapshots and drains cold-start requests without waiting for slow integration metadata, failed refresh %s', async failed => {
+  const ready = vi.fn(), f = await fixture(ready);
+  let finish!: () => void, reject!: (error: Error) => void;
+  const pending = new Promise<void>((resolve, no) => { finish = resolve; reject = no; });
+  const refresh = vi.spyOn(f.service, 'refreshIntegrations').mockReturnValue(pending);
+  let result: any;
+  const snapshot = f.request('getSnapshot', {}).then(value => { result = value; });
+  try {
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(result).toMatchObject({ ok: true, value: { sessions: [expect.objectContaining({ id: f.session.id })] } });
+    expect(ready).toHaveBeenCalledOnce();
+  } finally {
+    if (failed) reject(new Error('Registry unavailable')); else finish();
+    await snapshot; await new Promise<void>(resolve => setImmediate(resolve));
+    refresh.mockRestore(); f.stop(); await f.service.dispose();
+  }
+});
 it('routes discovered profiles and validated terminal methods without exposing arbitrary commands', async () => {
   const f = await fixture(), tab = f.session.tabs[0], id = { tabId: tab.id, generation: tab.generation! };
   expect(await f.request('getTerminalProfiles', {})).toMatchObject({ ok: true, value: { lifetime: 'app-owned', shellSurvival: false } });

@@ -453,8 +453,9 @@ export class SessionService {
       const session = this.repository.session(id);
       if (!session) return failure('NOT_FOUND', 'Session not found');
       let failed: Result<never> | void;
-      this.repository.transaction(() => { failed = action(session); if (!failed) { session.updatedAt = new Date().toISOString(); this.repository.saveSession(session); } });
+      this.repository.transaction(() => { failed = action(session); if (!failed) { session.updatedAt = new Date().toISOString(); if (session.settledAt) this.repository.archiveSession(session); else this.repository.saveSession(session); } });
       if (failed!) return failed!;
+      if (reason === 'history') await this.refreshWatch();
       this.changed(reason); return success(this.toDto(session));
     });
   }

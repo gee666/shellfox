@@ -36,30 +36,43 @@ export async function discoverProfiles(options: ProfileOptions = {}): Promise<Te
       { id: 'pwsh', label: 'PowerShell', executable: path.win32.join(env.ProgramFiles || 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe') },
       { id: 'windows-powershell', label: 'Windows PowerShell', executable: path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe') },
     ];
-    for (const p of candidates) if (await exists(p.executable)) profiles.push({ ...p, environment: 'local', args: ['-NoLogo'], distro: null, available: true, canTerminateDescendants: true, unavailableReason: null });
-    const powershell = profiles.find(p => p.id === 'windows-powershell');
-    if (powershell) {
-      const capability = await (options.administratorCapability ?? elevatedCapability)();
-      profiles.push({ ...powershell, id: ADMIN_POWERSHELL_PROFILE, label: 'Administrator Windows PowerShell', elevation: 'administrator', available: capability.available, canTerminateDescendants: capability.available, unavailableReason: capability.reason });
-    }
-    const wsl = path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'wsl.exe');
-    if (await exists(wsl)) {
+    const discoverLocal = async (): Promise<TerminalProfileDto[]> => {
+      const local: TerminalProfileDto[] = [];
+      const installed = await Promise.all(candidates.map(p => exists(p.executable)));
+      candidates.forEach((p, i) => { if (installed[i]) local.push({ ...p, environment: 'local', args: ['-NoLogo'], distro: null, available: true, canTerminateDescendants: true, unavailableReason: null }); });
+      const powershell = local.find(p => p.id === 'windows-powershell');
+      if (powershell) {
+        const capability = await (options.administratorCapability ?? elevatedCapability)();
+        local.push({ ...powershell, id: ADMIN_POWERSHELL_PROFILE, label: 'Administrator Windows PowerShell', elevation: 'administrator', available: capability.available, canTerminateDescendants: capability.available, unavailableReason: capability.reason });
+      }
+      return local;
+    };
+    const discoverGuests = async (): Promise<TerminalProfileDto[]> => {
+      const wsl = path.win32.join(env.SystemRoot || 'C:\\Windows', 'System32', 'wsl.exe');
+      if (!await exists(wsl)) return [];
       try {
         const distros = [...new Set(decodeWsl(await run(wsl, ['--list', '--quiet'])).split('\n').map(s => s.trim()).filter(s => s && s.length <= 160 && !/[\u0000-\u001f\u007f]/.test(s)))].slice(0, 32);
         // A distro name is not proof of a usable shell or safe close support. Preflight before permitting launch.
         const probeScript = `test -x /bin/bash && test -x /usr/bin/env && command -v python3 >/dev/null && exec python3 -c "$1"`;
-        const probed: TerminalProfileDto[] = [];
-        for (let offset = 0; offset < distros.length; offset += 4) {
-          const batch = await Promise.all(distros.slice(offset, offset + 4).map(async distro => {
+        const probed: TerminalProfileDto[] = new Array(distros.length);
+        let next = 0;
+        // Refill each worker as it finishes. A slow/booting distro must not
+        // leave three idle slots between fixed batches. Preserve discovery order.
+        await Promise.all(Array.from({ length: Math.min(4, distros.length) }, async () => {
+          while (next < distros.length) {
+            const index = next++, distro = distros[index]!;
             let available = false;
             try { available = decodeWsl(await run(wsl, ['--distribution', distro, '--exec', '/bin/sh', '-c', probeScript, 'shellfox-preflight', PIDFD_PREFLIGHT])).trim() === PIDFD_READY; } catch { /* A failed preflight is an unavailable profile, not a launch permission. */ }
-            return { id: `wsl:${distro}`, label: `WSL · ${distro}`.slice(0, 200), environment: 'wsl' as const, executable: wsl, args: ['--distribution', distro, '--exec', '/bin/bash', '-l', '-i'], distro, available, canTerminateDescendants: available, unavailableReason: available ? null : 'Requires accessible Bash, env, Python3, /proc and working Linux pidfd signal support. Guest preflight failed; no shell may be launched.' };
-          }));
-          probed.push(...batch);
-        }
-        profiles.push(...probed);
-      } catch { /* WSL missing, unconfigured or unavailable is not a discovered shell. */ }
-    }
+            probed[index] = { id: `wsl:${distro}`, label: `WSL · ${distro}`.slice(0, 200), environment: 'wsl', executable: wsl, args: ['--distribution', distro, '--exec', '/bin/bash', '-l', '-i'], distro, available, canTerminateDescendants: available, unavailableReason: available ? null : 'Requires accessible Bash, env, Python3, /proc and working Linux pidfd signal support. Guest preflight failed; no shell may be launched.' };
+          }
+        }));
+        return probed;
+      } catch { return []; /* WSL missing, unconfigured or unavailable is not a discovered shell. */ }
+    };
+    // Administrator capability and WSL startup do not depend on each other.
+    const discovery = [discoverLocal(), discoverGuests()];
+    await Promise.allSettled(discovery);
+    profiles.push(...(await Promise.all(discovery)).flat());
   } else if (platform === 'linux' || platform === 'darwin') {
     let login = options.loginShell;
     if (login === undefined) { try { login = userInfo().shell; } catch { login = null; } }
@@ -87,9 +100,16 @@ export async function validateProfileCwd(profile: TerminalProfileDto, cwd: strin
     if (unc.distro.toLowerCase() !== profile.distro.toLowerCase()) throw new Error('The folder belongs to a different WSL distribution.');
     guest = unc.guestPath;
   }
-  if (/^[A-Za-z]:[\\/]/.test(cwd)) guest = decodeWsl(await run(profile.executable, ['--distribution', profile.distro, '--exec', 'wslpath', '-a', '-u', cwd])).trim();
-  if (!guest.startsWith('/') || !pathSchema.safeParse(guest).success) throw new Error('Expected an absolute guest directory.');
-  await run(profile.executable, ['--distribution', profile.distro, '--exec', '/bin/sh', '-c', 'test -d "$1" && test -x "$1"', 'shellfox-cwd', guest]);
+  if (/^[A-Za-z]:[\\/]/.test(cwd)) {
+    // Translate and check in one guest process. The path is a positional
+    // argument, never shell source. Failed translation/access never reaches printf.
+    const script = 'set -e; dir=$(wslpath -a -u "$1"); test -d "$dir"; test -x "$dir"; printf \'%s\\n\' "$dir"';
+    guest = decodeWsl(await run(profile.executable, ['--distribution', profile.distro, '--exec', '/bin/sh', '-c', script, 'shellfox-cwd', cwd])).replace(/\n$/, '');
+    if (!guest.startsWith('/') || !pathSchema.safeParse(guest).success) throw new Error('Expected an absolute guest directory.');
+  } else {
+    if (!guest.startsWith('/') || !pathSchema.safeParse(guest).success) throw new Error('Expected an absolute guest directory.');
+    await run(profile.executable, ['--distribution', profile.distro, '--exec', '/bin/sh', '-c', 'test -d "$1" && test -x "$1"', 'shellfox-cwd', guest]);
+  }
   return guest;
 }
 export function spawnArguments(profile: TerminalProfileDto, cwd: string, marker: string): { file: string; args: string[]; cwd?: string } {
