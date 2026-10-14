@@ -104,7 +104,7 @@ export async function downloadAsset(fetch: UpdateFetch, asset: ReleaseAsset, des
 export class SelfUpdater implements UpdateSource {
   private release: UpdateRelease | null = null;
   private state: UpdateStatusDto;
-  private lookup: Promise<UpdateStatusDto> | null = null;
+  private lookup: Promise<boolean> | null = null;
   private checkedAt = -Infinity;
   private operation: Promise<void> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -133,35 +133,44 @@ export class SelfUpdater implements UpdateSource {
   }
   async status(): Promise<UpdateStatusDto> {
     if (this.disposed || this.operation || this.installing || this.state.phase === 'ready' || this.state.phase === 'installing') return { ...this.state };
-    if (this.lookup) return this.lookup;
     const now = (this.options.now ?? Date.now)();
-    if (now - this.checkedAt < CHECK_INTERVAL_MS) return { ...this.state };
+    if (this.lookup || now - this.checkedAt >= CHECK_INTERVAL_MS) await this.refresh();
+    return { ...this.state };
+  }
+  private refresh(): Promise<boolean> {
     this.lookup ??= this.check().finally(() => { this.lookup = null; });
     return this.lookup;
   }
-  private async check(): Promise<UpdateStatusDto> {
+  private async check(): Promise<boolean> {
     this.checkedAt = (this.options.now ?? Date.now)();
     const controller = new AbortController(); this.controller = controller;
     const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const response = await this.options.fetch(LATEST_RELEASE_URL, { signal: controller.signal, redirect: 'error', headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'shellfox-updater' } });
+      const response = await this.options.fetch(LATEST_RELEASE_URL, { signal: controller.signal, redirect: 'error', cache: 'no-store', headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'shellfox-updater', 'Cache-Control': 'no-cache' } });
       if (!response.ok) throw new Error('Release check failed.');
       const release = parseRelease(await readReleaseBody(response), v => this.options.platform.assetName(v));
-      if (this.disposed) return { ...this.state };
+      if (this.disposed) return false;
       this.release = release;
       this.state.latest = release?.version ?? null;
       this.state.available = !!release && isNewer(release.version, this.options.current);
       this.state.supported = this.options.platform.supported && !!release?.asset;
       this.state.reason = this.options.platform.reason ?? (release && !release.asset ? 'This release has no verified installer for this platform. Download it from the releases page.' : null);
-    } catch { /* Offline checks keep the last known release. */ }
+      return release !== null;
+    } catch { return false; /* Offline checks keep the notice, but cannot authorize a download. */ }
     finally { clearTimeout(timer); if (this.controller === controller) this.controller = null; }
-    return { ...this.state };
+  }
+  private downloadBusy(): boolean {
+    return !!this.operation || this.installing || this.state.phase === 'ready' || this.state.phase === 'installing';
   }
   async download(): Promise<Result<UpdateStatusDto>> {
     if (this.disposed) return failure('UNSUPPORTED', 'Updater is shutting down.');
-    await this.status();
+    if (this.downloadBusy()) return success({ ...this.state });
+    // The notice may be an hour old. Resolve the latest release at download time,
+    // sharing any in-flight lookup but never falling back to cached metadata.
+    const fresh = await this.refresh();
     if (this.disposed) return failure('UNSUPPORTED', 'Updater is shutting down.');
-    if (this.operation || this.installing || this.state.phase === 'ready' || this.state.phase === 'installing') return success({ ...this.state });
+    if (!fresh) return failure('INTERNAL', 'Could not check the latest release. Try the download again when connected.', true);
+    if (this.downloadBusy()) return success({ ...this.state });
     const asset = this.release?.asset;
     if (!this.state.available || !this.state.supported || !asset) return failure('UNSUPPORTED', this.state.reason ?? 'No installable update is available.');
     this.state = { ...this.state, phase: 'downloading', received: 0, total: asset.size, error: null };

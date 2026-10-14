@@ -118,6 +118,37 @@ describe('updater lifecycle', () => {
     expect(await f.updater.status()).toMatchObject({ latest: '0.2.6', available: true });
     await f.updater.dispose(); await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS); expect(f.fetch).toHaveBeenCalledTimes(3);
   });
+  it('refreshes the cached notice and downloads only the latest release', async () => {
+    const f = fixture();
+    expect(await f.updater.status()).toMatchObject({ latest: '0.2.6' });
+    const url = asset.url.replace('v0.2.6', 'v0.2.7');
+    f.fetch.mockImplementation(async target => target === LATEST_RELEASE_URL
+      ? Response.json({ ...release({ browser_download_url: url }), tag_name: 'v0.2.7' }) : body());
+    await Promise.all([f.updater.download(), f.updater.download()]); await ready(f.updater);
+    expect(f.fetch).toHaveBeenCalledTimes(3);
+    expect(f.fetch).toHaveBeenCalledWith(LATEST_RELEASE_URL, expect.objectContaining({ cache: 'no-store', headers: expect.objectContaining({ 'Cache-Control': 'no-cache' }) }));
+    expect(f.fetch).toHaveBeenCalledWith(url, expect.anything());
+    expect(f.fetch).not.toHaveBeenCalledWith(asset.url, expect.anything());
+    expect(f.prepare).toHaveBeenCalledExactlyOnceWith(expect.any(String), '0.2.7', expect.any(String));
+    expect(await f.updater.status()).toMatchObject({ latest: '0.2.7', phase: 'ready' });
+    await f.updater.dispose();
+  });
+  it.each(['offline', 'HTTP error', 'malformed', 'missing asset', 'no newer release'])('does not download the cached release when refresh returns %s', async kind => {
+    const f = fixture(); await f.updater.status();
+    f.fetch.mockImplementation(async () => {
+      if (kind === 'offline') throw new Error('offline');
+      if (kind === 'HTTP error') return new Response('', { status: 503 });
+      if (kind === 'malformed') return Response.json({});
+      if (kind === 'missing asset') return Response.json({ ...release(), tag_name: 'v0.2.7', assets: [] });
+      return Response.json({ ...release(), tag_name: 'v0.2.5' });
+    });
+    expect(await f.updater.download()).toMatchObject({ ok: false });
+    expect(f.fetch).toHaveBeenCalledTimes(2); expect(f.prepare).not.toHaveBeenCalled();
+    expect(await readdir(root)).toEqual([]);
+    if (kind === 'offline') expect(await f.updater.status()).toMatchObject({ latest: '0.2.6', available: true });
+    f.fetch.mockImplementation(async url => url === LATEST_RELEASE_URL ? Response.json(release()) : body());
+    await f.updater.download(); await ready(f.updater); await f.updater.dispose();
+  });
   it('returns immediately, verifies, stages and waits for installation confirmation', async () => {
     const f = fixture({ quit: async () => false });
     expect(await f.updater.download()).toMatchObject({ ok: true, value: { phase: 'downloading' } });
@@ -172,7 +203,7 @@ describe('updater lifecycle', () => {
     const f = fixture({ fetch: async () => new Response('x'.repeat(2 * 1024 * 1024 + 1)) });
     expect(await f.updater.status()).toMatchObject({ latest: null, available: false });
     expect(await f.updater.download()).toMatchObject({ ok: false });
-    expect(f.fetch).toHaveBeenCalledTimes(1); expect(f.prepare).not.toHaveBeenCalled(); await f.updater.dispose();
+    expect(f.fetch).toHaveBeenCalledTimes(2); expect(f.prepare).not.toHaveBeenCalled(); await f.updater.dispose();
   });
   it('reports cleanup failures without an unhandled background rejection and retains paths for later cleanup', async () => {
     const f = fixture();
@@ -220,6 +251,6 @@ describe('updater lifecycle', () => {
     expect((await f.updater.status()).phase).toBe('error');
     await f.updater.download(); expect(f.fetch).toHaveBeenCalledTimes(2);
     releaseFailure(); await installing;
-    await f.updater.download(); await ready(f.updater); expect(f.fetch).toHaveBeenCalledTimes(3); await f.updater.dispose();
+    await f.updater.download(); await ready(f.updater); expect(f.fetch).toHaveBeenCalledTimes(4); await f.updater.dispose();
   });
 });

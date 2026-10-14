@@ -149,7 +149,7 @@ describe('main automatic update on close/quit', () => {
     expect(state.repository.close).toHaveBeenCalledTimes(1); expect(state.commit).toHaveBeenCalledTimes(1);
   });
   it('normally quits a failed download without launching an installer', async () => {
-    state.fetch.mockImplementationOnce(async () => new Response('bad checksum'));
+    state.fetch.mockImplementation(async url => url.includes('/releases/latest') ? Response.json(release) : new Response('bad checksum'));
     await state.updater!.download(); await expect.poll(async () => (await state.updater!.status()).phase).toBe('error');
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
     expect(state.start).not.toHaveBeenCalled(); expect(state.service.dispose).toHaveBeenCalledTimes(1);
@@ -163,10 +163,15 @@ describe('main automatic update on close/quit', () => {
   });
   it('aborts an incomplete download on quit, without waiting for readiness or installing', async () => {
     let aborted = false;
-    state.fetch.mockImplementationOnce(async (_url, init: RequestInit) => new Promise((_resolve, reject) => {
-      init.signal!.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); });
-    }));
-    await state.updater!.download(); await expect.poll(() => state.fetch.mock.calls.length).toBe(2);
+    let downloading = false;
+    state.fetch.mockImplementation(async (url, init: RequestInit) => {
+      if (url.includes('/releases/latest')) return Response.json(release);
+      downloading = true;
+      return new Promise((_resolve, reject) => {
+        init.signal!.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); });
+      });
+    });
+    await state.updater!.download(); await expect.poll(() => downloading).toBe(true);
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
     expect(aborted).toBe(true); expect(state.prepare).not.toHaveBeenCalled(); expect(state.start).not.toHaveBeenCalled();
     expect(await readdir(state.root)).not.toContainEqual(expect.stringMatching(/^shellfox-update-/));
