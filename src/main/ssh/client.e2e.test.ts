@@ -7,6 +7,7 @@ import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 import { helpText, sshHelp } from './presentation';
 import { CUSTOM_COMMAND_HELP } from '../platform/shellfox-cli-dispatch';
+import { COMPLETION_HELP } from '../platform/shellfox-completion';
 const exec=promisify(execFile);
 it('connects through real shims in a PTY, forwards controls/resize, authenticates, checks TOFU and propagates exit',async()=>{
   await mkdir('tmp',{recursive:true});const directory=await mkdtemp(path.resolve('tmp/ssh-e2e-'));
@@ -16,7 +17,7 @@ it('connects through real shims in a PTY, forwards controls/resize, authenticate
     await build({...options,entryPoints:['src/main/platform/shellfox-cli-entry.ts'],outfile:helper,define:{__SHELLFOX_VERSION__:JSON.stringify('test')}});
     await mkdir(path.join(directory,'cli/util'),{recursive:true});await copyFile('node_modules/ssh2/util/pagent.exe',path.join(directory,'cli/util/pagent.exe'));
     if(process.platform==='win32'){await mkdir(path.join(directory,'cli/cli-runtime'));await copyFile(process.execPath,path.join(directory,'cli/cli-runtime/node.exe'));}
-    const help=await exec(process.execPath,[helper,'--help'],{timeout:5000});expect(help.stdout).toBe(helpText('test',false,process.platform!=='win32')+'\n'+CUSTOM_COMMAND_HELP);
+    const help=await exec(process.execPath,[helper,'--help'],{timeout:5000});expect(help.stdout).toBe(helpText('test',false,process.platform!=='win32')+'\n'+CUSTOM_COMMAND_HELP+'\n'+COMPLETION_HELP);
     const sshUsage=await exec(process.execPath,[helper,'ssh','--help'],{timeout:5000});expect(sshUsage.stdout).toBe(sshHelp(false));
     await expect(exec(process.execPath,[helper,'ssh','--bad'],{timeout:5000})).rejects.toMatchObject({code:2,stdout:'  invalid ssh arguments\n  run shellfox --help\n'});
     await expect(exec(process.execPath,[helper,'--user-data',directory,'ssh'],{timeout:5000})).rejects.toMatchObject({code:2,stdout:expect.stringContaining('no ssh connections yet')});
