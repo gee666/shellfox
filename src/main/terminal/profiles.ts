@@ -12,6 +12,7 @@ import { resolvePython, type PythonProbe } from './python';
 import { getDarwinSupervisorCapability } from './darwin-supervisor';
 import type { TrackingHelperOptions } from './tracking';
 import { ADMIN_POWERSHELL_PROFILE, elevatedCapability } from './windows-elevated';
+import { powershellCompletion } from '../platform/shellfox-completion';
 
 export type Execute = (file: string, args: string[]) => Promise<Buffer>;
 export const execute: Execute = (file, args) => new Promise((resolve, reject) => {
@@ -112,8 +113,16 @@ export async function validateProfileCwd(profile: TerminalProfileDto, cwd: strin
   }
   return guest;
 }
-export function spawnArguments(profile: TerminalProfileDto, cwd: string, marker: string): { file: string; args: string[]; cwd?: string } {
+export function spawnArguments(profile: TerminalProfileDto, cwd: string, marker: string, completion = false): { file: string; args: string[]; cwd?: string } {
   if (profile.elevation || profile.id === ADMIN_POWERSHELL_PROFILE) throw new Error('Administrator tabs require the authenticated ConPTY helper.');
-  if (profile.environment === 'local') return { file: profile.executable, args: [...profile.args], cwd };
+  if (profile.environment === 'local') {
+    const args = [...profile.args];
+    // PowerShell loads the user's profile before this hook, then stays interactive.
+    // Do not replace Unix login/rc startup or inject text into the PTY input stream.
+    if (completion && /^(?:pwsh|powershell)(?:\.exe)?$/i.test(path.win32.basename(profile.executable))) {
+      args.push('-NoExit', '-EncodedCommand', Buffer.from(powershellCompletion(), 'utf16le').toString('base64'));
+    }
+    return { file: profile.executable, args, cwd };
+  }
   return { file: profile.executable, args: ['--distribution', profile.distro!, '--cd', cwd, '--exec', '/usr/bin/env', `SHELLFOX_TERMINAL_MARKER=${marker}`, '/bin/bash', '-l', '-i'] };
 }

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { defaultUserData, runCli as runBuiltinCli } from '../ssh/cli';
 import { CUSTOM_COMMAND_HELP, dispatchCustomCli } from './shellfox-cli-dispatch';
 import { dispatchWindowsLaunch } from './shellfox-cli-launch';
+import { COMPLETION_HELP, dispatchCompletion } from './shellfox-completion';
 
 export async function runShellfoxCli(argv: string[]): Promise<number> {
   if (argv[0] === '--shellfox-argv-json') {
@@ -16,12 +17,14 @@ export async function runShellfoxCli(argv: string[]): Promise<number> {
     if (!argv[1]) throw new Error('Missing user data directory.');
     userData = path.resolve(argv[1]); args = argv.slice(2);
   }
+  const completion = dispatchCompletion(args);
+  if (completion !== null) return completion;
   const custom = await dispatchCustomCli(args, userData);
   if (custom !== null) return custom;
   const launch = await dispatchWindowsLaunch(args);
   if (launch !== null) return launch;
   const code = await runBuiltinCli(argv);
-  if (code === 0 && (!args.length || (args.length === 1 && ['help', '--help', '-h'].includes(args[0])))) process.stdout.write('\n' + CUSTOM_COMMAND_HELP);
+  if (code === 0 && (!args.length || (args.length === 1 && ['help', '--help', '-h'].includes(args[0])))) process.stdout.write('\n' + CUSTOM_COMMAND_HELP + '\n' + COMPLETION_HELP);
   return code;
 }
 if (require.main === module) void runShellfoxCli(process.argv.slice(2)).then(code => { process.exitCode = code; }).catch(error => {

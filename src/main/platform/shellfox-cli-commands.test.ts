@@ -123,6 +123,40 @@ it('shows namespace help only before a name, and lets a script be named help', a
   expect(await dispatchCustomCli(['cmd', 'help', '--help'], store.userData, { execute, output, error })).toBe(0);
   expect(execute).toHaveBeenCalledWith({ name: 'help', path: file }, ['--help'], expect.anything());
 });
+it('completes current names case-insensitively without executing or resolving scripts', async () => {
+  const { file, store, output, error } = await fixture();
+  const execute = vi.fn(), resolve = vi.fn();
+  const options = { output, error, execute, resolve };
+  const complete = async (prefix: string, namespace = 'cmd') => {
+    output.write.mockClear();
+    expect(await dispatchCustomCli([namespace, '--complete', prefix], store.userData, options)).toBe(0);
+    return output.write.mock.calls.map(([text]) => text).join('');
+  };
+  expect(await complete('')).toBe('');
+  await store.register('Build', { path: file });
+  await store.register('bundle', { path: file });
+  await store.register('deploy', { path: file });
+  await rm(file);
+  expect(await complete('BU')).toBe('Build\nbundle\n');
+  expect(await complete('')).toBe('Build\nbundle\ndeploy\n');
+  expect(await complete('no-match')).toBe('');
+  expect(await complete('*')).toBe('');
+  await store.rename('Build', 'bootstrap');
+  await store.unregister('bundle');
+  expect(await complete('b')).toBe('bootstrap\n');
+  expect(execute).not.toHaveBeenCalled(); expect(resolve).not.toHaveBeenCalled();
+  expect(error.write).not.toHaveBeenCalled();
+  for (const args of [[], ['a', 'extra']]) {
+    expect(await dispatchCustomCli(['cmd', '--complete', ...args], store.userData, options)).toBe(2);
+  }
+});
+it('does not accept the cdm typo or execute a command through it', async () => {
+  const { file, store, output, error } = await fixture();
+  await store.register('Build', { path: file });
+  const execute = vi.fn(async () => 0);
+  expect(await dispatchCustomCli(['cdm', 'build', '--flag'], store.userData, { execute, output, error })).toBeNull();
+  expect(execute).not.toHaveBeenCalled();
+});
 it('rejects directories, absent paths, path controls and relative on-disk entries', async () => {
   const { root, file, store } = await fixture();
   await expect(resolveScriptLocation(root)).rejects.toThrow('file');

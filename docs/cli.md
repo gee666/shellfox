@@ -56,6 +56,38 @@ Names start with a letter and contain up to 64 ASCII letters, digits, underscore
 
 `shellfox list` and `shellfox ls` still list sessions. Custom management is available only through `shellfox cmd`; the former top-level `register`, `rename`, `unregister`, `commands` and `list --commands` forms are not supported. `cmd --ls` and `cmd --list` list references without contacting the app. WSL entries also show their distro. Paths are JSON-quoted to make spaces and terminal control characters visible.
 
+### Tab completion
+
+`shellfox completion <powershell|bash|zsh>` prints a hook for that shell. It does not edit profiles or install files. New regular embedded PowerShell tabs load the hook automatically when the CLI integration is enabled. Existing tabs, administrator tabs, Bash, zsh and external shells need the explicit loading step below. Unix tabs keep their normal login/rc startup unchanged.
+
+PowerShell 5.1 or newer:
+
+```powershell
+shellfox completion powershell | Out-String | Invoke-Expression
+```
+
+Bash 3.2 or newer, including Git Bash and WSL:
+
+```bash
+source <(shellfox completion bash)
+```
+
+zsh, after enabling its completion system:
+
+```zsh
+autoload -Uz compinit
+compinit
+source <(shellfox completion zsh)
+```
+
+These commands load generated Shellfox code, not registry contents. Use the trusted installed `shellfox` command. To persist completion, add the appropriate loading line yourself to `$PROFILE`, `~/.bashrc` or `~/.zshrc`. For zsh, keep it after your existing `compinit` call. Reloading a hook is safe. Remove the line to disable it in future shells. PowerShell execution policy still applies to the CLI's `.ps1` shim.
+
+Tab completes `cmd`, custom-management flags and registered names directly on the terminal command line. Names also complete immediately after `--run`, `--remove`, `--rm`, `--unregister` and `--rename`. Completion stops after the selected name. It does not suggest existing names for a new registration or the destination of a rename, and it does not interpret script arguments. Other top-level commands are outside this hook's scope.
+
+Use Tab to fill a matching command name. In PowerShell's default Windows editing mode, repeated Tab presses cycle matches. No additional keybindings are required or installed; your shell's existing Tab behavior is preserved. This is command-line completion, not automatic ghost-text prediction while typing.
+
+The hook queries `shellfox cmd --complete <prefix>` on each name completion. This read-only endpoint returns matching registered names, one per line, without descriptions or headers. An empty prefix requests all names. It needs neither the GUI nor the script files and never runs a registered command. Missing CLI commands, registry errors and empty results produce no dynamic suggestions. The hooks accept only valid command names from the endpoint and never evaluate them as shell source. In WSL, use the Windows-installed shim to complete the Windows registry, or the separate Linux CLI for its own registry.
+
 ### Interpreters and arguments
 
 | Script | Execution |

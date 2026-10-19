@@ -204,7 +204,7 @@ export class PtyBackend {
       if (current?.generation === input.generation) return success(this.get(input.tabId)!);
       return failure('VALIDATION', 'Terminal ownership changed or the live terminal limit was reached during preparation.');
     }
-    const command = administrator ? { file: profile.executable, args: [], cwd } : supervisor ?? spawnArguments(profile, cwd, marker);
+    const command = administrator ? { file: profile.executable, args: [], cwd } : supervisor ?? spawnArguments(profile, cwd, marker, !!input.cliBin);
     const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin, marker });
     if (supervisor) Object.assign(env, supervisor.env);
     // Unix node-pty writes options.name back to env.TERM, so use the session value.

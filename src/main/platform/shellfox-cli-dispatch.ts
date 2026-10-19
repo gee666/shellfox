@@ -9,6 +9,7 @@ export const CUSTOM_COMMAND_HELP = `Custom commands:
   shellfox cmd <name> [args...]
   shellfox cmd --run <name> [args...]
   shellfox cmd --help
+Use shellfox completion <powershell|bash|zsh> for Tab completion.
 Paths are references. Each invocation reads the current script.
 All arguments after the name go to the script unchanged.
 `;
@@ -21,7 +22,7 @@ export interface CustomCliOptions {
 }
 const display = (text: string) => JSON.stringify(text).replace(/[\u007f-\u009f]/g, char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0'));
 class UsageError extends Error {}
-/** Only the cmd namespace is handled here. Top-level commands never read the registry. */
+/** Only the cmd namespace is handled here. Other commands never read the registry. */
 export async function dispatchCustomCli(argv: string[], userData: string, options: CustomCliOptions = {}): Promise<number | null> {
   if (commandKey(argv[0] ?? '') !== 'cmd') return null;
   const output = options.output ?? process.stdout, error = options.error ?? process.stderr;
@@ -31,6 +32,15 @@ export async function dispatchCustomCli(argv: string[], userData: string, option
     if (operation === undefined || ['--help', '-h'].includes(operation)) {
       if (args.length) throw new UsageError('Usage: shellfox cmd --help');
       output.write(CUSTOM_COMMAND_HELP); return 0;
+    }
+    if (operation === '--complete') {
+      if (args.length !== 1) throw new UsageError('Usage: shellfox cmd --complete <prefix>');
+      const prefix = commandKey(args[0]);
+      const names = (await store.read()).map(command => command.name)
+        .filter(name => commandKey(name).startsWith(prefix))
+        .sort((a, b) => commandKey(a).localeCompare(commandKey(b)));
+      if (names.length) output.write(names.join('\n') + '\n');
+      return 0;
     }
     if (operation === '--register') {
       if (args.length !== 2) throw new UsageError('Usage: shellfox cmd --register <name> <script-path>');
