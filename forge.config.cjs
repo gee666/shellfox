@@ -88,6 +88,13 @@ module.exports = {
           await fs.mkdir(directory, { recursive: true });
           await fs.copyFile(path.join(__dirname, 'resources/icon/icon-256.png'), path.join(directory, 'shellfox.png'));
           await fs.chmod(path.join(directory, 'shellfox.png'), 0o644);
+          // System-wide Tab completion: bash-completion and zsh load these lazily in every terminal.
+          const completion = path.join(__dirname, 'tmp/build/cli/completion');
+          for (const [source, target] of [['shellfox.bash', 'usr/share/bash-completion/completions/shellfox'], ['_shellfox', 'usr/share/zsh/vendor-completions/_shellfox']]) {
+            await fs.mkdir(path.dirname(path.join(stage, target)), { recursive: true });
+            await fs.copyFile(path.join(completion, source), path.join(stage, target));
+            await fs.chmod(path.join(stage, target), 0o644);
+          }
           await execFile('dpkg-deb', ['--build', '--root-owner-group', stage, artifact], { timeout: 60000 });
         } finally { await fs.rm(stage, { recursive: true, force: true }); }
       }

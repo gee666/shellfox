@@ -560,6 +560,28 @@ describe('terminal clipboard shortcuts', () => {
     expect(sent).toEqual([['device reply', false], ['a', true], ['paste', true]]);
     parsed(); surface.dispose();
   });
+  it('copies the selection on middle click and suppresses the click and primary paste', () => {
+    const copy = vi.fn();
+    const surface = createTerminalSurface(() => {}, undefined, { copy, read: async () => null });
+    document.body.append(surface.element); surface.fit();
+    const terminal = terminalMocks.terminals.at(-1);
+    const received = vi.fn(); const pasted = vi.fn();
+    for (const type of ['mousedown', 'mouseup', 'auxclick']) terminal.element.addEventListener(type, received);
+    terminal.element.addEventListener('paste', pasted);
+    const click = (type: string, button = 1) => { const event = new MouseEvent(type, { bubbles: true, cancelable: true, button }); terminal.element.dispatchEvent(event); return event; };
+    try {
+      terminal.selection = 'selected text';
+      for (const type of ['mousedown', 'mouseup', 'auxclick']) expect(click(type).defaultPrevented).toBe(true);
+      terminal.element.dispatchEvent(new Event('paste', { bubbles: true, cancelable: true }));
+      expect(copy).toHaveBeenCalledExactlyOnceWith('selected text');
+      expect(received).not.toHaveBeenCalled(); expect(pasted).not.toHaveBeenCalled();
+      // Without a selection middle click keeps its normal behavior.
+      terminal.selection = '';
+      for (const type of ['mousedown', 'mouseup']) expect(click(type).defaultPrevented).toBe(false);
+      expect(click('mousedown', 0).defaultPrevented).toBe(false);
+      expect(copy).toHaveBeenCalledOnce(); expect(received).toHaveBeenCalledTimes(3);
+    } finally { surface.dispose(); }
+  });
   it('does not paste into a disposed surface after a late clipboard read', async () => {
     const pending = deferred<string | null>();
     const surface = createTerminalSurface(() => {}, undefined, { copy() {}, read: () => pending.promise });

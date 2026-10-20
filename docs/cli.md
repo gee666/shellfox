@@ -58,7 +58,7 @@ Names start with a letter and contain up to 64 ASCII letters, digits, underscore
 
 ### Tab completion
 
-`shellfox completion <powershell|bash|zsh>` prints a hook for that shell. It does not edit profiles or install files. New regular embedded PowerShell tabs load the hook automatically when the CLI integration is enabled. Existing tabs, administrator tabs, Bash, zsh and external shells need the explicit loading step below. Unix tabs keep their normal login/rc startup unchanged.
+`shellfox completion <powershell|bash|zsh>` prints a hook for that shell. It does not edit profiles or install files. The Debian package installs the Bash and zsh hooks system-wide (`/usr/share/bash-completion/completions/shellfox`, `/usr/share/zsh/vendor-completions/_shellfox`), so every new Bash shell with bash-completion enabled, and zsh after `compinit`, completes without extra steps. New regular embedded PowerShell tabs load the hook automatically when the CLI integration is enabled. Existing tabs, administrator tabs and other installs need the explicit loading step below. Unix tabs keep their normal login/rc startup unchanged.
 
 PowerShell 5.1 or newer:
 

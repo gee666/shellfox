@@ -82,6 +82,24 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     }
   };
   element.addEventListener('mousemove', preserveSelection, true);
+  // Middle click with a selection copies it to the clipboard instead of pasting
+  // the primary selection or reporting the click to a mouse-enabled app.
+  let middleCopyUntil = 0;
+  const middleCopy = (ev: MouseEvent) => {
+    if (ev.button !== 1) return;
+    if (ev.type === 'mousedown') {
+      if (!clipboard || !terminal.hasSelection()) { middleCopyUntil = 0; return; }
+      clipboard.copy(terminal.getSelection());
+      middleCopyUntil = Date.now() + 1000;
+    } else if (Date.now() > middleCopyUntil) return;
+    ev.preventDefault(); ev.stopPropagation();
+  };
+  const blockMiddlePaste = (ev: Event) => {
+    if (Date.now() <= middleCopyUntil) { middleCopyUntil = 0; ev.preventDefault(); ev.stopPropagation(); }
+  };
+  const middleEvents = ['mousedown', 'mouseup', 'auxclick'] as const;
+  middleEvents.forEach(type => element.addEventListener(type, middleCopy, true));
+  element.addEventListener('paste', blockMiddlePaste, true);
   if (clipboard) terminal.attachCustomKeyEventHandler(ev => {
     const action = clipboardShortcut(ev);
     if (!action) return true;
@@ -126,7 +144,9 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     dispose: () => {
       disposed = true;
       inputEvents.forEach(type => element.removeEventListener(type, markUserInput, true));
-      element.removeEventListener('mousemove', preserveSelection, true); terminal.dispose(); element.remove();
+      element.removeEventListener('mousemove', preserveSelection, true);
+      middleEvents.forEach(type => element.removeEventListener(type, middleCopy, true));
+      element.removeEventListener('paste', blockMiddlePaste, true); terminal.dispose(); element.remove();
     },
   };
 };
