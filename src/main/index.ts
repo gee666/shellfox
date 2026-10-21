@@ -114,7 +114,7 @@ async function run(): Promise<void> {
   if (__TEST_BUILD__) (globalThis as any).__shellfoxTest = { service, repository, backend: service.backend };
   startupCleanups.push(() => service.dispose());
   await service.initialize(nativePaths());
-  const keepAwake = new KeepAwake(powerSaveBlocker);
+  const keepAwake = new KeepAwake(powerSaveBlocker, { stateDir: app.getPath('userData') });
   startupCleanups.push(() => keepAwake.dispose());
   app.on('will-quit', () => keepAwake.dispose());
   const controlServer = await startControlServer(app.getPath('userData'), service, keepAwake);
