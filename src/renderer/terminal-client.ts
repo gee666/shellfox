@@ -56,9 +56,17 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     overviewRuler: { width: 8 },
     theme,
     // OSC 8 hyperlinks: only http(s), opened by the main process in the system browser.
-    linkHandler: { activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) clipboard?.openLink?.(uri); }, allowNonHttpProtocols: false },
+    // OSC 8 text hides its target, so hovering shows it as a tooltip.
+    linkHandler: {
+      activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) clipboard?.openLink?.(uri); },
+      hover: (_event, uri) => { if (isWebLink(uri)) element.title = uri; },
+      leave: () => element.removeAttribute('title'),
+      allowNonHttpProtocols: false,
+    },
   });
-  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, url => clipboard.openLink!(url)));
+  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, url => clipboard.openLink!(url), {
+    hover: url => { element.title = url; }, leave: () => element.removeAttribute('title'),
+  }));
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   // Shell output must not read/write the OS clipboard.

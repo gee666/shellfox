@@ -400,7 +400,12 @@ describe('xterm safety configuration', () => {
     terminal.options.linkHandler.activate({ button: 2 }, 'https://example.com');
     expect(openLink).not.toHaveBeenCalled();
     terminal.options.linkHandler.activate({ button: 0 }, 'https://example.com/a');
-    expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/a'); surface.dispose();
+    expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/a');
+    // OSC 8 labels hide their target: hovering shows web targets only.
+    terminal.options.linkHandler.hover({}, 'javascript:alert(1)'); expect(surface.element.title).toBe('');
+    terminal.options.linkHandler.hover({}, 'https://example.com/b'); expect(surface.element.title).toBe('https://example.com/b');
+    terminal.options.linkHandler.leave({}, 'https://example.com/b'); expect(surface.element.hasAttribute('title')).toBe(false);
+    surface.dispose();
   });
   it('bounds scrollback and consumes clipboard escape handlers without browser effects', () => {
     const surface = createTerminalSurface(() => {}); const terminal = terminalMocks.terminals.at(-1);

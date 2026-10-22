@@ -33,6 +33,45 @@ test('clicking a terminal URL opens it in the system browser', async () => {
   }
 });
 
+test('URLs broken inside a table column and OSC 8 labels open from every row', async () => {
+  test.skip(process.platform === 'win32', 'POSIX shell command');
+  test.setTimeout(120000);
+  const dir = await scratch('table-links'), { app, page } = await launch(path.join(dir, 'data'), 'real');
+  try {
+    await app.evaluate(({ shell }) => {
+      const opened: string[] = (globalThis as any).__opened = [];
+      shell.openExternal = async url => { opened.push(url); };
+    });
+    const session = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID(), title: 'table-links' }));
+    const tab = session.tabs[0]!;
+    await page.getByRole('button', { name: 'Select session table-links', exact: true }).click();
+    await expect(page.locator('.xterm-helper-textarea')).toBeEditable();
+    // Shape of pi's table fallback: "(url)" hard-broken at the column edge, then an OSC 8 label
+    // followed by the hyperlink opt-ins the shell received.
+    const command = "clear; printf '\\342\\224\\202 (https://example.com/col \\342\\224\\202\\n\\342\\224\\202 umn/end)                 \\342\\224\\202\\n'; "
+      + "printf '\\033]8;;https://example.com/osc8\\033\\\\osc8label\\033]8;;\\033\\\\ env=%s%s\\n' \"$FORCE_HYPERLINK\" \"$PI_HYPERLINKS\"\r";
+    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: command }));
+    await expect(page.locator('.xterm-rows')).toContainText('osc8label env=11', { timeout: 15000 });
+    const click = async (text: string, offset: number) => {
+      const box = (await page.locator('.xterm-rows > div', { hasText: text }).last().boundingBox())!;
+      await page.mouse.move(box.x + offset - 5, box.y + box.height / 2);
+      await page.mouse.move(box.x + offset, box.y + box.height / 2);
+      await page.mouse.click(box.x + offset, box.y + box.height / 2);
+    };
+    await click('umn/end)', 40);
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__opened), { timeout: 10000 }).toEqual(['https://example.com/column/end']);
+    await click('osc8label', 20);
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__opened), { timeout: 10000 }).toEqual(['https://example.com/column/end', 'https://example.com/osc8']);
+    await expect(page.locator('.terminal-surface[title="https://example.com/osc8"]')).toHaveCount(1);
+  } finally {
+    await page.evaluate(async () => {
+      const result = await window.shellfox.getSnapshot();
+      if (result.ok) for (const s of result.value.sessions) for (const t of s.tabs) if (t.terminalKind === 'embedded' && t.lifecycle !== 'closed') await window.shellfox.closeTab!({ tabId: t.id, generation: t.generation! });
+    }).catch(() => {});
+    await app.close();
+  }
+});
+
 test('the eye button toggles keep awake', async () => {
   const dir = await scratch('awake'), { app, page } = await launch(path.join(dir, 'data'));
   try {

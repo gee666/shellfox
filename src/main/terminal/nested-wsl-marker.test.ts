@@ -33,11 +33,11 @@ it.each([false, true])('protects the marker and transfers it bidirectionally on 
   ], { windows: true, wsl, marker: 'owned' });
   expect(Object.keys(env).filter(k => k.toLowerCase() === 'shellfox_terminal_marker')).toEqual(['SHELLFOX_TERMINAL_MARKER']);
   expect(env.SHELLFOX_TERMINAL_MARKER).toBe('owned');
-  expect(env.WSLENV).toBe('KEEP/ul:TERM:COLORTERM:SHELLFOX_TERMINAL_MARKER');
+  expect(env.WSLENV).toBe('KEEP/ul:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:SHELLFOX_TERMINAL_MARKER');
 });
 it('does not introduce WSLENV on native Linux', () => {
   expect(terminalEnvironment({}, [{ name: 'shellfox_terminal_marker', value: 'override' }], { windows: false, wsl: false, marker: 'owned' }))
-    .toEqual({ TERM: 'xterm-256color', COLORTERM: 'truecolor', SHELLFOX_TERMINAL_MARKER: 'owned' });
+    .toEqual({ TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_HYPERLINK: '1', PI_HYPERLINKS: '1', SHELLFOX_TERMINAL_MARKER: 'owned' });
 });
 it.each(['login-shell', 'wsl:Ubuntu'])('wires the generated backend marker into WSLENV for %s', async profileId => {
   const f = factoryFixture(), backend = new PtyBackend(f.options); await backend.initialize();

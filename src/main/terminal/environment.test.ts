@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 it('treats prototype-like environment names as ordinary names', () => { const env = terminalEnvironment({}, [{ name: '__proto__', value: 'literal' }], { windows: true, wsl: false }); expect(Object.hasOwn(env, '__proto__')).toBe(true); expect(env.__proto__).toBe('literal'); });
 it.each([false, true])('merges Windows names and keeps managed WSL names unflagged, direct WSL=%s', wsl => {
   expect(terminalEnvironment({ Path: 'C:\\old', API_KEY: 'old', WSLENV: 'API_KEY/p:OTHER/l', SHELLFOX_TEST_MODE: '1' }, [{ name: 'api_key', value: 'new' }, { name: 'MODE', value: 'dev' }], { windows: true, wsl, cliBin: 'C:\\Shellfox\\bin' }))
-    .toEqual({ TERM: 'xterm-256color', COLORTERM: 'truecolor', Path: 'C:\\Shellfox\\bin;C:\\old', api_key: 'new', MODE: 'dev', WSLENV: 'OTHER/l:TERM:COLORTERM:api_key:MODE' });
+    .toEqual({ TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_HYPERLINK: '1', PI_HYPERLINKS: '1', Path: 'C:\\Shellfox\\bin;C:\\old', api_key: 'new', MODE: 'dev', WSLENV: 'OTHER/l:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:api_key:MODE' });
 });
 it.each([false, true])('advertises truecolor instead of inherited host limitations, Windows=%s', windows => {
   expect(terminalEnvironment({ TERM: 'dumb', COLORTERM: '24bit' }, [], { windows, wsl: false })).toMatchObject({ TERM: 'xterm-256color', COLORTERM: 'truecolor' });
@@ -18,13 +18,13 @@ it.each([false, true])('merges session WSLENV without path/direction flags on ma
     { name: 'wslenv', value: 'KEEP/up:term/pw:COLORTERM/l:MODE/p' },
     { name: 'term', value: 'vt100' }, { name: 'colorterm', value: '24bit' }, { name: 'MODE', value: 'literal' },
   ], { windows: true, wsl });
-  expect(env).toEqual({ TERM: 'vt100', COLORTERM: '24bit', MODE: 'literal', WSLENV: 'KEEP/up:TERM:COLORTERM:MODE' });
+  expect(env).toEqual({ TERM: 'vt100', COLORTERM: '24bit', FORCE_HYPERLINK: '1', PI_HYPERLINKS: '1', MODE: 'literal', WSLENV: 'KEEP/up:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:MODE' });
 });
 it('prepares nested WSL without a marker and does not opt inherited secrets or the CLI PATH into transfer', () => {
   const inherited = { PRIVATE_TOKEN: 'host secret', Path: 'C:\\host', WSLENV: 'KEEP/ulp' };
   const variables = [{ name: 'TOKEN', value: 'literal ; $() ` " \' 雪 = C:\\foo:bar' }, { name: 'EMPTY', value: '' }];
   const env = terminalEnvironment(inherited, variables, { windows: true, wsl: false, cliBin: 'C:\\Shellfox\\bin' });
-  expect(env.WSLENV).toBe('KEEP/ulp:TERM:COLORTERM:TOKEN:EMPTY');
+  expect(env.WSLENV).toBe('KEEP/ulp:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:TOKEN:EMPTY');
   expect(env.TOKEN).toBe(variables[0].value);
   expect(env.EMPTY).toBe('');
   expect(env.PRIVATE_TOKEN).toBe('host secret');
@@ -35,18 +35,18 @@ it('removes duplicate managed entries and keeps the winning spelling without lis
   const env = terminalEnvironment({ WsLeNv: 'MODE/p:mode/w:TERM/l::OTHER/u:OTHER/p', MODE: 'old' }, [
     { name: 'Mode', value: 'new' }, { name: 'COLORTERM', value: '' },
   ], { windows: true, wsl: false });
-  expect(env.WSLENV).toBe('OTHER/u:OTHER/p:TERM:COLORTERM:Mode');
+  expect(env.WSLENV).toBe('OTHER/u:OTHER/p:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:Mode');
   expect(env.WsLeNv).toBeUndefined();
   expect(env.MODE).toBeUndefined();
   expect(env.Mode).toBe('new');
   expect(terminalEnvironment({}, [{ name: 'WSLENV', value: 'OTHER/w' }], { windows: true, wsl: false }).WSLENV)
-    .toBe('OTHER/w:TERM:COLORTERM');
+    .toBe('OTHER/w:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS');
 });
 it.each([false, true])('does not add WSL transport to native Unix shells or conflate case-sensitive names, inherited WSLENV=%s', withWslenv => {
   const env = terminalEnvironment(withWslenv ? { WSLENV: 'KEEP/p:MODE/w' } : {}, [
     { name: 'MODE', value: 'upper' }, { name: 'mode', value: 'lower' },
   ], { windows: false, wsl: false });
-  expect(env).toEqual({ TERM: 'xterm-256color', COLORTERM: 'truecolor', MODE: 'upper', mode: 'lower', ...(withWslenv ? { WSLENV: 'KEEP/p:MODE/w' } : {}) });
+  expect(env).toEqual({ TERM: 'xterm-256color', COLORTERM: 'truecolor', FORCE_HYPERLINK: '1', PI_HYPERLINKS: '1', MODE: 'upper', mode: 'lower', ...(withWslenv ? { WSLENV: 'KEEP/p:MODE/w' } : {}) });
 });
 it.each(['pwsh', 'windows-powershell', 'wsl:Ubuntu'])('passes session overrides through backend spawn env for direct or nested WSL from %s', async profileId => {
   const f = factoryFixture();
@@ -62,7 +62,7 @@ it.each(['pwsh', 'windows-powershell', 'wsl:Ubuntu'])('passes session overrides 
     expect((await backend.launch(input)).ok).toBe(true);
     const [file, args, options] = vi.mocked(f.factory).mock.calls[0];
     const marker = backend.get(input.tabId)!.root.marker;
-    expect(options.env.WSLENV).toBe('KEEP/ul:TERM:COLORTERM:SHELLFOX_TEST:SHELLFOX_TERMINAL_MARKER');
+    expect(options.env.WSLENV).toBe('KEEP/ul:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:SHELLFOX_TEST:SHELLFOX_TERMINAL_MARKER');
     expect(options.env.SHELLFOX_TEST).toBe(input.env[0].value);
     expect(options.env.SHELLFOX_TERMINAL_MARKER).toBe(marker);
     expect(file).toBe(profile.executable);
@@ -88,4 +88,10 @@ it('stores canonical env, changes only later tabs/retries, emits sessions and ne
     expect((f.factory as any).mock.calls[2][2].env.SHELLFOX_TEST).toBe('round3');
     expect((await service.setSessionEnv({ sessionId: created.value.id, env: [{ name: 'A=B', value: '' }] })).ok).toBe(false);
   } finally { await service.dispose(); }
+});
+it.each([false, true])('advertises OSC 8 hyperlinks over inherited values and lets sessions opt out, Windows=%s', windows => {
+  expect(terminalEnvironment({ FORCE_HYPERLINK: '0', PI_HYPERLINKS: 'false' }, [], { windows, wsl: false })).toMatchObject({ FORCE_HYPERLINK: '1', PI_HYPERLINKS: '1' });
+  const env = terminalEnvironment({}, [{ name: windows ? 'pi_hyperlinks' : 'PI_HYPERLINKS', value: '0' }], { windows, wsl: false });
+  expect(env.PI_HYPERLINKS).toBe('0');
+  expect(Object.keys(env).filter(key => key.toLowerCase() === 'pi_hyperlinks')).toEqual(['PI_HYPERLINKS']);
 });
