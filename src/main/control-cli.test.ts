@@ -32,7 +32,7 @@ function harness(tty = true, result: ControlResponse = response) {
   return { input, out, err, request, options: { input, output: out.stream, error: err.stream, marker: 'c36951c8-03f5-49c7-bb11-ad8828044a34', request } };
 }
 it.each([
-  ['ls', ['ls', 'list', 'sessions']], ['delete', ['delete', 'remove', 'rm']], ['archive', ['archive', 'settle']],
+  ['ls', ['ls', 'list', 'sessions']], ['delete', ['delete', 'remove', 'rm']], ['settle', ['settle']], ['unsettle', ['unsettle']],
   ['keep-alive', ['keep-alive', 'keepalive', 'awake']], ['stats', ['stats', 'status', 'usage']], ['processes', ['processes', 'proc', 'ps']],
 ] as const)('parses aliases for %s', (action, aliases) => {
   for (const alias of aliases) expect(parseControlArgs([alias])).toMatchObject({ kind: 'control', action: action === 'ls' ? 'list' : action });
@@ -52,7 +52,13 @@ it('parses context-only tab aliases and session UUID/current targeting', () => {
   for (const alias of ['open', 'add', 'new']) expect(parseControlArgs(['tab', alias, '--current'])).toEqual({ kind: 'control', action: 'tab-open', filters: { current: true } });
   for (const alias of ['close', 'remove', 'rm']) expect(parseControlArgs(['tab', alias])).toEqual({ kind: 'control', action: 'tab-close', filters: { current: true } });
   expect(parseControlArgs(['delete', '--id=' + id.toUpperCase()])).toMatchObject({ filters: { id } });
-  expect(parseControlArgs(['archive'])).toMatchObject({ filters: { current: true } });
+  for (const action of ['settle', 'unsettle']) {
+    expect(parseControlArgs([action])).toEqual({ kind: 'control', action, filters: { current: true } });
+    expect(parseControlArgs([action, id])).toEqual({ kind: 'control', action, filters: { id } });
+    expect(parseControlArgs([action, '--id', id])).toEqual({ kind: 'control', action, filters: { id } });
+    expect(parseControlArgs([action, '--current'])).toEqual({ kind: 'control', action, filters: { current: true } });
+    expect(parseControlArgs([action, '-h'])).toEqual({ kind: 'help', topic: action });
+  }
 });
 it('combines read filters and accepts equals syntax', () => {
   expect(parseControlArgs(['ps', '--running', '--no-agents', '--current', '--id', id, '--name=proj', '--path', '/work', '--tab', tabId, '--pid=42'])).toEqual({
@@ -60,10 +66,11 @@ it('combines read filters and accepts equals syntax', () => {
   });
 });
 it.each([
-  ['wat'], ['constructor'], ['toString'], ['__proto__'], ['ls', '--wat'], ['ls', '--running', '--idle'], ['stats', '--pid', '42'], ['ls', '--id', '1'],
+  ['wat'], ['archive'], ['archive', '--help'], ['help', 'archive'], ['constructor'], ['toString'], ['__proto__'], ['ls', '--wat'], ['ls', '--running', '--idle'], ['stats', '--pid', '42'], ['ls', '--id', '1'],
   ['ls', '--tab', 'abc'], ['ps', '--pid', '0'], ['ps', '--pid', '1.1'], ['ps', '--pid', '9007199254740992'],
   ['ls', '--name'], ['ls', '--name', ''], ['ls', '--name', 'one', '--name', 'two'], ['ls', '--running=true'],
   ['ls', '--running', '--running'], ['delete', '--yes'], ['delete', '--running'], ['delete', id, '--current'],
+  ['settle', '--yes'], ['unsettle', '--running'], ['settle', id, '--current'], ['unsettle', 'Project'],
   ['delete', id, '--id', id], ['delete', 'Project'], ['tab', 'create'], ['tab', 'open', id], ['tab', 'close', '--id', tabId], ['keep-alive', 'on'], ['version', 'extra'],
   ['help', 'missing'], ['help', 'tab', 'missing'], ['stats', '--name', 'prod', '--help'],
 ].map(args => ({ args })))('rejects invalid $args', ({ args }) => expect(() => parseControlArgs(args)).toThrow());
@@ -97,6 +104,15 @@ it('dispatches tab and keep-alive actions', async () => {
     expect(h.request).toHaveBeenCalledWith('/data', request);
   }
 });
+it.each(['settle', 'unsettle'])('dispatches %s directly without inspection, TTY or confirmation', async action => {
+  for (const args of [[action], [action, '--current'], [action, id], [action, '--id', id]]) {
+    const h = harness(false, { message: 'Status changed.' }); h.input.end('no\n');
+    expect(await runControlCli(args, '/data', '1', h.options)).toBe(0);
+    expect(h.request).toHaveBeenCalledExactlyOnceWith('/data', args.includes(id)
+      ? { action, id } : { action, current: true, marker: h.options.marker });
+    expect(h.out.text()).toContain('Status changed.'); expect(h.out.text()).not.toContain('[y/N]');
+  }
+});
 it('help/version never contact the running app', async () => {
   const h = harness();
   for (const args of [[], ['-h'], ['help', 'tab', 'close'], ['-v'], ['ssh', '-h']]) {
@@ -106,21 +122,21 @@ it('help/version never contact the running app', async () => {
 });
 it('requires a marker for current operations and makes no requests on invalid syntax', async () => {
   const h = harness();
-  for (const args of [['delete'], ['ls', '--current'], ['tab', 'close'], ['ls', '--pid', '42']]) {
+  for (const args of [['delete'], ['settle'], ['unsettle'], ['ls', '--current'], ['tab', 'close'], ['ls', '--pid', '42']]) {
     expect(await runControlCli(args, '/data', '1', { ...h.options, marker: undefined })).toBe(2);
   }
   expect(h.request).not.toHaveBeenCalled();
 });
-it.each(['delete', 'archive'])('inspects %s, prompts, then pins the confirmed UUID', async action => {
+it('inspects delete, prompts, then pins the confirmed UUID', async () => {
   const h = harness();
-  const pending = runControlCli([action], '/data', '1', h.options);
+  const pending = runControlCli(['delete'], '/data', '1', h.options);
   await vi.waitFor(() => expect(h.out.text()).toContain('[y/N]'));
   expect(h.request).toHaveBeenCalledTimes(1);
   expect(h.request).toHaveBeenLastCalledWith('/data', { action: 'inspect', marker: h.options.marker, current: true });
   expect(h.out.text()).toContain('Project'); expect(h.out.text()).toContain('PID 42');
   h.input.write('YES\n');
   expect(await pending).toBe(0);
-  expect(h.request).toHaveBeenLastCalledWith('/data', { action, id, confirmed: true });
+  expect(h.request).toHaveBeenLastCalledWith('/data', { action: 'delete', id, confirmed: true });
 });
 it.each(['n\n', '\n', 'yep\n', 'true\n'])('cancels destructive operations on answer %j', async answer => {
   const h = harness();
@@ -131,7 +147,7 @@ it.each(['n\n', '\n', 'yep\n', 'true\n'])('cancels destructive operations on ans
 });
 it.each(['', 'yes'])('cancels on EOF including an unterminated %j answer', async answer => {
   const h = harness();
-  const pending = runControlCli(['settle', id], '/data', '1', h.options);
+  const pending = runControlCli(['delete', id], '/data', '1', h.options);
   await vi.waitFor(() => expect(h.out.text()).toContain('[y/N]'));
   h.input.end(answer);
   expect(await pending).toBe(1); expect(h.request).toHaveBeenCalledTimes(1);

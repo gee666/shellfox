@@ -59,8 +59,8 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
   test.setTimeout(300000);
   const dir = await scratch('live-control'), data = path.join(dir, 'data');
   expect(path.relative(path.join(root, 'tmp'), dir)).not.toMatch(/^\.\./);
-  const keepCwd = path.join(dir, 'control-keep'), archiveCwd = path.join(dir, 'control-archive');
-  await mkdir(keepCwd); await mkdir(archiveCwd); await access(helper); await access(runtime);
+  const keepCwd = path.join(dir, 'control-keep'), settledCwd = path.join(dir, 'control-settled');
+  await mkdir(keepCwd); await mkdir(settledCwd); await access(helper); await access(runtime);
   const running = await launch(data, 'real', false, ['start', keepCwd]);
   const { app, page } = running;
   const evidence: { userData: string; steps: unknown[] } = { userData: data, steps: [] };
@@ -110,7 +110,7 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     record('owned shell ' + args.join(' '), { tabId: terminal.tabId, generation: terminal.generation, marker: terminal.root.marker, output });
     return output;
   }
-  async function confirmInside(terminal: OwnedTerminal, action: 'archive' | 'delete') {
+  async function confirmInside(terminal: OwnedTerminal, action: 'delete') {
     const command = invoke(terminal, [action, '--current']).command;
     value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: terminal.tabId, generation: terminal.generation, data: command + '\r' }));
     await expect.poll(async () => (await replay(app, terminal.tabId)).includes(`${action} ${terminal.sessionId}? [y/N]`), { timeout: 60000 }).toBe(true);
@@ -142,12 +142,12 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
         }
         return original.call(backend, input);
       };
-    }, archiveCwd);
+    }, settledCwd);
     try {
-      const routed = await pipe(electron, [testMain, '--test-user-data', data, '--test-backend', 'real', 'add', archiveCwd], dir);
+      const routed = await pipe(electron, [testMain, '--test-user-data', data, '--test-backend', 'real', 'add', settledCwd], dir);
       record('app routing add', routed); expect(routed.code).toBe(0);
       await expect.poll(() => app.evaluate(() => (globalThis as any).__liveControlLaunchGate.entered)).toBe(true);
-      const intent = (await snapshot(page)).sessions.find(s => s.cwd === archiveCwd)!;
+      const intent = (await snapshot(page)).sessions.find(s => s.cwd === settledCwd)!;
       expect(intent.tabs[0]!.lifecycle).toBe('launching');
       expect((await snapshot(page)).sessions).toHaveLength(2);
       expect(await live(app)).toHaveLength(1);
@@ -160,9 +160,9 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     }
     // Waiting only for two DTOs raced here in the full suite. Native ownership
     // and persisted open/generation metadata must agree before CLI operations.
-    await waitForRoutedShell(archiveCwd, 2);
-    const archived = (await snapshot(page)).sessions.find(s => s.cwd === archiveCwd)!;
-    expect(archived).toBeDefined();
+    await waitForRoutedShell(settledCwd, 2);
+    const candidate = (await snapshot(page)).sessions.find(s => s.cwd === settledCwd)!;
+    expect(candidate).toBeDefined();
     let roots = await live(app);
     expect(roots).toHaveLength(2);
     expect(roots.every(t => t.root.environment === 'local' && /^[0-9a-f-]{36}$/i.test(t.root.marker ?? '') && t.root.pid > 0)).toBe(true);
@@ -171,7 +171,7 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     const keepIdentity = identity([originalKeep]);
 
     const listed = await helperPipe(['ls']);
-    expect(listed.code).toBe(0); expect(listed.output).toContain(keep.id); expect(listed.output).toContain(archived.id);
+    expect(listed.code).toBe(0); expect(listed.output).toContain(keep.id); expect(listed.output).toContain(candidate.id);
     const currentListing = await inShell(originalKeep, ['ls', '--current']);
     expect(currentListing).toContain(keep.id);
     await inShell(originalKeep, ['tab', 'open']);
@@ -193,10 +193,10 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     }
     for (const action of ['stats', 'processes'] as const) {
       const result = await helperPipe([action]);
-      expect(result.code).toBe(0); expect(result.output).toContain(keep.id); expect(result.output).toContain(archived.id);
+      expect(result.code).toBe(0); expect(result.output).toContain(keep.id); expect(result.output).toContain(candidate.id);
       expect(result.output).toContain('RSS'); expect(result.output).toContain('duration');
       const response = await requestControl(data, { action });
-      expect(response.sessions?.map(s => s.id).sort()).toEqual([keep.id, archived.id].sort());
+      expect(response.sessions?.map(s => s.id).sort()).toEqual([keep.id, candidate.id].sort());
       const owned = await live(app), tabIds = new Set(owned.map(t => t.tabId));
       expect(response.tabs).toHaveLength(owned.length);
       expect(response.tabs!.every(t => tabIds.has(t.tabId))).toBe(true);
@@ -213,21 +213,36 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     expect(cancelled.answered).toBe(true); expect(cancelled.code).toBe(1); expect(cancelled.output).toContain('Cancelled.');
     expect(identity((await live(app)).filter(t => t.sessionId === keep.id))).toEqual(keepIdentity);
 
-    value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: archived.id }));
-    const archivedRoots = (await live(app)).filter(t => t.sessionId === archived.id);
-    expect(archivedRoots).toHaveLength(2);
-    await confirmInside(archivedRoots[0]!, 'archive');
-    // The CLI is deliberately killed with its invoking shell. Persistence must
-    // still finish, including closing the other tab, despite the socket EOF.
-    await expect.poll(() => app.evaluate((_electron, id) => (globalThis as any).__shellfoxTest.repository.session(id)?.settledAt ?? null, archived.id), { timeout: 30000 }).not.toBeNull();
-    expect((await live(app)).some(t => t.sessionId === archived.id)).toBe(false);
-    expect((await requestControl(data, { action: 'list' })).sessions?.map(s => s.id)).toEqual([keep.id]);
-    record('archive committed after invoking CLI socket disappeared', await app.evaluate((_electron, id) => ({ session: (globalThis as any).__shellfoxTest.repository.session(id), tabs: (globalThis as any).__shellfoxTest.repository.tabs(id) }), archived.id));
-    const removedHistory = await tty(data, ['delete', archived.id], dir, 'y');
-    record('external real PTY confirms permanent deletion', removedHistory);
-    expect(removedHistory.answered).toBe(true); expect(removedHistory.code).toBe(0); expect(removedHistory.output).toContain('Session deleted.');
-    expect(await app.evaluate((_electron, id) => (globalThis as any).__shellfoxTest.repository.session(id) ?? null, archived.id)).toBeNull();
-
+    value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: candidate.id }));
+    const settledRoots = (await live(app)).filter(t => t.sessionId === candidate.id);
+    expect(settledRoots).toHaveLength(2);
+    const candidateIdentity = identity(settledRoots);
+    // The invoking CLI must return normally, without confirmation or closing either shell.
+    const insideSettle = await inShell(settledRoots[0]!, ['settle', '--current']);
+    expect(insideSettle).not.toContain('? [y/N]');
+    expect((await snapshot(page)).sessions.find(s => s.id === candidate.id)).toMatchObject({ status: 'settled', settledAt: expect.any(String) });
+    expect(identity((await live(app)).filter(t => t.sessionId === candidate.id))).toEqual(candidateIdentity);
+    expect((await requestControl(data, { action: 'list' })).sessions?.map(s => s.id).sort()).toEqual([keep.id, candidate.id].sort());
+    const insideUnsettle = await inShell(settledRoots[0]!, ['unsettle', '--current']);
+    expect(insideUnsettle).not.toContain('? [y/N]');
+    expect((await snapshot(page)).sessions.find(s => s.id === candidate.id)?.settledAt).toBeNull();
+    for (const action of ['settle', 'unsettle', 'settle'] as const) {
+      const result = await helperPipe([action, candidate.id]);
+      expect(result.code).toBe(0);
+      expect(result.output).not.toContain('? [y/N]');
+      expect((await snapshot(page)).sessions.find(s => s.id === candidate.id)?.settledAt === null).toBe(action === 'unsettle');
+      expect(identity((await live(app)).filter(t => t.sessionId === candidate.id))).toEqual(candidateIdentity);
+    }
+    record('settle and unsettle preserve both native roots and inherited CLI context', { sessions: (await snapshot(page)).sessions, roots: await live(app) });
+    const retired = await helperPipe(['archive', candidate.id]);
+    expect(retired.code).not.toBe(0);
+    expect(identity((await live(app)).filter(t => t.sessionId === candidate.id))).toEqual(candidateIdentity);
+    const deletedSettled = await tty(data, ['delete', candidate.id], dir, 'y');
+    record('external real PTY confirms deletion of a settled session with live tabs', deletedSettled);
+    expect(deletedSettled.answered).toBe(true); expect(deletedSettled.code).toBe(0); expect(deletedSettled.output).toContain('Session deleted.');
+    expect(await app.evaluate((_electron, id) => (globalThis as any).__shellfoxTest.repository.session(id) ?? null, candidate.id)).toBeNull();
+    expect((await live(app)).some(t => t.sessionId === candidate.id)).toBe(false);
+    expect(identity((await live(app)).filter(t => t.sessionId === keep.id))).toEqual(keepIdentity);
     const doomed = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID(), title: 'Delete live context' }));
     value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: doomed.id }));
     const doomedRoots = (await live(app)).filter(t => t.sessionId === doomed.id);
@@ -241,7 +256,7 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     const stale = await requestControl(data, { action: 'inspect', marker: doomedRoots[0]!.root.marker }).then(() => 'unexpected success', error => String(error.message));
     expect(stale).toContain('context'); record('stale marker rejected', stale);
     const finalList = await helperPipe(['ls']);
-    expect(finalList.code).toBe(0); expect(finalList.output).toContain(keep.id); expect(finalList.output).not.toContain(archived.id); expect(finalList.output).not.toContain(doomed.id);
+    expect(finalList.code).toBe(0); expect(finalList.output).toContain(keep.id); expect(finalList.output).not.toContain(candidate.id); expect(finalList.output).not.toContain(doomed.id);
   } finally {
     const file = path.join(dir, 'control-evidence.json');
     await writeFile(file, JSON.stringify(evidence, null, 2));

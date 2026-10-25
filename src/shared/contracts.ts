@@ -34,7 +34,7 @@ export interface SessionDto {
   id: Id; title: string; cwd: string; adapterId: AdapterId; shellId: ShellId;
   createdAt: Timestamp; updatedAt: Timestamp; settledAt: Timestamp | null;
   status: Status; activityStatus: TabStatus; counts: Counts; tabs: TabDto[]; env: EnvVar[];
-  /** Pinned sessions stay at the top of the live list, in pin order. Archived sessions remember it without effect. */
+  /** Pinned sessions stay at the top and are never automatically deleted. */
   pinnedAt: Timestamp | null;
   canFocus: boolean; canAddTab: boolean; controlReason: string | null; error: AppError | null;
   window?: SessionWindowDto;
@@ -49,6 +49,7 @@ export interface ProcessRule {
 export interface SettingsDto {
   version: 1; pythonPath?: string | null; accentColor: string; backgroundColor: string; adapterId: AdapterId; shellId: ShellId;
   shellExecutable: string | null; processRules: ProcessRule[]; historyPageSize: number;
+  sessionSettleHours: number; sessionDeleteHours: number;
   terminalProfileId?: string | null;
 }
 export interface ShellOption { id: ShellId; executable: string; available: boolean; reason: string | null }
@@ -61,13 +62,18 @@ export interface ExplorerIntegrationDto {
   supported: boolean; installed: boolean; folderItemInstalled: boolean;
   backgroundInstalled: boolean; reason: string | null;
 }
-export interface HistoryQuery { search: string; status: 'all' | Status; page: number; pageSize: number }
-export interface HistoryPage { items: SessionDto[]; total: number; page: number; pageSize: number }
 export interface ManagerSnapshot {
   revision: number; sessions: SessionDto[]; settings: SettingsDto; probe: NativeProbe; explorer: ExplorerIntegrationDto; cli: CliIntegrationDto;
 }
-export interface ChangedEvent { revision: number; reason: 'sessions' | 'settings' | 'native' | 'history'; selectSessionId?: Id }
+export interface ChangedEvent { revision: number; reason: 'sessions' | 'settings' | 'native'; selectSessionId?: Id }
 export interface KeepAwakeState { active: boolean }
+export interface CloseConfirmation { id: Id; kind: 'quit' | 'update'; terminalCount: number }
+export interface CloseConfirmationResponse { id: Id; approved: boolean }
+export interface CloseConfirmationApi {
+  getCloseConfirmation(): Promise<Result<CloseConfirmation | null>>;
+  respondCloseConfirmation(input: CloseConfirmationResponse): Promise<Result<{ accepted: true }>>;
+  subscribeCloseConfirmation(listener: (confirmation: CloseConfirmation | null) => void): () => void;
+}
 export interface TerminalProfileDto {
   id: string; label: string; environment: 'local' | 'wsl'; executable: string;
   args: string[]; distro: string | null; available: boolean;
@@ -121,7 +127,7 @@ export interface SshProfileInput {
   password?: string | null; keyFile: string | null; remoteCwd: string | null;
 }
 export interface SshImportResultDto { profiles: SshProfileDto[]; added: number; updated: number; found: number }
-export interface ManagerApi extends Partial<TerminalApi> {
+export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmationApi> {
   getSnapshot(): Promise<Result<ManagerSnapshot>>;
   /** Renderer viewport rows plus the displayed terminal session. Empty while the document is hidden. */
   setVisibleSessions(input: { sessionIds: string[] }): Promise<Result<{ configured: true }>>;
@@ -141,7 +147,6 @@ export interface ManagerApi extends Partial<TerminalApi> {
   deleteSession(input: { sessionId: Id }): Promise<Result<{ deleted: true }>>;
   clearSessionError(input: { sessionId: Id }): Promise<Result<SessionDto>>;
   retryTab(input: { tabId: Id; confirmPossibleDuplicate: boolean }): Promise<Result<SessionDto>>;
-  getHistory(query: HistoryQuery): Promise<Result<HistoryPage>>;
   saveSettings(input: SettingsDto): Promise<Result<SettingsDto>>;
   setExplorerIntegration(input: { installed: boolean }): Promise<Result<ExplorerIntegrationDto>>;
   copyText(input: { text: string }): Promise<Result<{ copied: true }>>;

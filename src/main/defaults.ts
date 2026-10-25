@@ -2,7 +2,7 @@ import type { SettingsDto, NativeProbe, ExplorerIntegrationDto, CliIntegrationDt
 const linux = process.platform === 'linux';
 export const defaultSettings: SettingsDto = {
   version: 1, pythonPath: null, accentColor: '#ec4899', backgroundColor: '#111016', adapterId: linux ? 'gnome-terminal' : 'windows-terminal', shellId: linux ? 'bash' : 'pwsh',
-  shellExecutable: null, historyPageSize: 20,
+  shellExecutable: null, historyPageSize: 10, sessionSettleHours: 24, sessionDeleteHours: 720,
   processRules: [
     { id: 'f919fb1a-fb03-4a93-8b9b-1cde465d5870', label: 'Pi', enabled: true, processNames: ['pi', 'pi.exe'], executableBasenames: ['node.exe', 'node', 'nodejs', 'bun.exe', 'bun'], executablePaths: [], scriptPathSuffixes: ['@earendil-works/pi-coding-agent/dist/cli.js', '@mariozechner/pi-coding-agent/dist/cli.js', '@earendil-works/pi-coding-agent/dist/bundle/cli.js', '@mariozechner/pi-coding-agent/dist/bundle/cli.js'] },
     { id: 'f919fb1a-fb03-4a93-8b9b-1cde465d5871', label: 'Claude', enabled: true, processNames: ['claude', 'claude.exe'], executableBasenames: ['node.exe', 'node', 'nodejs', 'bun.exe', 'bun'], executablePaths: [], scriptPathSuffixes: ['@anthropic-ai/claude-code/cli.js'] },

@@ -26,14 +26,13 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
     return session.tabs.filter(tab => tab.terminalKind !== 'external-legacy' && tab.lifecycle !== 'closed' && !closed.has(tab.id));
   }, [session.tabs, closedIds]);
   const selected = tabs.find(tab => tab.id === chosen) ?? tabs[0];
-  const archived = !!session.settledAt || session.status === 'settled';
   const terminalApi = getTerminalApi(client.api);
   const legacy = session.adapterId !== 'embedded-pty' || !session.tabs.some(tab => tab.terminalKind === 'embedded');
-  const canAdd = !archived && available && session.canAddTab && (legacy || (!!terminalApi && profiles.some(profile => profile.available)));
-  useEffect(() => { if (visible && selected && !archived) registry.focus(selected.id); }, [registry, selected?.id, archived, visible]);
+  const canAdd = available && session.canAddTab && (legacy || (!!terminalApi && profiles.some(profile => profile.available)));
+  useEffect(() => { if (visible && selected) registry.focus(selected.id); }, [registry, selected?.id, visible]);
   async function add(profileId = platform === 'win32' ? undefined : defaultProfileId ?? undefined) {
     setProfileMenu(null);
-    if (archived || !available || !session.canAddTab || (!legacy && (!terminalApi || (profileId !== undefined ? !profiles.some(profile => profile.id === profileId && profile.available) : platform !== 'win32')))) return;
+    if (!available || !session.canAddTab || (!legacy && (!terminalApi || (profileId !== undefined ? !profiles.some(profile => profile.id === profileId && profile.available) : platform !== 'win32')))) return;
     const ids = new Set(session.tabs.map(tab => tab.id));
     const result = await action.run(() => client.api.addTab({ sessionId: session.id, ...(profileId ? { profileId } : {}) }));
     if (result?.ok && client.store.getState().selectedId === session.id) {
@@ -61,15 +60,10 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
   }
   function requestClose(tab: TabDto) { if (tab.agents > 0) setClosing(tab); else void close(tab); }
   function select(tab: TabDto) { client.selectTab(session, tab.id); registry.focus(tab.id); }
-  async function restore() {
-    const result = await action.run(() => client.api.unsettleSession({ sessionId: session.id }));
-    if (result?.ok) client.accept(result.value);
-  }
   return <div className="terminal-workspace">
-    <div className="terminal-tab-strip"><TerminalTabs key={session.id} session={session} tabs={tabs} selectedId={selected?.id} client={client} busy={busy} disabled={action.pending} editable={!archived && !legacy}
-      canClose={tab => !archived && !!tab.generation && tab.terminalKind === 'embedded' && !!terminalApi} onSelect={select} onClose={requestClose} /><button className="icon-button new-terminal" aria-label="New terminal" title="New terminal. Right-click to choose a shell." disabled={!canAdd || action.pending} onClick={() => void add()} onContextMenu={event => { event.preventDefault(); if (!archived && available && session.canAddTab && profiles.length) setProfileMenu({ x: event.clientX, y: event.clientY }); }}><Icon name="plus" /></button></div>
-    {archived ? <TerminalPlaceholder><span>Archived session</span>{!legacy && <button className="text-button" disabled={action.pending} onClick={() => void restore()}>Restore</button>}</TerminalPlaceholder>
-      : !selected ? opening || action.pending ? <TerminalLoading /> : <TerminalPlaceholder />
+    <div className="terminal-tab-strip"><TerminalTabs key={session.id} session={session} tabs={tabs} selectedId={selected?.id} client={client} busy={busy} disabled={action.pending} editable={!legacy}
+      canClose={tab => !!tab.generation && tab.terminalKind === 'embedded' && !!terminalApi} onSelect={select} onClose={requestClose} /><button className="icon-button new-terminal" aria-label="New terminal" title="New terminal. Right-click to choose a shell." disabled={!canAdd || action.pending} onClick={() => void add()} onContextMenu={event => { event.preventDefault(); if (available && session.canAddTab && profiles.length) setProfileMenu({ x: event.clientX, y: event.clientY }); }}><Icon name="plus" /></button></div>
+    {!selected ? opening || action.pending ? <TerminalLoading /> : <TerminalPlaceholder />
         : <div className="terminal-panel" data-terminal-session-id={visible && !legacy && selected.lifecycle !== 'launching' ? session.id : undefined} role="tabpanel" id={`terminal-panel-${selected.id}`} aria-labelledby={`terminal-tab-${selected.id}`}>
           {selected.lifecycle === 'launching' ? <TerminalLoading /> : !legacy ? <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible={visible} /> : <TerminalPlaceholder />}
         </div>}

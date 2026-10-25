@@ -4,7 +4,6 @@ import './terminal-test-mocks';
 import { StrictMode, useRef } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { success } from '../shared/contracts';
 import type { SessionDto } from '../shared/contracts';
 import { App } from './App';
 import { SessionSidebar } from './SessionSidebar';
@@ -66,9 +65,7 @@ beforeEach(() => {
     const list = this.getAttribute('role') === 'list' ? this : this.parentElement;
     if (list?.getAttribute('role') !== 'list') return rect(0, 0);
     const scroll = list.closest('.sidebar-scroll')!;
-    const liveCount = Number(scroll.querySelector('[aria-label="Sessions"] [role="listitem"]')?.getAttribute('aria-setsize') ?? 0);
-    const archiveOffset = list.parentElement?.getAttribute('aria-label') === 'Archived sessions' ? liveCount * 36 + 32 : 0;
-    const top = 4 + archiveOffset - scroll.scrollTop;
+    const top = 4 - scroll.scrollTop;
     return this === list ? rect(top, Number(list.querySelector('[role="listitem"]')?.getAttribute('aria-setsize')) * 36)
       : rect(top + (Number(this.getAttribute('aria-posinset')) - 1) * 36, 36);
   });
@@ -80,7 +77,7 @@ afterEach(() => {
 function Sidebar({ client, items }: { client: ManagerClient; items: SessionDto[] }) {
   const root = useRef<HTMLDivElement>(null);
   useVisibleSessions(client.api, root);
-  return <div ref={root}><SessionSidebar client={client} sessions={items} selectedId={null} busy={{}} invalidation={0} pageSize={100} /></div>;
+  return <div ref={root}><SessionSidebar client={client} sessions={items} selectedId={null} busy={{}} pageSize={items.length || 10} /></div>;
 }
 function sidebar(items: SessionDto[]) {
   const fixture = mockApi(snapshot(items));
@@ -122,22 +119,18 @@ it('uses geometry for small lists, excludes edge-only intersections and updates 
   rerender(<Sidebar client={client} items={[items[4]!, items[3]!, ...items.slice(5)]} />);
   await act(async () => {}); // MutationObserver removes obsolete targets and observes replacements.
   await deliver();
-  expect(ids(fixture.api)).toEqual(sorted([items[4]!, items[3]!, items[5]!]));
+  expect(ids(fixture.api)).toEqual(sorted([items[3]!, items[4]!, items[5]!]));
 });
 
-it('observes loaded archive rows only when expanded and intersecting the shared scrollbar', async () => {
+it('observes settled rows with Local and removes them when the section is collapsed', async () => {
   height = 72;
-  const items = [session(1)];
-  const history = Array.from({ length: 6 }, (_, index) => session(index + 20, { status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' }));
+  const items = [session(1), ...Array.from({ length: 6 }, (_, index) => session(index + 20, { status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' }))];
   const { fixture, scroll } = sidebar(items);
-  fixture.api.getHistory.mockImplementation(async query => success({ items: history, total: history.length, page: query.page, pageSize: query.pageSize }));
-  fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
-  await screen.findByRole('button', { name: 'Select session Session 20' });
-  scroll.scrollTop = 4 + 36 + 32;
+  scroll.scrollTop = 4 + 36;
   fireEvent.scroll(scroll);
   await deliver();
-  expect(ids(fixture.api)).toEqual(sorted(history.slice(0, 2)));
-  fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
+  expect(ids(fixture.api)).toEqual(sorted(items.slice(1, 3)));
+  fireEvent.click(screen.getByRole('button', { name: /Local/ }));
   await frame();
   expect(ids(fixture.api)).toEqual([]);
 });
@@ -225,24 +218,20 @@ it('does not report a selected legacy placeholder as a visible terminal', async 
   expect(container.querySelector('[data-terminal-session-id]')).toBeNull();
 });
 
-it('does not keep a selected archived placeholder in the union after its archive row is collapsed', async () => {
+it('keeps the selected settled terminal in the union when Local is collapsed', async () => {
   const live = session(1);
-  const archived = session(20, { status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' });
-  const fixture = mockApi(snapshot([live]));
-  fixture.api.getHistory.mockImplementation(async query => success({ items: [archived], total: 1, page: query.page, pageSize: query.pageSize }));
+  const item = session(20, { status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' });
+  const fixture = mockApi(snapshot([live, item]));
   const { container } = render(<App api={fixture.api} />);
-  await screen.findByRole('button', { name: 'Select session Session 1' });
-  fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Select session Session 20' }));
-  expect(await screen.findByText('Archived session')).toBeVisible();
   await frame();
   await deliver();
-  expect(ids(fixture.api)).toContain(archived.id); // Its row is visible, not a terminal.
-  expect(container.querySelector('[data-terminal-session-id]')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: /Archived/ }));
+  expect(ids(fixture.api)).toContain(item.id);
+  expect(container.querySelector('[data-terminal-session-id]')).toHaveAttribute('data-terminal-session-id', item.id);
+  fireEvent.click(screen.getByRole('button', { name: /Local/ }));
   await frame();
   await deliver();
-  expect(ids(fixture.api)).toEqual([live.id]);
+  expect(ids(fixture.api)).toEqual([item.id]);
 });
 
 it('cleans up StrictMode observers and does not retry or toast rejected background configuration', async () => {

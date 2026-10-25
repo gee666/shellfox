@@ -17,9 +17,9 @@ it('matches the compact picker design and removes color without a TTY',()=>{
 });
 it('documents commands, aliases and filters while retaining four-line SSH help',()=>{
  const help = helpText('0.4.0', false);
- for (const command of ['start', 'ls', 'stats', 'processes', 'delete', 'archive', 'tab open', 'tab close', 'keep-alive', 'ssh', 'update', '--version', 'help']) expect(help).toContain('shellfox ' + command);
- for (const alias of ['add', 'new', 'create', 'list', 'sessions', 'remove', 'rm', 'settle', 'status', 'usage', 'proc', 'ps', 'keepalive', 'awake', '-v', '-h']) expect(help).toContain(alias);
- expect(help).not.toContain('\x1b');
+ for (const command of ['start', 'ls', 'stats', 'processes', 'delete', 'settle', 'unsettle', 'tab open', 'tab close', 'keep-alive', 'ssh', 'update', '--version', 'help']) expect(help).toContain('shellfox ' + command);
+ for (const alias of ['add', 'new', 'create', 'list', 'sessions', 'remove', 'rm', 'status', 'usage', 'proc', 'ps', 'keepalive', 'awake', '-v', '-h']) expect(help).toContain(alias);
+ expect(help).not.toContain('\x1b'); expect(help).not.toContain('archive');
  expect(helpText('0.4.0',false,false)).not.toContain('open shellfox');expect(sshHelp(false).split('\n')).toHaveLength(5);
  for (const topic of ['ls', 'stats', 'processes']) {
   const text = commandHelp(topic, false);
@@ -30,7 +30,12 @@ it('documents commands, aliases and filters while retaining four-line SSH help',
  expect(commandHelp('processes', false)).toContain('not full-tab metrics');
  expect(commandHelp('stats', false)).toContain('Closed tabs without stats are excluded');
  expect(commandHelp('stats', false)).toContain('closed tabs with cleanup stats still count');
- expect(commandHelp('delete', false)).toContain('EOF'); expect(commandHelp('archive', false)).toContain('TTY');
+ expect(commandHelp('delete', false)).toContain('EOF'); expect(commandHelp('delete', false)).toContain('TTY');
+ for (const topic of ['settle', 'unsettle']) {
+  const text = commandHelp(topic, false);
+  expect(text).toContain('No confirmation'); expect(text).toContain('--current');
+  expect(text).not.toContain('TTY'); expect(text).not.toContain('archive');
+ }
  for (const flag of ['--help', '-h', 'help']) expect(parseSshArgs([flag])).toEqual({help:true});
 });
 it('renders unavailable metrics as n/a, not zero', () => {

@@ -18,7 +18,8 @@ const state = vi.hoisted(() => ({
     on: vi.fn(), isDestroyed: () => false, loadFile: vi.fn(),
     webContents: { on: vi.fn(), setWindowOpenHandler: vi.fn() },
   },
-  dialog: { showMessageBoxSync: vi.fn(), showErrorBox: vi.fn() },
+  dialog: { showErrorBox: vi.fn() },
+  confirmation: { request: vi.fn(), dispose: vi.fn() },
   service: { initialize: vi.fn(), ownedTerminalCount: vi.fn(), closeForUpdate: vi.fn(), dispose: vi.fn() },
   control: { start: vi.fn(), dispose: vi.fn() },
   repository: { windowState: () => null, settings: () => ({}), close: vi.fn() },
@@ -32,6 +33,7 @@ vi.mock('electron', () => ({
   session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() }, setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } },
 }));
 vi.mock('./cli', async importOriginal => ({ ...await importOriginal<typeof import('./cli')>(), productArguments: () => [] }));
+vi.mock('./close-confirmation', () => ({ bypassCloseConfirmation: () => false, CloseConfirmationCoordinator: class { request = state.confirmation.request; dispose = state.confirmation.dispose; } }));
 vi.mock('./user-data-upgrade', () => ({ migrateUserData: async () => {} }));
 vi.mock('./repository', () => ({ Repository: class { constructor() { return state.repository; } } }));
 vi.mock('./service', () => ({ SessionService: class {} }));
@@ -80,7 +82,7 @@ beforeEach(async () => {
   state.app.getPath.mockImplementation(name => name === 'userData' ? state.userData : state.root);
   state.app.setPath.mockImplementation((name, value) => { if (name === 'userData') state.userData = value; });
   state.app.quit.mockImplementation(() => { quit(); });
-  state.dialog.showMessageBoxSync.mockReturnValue(1);
+  state.confirmation.request.mockResolvedValue(true);
   state.service.ownedTerminalCount.mockImplementation(() => state.owned);
   state.service.closeForUpdate.mockImplementation(async () => { state.owned = 0; return state.resume; });
   state.window.loadFile.mockResolvedValue(undefined);
@@ -113,7 +115,7 @@ describe('main automatic update on close/quit', () => {
     else listener(state.app.on, 'before-quit')(event);
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
     await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
-    expect(state.dialog.showMessageBoxSync).not.toHaveBeenCalled();
+    expect(state.confirmation.request).not.toHaveBeenCalled();
     expect(state.start).toHaveBeenCalledTimes(1); expect(state.commit).toHaveBeenCalledTimes(1);
     expect(state.start.mock.invocationCallOrder[0]).toBeLessThan(state.service.closeForUpdate.mock.invocationCallOrder[0]!);
     expect(state.service.closeForUpdate.mock.invocationCallOrder[0]).toBeLessThan(state.commit.mock.invocationCallOrder[0]!);
@@ -125,15 +127,15 @@ describe('main automatic update on close/quit', () => {
     expect(quit().preventDefault).not.toHaveBeenCalled(); expect(state.start).toHaveBeenCalledTimes(1);
   });
   it('confirms owned terminal shutdown once, and cancellation keeps the download and terminals for retry', async () => {
-    await stage(); state.owned = 2; state.dialog.showMessageBoxSync.mockReturnValueOnce(0);
+    await stage(); state.owned = 2; state.confirmation.request.mockResolvedValueOnce(false);
     quit();
-    await expect.poll(async () => ({ phase: (await state.updater!.status()).phase, prompts: state.dialog.showMessageBoxSync.mock.calls.length })).toEqual({ phase: 'ready', prompts: 1 });
+    await expect.poll(async () => ({ phase: (await state.updater!.status()).phase, prompts: state.confirmation.request.mock.calls.length })).toEqual({ phase: 'ready', prompts: 1 });
     expect(state.start).not.toHaveBeenCalled(); expect(state.service.dispose).not.toHaveBeenCalled();
     expect(state.service.closeForUpdate).not.toHaveBeenCalled(); expect(state.repository.close).not.toHaveBeenCalled();
     expect(state.control.dispose).not.toHaveBeenCalled();
     expect(state.owned).toBe(2); expect(await readdir(state.root)).toContainEqual(expect.stringMatching(/^shellfox-update-/));
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
-    expect(state.dialog.showMessageBoxSync).toHaveBeenCalledTimes(2); expect(state.start).toHaveBeenCalledTimes(1);
+    expect(state.confirmation.request).toHaveBeenCalledTimes(2); expect(state.start).toHaveBeenCalledTimes(1);
   });
   it('normally quits an available but undownloaded update without launching an installer', async () => {
     await state.updater!.status(); quit();
@@ -145,7 +147,7 @@ describe('main automatic update on close/quit', () => {
   it('preserves explicit install confirmation, even when no terminals are owned', async () => {
     await stage();
     expect(await state.updater!.install()).toMatchObject({ ok: true, value: { phase: 'installing' } });
-    expect(state.dialog.showMessageBoxSync).toHaveBeenCalledTimes(1);
+    expect(state.confirmation.request).toHaveBeenCalledTimes(1);
     expect(state.repository.close).toHaveBeenCalledTimes(1); expect(state.commit).toHaveBeenCalledTimes(1);
   });
   it('normally quits a failed download without launching an installer', async () => {
@@ -155,11 +157,11 @@ describe('main automatic update on close/quit', () => {
     expect(state.start).not.toHaveBeenCalled(); expect(state.service.dispose).toHaveBeenCalledTimes(1);
   });
   it('keeps normal terminal quit confirmation when no update is ready', async () => {
-    state.owned = 2; state.dialog.showMessageBoxSync.mockReturnValueOnce(0);
-    quit(); await expect.poll(() => state.dialog.showMessageBoxSync.mock.calls.length).toBe(1);
+    state.owned = 2; state.confirmation.request.mockResolvedValueOnce(false);
+    quit(); await expect.poll(() => state.confirmation.request.mock.calls.length).toBe(1);
     expect(state.service.dispose).not.toHaveBeenCalled(); expect(state.repository.close).not.toHaveBeenCalled();
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
-    expect(state.dialog.showMessageBoxSync).toHaveBeenCalledTimes(2); expect(state.start).not.toHaveBeenCalled();
+    expect(state.confirmation.request).toHaveBeenCalledTimes(2); expect(state.start).not.toHaveBeenCalled();
   });
   it('aborts an incomplete download on quit, without waiting for readiness or installing', async () => {
     let aborted = false;

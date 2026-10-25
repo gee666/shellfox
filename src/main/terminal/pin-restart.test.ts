@@ -38,19 +38,20 @@ describe('pinned sessions', () => {
     expect(snapshotSchema.safeParse(value(service.getSnapshot())).success).toBe(true);
     void a;
   });
-  it('remembers the pin through archive and restore, without effect while archived', async () => {
+  it('keeps settled pinned sessions visible and permits pin changes', async () => {
     const repository = new MemoryRepository(), { service } = await start(repository);
     await create(service, 'a'); const b = await create(service, 'b');
     await service.setSessionPinned({ sessionId: b.id, pinned: true });
-    const archived = value(await service.settleSession({ sessionId: b.id, confirmActive: true }));
-    expect(archived.pinnedAt).toEqual(expect.any(String));
-    expect(titles(service)).toEqual(['a']);
-    expect(value(service.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 })).items[0]!.pinnedAt).toEqual(archived.pinnedAt);
-    const refused = await service.setSessionPinned({ sessionId: b.id, pinned: false });
-    expect(refused.ok).toBe(false);
-    if (!refused.ok) expect(refused.error.code).toBe('UNSUPPORTED');
+    const settled = value(await service.settleSession({ sessionId: b.id, confirmActive: false }));
+    expect(settled.pinnedAt).toEqual(expect.any(String));
+    expect(titles(service)).toEqual(['b', 'a']);
+    expect(live(service)[0].pinnedAt).toEqual(settled.pinnedAt);
+    value(await service.setSessionPinned({ sessionId: b.id, pinned: false }));
+    expect(live(service).find(s => s.id === b.id)!.pinnedAt).toBeNull();
+    value(await service.setSessionPinned({ sessionId: b.id, pinned: true }));
     value(await service.unsettleSession({ sessionId: b.id }));
     expect(titles(service)).toEqual(['b', 'a']);
+    await service.dispose();
   });
   it('validates pin requests', async () => {
     const { service } = await start(new MemoryRepository());

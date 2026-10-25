@@ -1,5 +1,6 @@
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { installTerminalQueryHandlers } from './terminal-queries';
 import type { AppError, Result, TerminalApi, TerminalAttachmentDto, TerminalEvent } from '../shared/contracts';
 import { request } from './api';
 import { isWebLink, webLinkProvider } from './terminal-links';
@@ -18,7 +19,7 @@ const REPAINT_NUDGE_MS = 80;
 const encoder = new TextEncoder();
 export interface TerminalSurface {
   element: HTMLElement;
-  write(data: string, done: () => void): void;
+  write(data: string, done: () => void, historical?: boolean): void;
   reset(): void;
   fit(): { cols: number; rows: number } | null;
   /** Sets the grid before any output is parsed, so a snapshot is replayed at the size it was taken at. */
@@ -71,6 +72,8 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   terminal.loadAddon(fit);
   // Shell output must not read/write the OS clipboard.
   terminal.parser.registerOscHandler(52, () => true);
+  let historical = false;
+  const queries = installTerminalQueryHandlers(terminal.parser, () => historical);
   let parsing = false;
   let disposed = false;
   let visible = false;
@@ -125,9 +128,9 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   let opened = false;
   return {
     element,
-    write: (data, done) => {
-      parsing = true;
-      terminal.write(data, () => { parsing = false; done(); });
+    write: (data, done, replay = false) => {
+      parsing = true; historical = replay;
+      terminal.write(data, () => { parsing = false; historical = false; done(); });
     }, reset: () => terminal.reset(),
     fit() {
       if (!element.isConnected || element.clientWidth < 20 || element.clientHeight < 20) return null;
@@ -154,7 +157,8 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       inputEvents.forEach(type => element.removeEventListener(type, markUserInput, true));
       element.removeEventListener('mousemove', preserveSelection, true);
       middleEvents.forEach(type => element.removeEventListener(type, middleCopy, true));
-      element.removeEventListener('paste', blockMiddlePaste, true); terminal.dispose(); element.remove();
+      element.removeEventListener('paste', blockMiddlePaste, true);
+      queries.dispose(); terminal.dispose(); element.remove();
     },
   };
 };
@@ -172,10 +176,10 @@ export interface TerminalViewState {
 interface Entry {
   id: string; surface: TerminalSurface; state: TerminalViewState; listeners: Set<() => void>;
   host: HTMLElement | null; visible: boolean; used: number; sequence: number;
-  pending: Map<number, { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number }>; pendingBytes: number;
+  pending: Map<number, { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number; historical: boolean }>;  pendingBytes: number;
   early: DeliveryEvent[]; earlyBytes: number; retired: Set<string>;
   attaching: boolean; attachToken: number; replayAgain: boolean; fullReplay: boolean;
-  writes: { sequence: number; data: string; bytes: number }[]; writeBytes: number; writing: boolean; epoch: number; inputEpoch: number;
+  writes: { sequence: number; data: string; bytes: number; historical: boolean }[]; writeBytes: number; writing: boolean; epoch: number; inputEpoch: number;
   consumed: number; nextAck: number; ackTask: Promise<void> | null; detachQueue: Promise<Result<{ detached: true }>>;
   inputQueue: Promise<void>; inputBytes: number;
   resized: string; resizing: boolean; nextSize: { cols: number; rows: number } | null; fitPending: boolean;
@@ -338,7 +342,7 @@ export class TerminalRegistry {
     }
     this.apply(entry, event);
   }
-  private apply(entry: Entry, event: DeliveryEvent) {
+  private apply(entry: Entry, event: DeliveryEvent, historical = false) {
     if (event.generation !== entry.state.generation) return;
     if (event.type === 'error') {
       // Delivery errors request recovery. Only a failed recovery needs user attention.
@@ -351,7 +355,7 @@ export class TerminalRegistry {
     }
     if (event.sequence <= entry.sequence || entry.pending.has(event.sequence)) return;
     const bytes = encoder.encode(event.data).length;
-    entry.pending.set(event.sequence, { event, bytes });
+    entry.pending.set(event.sequence, { event, bytes, historical });
     entry.pendingBytes += bytes;
     if (entry.pending.size > MAX_QUEUED_CHUNKS || entry.pendingBytes > MAX_BUFFER) {
       entry.fullReplay = true; void this.attach(entry); return;
@@ -360,7 +364,7 @@ export class TerminalRegistry {
       const next = entry.pending.get(entry.sequence + 1)!;
       // Never move the received cursor past data that was not admitted. A full
       // queue deliberately discards this view through detach/full replay.
-      if (!this.write(entry, next.event.data, next.event.sequence, next.bytes)) return;
+      if (!this.write(entry, next.event.data, next.event.sequence, next.bytes, next.historical)) return;
       entry.pending.delete(next.event.sequence);
       entry.pendingBytes -= next.bytes;
       entry.sequence = next.event.sequence;
@@ -441,7 +445,7 @@ export class TerminalRegistry {
     }
     this.update(entry, { generation: attachment.generation, phase: attachment.state, exitCode: attachment.exitCode, error: null,
       warning: attachment.snapshot ? null : attachment.truncated || full ? 'Earlier output is unavailable. Showing the retained terminal buffer.' : entry.state.warning });
-    for (const chunk of attachment.chunks) this.apply(entry, chunk);
+    for (const chunk of attachment.chunks) this.apply(entry, chunk, true);
     const early = entry.early; entry.early = []; entry.earlyBytes = 0;
     // The attachment, not arbitrary event arrival order, selects the generation.
     let generationRefresh = false;
@@ -473,7 +477,7 @@ export class TerminalRegistry {
     entry.pending.clear(); entry.pendingBytes = 0;
     entry.sequence = sequence; entry.consumed = sequence; entry.nextAck = 0; entry.resized = '';
   }
-  private write(entry: Entry, data: string, sequence: number, bytes: number): boolean {
+  private write(entry: Entry, data: string, sequence: number, bytes: number, historical: boolean): boolean {
     if (entry.writeBytes + bytes > MAX_BUFFER) {
       entry.fullReplay = true;
       this.update(entry, { warning: 'Output exceeded the display queue. Reloading the retained buffer.' });
@@ -482,9 +486,9 @@ export class TerminalRegistry {
     // Parse replay incrementally in bounded batches. Thousands of tiny valid
     // chunks do not need thousands of parser callbacks or a second object cap.
     const tail = entry.writes.at(-1);
-    if (tail && tail.sequence + 1 === sequence && tail.bytes + bytes <= WRITE_BATCH_BYTES) {
+    if (tail && tail.historical === historical && tail.sequence + 1 === sequence && tail.bytes + bytes <= WRITE_BATCH_BYTES) {
       tail.data += data; tail.bytes += bytes; tail.sequence = sequence;
-    } else entry.writes.push({ data, sequence, bytes });
+    } else entry.writes.push({ data, sequence, bytes, historical });
     entry.writeBytes += bytes;
     this.drain(entry);
     return true;
@@ -492,14 +496,14 @@ export class TerminalRegistry {
   private drain(entry: Entry) {
     if (entry.writing || !entry.writes.length) return;
     entry.writing = true;
-    const { data, sequence, bytes } = entry.writes.shift()!; const epoch = entry.epoch;
+    const { data, sequence, bytes, historical } = entry.writes.shift()!; const epoch = entry.epoch;
     entry.surface.write(data, () => {
       if (epoch !== entry.epoch || this.entries.get(entry.id) !== entry) return;
       entry.writeBytes -= bytes; entry.writing = false;
       entry.consumed = sequence; entry.nextAck = Math.max(entry.nextAck, sequence);
       void this.acknowledge(entry); this.drain(entry);
       if (!entry.writing && !entry.writes.length && entry.fitPending) this.fit(entry.id);
-    });
+    }, historical);
   }
   private deliver<T>(id: string, operation: () => Promise<T>): Promise<T> {
     const task = Promise.resolve(this.deliveryQueues.get(id)).then(operation);

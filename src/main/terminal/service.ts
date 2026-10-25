@@ -1,10 +1,10 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, HistoryPage, HistoryQuery, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalAttachmentDto, TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
+import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalAttachmentDto, TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { parseWslUnc } from '../../shared/wsl-path';
 import { requestSchemas } from '../../shared/schemas';
-import { aggregateStatus, countTabs, needsSettleConfirmation, publicStatus, sortSessions, tabStatus } from '../../shared/status';
+import { aggregateStatus, countTabs, publicStatus, sortSessions, tabStatus } from '../../shared/status';
 import type { NativeInit, TabObservation } from '../../shared/native-port';
 import type { OperationRecord, RepositoryPort, SessionRecord, TabRecord } from '../models';
 import { unavailableExplorer, unavailableProbe, unavailableCli, defaultSettings } from '../defaults';
@@ -16,6 +16,7 @@ import type { ExplorerPort } from '../platform/explorer';
 import type { CliPort } from '../platform/shellfox-cli';
 import type { ControlRequest, ControlResponse } from '../control-types';
 import { controlRequestSchema } from '../control-protocol';
+import { SessionLifecycle, processActivityKey } from '../session-lifecycle';
 
 export const LIFETIME_NOTICE = 'Embedded shells run only while Shellfox is running. Quitting closes owned terminals after confirmation; restarting does not restore commands.';
 const INTEGRATION_FRESHNESS_MS = 5000;
@@ -32,6 +33,8 @@ export class EmbeddedSessionService {
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly observations = new Map<string, TabObservation & { generation: string }>();
   private readonly tracker: TrackerPort;
+  private readonly lifecycle: SessionLifecycle;
+  private readonly processKeys = new Map<string, string>();
   setVisibleSessions(input: { sessionIds: string[] }): Result<{ configured: true }> {
     const parsed = requestSchemas.setVisibleSessions.safeParse(input);
     if (!parsed.success) return failure('VALIDATION', 'Invalid visible sessions.');
@@ -46,12 +49,26 @@ export class EmbeddedSessionService {
   private disposed = false;
   private updateClosing = false;
   constructor(readonly repository: RepositoryPort, readonly backend = new PtyBackend(), trackerFactory: (emit: (items: TabObservation[]) => void) => TrackerPort = emit => new ProcessTracker(emit), private readonly explorerIntegration?: ExplorerPort, private readonly cliIntegration?: CliPort) {
+    let expiryPollAt = -Infinity;
+    this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), session => this.removeSession(session), () => this.changed(), async () => {
+      expiryPollAt = Date.now();
+      await this.tracker.poll?.();
+    }, id => !this.tracker.poll || backend.live().filter(owned => owned.sessionId === id && owned.state === 'open').every(owned => {
+      const observation = this.observations.get(owned.tabId);
+      return observation?.generation === owned.generation && observation.root === 'alive' && observation.health === 'healthy' && Date.parse(observation.observedAt) >= expiryPollAt;
+    }));
     this.tracker = trackerFactory(items => {
       if (this.disposed) return;
       for (const owned of backend.live()) backend.rememberOwnership(owned.tabId, owned.generation, this.tracker.resolveIdentity?.(owned.root) ?? null, this.tracker.resolveDescendants?.(owned.root) ?? []);
       for (const item of items) {
         const tab = repository.tab(item.tabId), owned = backend.get(item.tabId);
-        if (tab?.terminal && owned?.state === 'open' && owned.generation === tab.operationId && tab.sessionId === item.sessionId) this.observations.set(tab.id, { ...item, generation: owned.generation });
+        if (tab?.terminal && owned?.state === 'open' && owned.generation === tab.operationId && tab.sessionId === item.sessionId) {
+          const descendants = this.tracker.resolveDescendants?.(owned.root) ?? [];
+          const key = owned.generation + '/' + processActivityKey(item) + '/' + descendants.map(p => p.domain + ':' + p.pid + ':' + p.birth).sort().join(',');
+          if (this.processKeys.get(tab.id) !== key) this.lifecycle.touch(tab.sessionId);
+          this.processKeys.set(tab.id, key);
+          this.observations.set(tab.id, { ...item, generation: owned.generation });
+        }
       }
       this.changed('native');
     });
@@ -64,7 +81,7 @@ export class EmbeddedSessionService {
   }
   subscribe(listener: (event: ChangedEvent) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   subscribeTerminal(listener: (event: TerminalEvent) => void): () => void { this.streams.add(listener); return () => { this.streams.delete(listener); }; }
-  selectSession(sessionId: string): void { this.changed('sessions', sessionId); }
+  selectSession(sessionId: string): void { if (this.repository.session(sessionId)) this.lifecycle.touch(sessionId); this.changed('sessions', sessionId); }
   private changed(reason: ChangedEvent['reason'] = 'sessions', selectSessionId?: string): void {
     const event: ChangedEvent = { revision: ++this.revision, reason, ...(selectSessionId ? { selectSessionId } : {}) };
     for (const listener of this.listeners) { try { listener(event); } catch { /* Renderer failures do not roll back ownership. */ } }
@@ -120,13 +137,15 @@ export class EmbeddedSessionService {
       reasons: [LIFETIME_NOTICE, ...(result.ok ? [] : [result.error.message]), ...profiles.profiles.filter(p => !p.available).map(p => p.unavailableReason ?? `${p.label} is unavailable.`), ...(tracking.reason ? [tracking.reason] : [])],
       capabilities: { createWindow: available, addTab: available, focusWindow: available, activateTab: available, closeTerminal: available, splitPane: false, attachExisting: false, commandExitStatus: false, processTracking: tracking.available, explorerContextMenu: this.explorer.supported, embeddedTerminal: true, terminalLifetime: 'app-owned', shellSurvival: false } };
     this.repository.transaction(() => {
-      // An app-owned handle cannot be reconstituted from its old PID. External roots are untouched.
-      for (const tab of this.repository.tabs()) if (tab.terminal || tab.lifecycle === 'closed') this.repository.deleteTab(tab.id);
-      // Retired external windows are history, never app-owned runtime sessions.
-      // Idempotent metadata-only migration: do not observe, focus, launch or kill their processes.
+      // Saved PIDs cannot restore app-owned handles. Retired external roots are
+      // metadata only, so discard their obsolete tab records without touching processes.
+      for (const tab of this.repository.tabs()) this.repository.deleteTab(tab.id);
+      // Retired external windows are metadata only. Never adopt or terminate their processes.
       for (const session of this.repository.sessions()) {
-        if (!session.settledAt && (session.adapterId !== 'embedded-pty' || this.repository.tabs(session.id).length > 0 && this.repository.tabs(session.id).every(t => !t.terminal))) session.settledAt = session.updatedAt = new Date().toISOString();
-        if (session.settledAt) this.repository.archiveSession(session);
+        if (session.adapterId !== 'embedded-pty') {
+          session.settledAt ??= session.updatedAt;
+          this.repository.saveSession(session);
+        }
       }
       const settings = this.repository.settings();
       if (settings.adapterId !== 'embedded-pty') {
@@ -143,13 +162,14 @@ export class EmbeddedSessionService {
     this.refreshWatch();
     const checkedAt = Date.now();
     this.integrationChecks.explorer.checkedAt = this.integrationChecks.cli.checkedAt = checkedAt;
+    this.lifecycle.start();
     this.changed('native');
   }
   private refreshWatch(): void {
     const live = this.backend.live();
     // Adding/closing another tab does not invalidate evidence for an unchanged
     // shell generation. Drop closed/replaced roots, not the entire session.
-    for (const [id, observation] of this.observations) if (!live.some(e => e.tabId === id && e.state === 'open' && e.generation === observation.generation)) this.observations.delete(id);
+    for (const [id, observation] of this.observations) if (!live.some(e => e.tabId === id && e.state === 'open' && e.generation === observation.generation)) { this.observations.delete(id); this.processKeys.delete(id); }
     this.tracker.setWatch(live.map(e => e.root), this.repository.settings().processRules);
   }
   private terminalEvent(event: TerminalEvent): void {
@@ -157,6 +177,7 @@ export class EmbeddedSessionService {
     if (!owned || event.type !== 'activity' && owned.generation !== event.generation) return;
     // Runtime identity, not SQLite availability, authorizes this stream. Forward before persistence.
     this.forwardTerminal(event);
+    if (event.type === 'data' || event.type === 'exit') this.lifecycle.touch(owned.sessionId);
     if (event.type !== 'exit') return;
     this.backend.rememberOwnership(owned.tabId, owned.generation, this.tracker.resolveIdentity?.(owned.root) ?? null, this.tracker.resolveDescendants?.(owned.root) ?? []);
     this.pendingExits.set(event.tabId, event);
@@ -171,7 +192,7 @@ export class EmbeddedSessionService {
       try {
         const tab = this.repository.tab(id);
         if (tab?.terminal && tab.operationId === exit.generation) this.repository.deleteTab(tab.id);
-        this.pendingExits.delete(id); this.reportedExitFailures.delete(id);
+        this.pendingExits.delete(id); this.reportedExitFailures.delete(id); this.processKeys.delete(id);
       } catch {
         if (this.reportedExitFailures.has(id)) continue;
         this.reportedExitFailures.add(id);
@@ -202,11 +223,11 @@ export class EmbeddedSessionService {
     const activity = aggregateStatus(tabs, session.error);
     return { id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt, pinnedAt: session.pinnedAt ?? null,
       status: publicStatus(activity, session.settledAt), activityStatus: activity, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus: live,
-      canAddTab: this.probe.available && !session.settledAt, controlReason: embedded ? LIFETIME_NOTICE : 'Legacy external terminals are not controlled. Activating this task starts a separate embedded shell.', error: session.error,
+      canAddTab: this.probe.available, controlReason: embedded ? LIFETIME_NOTICE : 'Legacy external terminals are not controlled. Activating this task starts a separate embedded shell.', error: session.error,
       terminalLifetime: embedded ? 'app-owned' : 'external-legacy', shellSurvival: false,
       window: { state: 'unsupported', canReopen: false, canRegister: false, reason: 'Embedded tabs do not use native window ownership or external shell registration.' } };
   }
-  getSnapshot(): Result<ManagerSnapshot> { return success({ revision: this.revision, sessions: sortSessions(this.repository.sessions().filter(s => !s.settledAt).map(s => this.toDto(s))), settings: this.repository.settings(), probe: this.probe, explorer: this.explorer, cli: this.cli }); }
+  getSnapshot(): Result<ManagerSnapshot> { return success({ revision: this.revision, sessions: sortSessions(this.repository.sessions().map(s => this.toDto(s))), settings: this.repository.settings(), probe: this.probe, explorer: this.explorer, cli: this.cli }); }
   /** CLI filters need fresh evidence for hidden sessions as well as visible ones.
    * Explicit poll() covers the lifetime watch without changing renderer interest. */
   async getControlSnapshot(): Promise<Result<ManagerSnapshot>> {
@@ -216,19 +237,17 @@ export class EmbeddedSessionService {
     if (this.disposed || this.updateClosing) return failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.');
     return this.getSnapshot();
   }
-  getHistory(input: HistoryQuery): Result<HistoryPage> {
-    const parsed = requestSchemas.getHistory.safeParse(input); if (!parsed.success) return failure('VALIDATION', 'Invalid history query.');
-    const { search, status, page, pageSize } = parsed.data;
-    const items = this.repository.settled(search).map(s => this.toDto(s)).filter(s => status === 'all' || status === 'settled' || s.activityStatus === status);
-    return success({ items: items.slice((page - 1) * pageSize, page * pageSize), total: items.length, page, pageSize });
-  }
   getTerminalProfiles(): Result<TerminalProfilesDto> { return success(this.backend.getProfiles()); }
   attachTerminal(input: Parameters<PtyBackend['attach']>[0]): Result<TerminalAttachmentDto> {
     const tab = this.repository.tab(input.tabId);
     if (!tab?.terminal) return failure('UNSUPPORTED', 'Only owned embedded terminals can be attached.');
     return this.backend.attach(input);
   }
-  writeTerminal(input: Parameters<PtyBackend['write']>[0]): Result<{ written: true }> { return this.backend.write(input); }
+  writeTerminal(input: Parameters<PtyBackend['write']>[0]): Result<{ written: true }> {
+    const result = this.backend.write(input), owned = this.backend.get(input.tabId);
+    if (result.ok && input.data.length && owned) this.lifecycle.touch(owned.sessionId);
+    return result;
+  }
   resizeTerminal(input: Parameters<PtyBackend['resize']>[0]): Result<{ resized: true }> { return this.backend.resize(input); }
   private profile(cwd: string, session?: SessionRecord, explicit?: string): TerminalProfileDto | undefined {
     const profiles = this.backend.getProfiles(), settings = this.repository.settings();
@@ -254,7 +273,7 @@ export class EmbeddedSessionService {
     return this.serialize(`create:${input.requestId}`, async () => {
       const existing = this.repository.sessionByRequest(input.requestId); if (existing) return success(this.toDto(existing));
       const profile = this.profile(input.cwd); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'No discovered interactive terminal profile is available.');
-      if (this.repository.sessions().filter(s => !s.settledAt).length >= 10000) return failure('VALIDATION', 'The saved session limit is reached.');
+      if (this.repository.sessions().length >= 10000) return failure('VALIDATION', 'The saved session limit is reached.');
       const now = new Date().toISOString();
       const session: SessionRecord = { id: randomUUID(), title: input.title ?? (path.basename(input.cwd).slice(0, 200) || input.cwd.slice(0, 200)), cwd: input.cwd, adapterId: 'embedded-pty', shellId: shellId(profile), shellExecutable: profile.executable, createdAt: now, updatedAt: now, settledAt: null, error: null, target: null, binding: null, windowState: 'unknown' };
       return this.open(session, profile, 'create', input.requestId);
@@ -264,7 +283,7 @@ export class EmbeddedSessionService {
     if (!requestSchemas.activateSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
-      if (session.settledAt) return failure('UNSUPPORTED', 'Restore this session before opening a terminal.');
+      this.lifecycle.touch(session.id);
       if (this.backend.live().some(e => e.sessionId === session.id && e.state === 'open') || this.repository.tabs(session.id).some(t => t.terminal && t.lifecycle === 'launching')) return success(this.toDto(session));
       const cleanup = await this.backend.awaitCleanup(session.id); if (!cleanup.ok) return cleanup;
       const profile = this.profile(session.cwd, session); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
@@ -275,7 +294,6 @@ export class EmbeddedSessionService {
     if (!requestSchemas.addTab.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid new tab request.'));
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
-      if (session.settledAt) return failure('UNSUPPORTED', 'Unsettle this session before adding a tab.');
       const profile = this.profile(input.cwd ?? session.cwd, session, input.profileId); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The selected terminal profile is unavailable.');
       return this.open(session, profile, 'add', null, input.title, input.cwd);
     });
@@ -361,7 +379,6 @@ export class EmbeddedSessionService {
   setSessionPinned(input: { sessionId: string; pinned: boolean }): Promise<Result<SessionDto>> {
     if (!requestSchemas.setSessionPinned.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid pin request.'));
     return this.mutate(input.sessionId, s => {
-      if (s.settledAt) return failure('UNSUPPORTED', 'Restore this session before pinning it.');
       s.pinnedAt = input.pinned ? s.pinnedAt ?? new Date().toISOString() : null;
     });
   }
@@ -421,41 +438,34 @@ export class EmbeddedSessionService {
   }
   settleSession(input: { sessionId: string; confirmActive: boolean }): Promise<Result<SessionDto>> {
     if (!requestSchemas.settleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid settle request.'));
-    return this.serialize(input.sessionId, async () => {
-      const s = this.repository.session(input.sessionId); if (!s) return failure('NOT_FOUND', 'Session not found.');
-      const tabs = this.toDto(s).tabs;
-      if (!input.confirmActive && (this.backend.live().some(t => t.sessionId === s.id) || needsSettleConfirmation(tabs))) return failure('SETTLE_CONFIRM_REQUIRED', 'Archiving closes all session terminals and removes their tabs.');
-      const closed = await this.closeSessionTerminals(s.id); if (!closed.ok) return closed;
-      s.settledAt ??= new Date().toISOString(); s.updatedAt = new Date().toISOString();
-      this.repository.archiveSession(s);
-      for (const tab of tabs) this.observations.delete(tab.id);
-      this.changed('history'); return success(this.toDto(this.repository.session(s.id)!));
-    });
+    return this.mutate(input.sessionId, s => { s.settledAt ??= new Date().toISOString(); });
   }
-  unsettleSession(input: { sessionId: string }): Promise<Result<SessionDto>> { return this.mutate(input.sessionId, s => {
-    if (s.adapterId !== 'embedded-pty') return failure('UNSUPPORTED', 'Legacy external sessions are read-only history. Create a new embedded session instead.');
-    s.settledAt = null;
-  }, 'history'); }
+  unsettleSession(input: { sessionId: string }): Promise<Result<SessionDto>> {
+    if (!requestSchemas.unsettleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
+    return this.mutate(input.sessionId, s => { s.settledAt = null; });
+  }
+  private async removeSession(session: SessionRecord): Promise<Result<{ deleted: true }>> {
+    const tabs = this.repository.tabs(session.id);
+    const closed = await this.closeSessionTerminals(session.id); if (!closed.ok) return closed;
+    if (!this.repository.deleteSession(session.id)) return failure('NOT_FOUND', 'Session not found.');
+    for (const tab of tabs) { this.observations.delete(tab.id); this.processKeys.delete(tab.id); }
+    this.lifecycle.forget(session.id);
+    this.changed(); return success({ deleted: true });
+  }
   deleteSession(input: { sessionId: string }): Promise<Result<{ deleted: true }>> {
     if (!requestSchemas.deleteSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
     return this.serialize(input.sessionId, async () => {
-      const s = this.repository.session(input.sessionId); if (!s) return failure('NOT_FOUND', 'Session not found.');
-      if (!s.settledAt) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
-      // Also close old archived runtime tabs created before the retention change.
-      const tabs = this.repository.tabs(s.id);
-      const closed = await this.closeSessionTerminals(s.id); if (!closed.ok) return closed;
-      if (!this.repository.deleteSession(s.id)) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
-      for (const tab of tabs) this.observations.delete(tab.id);
-      this.changed('history'); return success({ deleted: true as const });
+      const session = this.repository.session(input.sessionId);
+      return session ? this.removeSession(session) : failure('NOT_FOUND', 'Session not found.');
     });
   }
   /** CLI mutations share the renderer's session queue, but never enqueue another
    * session operation while holding it. Context is checked again after waiting. */
   controlSession(input: ControlRequest, signal?: AbortSignal): Promise<Result<ControlResponse>> {
     const parsed = controlRequestSchema.safeParse(input);
-    if (!parsed.success || !['inspect', 'archive', 'delete', 'tab-open', 'tab-close'].includes(parsed.data.action)) return Promise.resolve(failure('VALIDATION', 'Invalid session control request.'));
+    if (!parsed.success || !['inspect', 'settle', 'unsettle', 'delete', 'tab-open', 'tab-close'].includes(parsed.data.action)) return Promise.resolve(failure('VALIDATION', 'Invalid session control request.'));
     input = parsed.data; // Capture validated values before waiting in the queue.
-    if ((input.action === 'delete' || input.action === 'archive') && input.confirmed !== true) return Promise.resolve(failure('SETTLE_CONFIRM_REQUIRED', 'Explicit confirmation is required to close all session terminals.'));
+    if (input.action === 'delete' && input.confirmed !== true) return Promise.resolve(failure('SETTLE_CONFIRM_REQUIRED', 'Explicit confirmation is required to close all session terminals.'));
     const resolveContext = () => {
       const matches = this.backend.live().filter(e => e.state === 'open' && e.root.marker === input.marker);
       if (matches.length !== 1) return undefined;
@@ -483,9 +493,8 @@ export class EmbeddedSessionService {
         if (!current || current.sessionId !== id || current.tabId !== context.tabId || current.generation !== context.generation) return failure('TARGET_LOST', 'The invoking terminal context is no longer live.');
       }
       if (input.action === 'inspect') return success({ session: this.toDto(session) });
-      if (session.adapterId !== 'embedded-pty') return failure('UNSUPPORTED', 'Legacy external sessions are not controlled.');
       if (input.action === 'tab-open') {
-        if (session.settledAt) return failure('UNSUPPORTED', 'Unsettle this session before adding a tab.');
+        if (session.adapterId !== 'embedded-pty') return failure('UNSUPPORTED', 'Legacy external sessions are not controlled.');
         const profile = this.profile(session.cwd, session);
         if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
         const opened = await this.open(session, profile, 'add');
@@ -498,17 +507,14 @@ export class EmbeddedSessionService {
         if (this.pendingExits.has(context!.tabId)) return failure('STORAGE_FAILED', 'Closed tab removal could not be saved. Retry after storage is available.', true);
         this.changed(); return success({ session: this.toDto(session) });
       }
-      const tabs = this.repository.tabs(id);
-      // Finish authorized closure even when it disconnects the invoking CLI.
-      const closed = await this.closeSessionTerminals(id); if (!closed.ok) return closed;
-      this.repository.transaction(() => {
-        session.settledAt ??= new Date().toISOString(); session.updatedAt = new Date().toISOString();
-        this.repository.archiveSession(session);
-        if (input.action === 'delete' && !this.repository.deleteSession(id)) throw new Error('Session deletion was not saved.');
-      });
-      for (const tab of tabs) this.observations.delete(tab.id);
-      this.changed('history');
-      return success(input.action === 'delete' ? { message: 'Session deleted.' } : { session: this.toDto(session), message: 'Session archived.' });
+      if (input.action === 'delete') {
+        const removed = await this.removeSession(session);
+        return removed.ok ? success({ message: 'Session deleted.' }) : removed;
+      }
+      session.settledAt = input.action === 'settle' ? session.settledAt ?? new Date().toISOString() : null;
+      session.updatedAt = new Date().toISOString();
+      this.repository.saveSession(session); this.changed();
+      return success({ session: this.toDto(session), message: input.action === 'settle' ? 'Session settled.' : 'Session unsettled.' });
     });
   }
   clearSessionError(input: { sessionId: string }): Promise<Result<SessionDto>> { return this.mutate(input.sessionId, s => { s.error = null; for (const tab of this.repository.tabs(s.id)) { tab.error = null; this.repository.saveTab(tab); } }); }
@@ -665,12 +671,14 @@ export class EmbeddedSessionService {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.lifecycle.stop();
     try {
       // Save confirmed exits before irreversibly disposing the backend. Storage
       // failures must leave a backend capable of opening fresh shells on retry.
       await this.closeOwnedTerminals();
+      this.lifecycle.flushActivity();
       await this.backend.dispose();
-    } catch (error) { this.disposed = false; this.refreshWatch(); throw error; }
+    } catch (error) { this.disposed = false; this.lifecycle.start(); this.refreshWatch(); throw error; }
     this.tracker.dispose();
     if (this.exitRetryTimer) clearInterval(this.exitRetryTimer);
     this.unsubscribe?.(); this.unsubscribeTitle?.(); this.listeners.clear(); this.streams.clear();

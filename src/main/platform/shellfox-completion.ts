@@ -1,5 +1,10 @@
 /** Generated hooks only query names. Registry output is data, never shell source. */
-const namespaces = [['cmd', 'Run or manage custom script commands']] as const;
+const commands = [
+  ['cmd', 'Run or manage custom script commands'],
+  ['delete', 'Inspect, confirm and delete a session'],
+  ['settle', 'Mark a session settled without closing terminals'],
+  ['unsettle', 'Clear settled status without changing terminals'],
+] as const;
 const operations = [
   ['--run', 'Run a registered command'],
   ['--register', 'Register a name and script path'],
@@ -21,7 +26,7 @@ Register-ArgumentCompleter -Native -CommandName shellfox,shellfox.ps1,shellfox.c
   $before=@($commandAst.CommandElements | Select-Object -Skip 1 | Where-Object { $_.Extent.EndOffset -lt $cursorPosition })
   $position=$before.Count + 1
   $items=@()
-  if ($position -eq 1) { $items=@(,${entries(namespaces)}) }
+  if ($position -eq 1) { $items=@(${entries(commands)}) }
   elseif ($before[0].Extent.Text -notmatch '^(?i:cmd)$') { return }
   elseif ($position -eq 2) { $items=@(${entries(operations)}) }
   elseif ($position -ne 3 -or $before[1].Extent.Text -notin @(${nameOperations.map(psQuote).join(',')})) { return }
@@ -55,7 +60,7 @@ _shellfox_complete() {
   local current="\${COMP_WORDS[COMP_CWORD]}" name output candidate
   COMPREPLY=()
   if [[ $COMP_CWORD -eq 1 ]]; then
-    for candidate in cmd; do
+    for candidate in ${commands.map(([name]) => name).join(' ')}; do
       [[ $candidate == "$current"* ]] && COMPREPLY+=("$candidate")
     done
     return 0
@@ -88,7 +93,7 @@ _shellfox_complete() {
   local output name pattern='^[A-Za-z][A-Za-z0-9_-]{0,63}$'
   local -a names subcommands
   if (( CURRENT == 2 )); then
-    subcommands=(${namespaces.map(([name, hint]) => `'${name}:${hint}'`).join(' ')})
+    subcommands=(${commands.map(([name, hint]) => `'${name}:${hint}'`).join(' ')})
     _describe 'Shellfox command' subcommands
     return 0
   fi

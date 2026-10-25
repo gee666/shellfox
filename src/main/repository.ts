@@ -3,7 +3,6 @@ import type { SettingsDto } from '../shared/contracts';
 import { settingsSchema, storedEnvVarsSchema } from '../shared/schemas';
 import type { RepositoryPort, SessionRecord, TabRecord, OperationRecord } from './models';
 import { defaultSettings, upgradeBundledRules } from './defaults';
-import { historySearch } from './history';
 
 /** Latest schema migration. Opening a database with a higher user_version is refused. */
 export const SCHEMA_VERSION = 5;
@@ -38,7 +37,6 @@ export class Repository implements RepositoryPort {
           );
           CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
           CREATE TABLE preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-          CREATE INDEX session_history ON sessions(settledAt DESC, id);
           CREATE INDEX session_tabs ON tabs(sessionId, ordinal);
         `);
         this.db.prepare('INSERT INTO settings VALUES (1, ?)').run(JSON.stringify(defaultSettings));
@@ -53,23 +51,21 @@ export class Repository implements RepositoryPort {
         this.db.exec("ALTER TABLE sessions ADD COLUMN env TEXT NOT NULL DEFAULT '[]'");
         this.db.pragma('user_version = 3');
       })();
-      // Version 4: pinned sessions. Archived sessions keep pinnedAt; it only orders live sessions.
+      // Version 4 adds session pins.
       if (version < 4) this.db.transaction(() => {
         this.db.exec('ALTER TABLE sessions ADD COLUMN pinnedAt TEXT');
         this.db.pragma('user_version = 4');
       })();
       // Version 5 removes obsolete tab/launch records, never their processes.
       if (version < 5) this.transaction(() => {
-        for (const row of this.db.prepare("SELECT id FROM tabs WHERE lifecycle='closed' OR sessionId NOT IN (SELECT id FROM sessions) OR sessionId IN (SELECT id FROM sessions WHERE settledAt IS NOT NULL)").all() as { id: string }[]) this.deleteTab(row.id);
+        for (const row of this.db.prepare("SELECT id FROM tabs WHERE lifecycle='closed' OR sessionId NOT IN (SELECT id FROM sessions)").all() as { id: string }[]) this.deleteTab(row.id);
         this.db.exec(`
           DELETE FROM operations WHERE sessionId NOT IN (SELECT id FROM sessions)
-            OR sessionId IN (SELECT id FROM sessions WHERE settledAt IS NOT NULL)
             OR (tabId IS NOT NULL AND tabId NOT IN (SELECT id FROM tabs));
           DELETE FROM terminal_metadata WHERE tabId NOT IN (SELECT id FROM tabs);
           DELETE FROM preferences WHERE
             (substr(key,1,11)='tab-member:' AND substr(key,12) NOT IN (SELECT id FROM tabs)) OR
-            (substr(key,1,15)='session-window:' AND substr(key,16) NOT IN (SELECT id FROM sessions WHERE settledAt IS NULL));
-          UPDATE sessions SET target=NULL WHERE settledAt IS NOT NULL;
+            (substr(key,1,15)='session-window:' AND substr(key,16) NOT IN (SELECT id FROM sessions));
         `);
         this.db.pragma('user_version = 5');
       });
@@ -139,20 +135,10 @@ export class Repository implements RepositoryPort {
       return this.db.prepare('DELETE FROM tabs WHERE id=?').run(id).changes > 0;
     });
   }
-  archiveSession(s: SessionRecord): void {
-    if (!s.settledAt) throw new Error('An archive timestamp is required.');
-    this.transaction(() => {
-      this.saveSession({ ...s, target: null, binding: undefined });
-      for (const tab of this.db.prepare('SELECT id FROM tabs WHERE sessionId=?').all(s.id) as { id: string }[]) this.deleteTab(tab.id);
-      this.db.prepare('DELETE FROM operations WHERE sessionId=?').run(s.id);
-      this.db.prepare('DELETE FROM preferences WHERE key=?').run('session-window:' + s.id);
-    });
-  }
-  /** Permanently removes an archived session and everything keyed to it. Returns false, changing nothing, unless the session exists and is archived. */
   deleteSession(id: string): boolean {
     return this.transaction(() => {
-      const session = this.db.prepare('SELECT settledAt FROM sessions WHERE id=?').get(id) as { settledAt: string | null } | undefined;
-      if (!session?.settledAt) return false;
+      const session = this.db.prepare('SELECT id FROM sessions WHERE id=?').get(id);
+      if (!session) return false;
       const tabIds = (this.db.prepare('SELECT id FROM tabs WHERE sessionId=?').all(id) as { id: string }[]).map(tab => tab.id);
       this.db.prepare('DELETE FROM operations WHERE sessionId=?').run(id);
       for (const tabId of tabIds) {
@@ -178,10 +164,6 @@ export class Repository implements RepositoryPort {
   }
   settings(): SettingsDto { return settingsSchema.parse(JSON.parse((this.db.prepare('SELECT value FROM settings WHERE id=1').get() as { value: string }).value)); }
   saveSettings(settings: SettingsDto): void { this.db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify(settings)); }
-  settled(search: string): SessionRecord[] {
-    const query = historySearch(search);
-    return this.db.prepare('SELECT * FROM sessions WHERE ' + query.sql + ' ORDER BY settledAt DESC, id').all(...query.params).map(r => this.decode<SessionRecord>(r, ['error', 'target'])!);
-  }
   explorerPreference(): boolean { return (this.db.prepare("SELECT value FROM preferences WHERE key='explorer'").get() as { value: string } | undefined)?.value === 'true'; }
   saveExplorerPreference(installed: boolean): void { this.db.prepare("INSERT INTO preferences VALUES ('explorer',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(installed)); }
   cliPreference(): boolean | null {

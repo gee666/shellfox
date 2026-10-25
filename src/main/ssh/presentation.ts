@@ -28,7 +28,8 @@ export function helpText(version: string, color: boolean, opensApp = true): stri
     ['shellfox stats [filters]', 'RSS and duration; aliases: status, usage'],
     ['shellfox processes [filters]', 'process PIDs; aliases: proc, ps'],
     ['shellfox delete [UUID]', 'inspect and confirm; aliases: remove, rm'],
-    ['shellfox archive [UUID]', 'inspect and confirm; alias: settle'],
+    ['shellfox settle [UUID]', 'mark settled; keep terminals running'],
+    ['shellfox unsettle [UUID]', 'clear settled status; keep terminals running'],
     ['shellfox tab open', 'open tab here; aliases: add, new'],
     ['shellfox tab close', 'close this tab; aliases: remove, rm'],
     ['shellfox keep-alive', 'toggle sleep prevention; aliases: keepalive, awake'],
@@ -64,7 +65,7 @@ export function remoteCommand(cwd: string | null, color = false): string {
 
 const filterHelp = [
   '  --running       session activity is running',
-  '  --idle          live session activity is waiting, not unknown/error/archived',
+  '  --idle          live session activity is waiting, not unknown/error/settled',
   '  --no-agents     reported session agent count is zero, not proof of no processes',
   '  --current       session containing SHELLFOX_TERMINAL_MARKER; fails outside Shellfox',
   '  --id UUID       exact session UUID',
@@ -78,7 +79,7 @@ export function commandHelp(topic: string, color: boolean): string {
   if (topic === 'ssh') return sshHelp(color);
   const s = styles(color);
   const aliases: Record<string, string> = {
-    start: 'add, new, create', ls: 'list, sessions', delete: 'remove, rm', archive: 'settle',
+    start: 'add, new, create', ls: 'list, sessions', delete: 'remove, rm',
     stats: 'status, usage', processes: 'proc, ps', 'keep-alive': 'keepalive, awake',
     'tab open': 'tab add, tab new', 'tab close': 'tab remove, tab rm', version: '--version, -v',
   };
@@ -97,8 +98,10 @@ export function commandHelp(topic: string, color: boolean): string {
       '  n/a means unavailable, not zero. Processes are observed owned trees, not the whole OS.'],
     delete: ['shellfox delete [UUID | --id UUID | --current]', '  Delete the session and close owned terminals after inspection.',
       '  Without a UUID, target the current Shellfox terminal session.', '  Requires TTY input/output and explicit y or yes. EOF, other answers and pipes cancel.'],
-    archive: ['shellfox archive [UUID | --id UUID | --current]', '  Archive the session and close owned terminals after inspection.',
-      '  Without a UUID, target the current Shellfox terminal session.', '  Requires TTY input/output and explicit y or yes. EOF, other answers and pipes cancel.'],
+    settle: ['shellfox settle [UUID | --id UUID | --current]', '  Mark the session settled without closing terminals or stopping agents.',
+      '  Without a UUID, target the current Shellfox terminal session. No confirmation.'],
+    unsettle: ['shellfox unsettle [UUID | --id UUID | --current]', '  Clear settled status without changing terminals or agents.',
+      '  Without a UUID, target the current Shellfox terminal session. No confirmation.'],
     tab: ['shellfox tab open [--current]', '  shellfox tab close [--current]', '  open aliases: add, new. close aliases: remove, rm.',
       '  Requires the current Shellfox terminal marker. UUID targets are not accepted.'],
     'tab open': ['shellfox tab open [--current]', '  Open a tab in the current session with its defaults. Requires a Shellfox terminal marker.'],

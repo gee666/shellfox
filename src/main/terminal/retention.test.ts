@@ -27,42 +27,44 @@ describe('database retention lifecycle', () => {
       expect(f.repository.session(f.session.id)?.title).toBe('Keep metadata');
     } finally { await f.service.dispose(); }
   });
-  it('archive requires confirmation even for an idle shell and retains only session metadata', async () => {
+  it('settles and unsets without closing terminals or removing saved ownership', async () => {
     const f = await fixture();
     try {
       value(await f.service.setSessionEnv({ sessionId: f.session.id, env: [{ name: 'CUSTOM', value: 'retained' }] }));
       value(await f.service.setSessionPinned({ sessionId: f.session.id, pinned: true }));
       value(await f.service.addTab({ sessionId: f.session.id }));
-      expect(await f.service.settleSession({ sessionId: f.session.id, confirmActive: false })).toMatchObject({ ok: false, error: { code: 'SETTLE_CONFIRM_REQUIRED' } });
+      const tabs = f.repository.tabs(f.session.id), operations = f.repository.operationMap.size;
+      const settled = value(await f.service.settleSession({ sessionId: f.session.id, confirmActive: false }));
+      expect(settled).toMatchObject({ id: f.session.id, status: 'settled', env: [{ name: 'CUSTOM', value: 'retained' }], pinnedAt: expect.any(String) });
+      expect(settled.tabs.map(t => t.id)).toEqual(tabs.map(t => t.id));
+      expect(f.backend.live()).toHaveLength(2); expect(f.repository.operationMap.size).toBe(operations);
       expect(f.processes.every(p => p.kill.mock.calls.length === 0)).toBe(true);
-      const archived = value(await f.service.settleSession({ sessionId: f.session.id, confirmActive: true }));
-      expect(archived).toMatchObject({ id: f.session.id, title: 'Keep metadata', tabs: [], status: 'settled', env: [{ name: 'CUSTOM', value: 'retained' }], pinnedAt: expect.any(String) });
-      expect(f.backend.live()).toEqual([]); expect(f.repository.operationMap.size).toBe(0);
-      expect(value(await f.service.unsettleSession({ sessionId: f.session.id })).tabs).toEqual([]);
-      const opened = value(await f.service.activateSession({ sessionId: f.session.id }));
-      expect(opened.tabs).toHaveLength(1); expect(opened.tabs[0].id).not.toBe(f.session.tabs[0].id);
+      expect(value(f.service.getSnapshot()).sessions.map(s => s.id)).toContain(f.session.id);
+      expect(value(await f.service.unsettleSession({ sessionId: f.session.id })).tabs.map(t => t.id)).toEqual(tabs.map(t => t.id));
     } finally { await f.service.dispose(); }
   });
-  it('partial closure failure keeps the session live and still-running tabs owned', async () => {
+  it('partial deletion failure keeps the session and still-running tabs owned', async () => {
     const f = await fixture();
     try {
       const added = value(await f.service.addTab({ sessionId: f.session.id }));
       f.processes[1].kill.mockImplementation(() => { throw new Error('denied'); });
-      expect(await f.service.settleSession({ sessionId: f.session.id, confirmActive: true })).toMatchObject({ ok: false });
+      expect(await f.service.deleteSession({ sessionId: f.session.id })).toMatchObject({ ok: false });
       expect(f.repository.session(f.session.id)?.settledAt).toBeNull();
       expect(f.repository.tabs(f.session.id).map(t => t.id)).toEqual([added.tabs[1].id]);
       expect(f.backend.live().map(t => t.tabId)).toEqual([added.tabs[1].id]);
       f.processes[1].kill.mockImplementation(() => f.processes[1].exit(0));
-      expect(value(await f.service.settleSession({ sessionId: f.session.id, confirmActive: true })).tabs).toEqual([]);
+      expect(value(await f.service.deleteSession({ sessionId: f.session.id }))).toEqual({ deleted: true });
     } finally { f.processes[1].kill.mockImplementation(() => f.processes[1].exit(0)); await f.service.dispose(); }
   });
-  it('a failed archive save leaves the session unarchived without resurrecting closed tabs', async () => {
-    const f = await fixture(), save = vi.spyOn(f.repository, 'archiveSession').mockImplementation(() => { throw new Error('disk full'); });
+  it('a failed settlement save preserves all terminal metadata and runtime ownership', async () => {
+    const f = await fixture(), before = f.repository.tabs(f.session.id);
+    const save = vi.spyOn(f.repository, 'saveSession').mockImplementation(() => { throw new Error('disk full'); });
     try {
-      expect(await f.service.settleSession({ sessionId: f.session.id, confirmActive: true })).toMatchObject({ ok: false, error: { code: 'STORAGE_FAILED' } });
-      expect(f.repository.session(f.session.id)?.settledAt).toBeNull(); expect(f.repository.tabs(f.session.id)).toEqual([]);
+      expect(await f.service.settleSession({ sessionId: f.session.id, confirmActive: false })).toMatchObject({ ok: false, error: { code: 'STORAGE_FAILED' } });
+      expect(f.repository.session(f.session.id)?.settledAt).toBeNull(); expect(f.repository.tabs(f.session.id)).toEqual(before);
+      expect(f.backend.live()).toHaveLength(1); expect(f.processes[0].kill).not.toHaveBeenCalled();
       save.mockRestore();
-      expect(value(await f.service.settleSession({ sessionId: f.session.id, confirmActive: false })).tabs).toEqual([]);
+      expect(value(await f.service.settleSession({ sessionId: f.session.id, confirmActive: false })).tabs).toHaveLength(1);
     } finally { save.mockRestore(); await f.service.dispose(); }
   });
   it('an immediate exit during launch cannot recreate the removed tab or operation', async () => {

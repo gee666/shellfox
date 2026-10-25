@@ -38,14 +38,31 @@ describe('serialized CLI session control', () => {
       expect(value(await service.controlSession({ action: 'inspect', id: a.id })).session?.id).toBe(a.id);
     } finally { await service.dispose(); }
   });
-  it('rejects unconfirmed archive/delete without closing anything', async () => {
+  it('rejects unconfirmed delete without closing anything', async () => {
     const { service, a, processes, repository } = await fixture();
     try {
-      for (const action of ['archive', 'delete'] as const) for (const confirmed of [undefined, false]) expect(await service.controlSession({ action, id: a.id, confirmed })).toMatchObject({ ok: false, error: { code: 'SETTLE_CONFIRM_REQUIRED' } });
+      for (const confirmed of [undefined, false]) expect(await service.controlSession({ action: 'delete', id: a.id, confirmed })).toMatchObject({ ok: false, error: { code: 'SETTLE_CONFIRM_REQUIRED' } });
       expect(processes[0]!.kill).not.toHaveBeenCalled(); expect(repository.session(a.id)?.settledAt).toBeNull();
     } finally { await service.dispose(); }
   });
-  it.each(['archive', 'delete'] as const)('%s closes every target tab before changing history, without nested queue deadlocks', async action => {
+  it('settles and unsettles without confirmation, preserving every terminal and tab', async () => {
+    const { service, backend, a, marker, repository, processes } = await fixture();
+    value(await service.addTab({ sessionId: a.id }));
+    const roots = backend.live(), tabs = repository.tabs(a.id);
+    try {
+      const settled = value(await service.controlSession({ action: 'settle', marker })).session!;
+      expect(settled.status).toBe('settled'); expect(settled.settledAt).toEqual(expect.any(String));
+      expect(settled.tabs.map(t => t.id)).toEqual(tabs.map(t => t.id));
+      expect(value(service.getSnapshot()).sessions.some(s => s.id === a.id)).toBe(true);
+      expect(value(await service.controlSession({ action: 'settle', id: a.id })).session?.settledAt).toBe(settled.settledAt);
+      expect(value(await service.controlSession({ action: 'unsettle', marker })).session?.settledAt).toBeNull();
+      value(await service.controlSession({ action: 'settle', id: a.id }));
+      expect(value(await service.controlSession({ action: 'unsettle', id: a.id })).session?.settledAt).toBeNull();
+      expect(backend.live()).toEqual(roots); expect(repository.tabs(a.id)).toEqual(tabs);
+      for (const process of processes) expect(process.kill).not.toHaveBeenCalled();
+    } finally { await service.dispose(); }
+  });
+  it('delete closes every target tab before removing the session, without nested queue deadlocks', async () => {
     const { service, backend, a, b, marker, repository, processes } = await fixture();
     value(await service.addTab({ sessionId: a.id }));
     const close = backend.close.bind(backend);
@@ -54,15 +71,14 @@ describe('serialized CLI session control', () => {
       return close(input);
     });
     try {
-      value(await service.controlSession({ action, marker, confirmed: true }));
+      value(await service.controlSession({ action: 'delete', marker, confirmed: true }));
       expect(spy).toHaveBeenCalledTimes(2);
       expect(processes[0]!.kill).toHaveBeenCalledTimes(1); expect(processes[2]!.kill).toHaveBeenCalledTimes(1);
       expect(processes[1]!.kill).not.toHaveBeenCalled(); expect(backend.live().map(t => t.sessionId)).toEqual([b.id]);
-      if (action === 'delete') expect(repository.session(a.id)).toBeUndefined();
-      else { expect(repository.session(a.id)?.settledAt).toBeTruthy(); expect(value(service.getSnapshot()).sessions.map(s => s.id)).toEqual([b.id]); }
+      expect(repository.session(a.id)).toBeUndefined();
     } finally { spy.mockRestore(); await service.dispose(); }
   });
-  it('does not archive or delete if any closure is unconfirmed', async () => {
+  it('does not delete if any closure is unconfirmed', async () => {
     const { service, backend, repository, a } = await fixture();
     const spy = vi.spyOn(backend, 'close').mockResolvedValue(failure('TARGET_LOST', 'Close unconfirmed.'));
     try {
@@ -87,9 +103,9 @@ describe('serialized CLI session control', () => {
     const { service, a, marker, repository, processes } = await fixture();
     try {
       const close = service.closeTab({ tabId: a.tabs[0]!.id, generation: a.tabs[0]!.generation! });
-      const archive = service.controlSession({ action: 'archive', marker, confirmed: true });
+      const settle = service.controlSession({ action: 'settle', marker });
       value(await close);
-      expect(await archive).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
+      expect(await settle).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
       expect(repository.session(a.id)?.settledAt).toBeNull(); expect(processes).toHaveLength(2);
     } finally { await service.dispose(); }
   });
@@ -108,7 +124,7 @@ describe('serialized CLI session control', () => {
       expect(await service.controlSession({ action: 'tab-close', marker })).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
     } finally { repository.saveTab(tab); await service.dispose(); }
   });
-  it('does not archive when authoritative exits cannot be persisted', async () => {
+  it('does not delete when authoritative exits cannot be persisted', async () => {
     const { service, repository, a } = await fixture();
     const remove = repository.deleteTab.bind(repository);
     const spy = vi.spyOn(repository, 'deleteTab').mockImplementation(id => {
@@ -116,13 +132,13 @@ describe('serialized CLI session control', () => {
       return remove(id);
     });
     try {
-      expect(await service.controlSession({ action: 'archive', id: a.id, confirmed: true })).toMatchObject({ ok: false, error: { code: 'STORAGE_FAILED' } });
+      expect(await service.controlSession({ action: 'delete', id: a.id, confirmed: true })).toMatchObject({ ok: false, error: { code: 'STORAGE_FAILED' } });
       expect(repository.session(a.id)?.settledAt).toBeNull();
     } finally { spy.mockRestore(); await service.dispose(); }
   });
-  it('rolls back the archive flag if permanent deletion cannot be saved', async () => {
+  it('keeps the session if permanent deletion cannot be saved', async () => {
     const { service, a, repository } = await fixture();
-    const deleting = vi.spyOn(repository, 'deleteSession').mockReturnValue(false);
+    const deleting = vi.spyOn(repository, 'deleteSession').mockImplementation(() => { throw new Error('Storage unavailable.'); });
     try {
       expect(await service.controlSession({ action: 'delete', id: a.id, confirmed: true })).toMatchObject({ ok: false, error: { code: 'STORAGE_FAILED' } });
       expect(repository.session(a.id)?.settledAt).toBeNull();
@@ -149,7 +165,7 @@ describe('serialized CLI session control', () => {
       expect(repository.session(a.id)?.settledAt).toBeNull(); expect(processes[0]!.kill).not.toHaveBeenCalled();
     } finally { await service.dispose(); }
   });
-  it.each(['archive', 'delete'] as const)('finishes %s atomically if closing the invoking shell aborts its transport', async action => {
+  it('finishes delete atomically if closing the invoking shell aborts its transport', async () => {
     const { service, backend, a, b, marker, repository, processes } = await fixture();
     value(await service.addTab({ sessionId: a.id }));
     const controller = new AbortController(), close = backend.close.bind(backend);
@@ -157,24 +173,30 @@ describe('serialized CLI session control', () => {
       const result = await close(input); controller.abort(); return result;
     });
     try {
-      value(await service.controlSession({ action, marker, confirmed: true }, controller.signal));
+      value(await service.controlSession({ action: 'delete', marker, confirmed: true }, controller.signal));
       expect(spy).toHaveBeenCalledTimes(2);
       expect(backend.live().map(t => t.sessionId)).toEqual([b.id]);
       expect(processes[2]!.kill).toHaveBeenCalled(); expect(processes[1]!.kill).not.toHaveBeenCalled();
-      if (action === 'delete') expect(repository.session(a.id)).toBeUndefined();
-      else expect(repository.session(a.id)?.settledAt).toBeTruthy();
+      expect(repository.session(a.id)).toBeUndefined();
     } finally { spy.mockRestore(); await service.dispose(); }
   });
-  it.each(['archive', 'delete'] as const)('keeps tab creation behind the entire %s operation', async action => {
+  it('keeps tab creation behind the entire delete operation', async () => {
     const { service, a, repository, processes } = await fixture();
     try {
-      const removing = service.controlSession({ action, id: a.id, confirmed: true });
+      const removing = service.controlSession({ action: 'delete', id: a.id, confirmed: true });
       const adding = service.addTab({ sessionId: a.id });
       value(await removing);
-      expect(await adding).toMatchObject({ ok: false, error: { code: action === 'delete' ? 'NOT_FOUND' : 'UNSUPPORTED' } });
-      expect(processes).toHaveLength(2);
-      if (action === 'delete') expect(repository.session(a.id)).toBeUndefined();
-      else expect(repository.session(a.id)?.settledAt).toBeTruthy();
+      expect(await adding).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+      expect(processes).toHaveLength(2); expect(repository.session(a.id)).toBeUndefined();
+    } finally { await service.dispose(); }
+  });
+  it('allows tab creation after settle without nested queue deadlocks', async () => {
+    const { service, a, backend } = await fixture();
+    try {
+      const settling = service.controlSession({ action: 'settle', id: a.id });
+      const adding = service.addTab({ sessionId: a.id });
+      value(await settling); expect(value(await adding).tabs).toHaveLength(2);
+      expect(backend.live().filter(t => t.sessionId === a.id)).toHaveLength(2);
     } finally { await service.dispose(); }
   });
   it('serializes an open before delete so the new tab is also closed', async () => {

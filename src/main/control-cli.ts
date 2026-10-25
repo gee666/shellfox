@@ -7,7 +7,7 @@ import { commandHelp, escapeTerminal, formatControl, helpText } from './ssh/pres
 
 const aliases: Record<string, string> = {
   add: 'start', new: 'start', create: 'start', list: 'ls', sessions: 'ls',
-  remove: 'delete', rm: 'delete', settle: 'archive', keepalive: 'keep-alive', awake: 'keep-alive',
+  remove: 'delete', rm: 'delete', keepalive: 'keep-alive', awake: 'keep-alive',
   status: 'stats', usage: 'stats', proc: 'processes', ps: 'processes',
   '--version': 'version', '-v': 'version', '--help': 'help', '-h': 'help',
 };
@@ -29,7 +29,7 @@ function topicFor(args: string[]): string {
     if (args.length === 1) return 'tab';
     const sub = ({ add: 'open', new: 'open', remove: 'close', rm: 'close' } as Record<string, string>)[args[1]] ?? args[1];
     if (args.length === 2 && ['open', 'close'].includes(sub)) return 'tab ' + sub;
-  } else if (args.length === 1 && ['start', 'ls', 'delete', 'archive', 'keep-alive', 'stats', 'processes', 'ssh', 'update', 'version'].includes(command)) return command;
+  } else if (args.length === 1 && ['start', 'ls', 'delete', 'settle', 'unsettle', 'keep-alive', 'stats', 'processes', 'ssh', 'update', 'version'].includes(command)) return command;
   throw new Error('Unknown help topic');
 }
 export function parseControlArgs(argv: string[]): ParsedControlCli {
@@ -47,7 +47,7 @@ export function parseControlArgs(argv: string[]): ParsedControlCli {
     if (sub && ['open', 'add', 'new'].includes(sub)) action = 'tab-open';
     else if (sub && ['close', 'remove', 'rm'].includes(sub)) action = 'tab-close';
     else throw new Error('Expected tab open or tab close. Run shellfox help tab');
-  } else if (['delete', 'archive', 'keep-alive'].includes(command)) action = command as ControlAction;
+  } else if (command === 'delete' || command === 'settle' || command === 'unsettle' || command === 'keep-alive') action = command;
   if (!action) throw new Error(command === 'start' ? 'Use the shellfox launcher to start a GUI session' : 'Invalid command. Run shellfox help');
   const reading = Object.hasOwn(readActions, command);
   const tabAction = action === 'tab-open' || action === 'tab-close';
@@ -155,18 +155,18 @@ export async function runControlCli(argv: string[], userData: string, version: s
     ...(filters.id && (!reading || !filters.current) ? { id: filters.id } : {}), ...(filters.current ? { current: true } : {}) };
   if (filters.current && (!io.marker || !uuid.test(io.marker))) { io.error.write('  No current terminal. Use a UUID or run inside a Shellfox terminal.\n'); return 2; }
   try {
-    if (action === 'delete' || action === 'archive') {
+    if (action === 'delete') {
       const inspected = await io.request(userData, { ...request, action: 'inspect' });
       const session = inspected.session;
       if (!session || !uuid.test(session.id) || (filters.id && session.id.toLowerCase() !== filters.id)) throw new Error('Could not inspect the target session');
       io.output.write(inspectionText(session, inspected.tabs ?? []));
-      io.output.write('  ' + (action === 'delete' ? 'Delete session and close its owned terminals.' : 'Archive session and close its owned terminals.') + '\n');
+      io.output.write('  Delete session and close its owned terminals.\n');
       if (!await confirmControl('  ' + action + ' ' + escapeTerminal(session.id) + '? [y/N] ', io.input, io.output)) {
         io.output.write('  Cancelled. No changes made.\n'); return 1;
       }
       // Pin the inspected UUID instead of resolving the current marker a second time.
       const result = await io.request(userData, { action, id: session.id, confirmed: true });
-      io.output.write('  ' + escapeTerminal(result.message ?? (action === 'delete' ? 'Session deleted.' : 'Session archived.')) + '\n');
+      io.output.write('  ' + escapeTerminal(result.message ?? 'Session deleted.') + '\n');
     } else {
       const response = await io.request(userData, request);
       if (['list', 'stats', 'processes'].includes(action)) io.output.write(formatControl(action, filterControl(response, filters)));

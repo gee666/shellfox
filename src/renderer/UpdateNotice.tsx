@@ -44,7 +44,7 @@ export function UpdateNotice({ api }: { api: ManagerApi }) {
   async function act() {
     if (pending || !supported) return;
     setPending(true); setError(null);
-    // Native confirmation and installer setup have no renderer deadline.
+    // In-app confirmation and installer setup have no renderer deadline.
     const result = await request(() => ready ? api.installUpdate!({ confirmCloseTerminals: true }) : api.downloadUpdate!(), 0);
     if (result.ok) setUpdate(result.value); else setError(result.error.message);
     setPending(false);

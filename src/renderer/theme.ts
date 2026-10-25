@@ -105,7 +105,7 @@ export function derivePalette(accentInput: string, backgroundInput: string): Pal
   const accent = ensureContrast(accentBase, bg, dark ? 3 : 4.5, preferred);
   const onAccent = contrastRatio('#ffffff', accent) >= 3 || contrastRatio('#ffffff', accent) >= contrastRatio('#000000', accent) ? '#ffffff' : '#000000';
   const status = (color: string) => ensureContrast(color, bg, 3, preferred);
-  const [shell, running, error] = [status('#60a5fa'), status('#4ade80'), status('#fc8397')];
+  const [shell, running, error, settled] = [status('#60a5fa'), status('#4ade80'), status('#fc8397'), status('#96734e')];
   const [r, g, b] = parse(accent);
 
   const ansi = (dark ? DARK_ANSI : LIGHT_ANSI).map(color => ensureContrast(color, bg, 4.5, preferred));
@@ -128,7 +128,7 @@ export function derivePalette(accentInput: string, backgroundInput: string): Pal
       '--input-bg': inputBg, '--input-border': inputBorder,
       '--accent': accent, '--accent-rgb': `${r}, ${g}, ${b}`, '--on-accent': onAccent,
       '--brand-opacity': dark ? '.72' : '1', '--brand-label-opacity': dark ? '.6' : '1',
-      '--dot-shell': shell, '--dot-running': running, '--dot-error': error,
+      '--dot-shell': shell, '--dot-running': running, '--dot-error': error, '--dot-settled': settled,
       '--shadow': dark ? 'rgba(0, 0, 0, .4)' : 'rgba(0, 0, 0, .18)',
       '--shadow-strong': dark ? 'rgba(0, 0, 0, .53)' : 'rgba(0, 0, 0, .28)',
       '--backdrop': dark ? 'rgba(0, 0, 0, .53)' : 'rgba(0, 0, 0, .35)',

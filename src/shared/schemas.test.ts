@@ -1,5 +1,5 @@
 import { it, expect } from 'vitest';
-import { historyQuerySchema, nativeEventSchema, pathSchema, requestEnvelopeSchema, requestSchemas, settingsSchema } from './schemas';
+import { nativeEventSchema, pathSchema, requestEnvelopeSchema, requestSchemas, settingsSchema } from './schemas';
 import { defaultSettings } from '../main/defaults';
 it('rejects unexpected IPC fields and arbitrary methods', () => {
   expect(requestEnvelopeSchema.safeParse({version:1,method:'execute',payload:{}}).success).toBe(false);
@@ -15,9 +15,16 @@ it('accepts only a strict session id for deleteSession', () => {
 it('rejects malformed IDs', () => expect(requestSchemas.focusSession.safeParse({sessionId:'1'}).success).toBe(false));
 it.each(['relative','\\\\server\\folder','\\\\?\\C:\\folder','C:\\x\u0000','shell:desktop'])('rejects unsafe path %s', value => expect(pathSchema.safeParse(value).success).toBe(false));
 it('treats shell punctuation as path data', () => expect(pathSchema.safeParse("C:\\space 雪\\a'&;%[x]").success).toBe(true));
-it('bounds pagination and literal search strings', () => {
-  expect(historyQuerySchema.safeParse({search:'%_',status:'all',page:1,pageSize:100}).success).toBe(true);
-  expect(historyQuerySchema.safeParse({search:'',status:'all',page:0,pageSize:101}).success).toBe(false);
+it('bounds session pages and inactivity settings, and upgrades saved settings', () => {
+  const { sessionSettleHours, sessionDeleteHours, ...legacy } = defaultSettings;
+  expect([sessionSettleHours, sessionDeleteHours, defaultSettings.historyPageSize]).toEqual([24, 720, 10]);
+  expect(settingsSchema.parse(legacy)).toMatchObject({ sessionSettleHours: 24, sessionDeleteHours: 720 });
+  for (const historyPageSize of [0, 101, 1.5]) expect(settingsSchema.safeParse({ ...defaultSettings, historyPageSize }).success).toBe(false);
+  for (const field of ['sessionSettleHours', 'sessionDeleteHours']) {
+    for (const value of [0, -1, 87601, Infinity, NaN]) expect(settingsSchema.safeParse({ ...defaultSettings, [field]: value }).success).toBe(false);
+    expect(settingsSchema.safeParse({ ...defaultSettings, [field]: 48 }).success).toBe(true);
+  }
+  expect(requestEnvelopeSchema.safeParse({version:1,method:'getHistory',payload:{}}).success).toBe(false);
 });
 it('validates accents and structured process rules', () => {
   expect(settingsSchema.safeParse(defaultSettings).success).toBe(true);

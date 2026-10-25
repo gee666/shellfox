@@ -65,24 +65,26 @@ async function run() {
   await service.dispose(); // No backend owns these fixture tabs.
   repository.close(); repository = new Repository(filename);
   assert.deepEqual(repository.tabs(live.id), before); assert.equal(repository.tab(b.id)?.terminal?.userTitle, 'Build 雪');
-  // Archive removes all tabs/operations, including session-only launch records, but keeps configured session data.
-  const archived = session({ settledAt: now }), d = tab(archived);
-  seed(archived, [d]);
-  repository.saveOperation({ id: randomUUID(), sessionId: archived.id, tabId: null, requestId: randomUUID(), kind: 'adopt', state: 'failed', createdAt: now, updatedAt: now, error: null });
-  assert.throws(() => repository.transaction(() => { repository.archiveSession(archived); throw new Error('rollback'); }));
-  assert.ok(repository.tab(d.id));
-  repository.archiveSession(archived); removed(d);
-  assert.equal(count('operations', 'sessionId', archived.id), 0);
-  assert.equal(count('preferences', 'key', 'session-window:' + archived.id), 0);
-  assert.deepEqual(repository.session(archived.id)?.env, archived.env); assert.equal(repository.session(archived.id)?.pinnedAt, now);
-  assert.equal(repository.settled('%_')[0].id, archived.id);
-  assert.equal(repository.settled("' OR 1=1 --")[0].id, archived.id);
-  assert.equal(repository.settled('no match').length, 0);
-  assert.equal(repository.deleteSession(live.id), false); assert.equal(repository.deleteSession(randomUUID()), false);
-  assert.throws(() => repository.transaction(() => { repository.deleteSession(archived.id); throw new Error('rollback'); }));
-  assert.ok(repository.session(archived.id));
-  assert.equal(repository.deleteSession(archived.id), true); assert.equal(repository.session(archived.id), undefined);
-  assert.equal(repository.deleteSession(archived.id), false); assert.deepEqual(repository.tabs(live.id), before);
+  // Settlement is a metadata edit and keeps tabs, launch records, env and pins.
+  const settled = session(), d = tab(settled); seed(settled, [d]);
+  repository.saveOperation({ id: randomUUID(), sessionId: settled.id, tabId: null, requestId: randomUUID(), kind: 'adopt', state: 'failed', createdAt: now, updatedAt: now, error: null });
+  assert.throws(() => repository.transaction(() => { repository.saveSession({ ...settled, settledAt: now }); throw new Error('rollback'); }));
+  assert.equal(repository.session(settled.id)?.settledAt, null); assert.ok(repository.tab(d.id));
+  repository.saveSession({ ...settled, settledAt: now });
+  assert.ok(repository.tab(d.id)); assert.equal(count('operations', 'sessionId', settled.id), 2);
+  assert.deepEqual(repository.session(settled.id)?.env, settled.env); assert.equal(repository.session(settled.id)?.pinnedAt, now);
+  repository.close(); repository = new Repository(filename);
+  assert.ok(repository.tab(d.id)); assert.equal(repository.session(settled.id)?.settledAt, now);
+  // Both settled and unsettled sessions can be deleted atomically.
+  const direct = session(), directTab = tab(direct); seed(direct, [directTab]);
+  assert.equal(repository.deleteSession(direct.id), true); removed(directTab);
+  assert.equal(repository.deleteSession(randomUUID()), false);
+  assert.throws(() => repository.transaction(() => { repository.deleteSession(settled.id); throw new Error('rollback'); }));
+  assert.ok(repository.session(settled.id)); assert.ok(repository.tab(d.id));
+  assert.equal(repository.deleteSession(settled.id), true); removed(d);
+  assert.equal(count('operations', 'sessionId', settled.id), 0);
+  assert.equal(count('preferences', 'key', 'session-window:' + settled.id), 0);
+  assert.equal(repository.deleteSession(settled.id), false); assert.deepEqual(repository.tabs(live.id), before);
   // Version 4 data: closed and archived tabs, launch requests, dangling legacy preferences.
   const oldArchive = session({ settledAt: now, adapterId: 'windows-terminal' }), oldTab = tab(oldArchive, 0, { terminal: null });
   const oldClosed = tab(live, 3, { lifecycle: 'closed' }); seed(oldArchive, [oldTab]); seed(live, [oldClosed]);
@@ -106,26 +108,26 @@ async function run() {
   assert.ok(raw.prepare('SELECT id FROM tabs WHERE id=?').get(oldClosed.id));
   assert.ok(raw.prepare('SELECT id FROM operations WHERE id=?').get(oldTab.operationId));
   raw.exec('DROP TRIGGER refuse_retention'); raw.close();
-  repository = new Repository(filename); removed(oldClosed); removed(oldTab); removed(orphan);
+  repository = new Repository(filename); removed(oldClosed); assert.ok(repository.tab(oldTab.id)); removed(orphan);
   assert.equal(count('terminal_metadata', 'tabId', 'missing-tab'), 0);
   assert.ok(repository.session(oldArchive.id)); assert.deepEqual(repository.tabs(live.id), before);
   assert.equal(count('preferences', 'key', 'tab-member:missing-tab'), 0);
   assert.equal(count('preferences', 'key', 'session-window:missing-session'), 0);
-  assert.equal(count('preferences', 'key', 'session-window:' + oldArchive.id), 0);
+  assert.equal(count('preferences', 'key', 'session-window:' + oldArchive.id), 1);
   assert.equal(repository.settings().accentColor, '#123456'); assert.equal(repository.explorerPreference(), true); assert.equal(repository.cliPreference(), true);
   assert.deepEqual(repository.windowState(), { x: 1, y: 2, width: 900, height: 700, maximized: true });
   assert.deepEqual(repository.db.pragma('foreign_key_check'), []);
   repository.close(); repository = new Repository(filename);
-  assert.equal(repository.db.pragma('user_version', { simple: true }), SCHEMA_VERSION); removed(oldClosed); removed(oldTab);
+  assert.equal(repository.db.pragma('user_version', { simple: true }), SCHEMA_VERSION); removed(oldClosed); assert.ok(repository.tab(oldTab.id));
   // Older schema upgrades still work, including env and pin columns.
   repository.db.exec('DROP TABLE terminal_metadata; ALTER TABLE sessions DROP COLUMN env; ALTER TABLE sessions DROP COLUMN pinnedAt');
   repository.db.pragma('user_version = 1'); repository.close(); repository = new Repository(filename);
   assert.equal(repository.db.pragma('user_version', { simple: true }), SCHEMA_VERSION);
   assert.equal(repository.session(live.id)?.pinnedAt, null); assert.equal(repository.tab(b.id)?.terminal, null);
-  const beforeCount = repository.settled('').length;
-  for (let i = 0; i < 24; i++) repository.saveSession(session({ title: 'page ' + i, settledAt: now }));
-  assert.equal(repository.settled('').length, beforeCount + 24);
-  const ids = repository.settled('').map(s => s.id); assert.deepEqual(ids, [...ids].sort());
+  const beforeCount = repository.sessions().length;
+  for (let i = 0; i < 24; i++) repository.saveSession(session({ title: 'saved ' + i, settledAt: now }));
+  assert.equal(repository.sessions().length, beforeCount + 24);
+  assert.ok(repository.sessions().some(s => s.settledAt === now));
   repository.close();
   console.log('SQLite Electron storage: retention, rollback, migration and restart assertions passed; DB ' + filename);
   app.exit(0);

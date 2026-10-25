@@ -14,7 +14,7 @@ test('terminal clipboard shortcuts use the host clipboard for local and WSL shel
       clipboard.readText = async () => { state.reads++; return state.text; };
     });
     const initial = await snapshot(page);
-    const profiles = value(await page.evaluate(() => window.shellfox.getTerminalProfiles!())).profiles.filter(p => p.available);
+    const profiles = value(await page.evaluate(() => window.shellfox.getTerminalProfiles!())).profiles.filter(p => p.available && !p.elevation);
     expect(profiles.length).toBeGreaterThan(0);
     for (const profile of profiles) {
       console.log('Clipboard profile:', profile.id);
@@ -25,6 +25,16 @@ test('terminal clipboard shortcuts use the host clipboard for local and WSL shel
       if (tab.profileId !== profile.id) {
         const original = tab;
         tab = value(await page.evaluate(input => window.shellfox.addTab(input), { sessionId: session.id, profileId: profile.id })).tabs.at(-1)!;
+        if (profile.environment === 'wsl') {
+          // Keep the local tab selected until Bash executes input. Mounting the guest then
+          // replays old ConPTY startup queries, which must not inject replies into readline.
+          const ready = randomUUID().replaceAll('-', '');
+          value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: `printf 'CLIPBOARD_READY_%s\\n' '${ready}'\r` }));
+          await expect.poll(() => app.evaluate((_electron, input) => {
+            const replay = (globalThis as any).__shellfoxTest.backend.attach({ tabId: input.tabId });
+            return replay.ok && replay.value.chunks.map((chunk: { data: string }) => chunk.data).join('').includes(input.marker);
+          }, { tabId: tab.id, marker: `CLIPBOARD_READY_${ready}` }), { timeout: 15000 }).toBe(true);
+        }
         value(await page.evaluate(input => window.shellfox.closeTab!(input), { tabId: original.id, generation: original.generation! }));
       }
       await page.getByRole('button', { name: `Select session ${profile.id}`, exact: true }).click();

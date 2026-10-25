@@ -1,16 +1,17 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, HistoryPage, HistoryQuery, ManagerSnapshot, NativeProbe, Result, SessionDto, SettingsDto, TabDto } from '../shared/contracts';
+import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, Result, SessionDto, SettingsDto, TabDto } from '../shared/contracts';
 import { failure, success } from '../shared/contracts';
 import type { LaunchReceipt, NativeBackend, NativeEvent, NativeInit, TabObservation, WindowTarget } from '../shared/native-port';
 import { explorerSchema, launchReceiptSchema, nativeEventSchema, probeSchema, requestSchemas, resultSchema, windowTargetSchema } from '../shared/schemas';
-import { aggregateStatus, countTabs, needsSettleConfirmation, publicStatus, sortSessions, tabStatus } from '../shared/status';
+import { aggregateStatus, countTabs, publicStatus, sortSessions, tabStatus } from '../shared/status';
 import type { OperationRecord, RepositoryPort, SessionRecord, TabRecord } from './models';
 import { unavailableExplorer, unavailableProbe, unavailableCli } from './defaults';
 import { validateDirectory } from './directory';
 import { hasSessionWindowBackend } from './platform/session-windows';
 import { SessionWindows } from './session-windows';
+import { SessionLifecycle, processActivityKey } from './session-lifecycle';
 
 export class SessionService {
   revision = 0;
@@ -29,8 +30,15 @@ export class SessionService {
   private unsubscribe: (() => void) | undefined;
   private disposed = false;
   private windows?: SessionWindows;
+  private readonly lifecycle: SessionLifecycle;
   private activations = new Map<string, Promise<Result<SessionDto>>>();
   constructor(readonly repository: RepositoryPort, readonly backend: NativeBackend, private directoryValidator = validateDirectory, private packagedExecutable: string | null = null) {
+    this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), async session => {
+      // Legacy windows are external, not app-owned terminal handles.
+      repository.deleteSession(session.id); this.verified.delete(session.id);
+      this.lifecycle.forget(session.id); this.changed(); await this.refreshWatch();
+      return success(true);
+    }, () => this.changed());
     if (hasSessionWindowBackend(backend)) this.windows = new SessionWindows(repository,backend,{
       probe:()=>this.probe,changed:()=>this.changed('native'),verified:(id,value)=>{if(value)this.verified.add(id);else this.verified.delete(id);},
       invalidate:id=>this.observations.delete(id),watch:()=>this.refreshWatch(),
@@ -38,7 +46,7 @@ export class SessionService {
   }
 
   subscribe(listener: (event: ChangedEvent) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
-  selectSession(sessionId: string): void { this.changed('sessions', sessionId); }
+  selectSession(sessionId: string): void { this.lifecycle.touch(sessionId); this.changed('sessions', sessionId); }
   private changed(reason: ChangedEvent['reason'] = 'sessions', selectSessionId?: string): void {
     const event: ChangedEvent = { revision: ++this.revision, reason, ...(selectSessionId ? { selectSessionId } : {}) };
     for (const listener of this.listeners) { try { listener(event); } catch { /* A disconnected renderer cannot break persistence. */ } }
@@ -80,9 +88,10 @@ export class SessionService {
     for (const session of this.repository.sessions()) {
       if (!session.binding && session.target && this.probe.available) await this.verify(session);
     }
+    this.lifecycle.start();
     this.changed('native');
   }
-  async dispose(): Promise<void> { this.disposed = true; this.windows?.dispose(); this.unsubscribe?.(); await this.watchQueue; await this.backend.dispose(); }
+  async dispose(): Promise<void> { this.disposed = true; this.lifecycle.stop(); this.lifecycle.flushActivity(); this.windows?.dispose(); this.unsubscribe?.(); await this.watchQueue; await this.backend.dispose(); }
   private serialize<T>(id: string, action: () => Promise<Result<T>>): Promise<Result<T>> {
     const previous = this.queues.get(id) || Promise.resolve();
     const next = previous.catch(() => undefined).then(action).catch(() => failure('STORAGE_FAILED', 'The operation could not be saved', true)) as Promise<Result<T>>;
@@ -201,6 +210,7 @@ export class SessionService {
             supplied.add(item.tabId);
             const previous = this.observations.get(item.tabId);
             if (previous && previous.observedAt > item.observedAt) continue;
+            if (!previous || processActivityKey(previous) !== processActivityKey(item)) this.lifecycle.touch(tab.sessionId);
             this.observations.set(item.tabId, item);
             if (item.root === 'exited') {
               tab.lifecycle = 'closed'; this.repository.saveTab(tab); watchChanged = true;
@@ -235,17 +245,10 @@ export class SessionService {
     const activityStatus = aggregateStatus(tabs, session.error);
     const bound = this.probe.available && this.verified.has(session.id) && !!session.target && (!this.windows || (!!session.binding && session.windowState === 'alive'));
     const canFocus = bound && this.probe.capabilities.focusWindow;
-    const canAddTab = bound && this.probe.capabilities.addTab && !session.settledAt && tabs.some(t => t.lifecycle === 'open');
-    return { window: this.windows ? this.windows.dto(session) : {state:'unsupported',canReopen:false,canRegister:false,reason:'This backend does not support authenticated window lifecycle or explicit terminal registration.'}, id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt, pinnedAt: session.pinnedAt ?? null, status: publicStatus(activityStatus, session.settledAt), activityStatus, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus, canAddTab, controlReason: !tabs.some(t => t.lifecycle !== 'closed') ? 'No open terminals' : !bound ? 'No verified native window. Select the terminal manually.' : !this.probe.capabilities.addTab ? 'Adding tabs is unavailable for this backend. Select individual tabs in Windows Terminal.' : session.settledAt ? 'Unsettle before adding a tab. Select individual tabs in Windows Terminal.' : 'Select individual tabs in Windows Terminal.', error: session.error };
+    const canAddTab = bound && this.probe.capabilities.addTab && tabs.some(t => t.lifecycle === 'open');
+    return { window: this.windows ? this.windows.dto(session) : {state:'unsupported',canReopen:false,canRegister:false,reason:'This backend does not support authenticated window lifecycle or explicit terminal registration.'}, id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt, pinnedAt: session.pinnedAt ?? null, status: publicStatus(activityStatus, session.settledAt), activityStatus, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus, canAddTab, controlReason: !tabs.some(t => t.lifecycle !== 'closed') ? 'No open terminals' : !bound ? 'No verified native window. Select the terminal manually.' : !this.probe.capabilities.addTab ? 'Adding tabs is unavailable for this backend. Select individual tabs in Windows Terminal.' : 'Select individual tabs in Windows Terminal.', error: session.error };
   }
-  getSnapshot(): Result<ManagerSnapshot> { return success({ revision: this.revision, sessions: sortSessions(this.repository.sessions().filter(s => !s.settledAt).map(s => this.toDto(s))), settings: this.repository.settings(), probe: this.probe, explorer: this.explorer, cli: this.cli }); }
-  getHistory(input: HistoryQuery): Result<HistoryPage> {
-    const query = requestSchemas.getHistory.safeParse(input);
-    if (!query.success) return failure('VALIDATION', 'Invalid history query');
-    const { search, status, page, pageSize } = query.data;
-    const items = this.repository.settled(search).map(s => this.toDto(s)).filter(s => status === 'all' || status === 'settled' || s.activityStatus === status);
-    return success({ items: items.slice((page - 1) * pageSize, page * pageSize), total: items.length, page, pageSize });
-  }
+  getSnapshot(): Result<ManagerSnapshot> { return success({ revision: this.revision, sessions: sortSessions(this.repository.sessions().map(s => this.toDto(s))), settings: this.repository.settings(), probe: this.probe, explorer: this.explorer, cli: this.cli }); }
   private shell(settings = this.repository.settings()): Result<string> {
     if (!this.probe.available || !this.probe.capabilities.createWindow) return failure('UNSUPPORTED', this.probe.reasons[0] || 'Native launches are unavailable');
     const option = this.probe.shells.find(s => s.id === settings.shellId && s.available && (!settings.shellExecutable || path.normalize(s.executable).toLowerCase() === path.normalize(settings.shellExecutable).toLowerCase()));
@@ -262,7 +265,7 @@ export class SessionService {
       const settings = this.repository.settings();
       const shell = this.shell(settings);
       if (!shell.ok) return shell;
-      if (this.repository.tabs().filter(t => t.lifecycle !== 'closed').length >= 1000 || this.repository.sessions().filter(s => !s.settledAt).length >= 10000) return failure('VALIDATION', 'The managed session or tab limit has been reached');
+      if (this.repository.tabs().filter(t => t.lifecycle !== 'closed').length >= 1000 || this.repository.sessions().length >= 10000) return failure('VALIDATION', 'The managed session or tab limit has been reached');
       let cwd: string;
       try { cwd = await this.directoryValidator(input.cwd); } catch { return failure('VALIDATION', 'Choose an accessible absolute local directory'); }
       const now = new Date().toISOString();
@@ -408,7 +411,6 @@ export class SessionService {
   setSessionPinned(input: { sessionId: string; pinned: boolean }): Promise<Result<SessionDto>> {
     if (!requestSchemas.setSessionPinned.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid pin request'));
     return this.mutate(input.sessionId, s => {
-      if (s.settledAt) return failure('UNSUPPORTED', 'Restore this session before pinning it.');
       s.pinnedAt = input.pinned ? s.pinnedAt ?? new Date().toISOString() : null;
     });
   }
@@ -418,30 +420,23 @@ export class SessionService {
   }
   settleSession(input: { sessionId: string; confirmActive: boolean }): Promise<Result<SessionDto>> {
     if (!requestSchemas.settleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid settle request'));
-    return this.mutate(input.sessionId, s => {
-      const activity = this.repository.tabs(s.id).map(tab => {
-        const observation = this.observations.get(tab.id);
-        return { lifecycle: tab.lifecycle, status: tabStatus(tab.lifecycle, null, observation), agents: observation?.root === 'alive' ? observation.agents : 0 };
-      });
-      if (!input.confirmActive && needsSettleConfirmation(activity)) return failure('SETTLE_CONFIRM_REQUIRED', 'Running or unknown terminals remain active. Confirm settling without stopping them.');
-      s.settledAt = s.settledAt ?? new Date().toISOString();
-    }, 'history');
+    return this.mutate(input.sessionId, s => { s.settledAt ??= new Date().toISOString(); });
   }
   unsettleSession(input: { sessionId: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.unsettleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID'));
-    return this.mutate(input.sessionId, s => { s.settledAt = null; }, 'history');
+    return this.mutate(input.sessionId, s => { s.settledAt = null; });
   }
   deleteSession(input: { sessionId: string }): Promise<Result<{ deleted: true }>> {
     if (!requestSchemas.deleteSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID'));
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId);
       if (!session) return failure('NOT_FOUND', 'Session not found');
-      if (!session.settledAt) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
       const tabIds = this.repository.tabs(session.id).map(tab => tab.id);
-      if (!this.repository.deleteSession(session.id)) return failure('UNSUPPORTED', 'Archive this session before deleting it.');
+      if (!this.repository.deleteSession(session.id)) return failure('NOT_FOUND', 'Session not found');
+      this.lifecycle.forget(session.id);
       for (const tabId of tabIds) this.observations.delete(tabId);
       this.verified.delete(session.id);
-      this.changed('history'); return success({ deleted: true as const });
+      await this.refreshWatch(); this.changed(); return success({ deleted: true as const });
     });
   }
   clearSessionError(input: { sessionId: string }): Promise<Result<SessionDto>> {
@@ -453,9 +448,8 @@ export class SessionService {
       const session = this.repository.session(id);
       if (!session) return failure('NOT_FOUND', 'Session not found');
       let failed: Result<never> | void;
-      this.repository.transaction(() => { failed = action(session); if (!failed) { session.updatedAt = new Date().toISOString(); if (session.settledAt) this.repository.archiveSession(session); else this.repository.saveSession(session); } });
+      this.repository.transaction(() => { failed = action(session); if (!failed) { session.updatedAt = new Date().toISOString(); this.repository.saveSession(session); } });
       if (failed!) return failed!;
-      if (reason === 'history') await this.refreshWatch();
       this.changed(reason); return success(this.toDto(session));
     });
   }
@@ -466,7 +460,7 @@ export class SessionService {
     return this.serialize(initial.sessionId, async () => {
       const tab = this.repository.tab(input.tabId)!;
       const session = this.repository.session(tab.sessionId)!;
-      if (session.settledAt || tab.lifecycle === 'open' || tab.lifecycle === 'launching') return failure('UNSUPPORTED', 'Only an unsettled failed or uncertain launch can be retried');
+      if (tab.lifecycle === 'open' || tab.lifecycle === 'launching') return failure('UNSUPPORTED', 'Only a failed or uncertain launch can be retried');
       if (tab.lifecycle === 'launch-uncertain' && !input.confirmPossibleDuplicate) return failure('RETRY_CONFIRM_REQUIRED', 'Another native window may already exist. Confirm before creating another terminal.');
       if (!this.probe.available || !this.probe.capabilities.createWindow) return failure('UNSUPPORTED', 'Native launches are unavailable');
       if (session.target) { const verified = await this.verify(session); if (!verified.ok) { this.stickyControl(session.id, verified.error); return verified; } }

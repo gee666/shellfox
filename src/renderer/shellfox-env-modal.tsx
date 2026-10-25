@@ -23,7 +23,7 @@ export function ShellfoxEnvModal({ client, session, onClose }: {
       const result = await request(() => client.api.setSessionEnv({ sessionId: session.id, env }));
       if (!result.ok) { notify(result.error); return; }
       // Editing a non-selected row must not switch the active session.
-      client.updateHistory([result.value]); client.refresh();
+      client.refresh();
       if (mounted.current) onClose();
     } finally {
       locked.current = false;

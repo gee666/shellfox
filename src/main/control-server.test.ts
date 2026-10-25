@@ -41,7 +41,7 @@ describe('authenticated live control transport', () => {
   }, 30000);
   afterAll(async () => { await server?.dispose(); await service?.dispose(); await rm(directory, { recursive: true, force: true }); }, 30000);
 
-  it('serves active snapshots, toggles the existing switch, and throws operation errors', async () => {
+  it('serves snapshots, toggles the existing switch, and throws operation errors', async () => {
     const response = await requestControl(directory, { action: 'list' });
     expect(response.sessions).toHaveLength(1);
     expect(await requestControl(directory, { action: 'keep-alive' })).toEqual({ message: 'Keep alive enabled.' });
@@ -50,7 +50,7 @@ describe('authenticated live control transport', () => {
     await expect(requestControl(directory, { action: 'delete', id: response.sessions![0]!.id })).rejects.toThrow('confirmation');
     await expect(requestControl(directory, { action: 'inspect', id: randomUUID() })).rejects.toThrow('not found');
   }, 30000);
-  it('uses collectSessionStats with live roots and lists only active session details', async () => {
+  it('uses collectSessionStats with live roots and lists only saved session details', async () => {
     const owned = service.backend.live();
     const liveTab = { tabId: owned[0]!.tabId, processes: [], memoryBytes: null, elapsedSeconds: null };
     vi.mocked(collectSessionStats).mockResolvedValueOnce([liveTab, { ...liveTab, tabId: randomUUID() }]);
@@ -60,20 +60,29 @@ describe('authenticated live control transport', () => {
     await handleControlRequest(service, awake, { action: 'stats' });
     expect(collectSessionStats).toHaveBeenCalledTimes(2);
   });
-  it('omits archived sessions and their live process details from all read actions', async () => {
-    const created = await service.createSession({ cwd: '/archived', requestId: randomUUID() });
+  it('settles and unsettles through current context without closing terminals or hiding read details', async () => {
+    const created = await service.createSession({ cwd: '/settled', requestId: randomUUID() });
     if (!created.ok) throw new Error(created.error.message);
-    await service.settleSession({ sessionId: created.value.id, confirmActive: true });
-    const live = service.backend.live();
-    expect(live).toHaveLength(1); expect(service.repository.tabs(created.value.id)).toEqual([]);
-    vi.mocked(collectSessionStats).mockResolvedValueOnce(live.map(t => ({ tabId: t.tabId, processes: [], memoryBytes: null, elapsedSeconds: null })));
-    const result = await handleControlRequest(service, awake, { action: 'stats' });
-    expect(result.sessions).toHaveLength(1); expect(result.tabs).toHaveLength(1);
-    expect(result.tabs![0]!.tabId).not.toBe(created.value.tabs[0]!.id);
-    expect((await handleControlRequest(service, awake, { action: 'list' })).sessions).toHaveLength(1);
-    await expect(handleControlRequest(service, awake, { action: 'list', id: created.value.id })).rejects.toThrow('Active session not found');
-    const deleted = await service.controlSession({ action: 'delete', id: created.value.id, confirmed: true });
-    expect(deleted.ok).toBe(true);
+    const current = service.backend.live().find(t => t.sessionId === created.value.id)!;
+    const roots = service.backend.live(), tabs = service.repository.tabs(created.value.id);
+    try {
+      await requestControl(directory, { action: 'settle', marker: current.root.marker, current: true });
+      expect(service.repository.session(created.value.id)?.settledAt).toBeTruthy();
+      expect(service.backend.live()).toEqual(roots); expect(service.repository.tabs(created.value.id)).toEqual(tabs);
+      for (const action of ['stats', 'processes'] as const) {
+        vi.mocked(collectSessionStats).mockResolvedValueOnce(roots.map(t => ({ tabId: t.tabId, processes: [], memoryBytes: null, elapsedSeconds: null })));
+        const result = await handleControlRequest(service, awake, { action });
+        expect(result.sessions).toHaveLength(2); expect(result.tabs).toHaveLength(2);
+        expect(result.tabs?.some(t => t.tabId === current.tabId)).toBe(true);
+      }
+      expect((await requestControl(directory, { action: 'list', id: created.value.id })).sessions?.[0]?.status).toBe('settled');
+      await requestControl(directory, { action: 'unsettle', marker: current.root.marker, current: true });
+      expect(service.repository.session(created.value.id)?.settledAt).toBeNull();
+      expect(service.backend.live()).toEqual(roots); expect(service.repository.tabs(created.value.id)).toEqual(tabs);
+      await requestControl(directory, { action: 'settle', id: created.value.id });
+      await requestControl(directory, { action: 'unsettle', id: created.value.id });
+      expect(service.repository.session(created.value.id)?.settledAt).toBeNull();
+    } finally { await service.controlSession({ action: 'delete', id: created.value.id, confirmed: true }); }
   });
   it('filters current and ID read selectors using live context, not ambient marker alone', async () => {
     const live = service.backend.live()[0]!;
@@ -114,7 +123,7 @@ describe('authenticated live control transport', () => {
       expect(await raw('{partial', true)).toBe('');
     } finally { poll.mockRestore(); }
   });
-  it.each(['delete', 'archive', 'tab-close'] as const)('finishes %s after terminal closure disconnects its CLI socket', async action => {
+  it.each(['delete', 'tab-close'] as const)('finishes %s after terminal closure disconnects its CLI socket', async action => {
     const created = await service.createSession({ cwd: '/disconnect', requestId: randomUUID() });
     if (!created.ok) throw new Error(created.error.message);
     if (action !== 'tab-close') {
@@ -144,13 +153,12 @@ describe('authenticated live control transport', () => {
       await new Promise<void>((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
       socket.write(JSON.stringify({ version: 1, secret: endpoint.secret, request: {
         action, ...(action === 'delete' ? { id: created.value.id } : { marker: current.root.marker }),
-        ...(action === 'tab-close' ? {} : { confirmed: true }),
+        ...(action === 'delete' ? { confirmed: true } : {}),
       } }) + '\n');
       await disconnected;
       await expect.poll(() => outcome?.ok).toBe(true);
       expect(service.backend.live().some(t => t.sessionId === created.value.id)).toBe(false);
       if (action === 'delete') expect(service.repository.session(created.value.id)).toBeUndefined();
-      else if (action === 'archive') expect(service.repository.session(created.value.id)?.settledAt).toBeTruthy();
       else expect(service.repository.tab(current.tabId)).toBeUndefined();
     } finally {
       closing.mockRestore(); control.mockRestore(); socket.destroy();

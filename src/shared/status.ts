@@ -22,14 +22,11 @@ export function countTabs(tabs: Pick<TabDto, 'lifecycle' | 'status' | 'agents'>[
   }
   return counts;
 }
-// status is the underlying activity, computed without a sticky launch/control error.
-export function needsSettleConfirmation(tabs: Pick<TabDto, 'lifecycle' | 'status' | 'agents'>[]): boolean {
-  return tabs.some(t => t.lifecycle !== 'closed' && (t.lifecycle !== 'open' || t.agents > 0 || t.status === 'running' || t.status === 'unknown'));
-}
 export const publicStatus = (activity: TabStatus, settledAt: string | null): Status => settledAt ? 'settled' : activity;
-const order: Record<Status, number> = { waiting: 0, error: 1, running: 2, unknown: 3, settled: 4 };
+// Empty sessions and ordinary shells share the same blue status and sort rank.
+const order: Record<Status, number> = { running: 0, error: 1, waiting: 2, unknown: 2, settled: 3 };
 type Sortable = Pick<SessionDto, 'status' | 'createdAt' | 'id'> & { pinnedAt?: string | null };
-/** Pinned (live) sessions first, in the order they were pinned; then by status and age. */
+/** Pin order first, then visible status and creation order. Terminal count never breaks ties. */
 export function compareSessions(a: Sortable, b: Sortable): number {
   const pinned = (a.pinnedAt ? 0 : 1) - (b.pinnedAt ? 0 : 1);
   if (pinned) return pinned;

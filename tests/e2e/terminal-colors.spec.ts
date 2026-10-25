@@ -11,7 +11,7 @@ test('real local and WSL PTYs advertise truecolor and preserve RGB cells through
     // DevTools evaluates the unmodified xterm bundle without weakening the app CSP.
     await page.evaluate(await readFile(path.resolve('node_modules/@xterm/xterm/lib/xterm.js'), 'utf8'));
     const initial = await snapshot(page);
-    const profiles = value(await page.evaluate(() => window.shellfox.getTerminalProfiles!())).profiles.filter(p => p.available);
+    const profiles = value(await page.evaluate(() => window.shellfox.getTerminalProfiles!())).profiles.filter(p => p.available && !p.elevation);
     expect(profiles.length).toBeGreaterThan(0);
     for (const profile of profiles) {
       value(await page.evaluate(settings => window.shellfox.saveSettings(settings), { ...initial.settings, shellExecutable: null, terminalProfileId: profile.id }));

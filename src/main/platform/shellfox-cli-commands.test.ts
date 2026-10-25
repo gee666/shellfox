@@ -61,7 +61,7 @@ it('rejects custom duplicates, unsafe names and rename overwrites, but allows bu
 it('allows all top-level builtins and former management names without warnings', async () => {
   const { file, store, output, error } = await fixture(); const execute = vi.fn(async () => 17);
   const names = ['start', 'add', 'new', 'create', 'cmd', 'ssh', 'update', 'help', 'version', 'ls', 'list', 'sessions',
-    'delete', 'remove', 'rm', 'archive', 'settle', 'keep-alive', 'keepalive', 'awake', 'stats', 'status', 'usage',
+    'delete', 'remove', 'rm', 'settle', 'unsettle', 'keep-alive', 'keepalive', 'awake', 'stats', 'status', 'usage',
     'processes', 'proc', 'ps', 'tab', 'register', 'unregister', 'rename', 'commands', 'future'];
   for (const name of names) {
     expect(await dispatchCustomCli(['cmd', '--register', name, file], store.userData, { execute, output, error })).toBe(0);

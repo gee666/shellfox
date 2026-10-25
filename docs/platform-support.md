@@ -1,6 +1,6 @@
 # Platform support
 
-The embedded runtime uses one real PTY per right-workspace tab. It does not route tabs into Windows Terminal or GNOME Terminal. App-owned shells and owned descendant cleanup end through confirmed close/quit; restart retains task history, not live shells.
+The embedded runtime uses one real PTY per right-workspace tab. It does not route tabs into Windows Terminal or GNOME Terminal. App-owned shells and owned descendant cleanup end through confirmed close/quit; restart retains saved sessions, not live shells.
 
 ## Implementation and evidence
 
@@ -50,8 +50,8 @@ Stored bundled launcher rules migrate to the unified switches. An existing per-a
 - Add tab owns another independent PTY, not an HWND-routed append.
 - Session/Settings switches retain shells while the app runs. Closed/stale generations cannot receive input.
 - Native quit confirmation is independent of renderer confirmation. Cancel keeps shells running; failed cleanup keeps the manager open.
-- Archiving closes owned terminals before retaining the session metadata. It removes all session tabs and launch operations.
-- Legacy external sessions remain read-only session history without tab/root records; the runtime does not adopt, watch or kill their processes. See [database retention](database-retention.md).
+- Settling only changes session status. It keeps terminals, tabs and agents running. Unsettling clears that status without relaunching anything. Deletion requires confirmation and closes owned terminals before removing the session.
+- Legacy external sessions remain read-only saved sessions without tab/root records; the runtime does not adopt, watch or kill their processes. See [database retention](database-retention.md).
 - Interactive shell exit status is not arbitrary command-status detection.
 - Inaccessible tracking evidence stays unknown. Very short-lived, detached, elevated, remote/container or multiplexer activity is not guaranteed.
 

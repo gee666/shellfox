@@ -2,7 +2,7 @@
 
 Installed builds check the latest stable GitHub release at startup and once an hour while running. The renderer refreshes the notice once a minute and polls download progress twice a second. The compact sidebar control shows only a download button, a progress bar with estimated time remaining, or an install button.
 
-Click **download vX.Y.Z** to fetch and verify an installer without interrupting any terminal. Once the download is ready, click **install and restart**. A native confirmation defaults to Cancel and explicitly warns that all embedded terminals and their running commands will stop. Cancellation leaves the download ready and terminals running. Legacy external terminals are never closed.
+Click **download vX.Y.Z** to fetch and verify an installer without interrupting any terminal. Once the download is ready, click **install and restart**. A themed in-app confirmation defaults to Cancel and explicitly warns that all embedded terminals and their running commands will stop. Cancellation leaves the download ready and terminals running. Legacy external terminals are never closed.
 
 After confirmation, the main process starts an installer helper and waits for a readiness acknowledgement before closing any terminal. Terminal closure is reversible at the service level. It pauses new launches and closes owned shells without disposing the backend or subscriptions. Once exit metadata has been saved, the main process sends commit and waits for a second helper acknowledgement. Only then does it finalize the service and quit. The helper requires both explicit commit and manager-process exit before replacing files. Restarting creates fresh shells; running commands do not survive an update.
 
@@ -14,7 +14,7 @@ After confirmation, the main process starts an installer helper and waits for a 
 
 ## Trust and failure handling
 
-The renderer cannot supply a URL, filesystem path or command. IPC validates the exact main-frame sender and strict payload schemas. Installation additionally requires native confirmation in the main process.
+The renderer cannot supply a URL, filesystem path or command. IPC validates the exact main-frame sender and strict payload schemas. Installation additionally requires approval through an in-app confirmation controlled by the main process. Only the trusted application frame can answer its pending request; stale or unsolicited approvals are rejected. If the renderer is unavailable or crashes, approval is cancelled without opening a system dialog.
 
 The updater only selects the expected asset name from the pinned `gee666/shellfox` GitHub repository. It rejects draft/prerelease versions, duplicate matching assets, unexpected download locations, missing SHA-256 digests, empty files and files larger than 768 MiB. The download must match both the API's size and SHA-256 digest. A missing GitHub asset digest disables in-app installation for that release. This trusts the GitHub repository and its release publisher; it does not add a separate publisher-signing key.
 

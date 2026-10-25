@@ -6,7 +6,11 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     options: any; cols = 80; rows = 24; disposed = false; output = ''; element?: HTMLElement;
     input?: (value: string) => void; osc = new Map<number, (value: string) => boolean>();
-    parser = { registerOscHandler: (id: number, handler: (value: string) => boolean) => { this.osc.set(id, handler); return { dispose() {} }; } };
+    parser = {
+      registerOscHandler: (id: number, handler: (value: string) => boolean) => { this.osc.set(id, handler); return { dispose() {} }; },
+      registerCsiHandler: () => ({ dispose() {} }),
+      registerDcsHandler: () => ({ dispose() {} }),
+    };
     keyHandler?: (ev: KeyboardEvent) => boolean; selection = ''; linkProviders: any[] = [];
     registerLinkProvider(provider: any) { this.linkProviders.push(provider); return { dispose() {} }; }
     modes: { mouseTrackingMode: 'none' | 'x10' | 'vt200' | 'drag' | 'any' } = { mouseTrackingMode: 'none' };

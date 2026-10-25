@@ -34,7 +34,8 @@ it('prints only the requested hook and rejects unsupported shells or extra argum
   }
   expect(completionScript('fish')).toBeNull();
   for (const hook of [powershellCompletion(), bashCompletion(), zshCompletion()]) {
-    expect(hook).not.toContain('cdm');
+    expect(hook).not.toContain('cdm'); expect(hook).not.toContain('archive');
+    expect(hook).toContain('settle'); expect(hook).toContain('unsettle'); expect(hook).toContain('delete');
     expect(hook).not.toMatch(/Set-PSReadLineKeyHandler|bindkey|Ctrl\+Space/);
   }
 });
@@ -70,6 +71,10 @@ check 3 shellfox cmd Deploy arg
 check 4 shellfox cmd --run Deploy arg
 check 2 shellfox ls ''
 check 2 shellfox cmd fail
+check 1 shellfox se
+check 1 shellfox un
+check 2 shellfox settle ''
+check 2 shellfox unsettle ''
 `;
   const log = path.join(root, 'queries');
   const { stdout } = await exec(bash, ['--noprofile', '--norc', '-c', script, 'completion-test', posix(hook), posix(log)], { cwd: root, timeout: 10000 });
@@ -78,7 +83,8 @@ check 2 shellfox cmd fail
   expect(lines[1]).toBe('[--run --register --remove --rm --rename]');
   expect(lines[2]).toContain('Deploy development');
   expect(lines.slice(3, 8)).toEqual(Array(5).fill('[Deploy development]'));
-  expect(lines.slice(8)).toEqual(Array(6).fill('[]'));
+  expect(lines.slice(8, 14)).toEqual(Array(6).fill('[]'));
+  expect(lines.slice(14)).toEqual(['[settle]', '[unsettle]', '[]', '[]']);
   const queries = await readFile(log, 'utf8');
   expect(queries.trim().split(/\r?\n/)).toHaveLength(7);
   expect(queries).toContain('cmd|--complete|De');
@@ -98,9 +104,9 @@ $env:PATH=${psQuote(root + ';')}+$env:PATH
 . ${psQuote(hook)}
 . ${psQuote(hook)}
 $global:LASTEXITCODE=42
-$lines=@('shellfox c','shellfox cmd --r','shellfox cmd ','shellfox cmd --run De','shellfox cmd --remove De','shellfox cmd --rm De','shellfox cmd --unregister De','shellfox cmd --rename De','shellfox cmd --register new','shellfox cmd --rename old new','shellfox cmd Deploy arg','shellfox cmd --run Deploy arg','shellfox cmd fail')
+$lines=@('shellfox c','shellfox cmd --r','shellfox cmd ','shellfox cmd --run De','shellfox cmd --remove De','shellfox cmd --rm De','shellfox cmd --unregister De','shellfox cmd --rename De','shellfox cmd --register new','shellfox cmd --rename old new','shellfox cmd Deploy arg','shellfox cmd --run Deploy arg','shellfox cmd fail','shellfox se','shellfox un','shellfox de')
 $results=@(foreach ($line in $lines) {
-  $matches=@((TabExpansion2 $line $line.Length).CompletionMatches | Where-Object { $_.CompletionText -match '^(cmd|--|Deploy|development)' } | ForEach-Object { @{text=$_.CompletionText;hint=$_.ToolTip} })
+  $matches=@((TabExpansion2 $line $line.Length).CompletionMatches | Where-Object { $_.CompletionText -match '^(cmd|--|Deploy|development|settle|unsettle|delete)' } | ForEach-Object { @{text=$_.CompletionText;hint=$_.ToolTip} })
   ,$matches
 })
 @{results=$results;last=$global:LASTEXITCODE} | ConvertTo-Json -Depth 8 -Compress
@@ -111,7 +117,8 @@ $results=@(foreach ($line in $lines) {
   expect(results[1].some((item: { text: string; hint: string }) => item.text === '--rename' && item.hint.includes('Rename'))).toBe(true);
   expect(results[2].some((item: { text: string }) => item.text === 'Deploy')).toBe(true);
   for (const matches of results.slice(3, 8)) expect(matches.map((item: { text: string }) => item.text)).toEqual(['Deploy', 'development']);
-  expect(results.slice(8)).toEqual(Array(5).fill([]));
+  expect(results.slice(8, 13)).toEqual(Array(5).fill([]));
+  expect(results.slice(13).map((matches: { text: string }[]) => matches.map(item => item.text))).toEqual([['settle'], ['unsettle'], ['delete']]);
   expect(last).toBe(42);
   const queries = (await readFile(log, 'utf8')).trim().split(/\r?\n/).map(line => JSON.parse(line));
   expect(queries).toHaveLength(7);

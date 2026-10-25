@@ -16,7 +16,7 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
     expect(isolation.keys).toEqual([
       'activateSession', 'prepareSessionRegistration', 'refreshSessionMembership', 'addTab',
       'chooseDirectory', 'getHomeDirectory', 'resolveDirectory', 'completeDirectory',
-      'clearSessionError', 'createSession', 'focusSession', 'getHistory', 'getSnapshot',
+      'clearSessionError', 'createSession', 'focusSession', 'getSnapshot',
       'renameSession', 'retryTab', 'saveSettings', 'setExplorerIntegration', 'settleSession',
       'subscribe', 'unsettleSession', 'getTerminalProfiles', 'attachTerminal', 'writeTerminal',
       'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'subscribeTerminal',
@@ -25,6 +25,7 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
       'downloadUpdate', 'installUpdate', 'listSshProfiles', 'saveSshProfile', 'deleteSshProfile',
       'importPuttySessions', 'chooseSshKeyFile', 'getKeepAwake', 'setKeepAwake',
       'subscribeKeepAwake', 'openExternal', 'setVisibleSessions',
+      'getCloseConfirmation', 'respondCloseConfirmation', 'subscribeCloseConfirmation',
     ].sort());
     const prefs = await app.evaluate(({ BrowserWindow }) => (BrowserWindow.getAllWindows()[0].webContents as any).getLastWebPreferences());
     expect(prefs.sandbox).toBe(true); expect(prefs.contextIsolation).toBe(true); expect(prefs.nodeIntegration).toBe(false);
@@ -40,6 +41,7 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
         [{ sender: wc, senderFrame: { url: wc.mainFrame.url } }, { version: 1, method: 'getSnapshot', payload: {} }],
         [trusted, { version: 2, method: 'getSnapshot', payload: {} }],
         [trusted, { version: 1, method: 'dispose', payload: {} }],
+        [trusted, { version: 1, method: 'getHistory', payload: { search: '', status: 'all', page: 1, pageSize: 10 } }],
         [trusted, { version: 1, method: 'getSnapshot', payload: { arbitrary: true } }],
         [trusted, { version: 1, method: 'createSession', payload: { cwd: 'C:\\', requestId: 'bad' } }],
         [trusted, { version: 1, method: 'renameTab', payload: { sessionId: 'bad', tabId: 'bad', title: 'Title' } }],
@@ -56,7 +58,7 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
       return Promise.all(cases.map(async ([event, raw]) => { const r = await handler(event, raw); return r.ok ? 'unexpected success' : r.error.code; }));
     });
     expect(codes).toEqual([
-      'AUTH_FAILED', 'AUTH_FAILED', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION',
+      'AUTH_FAILED', 'AUTH_FAILED', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION',
       'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'AUTH_FAILED', 'VALIDATION',
       'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION',
     ]);

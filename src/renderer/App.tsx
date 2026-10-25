@@ -13,6 +13,7 @@ import { SettingsPanel } from './SettingsPanel';
 import { useSidebarWidth } from './sidebar-width';
 import { DirectoryPrompt } from './DirectoryPrompt';
 import { UpdateNotice } from './UpdateNotice';
+import { CloseConfirmationModal } from './CloseConfirmationModal';
 import { applyPalette, derivePalette } from './theme';
 import { useVisibleSessions } from './visible-sessions';
 
@@ -62,7 +63,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     applyPalette(palette);
     registry.setTheme(palette.terminal);
   }, [snapshot?.settings.accentColor, snapshot?.settings.backgroundColor, registry]);
-  const selected = snapshot?.sessions.find(session => session.id === state.selectedId) ?? state.historical;
+  const selected = snapshot?.sessions.find(session => session.id === state.selectedId);
   const effectiveProfile = snapshot?.settings.terminalProfileId ?? defaultProfileId;
   const available = !!snapshot?.probe.available;
   const canCreate = available && !!snapshot?.probe.capabilities.createWindow && (snapshot.probe.adapterId !== 'embedded-pty' || (!!terminalApi && profiles.some(profile => profile.available && (snapshot.probe.platform === 'win32' || profile.id === effectiveProfile))));
@@ -121,7 +122,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   return <div ref={root} className={`app-shell${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
     <aside className="sidebar" aria-label="Session navigation">
       <div className="sidebar-toolbar"><button className="icon-button" aria-label="New session" data-tip={canCreate ? 'Add a session' : 'Choose an available shell in Settings'} disabled={!canCreate || action.pending} onClick={() => { setSettingsOpen(false); setDirectoryOpen(true); }}><Icon name="plus" /></button>{api.setKeepAwake && <button className={`icon-button${awake ? ' active' : ''}`} aria-label="Keep awake" aria-pressed={awake} data-tip="Keep awake" onClick={() => void toggleAwake()}><Icon name={awake ? 'eye' : 'eye-off'} /></button>}<button className={`icon-button${settingsOpen ? ' active' : ''}`} aria-label="Settings" aria-pressed={settingsOpen} data-tip="Settings" disabled={!snapshot} onClick={() => settingsOpen ? closeSettings() : setSettingsOpen(true)}><Icon name="settings" /></button></div>
-      {snapshot && <SessionSidebar onSelect={() => setSettingsOpen(false)} client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} invalidation={state.historyStatusVersion} archiveInvalidation={state.archiveVersion} pageSize={snapshot.settings.historyPageSize} />}
+      {snapshot && <SessionSidebar onSelect={() => setSettingsOpen(false)} client={client} sessions={snapshot.sessions} selectedId={state.selectedId} busy={state.busyTabIds} pageSize={snapshot.settings.historyPageSize} />}
       <UpdateNotice api={api} />
     </aside>
     <div className="sidebar-resizer" role="separator" aria-label="Sidebar width" aria-orientation="vertical" aria-valuemin={160} aria-valuemax={Math.max(160, window.innerWidth / 2)} aria-valuenow={width} tabIndex={0}
@@ -138,5 +139,6 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
       {settingsOpen && snapshot && <SettingsPanel onClose={closeSettings} client={client} settings={snapshot.settings} explorer={snapshot.explorer} cli={snapshot.cli} profiles={profiles} defaultProfileId={defaultProfileId} />}
     </main>
     {directoryOpen && <DirectoryPrompt api={api} onCreate={create} onClose={() => setDirectoryOpen(false)} />}
+    <CloseConfirmationModal api={api} />
   </div>;
 }

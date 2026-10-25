@@ -31,6 +31,31 @@ describe('owned PTY backend', () => {
     expect(await backend.close({ tabId: input.tabId, generation: input.generation })).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } }); expect(backend.get(input.tabId)?.state).toBe('open');
     f.processes[0].exit(0); await backend.dispose();
   });
+  it('waits beyond the Windows console-client grace period for authoritative PTY exit', async () => {
+    const f = await fixture(); vi.useFakeTimers();
+    try {
+      f.pty.kill.mockImplementation(() => { setTimeout(() => f.pty.exit(1), 5100); });
+      let settled = false;
+      const closing = f.backend.close({ tabId: f.input.tabId, generation: f.input.generation }).then(result => { settled = true; return result; });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(settled).toBe(false); expect(f.backend.get(f.input.tabId)?.state).toBe('open');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(await closing).toEqual({ ok: true, value: { closed: true } });
+      expect(f.backend.get(f.input.tabId)?.state).toBe('closed'); expect(f.pty.kill).toHaveBeenCalledTimes(1);
+    } finally { f.pty.exit(0); await f.backend.dispose(); vi.useRealTimers(); }
+  });
+  it('still retains Windows ownership when the longer default deadline has no exit evidence', async () => {
+    const f = await fixture(); vi.useFakeTimers();
+    try {
+      f.pty.kill.mockImplementation(() => {});
+      let settled = false;
+      const closing = f.backend.close({ tabId: f.input.tabId, generation: f.input.generation }).then(result => { settled = true; return result; });
+      await vi.advanceTimersByTimeAsync(9999); expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await closing).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
+      expect(f.backend.live()).toHaveLength(1); expect(f.backend.get(f.input.tabId)?.state).toBe('open');
+    } finally { f.pty.exit(0); await f.backend.dispose(); vi.useRealTimers(); }
+  });
   it('refuses to terminate a WSL transport until guest termination is verified', async () => {
     let denied = true; const f = factoryFixture(), backend = new PtyBackend({ ...f.options, terminateGuest: async () => { if (denied) throw new Error('unknown guest root'); } }); value(await backend.initialize()); const input = { ...launchInput(), profileId: 'wsl:Ubuntu' }; value(await backend.launch(input));
     expect(await backend.close({ tabId: input.tabId, generation: input.generation })).toMatchObject({ ok: false, error: { code: 'MONITOR_UNAVAILABLE' } }); expect(f.processes[0].kill).not.toHaveBeenCalled(); expect(backend.live()).toHaveLength(1); denied = false; f.processes[0].exit(0); await backend.dispose();

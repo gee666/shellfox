@@ -45,7 +45,7 @@ export function WindowedSessionList({ sessions, scrollRef, selectedId, retainedI
     measure();
   }
 
-  // Re-measure after a live-list size change moves the archive, or deletion
+  // Re-measure after the loaded range changes, or deletion
   // causes the browser to clamp scrollTop. No scrolling on status-only updates.
   useLayoutEffect(() => {
     measure();
@@ -84,7 +84,7 @@ export function WindowedSessionList({ sessions, scrollRef, selectedId, retainedI
     if (index === undefined) { revealedId.current = null; return; }
     if (revealedId.current === selectedId || !scrollRef.current?.clientHeight) return;
     revealedId.current = selectedId;
-    // A small archive can still be offscreen below a large live list.
+    // Selection may be outside the viewport even in a small list.
     reveal(index);
   }, [selectedId, indices, windowed, viewport.height]);
 
@@ -107,7 +107,13 @@ export function WindowedSessionList({ sessions, scrollRef, selectedId, retainedI
     // including rows that aren't mounted yet.
     const editing = event.target instanceof HTMLInputElement;
     let next: number;
-    if (event.key === 'Tab') next = current + (event.shiftKey ? -1 : 1);
+    if (event.key === 'Tab') {
+      const controls = Array.from(wrapper(sessions[current]!.id)?.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)') ?? []);
+      const position = controls.indexOf(event.target as HTMLElement);
+      // Native Tab reaches row actions before crossing a window boundary.
+      if (event.shiftKey ? position > 0 : position >= 0 && position < controls.length - 1) return;
+      next = current + (event.shiftKey ? -1 : 1);
+    }
     else if (!editing && event.key === 'ArrowDown') next = current + 1;
     else if (!editing && event.key === 'ArrowUp') next = current - 1;
     else if (!editing && event.key === 'Home') next = 0;
@@ -126,14 +132,17 @@ export function WindowedSessionList({ sessions, scrollRef, selectedId, retainedI
     const nextId = sessions[next]!.id;
     // Mount before focusing, rather than sending focus to a spacer or body.
     flushSync(() => { setFocusedId(nextId); if (windowed) reveal(next); });
-    control(nextId)?.focus();
+    const target = event.key === 'Tab' && event.shiftKey
+      ? wrapper(nextId)?.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)')
+      : undefined;
+    (target?.[target.length - 1] ?? control(nextId))?.focus();
   }
 
   const start = Math.max(0, Math.min(sessions.length, Math.floor(viewport.top / ROW_HEIGHT) - OVERSCAN));
   const end = Math.max(start, Math.min(sessions.length, Math.ceil((viewport.top + viewport.height) / ROW_HEIGHT) + OVERSCAN));
   const visible = new Set<number>();
   for (let index = windowed ? start : 0; index < (windowed ? end : sessions.length); index++) visible.add(index);
-  // Native Tab can enter from the toolbar, archive toggle or More button.
+  // Native Tab can enter from the section toggle or Show more button.
   // Keep both boundaries mounted so entry never skips an offscreen row.
   if (windowed) { visible.add(0); visible.add(sessions.length - 1); }
   for (const id of [...retainedIds, focusedId, draggedId]) {

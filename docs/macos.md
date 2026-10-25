@@ -74,4 +74,4 @@ This does not import certificates, change keychains, notarize/staple, or promise
 
 ## Native acceptance still required
 
-Verify real shell/job-control behavior, descendant cleanup, session/Settings retention, failed-close ownership retention and native quit cancellation/confirmation on both macOS architectures. Test missing/corrupt/mismatched helper binaries, inaccessible identities, terminal-group changes, shell exit with pending descendants and actual packaged signatures. A passing source scan, mocked test or Windows package cannot substitute for these results.
+Verify real shell/job-control behavior, descendant cleanup, session/Settings retention, failed-close ownership retention and in-app quit cancellation/confirmation on both macOS architectures. Test missing/corrupt/mismatched helper binaries, inaccessible identities, terminal-group changes, shell exit with pending descendants and actual packaged signatures. A passing source scan, mocked test or Windows package cannot substitute for these results.

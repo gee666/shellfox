@@ -9,8 +9,8 @@ for (const legacy of ['Pi Manager', 'pi-manager']) test(`Shellfox startup copies
   const old = await launch(oldData);
   let current: Awaited<ReturnType<typeof _electron.launch>> | undefined;
   try {
-    const session = value(await old.page.evaluate(cwd => window.shellfox.createSession({ cwd, title: 'Upgrade history', requestId: crypto.randomUUID() }), dir));
-    value(await old.page.evaluate(sessionId => window.shellfox.settleSession({ sessionId, confirmActive: true }), session.id));
+    const session = value(await old.page.evaluate(cwd => window.shellfox.createSession({ cwd, title: 'Upgrade session', requestId: crypto.randomUUID() }), dir));
+    value(await old.page.evaluate(sessionId => window.shellfox.settleSession({ sessionId, confirmActive: false }), session.id));
     // CDP evaluation can interrupt a native SQLite query. Defer DB access to the event loop.
     await old.app.evaluate(() => new Promise<void>((resolve, reject) => setImmediate(() => {
       try {
@@ -33,7 +33,7 @@ for (const legacy of ['Pi Manager', 'pi-manager']) test(`Shellfox startup copies
     expect(await page.title()).toBe(`Shellfox v${version}`);
     expect(await current.evaluate(({ app }) => [app.getName(), app.getPath('userData')])).toEqual(['Shellfox', newData]);
     expect((await snapshot(page)).settings.accentColor).toBe('#2dd4bf');
-    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: 'Upgrade history', status: 'all', page: 1, pageSize: 20 }))).items[0].id).toBe(session.id);
+    expect((await snapshot(page)).sessions.find(s => s.id === session.id)).toMatchObject({ title: 'Upgrade session', status: 'settled', settledAt: expect.any(String), tabs: session.tabs.map(t => expect.objectContaining({ id: t.id })) });
     expect(await current.evaluate(() => new Promise<unknown[]>((resolve, reject) => setImmediate(() => {
       try {
         const r = (globalThis as any).__shellfoxTest.repository;
@@ -42,8 +42,9 @@ for (const legacy of ['Pi Manager', 'pi-manager']) test(`Shellfox startup copies
     })))).toEqual([true, true, 'ok']);
     expect(await readFile(path.join(newData, 'settings.json'), 'utf8')).toBe('{"fixture":"preserved"}');
     for (const suffix of ['', '-wal', '-shm']) expect((await stat(path.join(newData, 'legacy-backup', 'manager.sqlite3' + suffix))).size).toBeGreaterThan(0);
-    // Old app still has its history and remains usable. No process was stopped by migration.
-    expect(value(await old.page.evaluate(() => window.shellfox.getHistory({ search: 'Upgrade history', status: 'all', page: 1, pageSize: 20 }))).total).toBe(1);
+    // The original app still has its session and tabs. Migration never stops its processes.
+    expect((await snapshot(old.page)).sessions).toHaveLength(1);
+    expect((await snapshot(old.page)).sessions[0]).toMatchObject({ id: session.id, status: 'settled', tabs: session.tabs.map(t => expect.objectContaining({ id: t.id })) });
     await page.evaluate(async () => {
       const s = await window.shellfox.getSnapshot(); if (!s.ok) throw Error('snapshot');
       await window.shellfox.saveSettings({ ...s.value.settings, accentColor: '#60a5fa' });

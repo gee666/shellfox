@@ -42,7 +42,7 @@ describe.each(BACKGROUNDS)('palette on background %s', background => {
     expect(palette.terminal.background).toBe(background.toLowerCase());
   });
   it('keeps status colors visible', () => {
-    for (const name of ['--dot-shell', '--dot-running', '--dot-error']) expect(contrastRatio(palette.vars[name]!, bg)).toBeGreaterThanOrEqual(3);
+    for (const name of ['--dot-shell', '--dot-running', '--dot-error', '--dot-settled']) expect(contrastRatio(palette.vars[name]!, bg)).toBeGreaterThanOrEqual(3);
   });
   it('derives distinguishable surfaces in the right direction', () => {
     const sign = palette.scheme === 'dark' ? 1 : -1;

@@ -36,8 +36,15 @@ export class ScreenMirror {
    * xterm version: fall back to the queue (the snapshot is then skipped while it lags).
    */
   private readonly parseNow: ((data: string) => unknown) | null;
-  constructor(cols: number, rows: number, onTitle?: (title: string | null) => void) {
-    this.term = new Terminal({ cols, rows, scrollback: MIRROR_SCROLLBACK, allowProposedApi: true, convertEol: false, logLevel: 'off' });
+  constructor(cols: number, rows: number, onTitle?: (title: string | null) => void, onReply?: (data: string) => void) {
+    this.term = new Terminal({ cols, rows, scrollback: MIRROR_SCROLLBACK, allowProposedApi: true, convertEol: false, logLevel: 'off', windowOptions: { getWinSizeChars: true } });
+    // One persistent parser answers live VT queries even before a view mounts.
+    // Serializing or replaying this state must never send another PTY reply.
+    this.term.onData(data => {
+      if (!this.disposed && !this.broken) {
+        try { onReply?.(data); } catch { /* A failed device reply cannot corrupt screen state. */ }
+      }
+    });
     this.term.onTitleChange(raw => {
       if (this.disposed || this.broken) return;
       // Process-controlled text must fit the same bound as saved tab titles.

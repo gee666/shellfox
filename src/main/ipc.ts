@@ -91,7 +91,6 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'deleteSession': result = await service.deleteSession(requestSchemas.deleteSession.parse(payload)); break;
         case 'clearSessionError': result = await service.clearSessionError(requestSchemas.clearSessionError.parse(payload)); break;
         case 'retryTab': result = await service.retryTab(requestSchemas.retryTab.parse(payload)); break;
-        case 'getHistory': result = service.getHistory(requestSchemas.getHistory.parse(payload)); break;
         case 'saveSettings': result = await service.saveSettings(requestSchemas.saveSettings.parse(payload)); break;
         case 'setExplorerIntegration': result = await service.setExplorerIntegration(requestSchemas.setExplorerIntegration.parse(payload)); break;
         case 'setSessionEnv': result = await service.setSessionEnv(requestSchemas.setSessionEnv.parse(payload)); break;

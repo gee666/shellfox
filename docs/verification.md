@@ -69,7 +69,7 @@ These need the real SDK/architecture, not a Windows stub. CI additionally enable
 - `test:pty` uses the backend-owned native smoke as-is, external node-pty and isolated data. It exercises real profile spawn/output/resize/replay/exit/explicit close.
 - `test:packaged` inspects ASAR/executable helpers and uses the actual packaged Electron for SQLite write/read and a no-profile native PTY fixture with observed output, dimensions and exit status. It additionally compiles the stamped real backend source into an external fixture, forces its production factory to resolve node-pty from that packaged ASAR, and checks profile readiness, replay, exit 7 and confirmed close. No fake factory is injected. It does not exercise production terminal IPC/UI.
 - On macOS packaged tests also require resource-only helper paths, mode/architecture/signature and self-preflight, plus backend packaged path resolution and refusal to use development binaries when resources are missing.
-- `test:packaged:startup` opens the actual production renderer/preload with isolated data, checks discovered safe-close profiles, and quits without creating shells. It is not terminal-input or native-quit-dialog acceptance.
+- `test:packaged:startup` opens the actual production renderer/preload with isolated data, checks discovered safe-close profiles, and quits without creating shells. It is not terminal-input or quit-confirmation acceptance.
 
 Native C helpers remain outside ASAR with executable modes. Packager signs them inside-out with unpacked native addons and spawn-helper before sealing the app; no post-sign mutation occurs. Preview macOS signing is ad-hoc. Optional Developer ID signing is configured, but certificate/notarization/Gatekeeper verification remains unexecuted.
 
@@ -87,10 +87,10 @@ Use disposable users/VMs and obtain permission before installation or creating t
 
 - Compile/preflight/sign both Darwin helpers on x64 and arm64. Verify real shell job-control, supervisor authentication, guarded descendant cleanup, refusal/retry and missing/corrupt helper behavior.
 - Exercise production preload/IPC, xterm parser replies, full-screen applications, resize, independent tabs and session/Settings retention on each target.
-- Cancel native quit with live shells/descendants, then confirm. Verify all owned cleanup exits and restart shows saved closed history without command restoration.
+- Cancel the in-app quit modal with live shells/descendants using Cancel, Escape and its close button, then confirm. Verify all owned cleanup exits and restart shows saved sessions without command restoration.
 - Simulate failed cleanup and SQLite exit-save failure. Ownership must remain authoritative; no silent replacement or stuck-frozen surviving groups.
 - Check Linux/WSL preflight refusal before launch and restored-prerequisite recovery after launch. Test guest CWD translation and markers. Do not kill wsl.exe as a shortcut.
-- Verify legacy history never adopts/watches/kills external shells.
+- Verify legacy sessions never adopts/watches/kills external shells.
 - Test clean Windows/Linux installations, native ARM64, Windows shortcut lifecycle and macOS signing/quarantine/notarization policy.
 
 Cleanup may stop only test-owned processes with current ownership evidence. Do not kill unrelated processes, terminal servers or WSL distributions, or suppress native refusals with numeric-PID fallback.
@@ -105,12 +105,14 @@ Regression coverage: `screen-mirror.test.ts`, `backend-restore.test.ts`, `termin
 node scripts/build.mjs --test && SHELLFOX_VERIFY_PROJECT=e2e node node_modules/@playwright/test/cli.js test --project=e2e terminal-tui-restore
 ```
 
-## Permanent deletion of archived sessions
+## Settling and permanent deletion
 
-`deleteSession` removes an archived session with its tabs, operations and per-tab metadata from SQLite; live sessions are refused. For an embedded session, any shell still running in it is closed first (archiving never stops shells) and the deletion is abandoned unless every close is confirmed. The sidebar offers "Delete permanently…" on archived rows only, behind a confirmation.
+Settling only changes status. Settled sessions remain in the session list with their live tabs and agents. Unsettling clears that status without relaunching terminals. Neither action requires confirmation.
 
-Coverage: `repository.electron-test.ts` (`pnpm test:storage`), `delete-session.test.ts`, `service.test.ts`, `ipc.test.ts`, `SessionSidebar.test.tsx`, plus two e2e specs. `tests/e2e/delete-archived-session.spec.ts` uses the real embedded backend (POSIX; screenshots in `tmp/e2e-evidence/`) and also checks the database after an app restart. The additions to `flows.spec.ts` cover the Windows legacy fake-backend path; that spec (like most of the e2e project) needs the Windows fake native adapter and fails with `DEPENDENCY_MISSING` on Linux/macOS, before and after this change.
+`deleteSession` closes the session's owned terminals and removes its tabs, operations and per-tab metadata from SQLite. Deletion fails unless every terminal close is confirmed. The sidebar requires confirmation, and CLI `delete` requires inspection plus an explicit TTY answer.
+
+Coverage includes `repository.electron-test.ts` via `pnpm test:storage`, `delete-session.test.ts`, `control-session.test.ts`, `control-server.test.ts`, `ipc.test.ts` and `SessionSidebar.test.tsx`. `tests/e2e/delete-session.spec.ts` uses the real embedded backend and checks that cancellation preserves terminal identity, confirmed deletion removes the session and the database stays clear after restart. `tests/e2e/live-control.spec.ts` covers CLI status changes and confirmed deletion through live terminal context.
 
 ```sh
-node scripts/build.mjs --test && SHELLFOX_VERIFY_PROJECT=e2e node node_modules/@playwright/test/cli.js test --project=e2e delete-archived-session
+node scripts/build.mjs --test && SHELLFOX_VERIFY_PROJECT=e2e node node_modules/@playwright/test/cli.js test --project=e2e delete-session
 ```

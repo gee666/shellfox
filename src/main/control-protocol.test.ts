@@ -10,13 +10,19 @@ describe('control validation and framing', () => {
     { action: 'inspect', marker: '123' }, { action: 'inspect', id: marker, current: true },
     { action: 'tab-open' }, { action: 'tab-close', id: marker }, { action: 'tab-open', marker, id: marker },
     { action: 'keep-alive', confirmed: true }, { action: 'keep-alive', id: marker }, { action: 'stats', current: true },
-    { action: 'delete', id: marker, confirmed: 'true' }, { action: 'archive', marker, confirmed: 1 },
+    { action: 'delete', id: marker, confirmed: 'true' }, { action: 'archive', marker },
+    { action: 'settle' }, { action: 'unsettle' },
+    { action: 'settle', marker, confirmed: true }, { action: 'unsettle', id: marker, confirmed: false },
+    { action: 'settle', id: marker, current: true }, { action: 'unsettle', marker: 'stale' },
   ])('rejects malformed or unsafe requests %j', request => {
     expect(controlRequestSchema.safeParse(request).success).toBe(false);
   });
   it('accepts the contract without adding context variables or extra fields', () => {
     for (const action of ['list', 'stats', 'processes', 'keep-alive']) expect(controlRequestSchema.safeParse({ action, marker }).success).toBe(true);
-    for (const action of ['inspect', 'delete', 'archive']) expect(controlRequestSchema.safeParse({ action, id: marker.slice(0, 8), confirmed: action === 'inspect' ? undefined : true }).success).toBe(true);
+    for (const action of ['inspect', 'delete', 'settle', 'unsettle']) {
+      expect(controlRequestSchema.safeParse({ action, id: marker.slice(0, 8), ...(action === 'delete' ? { confirmed: true } : {}) }).success).toBe(true);
+      expect(controlRequestSchema.safeParse({ action, marker, current: true }).success).toBe(true);
+    }
     expect(controlRequestSchema.safeParse({ action: 'tab-close', marker, current: true }).success).toBe(true);
     expect(controlRequestSchema.safeParse({ action: 'list', marker, current: true }).success).toBe(true);
     expect(controlRequestSchema.safeParse({ action: 'stats', id: marker }).success).toBe(true);

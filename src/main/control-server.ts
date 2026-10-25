@@ -25,16 +25,15 @@ export async function handleControlRequest(service: Service, keepAwake: Pick<Kee
       const selected = await service.controlSession({ action: 'inspect', ...(request.id ? { id: request.id } : { marker: request.marker }) }, signal);
       if (!selected.ok) throw new Error(selected.error.message);
       sessions = sessions.filter(s => s.id === selected.value.session!.id);
-      if (!sessions.length) throw new Error('Active session not found.');
+      if (!sessions.length) throw new Error('Session not found.');
     }
     if (request.action === 'list') return { sessions };
     if (!(service instanceof EmbeddedSessionService)) throw new Error('Live process statistics require embedded terminals.');
     signal?.throwIfAborted();
     const tabs = await collectSessionStats(service.backend.live());
-    // The collector receives only app-owned roots. Archived sessions are not
-    // included in CLI listings or their process details.
-    const activeTabs = new Set(sessions.flatMap(s => s.tabs.map(t => t.id)));
-    return { sessions, tabs: tabs.filter(t => activeTabs.has(t.tabId)) };
+    // Keep only the selected sessions' app-owned process details, including settled sessions.
+    const selectedTabs = new Set(sessions.flatMap(s => s.tabs.map(t => t.id)));
+    return { sessions, tabs: tabs.filter(t => selectedTabs.has(t.tabId)) };
   }
   if (!(service instanceof EmbeddedSessionService)) throw new Error('Session control requires embedded terminals.');
   if (request.action === 'inspect') {

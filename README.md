@@ -11,18 +11,19 @@ This is an embedded-terminal preview. Windows x64 dependency/build/package check
 - Create a session with an accessible folder. Multiple sessions can use the same folder.
 - Select a session to show its current or first live tab. If it has no open terminal (for example after a restart), selecting it opens one fresh shell; commands are never restored. The session's environment variables apply to every new terminal in it.
 - After a restart all saved sessions are listed, but no terminals open until you select a session.
-- Right-click a session → Pin to top keeps it above the others (in pin order); Unpin returns it to the normal order. Archived sessions remember the pin; it applies again after Restore.
+- Right-click a session → Pin to top keeps it above the others (in pin order); Unpin returns it to the normal order. Settled sessions keep their pins and stay in the same list. Pins prevent automatic deletion.
 - The tab-strip plus creates another independent shell. Right-click it to choose a discovered profile.
 - Copy selected terminal text with Ctrl+Shift+C or a middle click; paste with Ctrl+Shift+V. In mouse-enabled apps, hold Shift while dragging to select text. Windows-hosted PowerShell and WSL tabs use the Windows clipboard; `xclip` is not needed.
 - Click an http(s) link in a terminal to open it in the system browser; hover shows its target. Other schemes are ignored. URLs that a TUI broke across rows inside a table column are clickable on every row. Shells get `FORCE_HYPERLINK=1` and `PI_HYPERLINKS=1`, so pi and similar CLIs print compact clickable labels (OSC 8) instead of long URLs; set either to `0` in a session to opt out.
 - The eye button keeps the computer awake while Shellfox runs (open eye: on). It blocks idle, system and display sleep, so the screen does not lock. Closing the lid does not suspend either: Linux holds a logind `handle-lid-switch` inhibitor, and Windows sets the lid-close action to "do nothing" and restores the original when switched off (also after a crash, on next start). macOS cannot override lid-close sleep without root. On Windows it also nudges the mouse by one pixel every 30 s to defeat idle-lock policies. A helper that dies is restarted after 30 s. It resets to off on restart.
 - Settings opens as a full page in the workspace, with the sidebar still usable. Press Esc or × to return. Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
 - Closing a tab explicitly terminates its owned shell and verified descendants. Closure requires exit evidence, not just a sent signal. Do not use it on work you want to keep running.
-- Archive moves a saved task into history without stopping shells or agents. Embedded archived sessions can be restored; retired external sessions remain read-only. Rename and agent-rule settings are available.
+- Settle marks a session without stopping shells or agents. Unsettle clears that status. Both keep the session in the list with its tabs. Delete closes owned terminals and removes the session after confirmation.
+- Inactive sessions settle after 24 hours and delete after another 30 days without activity by default. Settings changes both intervals. Pinned sessions never delete automatically.
 
-Terminals are app-owned. Quitting with live shells shows a native confirmation and closes them if confirmed. Cancel keeps the app running. Failed termination or missing exit evidence keeps the manager open for a retry. Closing or restarting the manager does not preserve shells. On startup, former embedded live tabs become closed records; commands and screen output are not restored. This replaces the previous external-terminal survival behavior.
+Terminals are app-owned. Quitting with live shells shows a compact, themed in-app confirmation on Windows, macOS and Linux, and closes them only after approval. Cancel keeps the app running. Failed termination or missing exit evidence keeps the manager open for a retry. Closing or restarting the manager does not preserve shells. On startup, former embedded live tabs become closed records; commands and screen output are not restored. This replaces the previous external-terminal survival behavior.
 
-Saved external-window sessions remain legacy history metadata. The embedded runtime does not adopt, watch, focus or kill those old windows. Old titles, registrations and window bindings are not evidence of an owned embedded shell.
+Saved external-window sessions remain legacy metadata. The embedded runtime does not adopt, watch, focus or kill those old windows. Old titles, registrations and window bindings are not evidence of an owned embedded shell.
 
 ## Shells and WSL
 
@@ -100,7 +101,7 @@ The manual [CI workflow](.github/workflows/embedded-packages.yml) configures six
 
 ## CLI
 
-See the [command reference](docs/cli.md) for all aliases, filters, UUID targeting and confirmation behavior. `start` also accepts `add`, `new` and `create`. With the app running, use `ls` for sessions, `stats` for RSS/duration, `processes` for PIDs, `tab open`/`tab close` inside an owned terminal, and `keep-alive` to toggle sleep prevention. `delete`/`archive` inspect the target and require explicit TTY confirmation. Help and version do not require the app.
+See the [command reference](docs/cli.md) for all aliases, filters, UUID targeting and confirmation behavior. `start` also accepts `add`, `new` and `create`. With the app running, use `ls` for sessions, `stats` for RSS/duration, `processes` for PIDs, `tab open`/`tab close` inside an owned terminal, and `keep-alive` to toggle sleep prevention. `settle` and `unsettle` change session status without confirmation or terminal closure. `delete` inspects the target and requires explicit TTY confirmation. Help and version do not require the app.
 
 ```sh
 shellfox ls --running --no-agents
@@ -161,6 +162,8 @@ $env:SHELLFOX_TEST_MODE='1'
 pnpm exec electron .\tmp\build-test\main\index.cjs --test-user-data "$PWD\tmp\ssh-dev" --test-backend real
 ```
 
+Validated compiled test instances auto-approve quit/update shutdown without showing a prompt. To exercise the themed confirmation, set `SHELLFOX_TEST_CONFIRM_QUIT=1` before launching that test instance. The opt-in works with either test backend and does not require a visible desktop window. Production builds never bypass approval based on test environment variables.
+
 After adding profiles and enabling the command in that instance, invoke its isolated shim explicitly:
 
 ```powershell
@@ -177,7 +180,7 @@ Or call the helper without installing a shim:
 
 ## Storage, tracking and security
 
-SQLite lives in `<Electron appData>/Shellfox/manager.sqlite3`. The main process is its only writer. On the first renamed startup, if that database is absent, Shellfox copies the previous app's database and settings without deleting the old directory. SQLite backup includes committed WAL data; `legacy-backup` keeps raw DB/WAL/SHM recovery copies. Existing Shellfox databases are never overwritten. Renderer preferences migrate their old storage keys on read. Saved Explorer and CLI opt-ins are reapplied with the new executable. Squirrel now has a new installed identity and install path; this is a separate installation, not an in-place update of the old package. Migrations retain session history but remove obsolete closed/archived tabs and their launch/ownership records. Archiving closes owned terminals and retains only session metadata; deletion removes the session and all dependent database records. See [database retention](docs/database-retention.md) for retained fields, configured environment values and backup/secure-erasure limits. Terminal output and process command lines are not stored in SQLite or manager snapshots. Scrollback and replay are bounded and disappear at app exit. Shell exit is forwarded even if SQLite saving fails; runtime closure remains authoritative, a storage error is surfaced and metadata reconciliation retries separately.
+SQLite lives in `<Electron appData>/Shellfox/manager.sqlite3`. The main process is its only writer. On the first renamed startup, if that database is absent, Shellfox copies the previous app's database and settings without deleting the old directory. SQLite backup includes committed WAL data; `legacy-backup` keeps raw DB/WAL/SHM recovery copies. Existing Shellfox databases are never overwritten. Renderer preferences migrate their old storage keys on read. Saved Explorer and CLI opt-ins are reapplied with the new executable. Squirrel now has a new installed identity and install path; this is a separate installation, not an in-place update of the old package. Migrations retain saved sessions but remove obsolete closed tabs and legacy ownership records. Settling changes status without removing tabs or stopping terminals; deletion closes owned terminals and removes the session and all dependent database records. See [database retention](docs/database-retention.md) for retained fields, configured environment values and backup/secure-erasure limits. Terminal output and process command lines are not stored in SQLite or manager snapshots. Scrollback and replay are bounded and disappear at app exit. Shell exit is forwarded even if SQLite saving fails; runtime closure remains authoritative, a storage error is surfaced and metadata reconciliation retries separately.
 
 Counts mean matched descendant process identities, not logical tasks, input-wait detection or command success. Windows local tracking uses PowerShell/CIM, Linux uses `/proc`, and macOS uses a read-only libproc/numeric-sysctl snapshot helper, with helper self-preflight before advertising tracking. WSL tracking runs inside the selected distro. Poll failures and inaccessible identity evidence stay unknown. Very short-lived, detached, elevated, remote, container or multiplexer activity is not guaranteed. The displayed folder is the starting/default folder, not live shell CWD. Local folder validation checks accessibility and the resolved target, rejects unsupported remote paths, and accepts supported local symlinks.
 

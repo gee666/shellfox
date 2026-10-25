@@ -55,16 +55,16 @@ describe('embedded saved-task lifecycle', () => {
     expect(value(f.service.getSnapshot()).sessions[0].tabs[0]).toMatchObject({ lifecycle: 'closed', exitCode: 7 });
     spy.mockImplementation(save); await f.service.dispose(); expect(f.repository.tabs(s.id)).toEqual([]); expect(f.repository.operation(s.tabs[0].generation!)).toBeUndefined();
   });
-  it('merges launch completion with concurrent rename and refuses archiving a starting terminal', async () => {
+  it('merges launch completion with concurrent rename and non-destructive settlement', async () => {
     const repo = new MemoryRepository(), f = factoryFixture(); let finish!: () => void;
     const barrier = new Promise<void>(resolve => { finish = resolve; });
     const backend = new PtyBackend({ ...f.options, validateCwd: async (_p, cwd) => { await barrier; return cwd; } });
     const service = new EmbeddedSessionService(repo, backend, () => ({ setWatch: () => {}, dispose: () => {} })); await service.initialize();
     const creating = service.createSession({ cwd: '/work', requestId: randomUUID() }); await new Promise(resolve => setImmediate(resolve));
     const saved = repo.sessions()[0]; expect(service.ownedTerminalCount()).toBe(1);
-    value(await service.renameSession({ sessionId: saved.id, title: 'Renamed while opening' })); expect(await service.settleSession({ sessionId: saved.id, confirmActive: true })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
+    value(await service.renameSession({ sessionId: saved.id, title: 'Renamed while opening' })); expect(value(await service.settleSession({ sessionId: saved.id, confirmActive: false })).status).toBe('settled');
     const pending = value(await service.activateSession({ sessionId: saved.id })); expect(pending.tabs).toHaveLength(1); expect(f.factory).not.toHaveBeenCalled();
-    finish(); const completed = value(await creating); expect(completed.title).toBe('Renamed while opening'); expect(completed.settledAt).toBeNull(); expect(completed.tabs).toHaveLength(1); await service.dispose();
+    finish(); const completed = value(await creating); expect(completed.title).toBe('Renamed while opening'); expect(completed.settledAt).not.toBeNull(); expect(completed.tabs).toHaveLength(1); await service.dispose();
   });
   it('failed shutdown keeps shell ownership and permits a later successful retry', async () => {
     const f = await fixture(), s = await f.create(); f.processes[0].kill.mockImplementation(() => { throw new Error('denied'); });
@@ -110,18 +110,23 @@ describe('embedded saved-task lifecycle', () => {
     expect(retried.tabs[0].agents).toBe(0);
     await f.service.dispose();
   });
-  it('keeps attached terminals running until confirmed archive closes and removes them', async () => {
+  it('keeps attached terminals running across settle/unsettle and permits adding tabs', async () => {
     const f = await fixture(), s = await f.create(); f.service.attachTerminal({ tabId: s.tabs[0].id }); f.observe(s, 1);
-    expect(await f.service.settleSession({ sessionId: s.id, confirmActive: false })).toMatchObject({ ok: false, error: { code: 'SETTLE_CONFIRM_REQUIRED' } });
-    const settled = value(await f.service.settleSession({ sessionId: s.id, confirmActive: true })); expect(settled.status).toBe('settled'); expect(f.backend.live()).toHaveLength(0); expect(f.processes[0].kill).toHaveBeenCalledTimes(1); expect(settled.tabs).toEqual([]);
-    expect(value(f.service.getSnapshot()).sessions).toHaveLength(0); f.observe(settled, 3); expect(value(f.service.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 })).items[0].counts.agents).toBe(0);
-    expect(await f.service.addTab({ sessionId: s.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } }); await f.service.dispose();
+    const settled = value(await f.service.settleSession({ sessionId: s.id, confirmActive: false }));
+    expect(settled).toMatchObject({ status: 'settled', activityStatus: 'running' });
+    expect(f.backend.live()).toHaveLength(1); expect(f.processes[0].kill).not.toHaveBeenCalled(); expect(settled.tabs).toHaveLength(1);
+    expect(value(f.service.getSnapshot()).sessions).toHaveLength(1); f.observe(settled, 3);
+    expect(value(f.service.getSnapshot()).sessions[0].counts.agents).toBe(3);
+    expect(value(await f.service.addTab({ sessionId: s.id })).tabs).toHaveLength(2);
+    expect(value(await f.service.unsettleSession({ sessionId: s.id })).tabs).toHaveLength(2);
+    await f.service.dispose();
   });
-  it('requires restore before reopening an archived task with a fresh tab', async () => {
-    const f = await fixture(), s = await f.create(); const settled = value(await f.service.settleSession({ sessionId: s.id, confirmActive: true })); f.processes[0].exit(0);
-    expect(await f.service.activateSession({ sessionId: s.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
-    expect(settled.tabs).toEqual([]); value(await f.service.unsettleSession({ sessionId: s.id }));
-    const reopened = value(await f.service.activateSession({ sessionId: s.id })); expect(reopened.settledAt).toBeNull(); expect(reopened.id).toBe(s.id); expect(reopened.tabs).toHaveLength(1); await f.service.dispose();
+  it('can reopen a settled task without restoring or losing settlement', async () => {
+    const f = await fixture(), s = await f.create(); const settled = value(await f.service.settleSession({ sessionId: s.id, confirmActive: false })); f.processes[0].exit(0);
+    const reopened = value(await f.service.activateSession({ sessionId: s.id }));
+    expect(reopened.settledAt).toBe(settled.settledAt); expect(reopened.id).toBe(s.id); expect(reopened.tabs).toHaveLength(1);
+    value(await f.service.unsettleSession({ sessionId: s.id })); expect(f.processes[1].kill).not.toHaveBeenCalled();
+    await f.service.dispose();
   });
   it('preserves running/waiting/unknown counts without pretending a prompt is agent completion', async () => {
     const f = await fixture(), s = await f.create(); expect(value(f.service.getSnapshot()).sessions[0].status).toBe('unknown');
@@ -142,36 +147,18 @@ describe('embedded saved-task lifecycle', () => {
     const activate = f.service.activateSession({ sessionId: s.id }); f.processes[0].exit(0); value(await closing); await activate;
     expect(f.factory).toHaveBeenCalledTimes(2); await f.service.dispose();
   });
-  it('archives active legacy-only metadata once at startup without touching processes or embedded tasks', async () => {
-    const repo = new MemoryRepository(), legacy = seedLegacy(repo);
-    legacy.session.settledAt = null; repo.saveSession(legacy.session);
-    const tagged: SessionRecord = { ...legacy.session, id: randomUUID(), adapterId: 'embedded-pty' }; repo.saveSession(tagged);
-    repo.saveTab({ ...legacy.tab, id: randomUUID(), sessionId: tagged.id });
-    const empty = { ...tagged, id: randomUUID() }; repo.saveSession(empty);
-    const embedded = { ...tagged, id: randomUUID() }; repo.saveSession(embedded);
-    repo.saveTab({ ...legacy.tab, id: randomUUID(), sessionId: embedded.id, terminal: { kind: 'embedded', profileId: 'login-shell', exitCode: null } });
-    const f = await fixture(repo);
-    expect(value(f.service.getSnapshot()).sessions.map(s => s.id).sort()).toEqual([embedded.id, empty.id].sort());
-    const history = value(f.service.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 }));
-    expect(history.total).toBe(2);
-    const archived = repo.session(legacy.session.id)!;
-    expect(archived.settledAt).not.toBeNull();
-    expect(repo.tab(legacy.tab.id)).toBeUndefined();
-    expect(f.factory).not.toHaveBeenCalled(); expect(f.tracker.setWatch).toHaveBeenCalledWith([], expect.anything());
-    expect(await f.service.unsettleSession({ sessionId: legacy.session.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
-    await f.service.dispose();
-    const restarted = await fixture(repo);
-    expect(repo.session(legacy.session.id)?.settledAt).toBe(archived.settledAt);
-    expect(value(restarted.service.getSnapshot()).sessions.map(s => s.id).sort()).toEqual([embedded.id, empty.id].sort());
-    expect(restarted.factory).not.toHaveBeenCalled(); await restarted.service.dispose();
-  });
-  it('retains legacy session history but removes roots without adopting, watching or killing them', async () => {
+  it('keeps legacy metadata visible without adopting, watching or killing its processes', async () => {
     const repo = new MemoryRepository(), legacy = seedLegacy(repo), f = await fixture(repo);
+    const saved = value(f.service.getSnapshot()).sessions.find(s => s.id === legacy.session.id)!;
+    expect(saved.status).toBe('settled'); expect(saved.tabs).toEqual([]);
     expect(f.backend.live()).toHaveLength(0); expect(f.tracker.setWatch).toHaveBeenCalledWith([], expect.anything());
-    const history = value(f.service.getHistory({ search: 'legacy', status: 'all', page: 1, pageSize: 20 })); expect(history.items[0].tabs).toEqual([]);
-    expect(f.service.attachTerminal({ tabId: legacy.tab.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } }); expect(await f.service.closeTab({ tabId: legacy.tab.id, generation: legacy.tab.operationId })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
-    expect(await f.service.activateSession({ sessionId: legacy.session.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
-    await f.service.dispose(); expect(repo.tab(legacy.tab.id)).toBeUndefined(); expect(f.factory).not.toHaveBeenCalled();
+    expect(f.service.attachTerminal({ tabId: legacy.tab.id })).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
+    expect(await f.service.closeTab({ tabId: legacy.tab.id, generation: legacy.tab.operationId })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    expect(value(await f.service.unsettleSession({ sessionId: legacy.session.id })).settledAt).toBeNull();
+    expect(f.factory).not.toHaveBeenCalled();
+    await f.service.dispose(); expect(repo.tab(legacy.tab.id)).toBeUndefined();
+    const restarted = await fixture(repo); expect(restarted.factory).not.toHaveBeenCalled();
+    expect(repo.tab(legacy.tab.id)).toBeUndefined(); await restarted.service.dispose();
   });
   it('never persists output or exposes it in snapshots', async () => {
     const f = await fixture(), s = await f.create(); f.processes[0].output('secret-terminal-output');

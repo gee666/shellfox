@@ -45,7 +45,7 @@ it.skipIf(process.platform !== 'win32')('runs the cmd helper for controls/help/v
   // Use the installed test runner's Node instead of copying a second runtime.
   const runtime=path.win32.join(path.dirname(helper),'../cli-runtime/node.exe');
   await writeFile(shim,cmd.replaceAll(runtime,process.execPath));
-  for(const args of [['ls','--name','two words'],['status','--current'],['proc','--pid','42'],['delete'],['settle'],['tab','new'],['awake'],['--version'],['-v'],['version'],['-h'],['help','ls'],['start','--help'],['add','-h'],['create','help'],['update','-h'],['unknown']]) {
+  for(const args of [['ls','--name','two words'],['status','--current'],['proc','--pid','42'],['delete'],['settle'],['unsettle'],['tab','new'],['awake'],['--version'],['-v'],['version'],['-h'],['help','ls'],['start','--help'],['add','-h'],['create','help'],['update','-h'],['unknown']]) {
    const result=await exec('cmd.exe',['/d','/c',shim,...args],{cwd:root,timeout:5000,env:{...process.env,SHELLFOX_TERMINAL_MARKER:'context'}}).catch(error=>error);
    expect(result.code).toBe(17); expect(JSON.parse(result.stdout)).toEqual({args:['--user-data',data,...args],marker:'context'});
   }

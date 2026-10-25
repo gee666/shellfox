@@ -9,14 +9,14 @@ export const CONTROL_TIMEOUT_MS = 30_000;
 export const controlEndpointPath = (userData: string): string => path.join(userData, CONTROL_ENDPOINT_FILE);
 
 export const controlRequestSchema = z.object({
-  action: z.enum(['list', 'stats', 'processes', 'inspect', 'delete', 'archive', 'tab-open', 'tab-close', 'keep-alive']),
+  action: z.enum(['list', 'stats', 'processes', 'inspect', 'delete', 'settle', 'unsettle', 'tab-open', 'tab-close', 'keep-alive']),
   marker: z.uuid().optional(),
   id: z.string().min(1).max(36).regex(/^[0-9a-f]+(?:-[0-9a-f]*)*$/i).optional(),
   current: z.boolean().optional(),
   confirmed: z.boolean().optional(),
 }).strict().superRefine((r, ctx) => {
   const invalid = (message: string) => ctx.addIssue({ code: 'custom', message });
-  const targetAction = ['inspect', 'delete', 'archive'].includes(r.action);
+  const targetAction = ['inspect', 'delete', 'settle', 'unsettle'].includes(r.action);
   const tabAction = r.action === 'tab-open' || r.action === 'tab-close';
   const readAction = ['list', 'stats', 'processes'].includes(r.action);
   if (r.id && r.current) invalid('Choose an ID or current context, not both.');
@@ -24,7 +24,7 @@ export const controlRequestSchema = z.object({
   if (tabAction && (r.id !== undefined || !r.marker)) invalid('Tab operations require live terminal context and do not accept an ID.');
   if (!targetAction && !tabAction && !readAction && (r.id !== undefined || r.current !== undefined)) invalid('This action does not accept a target.');
   if (readAction && r.current && !r.marker) invalid('Current selection requires live terminal context.');
-  if (r.confirmed !== undefined && r.action !== 'delete' && r.action !== 'archive') invalid('This action does not accept confirmation.');
+  if (r.confirmed !== undefined && r.action !== 'delete') invalid('This action does not accept confirmation.');
 });
 export const controlEndpointSchema = z.object({ version: z.literal(1), host: z.literal('127.0.0.1'), port: z.number().int().min(1).max(65535), secret: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 export const controlEnvelopeSchema = z.object({ version: z.literal(1), secret: z.string().regex(/^[a-f0-9]{64}$/), request: controlRequestSchema }).strict();

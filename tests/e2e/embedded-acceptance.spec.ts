@@ -4,8 +4,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { launch, scratch, snapshot, value } from '../fixtures/electron';
 
-test('embedded startup archives legacy sessions, removes obsolete roots and upgrades untouched rules', async () => {
-  const dir = await scratch('legacy-archive'), data = path.join(dir, 'data'), sessionId = randomUUID(), tabId = randomUUID();
+test('embedded startup settles legacy sessions in Local, removes obsolete roots and upgrades untouched rules', async () => {
+  const dir = await scratch('legacy-settled'), data = path.join(dir, 'data'), sessionId = randomUUID(), tabId = randomUUID();
   let running = await launch(data, 'real');
   try {
     const now = new Date().toISOString();
@@ -26,23 +26,33 @@ test('embedded startup archives legacy sessions, removes obsolete roots and upgr
     })), { sessionId, tabId, dir, now, operationId: randomUUID() });
     await running.app.close();
     running = await launch(data, 'real');
-    expect((await snapshot(running.page)).sessions).toHaveLength(0);
-    const history = value(await running.page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 })));
-    expect(history.items[0]).toMatchObject({ id: sessionId, status: 'settled', tabs: [] });
+    const sessions = (await snapshot(running.page)).sessions;
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ id: sessionId, status: 'settled', settledAt: expect.any(String), tabs: [] });
     const settings = (await snapshot(running.page)).settings;
     expect(settings.processRules.find(rule => rule.label === 'Pi')).toMatchObject({ enabled: false, processNames: ['pi', 'pi.exe'] });
     expect(settings.processRules.find(rule => rule.label === 'Pi')?.scriptPathSuffixes).toContain('@earendil-works/pi-coding-agent/dist/bundle/cli.js');
     expect(settings.processRules.some(rule => rule.label === 'Native agents')).toBe(false);
-    await running.page.getByRole('button', { name: 'Archived · 1' }).click();
-    await running.page.getByRole('button', { name: 'Select session learn-language' }).click();
-    await expect(running.page.getByText('Archived session', { exact: true })).toBeVisible();
-    await expect(running.page.getByRole('button', { name: 'Restore', exact: true })).toHaveCount(0);
-    await expect(running.page.getByRole('button', { name: 'Focus', exact: true })).toHaveCount(0);
+    await expect(running.page.getByRole('button', { name: 'Local · 1', exact: true })).toHaveAttribute('aria-expanded', 'true');
+    await expect(running.page.getByRole('tab')).toHaveCount(0);
     await expect(running.page.getByLabel('Interactive terminal')).toHaveCount(0);
     const savedTab = await running.app.evaluate((_electron, id) => new Promise<any>((resolve, reject) => setImmediate(() => {
       try { resolve((globalThis as any).__shellfoxTest.repository.tab(id)); } catch (error) { reject(error); }
     })), tabId);
     expect(savedTab).toBeUndefined();
+
+    // Selecting the retained metadata opens a fresh owned shell, never the obsolete external root.
+    await running.page.getByRole('region', { name: 'Local sessions', exact: true }).getByRole('button', { name: 'Select session learn-language', exact: true }).click();
+    await expect.poll(async () => (await snapshot(running.page)).sessions[0].tabs[0]?.lifecycle, { timeout: 20000 }).toBe('open');
+    const reopened = (await snapshot(running.page)).sessions[0];
+    expect(reopened).toMatchObject({ id: sessionId, adapterId: 'embedded-pty', status: 'settled', settledAt: sessions[0].settledAt });
+    expect(reopened.tabs).toHaveLength(1);
+    expect(reopened.tabs[0]).toMatchObject({ terminalKind: 'embedded', lifecycle: 'open' });
+    expect(reopened.tabs[0].id).not.toBe(tabId);
+    await expect(running.page.getByLabel('Interactive terminal')).toBeVisible();
+    await expect(running.page.getByText('Archived session', { exact: true })).toHaveCount(0);
+    await expect(running.page.getByRole('button', { name: 'Restore', exact: true })).toHaveCount(0);
+    await expect(running.page.getByRole('button', { name: 'Focus', exact: true })).toHaveCount(0);
   } finally { await running.app.close(); }
 });
 

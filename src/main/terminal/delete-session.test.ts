@@ -13,17 +13,16 @@ async function start(repository = new MemoryRepository()) {
   return { ...f, repository, service };
 }
 const create = async (service: EmbeddedSessionService, title: string) => value(await service.createSession({ cwd: '/work/' + title, title, requestId: randomUUID() }));
-const history = (service: EmbeddedSessionService) => value(service.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 }));
+const sessions = (service: EmbeddedSessionService) => value(service.getSnapshot()).sessions;
 
 describe('permanent session deletion', () => {
-  it('refuses live sessions that are not archived', async () => {
-    const { service, repository } = await start(); const a = await create(service, 'a');
-    const refused = await service.deleteSession({ sessionId: a.id });
-    expect(refused).toMatchObject({ ok: false, error: { code: 'UNSUPPORTED' } });
-    expect(repository.session(a.id)).toBeDefined();
+  it('deletes an unsettled live session after closing its owned terminal', async () => {
+    const { service, repository, processes } = await start(); const a = await create(service, 'a');
+    expect(value(await service.deleteSession({ sessionId: a.id }))).toEqual({ deleted: true });
+    expect(repository.session(a.id)).toBeUndefined(); expect(processes[0].kill).toHaveBeenCalledTimes(1);
     await service.dispose();
   });
-  it('closes an archived session\'s live terminals before deleting it', async () => {
+  it('closes a settled session\'s live terminals before deleting it', async () => {
     const { service, repository, processes } = await start(); const a = await create(service, 'a'), b = await create(service, 'b');
     value(await service.settleSession({ sessionId: a.id, confirmActive: true }));
     expect(value(await service.deleteSession({ sessionId: a.id }))).toEqual({ deleted: true });
@@ -34,7 +33,6 @@ describe('permanent session deletion', () => {
   });
   it('keeps the session when a live terminal cannot be confirmed closed', async () => {
     const { service, repository, processes } = await start(); const a = await create(service, 'a');
-    // Simulate a pre-retention archived session that still owns a live tab.
     repository.saveSession({ ...repository.session(a.id)!, settledAt: new Date().toISOString() });
     processes[0]!.kill.mockImplementation(() => { throw new Error('denied'); });
     expect(await service.deleteSession({ sessionId: a.id })).toMatchObject({ ok: false });
@@ -43,18 +41,18 @@ describe('permanent session deletion', () => {
     expect(value(await service.deleteSession({ sessionId: a.id }))).toEqual({ deleted: true });
     await service.dispose();
   });
-  it('deletes only the requested archived session with its tabs and operations', async () => {
+  it('deletes only the requested settled session with its tabs and operations', async () => {
     const { service, repository, processes } = await start();
     const a = await create(service, 'a'), b = await create(service, 'b'), c = await create(service, 'c');
     for (const id of [a.id, b.id]) value(await service.settleSession({ sessionId: id, confirmActive: true }));
     processes[0]!.exit(0); processes[1]!.exit(0);
     const events: string[] = []; service.subscribe(event => events.push(event.reason));
     expect(value(await service.deleteSession({ sessionId: a.id }))).toEqual({ deleted: true });
-    expect(events).toEqual(['history']);
+    expect(events).toEqual(['sessions']);
     expect(repository.session(a.id)).toBeUndefined(); expect(repository.tabs(a.id)).toEqual([]);
     expect([...repository.operationMap.values()].filter(o => o.sessionId === a.id)).toEqual([]);
     expect(repository.tabs(b.id)).toEqual([]); expect(repository.session(c.id)).toBeDefined();
-    expect(history(service).items.map(item => item.id)).toEqual([b.id]);
+    expect(sessions(service).map(item => item.id).sort()).toEqual([b.id, c.id].sort());
     expect(await service.deleteSession({ sessionId: a.id })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
     await service.dispose();
   });

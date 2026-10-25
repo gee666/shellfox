@@ -33,16 +33,8 @@ export class MemoryRepository implements RepositoryPort {
     for (const op of [...this.operationMap.values()]) if (op.tabId === id || op.id === operationId) this.operationMap.delete(op.id);
     return this.tabMap.delete(id);
   }
-  archiveSession(s: SessionRecord) {
-    if (!s.settledAt) throw new Error('An archive timestamp is required.');
-    this.transaction(() => {
-      this.saveSession({ ...s, target: null, binding: null });
-      for (const tab of this.tabs(s.id)) this.deleteTab(tab.id);
-      for (const op of [...this.operationMap.values()]) if (op.sessionId === s.id) this.operationMap.delete(op.id);
-    });
-  }
   deleteSession(id: string) {
-    if (!this.sessionMap.get(id)?.settledAt) return false;
+    if (!this.sessionMap.has(id)) return false;
     for (const tab of this.tabs(id)) this.tabMap.delete(tab.id);
     for (const op of [...this.operationMap.values()]) if (op.sessionId === id) this.operationMap.delete(op.id);
     return this.sessionMap.delete(id);
@@ -54,7 +46,6 @@ export class MemoryRepository implements RepositoryPort {
   transaction<T>(fn: () => T) { const saved = structuredClone([this.sessionMap, this.tabMap, this.operationMap, this.config]); try { return fn(); } catch (e) { [this.sessionMap, this.tabMap, this.operationMap, this.config] = saved as [Map<string, SessionRecord>, Map<string, TabRecord>, Map<string, OperationRecord>, SettingsDto]; throw e; } }
   settings() { return structuredClone(this.config); }
   saveSettings(settings: SettingsDto) { this.config = structuredClone(settings); }
-  settled(search: string) { return this.sessions().filter(s => s.settledAt && (s.title.toLowerCase().includes(search.toLowerCase()) || s.cwd.toLowerCase().includes(search.toLowerCase()))).sort((a, b) => b.settledAt!.localeCompare(a.settledAt!) || a.id.localeCompare(b.id)); }
   explorerPreference() { return this.preference; }
   saveExplorerPreference(value: boolean) { this.preference = value; }
   close() {}

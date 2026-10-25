@@ -16,6 +16,7 @@ import { Repository } from './repository';
 import { SessionService } from './service';
 import { EmbeddedSessionService } from './terminal/service';
 import { TerminalQuitGuard } from './terminal/shutdown';
+import { bypassCloseConfirmation, CloseConfirmationCoordinator } from './close-confirmation';
 import { installIpc } from './ipc';
 import { KeepAwake } from './keep-awake';
 import { startControlServer } from './control-server';
@@ -151,19 +152,23 @@ async function run(): Promise<void> {
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.webContents.on('will-redirect', event => event.preventDefault());
   window.webContents.on('will-attach-webview', event => event.preventDefault());
+  const ownedTerminalCount = () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0;
+  const closeConfirmation = new CloseConfirmationCoordinator(window, rendererUrl, {
+    autoApprove: bypassCloseConfirmation(__TEST_BUILD__, parsed.value, process.env.SHELLFOX_TEST_CONFIRM_QUIT),
+    present: () => {
+      if (!window || window.isDestroyed() || backgroundTest) return;
+      if (window.isMinimized()) window.restore();
+      window.show(); window.focus();
+    },
+  });
+  startupCleanups.push(() => closeConfirmation.dispose());
   let quitting = false;
   let closingForUpdate = false;
   let closingForQuit = false;
   const updateShutdown = new UpdateShutdown({
     confirm: onQuit => {
-      // Closing an idle app needs no extra update prompt. Owned shells still
-      // require native confirmation before interrupting their commands.
-      if (onQuit && service instanceof EmbeddedSessionService && !service.ownedTerminalCount()) return true;
-      const options = { type: 'warning' as const, title: 'Install update and close all terminals?',
-        message: 'Close all Shellfox terminals and install the update?',
-        detail: 'All embedded shells and their running commands will stop. Unsaved work may be lost. Shellfox will restart with fresh shells, not restored commands. Legacy external terminals are not touched. The installer may ask for administrator approval.',
-        buttons: ['Cancel', 'Close all terminals and install'], defaultId: 0, cancelId: 0, noLink: true };
-      return (window && !window.isDestroyed() ? dialog.showMessageBoxSync(window, options) : dialog.showMessageBoxSync(options)) === 1;
+      if (onQuit && !ownedTerminalCount()) return true;
+      return closeConfirmation.request('update', ownedTerminalCount());
     },
     closeTerminals: () => {
       if (!(service instanceof EmbeddedSessionService)) throw new Error('Update shutdown requires embedded terminals.');
@@ -196,17 +201,15 @@ async function run(): Promise<void> {
     });
   if (updates instanceof SelfUpdater) startupCleanups.push(() => updates.dispose());
   if (updates instanceof SelfUpdater && app.isPackaged) updates.start();
-  const uninstallIpc = installIpc(window, rendererUrl, service, () => requests.ready(async request => {
+  const uninstallManagerIpc = installIpc(window, rendererUrl, service, () => requests.ready(async request => {
     if (!window || window.isDestroyed()) return;
     const result = await handleCliRequest(request, service, window, !backgroundTest);
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
   }), updates, new SshProfileStore(app.getPath('userData')), keepAwake);
+  const uninstallIpc = () => { closeConfirmation.dispose(); uninstallManagerIpc(); };
   startupCleanups.push(uninstallIpc);
   await window.loadFile(rendererFile);
-  const quitGuard = new TerminalQuitGuard({ ownedTerminalCount: () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0, dispose: () => service.dispose() }, count => {
-    const options = { type: 'warning' as const, title: 'Close embedded shells and quit?', message: `Quit Shellfox and close ${count} owned terminal${count === 1 ? '' : 's'}?`, detail: 'Embedded shells do not survive manager shutdown. Running commands may be interrupted. Restarting opens fresh shells; it does not restore commands. Legacy external terminals are not touched.', buttons: ['Cancel', 'Close shells and quit'], defaultId: 0, cancelId: 0, noLink: true };
-    return (window && !window.isDestroyed() ? dialog.showMessageBoxSync(window, options) : dialog.showMessageBoxSync(options)) === 1;
-  });
+  const quitGuard = new TerminalQuitGuard({ ownedTerminalCount, dispose: () => service.dispose() }, count => closeConfirmation.request('quit', count));
   window.on('close', event => {
     if (quitting) return;
     event.preventDefault(); app.quit();

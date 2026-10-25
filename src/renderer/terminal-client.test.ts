@@ -16,11 +16,11 @@ const attachment = (chunks: TerminalDataEvent[] = [], extras: Partial<TerminalAt
   chunks, truncated: false, state: 'open', exitCode: null, cols: 80, rows: 24, lifetime: 'app-owned', ...extras,
 });
 function surfaces(delayed = false) {
-  const values: { output: string; input: (data: string, userInitiated?: boolean) => void; callbacks: (() => void)[]; dispose: ReturnType<typeof vi.fn>; fit: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }[] = [];
+  const values: { output: string; writes: { data: string; historical: boolean }[]; input: (data: string, userInitiated?: boolean) => void; callbacks: (() => void)[]; dispose: ReturnType<typeof vi.fn>; fit: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }[] = [];
   const factory: SurfaceFactory = input => {
-    const item = { output: '', input, callbacks: [] as (() => void)[], dispose: vi.fn(), fit: vi.fn(() => ({ cols: 80, rows: 24 })), focus: vi.fn() };
+    const item = { output: '', writes: [] as { data: string; historical: boolean }[], input, callbacks: [] as (() => void)[], dispose: vi.fn(), fit: vi.fn(() => ({ cols: 80, rows: 24 })), focus: vi.fn() };
     values.push(item);
-    return { element: document.createElement('div'), write(data, done) { item.output += data; if (delayed) item.callbacks.push(done); else done(); }, reset() { item.output = ''; }, fit: item.fit, focus: item.focus, setInput() {}, dispose: item.dispose };
+    return { element: document.createElement('div'), write(data, done, historical = false) { item.output += data; item.writes.push({ data, historical }); if (delayed) item.callbacks.push(done); else done(); }, reset() { item.output = ''; }, fit: item.fit, focus: item.focus, setInput() {}, dispose: item.dispose };
   };
   return { values, factory, latest: () => values.at(-1)! };
 }
@@ -35,6 +35,19 @@ function setup(delayed = false) {
 }
 
 describe('terminal stream ownership', () => {
+  it('keeps historical write provenance through batching without merging live output or dropping user input', async () => {
+    const f = setup(true); await flush();
+    f.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(1, 'one'), chunk(2, 'two'), chunk(3, 'three')])));
+    f.registry.refresh(tab.id); await flush();
+    const screen = f.latest();
+    f.emitTerminal(chunk(4, 'live'));
+    screen.input('typed during replay', true); await flush();
+    expect(f.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, data: 'typed during replay' });
+    while (screen.callbacks.length) { screen.callbacks.shift()!(); await flush(); }
+    expect(screen.writes).toEqual([
+      { data: 'one', historical: true }, { data: 'twothree', historical: true }, { data: 'live', historical: false },
+    ]);
+  });
   it('does not steal tab rename focus when an attachment finishes late', async () => {
     const fixture = setup(); await flush(); fixture.latest().focus.mockClear();
     const pending = deferred<Result<TerminalAttachmentDto>>();

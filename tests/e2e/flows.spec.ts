@@ -4,7 +4,7 @@ import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { launch, scratch, snapshot, observe, calls, value } from '../fixtures/electron';
 
-test('UI creates independent same-folder sessions, tabs, focus and tab-free archived history', async () => {
+test('UI keeps same-folder sessions and their tabs in expanded Local through settle, unsettle and confirmed deletion', async () => {
   const dir = await scratch('flows');
   const cwd = path.join(dir, "same folder Ω ' & ; % [data]");
   await mkdir(cwd);
@@ -40,48 +40,50 @@ test('UI creates independent same-folder sessions, tabs, focus and tab-free arch
     value(await page.evaluate(id => window.shellfox.focusSession({ sessionId: id }), sessions[0].id));
     expect((await calls(app)).launches).toBe(before.launches);
     expect((await calls(app)).focuses).toBe(before.focuses + 2);
-    await page.getByRole('button', { name: 'Select session Second session', exact: true }).click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();
-    const confirm = page.getByRole('dialog', { name: 'Archive session' });
-    await expect(confirm).toBeVisible();
-    await confirm.getByRole('button', { name: 'Archive', exact: true }).click();
-    await expect.poll(async () => (await snapshot(page)).sessions.length).toBe(1);
-    const history = value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'unknown', page: 1, pageSize: 20 })));
-    expect(history.total).toBe(1);
-    expect(history.items[0].counts.agents).toBe(0); expect(history.items[0].tabs).toEqual([]);
-    expect(history.items[0].status).toBe('settled');
-    expect((await calls(app)).watch).toBe(1);
-    const archived = page.getByRole('button', { name: 'Archived · 1', exact: true });
-    await expect(archived).toHaveAttribute('aria-expanded', 'false');
-    await archived.click();
-    await expect(page.getByRole('region', { name: 'Archived sessions' })).toContainText('Second session');
-    value(await page.evaluate(id => window.shellfox.unsettleSession({ sessionId: id }), history.items[0].id));
-    await expect.poll(async () => (await snapshot(page)).sessions.length).toBe(2);
+    const second = page.getByRole('button', { name: 'Select session Second session', exact: true });
+    const local = page.getByRole('button', { name: 'Local · 2', exact: true });
+    await expect(local).toHaveAttribute('aria-expanded', 'true');
+    const original = (await snapshot(page)).sessions.find(s => s.title === 'Second session')!;
+    await second.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Settle', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect.poll(async () => (await snapshot(page)).sessions.find(s => s.id === original.id)?.status).toBe('settled');
+    const settled = (await snapshot(page)).sessions.find(s => s.id === original.id)!;
+    expect(settled.settledAt).not.toBeNull();
+    expect(settled.tabs).toEqual(original.tabs);
+    expect(settled.counts.agents).toBe(original.counts.agents);
+    expect((await calls(app)).watch).toBe(3);
+    await expect(second).toBeVisible();
+    await expect(page.getByRole('tab')).toHaveCount(2);
+    await local.click();
+    await expect(local).toHaveAttribute('aria-expanded', 'false');
+    await expect(second).toHaveCount(0);
+    expect((await snapshot(page)).sessions).toHaveLength(2);
+    await local.click();
+    await expect(second).toBeVisible();
+    await second.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Unsettle', exact: true }).click();
+    await expect.poll(async () => (await snapshot(page)).sessions.find(s => s.id === original.id)?.settledAt).toBeNull();
+    const restored = (await snapshot(page)).sessions.find(s => s.id === original.id)!;
+    expect(restored.status).not.toBe('settled');
+    expect(restored.tabs).toEqual(original.tabs);
     expect((await calls(app)).launches).toBe(3);
-    // Permanent deletion is only offered for archived sessions and needs an explicit confirmation.
-    await page.getByRole('button', { name: 'Select session Second session', exact: true }).first().click({ button: 'right' });
-    await expect(page.getByRole('menuitem', { name: 'Delete permanently…', exact: true })).toHaveCount(0);
-    await page.keyboard.press('Escape');
-    const refused = await page.evaluate(id => window.shellfox.deleteSession({ sessionId: id }), history.items[0].id);
-    expect(refused.ok ? null : refused.error.code).toBe('UNSUPPORTED');
-    await page.getByRole('button', { name: 'Select session Second session', exact: true }).first().click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();
-    // Whether this archive needs the active-agents confirmation depends on the fixture's current observation.
-    const secondConfirm = page.getByRole('dialog', { name: 'Archive session' });
-    if (await secondConfirm.waitFor({ timeout: 2000 }).then(() => true, () => false)) await secondConfirm.getByRole('button', { name: 'Archive', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Archived · 1', exact: true })).toBeVisible();
-    await page.getByRole('region', { name: 'Archived sessions' }).getByRole('button', { name: 'Select session Second session', exact: true }).click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Delete permanently…', exact: true }).click();
+
+    // Live sessions can be deleted directly, but cancellation must keep their tabs.
+    await second.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Delete…', exact: true }).click();
     const deletion = page.getByRole('dialog', { name: 'Delete session' });
     await deletion.getByRole('button', { name: 'Cancel', exact: true }).click();
-    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 }))).total).toBe(1);
-    await page.getByRole('region', { name: 'Archived sessions' }).getByRole('button', { name: 'Select session Second session', exact: true }).click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Delete permanently…', exact: true }).click();
+    expect((await snapshot(page)).sessions.find(s => s.id === original.id)?.tabs).toEqual(original.tabs);
+    expect((await calls(app)).watch).toBe(3);
+    await second.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Delete…', exact: true }).click();
     await deletion.getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Archived · 0', exact: true })).toBeVisible();
-    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'all', page: 1, pageSize: 20 }))).total).toBe(0);
-    await expect(page.getByRole('button', { name: 'Select session Second session', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Local · 1', exact: true })).toBeVisible();
+    await expect(second).toHaveCount(0);
     expect((await snapshot(page)).sessions.map(s => s.title)).toEqual(['First session']);
+    expect((await calls(app)).watch).toBe(1);
+    await expect(page.getByRole('button', { name: /Archived/ })).toHaveCount(0);
   } finally { await app.close(); }
 });
 

@@ -8,10 +8,7 @@ export interface ManagerState {
   loading: boolean;
   error: AppError | null;
   selectedId: string | null;
-  historical: SessionDto | null;
   activeTabIds: Record<string, string>;
-  historyStatusVersion: number;
-  archiveVersion: number;
   selectionEpoch: number;
   busyTabIds: Record<string, boolean>;
   openingSessionIds: Record<string, boolean>;
@@ -22,7 +19,7 @@ export interface ManagerState {
 export function createManagerClient(api: ManagerApi) {
   const store = createStore<ManagerState>(() => ({
     snapshot: null, loading: true, error: null,
-    selectedId: null, historical: null, activeTabIds: {}, historyStatusVersion: 0, archiveVersion: 0, selectionEpoch: 0, busyTabIds: {}, openingSessionIds: {},
+    selectedId: null, activeTabIds: {}, selectionEpoch: 0, busyTabIds: {}, openingSessionIds: {},
   }));
   let active = false;
   let generation = 0;
@@ -55,17 +52,17 @@ export function createManagerClient(api: ManagerApi) {
         if (!state.snapshot || result.value.revision >= state.snapshot.revision) {
           const sessions = result.value.sessions;
           settings.observe(result.value.settings, result.value.revision);
-          const previous = state.snapshot?.sessions ?? [];
-          // Snapshot comparison must stay linear even with thousands of sessions.
-          const nextById = new Map(sessions.map(session => [session.id, session]));
-          const previousIds = new Set(previous.map(session => session.id));
-          const archiveChanged = previous.some(item => {
-            const next = nextById.get(item.id);
-            return !next || next.settledAt !== item.settledAt;
-          }) || sessions.some(item => item.settledAt && !previousIds.has(item.id));
-          const selectedId = state.selectedId ?? sessions.find(session => !session.settledAt)?.id ?? null;
+          const sessionIds = new Set(sessions.map(session => session.id));
+          // A selection event or action can arrive before its snapshot. Only
+          // repair a missing selection when a previously known session vanished.
+          const removedSelection = state.selectedId && !sessionIds.has(state.selectedId)
+            && state.snapshot?.sessions.some(session => session.id === state.selectedId);
+          const selectedId = removedSelection ? sessions[0]?.id ?? null : state.selectedId ?? sessions[0]?.id ?? null;
           const activeTabIds = { ...state.activeTabIds };
           const busyTabIds = { ...state.busyTabIds };
+          const tabIds = new Set(sessions.flatMap(session => session.tabs.map(tab => tab.id)));
+          for (const id of Object.keys(activeTabIds)) if (!sessionIds.has(id)) delete activeTabIds[id];
+          for (const id of Object.keys(busyTabIds)) if (!tabIds.has(id)) delete busyTabIds[id];
           for (const session of sessions) {
             const tabs = session.tabs.filter(tab => tab.lifecycle !== 'closed');
             if (!tabs.some(tab => tab.id === activeTabIds[session.id])) {
@@ -76,8 +73,6 @@ export function createManagerClient(api: ManagerApi) {
           }
           store.setState({
             snapshot: result.value, error: null, loading: false, selectedId, activeTabIds, busyTabIds,
-            historical: sessions.some(s => s.id === selectedId) ? null : state.historical,
-            archiveVersion: state.archiveVersion + (archiveChanged ? 1 : 0),
           });
         }
       }
@@ -105,10 +100,8 @@ export function createManagerClient(api: ManagerApi) {
         unsubscribe = api.subscribe(event => {
           if (!active) return;
           const selection = (event as { selectSessionId?: string }).selectSessionId;
-          if (selection) store.setState(state => ({ selectedId: selection, historical: null, selectionEpoch: state.selectionEpoch + 1 }));
+          if (selection) store.setState(state => ({ selectedId: selection, selectionEpoch: state.selectionEpoch + 1 }));
           revisionFloor = Math.max(revisionFloor, event.revision);
-          if (event.reason === 'history') store.setState(state => ({ archiveVersion: state.archiveVersion + 1 }));
-          else if (event.reason === 'native' || event.reason === 'sessions') store.setState(state => ({ historyStatusVersion: state.historyStatusVersion + 1 }));
           refresh();
         });
         unsubscribeTerminal = api.subscribeTerminal?.(event => {
@@ -138,21 +131,17 @@ export function createManagerClient(api: ManagerApi) {
     },
     refresh,
     select(session: SessionDto) {
-      store.setState(state => ({ selectedId: session.id, historical: session.settledAt ? session : null, selectionEpoch: state.selectionEpoch + 1 }));
+      store.setState(state => ({ selectedId: session.id, selectionEpoch: state.selectionEpoch + 1 }));
     },
     selectTab(session: SessionDto, tabId: string) {
       if (!session.tabs.some(tab => tab.id === tabId && tab.lifecycle !== 'closed')) return;
-      store.setState(state => ({ selectedId: session.id, historical: session.settledAt ? session : null,
+      store.setState(state => ({ selectedId: session.id,
         activeTabIds: { ...state.activeTabIds, [session.id]: tabId }, selectionEpoch: state.selectionEpoch + 1 }));
     },
     accept(session: SessionDto) {
       // An action response is useful immediately, but is not a revisioned snapshot.
       // Never splice it into the live list; re-read the authoritative snapshot.
-      const state = store.getState();
-      const previous = state.snapshot?.sessions.find(item => item.id === session.id) ?? state.historical;
-      const archiveChanged = previous?.settledAt !== session.settledAt && (!!previous?.settledAt || !!session.settledAt);
-      store.setState({ selectedId: session.id, historical: session.settledAt ? session : null,
-        archiveVersion: state.archiveVersion + (archiveChanged ? 1 : 0), historyStatusVersion: state.historyStatusVersion + 1 });
+      store.setState({ selectedId: session.id });
       refresh();
     },
     remove(sessionId: string) {
@@ -160,17 +149,10 @@ export function createManagerClient(api: ManagerApi) {
       store.setState(state => {
         const activeTabIds = { ...state.activeTabIds };
         delete activeTabIds[sessionId];
-        return { activeTabIds, archiveVersion: state.archiveVersion + 1, historyStatusVersion: state.historyStatusVersion + 1,
-          ...(state.selectedId === sessionId ? { selectedId: state.snapshot?.sessions.find(item => item.id !== sessionId && !item.settledAt)?.id ?? null, historical: null, selectionEpoch: state.selectionEpoch + 1 } : {}) };
+        return { activeTabIds,
+          ...(state.selectedId === sessionId ? { selectedId: state.snapshot?.sessions.find(item => item.id !== sessionId)?.id ?? null, selectionEpoch: state.selectionEpoch + 1 } : {}) };
       });
       refresh();
-    },
-    updateHistory(items: SessionDto[]) {
-      const state = store.getState();
-      if (!state.historical) return;
-      const selected = items.find(item => item.id === state.selectedId);
-      // A history page is partial. Keep a selection from another page.
-      if (selected) store.setState({ historical: selected });
     },
   };
 }

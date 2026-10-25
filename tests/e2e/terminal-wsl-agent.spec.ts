@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
+import type { TrackingProcess, TrackingRoot, TrackingSnapshot } from '../../src/main/terminal/tracking';
 import { launch, scratch, snapshot, value } from '../fixtures/electron';
 
 const run = promisify(execFile);
@@ -70,12 +71,29 @@ test('second WSL tab trusts Node named pi and shows isolated real guest Pi as gr
     await expect(dot).toHaveClass(/dot-(running|busy)/);
     const detected = (await snapshot(page)).sessions.find(s => s.id === session.id)!;
     expect(detected.tabs[0].agents).toBe(0);
-    const realPi = await app.evaluate(async (_electron, id) => {
-      const { backend, service } = (globalThis as any).__shellfoxTest, root = backend.get(id).root;
-      const snapshots = await service.tracker.snapshotProvider([root]);
-      return snapshots.flatMap((s: any) => s.processes).filter((p: any) => p.marker === root.marker && p.argv?.[0] === 'pi');
-    }, tab.id);
-    expect(realPi).toHaveLength(1);
+    let realPi: TrackingProcess[] = [];
+    const rawSamples: { observedAt: number; root: TrackingRoot; snapshots: TrackingSnapshot[] }[] = [];
+    try {
+      // The trusted launcher can be green while Node is still importing modules.
+      // Wait independently for its native process title, not another classifier result.
+      await expect.poll(async () => {
+        const sample = await app.evaluate(async (_electron, id) => {
+          const { backend, service } = (globalThis as any).__shellfoxTest;
+          const owned = backend.get(id);
+          if (!owned) throw new Error('The test-owned WSL terminal is missing.');
+          const root: TrackingRoot = owned.root;
+          const snapshots: TrackingSnapshot[] = await service.tracker.snapshotProvider([root]);
+          return { observedAt: Date.now(), root, snapshots: snapshots.map(s => ({ ...s, processes: s.processes.filter(p => p.marker === root.marker) })) };
+        }, tab.id);
+        rawSamples.push(sample);
+        realPi = sample.snapshots.filter(s => s.environment === 'wsl' && s.distro === 'Debian' && s.complete)
+          .flatMap(s => s.processes).filter(p => p.marker === sample.root.marker && p.argv?.[0] === 'pi' && p.executable === nativeNode && p.accessible && !!p.birth);
+        return realPi.length;
+      }, { timeout: 30000, intervals: [200, 500, 1000], message: 'The isolated native guest Pi must finish startup and publish its pi process title' }).toBe(1);
+    } finally {
+      await writeFile(path.join(dir, 'raw-process-evidence.json'), JSON.stringify({ nativeNode, piLauncher, samples: rawSamples }, null, 2));
+      console.log('WSL Pi raw process evidence', path.join(dir, 'raw-process-evidence.json'));
+    }
     expect(realPi[0]).toMatchObject({ executable: nativeNode, accessible: true });
     expect(realPi[0].birth).toEqual(expect.any(String));
     await writeFile(path.join(dir, 'evidence.json'), JSON.stringify({ nativeNode, piLauncher, realPi, session: detected }, null, 2));

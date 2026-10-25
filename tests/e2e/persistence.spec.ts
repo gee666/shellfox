@@ -3,52 +3,50 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { launch, scratch, snapshot, observe, calls, value } from '../fixtures/electron';
 
-test('SQLite history literal search, stable pagination, settings and identities survive manager restart without commands', async () => {
+test('Local pagination, settled tabs, settings and identities survive manager restart without commands', async () => {
   const dir = await scratch('restart');
   const data = path.join(dir, 'data');
   const requestId = randomUUID();
   let { app, page } = await launch(data);
   let closed = false;
   try {
+    expect((await snapshot(page)).settings.historyPageSize).toBe(10);
     const original = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, title: 'literal %_ Ω', requestId }));
     const duplicate = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId }));
     expect(duplicate.id).toBe(original.id);
-    for (let n = 0; n < 6; n++) value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, title: `History ${n}`, requestId: randomUUID() }));
-    await expect.poll(async () => (await calls(app)).watch).toBe(7);
-    await observe(app, 1);
-    const ids = (await snapshot(page)).sessions.map(s => s.id);
-    for (const id of ids) value(await page.evaluate(sessionId => window.shellfox.settleSession({ sessionId, confirmActive: true }), id));
-    // Deliberate timestamp ties prove ID tie-breaking with actual SQL and IPC pagination.
-    await app.evaluate(() => new Promise<void>((resolve, reject) => setImmediate(() => {
-      try { (globalThis as any).__shellfoxTest.repository.db.prepare('UPDATE sessions SET settledAt=?').run('2026-01-01T00:00:00.000Z'); resolve(); } catch (error) { reject(error); }
-    })));
-    const pages = [];
-    for (let pageNumber = 1; pageNumber <= 3; pageNumber++) pages.push(value(await page.evaluate(page => window.shellfox.getHistory({ search: '', status: 'unknown', page, pageSize: 3 }), pageNumber)));
-    expect(pages.map(p => p.items.length)).toEqual([3, 3, 1]);
-    expect(pages.every(p => p.total === 7)).toBe(true);
-    expect(pages.flatMap(p => p.items.map(s => s.id))).toEqual([...ids].sort());
-    for (const search of ['%', '%_']) {
-      const result = value(await page.evaluate(search => window.shellfox.getHistory({ search, status: 'all', page: 1, pageSize: 20 }), search));
-      expect(result.items.map(s => s.id)).toEqual([original.id]);
+    for (let n = 0; n < 11; n++) {
+      const created = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, title: `Local ${String(n).padStart(2, '0')}`, requestId: randomUUID() }));
+      value(await page.evaluate(sessionId => window.shellfox.settleSession({ sessionId, confirmActive: false }), created.id));
     }
-    // Every fixture CWD contains Windows_Worshop. '_' therefore legitimately matches all.
-    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: '_', status: 'all', page: 1, pageSize: 20 }))).total).toBe(7);
-    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: '_%', status: 'all', page: 1, pageSize: 20 }))).total).toBe(0);
-    const injection = value(await page.evaluate(() => window.shellfox.getHistory({ search: "' OR 1=1 --", status: 'all', page: 1, pageSize: 20 })));
-    expect(injection.total).toBe(0);
+    await expect.poll(async () => (await calls(app)).watch).toBe(12);
+    await observe(app, 1);
+    const before = (await snapshot(page)).sessions;
+    const ids = before.map(s => s.id).sort();
+    expect(before.filter(s => s.status === 'settled')).toHaveLength(11);
+    expect(before.every(s => s.tabs.length === 1 && s.tabs[0].lifecycle === 'open')).toBe(true);
+    const local = page.getByRole('region', { name: 'Local sessions', exact: true });
+    const rows = local.getByRole('button', { name: /^Select session / });
+    await expect(page.getByRole('button', { name: 'Local · 12', exact: true })).toHaveAttribute('aria-expanded', 'true');
+    await expect(rows).toHaveCount(10);
+    await page.getByRole('button', { name: 'Show more', exact: true }).click();
+    await expect(rows).toHaveCount(12);
+    await expect(page.getByRole('button', { name: 'Show more', exact: true })).toHaveCount(0);
+    const titles = await rows.allTextContents();
+    await observe(app, 1);
+    await expect(rows).toHaveText(titles);
+
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    // History page size is deliberately no longer an editable UI preference.
-    // Autosaving appearance must preserve it.
-    value(await page.evaluate(async () => {
-      const current = await window.shellfox.getSnapshot();
-      if (!current.ok) throw new Error('snapshot failed');
-      return window.shellfox.saveSettings({ ...current.value.settings, historyPageSize: 3 });
-    }));
+    const settings = page.getByRole('region', { name: 'Settings', exact: true });
+    await settings.getByLabel('Sessions per page', { exact: true }).fill('3');
+    await expect.poll(async () => (await snapshot(page)).settings.historyPageSize).toBe(3);
     await page.getByRole('button', { name: 'Use #2dd4bf', exact: true }).click();
     await expect.poll(async () => (await snapshot(page)).settings.accentColor).toBe('#2dd4bf');
-    const settings = page.getByRole('region', { name: 'Settings', exact: true });
     await settings.getByRole('button', { name: 'Close settings', exact: true }).click();
     await expect(settings).toBeHidden();
+    await expect(rows).toHaveCount(3);
+    await page.getByRole('button', { name: 'Show more', exact: true }).click();
+    await expect(rows).toHaveCount(6);
+    expect((await snapshot(page)).sessions).toHaveLength(12);
     const identities = await app.evaluate(() => (globalThis as any).__shellfoxTest.backend.watch.map((t: any) => t.registration));
     const pragmas = await app.evaluate(() => new Promise<unknown[]>((resolve, reject) => setImmediate(() => {
       try {
@@ -56,25 +54,31 @@ test('SQLite history literal search, stable pagination, settings and identities 
         resolve([db.pragma('user_version', { simple: true }), db.pragma('foreign_keys', { simple: true }), db.pragma('journal_mode', { simple: true })]);
       } catch (error) { reject(error); }
     })));
-    // Schema 5 removes obsolete tabs; foreign keys and WAL remain required.
     expect(pragmas).toEqual([5, 1, 'wal']);
     await app.close(); closed = true;
     ({ app, page } = await launch(data)); closed = false;
-    expect((await snapshot(page)).settings.accentColor).toBe('#2dd4bf');
-    expect((await snapshot(page)).settings.historyPageSize).toBe(3);
+    const restored = await snapshot(page);
+    expect(restored.settings).toMatchObject({ accentColor: '#2dd4bf', historyPageSize: 3 });
+    expect(restored.sessions.map(s => s.id).sort()).toEqual(ids);
+    expect(restored.sessions.filter(s => s.status === 'settled')).toHaveLength(11);
+    expect(restored.sessions.every(s => s.tabs.length === 1)).toBe(true);
+    for (const session of restored.sessions) {
+      expect(session.tabs.map(t => [t.id, t.generation])).toEqual(before.find(s => s.id === session.id)!.tabs.map(t => [t.id, t.generation]));
+    }
     expect((await calls(app)).launches).toBe(0);
     expect(await app.evaluate(() => (globalThis as any).__shellfoxTest.backend.watch.map((t: any) => t.registration))).toEqual(identities);
-    const unknown = value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'unknown', page: 1, pageSize: 20 })));
-    expect(unknown.total).toBe(7);
-    expect(unknown.items.every(s => s.status === 'settled' && s.activityStatus === 'unknown')).toBe(true);
+    await expect(page.getByRole('button', { name: 'Local · 12', exact: true })).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('region', { name: 'Local sessions' }).getByRole('button', { name: /^Select session / })).toHaveCount(3);
     await observe(app, 1);
-    expect(value(await page.evaluate(() => window.shellfox.getHistory({ search: '', status: 'running', page: 1, pageSize: 20 }))).total).toBe(0);
-    expect(await app.evaluate((_electron, id) => new Promise<any>((resolve, reject) => setImmediate(() => {
-      try { resolve((globalThis as any).__shellfoxTest.repository.sessionByRequest(id) ?? null); } catch (error) { reject(error); }
-    })), requestId)).toBeNull();
+    expect((await snapshot(page)).sessions.filter(s => s.status === 'settled')).toHaveLength(11);
+    const settled = restored.sessions.find(s => s.settledAt)!;
+    value(await page.evaluate(sessionId => window.shellfox.unsettleSession({ sessionId }), settled.id));
+    const unmarked = (await snapshot(page)).sessions.find(s => s.id === settled.id)!;
+    expect(unmarked.settledAt).toBeNull();
+    expect(unmarked.status).toBe('running');
+    expect(unmarked.tabs.map(t => t.id)).toEqual(settled.tabs.map(t => t.id));
+    expect((await snapshot(page)).sessions.map(s => s.id).sort()).toEqual(ids);
     expect((await calls(app)).launches).toBe(0);
-    value(await page.evaluate(sessionId => window.shellfox.unsettleSession({ sessionId }), original.id));
-    expect((await snapshot(page)).sessions.map(s => s.id)).toEqual([original.id]);
   } finally { if (!closed) await app.close(); }
 });
 

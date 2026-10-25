@@ -28,7 +28,7 @@ it.skipIf(process.platform!=='linux')('routes control commands, help and version
   const fake=path.join(root,'runtime'), shim=path.join(root,'shellfox'), helper=path.join(root,'cli helper'), data=path.join(root,"data 'quoted'");
   await writeFile(fake,'#!/bin/sh\nprintf "%s\\n" "$@"\nexit 17\n'); await chmod(fake,0o755);
   await writeFile(shim,linuxLauncher({executable:fake,cliHelper:helper,userData:data}));
-  for(const args of [['ls','--name','two words'],['status','--current'],['proc','--pid','42'],['delete'],['settle'],['tab','new'],['awake'],['--version'],['-v'],['version'],['-h'],['help','ls'],['start','--help'],['add','-h'],['create','help'],['unknown']]) {
+  for(const args of [['ls','--name','two words'],['status','--current'],['proc','--pid','42'],['delete'],['settle'],['unsettle'],['tab','new'],['awake'],['--version'],['-v'],['version'],['-h'],['help','ls'],['start','--help'],['add','-h'],['create','help'],['unknown']]) {
    const result=await exec('/bin/sh',[shim,...args],{cwd:root,timeout:3000}).catch(error=>error);
    expect(result.code).toBe(17); expect(result.stdout).toBe([helper,'--user-data',data,...args,''].join('\n'));
   }

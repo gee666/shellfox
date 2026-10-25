@@ -248,20 +248,19 @@ describe('compact workspace', () => {
     await user.click(screen.getByRole('button', { name: 'New terminal' }));
     await waitFor(() => expect(fixture.api.addTab).toHaveBeenCalledWith({ sessionId: item.id, ...(platform === 'linux' ? { profileId: 'wsl:Ubuntu' } : {}) }));
   });
-  it('shows archived legacy sessions as read-only history without external terminals, Focus or Restore', async () => {
+  it('shows settled legacy sessions in Local without archived placeholders or external terminals', async () => {
     const item = session(2, { adapterId: 'windows-terminal', terminalLifetime: 'external-legacy', settledAt: '2026-10-04T11:00:00.000Z', status: 'settled' });
     item.tabs[0]!.terminalKind = 'external-legacy'; item.tabs[0]!.title = '<img src=x onerror=alert(1)>';
-    const fixture = mockApi(); fixture.api.getHistory.mockResolvedValue(success({ items: [item], total: 1, page: 1, pageSize: 20 }));
+    const fixture = mockApi(snapshot([session(), item]));
     const { user } = await ready(fixture.api);
-    await user.click(await screen.findByRole('button', { name: 'Archived · 1' }));
     const row = screen.getByRole('button', { name: 'Select session Session 2' }); await user.click(row);
-    expect(screen.getByText('Archived session')).toBeVisible(); expect(screen.queryByLabelText('Interactive terminal')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Interactive terminal')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument(); expect(document.querySelector('img')).toBeNull();
-    expect(screen.queryByText('Runs in an external terminal')).not.toBeInTheDocument();
+    expect(screen.queryByText('Archived session')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Focus' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Restore' })).not.toBeInTheDocument();
-    fireEvent.contextMenu(row); expect(screen.queryByRole('menuitem', { name: 'Restore' })).not.toBeInTheDocument();
-    expect(fixture.api.focusSession).not.toHaveBeenCalled(); expect(fixture.api.unsettleSession).not.toHaveBeenCalled();
+    fireEvent.contextMenu(row);
+    expect(screen.getByRole('menuitem', { name: 'Unsettle' })).toBeVisible();
+    expect(fixture.api.focusSession).not.toHaveBeenCalled();
   });
   it('filters obsolete external tabs from tasks that have been explicitly converted to embedded terminals', async () => {
     const item = session(), external = { ...item.tabs[0]!, id: session(2).tabs[0]!.id, title: 'Old external tab', terminalKind: 'external-legacy' as const };
@@ -349,34 +348,36 @@ describe('compact workspace', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('region', { name: 'Settings' })).not.toBeInTheDocument();
   });
-  it('renames inline and archives with a small backend-required confirmation', async () => {
-    const fixture = mockApi(); fixture.api.settleSession.mockResolvedValueOnce(failure('SETTLE_CONFIRM_REQUIRED', 'Still running'));
+  it('renames inline and settles without closing or hiding terminals', async () => {
+    const fixture = mockApi();
     const { user } = await ready(fixture.api);
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Select session Session 1' }));
     await user.click(screen.getByRole('menuitem', { name: 'Rename' }));
     const input = screen.getByLabelText('Session title'); await user.clear(input); await user.type(input, 'A task{Enter}');
     const row = await screen.findByRole('button', { name: 'Select session A task' });
-    fireEvent.contextMenu(row); await user.click(screen.getByRole('menuitem', { name: 'Archive' }));
-    const confirm = await screen.findByRole('dialog', { name: 'Archive session' });
-    expect(within(confirm).getByRole('button', { name: 'Archive' })).toHaveFocus();
-    await user.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog', { name: 'Archive session' })).not.toBeInTheDocument();
-    fixture.api.settleSession.mockResolvedValueOnce(failure('SETTLE_CONFIRM_REQUIRED', 'Still running'));
-    fireEvent.contextMenu(row); await user.click(screen.getByRole('menuitem', { name: 'Archive' }));
-    const reopened = await screen.findByRole('dialog', { name: 'Archive session' });
-    await user.click(within(reopened).getByRole('button', { name: 'Archive' }));
-    await waitFor(() => expect(fixture.api.settleSession).toHaveBeenLastCalledWith({ sessionId: session().id, confirmActive: true }));
-    expect(fixture.api.closeTab).not.toHaveBeenCalled(); expect(await screen.findByText('Archived session')).toBeVisible();
+    fireEvent.contextMenu(row); await user.click(screen.getByRole('menuitem', { name: 'Settle' }));
+    expect(fixture.api.settleSession).toHaveBeenCalledWith({ sessionId: session().id, confirmActive: false });
+    expect(await screen.findByRole('button', { name: 'Unsettle session A task' })).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Interactive terminal')).toBeVisible();
+    expect(fixture.api.closeTab).not.toHaveBeenCalled();
   });
-  it('keeps archived sessions collapsed and restores from the empty read-only view', async () => {
-    const historical = session(2, { settledAt: '2026-10-04T11:00:00.000Z', status: 'settled' });
-    const fixture = mockApi(); fixture.api.getHistory.mockResolvedValue(success({ items: [historical], total: 1, page: 1, pageSize: 20 }));
+  it('allows settled terminals to be selected, edited, expanded and closed', async () => {
+    const item = session(2, { settledAt: '2026-10-04T11:00:00.000Z', status: 'settled' });
+    const fixture = mockApi(snapshot([session(), item]));
     const { user } = await ready(fixture.api);
-    expect(screen.queryByRole('button', { name: 'Select session Session 2' })).not.toBeInTheDocument();
-    await user.click(await screen.findByRole('button', { name: 'Archived · 1' }));
     await user.click(screen.getByRole('button', { name: 'Select session Session 2' }));
-    expect(screen.getByText('Archived session')).toBeVisible(); expect(screen.queryByLabelText('Interactive terminal')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Restore' })); expect(fixture.api.unsettleSession).toHaveBeenCalledWith({ sessionId: historical.id });
+    expect(screen.getByLabelText('Interactive terminal')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'New terminal' })).toBeEnabled();
+    fireEvent.contextMenu(screen.getByRole('tab', { name: /Shell 1/ }));
+    expect(screen.getByRole('menuitem', { name: 'Rename terminal' })).toBeEnabled();
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'New terminal' }));
+    expect(fixture.api.addTab).toHaveBeenCalledWith({ sessionId: item.id });
+    await screen.findByRole('tab', { name: /Shell 2/ });
+    await user.click(screen.getByRole('button', { name: /Close.*Shell 2/ }));
+    expect(fixture.api.closeTab).toHaveBeenCalled();
+    expect(fixture.api.unsettleSession).not.toHaveBeenCalled();
   });
   it('restores, clamps, persists and resets sidebar width', async () => {
     localStorage.setItem(SIDEBAR_WIDTH_KEY, '280'); const fixture = mockApi(); const { user } = await ready(fixture.api);

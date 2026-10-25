@@ -7,7 +7,7 @@ export class UpdateShutdown {
   private pending: InstallHandoff | null = null;
   private resume: (() => void) | null = null;
   constructor(private readonly options: {
-    confirm(onQuit: boolean): boolean;
+    confirm(onQuit: boolean): boolean | Promise<boolean>;
     closeTerminals(): Promise<() => void>;
     finish(): Promise<void>;
   }) {}
@@ -25,7 +25,7 @@ export class UpdateShutdown {
     this.busy = true;
     try {
       await this.cancelPending();
-      if (this.accepted || !this.options.confirm(onQuit)) return false;
+      if (this.accepted || !await this.options.confirm(onQuit)) return false;
       this.pending = await start();
       this.resume = await this.options.closeTerminals();
       await this.pending.commit();

@@ -53,10 +53,9 @@ describe('error notification routing', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Write failed');
   });
 
-  it('suppresses automatic profile, archive-count and usable-snapshot refresh failures', async () => {
+  it('suppresses automatic profile and usable-snapshot refresh failures', async () => {
     const fixture = mockApi();
     fixture.api.getTerminalProfiles.mockResolvedValue(failure('INTERNAL', 'Profile scan failed'));
-    fixture.api.getHistory.mockResolvedValue(failure('STORAGE_FAILED', 'Archive count failed'));
     await readyApp(fixture);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     fixture.api.getSnapshot.mockResolvedValueOnce(failure('INTERNAL', 'Refresh failed'));
@@ -65,9 +64,6 @@ describe('error notification routing', () => {
     await act(async () => {});
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /Shell 1/ })).toBeInTheDocument();
-    // The same storage failure must be shown for an explicit history request.
-    fireEvent.click(screen.getByRole('button', { name: 'Archived · 0' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Archive count failed');
   });
 
   it('still reports an initial manager connection failure', async () => {

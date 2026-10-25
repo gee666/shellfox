@@ -229,7 +229,7 @@ export class PtyBackend {
       if (this.disposed || this.entries.get(e.tabId) !== e) return;
       const event = { tabId: e.tabId, generation: e.generation, title };
       for (const listener of this.titleListeners) { try { listener(event); } catch { /* Title observers cannot break PTY ownership. */ } }
-    }) };
+    }, data => { this.writeInput(e, data, false); }) };
     this.entries.set(input.tabId, e);
     try {
       e.handles.push(pty.onData(data => this.output(e, data)));
@@ -351,17 +351,19 @@ export class PtyBackend {
   write(input: { tabId: string; generation: string; data: string }): Result<{ written: true }> {
     if (!requestSchemas.writeTerminal.safeParse(input).success) return failure('VALIDATION', 'Invalid or oversized terminal input.');
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
-    const e = owned.value;
-    if (e.state !== 'open') return failure('TARGET_LOST', 'This shell has exited.');
+    return this.writeInput(owned.value, input.data, true);
+  }
+  private writeInput(e: Entry, data: string, userInitiated: boolean): Result<{ written: true }> {
+    if (this.entries.get(e.tabId) !== e || e.state !== 'open') return failure('TARGET_LOST', 'This shell has exited.');
     if (e.closing) return failure('TARGET_LOST', 'Owned terminal cleanup is in progress; no input was enqueued.');
-    if (!e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal input channel is still being prepared.');
+    if (userInitiated && !e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal input channel is still being prepared.');
     const queued = e.pty.queuedInputBytes?.();
     if (queued === undefined || queued === null || !Number.isSafeInteger(queued) || queued < 0) return failure('NATIVE_UNAVAILABLE', 'The native input queue cannot be bounded safely. Input was not enqueued.');
-    if (queued + Buffer.byteLength(input.data) > MAX_NATIVE_INPUT_BYTES) return failure('VALIDATION', 'Outstanding native terminal input exceeds 128 KiB. Wait for the shell to consume input before retrying.');
+    if (queued + Buffer.byteLength(data) > MAX_NATIVE_INPUT_BYTES) return failure('VALIDATION', 'Outstanding native terminal input exceeds 128 KiB. Wait for the shell to consume input before retrying.');
     if (Date.now() - e.inputWindow >= 1000) { e.inputWindow = Date.now(); e.inputBytes = 0; }
-    const bytes = Buffer.byteLength(input.data);
+    const bytes = Buffer.byteLength(data);
     if (e.inputBytes + bytes > 256 * 1024) return failure('VALIDATION', 'Terminal input rate exceeded 256 KiB per second.');
-    try { e.activity.input(); e.pty.write(input.data); e.inputBytes += bytes; return success({ written: true }); }
+    try { if (userInitiated) e.activity.input(); e.pty.write(data); e.inputBytes += bytes; return success({ written: true }); }
     catch { return failure('NATIVE_UNAVAILABLE', 'Terminal input could not be written.'); }
   }
   resize(input: { tabId: string; generation: string; cols: number; rows: number }): Result<{ resized: true }> {
@@ -412,7 +414,10 @@ export class PtyBackend {
     return new Promise(resolve => {
       let handle: { dispose(): void } | undefined, done = false;
       const finish = (result: Result<{ closed: true }>) => { if (done) return; done = true; clearTimeout(timer); handle?.dispose(); resolve(result); };
-      const timer = setTimeout(() => finish(failure('NATIVE_UNAVAILABLE', 'The owned PTY did not confirm exit. Its handle remains owned; no shell survival or closure is claimed.', true)), this.options.closeTimeoutMs ?? 5000);
+      // ConPTY can spend five seconds closing console clients after the shell
+      // exits. Its output pipe, and node-pty's authoritative onExit, close later.
+      const timeoutMs = this.options.closeTimeoutMs ?? (this.platform === 'win32' ? 10000 : 5000);
+      const timer = setTimeout(() => finish(failure('NATIVE_UNAVAILABLE', 'The owned PTY did not confirm exit. Its handle remains owned; no shell survival or closure is claimed.', true)), timeoutMs);
       try { handle = e.pty.onExit(() => finish(success({ closed: true }))); if (this.platform === 'win32') e.pty.kill(); }
       catch { finish(failure('NATIVE_UNAVAILABLE', 'The owned PTY could not be terminated. Its handle was retained for a retry.', true)); }
     });

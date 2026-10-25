@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { closeConfirmationApi } from './close-confirmation';
 import type { ChangedEvent, KeepAwakeState, ManagerApi, TerminalEvent } from '../shared/contracts';
 import { failure } from '../shared/contracts';
 import { changedEventSchema, keepAwakeStateSchema, terminalEventSchema, requestSchemas, responseSchemas, type ManagerMethod } from '../shared/schemas';
@@ -10,6 +11,7 @@ async function request(method: ManagerMethod, payload: unknown): Promise<any> {
   } catch { return failure('INTERNAL', 'Application request failed', true); }
 }
 const api: ManagerApi = {
+  ...closeConfirmationApi,
   listSshProfiles: () => request('listSshProfiles', {}),
   saveSshProfile: input => request('saveSshProfile', input),
   deleteSshProfile: input => request('deleteSshProfile', input),
@@ -48,7 +50,6 @@ const api: ManagerApi = {
   deleteSession: input => request('deleteSession', input),
   clearSessionError: input => request('clearSessionError', input),
   retryTab: input => request('retryTab', input),
-  getHistory: input => request('getHistory', input),
   saveSettings: input => request('saveSettings', input),
   setExplorerIntegration: input => request('setExplorerIntegration', input),
   copyText: input => request('copyText', input),

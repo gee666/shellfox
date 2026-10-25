@@ -9,7 +9,7 @@ export const profiles: TerminalProfileDto[] = [
 ];
 export const settings: SettingsDto = {
   version: 1, accentColor: '#ec4899', backgroundColor: '#111016', adapterId: 'embedded-pty', shellId: 'pwsh', terminalProfileId: 'pwsh',
-  shellExecutable: null, historyPageSize: 20, processRules: [{
+  shellExecutable: null, historyPageSize: 10, sessionSettleHours: 24, sessionDeleteHours: 720, processRules: [{
     id: '00000000-0000-4000-8000-000000000099', label: 'Pi', enabled: true,
     executableBasenames: ['node.exe'], executablePaths: [], scriptPathSuffixes: ['pi/dist/cli.js'],
   }],
@@ -109,11 +109,16 @@ export function mockApi(initial = snapshot()) {
     renameSession: vi.fn<ManagerApi['renameSession']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, title: input.title })),
     setSessionPinned: vi.fn<ManagerApi['setSessionPinned']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, pinnedAt: input.pinned ? '2026-10-05T10:00:00.000Z' : null })),
     settleSession: vi.fn<ManagerApi['settleSession']>(async input => update({ ...current.sessions.find(s => s.id === input.sessionId)!, status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' })),
-    unsettleSession: vi.fn<ManagerApi['unsettleSession']>(async () => success(session())),
-    deleteSession: vi.fn<ManagerApi['deleteSession']>(async () => success({ deleted: true })),
+    unsettleSession: vi.fn<ManagerApi['unsettleSession']>(async input => {
+      const item = current.sessions.find(s => s.id === input.sessionId)!;
+      return update({ ...item, status: item.activityStatus, settledAt: null });
+    }),
+    deleteSession: vi.fn<ManagerApi['deleteSession']>(async input => {
+      current = { ...current, revision: current.revision + 1, sessions: current.sessions.filter(item => item.id !== input.sessionId) };
+      return success({ deleted: true });
+    }),
     clearSessionError: vi.fn<ManagerApi['clearSessionError']>(async () => success(session())),
     retryTab: vi.fn<ManagerApi['retryTab']>(async () => success(session())),
-    getHistory: vi.fn<ManagerApi['getHistory']>(async query => success({ items: [], total: 0, page: query.page, pageSize: query.pageSize })),
     saveSettings: vi.fn<ManagerApi['saveSettings']>(async value => {
       current = { ...current, revision: current.revision + 1, settings: value }; return success(value);
     }),

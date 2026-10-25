@@ -111,7 +111,7 @@ exit 23
     await exec(launcherShell, ['-n', posix(launcher)], { timeout: 5000 });
     const helperCommands = [
       ['ls', '--name', 'two words'], ['list'], ['sessions'], ['stats', '--current'], ['status'], ['usage'],
-      ['processes'], ['proc', '--pid', '42'], ['ps'], ['delete', marker], ['remove', marker], ['rm', marker], ['archive'], ['settle'],
+      ['processes'], ['proc', '--pid', '42'], ['ps'], ['delete', marker], ['remove', marker], ['rm', marker], ['settle'], ['unsettle'],
       ['tab', 'open'], ['tab', 'add'], ['tab', 'new'], ['tab', 'close'], ['tab', 'remove'], ['tab', 'rm'],
       ['keep-alive'], ['keepalive'], ['awake'], ['ssh', '--profile', 'prod'], ['--version'], ['-v'], ['version'],
       ['--help'], ['-h'], ['help', 'ls'], ['help', 'tab', 'close'], ['unknown'], ['start', '.', 'surplus'],
