@@ -1,6 +1,6 @@
 {
   "name": "@shellfox/mobile",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "scripts": {
     "start": "node ../scripts/mobile-terminal.mjs && react-native start",
