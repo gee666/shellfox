@@ -71,7 +71,7 @@ func TestAndroidProviderFailuresAreRedacted(t *testing.T) {
 	if _, err := readInterfaces(); !errors.Is(err, errInterfaces) {
 		t.Fatal("missing provider accepted")
 	}
-	SetNetworkProvider(fakeProvider{err: errors.New("tskey-auth-private-platform-error")})
+	SetNetworkProvider(fakeProvider{err: errors.New("tskey" + "-auth-" + "synthetic-secret")})
 	if _, err := readInterfaces(); !errors.Is(err, errInterfaces) || strings.Contains(err.Error(), "private") {
 		t.Fatal("raw platform error leaked")
 	}

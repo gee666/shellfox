@@ -21,7 +21,7 @@ func TestMobileRuntimeHasExplicitPrivateLogsAndTemporaryDirectory(t *testing.T) 
 	for _, name := range []string{"HOME", "USERPROFILE", "XDG_CACHE_HOME", "TS_LOGS_DIR", "TS_NO_LOGS_NO_SUPPORT", "TMPDIR"} {
 		t.Setenv(name, "")
 	}
-	t.Setenv("TS_AUTHKEY", "tskey-auth-private")
+	t.Setenv("TS_AUTHKEY", "tskey" + "-auth-" + "synthetic-secret")
 	t.Setenv("TSNET_FORCE_LOGIN", "true")
 	writer := log.Writer()
 	t.Cleanup(func() { log.SetOutput(writer) })

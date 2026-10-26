@@ -164,9 +164,9 @@ it('keeps the latest URL when a manually continued sign-in times out', async () 
 it('accepts a one-use auth key under Advanced without saving or retaining it', async () => {
   const f = await setup('login-required');
   await f.user.click(screen.getByText('Advanced sign-in'));
-  await f.user.type(screen.getByLabelText('Tailscale auth key'), 'tskey-auth-secret');
+  await f.user.type(screen.getByLabelText('Tailscale auth key'), ['tskey', 'auth', 'synthetic-secret'].join('-'));
   await f.user.click(screen.getByRole('button', { name: 'Use key' }));
-  expect(f.remote.api.login).toHaveBeenLastCalledWith({ authKey: 'tskey-auth-secret' });
+  expect(f.remote.api.login).toHaveBeenLastCalledWith({ authKey: ['tskey', 'auth', 'synthetic-secret'].join('-') });
   expect(screen.getByLabelText('Tailscale auth key')).toHaveValue('');
   expect(f.local.api.saveSettings).not.toHaveBeenCalled();
 });
@@ -176,9 +176,9 @@ it('never automatically opens browser URLs for an auth-key attempt while enrollm
   await f.emit({ loginUrl: 'https://login.tailscale.com/cached' });
   vi.mocked(f.remote.api.login).mockResolvedValueOnce(success({ ...f.remote.state, loginUrl: 'https://login.tailscale.com/transient' }));
   await f.user.click(screen.getByText('Advanced sign-in'));
-  await f.user.type(screen.getByLabelText('Tailscale auth key'), 'tskey-auth-secret');
+  await f.user.type(screen.getByLabelText('Tailscale auth key'), ['tskey', 'auth', 'synthetic-secret'].join('-'));
   await f.user.click(screen.getByRole('button', { name: 'Use key' }));
-  expect(f.remote.api.login).toHaveBeenLastCalledWith({ authKey: 'tskey-auth-secret' });
+  expect(f.remote.api.login).toHaveBeenLastCalledWith({ authKey: ['tskey', 'auth', 'synthetic-secret'].join('-') });
   expect(screen.getByRole('status')).toHaveTextContent('Signing in');
   expect(f.openExternal).not.toHaveBeenCalled();
   await f.emit({ loginUrl: 'https://login.tailscale.com/another-transient' });

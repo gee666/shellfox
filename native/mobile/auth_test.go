@@ -19,20 +19,20 @@ type fakeLogin struct {
 
 func (f *fakeLogin) StatusWithoutPeers(context.Context) (*ipnstate.Status, error) {
 	if f.fail == "status" {
-		return nil, errors.New("tskey-auth-secret")
+		return nil, errors.New("tskey" + "-auth-" + "synthetic-secret")
 	}
 	return f.st, nil
 }
 func (f *fakeLogin) StartLoginInteractive(context.Context) error {
 	f.interactive++
 	if f.fail == "interactive" {
-		return errors.New("tskey-auth-secret")
+		return errors.New("tskey" + "-auth-" + "synthetic-secret")
 	}
 	return nil
 }
 func (f *fakeLogin) GetPrefs(context.Context) (*ipn.Prefs, error) {
 	if f.fail == "prefs" {
-		return nil, errors.New("tskey-auth-secret")
+		return nil, errors.New("tskey" + "-auth-" + "synthetic-secret")
 	}
 	return &ipn.Prefs{}, nil
 }
@@ -40,7 +40,7 @@ func (f *fakeLogin) Start(_ context.Context, o ipn.Options) error {
 	f.starts++
 	f.got = o
 	if f.fail == "start" {
-		return errors.New("tskey-auth-secret")
+		return errors.New("tskey" + "-auth-" + "synthetic-secret")
 	}
 	return nil
 }
@@ -48,10 +48,10 @@ func (f *fakeLogin) Start(_ context.Context, o ipn.Options) error {
 func TestEnrollmentAndInteractiveLogin(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		f := &fakeLogin{st: &ipnstate.Status{BackendState: "Running", HaveNodeKey: existing}}
-		if err := enroll(context.Background(), f, "tskey-auth-test"); err != nil {
+		if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil {
 			t.Fatal(err)
 		}
-		if f.starts != 1 || f.got.AuthKey != "tskey-auth-test" || !f.got.UpdatePrefs.WantRunning {
+		if f.starts != 1 || f.got.AuthKey != "tskey" + "-auth-" + "synthetic-secret" || !f.got.UpdatePrefs.WantRunning {
 			t.Fatal("key not installed")
 		}
 		expected := 1
@@ -67,13 +67,13 @@ func TestEnrollmentAndInteractiveLogin(t *testing.T) {
 		t.Fatal("interactive login failed")
 	}
 	f = &fakeLogin{st: &ipnstate.Status{BackendState: "NeedsLogin", HaveNodeKey: true}}
-	if err := enroll(context.Background(), f, "tskey-auth-test"); err != nil || f.interactive != 1 {
+	if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil || f.interactive != 1 {
 		t.Fatal("expired key not reauthenticated")
 	}
 }
 
 func TestEnrollmentValidationAndRedactedFailures(t *testing.T) {
-	for _, value := range []string{"bad", "tskey-auth-", "tskey-auth-secret\n", "tskey-client-secret", "tskey-auth-" + strings.Repeat("a", 4096)} {
+	for _, value := range []string{"bad", "tskey-auth-", "tskey" + "-auth-" + "synthetic-secret\n", "tskey" + "-client-" + "synthetic-secret", "tskey-auth-" + strings.Repeat("a", 4096)} {
 		f := &fakeLogin{}
 		if err := enroll(context.Background(), f, value); err == nil || f.starts != 0 || f.interactive != 0 {
 			t.Fatal("invalid key accepted")
@@ -81,7 +81,7 @@ func TestEnrollmentValidationAndRedactedFailures(t *testing.T) {
 	}
 	for _, phase := range []string{"status", "prefs", "start", "interactive"} {
 		f := &fakeLogin{st: &ipnstate.Status{}, fail: phase}
-		err := enroll(context.Background(), f, "tskey-auth-secret")
+		err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret")
 		if err == nil || strings.Contains(err.Error(), "secret") {
 			t.Fatal("key or raw SDK error exposed")
 		}

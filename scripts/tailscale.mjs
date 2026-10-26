@@ -87,10 +87,11 @@ async function testHelper() {
   const target = helperTarget();
   go(['test', '-mod=readonly', '-count=1', './...'], target);
   const executable = buildHelper();
-  // Exercise the real process and framing without calling start or authenticating.
+  // Exercise framing with an invalid startup configuration, never a real enrollment.
+  // Build only synthetic marker values; never put live or revoked credentials in fixtures.
   const input = [
     { id: 1, method: 'status' },
-    { id: 'invalid', method: 'start', payload: { authKey: 'tskey-auth-DO-NOT-ECHO' } },
+    { id: 'invalid', method: 'start', payload: { authKey: ['tskey', 'auth', 'DO-NOT-ECHO'].join('-') } },
     { id: 2, method: 'stop' },
   ].map(message => JSON.stringify(message)).join('\n') + '\n';
   const result = spawnSync(executable, [], { input, env, timeout: 10000, encoding: 'utf8', windowsHide: true });

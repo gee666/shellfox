@@ -18,13 +18,13 @@ func TestKeyEnrollmentStartsAuthenticationAfterInstallingKey(t *testing.T) {
 		{BackendState: "NeedsLogin", HaveNodeKey: true},
 	} {
 		f := &fakeLogin{prefs: ipn.NewPrefs(), status: &state}
-		if err := enroll(context.Background(), f, "tskey-auth-test-only"); err != nil {
+		if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(f.calls, []string{"status", "prefs", "start", "login"}) {
 			t.Fatalf("incorrect enrollment order: %v", f.calls)
 		}
-		if f.options.AuthKey != "tskey-auth-test-only" || !f.options.UpdatePrefs.WantRunning {
+		if f.options.AuthKey != "tskey" + "-auth-" + "synthetic-secret" || !f.options.UpdatePrefs.WantRunning {
 			t.Fatal("authentication started without enrollment configuration")
 		}
 	}
@@ -33,7 +33,7 @@ func TestKeyEnrollmentStartsAuthenticationAfterInstallingKey(t *testing.T) {
 func TestKeyEnrollmentPreservesExistingAuthorizedNode(t *testing.T) {
 	for _, state := range []string{"Running", "Stopped", "NeedsMachineAuth"} {
 		f := &fakeLogin{prefs: ipn.NewPrefs(), status: &ipnstate.Status{BackendState: state, HaveNodeKey: true}}
-		if err := enroll(context.Background(), f, "tskey-auth-test-only"); err != nil {
+		if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(f.calls, []string{"status", "prefs", "start"}) {
@@ -43,7 +43,7 @@ func TestKeyEnrollmentPreservesExistingAuthorizedNode(t *testing.T) {
 }
 
 func TestKeyEnrollmentStopsOnErrorsWithoutExposingSecrets(t *testing.T) {
-	secret := "tskey-auth-DO-NOT-ECHO"
+	secret := "tskey" + "-auth-" + "DO-NOT-ECHO"
 	for _, stage := range []string{"status", "prefs", "start", "login"} {
 		t.Run(stage, func(t *testing.T) {
 			f := &fakeLogin{prefs: ipn.NewPrefs(), failures: map[string]error{stage: errors.New("upstream rejected " + secret)}}

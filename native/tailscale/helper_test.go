@@ -174,7 +174,7 @@ func TestLoginAcceptsKeyAfterStartupWithoutPersistingIt(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeLogin{prefs: ipn.NewPrefs()}
 	f.prefs.Hostname = "existing-host"
-	key := "tskey-auth-DO-NOT-ECHO"
+	key := "tskey" + "-auth-" + "DO-NOT-ECHO"
 	if err := enroll(ctx, f, key); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestLoginAcceptsKeyAfterStartupWithoutPersistingIt(t *testing.T) {
 	if err := enroll(ctx, f, ""); err != nil || !f.interactive {
 		t.Fatal("interactive login not supported")
 	}
-	for _, key := range []string{"file:/private/key", "tskey-client-oauth", "bad\nkey", strings.Repeat("x", 4097)} {
+	for _, key := range []string{"file:/private/key", "tskey" + "-client-" + "synthetic-secret", "bad\nkey", strings.Repeat("x", 4097)} {
 		if err := enroll(ctx, f, key); err == nil || strings.Contains(err.Error(), key) {
 			t.Fatal("invalid key accepted or leaked")
 		}

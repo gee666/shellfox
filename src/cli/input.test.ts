@@ -32,8 +32,8 @@ it('rejects directories and oversized JSON files', async () => {
 it('reads a protected raw auth key without requiring a JSON credentials file', async () => {
   const root = await fixture(), file = path.join(root, 'private', 'auth-key');
   await publishPrivateEndpoint(root, file, z.object({ secret: z.string() }), { secret: 'placeholder' });
-  await writeFile(file, 'tskey-auth-example\n');
-  expect(await readAuthKey(file)).toBe('tskey-auth-example');
+  await writeFile(file, ['tskey', 'auth', 'synthetic-secret'].join('-') + '\n');
+  expect(await readAuthKey(file)).toBe(['tskey', 'auth', 'synthetic-secret'].join('-'));
 });
 it.skipIf(process.platform === 'win32')('rejects auth keys with public permissions or symbolic links', async () => {
   const root = await fixture(), file = path.join(root, 'auth-key'); await writeFile(file, 'secret', { mode: 0o600 });

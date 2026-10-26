@@ -42,7 +42,8 @@
     "build:terminal-native": "node scripts/terminal-native.mjs",
     "test:terminal-native": "node scripts/terminal-native-preflight.mjs",
     "test:administrator": "node scripts/elevated-terminal-test.mjs",
-    "test:packaging": "node --test scripts/packaging.test.mjs scripts/headless.test.mjs scripts/mobile-build.test.mjs"
+    "test:secrets": "node --test scripts/secret-fixtures.test.mjs",
+    "test:packaging": "node --test scripts/packaging.test.mjs scripts/headless.test.mjs scripts/mobile-build.test.mjs scripts/secret-fixtures.test.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",

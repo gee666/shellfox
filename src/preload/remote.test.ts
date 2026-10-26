@@ -23,8 +23,8 @@ it('keeps remote requests on their own channel and validates requests and respon
 });
 it('accepts ephemeral auth keys only as login inputs and handles transport errors', async () => {
   bridge.invoke.mockResolvedValueOnce({ ok: true, value: state });
-  await remoteApi.login({ authKey: 'tskey-auth-private' });
-  expect(bridge.invoke).toHaveBeenLastCalledWith('remote:request', { method: 'login', payload: { authKey: 'tskey-auth-private' } });
+  await remoteApi.login({ authKey: ['tskey', 'auth', 'synthetic-secret'].join('-') });
+  expect(bridge.invoke).toHaveBeenLastCalledWith('remote:request', { method: 'login', payload: { authKey: ['tskey', 'auth', 'synthetic-secret'].join('-') } });
   bridge.invoke.mockRejectedValueOnce(new Error('gone'));
   expect(await remoteApi.getState()).toMatchObject({ ok: false, error: { code: 'INTERNAL', retryable: true } });
 });

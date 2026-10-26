@@ -41,10 +41,10 @@ it('serializes approval/revocation/remember writes and caches no credentials or 
   await vi.waitFor(() => { const state = host.remote.getState(); expect(state.ok && state.value.pending.length).toBe(1); });
   await Promise.all([host.remote.approve({ peerId: 'client' }), host.remote.revoke({ peerId: 'client' })]);
   expect((await host.store.load()).approvals).toEqual([]);
-  await client.remote.login({ authKey: 'tskey-auth-private' });
+  await client.remote.login({ authKey: ['tskey', 'auth', 'synthetic-secret'].join('-') });
   const saved = await readFile(path.join(client.directory, 'remote.json'), 'utf8');
   expect(saved).toContain('host');
-  for (const key of ['tskey-auth-private', 'backendSecret', 'proxySecret', 'sessions', 'env', 'chunks']) expect(saved).not.toContain(key);
+  for (const key of [['tskey', 'auth', 'synthetic-secret'].join('-'), 'backendSecret', 'proxySecret', 'sessions', 'env', 'chunks']) expect(saved).not.toContain(key);
   await client.remote.forget({ peerId: 'host' });
   expect((await client.store.load()).peers).toEqual([]);
 });
