@@ -1,0 +1,120 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { test } from 'node:test';
+import { chromium, expect } from '@playwright/test';
+
+const root = fileURLToPath(new URL('../../../', import.meta.url));
+const generator = fileURLToPath(new URL('../../../scripts/mobile-terminal.mjs', import.meta.url));
+// This suite deliberately uses a real browser. xterm rendering and IME do not work in jsdom.
+test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => {
+  execFileSync(process.execPath, [generator], { cwd: root, timeout: 30000 });
+  const module = await readFile(new URL('./terminal-html.ts', import.meta.url), 'utf8');
+  const html = JSON.parse(module.split('export const TERMINAL_HTML = ')[1].trim().slice(0, -1));
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
+  const messages = [], errors = [], requests = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => requests.push(request.url()));
+  await page.route('**/*', route => route.abort());
+  await page.exposeFunction('__terminalMessage', json => messages.push(JSON.parse(json)));
+  await page.evaluate(() => { window.ReactNativeWebView = { postMessage: data => window.__terminalMessage(data) }; });
+  await page.setContent(html, { waitUntil: 'load' });
+  await expect.poll(() => messages.some(m => m.type === 'ready')).toBe(true);
+  const viewId = messages.find(m => m.type === 'ready').viewId;
+  let epoch = 'browser-1', ticket = 0;
+  const send = async message => page.evaluate(data => window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) })), { viewId, epoch, ...message });
+  const output = async (data, historical = false, fit = false) => {
+    const current = ++ticket;
+    await send({ type: 'output', data, historical, fit, ticket: current });
+    await expect.poll(() => messages.some(m => m.type === 'rendered' && m.epoch === epoch && m.ticket === current)).toBe(true);
+    return current;
+  };
+  await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+
+  await t.test('replay restores ANSI grid before paint receipt, suppresses device replies, then fits', async () => {
+    await output('\x1b[2J\x1b[H\x1b[32mREPLAY_SCREEN\x1b[0m\x1b[2;8Hcolumn-eight\x1b[6n', true, true);
+    await expect(page.locator('.xterm-rows')).toContainText('REPLAY_SCREEN');
+    await expect(page.locator('.xterm-rows')).toContainText('column-eight');
+    assert.equal(messages.filter(m => m.type === 'input').length, 0);
+    await expect.poll(() => messages.some(m => m.type === 'resize')).toBe(true);
+    assert.ok(messages.findIndex(m => m.type === 'rendered') < messages.findIndex(m => m.type === 'resize'));
+  });
+  await t.test('keyboard, Ctrl shortcuts, arrows, and Unicode IME input use xterm', async () => {
+    await send({ type: 'focus', focused: true });
+    await page.keyboard.type('hello'); await page.keyboard.press('Enter');
+    await page.keyboard.press('Control+c'); await page.keyboard.press('Control+d');
+    await page.keyboard.press('ArrowUp'); await page.keyboard.insertText('日本語');
+    await expect.poll(() => messages.filter(m => m.type === 'input').map(m => m.data).join('')).toContain('日本語');
+    const input = messages.filter(m => m.type === 'input').map(m => m.data).join('');
+    for (const text of ['hello', '\r', '\x03', '\x04', '\x1b[A', '日本語']) assert.ok(input.includes(text), JSON.stringify({ input, text }));
+  });
+  await t.test('native paste honors bracketed paste mode', async () => {
+    await output('\x1b[?2004h');
+    await send({ type: 'paste', data: 'pasted\ntext' });
+    await expect.poll(() => messages.filter(m => m.type === 'input').map(m => m.data).join('')).toContain('\x1b[200~pasted\rtext\x1b[201~');
+  });
+  await t.test('resize and font changes emit bounded terminal dimensions', async () => {
+    const before = messages.filter(m => m.type === 'resize').at(-1);
+    await page.setViewportSize({ width: 390, height: 450 });
+    await expect.poll(() => messages.filter(m => m.type === 'resize').at(-1)?.cols).toBeLessThan(before.cols);
+    const smaller = messages.filter(m => m.type === 'resize').at(-1);
+    await send({ type: 'font', fontSize: 22 });
+    await expect.poll(() => messages.filter(m => m.type === 'resize').at(-1)?.cols).toBeLessThan(smaller.cols);
+    for (const m of messages.filter(m => m.type === 'resize')) assert.ok(m.cols >= 2 && m.cols <= 500 && m.rows >= 2 && m.rows <= 500);
+  });
+  await t.test('output stays literal and cannot load resources or navigate', async () => {
+    await output('\r\n</script><img src=https://evil.invalid/x>\r\n\x1b]8;;https://evil.invalid/\x07link-label\x1b]8;;\x07');
+    await expect(page.locator('.xterm-rows')).toContainText('</script>');
+    assert.equal(await page.locator('img,iframe,script[src],link[href]').count(), 0);
+    assert.deepEqual(requests, []);
+    await page.evaluate(async () => { try { await fetch('https://evil.invalid/blocked'); } catch { /* CSP must reject before the network. */ } });
+    assert.deepEqual(requests, []);
+    const link = page.locator('.xterm-rows a', { hasText: 'link-label' });
+    if (await link.count()) await link.click();
+    assert.equal(page.url(), 'about:blank');
+  });
+  await t.test('touch selection emits text for the native copy dialog', async () => {
+    epoch = 'selection';
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await output('SELECT_COPY', true, true);
+    await send({ type: 'select', enabled: true });
+    const cols = messages.filter(m => m.type === 'resize' && m.epoch === epoch).at(-1)?.cols ?? 80;
+    await page.evaluate(columns => {
+      const screen = document.querySelector('.xterm-screen'), rect = screen.getBoundingClientRect();
+      const cellWidth = rect.width / columns;
+      for (const [type, col] of [['touchstart', 0], ['touchmove', 10], ['touchend', 10]]) {
+        const touch = new Touch({ identifier: 1, target: screen, clientX: rect.left + cellWidth * (col + 0.5), clientY: rect.top + 4 });
+        screen.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches: type === 'touchend' ? [] : [touch], changedTouches: [touch] }));
+      }
+    }, cols);
+    await expect.poll(() => messages.filter(m => m.type === 'selection' && m.epoch === epoch).at(-1)?.text).toBe('SELECT_COPY');
+  });
+  await t.test('Android document messages that bubble are processed once', async () => {
+    const current = ++ticket;
+    await page.evaluate(data => document.dispatchEvent(new MessageEvent('message', { bubbles: true, data: JSON.stringify(data) })),
+      { type: 'output', viewId, epoch, ticket: current, data: '\r\nONCE', historical: false, fit: false });
+    await expect.poll(() => messages.filter(m => m.type === 'rendered' && m.ticket === current).length).toBe(1);
+    await expect(page.locator('.xterm-rows')).toContainText('ONCE');
+  });
+  await t.test('generation reset retires old callbacks and rejects stale messages', async () => {
+    epoch = 'browser-2';
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await send({ type: 'output', epoch: 'browser-1', ticket: 900, data: 'STALE', historical: false, fit: false });
+    await output('NEW_GENERATION', true, true);
+    await expect(page.locator('.xterm-rows')).toContainText('NEW_GENERATION');
+    await expect(page.locator('.xterm-rows')).not.toContainText('STALE');
+    assert.ok(!messages.some(m => m.type === 'rendered' && m.ticket === 900));
+  });
+  await t.test('empty replay renders and a reset preserves keyboard focus', async () => {
+    await send({ type: 'focus', focused: true });
+    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+    epoch = 'empty';
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await output('', true, true);
+    await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
+  });
+  assert.deepEqual(errors, []);
+});

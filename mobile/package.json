@@ -1,0 +1,41 @@
+{
+  "name": "@shellfox/mobile",
+  "version": "0.8.0",
+  "private": true,
+  "scripts": {
+    "start": "node ../scripts/mobile-terminal.mjs && react-native start",
+    "android": "node ../scripts/mobile-terminal.mjs && react-native run-android",
+    "ios": "node ../scripts/mobile-terminal.mjs && react-native run-ios",
+    "typecheck": "node ../scripts/mobile-terminal.mjs && tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "fast-text-encoding": "1.0.6",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-get-random-values": "1.11.0",
+    "react-native-safe-area-context": "5.10.1",
+    "react-native-url-polyfill": "3.0.0",
+    "react-native-webview": "13.16.0",
+    "uuid": "13.0.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/plugin-transform-export-namespace-from": "^7.29.7",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native-community/cli-platform-ios": "20.2.0",
+    "@react-native/babel-preset": "0.88.0",
+    "@react-native/metro-config": "0.88.0",
+    "@react-native/typescript-config": "0.88.0",
+    "@types/react": "19.2.14",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.11.0"
+  }
+}

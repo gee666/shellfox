@@ -16,7 +16,8 @@ it('requires approval for mkdir/stats, creates only after approval, and strips s
   for (const request of [{ method: 'createDirectory', payload: { path: cwd } }, { method: 'getSessionStats', payload: {} }]) expect(await client.remote.request({ peerId: 'host', ...request })).toMatchObject({ ok: false, error: { code: 'APPROVAL_REQUIRED' } });
   await expect(stat(cwd)).rejects.toMatchObject({ code: 'ENOENT' });
   await host.remote.approve({ peerId: 'client' });
-  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }));
+  // Approval reconnect runs on a one-second timer; the default one-second wait races it.
+  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }), { timeout: 5000 });
   expect(await client.remote.request({ peerId: 'host', method: 'createDirectory', payload: { path: cwd } })).toEqual({ ok: true, value: { cwd } });
   expect((await stat(cwd)).isDirectory()).toBe(true);
   const snapshot = host.service.getSnapshot(); if (!snapshot.ok) throw new Error('Snapshot failed');

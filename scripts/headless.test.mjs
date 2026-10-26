@@ -160,7 +160,7 @@ test('headless workflows retain six native targets without requiring display or 
     assert.ok(parent.includes('name: shellfox-desktop-${{ matrix.platform }}-${{ matrix.arch }}'));
   }
   const release = await readFile('.github/workflows/release.yml', 'utf8');
-  assert.ok(release.includes('needs: [package, headless]'));
+  assert.ok(release.includes('needs: [package, headless, mobile]'));
   assert.ok(release.includes('dist/**/*.tar.gz'));
   assert.ok(release.includes("if: startsWith(github.ref, 'refs/tags/v')"));
 });

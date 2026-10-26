@@ -53,6 +53,12 @@ The same CLI commands work with a running desktop-owned host. JSON responses hav
 
 See [headless deployment](docs/headless.md) and the [CLI reference](docs/cli.md) for installation, remote login, interactive attachment, startup management, and the build/release matrix. GitHub workflows build desktop and headless products for Windows, macOS, and Linux, retaining existing architecture variants.
 
+## Mobile client
+
+The React Native app in [`mobile/`](docs/mobile.md) supports Android and iOS as a remote-only client. It embeds Tailscale, connects to approved desktop or headless hosts, and presents sessions, terminal tabs, and touch-friendly terminal keys. It cannot host terminals or create local sessions. Android installs APK updates from GitHub with checksum and signing-certificate checks, followed by the system installer confirmation. iOS builds require macOS and are not part of the release workflow.
+
+For a local, bundled Android test APK, run `pnpm build:mobile:test`. Build prerequisites and real-device verification are in [Mobile](docs/mobile.md).
+
 ## Development
 
 Use Node 24, Go 1.27.3 or newer, and the pnpm version specified in package.json, running natively on the target OS and architecture. Go builds the bundled Tailscale helper; packaged-app users do not need Go.
@@ -84,7 +90,7 @@ This host's forced source rebuild failed because Visual Studio's Spectre librari
 
 Run `shellfox update` to download and install the latest published release (`shellfox update --check` only reports). Linux uses the `.deb` (`sudo apt-get install`), macOS replaces `Shellfox.app`, Windows runs `ShellfoxSetup.exe`; zip/loose installs print the releases page instead. Installed builds check for updates at startup and hourly. The sidebar offers a compact download button, progress with ETA, then install and restart with confirmation before closing terminals. See [in-app updates](docs/self-update.md) for supported installations and verification details.
 
-To publish a release, set `version` in package.json and push a matching tag (`git tag v0.4.0 && git push origin v0.4.0`). The Release workflow packages Linux (x64, arm64), Windows (x64; runs on ARM via emulation) and macOS (x64, arm64) and attaches the installers to a GitHub Release.
+To publish a release, set `version` in package.json and push a matching tag (`git tag v0.4.0 && git push origin v0.4.0`). The Release workflow packages desktop and headless apps for Linux, Windows and macOS, retaining their architecture variants, plus one universal Android APK. Android release signing requires repository secrets documented in [Mobile](docs/mobile.md). The publication job waits for all products; test APKs never enter a tagged release.
 
 ## Packaging
 

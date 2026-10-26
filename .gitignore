@@ -9,6 +9,17 @@ dist/
 build/
 *.tsbuildinfo
 
+# Mobile toolchains and machine-local settings
+.gradle/
+.cxx/
+local.properties
+Pods/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+.xcode.env.local
+*.keystore
+!mobile/android/app/debug.keystore
+
 # .NET / native build output
 bin/
 obj/

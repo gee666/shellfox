@@ -1,6 +1,6 @@
 name: Release
 # Push a tag vX.Y.Z (matching package.json "version") to package Shellfox for
-# Windows, Linux and macOS and publish a GitHub Release with the installers.
+# Windows, Linux, macOS and Android, then publish the installers together.
 # `shellfox update` and the in-app update notice read the latest published release.
 on:
   push:
@@ -14,6 +14,87 @@ concurrency:
 jobs:
   headless:
     uses: ./.github/workflows/headless-packages.yml
+  mobile:
+    name: signed Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      TMP: ${{ github.workspace }}/tmp
+      TEMP: ${{ github.workspace }}/tmp
+      TMPDIR: ${{ github.workspace }}/tmp
+      GRADLE_USER_HOME: ${{ github.workspace }}/tmp/gradle-home
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scratch directory
+        run: mkdir -p tmp
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android SDK and NDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1'
+        timeout-minutes: 10
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        timeout-minutes: 5
+      - name: Typecheck desktop and mobile
+        run: pnpm typecheck
+        timeout-minutes: 5
+      - name: Mobile updater and build contracts
+        run: pnpm test:unit mobile/src && node --test scripts/mobile-build.test.mjs
+        timeout-minutes: 5
+      - name: Bundled terminal browser tests
+        run: pnpm exec playwright install --with-deps chromium && pnpm test:mobile:terminal
+        timeout-minutes: 5
+      - name: Native mobile tests
+        run: pnpm test:mobile:native
+        timeout-minutes: 10
+      - name: Build and verify signed stable APK
+        run: node scripts/mobile-build.mjs
+        timeout-minutes: 40
+        env:
+          SHELLFOX_ANDROID_KEYSTORE_BASE64: ${{ secrets.SHELLFOX_ANDROID_KEYSTORE_BASE64 }}
+          SHELLFOX_ANDROID_STORE_PASSWORD: ${{ secrets.SHELLFOX_ANDROID_STORE_PASSWORD }}
+          SHELLFOX_ANDROID_KEY_ALIAS: ${{ secrets.SHELLFOX_ANDROID_KEY_ALIAS }}
+          SHELLFOX_ANDROID_KEY_PASSWORD: ${{ secrets.SHELLFOX_ANDROID_KEY_PASSWORD }}
+          SHELLFOX_ANDROID_CERT_SHA256: ${{ secrets.SHELLFOX_ANDROID_CERT_SHA256 }}
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Android emulator UI smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: node scripts/mobile-e2e.mjs --apk "$(find tmp/mobile-artifacts -name '*.apk' -print -quit)"
+      - name: Mobile failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-diagnostics
+          path: tmp/mobile-e2e
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shellfox-mobile-android
+          path: |
+            tmp/mobile-artifacts/shellfox-mobile-*-android.apk
+            tmp/mobile-artifacts/shellfox-mobile-*-android.apk.sha256
+          if-no-files-found: error
   package:
     name: package ${{ matrix.platform }}-${{ matrix.arch }}
     strategy:
@@ -127,7 +208,7 @@ jobs:
           if-no-files-found: error
   release:
     name: publish GitHub release
-    needs: [package, headless]
+    needs: [package, headless, mobile]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -152,3 +233,4 @@ jobs:
             dist/**/*.nupkg
             dist/**/*.tar.gz
             dist/**/*.sha256
+            dist/**/*.apk

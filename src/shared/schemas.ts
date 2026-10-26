@@ -32,7 +32,9 @@ export const envVarSchema = z.object({ name: z.string().trim().min(1).max(256).r
 export const envVarsSchemaFor = (windows: boolean) => z.array(envVarSchema).max(200).refine(vars => new Set(vars.map(v => windows ? v.name.toLowerCase() : v.name)).size === vars.length, 'Duplicate environment variable names');
 // Reads can describe another OS. Case-insensitive uniqueness belongs to host-side writes.
 export const storedEnvVarsSchema = z.array(storedEnvVarSchema).max(200).refine(vars => new Set(vars.map(v => v.name)).size === vars.length, 'Duplicate environment variable names');
-export const envVarsSchema = envVarsSchemaFor(typeof process === 'undefined' || process.platform === 'win32');
+const runtimeProcess: unknown = Reflect.get(globalThis, 'process');
+const windowsEnvironment = typeof runtimeProcess !== 'object' || runtimeProcess === null || Reflect.get(runtimeProcess, 'platform') === 'win32';
+export const envVarsSchema = envVarsSchemaFor(windowsEnvironment);
 export const cliIntegrationSchema = z.object({ supported: z.boolean(), installed: z.boolean(), command: z.enum(['shellfox', 'shellfox start <path>']), reason: text(1000).nullable() }).strict();
 export const tabSchema = z.object({ id: idSchema, sessionId: idSchema, title: titleSchema, cwd: pathSchema, ordinal: count, createdAt: timestampSchema, lifecycle: lifecycleSchema, status: tabStatusSchema, agents: count, monitoringReason: text(1000).nullable(), error: errorSchema.nullable(), generation: idSchema.optional(), terminalKind: z.enum(['embedded', 'external-legacy']).optional(), profileId: profileIdSchema.nullable().optional(), exitCode: z.number().int().nullable().optional() }).strict();
 export const sessionWindowSchema = z.object({ state: z.enum(['alive', 'closed', 'unknown', 'opening', 'launch-uncertain', 'unsupported']), canReopen: z.boolean(), canRegister: z.boolean(), reason: text(1000) }).strict();

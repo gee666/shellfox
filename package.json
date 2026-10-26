@@ -9,7 +9,12 @@
   "main": "tmp/build/main/index.cjs",
   "packageManager": "pnpm@12.9.1",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm --dir mobile typecheck",
+    "build:mobile": "node scripts/mobile-build.mjs",
+    "build:mobile:test": "node scripts/mobile-build.mjs --test",
+    "test:mobile:native": "node --test scripts/mobile-native.test.mjs && node scripts/mobile-native.mjs test",
+    "test:mobile:terminal": "node --test mobile/src/terminal/terminal-page.test.mjs",
+    "test:mobile:e2e": "node scripts/mobile-e2e.mjs",
     "test:unit": "vitest run",
     "test:native": "node scripts/native.mjs test",
     "test:tailscale": "node scripts/tailscale.mjs test",
@@ -36,7 +41,7 @@
     "build:terminal-native": "node scripts/terminal-native.mjs",
     "test:terminal-native": "node scripts/terminal-native-preflight.mjs",
     "test:administrator": "node scripts/elevated-terminal-test.mjs",
-    "test:packaging": "node --test scripts/packaging.test.mjs scripts/headless.test.mjs"
+    "test:packaging": "node --test scripts/packaging.test.mjs scripts/headless.test.mjs scripts/mobile-build.test.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",
