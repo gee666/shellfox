@@ -10,13 +10,14 @@ const directory = path.join(root, 'tmp', 'darwin-supervisor-model', randomUUID()
 mkdirSync(directory, { recursive: true });
 const source = readFileSync(process.argv[2] ?? path.join(root, 'src/main/terminal/native/darwin-terminal-supervisor.c'), 'utf8');
 function extract(name) {
-  const start = source.indexOf(`static bool ${name}(`);
+  const type = name === 'observe_shell' ? 'void' : 'bool';
+  const start = source.indexOf(`static ${type} ${name}(`);
   if (start < 0) throw Error(`Missing production function ${name}`);
   const end = source.indexOf('\n}\n', start);
   if (end < 0) throw Error(`Unterminated production function ${name}`);
   return source.slice(start, end + 3);
 }
-const names = ['info', 'same_birth', 'readable_member', 'session_snapshot', 'cleanup_session'];
+const names = ['info', 'same_birth', 'readable_member', 'session_snapshot', 'child_status', 'exited_event', 'observe_shell', 'confirm_shell_exit', 'cleanup_session'];
 if (source.includes('static bool snapshot_failure(')) names.splice(3, 0, 'snapshot_failure');
 const constants = source.match(/^#define (?:MAX_PIDS|MAX_GROUPS|FREEZE_SECONDS|CONFIRM_SECONDS) .+$/gm);
 if (constants?.length !== 4) throw Error('Missing production bounds');

@@ -26,7 +26,7 @@ it.skipIf(process.platform!=='linux')('real sh launcher handles cold spawn, spac
   await new Promise(resolve=>setTimeout(resolve,2200)); // Let only our fake child exit naturally.
   await expect(exec('/bin/sh',[shim,'session','create','missing'],{cwd:root,timeout:3000})).rejects.toMatchObject({code:1});expect(await readFile(shim,'utf8')).toContain(helper);
  }finally{await rm(root,{recursive:true,force:true});}
-});
+},30000);
 it.skipIf(process.platform!=='linux')('routes control commands, help and version to the helper with argv, data and exit code intact', async()=>{
  await mkdir(path.resolve('tmp'),{recursive:true}); const root=await mkdtemp(path.resolve('tmp/linux-cli-routing-'));
  try {

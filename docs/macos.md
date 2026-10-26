@@ -48,7 +48,17 @@ Cleanup now rolls back every reversible freeze after an unreadable or incomplete
 
 `node scripts/darwin-supervisor-model-test.mjs` compiles the actual production snapshot and cleanup functions against deterministic C OS stubs, using a C11 compiler on Linux/macOS. It covers freeze/read/rollback ordering, incomplete fork state, recovery beyond the old pass limit, persistent denial, failed rollback, birth recycling across SID lookup, credential/group changes, foreign sessions and verified absence. All generated files stay under `tmp/darwin-supervisor-model/`. This is a control-flow regression test, not a macOS syscall or signal test.
 
-The opt-in Darwin PTY fixture also closes five newly authenticated `/bin/zsh -l -i` sessions immediately, with no close retries or startup delay. The release workflow now runs this fixture on both Darwin architectures in addition to the unchanged packaged backend smoke. Native validation of this patch remains required. Passing the C model establishes the liveness defect and its repair, but does not prove that defect caused this particular CI run.
+The opt-in Darwin PTY fixture also closes 40 newly authenticated `/bin/zsh -l -i` sessions immediately, with no close retries or startup delay. Each CLOSE reply must contain a real exit code matching the subsequent PTY exit. The release workflow now runs this fixture on both Darwin architectures in addition to the unchanged packaged backend smoke. Native validation of this patch remains required. Passing the C model establishes the liveness defect and its repair, but does not prove that defect caused this particular CI run.
+
+## Direct-child close confirmation
+
+Combined release run `40378129317`, Darwin ARM job `121766707496`, reached the immediate login-shell close at `supervisor-native.test.ts:182` after packaged/native/backend/CLI smokes passed. Its reply was `state: closed` with `shellAlive: true`. The existing TypeScript protocol correctly rejects that combination.
+
+Both native cleanup paths previously published closed from an empty session snapshot. Snapshots exclude `SZOMB`, which does not establish that `waitid` can already return the shell's exit event. A single observation while building the reply cannot bridge that kernel transition. Cleanup now polls the unreaped direct shell child's `waitid(P_PID, ..., WEXITED | WNOHANG | WNOWAIT)` evidence before either path can publish closed. It uses the remaining freeze or confirmation deadline, not a renewed budget, and preserves the actual exit status. A missing event or wait error refuses close and retains ownership for retry. No direct-PID termination, reaping before verified close, or relaxed identity checks were added.
+
+The supervisor completes `start_shell` before accepting control requests. The child establishes its group and verifies the owned SID before its ready byte; authenticated STATUS additionally requires the exec image and exact birth identity. The immediate-close fixture waits for that STATUS, so it cannot request CLOSE before this handshake. The C model also covers an empty enumeration with a still-live child, which must refuse closure rather than invent exit evidence.
+
+The portable model compiles the production wait-status, observation and confirmation functions along with cleanup. It covers delayed waitability for both empty-session paths, natural exit 7, signal-derived exit status, deadline exhaustion, wait errors and retry after a refused close. Removing the confirmation calls makes the model fail. Windows typecheck/unit tests and the WSL C model do not verify Darwin SDK compatibility or actual kernel timing; both native Mac architectures still need the 40-iteration lifecycle rerun.
 
 ## Native fixture prerequisites
 

@@ -5,23 +5,22 @@ import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { controlEndpointPath, controlEndpointSchema } from './control-protocol';
-import type { z } from 'zod';
+import { z } from 'zod';
+import { hostResourcePaths } from '../host/paths';
 
 const run = promisify(execFile);
+const permissionsResultSchema = z.object({ ok: z.literal(true) }).strict();
 async function windowsPermissions(file: string, directory: boolean, protect: boolean): Promise<void> {
-  const literal = "'" + file.replace(/'/g, "''") + "'";
-  const script = `$ErrorActionPreference='Stop'; $p=${literal}; $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User;
-${protect ? `$acl=[IO.${directory ? 'Directory' : 'File'}]::GetAccessControl($p,[Security.AccessControl.AccessControlSections]::Access);
-$acl.SetAccessRuleProtection($true,$false);
-foreach ($old in $acl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier])) { $acl.RemoveAccessRuleSpecific($old) }
-$rule=New-Object Security.AccessControl.FileSystemAccessRule($sid,'FullControl'${directory ? ",'ContainerInherit,ObjectInherit','None'" : ''},'Allow');
-$acl.AddAccessRule($rule); [IO.${directory ? 'Directory' : 'File'}]::SetAccessControl($p,$acl);` : ''}
-$acl=[IO.${directory ? 'Directory' : 'File'}]::GetAccessControl($p);
-if (!$acl.AreAccessRulesProtected -or $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'Unsafe control endpoint owner or inheritance' }
-$rules=$acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]);
-if ($rules.Count -eq 0) { throw 'Missing control endpoint permissions' }
-foreach ($r in $rules) { if ($r.IdentityReference.Value -ne $sid.Value -or $r.AccessControlType -ne 'Allow') { throw 'Unsafe control endpoint permissions' } }`;
-  await run(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, timeout: 8000, maxBuffer: 16384 });
+  try {
+    const { stdout, stderr } = await run(hostResourcePaths().tailscale,
+      ['--private-permissions', path.resolve(file), directory ? 'directory' : 'file', protect ? 'protect' : 'check'],
+      { windowsHide: true, timeout: 8000, maxBuffer: 1024 });
+    if (stderr !== '') throw new Error('Unexpected permissions helper output.');
+    permissionsResultSchema.parse(JSON.parse(stdout));
+  } catch {
+    // Do not expose process errors, which include arguments and native output.
+    throw new Error('Unsafe control endpoint permissions or unavailable permissions helper.');
+  }
 }
 async function checkPrivate(file: string, directory: boolean): Promise<void> {
   const info = await lstat(file);

@@ -53,7 +53,7 @@ jobs:
         run: pnpm typecheck
         timeout-minutes: 5
       - name: Mobile updater and build contracts
-        run: pnpm test:unit mobile/src && node --test scripts/mobile-build.test.mjs
+        run: pnpm test:unit mobile/src && node --test scripts/mobile-build.test.mjs scripts/mobile-e2e-controls.test.mjs
         timeout-minutes: 5
       - name: Bundled terminal browser tests
         run: pnpm exec playwright install --with-deps chromium && pnpm test:mobile:terminal

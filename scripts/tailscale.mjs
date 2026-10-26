@@ -100,7 +100,37 @@ async function testHelper() {
   const responses = result.stdout.trim().split(/\r?\n/).map(line => JSON.parse(line));
   assert.deepEqual(responses.map(({ id, ok }) => ({ id, ok })), [{ id: 1, ok: false }, { id: 'invalid', ok: false }, { id: 2, ok: true }]);
   assert.deepEqual(responses[2].value, { stopped: true });
+  privatePermissionsSmoke(executable);
   await ownershipSmoke(executable);
+}
+
+function privatePermissionsSmoke(executable) {
+  const directory = mkdtempSync(path.join(root, 'tmp/private-permissions-smoke-'));
+  const run = (args, status, reply) => {
+    const result = spawnSync(executable, ['--private-permissions', ...args], {
+      env, input: 'not a tsnet request\n', timeout: 8000, windowsHide: true, encoding: 'utf8',
+    });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, status, result.stderr);
+    assert.equal(result.stdout, JSON.stringify(reply) + '\n');
+    assert.equal(result.stderr, '');
+  };
+  try {
+    run([], 2, { error: 'Invalid private permissions arguments' });
+    run(['relative', 'file', 'check'], 2, { error: 'Invalid private permissions arguments' });
+    run([path.join(directory, 'missing'), 'file', 'check'], 1, { error: 'Unsafe private permissions' });
+    if (process.platform !== 'win32') {
+      run([directory, 'directory', 'check'], 1, { error: 'Unsafe private permissions' });
+      return;
+    }
+    const file = path.join(directory, "endpoint ' 界.json");
+    writeFileSync(file, '{}');
+    for (const [target, kind] of [[directory, 'directory'], [file, 'file']]) {
+      for (const mode of ['protect', 'check']) run([target, kind, mode], 0, { ok: true });
+    }
+    run([directory, 'file', 'protect'], 1, { error: 'Unsafe private permissions' });
+    run([file, 'directory', 'check'], 1, { error: 'Unsafe private permissions' });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
 async function ownershipSmoke(executable) {

@@ -27,7 +27,7 @@ cd mobile/ios
 pod install
 ```
 
-Output is `tmp/mobile-native/ios/Mobile.xcframework` plus its local podspec. The Podfile links this generated framework; the Xcode project compiles `ShellfoxNetwork.mm` and `ShellfoxUpdates.mm`. Minimum iOS is 15.1. iOS compilation and device acceptance require a Mac; the Windows Android build does not validate them. Until iOS distribution is automated, manually update both Debug and Release Xcode settings when the root version changes. Current settings are `MARKETING_VERSION = 0.9.2` and `CURRENT_PROJECT_VERSION = 9002`, using the Android version-code formula `major * 1000000 + minor * 1000 + patch`.
+Output is `tmp/mobile-native/ios/Mobile.xcframework` plus its local podspec. The Podfile links this generated framework; the Xcode project compiles `ShellfoxNetwork.mm` and `ShellfoxUpdates.mm`. Minimum iOS is 15.1. iOS compilation and device acceptance require a Mac; the Windows Android build does not validate them. Until iOS distribution is automated, manually update both Debug and Release Xcode settings when the root version changes. Current settings are `MARKETING_VERSION = 0.9.3` and `CURRENT_PROJECT_VERSION = 9003`, using the Android version-code formula `major * 1000000 + minor * 1000 + patch`.
 
 ## API and protocol
 

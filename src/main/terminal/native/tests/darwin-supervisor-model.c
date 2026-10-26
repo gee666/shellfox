@@ -1,5 +1,6 @@
 /* Deterministic libproc/session/guardian stubs. production.h is copied verbatim
  * from the shipped C functions by scripts/darwin-supervisor-model-test.mjs. */
+#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -9,6 +10,8 @@
 #include <errno.h>
 #include <limits.h>
 #include <sys/types.h>
+#include <sys/wait.h>
+#include <signal.h>
 #define PROC_PIDTBSDINFO 3
 #define PROC_FLAG_PSUGID 0x100
 #define SSTOP 4
@@ -21,8 +24,13 @@ struct guardian { pid_t pid, group; int fd; bool joined, freeze_requested, froze
 struct member { pid_t pid, group; struct proc_bsdinfo info; };
 static struct guardian guardians[256];
 static size_t guardian_count;
-static pid_t supervisor_pid = 100;
-static bool closed_state, closing_state;
+static pid_t supervisor_pid = 100, shell_pid = 200;
+static bool closed_state, closing_state, shell_exited;
+static int shell_exit_code;
+static double shell_wait_ready;
+static bool shell_wait_error;
+static unsigned shell_waits;
+static int shell_event_code, shell_event_status;
 static const char *last_reason;
 static char snapshot_reason[512];
 static double clock_value;
@@ -77,6 +85,17 @@ static int proc_pidinfo(pid_t pid, int flavor, uint64_t arg, void *buffer, int b
     if (scenario == UID_CHANGE && reads == 2) p->pbi_svuid++;
     return bytes;
 }
+static int model_waitid(idtype_t type, id_t pid, siginfo_t *event, int options) {
+    assert(type == P_PID && pid == (id_t)shell_pid);
+    assert(options == (WEXITED | WNOHANG | WNOWAIT));
+    shell_waits++;
+    if (shell_wait_error) { errno = ECHILD; return -1; }
+    if ((!executing || scenario == ZOMBIE) && clock_value >= shell_wait_ready) {
+        event->si_pid = shell_pid; event->si_code = shell_event_code; event->si_status = shell_event_status;
+    }
+    return 0;
+}
+#define waitid model_waitid
 static struct guardian *find_guardian(pid_t pgid) { return guardian_count && guardians[0].group == pgid ? &guardians[0] : NULL; }
 static bool acquire_guardian(pid_t pgid, double deadline) { (void)pgid; (void)deadline; assert(!"unexpected new group"); return false; }
 static bool protected_guardian(struct guardian *g) { return g->joined && !g->failed; }
@@ -113,7 +132,9 @@ static void reset(enum scenario next) {
     transition = false; recovered = false; rollback_ok = true;
     stopped_snapshots = reads = sid_reads = commands = rollback_count = 0;
     trace[0] = snapshot_reason[0] = 0; birth = 1000; flags = 0; uid = 501; group = 200;
-    closed_state = closing_state = false; last_reason = NULL;
+    closed_state = closing_state = shell_exited = false; last_reason = NULL;
+    shell_pid = 200; shell_exit_code = 0; shell_wait_ready = 0; shell_wait_error = false;
+    shell_waits = 0; shell_event_code = CLD_KILLED; shell_event_status = SIGKILL;
     guardian_count = 1; guardians[0] = (struct guardian){ .pid = 201, .group = 200, .fd = 3, .joined = true };
 }
 static bool snapshot(void) {
@@ -166,6 +187,41 @@ int main(void) {
     reset(FOREIGN); assert(session_snapshot(members, &count, 1.0) && count == 0 && reads == 0);
     reset(ZOMBIE); assert(session_snapshot(members, &count, 1.0) && count == 0);
     reset(CLEAN); executing = false; assert(cleanup_session() && closed_state && commands == 0);
+    assert(shell_exited && shell_exit_code == 128 + SIGKILL && shell_waits == 1);
     puts("PASS: proven initial absence, foreign sessions, zombies and verified empty session");
+
+    /* Both empty-session paths must wait for the unreaped direct child, not
+     * synthesize shell_exited from a zombie/absent libproc row. */
+    reset(ZOMBIE); shell_wait_ready = 0.05; shell_event_code = CLD_EXITED; shell_event_status = 7;
+    assert(cleanup_session() && closed_state && shell_exited && shell_exit_code == 7);
+    assert(clock_value >= 0.05 && clock_value < 0.06 && shell_waits > 1 && commands == 0);
+    reset(CLEAN); shell_wait_ready = 0.08;
+    assert(cleanup_session() && closed_state && shell_exited && shell_exit_code == 128 + SIGKILL);
+    assert(clock_value >= 0.08 && clock_value < 0.09 && shell_waits > 1 && strcmp(trace, "FK") == 0);
+    reset(ZOMBIE); shell_wait_ready = FREEZE_SECONDS - 0.02;
+    assert(cleanup_session() && closed_state && shell_exited && clock_value < FREEZE_SECONDS);
+    puts("PASS: zombie and post-commit empty snapshots wait for direct-child exit and preserve real status");
+
+    reset(ZOMBIE); shell_wait_ready = FREEZE_SECONDS + 0.5;
+    assert(!cleanup_session() && !closed_state && !shell_exited && commands == 0);
+    assert(clock_value >= FREEZE_SECONDS && clock_value < FREEZE_SECONDS + 0.01);
+    assert(closing_state && strstr(last_reason, "Direct shell child exit"));
+    /* Retrying retains the same child; only its eventual real event closes. */
+    shell_wait_ready = clock_value; shell_event_code = CLD_EXITED; shell_event_status = 7;
+    assert(cleanup_session() && closed_state && shell_exited && shell_exit_code == 7);
+    reset(CLEAN); shell_wait_ready = 20;
+    assert(!cleanup_session() && !closed_state && !shell_exited && strcmp(trace, "FK") == 0);
+    assert(clock_value >= CONFIRM_SECONDS && clock_value < CONFIRM_SECONDS + 0.03);
+    assert(closing_state && strstr(last_reason, "Direct shell child exit"));
+    reset(ZOMBIE); shell_wait_error = true;
+    assert(!cleanup_session() && !closed_state && !shell_exited);
+    assert(clock_value >= FREEZE_SECONDS && clock_value < FREEZE_SECONDS + 0.01);
+    reset(VANISHED); /* Enumeration misses a still-live direct child. */
+    assert(!cleanup_session() && !closed_state && !shell_exited && executing && commands == 0);
+    assert(clock_value >= FREEZE_SECONDS && clock_value < FREEZE_SECONDS + 0.01);
+    puts("PASS: missing exit events and waitid errors retain ownership within the original phase deadline");
+
+    reset(CLEAN); executing = false; shell_pid = -1;
+    assert(cleanup_session() && closed_state && !shell_exited && shell_waits == 0);
     return 0;
 }

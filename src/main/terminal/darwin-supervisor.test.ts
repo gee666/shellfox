@@ -36,6 +36,20 @@ it('authenticates bounded STATUS/CLOSE replies and pins the actual shell identit
     expect(f.seen).toEqual([`1\t${token}\tSTATUS\n`, `1\t${token}\tCLOSE\n`]);
   } finally { await f.stop(); }
 });
+it('rejects closed with a live shell and accepts only a later verified exit reply', async () => {
+  let closes = 0;
+  const f = await socketFixture(request => {
+    if (!request.endsWith('CLOSE\n')) return JSON.stringify(status) + '\n';
+    closes++;
+    return JSON.stringify({ ...status, state: 'closed', shellAlive: closes === 1, exitCode: closes === 1 ? null : 137 }) + '\n';
+  });
+  try {
+    const control = new DarwinSupervisorControl(f.endpoint, token, undefined, 1000);
+    await control.ready(123);
+    await expect(control.close()).rejects.toThrow('Invalid or mismatched supervisor control reply.');
+    expect(await control.close()).toMatchObject({ state: 'closed', shellAlive: false, exitCode: 137 });
+  } finally { await f.stop(); }
+});
 it('refuses mismatched identity or oversized private-control responses without target signals', async () => {
   for (const reply of [JSON.stringify({ ...status, supervisorPid: 999 }) + '\n', 'x'.repeat(3000) + '\n']) {
     const f = await socketFixture(() => reply);

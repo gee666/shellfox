@@ -71,11 +71,13 @@ it.runIf(process.platform !== 'win32')('executes production C snapshot/cleanup c
   expect(result.stdout).toContain('failed frozen read restores groups');
   expect(result.stdout).toContain('persistent denial and failed rollback never commit');
   expect(result.stdout).toContain('birth/SID/group/credential changes');
+  expect(result.stdout).toContain('zombie and post-commit empty snapshots wait for direct-child exit');
+  expect(result.stdout).toContain('missing exit events and waitid errors retain ownership');
 }, 60000);
 
 it('restores reversible freezes after unreadable snapshots without relaxing identity or extending the deadline', async () => {
   const source = await readFile(sourcePath, 'utf8');
-  const cleanup = source.slice(source.indexOf('static bool cleanup_session('), source.indexOf('static void observe_shell('));
+  const cleanup = source.slice(source.indexOf('static bool cleanup_session('), source.indexOf('static bool authenticate_shell('));
   expect(cleanup).not.toContain('pass < 100');
   expect(cleanup.match(/deadline = now\(\) \+ FREEZE_SECONDS/g)).toHaveLength(1);
   for (const name of ['count', 'frozen_count']) {
@@ -85,6 +87,31 @@ it('restores reversible freezes after unreadable snapshots without relaxing iden
   expect(source).toContain('pid=%d errno=%d');
   expect(source).toContain('((a.pbi_flags ^ b.pbi_flags) & PROC_FLAG_PSUGID)');
   expect(source).toContain('!readable_member(&a) || !readable_member(&b)');
+});
+
+it('confirms the unreaped direct shell exit on both empty-session paths before publishing closed', async () => {
+  const source = await readFile(sourcePath, 'utf8');
+  const cleanup = source.slice(source.indexOf('static bool cleanup_session('), source.indexOf('static bool authenticate_shell('));
+  expect(cleanup.match(/result = confirm_shell_exit\(deadline\)/g)).toHaveLength(2);
+  expect(cleanup.match(/closed_state = true/g)).toHaveLength(1);
+  expect(cleanup).toContain('if (result) {\n        closed_state = true; last_reason = NULL;');
+  const confirm = source.slice(source.indexOf('static bool confirm_shell_exit('), source.indexOf('static bool cleanup_session('));
+  expect(confirm).toContain('while (now() < deadline)');
+  expect(confirm).toContain('observe_shell();');
+  expect(confirm).toContain('if (shell_exited) return true;');
+  expect(confirm).not.toContain('deadline =');
+  expect(confirm).not.toContain('shell_exited =');
+});
+
+it('authenticates readiness only after shell session/group establishment and exec', async () => {
+  const source = await readFile(sourcePath, 'utf8');
+  const startup = source.slice(source.indexOf('static bool start_shell('), source.indexOf('static void json_string('));
+  expect(startup.indexOf('setpgid(0, 0)')).toBeLessThan(startup.indexOf('write(ready[1], "S", 1)'));
+  expect(startup).toContain('getsid(0) != supervisor_pid');
+  expect(startup).toContain("read_byte(ready[0], &value, now() + 3.0) && value == 'S'");
+  expect(startup).toContain('return authenticate_shell(now() + 3.0)');
+  const main = source.slice(source.indexOf('int main('));
+  expect(main.indexOf('if (!start_shell(')).toBeLessThan(main.indexOf('client_fd = accept('));
 });
 
 it('strips child secrets and keeps status JSON off the PTY stream', async () => {
@@ -177,10 +204,12 @@ it.runIf(native)('native Darwin builds supervisor and verifies real PTY job-cont
     // Match packaged profile discovery, including macOS login startup helpers.
     // Each immediate close must pass on its first authenticated request.
     const zsh = await realpath('/bin/zsh');
-    for (let index = 0; index < 5; index++) {
+    for (let index = 0; index < 40; index++) {
       const login = await launch(zsh, ['-l', '-i']);
-      expect(await request(login.socket, login.nonce, 'CLOSE')).toMatchObject({ ok: true, state: 'closed', shellAlive: false });
-      await login.exit;
+      const result = await request(login.socket, login.nonce, 'CLOSE');
+      expect(result).toMatchObject({ ok: true, state: 'closed', shellAlive: false });
+      expect(result.exitCode).not.toBeNull();
+      expect(await login.exit).toBe(result.exitCode);
     }
   } finally {
     // Only authenticated owned supervisor control, never test cleanup by raw PID.
@@ -193,4 +222,4 @@ it.runIf(native)('native Darwin builds supervisor and verifies real PTY job-cont
       await rm(entry.directory, { recursive: true, force: true });
     }
   }
-}, 90000);
+}, 180000);

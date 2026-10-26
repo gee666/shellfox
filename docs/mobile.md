@@ -57,7 +57,7 @@ open ShellfoxMobile.xcworkspace
 
 Choose a development team in Xcode and run the app on a simulator or device. The local pod links the generated `Mobile.xcframework`; the same React Native screens and host protocol run on both platforms. iOS does not request a device-wide VPN entitlement or promise background terminal connectivity. On return to the foreground, it reconnects to the host-owned shells. APK installation is Android-only.
 
-The Xcode app version currently matches root `0.9.2`, build `9002`. Until iOS distribution is automated, update both Xcode configurations when changing the root release version. These sources have not been compiled on this Windows development machine. A Mac build and iOS device acceptance are still required. iOS is intentionally absent from GitHub release builds.
+The Xcode app version currently matches root `0.9.3`, build `9003`. Until iOS distribution is automated, update both Xcode configurations when changing the root release version. These sources have not been compiled on this Windows development machine. A Mac build and iOS device acceptance are still required. iOS is intentionally absent from GitHub release builds.
 
 ## Emulator and E2E
 
@@ -157,7 +157,7 @@ A real connection requires authenticated devices in the same supported tailnet, 
 - Headless Windows, Linux and macOS, each x64/arm64.
 - One universal Android APK with arm64-v8a and x86_64.
 
-Set these GitHub Actions secrets before pushing a release tag. No release has been created or published as part of this work:
+Set these GitHub Actions secrets before pushing a release tag. Keep production signing material in secrets and a secure backup, never in the repository:
 
 | Secret | Value |
 | --- | --- |
@@ -201,12 +201,12 @@ TypeScript tests cover release validation, numeric version ordering, untrusted U
 
 Verified locally on Windows with the bundled Android preview APK:
 
-- Root and mobile typechecks, including the isolated native fixture; the full unit suite passed 2,798 tests with 50 platform/prerequisite skips, using one worker on Windows.
-- 65 .NET native tests, desktop Tailscale offline tests, mobile Go discovery and pooled-transport tests, three native build-script contracts, and 32 packaging/security checks.
+- Root and mobile typechecks, including the isolated native fixture; the full unit suite passed 2,825 tests with 52 platform/prerequisite skips, using one worker on Windows.
+- 65 .NET native tests, desktop Tailscale offline tests, mobile Go discovery and pooled-transport tests, three native build-script contracts, and 43 packaging/security/driver checks.
 - Fourteen bundled-terminal Chromium checks, including input, Unicode, repeated Ctrl shortcuts, multi-character IME commits, function/modifier keys, bracketed paste, replay, resize, touch selection, stale callbacks, live theme changes, and blocked resource loading.
 - The isolated Android terminal fixture mounted the actual production WebView, rendered replay, accepted keyboard input, kept the key row above the IME, refit the terminal grid, opened and dismissed the keyboard from its button, and remounted without crashing. It also verified exclusive system/special keyboard toggling, exact F1/Ctrl+C bytes, native directory suggestions above the IME, path selection and caret position, and recursive-create Yes/No behavior. Its package is separate from the normal app, and its runner rejects any other APK package before installing.
 - Android API 35 emulator smoke with the actual installed APK. Native startup, compact Sessions and toggled search, Settings, device rename, font and accent/background persistence across force-stop/relaunch, and opening the genuine HTTPS Tailscale sign-in page passed. No credentials were entered or enrollment performed. The final crash/JS/Go error log was empty.
 
 Reproduce the Android smoke with `pnpm test:mobile:e2e --serial emulator-5554 --apk tmp/mobile-artifacts/shellfox-mobile-0.8.0-android-test.apk --browser`. It uses ADB and UI Automator, saves screenshots and redacted logs under `tmp/mobile-e2e/`, restores the device name and text size, and never signs into an account. A fresh emulator may need Chrome's first-run setup completed without an account.
 
-Authenticated mobile-to-host terminal/session E2E still requires Tailscale enrollment and host approval. Chromium tests are not proof of Android/iOS IME behavior over a real remote terminal. Network loss, mobile process restart during a command, approval/revocation, and multiple clients need real-device acceptance. APK upgrade installation with a production signing key and newer published release remains unverified. No release was published. iOS compilation, simulator execution, device behavior, and signing require a Mac and remain unverified.
+Authenticated mobile-to-host terminal/session E2E still requires Tailscale enrollment and host approval. Chromium tests are not proof of Android/iOS IME behavior over a real remote terminal. Network loss, mobile process restart during a command, approval/revocation, and multiple clients need real-device acceptance. APK upgrade installation with a production signing key and newer published release remains unverified. iOS compilation, simulator execution, device behavior, and signing require a Mac and remain unverified.

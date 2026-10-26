@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DOMParser } from '@xmldom/xmldom';
+import { controlBounds, needsKeyboardDismissal, revealControl, visibleControl } from './mobile-e2e-controls.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const options = process.argv.slice(2);
@@ -31,7 +32,7 @@ function nodes(xml) {
   const document = new DOMParser({ onError: () => {} }).parseFromString(xml, 'text/xml');
   return Array.from(document.getElementsByTagName('node')).map(node => ({
     text: node.getAttribute('text') ?? '', label: node.getAttribute('content-desc') ?? '',
-    resource: node.getAttribute('resource-id') ?? '', type: node.getAttribute('class') ?? '',
+    resource: node.getAttribute('resource-id') ?? '', type: node.getAttribute('class') ?? '', package: node.getAttribute('package') ?? '',
     enabled: node.getAttribute('enabled') !== 'false', selected: node.getAttribute('selected') === 'true', bounds: node.getAttribute('bounds') ?? '',
   }));
 }
@@ -52,13 +53,12 @@ async function waitFor(predicate, description, timeout = 45000) {
   throw new Error(`Timed out waiting for ${description}.`);
 }
 function control(tree, text) { return tree.find(node => node.label === text) ?? tree.find(node => node.text === text); }
-async function find(text, timeout) { return waitFor(tree => control(tree, text), text, timeout); }
+async function find(text, timeout) { return waitFor(tree => visibleControl(tree, text), text, timeout); }
 function tapNode(node) {
   assert(node.enabled, 'The requested UI control is disabled.');
-  const match = /^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$/.exec(node.bounds);
-  assert(match, 'The UI control has no usable bounds.');
-  const [, left, top, right, bottom] = match.map(Number);
-  assert(right > left && bottom > top, 'The UI control is not visible.');
+  const bounds = controlBounds(node);
+  assert(bounds, 'The UI control is not visible.');
+  const { left, top, right, bottom } = bounds;
   shell('input', 'tap', String(Math.round((left + right) / 2)), String(Math.round((top + bottom) / 2)));
 }
 async function tap(text) { tapNode(await find(text)); await sleep(350); }
@@ -75,14 +75,35 @@ async function launch() {
 }
 async function settings() { await tap('Settings'); await find('TAILSCALE'); }
 async function reveal(text) {
-  for (let i = 0; i < 6; i++) {
-    const found = control(dump(), text); if (found) return found;
+  return revealControl(text, { read: dump, scroll: direction => {
     const dimensions = [...shell('wm', 'size').matchAll(/(?:Physical|Override) size: (\d+)x(\d+)/g)].at(-1);
     assert(dimensions, 'Could not read screen dimensions.');
     const width = Number(dimensions[1]), height = Number(dimensions[2]);
-    shell('input', 'swipe', String(Math.round(width / 2)), String(Math.round(height * .75)), String(Math.round(width / 2)), String(Math.round(height * .35)), '400');
+    const [start, end] = direction === 'forward' ? [.75, .35] : [.35, .75];
+    shell('input', 'swipe', String(Math.round(width / 2)), String(Math.round(height * start)), String(Math.round(width / 2)), String(Math.round(height * end)), '400');
+  } });
+}
+async function tapRevealed(text) { await reveal(text); await tap(text); }
+async function readColor(title) {
+  await tapRevealed(title);
+  const field = await find('Hex color');
+  assert(/^#[0-9a-fA-F]{6}$/.test(field.text), 'Could not preserve the current custom color.');
+  const value = field.text.toLowerCase();
+  await tap('Cancel');
+  return value;
+}
+async function restoreTheme() {
+  for (const label of originalColors) await tapRevealed(label);
+  for (const { title, value } of originalCustomColors) {
+    await tapRevealed(title);
+    tapNode(await find('Hex color'));
+    shell('input', 'keycombination', 'KEYCODE_CTRL_LEFT', 'KEYCODE_A');
+    shell('input', 'text', `'${value}'`);
+    await waitFor(tree => control(tree, 'Hex color')?.text.toLowerCase() === value, 'original custom color draft');
+    if (needsKeyboardDismissal(visibleControl(dump(), 'Apply'), shell('dumpsys', 'input_method'))) shell('input', 'keyevent', 'KEYCODE_BACK');
+    await tap('Apply');
+    assert.equal(await readColor(title), value, 'Original custom color was not restored.');
   }
-  throw new Error(`Could not reach ${text}.`);
 }
 async function screenshot(name) { writeFileSync(path.join(output, `${name}.png`), adb(['exec-out', 'screencap', '-p'], 20000, 'buffer')); }
 async function rename(hostname) {
@@ -92,8 +113,9 @@ async function rename(hostname) {
   tapNode(field);
   shell('input', 'keycombination', 'KEYCODE_CTRL_LEFT', 'KEYCODE_A');
   shell('input', 'text', hostname);
-  // Hide the IME so the save button is visible on short screens.
-  shell('input', 'keyevent', 'KEYCODE_BACK');
+  // Only dismiss an IME if Save is obscured. Floating/hardware keyboards can
+  // leave Save visible, and an unnecessary Back closes the prompt itself.
+  if (needsKeyboardDismissal(visibleControl(dump(), 'Save'), shell('dumpsys', 'input_method'))) shell('input', 'keyevent', 'KEYCODE_BACK');
   await tap('Save');
   await waitFor(tree => !tree.some(node => node.type === 'android.widget.EditText' && node.label === 'Hostname') && tree.some(node => matches(node, hostname)), 'saved device name');
 }
@@ -116,7 +138,7 @@ function redact(text) {
 }
 
 let originalName, originalSize, preferencesChanged = false, nameChanged = false;
-let originalColors = [], colorsChanged = false;
+let originalColors = [], originalCustomColors = [], colorsChanged = false;
 let failure;
 const logSince = shell('date', "'+%m-%d %H:%M:%S.000'").trim();
 try {
@@ -149,15 +171,35 @@ try {
   await screenshot('font-persisted');
   await tap(changedSize > originalSize ? '−' : '+'); await find(`${originalSize} px`); preferencesChanged = false;
   console.log('PASS Android initial sessions, signed-out settings and font persistence.');
-  await launch(); await settings(); await reveal('Use #4ade80');
-  originalColors = dump().filter(node => node.selected && /^(?:Use #[0-9a-f]{6}|Use background #[0-9a-f]{6}|Use custom (?:accent|background) #[0-9a-f]{6})$/.test(node.label)).map(node => node.label);
-  assert.equal(originalColors.length, 2, 'Could not preserve both selected theme colors.');
+  await launch(); await settings();
+  const selectedColors = new Set();
+  // A short viewport may omit an entire color section from the accessibility
+  // tree, so inspect each section before changing either selection.
+  for (const section of ['Save custom accent color', 'Save custom background color']) {
+    await reveal(section);
+    for (const node of dump()) {
+      if (node.selected && /^(?:Use #[0-9a-f]{6}|Use background #[0-9a-f]{6}|Use custom (?:accent|background) #[0-9a-f]{6})$/.test(node.label)) selectedColors.add(node.label);
+    }
+  }
+  originalColors = [...selectedColors];
+  for (const [title, pattern] of [
+    ['Accent color', /^Use (?:#[0-9a-f]{6}|custom accent #[0-9a-f]{6})$/],
+    ['Background color', /^Use (?:background #[0-9a-f]{6}|custom background #[0-9a-f]{6})$/],
+  ]) {
+    // A valid unsaved custom color has no selected preset/saved swatch. Read its
+    // exact current hex through the picker and cancel without changing it.
+    if (!originalColors.some(label => pattern.test(label))) originalCustomColors.push({ title, value: await readColor(title) });
+  }
+  assert.equal(originalColors.length + originalCustomColors.length, 2, 'Could not preserve both selected theme colors.');
   colorsChanged = true;
-  await tap('Use #4ade80'); await tap('Use background #ffffff');
-  await launch(); await settings(); await reveal('Use #4ade80');
-  for (const label of ['Use #4ade80', 'Use background #ffffff']) assert(control(dump(), label)?.selected, 'Theme selection did not persist.');
+  await tapRevealed('Use #4ade80'); await tapRevealed('Use background #ffffff');
+  await launch(); await settings();
+  for (const label of ['Use #4ade80', 'Use background #ffffff']) {
+    await reveal(label);
+    assert(visibleControl(dump(), label)?.selected, 'Theme selection did not persist.');
+  }
   await screenshot('light-theme-persisted');
-  for (const label of originalColors) await tap(label);
+  await restoreTheme();
   colorsChanged = false;
   console.log('PASS Accent/background selection and persistence.');
   // Native startup is required for rename and browser login, but not offline UI.
@@ -194,12 +236,15 @@ try {
   await find('TAILSCALE'); await screenshot('settings-restored');
 } catch (cause) {
   failure = cause;
-  try { if (/mCurrentFocus=.*com\.shellfox\.mobile/.test(shell('dumpsys', 'window', 'windows'))) await screenshot('failure'); }
-  catch { /* Crash logs below remain useful if screenshots are unavailable. */ }
+  try {
+    const tree = dump();
+    writeFileSync(path.join(output, 'failure-ui.json'), redact(JSON.stringify(tree, null, 2)));
+    if (tree.some(node => node.package === app)) await screenshot('failure');
+  } catch { /* Crash logs below remain useful if screenshots are unavailable. */ }
 }
 finally {
-  if (colorsChanged && originalColors.length === 2) {
-    try { await launch(); await settings(); for (const label of originalColors) tapNode(await reveal(label)); }
+  if (colorsChanged && originalColors.length + originalCustomColors.length === 2) {
+    try { await launch(); await settings(); await restoreTheme(); }
     catch { console.error('Could not restore theme colors automatically. Restore them in Settings.'); }
   }
   if (preferencesChanged && originalName && originalSize !== undefined) {

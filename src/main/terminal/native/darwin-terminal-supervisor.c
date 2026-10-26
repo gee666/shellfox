@@ -345,6 +345,28 @@ static bool rollback_groups(void) {
     }
     return ok;
 }
+static void observe_shell(void) {
+    if (shell_pid <= 0 || shell_exited) return;
+    siginfo_t event;
+    if (!child_status(shell_pid, &event, false)) { last_reason = "Shell child identity is unavailable."; return; }
+    if (exited_event(&event)) {
+        shell_exited = true;
+        shell_exit_code = event.si_code == CLD_EXITED ? event.si_status : 128 + event.si_status;
+    }
+}
+static bool confirm_shell_exit(double deadline) {
+    /* SZOMB/empty libproc snapshots can precede the waitable exit event. Keep
+     * the direct child unreaped and confirm its real status within this phase's
+     * existing budget. No absent PID or session snapshot invents an exit code. */
+    if (shell_pid <= 0) return true; /* Startup failed before a child existed. */
+    while (now() < deadline) {
+        observe_shell();
+        if (shell_exited) return true;
+        sleep_tick();
+    }
+    last_reason = "Direct shell child exit was not confirmed before the cleanup deadline; supervisor retained for retry.";
+    return false;
+}
 static bool cleanup_session(void) {
     closing_state = true;
     struct member *members = calloc(MAX_PIDS, sizeof(*members));
@@ -364,7 +386,7 @@ static bool cleanup_session(void) {
             if (!rollback_groups()) { rollback_failed = true; last_reason = "Snapshot refused and frozen groups could not be restored; supervisor retained for retry."; goto finish; }
             sleep_tick(); continue;
         }
-        if (count == 0) { closed_state = true; last_reason = NULL; free(members); return true; }
+        if (count == 0) { result = confirm_shell_exit(deadline); goto finish; }
         bool added = false;
         for (size_t i = 0; i < count; i++) {
             struct guardian *g = find_guardian(members[i].group);
@@ -421,26 +443,19 @@ static bool cleanup_session(void) {
     }
     while (now() < deadline) {
         size_t count;
-        if (session_snapshot(members, &count, deadline) && count == 0) { closed_state = true; last_reason = NULL; result = true; break; }
+        if (session_snapshot(members, &count, deadline) && count == 0) { result = confirm_shell_exit(deadline); goto finish; }
         sleep_tick();
     }
     if (!result) last_reason = "Executing owned session members remain; closure is not confirmed.";
 finish:
     free(members);
-    if (!result) {
+    if (result) {
+        closed_state = true; last_reason = NULL;
+    } else {
         /* Even after commit, surviving non-killed groups must be resumed. */
         if (!rollback_failed && !rollback_groups()) last_reason = committed ? "Cleanup was partial and a surviving group could not be restored; supervisor retained for retry." : "Cleanup refused and a frozen group could not be restored; supervisor retained for retry.";
     }
     return result;
-}
-static void observe_shell(void) {
-    if (shell_pid <= 0 || shell_exited) return;
-    siginfo_t event;
-    if (!child_status(shell_pid, &event, false)) { last_reason = "Shell child identity is unavailable."; return; }
-    if (exited_event(&event)) {
-        shell_exited = true;
-        shell_exit_code = event.si_code == CLD_EXITED ? event.si_status : 128 + event.si_status;
-    }
 }
 static bool authenticate_shell(double deadline) {
     while (now() < deadline) {
