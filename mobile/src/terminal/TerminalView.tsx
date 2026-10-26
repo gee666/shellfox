@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { TerminalBridge, type MobileTerminalApi, type SubscribeTerminal } from './bridge';
-import { allowTerminalNavigation, controlInput, parsePageMessage } from './protocol';
+import { TerminalBridge, type MobileTerminalApi, type SubscribeTerminal, type TerminalBridgeState } from './bridge';
+import { allowTerminalNavigation, emptyModifiers, parsePageMessage, type TerminalKey, type TerminalModifiers } from './protocol';
 import { TERMINAL_HTML } from './terminal-html';
 import { TerminalKeys } from './TerminalKeys';
 import { useTheme } from '../theme';
 import { showTerminalKeyboard } from './native-keyboard';
+import { SpecialKeyboard } from './SpecialKeyboard';
+import { useKeyboardOverlap } from './useKeyboardOverlap';
 
 export interface TerminalViewProps {
   api: MobileTerminalApi;
@@ -17,6 +19,7 @@ export interface TerminalViewProps {
   /** Change after a remote reconnect to retire the old delivery view. */
   connectionEpoch: string | number;
   onError?: (error: Error) => void;
+  onState?: (state: TerminalBridgeState) => void;
 }
 const source = { html: TERMINAL_HTML, baseUrl: 'about:blank' };
 export function TerminalView({
@@ -26,48 +29,43 @@ export function TerminalView({
   fontSize,
   connectionEpoch,
   onError,
+  onState,
 }: TerminalViewProps) {
   const { colors, palette } = useTheme();
   const web = useRef<WebView>(null);
   const container = useRef<React.ComponentRef<typeof View>>(null);
-  const [keyboardInset, setKeyboardInset] = useState(0);
-  const [keyboardOffset, setKeyboardOffset] = useState(0);
-  const measureKeyboardInset = useCallback((top = Keyboard.metrics()?.screenY) => {
-    container.current?.measureInWindow((_x, y, _width, height) => {
-      if (Platform.OS === 'ios') { setKeyboardOffset(y); return; }
-      // Android 15 edge-to-edge keeps the window full-height even with adjustResize.
-      // Measure overlap so already-resized parents never lose height twice.
-      setKeyboardInset(top === undefined || !Keyboard.isVisible() ? 0 : Math.max(0, y + height - top));
-    });
-  }, []);
+  const { keyboardInset, keyboardOffset, keyboardVisible, measureKeyboardInset } = useKeyboardOverlap(container);
   const bridge = useRef<TerminalBridge | null>(null);
   const { accent, background } = palette;
-  const callbacks = useRef({ onError, fontSize, accent, background });
-  callbacks.current = { onError, fontSize, accent, background };
+  const callbacks = useRef({ onError, onState, fontSize, accent, background });
+  callbacks.current = { onError, onState, fontSize, accent, background };
   const [viewId, setViewId] = useState<string | null>(null);
-  const [control, setControl] = useState(false);
-  const controlRef = useRef(false);
+  const [modifiers, setModifiers] = useState<TerminalModifiers>(emptyModifiers);
+  const modifiersRef = useRef<TerminalModifiers>(emptyModifiers);
+  const [keyboardMode, setKeyboardMode] = useState<'closed' | 'system' | 'special'>('closed');
+  const keyboardModeRef = useRef(keyboardMode);
+  const changeKeyboardMode = (mode: typeof keyboardMode) => {
+    keyboardModeRef.current = mode;
+    setKeyboardMode(mode);
+  };
   const [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState('');
-  const [keyboardVisible, setKeyboardVisible] = useState(Keyboard.isVisible());
   const insets = useSafeAreaInsets();
   const report = useCallback((error: Error) => callbacks.current.onError?.(error), []);
 
   useEffect(() => {
-    measureKeyboardInset();
-    const show = Keyboard.addListener('keyboardDidShow', event => {
-      setKeyboardVisible(true);
-      measureKeyboardInset(event.endCoordinates.screenY);
-    });
-    const hide = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardVisible(false);
-      setKeyboardInset(0);
-    });
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, [measureKeyboardInset]);
+    // A terminal tap can summon the IME without using the accessory toggle.
+    if (keyboardVisible) {
+      keyboardModeRef.current = 'system';
+      setKeyboardMode('system');
+    } else {
+      setKeyboardMode(mode => {
+        const next = mode === 'system' ? 'closed' : mode;
+        keyboardModeRef.current = next;
+        return next;
+      });
+    }
+  }, [keyboardVisible]);
   useEffect(() => {
     if (!viewId) return;
     const current = new TerminalBridge({
@@ -79,16 +77,17 @@ export function TerminalView({
       theme: { accentColor: callbacks.current.accent, backgroundColor: callbacks.current.background },
       send: (message) => web.current?.postMessage(JSON.stringify(message)),
       onError: report,
+      onState: state => callbacks.current.onState?.(state),
       onSelection: setSelection,
       onFocus: () => {
-        if (Platform.OS === 'android') void showTerminalKeyboard().catch(report);
+        if (Platform.OS === 'android' && keyboardModeRef.current === 'system') void showTerminalKeyboard().catch(report);
       },
     });
     bridge.current = current;
     setSelection('');
     setSelecting(false);
-    controlRef.current = false;
-    setControl(false);
+    modifiersRef.current = emptyModifiers;
+    setModifiers(emptyModifiers);
     current.start();
     return () => {
       bridge.current = null;
@@ -109,21 +108,34 @@ export function TerminalView({
         setViewId(message.viewId);
         return;
       }
-      if (message.type === 'input')
-        bridge.current?.receive({ ...message, data: controlInput(message.data, controlRef.current) });
-      else bridge.current?.receive(message);
+      bridge.current?.receive(message);
     },
     [report],
   );
   const toggleKeyboard = () => {
-    if (keyboardVisible) {
+    if (keyboardMode === 'system' || keyboardVisible) {
+      changeKeyboardMode('closed');
       bridge.current?.focus(false);
       Keyboard.dismiss();
     } else {
+      changeKeyboardMode('system');
       web.current?.requestFocus();
       bridge.current?.focus(true);
     }
   };
+  const toggleSpecialKeyboard = () => {
+    changeKeyboardMode(keyboardMode === 'special' ? 'closed' : 'special');
+    bridge.current?.focus(false);
+    Keyboard.dismiss();
+  };
+  const toggleModifier = (modifier: keyof TerminalModifiers) => {
+    const next = { ...modifiersRef.current, [modifier]: !modifiersRef.current[modifier] };
+    modifiersRef.current = next;
+    setModifiers(next);
+    bridge.current?.setModifiers(next);
+  };
+  const sendKey = (key: TerminalKey) => bridge.current?.key({ key, modifiers: modifiersRef.current });
+  const specialKeyboard = keyboardMode === 'special' && !keyboardVisible;
   return (
     <View ref={container} onLayout={() => measureKeyboardInset()} style={[styles.container, { backgroundColor: colors.bg }]}>
       <KeyboardAvoidingView style={[styles.container, { paddingBottom: keyboardInset }]}
@@ -173,24 +185,30 @@ export function TerminalView({
           }}
         />
         <TerminalKeys
-          bottomInset={keyboardVisible ? 0 : insets.bottom}
-          control={control}
+          bottomInset={keyboardVisible || specialKeyboard ? 0 : insets.bottom}
+          control={modifiers.ctrl}
           selecting={selecting}
           selection={selection}
-          onControl={() => {
-            controlRef.current = !controlRef.current;
-            setControl(controlRef.current);
-          }}
+          onControl={() => toggleModifier('ctrl')}
           onSelect={() => {
             const next = !selecting;
             setSelecting(next);
             bridge.current?.select(next);
-            if (next) Keyboard.dismiss();
+            if (next) {
+              changeKeyboardMode('closed');
+              bridge.current?.focus(false);
+              Keyboard.dismiss();
+            }
           }}
-          onKey={(data) => bridge.current?.input(controlInput(data, controlRef.current))}
+          onKey={sendKey}
+          systemKeyboard={keyboardVisible || keyboardMode === 'system'}
+          specialKeyboard={keyboardMode === 'special'}
           onKeyboard={toggleKeyboard}
+          onSpecialKeyboard={toggleSpecialKeyboard}
           onPaste={(text) => bridge.current?.paste(text)}
         />
+        {specialKeyboard && <SpecialKeyboard modifiers={modifiers} onModifier={toggleModifier}
+          onKey={sendKey} bottomInset={insets.bottom} />}
       </KeyboardAvoidingView>
     </View>
   );

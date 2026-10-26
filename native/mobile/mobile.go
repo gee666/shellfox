@@ -24,15 +24,16 @@ var singleton struct {
 }
 
 type node struct {
-	server    *tsnet.Server
-	client    *local.Client
-	ctx       context.Context
-	cancel    context.CancelFunc
-	requests  chan struct{}
-	polls     chan struct{}
-	directory string
-	hostname  string
-	discovery *hostDiscovery
+	server     *tsnet.Server
+	client     *local.Client
+	ctx        context.Context
+	cancel     context.CancelFunc
+	requests   chan struct{}
+	polls      chan struct{}
+	directory  string
+	hostname   string
+	discovery  *hostDiscovery
+	transports transportPool
 }
 
 // Start opens the persistent node in an absolute, app-private directory.
@@ -138,6 +139,7 @@ func stopLocked() error {
 	}
 	singleton.node = nil
 	n.cancel()
+	n.transports.close()
 	if err := n.server.Close(); err != nil {
 		return errors.New("Cannot stop network")
 	}

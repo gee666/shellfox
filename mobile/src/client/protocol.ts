@@ -42,8 +42,8 @@ export function parseJson(json: string): unknown {
   return JSON.parse(json);
 }
 
-/** Cancel JS work even if an in-flight native request cannot be cancelled. */
-export function untilStopped<T>(work: Promise<T>, signal: AbortSignal, timeoutMs = 30_000): Promise<T> {
+/** Native has a 30s deadline. Allow its rejection to cross the bridge before the JS watchdog. */
+export function untilStopped<T>(work: Promise<T>, signal: AbortSignal, timeoutMs = 35_000): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const stopped = () => finish(() => reject(new Error('Remote request stopped.')));
     const timer = setTimeout(stopped, timeoutMs);

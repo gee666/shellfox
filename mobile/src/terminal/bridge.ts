@@ -1,23 +1,26 @@
 import type { Result, TerminalApi, TerminalDataEvent, TerminalEvent } from '../../../src/shared/contracts';
 import { responseSchemas, terminalEventSchema } from '../../../src/shared/schemas';
 import { deliveryOperation, detachAttachment, trackAttachment } from './delivery-queue';
-import { terminalFontSize, utf8Size, type HostMessage, type PageMessage, type TerminalThemeInputs } from './protocol';
+import { TerminalOperationError, unwrapTerminalResult as unwrap } from './errors';
+import { emptyModifiers, terminalFontSize, terminalKeyEventSchema, terminalModifiersSchema, utf8Size, type HostMessage, type PageMessage, type TerminalKeyEvent, type TerminalModifiers, type TerminalThemeInputs } from './protocol';
 
 export type MobileTerminalApi = Pick<TerminalApi, 'attachTerminal' | 'writeTerminal' | 'resizeTerminal' | 'acknowledgeTerminal' | 'detachTerminal'>;
 export type SubscribeTerminal = (listener: (event: TerminalEvent) => void) => () => void;
+export type TerminalBridgeState = 'attaching' | 'attached' | 'closed' | 'reconnecting';
 interface Options {
   api: MobileTerminalApi; subscribeTerminal: SubscribeTerminal; tabId: string; viewId: string; fontSize: number;
   send: (message: HostMessage) => void; onError: (error: Error) => void;
   onSelection?: (text: string) => void;
   onFocus?: () => void;
+  onState?: (state: TerminalBridgeState) => void;
   theme?: TerminalThemeInputs;
 }
 let nextEpoch = 0;
-const unwrap = <T>(result: Result<T>): T => { if (!result.ok) throw new Error(result.error.message); return result.value; };
 
 /** Owns one delivery view. Only a matching xterm render callback can release output credit. */
 export class TerminalBridge {
   private alive = true;
+  private state: TerminalBridgeState | null = null;
   private epoch = '';
   private generation: string | null = null;
   private retired = new Set<string>();
@@ -26,6 +29,7 @@ export class TerminalBridge {
   private open = false;
   private received = 0;
   private consumed = 0;
+  private pendingAck: { epoch: string; sequence: number } | null = null;
   private ticket = 0;
   private pending: { ticket: number; sequence: number } | null = null;
   private queue: TerminalDataEvent[] = [];
@@ -35,6 +39,8 @@ export class TerminalBridge {
   private earlyOverflow = false;
   private inputQueue: Promise<void> = Promise.resolve();
   private inputBytes = 0;
+  private pendingInput: { data: string; bytes: number; epoch: string } | null = null;
+  private modifiers: TerminalModifiers = { ...emptyModifiers };
   private size: { cols: number; rows: number } | null = null;
   private nextSize: { cols: number; rows: number } | null = null;
   private resizing = false;
@@ -61,6 +67,10 @@ export class TerminalBridge {
   private send(message: HostMessage): void { if (this.alive) this.options.send(message); }
   private identity() { return { viewId: this.options.viewId, epoch: this.epoch }; }
   private report(error: unknown): void { if (this.alive) this.options.onError(error instanceof Error ? error : new Error(String(error))); }
+  private setState(state: TerminalBridgeState): void {
+    if (!this.alive || this.state === state) return;
+    this.state = state; this.options.onState?.(state);
+  }
   private controlResult<T>(result: Result<T>, epoch: string): T {
     if (!result.ok && result.error.code === 'TARGET_LOST' && epoch === this.epoch) this.recover();
     return unwrap(result);
@@ -85,6 +95,17 @@ export class TerminalBridge {
     if (utf8Size(data) > 65000 || data.includes('\0')) { this.report(new Error('Paste a smaller section of text.')); return; }
     if (this.attached && this.open && data) this.send({ type: 'paste', ...this.identity(), data });
   }
+  key(event: TerminalKeyEvent): void {
+    const parsed = terminalKeyEventSchema.safeParse(event);
+    if (!parsed.success) { this.report(new Error('Invalid terminal key.')); return; }
+    if (this.alive && this.attached && this.open) this.send({ type: 'key', ...this.identity(), event: parsed.data });
+  }
+  setModifiers(modifiers: TerminalModifiers): void {
+    const parsed = terminalModifiersSchema.safeParse(modifiers);
+    if (!parsed.success) { this.report(new Error('Invalid terminal modifiers.')); return; }
+    this.modifiers = parsed.data;
+    if (this.attached) this.send({ type: 'modifiers', ...this.identity(), modifiers: this.modifiers });
+  }
   receive(message: PageMessage): void {
     if (!this.alive || message.type === 'ready' || message.viewId !== this.options.viewId || message.epoch !== this.epoch || !this.attached) return;
     switch (message.type) {
@@ -104,6 +125,7 @@ export class TerminalBridge {
   }
   private async attach(): Promise<void> {
     if (!this.alive || this.attaching) return;
+    this.setState(this.state ? 'reconnecting' : 'attaching');
     this.attaching = true; this.attached = false; this.control = false; this.nextSize = null; this.focusPending = false;
     this.epoch = String(++nextEpoch); this.pending = null;
     this.queue = []; this.queuedBytes = 0; this.early = []; this.earlyBytes = 0; this.earlyOverflow = false;
@@ -132,8 +154,10 @@ export class TerminalBridge {
       this.repaint = attachment.truncated && !attachment.snapshot && this.open;
       this.send({ type: 'reset', ...this.identity(), cols: attachment.cols, rows: attachment.rows, fontSize: this.fontSize });
       if (this.options.theme) this.send({ type: 'theme', ...this.identity(), ...this.options.theme });
+      this.send({ type: 'modifiers', ...this.identity(), modifiers: this.modifiers });
       if (this.selecting) this.send({ type: 'select', ...this.identity(), enabled: true });
       this.options.onSelection?.(''); this.attached = true;
+      this.setState(this.open ? 'attached' : 'closed');
       const ticket = ++this.ticket;
       this.pending = { ticket, sequence: attachment.lastSequence };
       this.send({ type: 'output', ...this.identity(), ticket, data: attachment.chunks.map(c => c.data).join(''), historical: true, fit: true });
@@ -141,7 +165,7 @@ export class TerminalBridge {
       this.attaching = false;
       if (this.earlyOverflow) { this.recover(); return; }
       for (const event of early) { if (!this.attached) break; this.apply(event); }
-    } catch (error) { this.attached = false; this.control = false; this.report(error); }
+    } catch (error) { this.attached = false; this.control = false; this.setState('reconnecting'); this.report(error); }
     finally { this.attaching = false; }
   }
   private event(raw: unknown): void {
@@ -160,9 +184,9 @@ export class TerminalBridge {
   private apply(event: TerminalEvent): void {
     if (event.type === 'activity') return;
     if (event.generation !== this.generation) { if (!this.retired.has(event.generation)) this.recover(); return; }
-    if (event.type === 'error') { this.report(new Error(event.error.message)); this.recover(); return; }
+    if (event.type === 'error') { this.report(new TerminalOperationError(event.error)); this.recover(); return; }
     if (event.type === 'exit') {
-      this.open = false; this.control = false;
+      this.open = false; this.control = false; this.setState('closed');
       if (event.lastSequence > this.received) this.recover();
       return;
     }
@@ -185,16 +209,19 @@ export class TerminalBridge {
   private async acknowledge(sequence: number): Promise<void> {
     const epoch = this.epoch, generation = this.generation;
     if (!this.alive || !this.attached || !generation) return;
+    if (this.pendingAck?.epoch === epoch) { this.pendingAck.sequence = Math.max(this.pendingAck.sequence, sequence); return; }
+    const receipt = { epoch, sequence }; this.pendingAck = receipt;
     try {
       await deliveryOperation(this.options.api, this.options.tabId, async () => {
+        if (this.pendingAck === receipt) this.pendingAck = null;
         if (!this.alive || !this.attached || epoch !== this.epoch) return;
-        unwrap(responseSchemas.acknowledgeTerminal.parse(await this.options.api.acknowledgeTerminal({ tabId: this.options.tabId, generation, sequence })));
+        unwrap(responseSchemas.acknowledgeTerminal.parse(await this.options.api.acknowledgeTerminal({ tabId: this.options.tabId, generation, sequence: receipt.sequence })));
       });
     } catch (error) { if (epoch === this.epoch) { this.report(error); this.recover(); } }
   }
   private recover(): void {
     if (!this.alive || this.recovery) return;
-    this.attached = false; this.control = false;
+    this.attached = false; this.control = false; this.setState('reconnecting');
     this.recovery = setTimeout(() => { this.recovery = null; void this.attach(); }, 250);
   }
   input(data: string): void {
@@ -203,20 +230,26 @@ export class TerminalBridge {
     const bytes = utf8Size(data);
     if (this.inputBytes + bytes > 65536) { this.report(new Error('Paste a smaller section of text.')); return; }
     this.inputBytes += bytes;
+    if (this.pendingInput?.epoch === epoch) {
+      this.pendingInput.data += data; this.pendingInput.bytes += bytes; return;
+    }
+    // Combine only adjacent writes not yet dispatched. No timer, replay or extra input.
+    const batch = { data, bytes, epoch }; this.pendingInput = batch;
     this.inputQueue = this.inputQueue.then(async () => {
+      if (this.pendingInput === batch) this.pendingInput = null;
       if (!this.alive || !this.attached || epoch !== this.epoch) return;
-      const result = responseSchemas.writeTerminal.parse(await this.options.api.writeTerminal({ tabId: this.options.tabId, generation, data }));
+      const result = responseSchemas.writeTerminal.parse(await this.options.api.writeTerminal({ tabId: this.options.tabId, generation, data: batch.data }));
       this.controlResult(result, epoch); if (epoch === this.epoch) this.control = true;
     }).catch(error => {
       if (epoch === this.epoch) { this.control = false; this.report(error); }
-    }).finally(() => { this.inputBytes -= bytes; });
+    }).finally(() => { this.inputBytes -= batch.bytes; });
   }
   private resize(size: { cols: number; rows: number }): void {
     const generation = this.generation, epoch = this.epoch;
     if (!this.alive || !this.attached || !this.open || !generation) return;
     this.nextSize = size;
     if (this.resizing) return;
-    this.resizing = true;
+    this.resizing = true; this.pendingInput = null;
     // Coalesce keyboard animation sizes and share input ordering with the lease heartbeat.
     this.inputQueue = this.inputQueue.then(async () => {
       if (!this.alive || !this.attached || epoch !== this.epoch || !this.nextSize) return;

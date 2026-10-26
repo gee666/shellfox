@@ -7,8 +7,6 @@ export interface PromptConfig {
   label: string;
   initial: string;
   submit: (value: string) => Promise<void>;
-  submitLabel?: string;
-  secondary?: { title: string; action: (value: string) => Promise<void> };
 }
 export function Prompt({ config, onClose }: { config: PromptConfig; onClose: () => void }) {
   const { colors, styles } = useUi();
@@ -64,7 +62,7 @@ export function Prompt({ config, onClose }: { config: PromptConfig; onClose: () 
               </View>
               <View style={styles.grow}>
                 <Button
-                  title={busy ? 'Saving...' : (config.submitLabel ?? 'Save')}
+                  title={busy ? 'Saving...' : 'Save'}
                   disabled={busy || !value.trim()}
                   onPress={() => {
                     void run(() => config.submit(value.trim()));
@@ -72,17 +70,6 @@ export function Prompt({ config, onClose }: { config: PromptConfig; onClose: () 
                 />
               </View>
             </View>
-            {config.secondary && (
-              <Button
-                title={config.secondary.title}
-                subtle
-                disabled={busy}
-                onPress={() => {
-                  const secondary = config.secondary;
-                  if (secondary) void run(() => secondary.action(value.trim()));
-                }}
-              />
-            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

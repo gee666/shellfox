@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { PageKeyboard } from './page-keyboard';
 import { hostMessageSchema, type PageMessage } from './protocol';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from '../../../src/renderer/theme';
 
@@ -8,6 +9,7 @@ type NativeWindow = Window & { ReactNativeWebView?: { postMessage: (data: string
 const viewId = `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let epoch = '', terminal: Terminal | null = null, fit: FitAddon | null = null;
 let historical = false, writing = false, selecting = false;
+let keyboard: PageKeyboard | null = null;
 let fitted = '', fitFrame = 0, fitPending = false;
 let theme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
 const host = document.getElementById('terminal');
@@ -42,7 +44,7 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   fitted = ''; historical = true; writing = true; selecting = false; fitPending = false;
   const term = new Terminal({ cols, rows, fontSize, fontFamily: 'Menlo, Consolas, monospace',
     scrollback: 3000, convertEol: false, cursorBlink: true, allowProposedApi: false,
-    theme,
+    theme, macOptionIsMeta: true,
     linkHandler: { activate: () => undefined, allowNonHttpProtocols: false },
   });
   terminal = term; fit = new FitAddon(); term.loadAddon(fit); term.open(container);
@@ -53,7 +55,9 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
     textarea.spellcheck = false;
   }
   if (focused) term.focus();
-  term.onData(data => { if (!historical && data && !data.includes('\0')) send({ type: 'input', ...identity(), data }); });
+  keyboard = new PageKeyboard(term, data => {
+    if (!historical && data && !data.includes('\0')) send({ type: 'input', ...identity(), data });
+  });
   term.onSelectionChange(() => send({ type: 'selection', ...identity(), text: term.getSelection().slice(0, 65536) }));
 }
 const seen = new WeakSet<MessageEvent>();
@@ -92,7 +96,9 @@ function receive(event: MessageEvent) {
         container.style.backgroundColor = message.backgroundColor;
         break;
       }
-      case 'paste': terminal.paste(message.data); break;
+      case 'paste': keyboard?.paste(message.data); break;
+      case 'key': keyboard?.key(message.event); break;
+      case 'modifiers': keyboard?.setModifiers(message.modifiers); break;
       case 'focus':
         if (message.focused) {
           terminal.focus();

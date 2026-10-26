@@ -51,11 +51,22 @@ async function waitFor(check, description) {
   throw new Error(`Timed out waiting for ${description}`);
 }
 const control = (tree, label) => tree.find(node => node.label === label);
-async function tap(label) {
-  const node = await waitFor(tree => control(tree, label), label);
+function tapNode(node) {
   const bounds = node.bounds.match(/\d+/g)?.map(Number);
   assert(bounds?.length === 4, 'Control has no bounds');
   shell('input', 'tap', `${Math.round((bounds[0] + bounds[2]) / 2)}`, `${Math.round((bounds[1] + bounds[3]) / 2)}`);
+}
+async function tap(label) { tapNode(await waitFor(tree => control(tree, label), label)); }
+async function fillDirectory(value) {
+  assert(/^[~A-Za-z0-9_./-]+$/.test(value), 'Unsafe fixture path');
+  await tap('Host directory');
+  shell('input', 'keycombination', 'KEYCODE_CTRL_LEFT', 'KEYCODE_A');
+  shell('input', 'text', `'${value}'`);
+  await waitFor(tree => control(tree, 'Host directory')?.text === value, 'typed directory draft');
+}
+function delivered(tree) {
+  const value = tree.find(node => /^Delivery \d+\/\d+$/.test(node.text))?.text.match(/(\d+)\/(\d+)/);
+  return value && Number(value[1]) > 1 && value[1] === value[2];
 }
 const screenshot = name => writeFileSync(path.join(output, `${name}.png`), adb(['exec-out', 'screencap', '-p'], true));
 function status(tree) { return tree.find(node => /^Rendered \d+; grid \d+x\d+; input /.test(node.text))?.text; }
@@ -96,7 +107,7 @@ try {
     return top && bottom > 0 && bottom <= top && rows(status(tree) ?? '') < rows(initial);
   }, 'key row above IME and smaller terminal grid');
   shell('input', 'text', 'terminal_native_ok');
-  await waitFor(tree => /input terminal_native_ok$/.test(status(tree) ?? '') && Number(status(tree).match(/^Rendered (\d+)/)?.[1]) >= 19, 'native input echo rendered by xterm');
+  await waitFor(tree => /input terminal_native_ok$/.test(status(tree) ?? '') && delivered(tree), 'native input echo rendered by xterm');
   screenshot('terminal-keyboard-open');
   await tap('Keyboard');
   await waitFor(tree => !imeTop() && control(tree, 'Ctrl') && rows(status(tree) ?? '') >= rows(initial), 'restored grid after keyboard dismissal');
@@ -107,10 +118,43 @@ try {
     return top && bottom > 0 && bottom <= top;
   }, 'explicit Keyboard button opens IME above the key row');
   screenshot('terminal-keyboard-button');
+  await tap('Special keys');
+  await waitFor(tree => !imeTop() && control(tree, 'Alt') && control(tree, 'F1'), 'special keys replace system keyboard');
+  await tap('F1'); await tap('Ctrl'); await tap('c'); await tap('c'); await tap('Ctrl');
+  await waitFor(tree => (status(tree) ?? '').endsWith('terminal_native_ok\\x1bOP\\x03\\x03') && delivered(tree), 'F1 and exactly two Ctrl+C bytes rendered');
+  screenshot('terminal-special-keys');
   await tap('Keyboard');
-  await waitFor(() => !imeTop(), 'explicit Keyboard button hides IME');
+  await waitFor(tree => imeTop() && !control(tree, 'Alt'), 'system keyboard replaces special keys');
+  await tap('Special keys');
+  await waitFor(tree => !imeTop() && control(tree, 'Alt'), 'special keys replace system keyboard again');
+  await tap('Special keys');
+  await waitFor(tree => !imeTop() && !control(tree, 'Alt'), 'special keys toggle closed without opening IME');
   await tap('Toggle terminal fixture'); await tap('Toggle terminal fixture');
   await waitFor(tree => status(tree) && control(tree, 'Ctrl'), 'terminal remount');
+  await tap('Directory fixture');
+  await waitFor(tree => control(tree, 'Host directory'), 'native directory modal');
+  await fillDirectory('~/wo');
+  await waitFor(tree => {
+    const choice = control(tree, '~/work/'), top = imeTop();
+    return choice && control(tree, '~/workshop/') && top && Number(choice.bounds.match(/\d+/g)?.[3]) <= top;
+  }, 'filtered directory choices above the system keyboard');
+  screenshot('directory-suggestions');
+  await tap('~/work/');
+  await waitFor(tree => control(tree, 'Host directory')?.text === '~/work/', 'directory choice does not submit');
+  shell('input', 'text', 's');
+  await waitFor(tree => control(tree, 'Host directory')?.text === '~/work/s', 'completion leaves caret at path end');
+  shell('input', 'keyevent', 'KEYCODE_DEL');
+  await tap('OK');
+  await waitFor(tree => control(tree, 'Created session /home/mobile/work; sessions 1; folders 0'), 'existing directory creates one session');
+  await tap('Open directory fixture'); await fillDirectory('~/new/child'); await tap('OK');
+  await waitFor(tree => control(tree, 'No') && control(tree, 'Yes'), 'recursive creation confirmation');
+  await tap('No');
+  await waitFor(tree => control(tree, 'Host directory')?.text === '~/new/child', 'No preserves original path draft');
+  await tap('OK'); await tap('Yes');
+  await waitFor(tree => control(tree, 'Created session /home/mobile/new/child; sessions 2; folders 1'), 'recursive creation creates only one session');
+  await tap('Open directory fixture'); await fillDirectory('~/data');
+  await waitFor(tree => !control(tree, '~/data/') && control(tree, 'Host directory')?.text === '~/data', 'sole exact path hides suggestions');
+  await tap('Cancel'); screenshot('directory-finished');
   shell('pidof', app);
 } catch (error) {
   failure = error;
@@ -134,4 +178,4 @@ finally {
 }
 console.log(`Artifacts: ${path.relative(root, output)}`);
 if (failure) { console.error(failure.message); process.exitCode = 1; }
-else console.log('PASS native WebView replay, IME layout, keyboard input, rendered echo and remount. Isolated test app stopped. No authentication changed.');
+else console.log('PASS native terminal replay/input, system and special keyboards, Ctrl+C bytes, IME layout, and directory suggestions/creation. Isolated test app stopped. No authentication changed.');

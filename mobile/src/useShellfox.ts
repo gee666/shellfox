@@ -3,10 +3,12 @@ import { AppState } from 'react-native';
 import { v4 as uuid } from 'uuid';
 import type { ManagerSnapshot } from '../../src/shared/contracts';
 import { RemoteClient, type ClientState } from './client/client';
+import { RemoteClientError } from './client/protocol';
+import { isConnectionFailure } from './connection-status';
 import { nativeNetwork, discoverHosts, networkStatus, type NetworkPeer, type NetworkStatus } from './network';
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './preferences';
 
-export interface MachineView { peer: NetworkPeer; client: RemoteClient; state: ClientState; snapshot: ManagerSnapshot | null; busyTabIds: Record<string, boolean> }
+export interface MachineView { peer: NetworkPeer; client: RemoteClient; state: ClientState; snapshot: ManagerSnapshot | null; snapshotConnectionId: string | null; busyTabIds: Record<string, boolean> }
 export const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Something went wrong.';
 export function useShellfox() {
   const [preferences, setPreferences] = useState(defaultPreferences);
@@ -29,7 +31,10 @@ export function useShellfox() {
   const startAttempt = useRef(0);
   const pollNow = useRef<() => Promise<void>>(async () => {});
 
-  const report = useCallback((cause: unknown) => { if (alive.current) setError(errorMessage(cause)); }, []);
+  const report = useCallback((cause: unknown) => {
+    if (cause instanceof RemoteClientError && isConnectionFailure(cause.detail)) return;
+    if (alive.current) setError(errorMessage(cause));
+  }, []);
   // Serialize patches, but let polling see the pending choice immediately. Roll
   // back a failed save and keep the UI on the last successfully persisted value.
   const changePreferences = useCallback((change: (value: Preferences) => Preferences) => {
@@ -52,18 +57,23 @@ export function useShellfox() {
     if (!alive.current || state.status !== 'connected' || state.connectionId !== connectionId) return;
     if (result.ok) {
       const tabIds = new Set(result.value.sessions.flatMap(session => session.tabs.map(tab => tab.id)));
-      setMachines(items => items.map(item => item.client === client && (!item.snapshot || result.value.revision >= item.snapshot.revision)
-        ? { ...item, snapshot: result.value, busyTabIds: Object.fromEntries(Object.entries(item.busyTabIds).filter(([id, busy]) => busy && tabIds.has(id))) }
+      setMachines(items => items.map(item => item.client === client && (!item.snapshot || item.snapshotConnectionId !== connectionId || result.value.revision >= item.snapshot.revision)
+        ? { ...item, snapshot: result.value, snapshotConnectionId: connectionId, busyTabIds: Object.fromEntries(Object.entries(item.busyTabIds).filter(([id, busy]) => busy && tabIds.has(id))) }
         : item));
     }
-    else report(new Error(result.error.message));
+    else if (!isConnectionFailure(result.error)) report(new RemoteClientError(result.error));
   }, [report]);
   const ensureClient = useCallback((peer: NetworkPeer) => {
     const found = clients.current.get(peer.id); if (found) return found.client;
     const client = new RemoteClient(peer.id, nativeNetwork, { createClientId: uuid });
     const unsubState = client.subscribeState(state => {
       if (!alive.current) return;
-      setMachines(items => items.map(item => item.client === client ? { ...item, state, snapshot: state.status === 'connected' ? item.snapshot : null, busyTabIds: state.status === 'connected' ? item.busyTabIds : {} } : item));
+      const denied = state.status === 'rejected' || state.status === 'awaiting-approval';
+      setMachines(items => items.map(item => item.client === client ? {
+        ...item, state, snapshot: denied ? null : item.snapshot,
+        snapshotConnectionId: denied ? null : item.snapshotConnectionId,
+        busyTabIds: state.status === 'connected' ? item.busyTabIds : {},
+      } : item));
       if (state.status === 'connected') void refresh(client);
     });
     let refreshing = false, dirty = false;
@@ -87,7 +97,7 @@ export function useShellfox() {
       void (async () => { try { while (dirty && alive.current) { dirty = false; await refresh(client); } } finally { refreshing = false; } })();
     });
     clients.current.set(peer.id, { client, dispose: () => { unsubState(); unsubEvents(); client.stop(); } });
-    setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null, busyTabIds: {} }]);
+    setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null, snapshotConnectionId: null, busyTabIds: {} }]);
     return client;
   }, [refresh]);
 
@@ -131,6 +141,10 @@ export function useShellfox() {
           const found = discovery.peers; setPeers(found); setDiscovering(discovery.discovering);
           fastPoll.current = discovery.discovering;
           setMachines(items => items.map(item => ({ ...item, peer: found.find(peer => peer.id === item.peer.id) ?? { ...item.peer, online: false } })));
+          for (const { client } of clients.current.values()) {
+            const status = client.getState().status;
+            if (status !== 'rejected' && status !== 'disconnected' && !found.some(peer => peer.id === client.peerId && peer.online)) client.stop();
+          }
           for (const peer of found) {
             if (!peer.online || disconnecting.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
             const client = ensureClient(peer);
@@ -140,7 +154,12 @@ export function useShellfox() {
           setDiscovering(status.status === 'starting'); setPeers([]);
           for (const { client } of clients.current.values()) if (client.getState().status !== 'rejected') client.stop();
         }
-      } catch (cause) { if (valid()) report(cause); } finally { if (busy === token) busy = null; }
+      } catch (cause) {
+        if (valid()) {
+          fastPoll.current = false; setDiscovering(false);
+          setNetwork({ status: 'error', loginUrl: null, error: errorMessage(cause) });
+        }
+      } finally { if (busy === token) busy = null; }
     };
     pollNow.current = poll;
     void retryStart();
@@ -172,6 +191,7 @@ export function useShellfox() {
     // Stop immediately, including when another save is ahead of this one.
     disconnecting.current.add(peerId);
     clients.current.get(peerId)?.client.stop();
+    setMachines(items => items.map(item => item.peer.id === peerId ? { ...item, snapshot: null, snapshotConnectionId: null, busyTabIds: {} } : item));
     try {
       await changePreferences(value => ({ ...value, remembered: value.remembered.filter(id => id !== peerId) }));
       if (forget) { clients.current.get(peerId)?.dispose(); clients.current.delete(peerId); if (alive.current) setMachines(items => items.filter(item => item.peer.id !== peerId)); }

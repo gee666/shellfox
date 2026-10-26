@@ -41,7 +41,7 @@ test('request, reject, retry, allow, recursive remote folder creation and revoke
     await client.page.getByRole('button', { name: 'New session', exact: true }).click();
     await expect(client.page.getByRole('menu', { exact: true })).toBeVisible();
     await client.page.getByRole('menuitem', { name: /workstation/ }).click();
-    const input = client.page.getByRole('textbox', { name: 'Folder path', exact: true });
+    const input = client.page.getByRole('combobox', { name: 'Folder path', exact: true });
     await expect(input).toBeVisible(); await expect(client.page.getByRole('button', { name: 'Browse folders', exact: true })).toHaveCount(0);
     const folder = path.join(fixture.directory, 'new-parent', 'child');
     await input.fill(folder); await input.press('Enter');

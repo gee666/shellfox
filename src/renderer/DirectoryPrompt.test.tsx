@@ -20,7 +20,7 @@ async function setup(configure?: (api: ReturnType<typeof mockApi>['api']) => voi
   const onCreate = vi.fn<(cwd: string) => Promise<boolean>>(async () => true), onClose = vi.fn();
   const view = render(<DirectoryPrompt api={api} onCreate={onCreate} onClose={onClose} />);
   await act(async () => {});
-  const input = screen.getByRole('textbox', { name: 'Folder path' });
+  const input = screen.getByRole('combobox', { name: 'Folder path' });
   const browse = screen.getByRole('button', { name: 'Browse folders' });
   const form = input.closest('form')!;
   const tab = async () => { await act(async () => { fireEvent.keyDown(input, { key: 'Tab' }); }); };

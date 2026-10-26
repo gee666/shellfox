@@ -85,6 +85,16 @@ it('matches only the final component, preserves prefixes and descends after a se
   expect(await completeDirectory({ path: absolute + 'oth' })).toEqual({ ok: true, value: { matches: [absolute + 'other' + path.sep] } });
 });
 
+it('keeps an exact directory alongside prefix siblings until a separator explicitly requests children', async () => {
+  await folders('work/child', 'workshop/other');
+  for (const input of ['~/wor', '~/work', '"~/work"', "'~/work'"]) {
+    expect(await completeDirectory({ path: input })).toEqual({ ok: true, value: { matches: ['~/work/', '~/workshop/'] } });
+  }
+  expect(await completeDirectory({ path: '~/work/' })).toEqual({ ok: true, value: { matches: ['~/work/child/'] } });
+  await rm(path.join(state.home, 'workshop'), { recursive: true });
+  expect(await completeDirectory({ path: '~/work' })).toEqual({ ok: true, value: { matches: ['~/work/'] } });
+});
+
 it('uses case-insensitive matching on Windows and case-sensitive matching on POSIX', async () => {
   await folders('Alpha');
   expect(await completeDirectory({ path: 'al' })).toEqual({ ok: true, value: { matches: process.platform === 'win32' ? ['Alpha' + path.sep] : [] } });

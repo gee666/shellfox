@@ -13,7 +13,7 @@ async function setup(remote = false) {
   const bridge: ManagerApi = { ...api, createDirectory };
   const create = vi.fn(async (_cwd: string) => true), close = vi.fn();
   const view = render(<DirectoryPrompt api={bridge} remote={remote} machineName={remote ? 'Build server' : 'Local'} onCreate={create} onClose={close} />);
-  const input = screen.getByRole('textbox', { name: 'Folder path' });
+  const input = screen.getByRole('combobox', { name: 'Folder path' });
   fireEvent.change(input, { target: { value: '~/new/child' } });
   await act(async () => { fireEvent.submit(input.closest('form')!); });
   return { ...view, api, bridge, input, createDirectory, create, close };

@@ -51,6 +51,8 @@ Requests resolve a stable peer ID against the current network map, require an on
 
 The current desktop host uses HTTP long-polling, not WebSockets. `/v1/events` holds a poll for up to 20 seconds. Go requests have a 30-second deadline, a 1 MiB JSON request limit, an 8 MiB JSON response limit, and a 16 KiB response-header limit. WireGuard encrypts the tailnet HTTP connection. No HTTP is sent through the platform fetch stack.
 
+Each running node pools HTTP connections by the checked local and remote identities and target address. Ownership, tags and online status are checked on every request. Identity/address changes, unavailable ownership maps, stop and logout discard idle connections. Idle sockets expire after 15 seconds, before the helper's 30-second keep-alive deadline. Polls use independent connections while operations are active. POST bodies are not replayable, including after a stale pooled connection fails.
+
 Polls and operations have separate admission limits, 64 and 12. Saturated calls reject immediately instead of queuing terminal mutations beyond the JS timeout. Android uses zero-queue executors; iOS uses nonblocking semaphore admission and concurrent dispatch. These are resource limits, not a UI host-count limit. Stop/logout cancel in-flight requests. A timeout after the host has accepted a mutation is still an uncertain result; it is not transaction rollback or permission to retry a destructive action.
 
 ## Storage and mobile lifecycle

@@ -9,6 +9,8 @@ import type { PromptConfig } from './Prompt';
 import { updates } from './updates/native';
 import { useBrowserLogin } from './browser-login';
 import { StatusIndicator } from './StatusIndicator';
+import { ConnectionStatus } from './ConnectionStatus';
+import { isConnectionFailure } from './connection-status';
 
 export function SettingsScreen({
   model,
@@ -51,7 +53,8 @@ export function SettingsScreen({
   return (
     <View style={styles.page}>
       <View style={styles.header}>
-        <Text style={styles.title}>Settings</Text>
+        <Text style={[styles.title, styles.grow]}>Settings</Text>
+        <ConnectionStatus model={model} />
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.section}>Tailscale</Text>
@@ -77,7 +80,7 @@ export function SettingsScreen({
               }
             />
           </View>
-          {model.network.error && <Note error>{model.network.error}</Note>}
+          {model.network.error && !model.ready && <Note error>{model.network.error}</Note>}
           {!model.ready && model.error && (
             <Button title="Retry startup" subtle disabled={busy} onPress={() => run(model.retryStart)} />
           )}
@@ -150,7 +153,7 @@ export function SettingsScreen({
               {machine?.state.status === 'awaiting-approval' && (
                 <Note>Approve {model.preferences.hostname} in the host's Shellfox remote settings.</Note>
               )}
-              {machine?.state.lastError && machine.state.status !== 'awaiting-approval' && (
+              {machine?.state.lastError && !isConnectionFailure(machine.state.lastError) && (
                 <Note error>{machine.state.lastError.message}</Note>
               )}
               {machine && !remembered && (

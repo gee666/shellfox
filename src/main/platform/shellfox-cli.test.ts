@@ -97,7 +97,8 @@ it.skipIf(process.platform !== 'win32')('writes owned shims, reflects files+PATH
     await ps(`[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree('${key.split('\\Environment')[0]}',$false)`);
     await rm(directory,{ recursive: true, force: true });
   }
-}, 30000);
+// This registry fixture starts PowerShell repeatedly; cold starts alone can take 30 seconds.
+}, 60000);
 it('does not overwrite foreign shellfox files', async () => {
   await mkdir(path.resolve('tmp'), { recursive: true }); const binDir = await mkdtemp(path.resolve('tmp/shellfox-foreign-'));
   try {

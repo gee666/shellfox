@@ -4,6 +4,10 @@ The React Native app is under `mobile/`. Android builds produce a universal APK 
 
 Sessions use compact title/path rows and the shared desktop status-dot logic. Search opens from the header icon. Settings includes the same accent/background presets, custom-color history, picker, contrast calculation, and terminal palette as the desktop app. Colors are local to the mobile client and never change host settings.
 
+The terminal row has separate system-keyboard and special-key icons. They toggle independently but never remain open together. The special panel provides modifiers, function keys, navigation and editing keys through xterm's encoder. The same accessory row presents touch directory suggestions above the keyboard in the session dialog. OK resolves the path first; a missing directory prompts for recursive creation. No returns to the unchanged draft. Tap the tab plus to use the default shell, or hold it to choose a profile.
+
+Both clients show live directory matches. Desktop arrows choose a candidate, the first Enter accepts it, and the next submits the chosen directory. Tab completion remains available. A sole exact match is hidden; ambiguous siblings stay visible. Mobile suggestions select the path without creating a session.
+
 ## Local Android build
 
 From the repository root:
@@ -91,6 +95,12 @@ adb shell am start -n com.shellfox.mobile/.MainActivity
 Replace the APK version with the root package version. Wait for `sys.boot_completed` to return `1`. Run emulator startup in a separate terminal. Desktop Playwright tests launch Electron and cannot validate a native Android APK. Mobile acceptance must exercise the installed APK, its WebView terminal, keyboard input, host approval, reconnection and app lifecycle. Use the repository's mobile E2E runner when available, not the Electron `test:e2e` command.
 
 For updater acceptance, install an older signed build and publish a newer stable build signed by the same key. Check the download, unknown-source permission denial and approval, installer cancellation, and successful interactive upgrade. Verify that wrong checksums, package names, certificates and version codes cannot reach the installer. A debug-signed preview cannot upgrade to the production signing identity. Uninstall it before testing production builds, which also removes its app data.
+
+## Terminal input and connection status
+
+Connection state stays visible in the headers instead of leaving obsolete reconnect warnings. Closed tabs no longer try to attach to a nonexistent terminal. Temporary reconnects retain read-only session metadata with loading dots until a fresh snapshot arrives; explicit disconnect and logout clear it.
+
+Native requests reuse identity-bound HTTP connections after checking current peer ownership. Idle sockets expire before the host's timeout. Input and rendered-output acknowledgments coalesce without changing byte order, replaying commands, or crossing resize boundaries. Pi requires two Ctrl+C interrupts within 500 ms to exit. The encoder handles multi-character IME input under Ctrl, and pooled requests remove repeated connection setup; an unusually high-latency link can still exceed Pi's own interval. The client never invents a second interrupt.
 
 ## Host discovery
 
@@ -191,10 +201,10 @@ TypeScript tests cover release validation, numeric version ordering, untrusted U
 
 Verified locally on Windows with the bundled Android preview APK:
 
-- Root and mobile typechecks, including the isolated native fixture; the full unit suite passed 2,675 tests with 50 platform/prerequisite skips.
-- 65 .NET native tests, desktop Tailscale offline tests, 29 mobile Go tests, three native build-script contracts, and 30 packaging tests.
-- Eleven bundled-terminal Chromium checks, including input, Unicode, Ctrl shortcuts, bracketed paste, replay, resize, touch selection, stale callbacks, live theme changes, and blocked resource loading.
-- The isolated Android terminal fixture mounted the actual production WebView, rendered replay, accepted keyboard input, kept the key row above the IME, refit the terminal grid, opened and dismissed the keyboard from its button, and remounted without crashing. Its package is separate from the normal app, and its runner rejects any other APK package before installing.
+- Root and mobile typechecks, including the isolated native fixture; the full unit suite passed 2,798 tests with 50 platform/prerequisite skips, using one worker on Windows.
+- 65 .NET native tests, desktop Tailscale offline tests, mobile Go discovery and pooled-transport tests, three native build-script contracts, and 32 packaging/security checks.
+- Fourteen bundled-terminal Chromium checks, including input, Unicode, repeated Ctrl shortcuts, multi-character IME commits, function/modifier keys, bracketed paste, replay, resize, touch selection, stale callbacks, live theme changes, and blocked resource loading.
+- The isolated Android terminal fixture mounted the actual production WebView, rendered replay, accepted keyboard input, kept the key row above the IME, refit the terminal grid, opened and dismissed the keyboard from its button, and remounted without crashing. It also verified exclusive system/special keyboard toggling, exact F1/Ctrl+C bytes, native directory suggestions above the IME, path selection and caret position, and recursive-create Yes/No behavior. Its package is separate from the normal app, and its runner rejects any other APK package before installing.
 - Android API 35 emulator smoke with the actual installed APK. Native startup, compact Sessions and toggled search, Settings, device rename, font and accent/background persistence across force-stop/relaunch, and opening the genuine HTTPS Tailscale sign-in page passed. No credentials were entered or enrollment performed. The final crash/JS/Go error log was empty.
 
 Reproduce the Android smoke with `pnpm test:mobile:e2e --serial emulator-5554 --apk tmp/mobile-artifacts/shellfox-mobile-0.8.0-android-test.apk --browser`. It uses ADB and UI Automator, saves screenshots and redacted logs under `tmp/mobile-e2e/`, restores the device name and text size, and never signs into an account. A fresh emulator may need Chrome's first-run setup completed without an account.

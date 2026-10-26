@@ -9,6 +9,9 @@ import { StatusIndicator } from './StatusIndicator';
 import type { PromptConfig } from './Prompt';
 import { ActionMenu, type MenuConfig } from './ActionMenu';
 import { EnvironmentEditor } from './EnvironmentEditor';
+import { ConnectionStatus } from './ConnectionStatus';
+import { isConnectionFailure } from './connection-status';
+import { DirectoryPrompt, type DirectoryPromptConfig } from './DirectoryPrompt';
 
 export interface OpenSession {
   peerId: string;
@@ -31,6 +34,7 @@ export function SessionsScreen({
   const [menu, setMenu] = useState<MenuConfig | null>(null);
   const [environment, setEnvironment] = useState<{ client: MachineView['client']; session: SessionDto } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [directoryPrompt, setDirectoryPrompt] = useState<DirectoryPromptConfig | null>(null);
   const visibleIds = useRef(new Set<string>());
   const interests = useRef(new Map<MachineView['client'], { connectionId: string | null; ids: string }>());
   const syncVisibility = useRef(() => {});
@@ -89,30 +93,19 @@ export function SessionsScreen({
     void operation().catch(model.report);
   }, [model.report]);
   const create = (machine: MachineView) => {
-    act(async () => {
-      const home = await machine.client.request('getHomeDirectory', {});
-      if (!home.ok) throw new Error(home.error.message);
-      // Retain one request ID across a failed submission so a retry cannot duplicate a session.
-      const requestId = uuid();
-      const submit = async (path: string, createDirectory: boolean) => {
-        const resolved = await machine.client.request(
-          createDirectory ? 'createDirectory' : 'resolveDirectory',
-          { path },
-        );
-        if (!resolved.ok) throw new Error(resolved.error.message);
-        const result = await machine.client.request('createSession', { cwd: resolved.value.cwd, requestId });
+    // A failed submission retries the same session creation, including after folder creation.
+    const requestId = uuid();
+    setDirectoryPrompt({
+      id: requestId,
+      title: `New session on ${machine.peer.hostname}`,
+      api: machine.client,
+      submit: async (cwd, signal) => {
+        const result = await machine.client.request('createSession', { cwd, requestId });
+        if (signal.aborted) return;
         if (!result.ok) throw new Error(result.error.message);
         await model.refresh(machine.client);
-        open({ peerId: machine.peer.id, sessionId: result.value.id });
-      };
-      prompt({
-        title: `New session on ${machine.peer.hostname}`,
-        label: 'Host directory',
-        initial: home.value.cwd,
-        submitLabel: 'Create session',
-        submit: (path) => submit(path, false),
-        secondary: { title: 'Create folder and session', action: (path) => submit(path, true) },
-      });
+        if (!signal.aborted) open({ peerId: machine.peer.id, sessionId: result.value.id });
+      },
     });
   };
   const manage = useCallback((client: MachineView['client'], session: SessionDto) => {
@@ -204,6 +197,7 @@ export function SessionsScreen({
   }, [act, model.refresh, prompt]);
   return (
     <View testID="sessions-screen" style={styles.page}>
+      {directoryPrompt && <DirectoryPrompt config={directoryPrompt} onClose={() => setDirectoryPrompt(null)} />}
       {menu && <ActionMenu menu={menu} close={() => setMenu(null)} />}
       {environment && (
         <EnvironmentEditor
@@ -220,7 +214,8 @@ export function SessionsScreen({
         />
       )}
       <View style={[styles.header, { paddingHorizontal: 12, paddingVertical: 4 }]}>
-        <Text style={styles.title}>Sessions</Text>
+        <Text style={[styles.title, styles.grow]}>Sessions</Text>
+        <ConnectionStatus model={model} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Search sessions"
@@ -291,12 +286,12 @@ export function SessionsScreen({
                 <View style={{ padding: 8 }}><StatusIndicator loading label={`Loading sessions on ${machine.peer.hostname}`} /></View>
               )}
               {machine.state.status === 'awaiting-approval' && <Note>Approve this phone in Shellfox on {machine.peer.hostname}.</Note>}
-              {machine.state.lastError && machine.state.status !== 'awaiting-approval' && <Note error>{machine.state.lastError.message}</Note>}
+              {machine.state.lastError && !isConnectionFailure(machine.state.lastError) && <Note error>{machine.state.lastError.message}</Note>}
             </View>
           )}
           renderItem={({ item: session, section: { machine } }) => {
             const indicator = sessionDot(session, machine.busyTabIds);
-            return <SessionRow session={session} peerId={machine.peer.id} client={machine.client} kind={indicator.kind} label={indicator.title} open={open} manage={manage} />;
+            return <SessionRow session={session} peerId={machine.peer.id} client={machine.client} kind={indicator.kind} label={indicator.title} loading={machine.state.status !== 'connected' || machine.snapshotConnectionId !== machine.state.connectionId} open={open} manage={manage} />;
           }}
         />
       )}
@@ -304,12 +299,13 @@ export function SessionsScreen({
   );
 }
 
-const SessionRow = memo(function SessionRow({ session, peerId, client, kind, label, open, manage }: {
+const SessionRow = memo(function SessionRow({ session, peerId, client, kind, label, loading, open, manage }: {
   session: SessionDto;
   peerId: string;
   client: MachineView['client'];
   kind: DotState['kind'];
   label: string;
+  loading: boolean;
   open: (selection: OpenSession) => void;
   manage: (client: MachineView['client'], session: SessionDto) => void;
 }) {
@@ -324,7 +320,7 @@ const SessionRow = memo(function SessionRow({ session, peerId, client, kind, lab
         onLongPress={() => manage(client, session)}
         style={({ pressed }) => [compact.session, { opacity: pressed ? 0.7 : 1 }]}
       >
-        <StatusIndicator kind={kind} label={label} />
+        <StatusIndicator kind={kind} loading={loading} label={loading ? 'Loading session' : label} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text numberOfLines={1} style={styles.label}>{session.pinnedAt ? '• ' : ''}{session.title}</Text>
           <Text numberOfLines={1} style={[styles.subtitle, { marginTop: 0 }]}>{session.cwd}</Text>

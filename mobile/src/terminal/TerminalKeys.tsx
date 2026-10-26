@@ -3,7 +3,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +10,9 @@ import {
   View,
 } from 'react-native';
 import { useTheme, type ThemeColors } from '../theme';
+import { AccessoryButton, KeyboardAccessory, KeyboardAccessoryScroll } from './KeyboardAccessory';
+import { KeyboardIcon } from './KeyboardIcon';
+import type { TerminalKey } from './protocol';
 
 interface Props {
   bottomInset: number;
@@ -19,17 +21,20 @@ interface Props {
   selection: string;
   onControl: () => void;
   onSelect: () => void;
-  onKey: (data: string) => void;
+  onKey: (key: TerminalKey) => void;
+  systemKeyboard: boolean;
+  specialKeyboard: boolean;
   onKeyboard: () => void;
+  onSpecialKeyboard: () => void;
   onPaste: (text: string) => void;
 }
 const keys = [
-  ['Esc', '\x1b'],
-  ['Tab', '\t'],
-  ['↑', '\x1b[A'],
-  ['↓', '\x1b[B'],
-  ['←', '\x1b[D'],
-  ['→', '\x1b[C'],
+  ['Esc', 'Escape'],
+  ['Tab', 'Tab'],
+  ['↑', 'ArrowUp'],
+  ['↓', 'ArrowDown'],
+  ['←', 'ArrowLeft'],
+  ['→', 'ArrowRight'],
 ] as const;
 export function TerminalKeys(props: Props) {
   const { colors } = useTheme();
@@ -37,33 +42,12 @@ export function TerminalKeys(props: Props) {
   const [dialog, setDialog] = useState<'copy' | 'paste' | null>(null);
   const [paste, setPaste] = useState('');
   const button = (label: string, onPress: () => void, active = false, disabled = false) => (
-    <Pressable
-      key={label}
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected: active, disabled }}
-      style={({ pressed }) => [
-        styles.key,
-        active && styles.active,
-        disabled && styles.disabled,
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text style={[styles.label, active && styles.activeLabel]}>{label}</Text>
-    </Pressable>
+    <AccessoryButton key={label} label={label} onPress={onPress} active={active} disabled={disabled} />
   );
   return (
     <>
-      <View style={[styles.row, { paddingBottom: Math.max(4, props.bottomInset) }]}>
-        <ScrollView
-          horizontal
-          style={styles.scroll}
-          showsHorizontalScrollIndicator={false}
-          keyboardShouldPersistTaps="always"
-          contentContainerStyle={styles.keys}
-        >
+      <KeyboardAccessory bottomInset={props.bottomInset}>
+        <KeyboardAccessoryScroll>
           {button('Ctrl', props.onControl, props.control)}
           {keys.map(([label, data]) => button(label, () => props.onKey(data)))}
           {button('Select', props.onSelect, props.selecting)}
@@ -72,9 +56,14 @@ export function TerminalKeys(props: Props) {
             setPaste('');
             setDialog('paste');
           })}
-        </ScrollView>
-        {button('Keyboard', props.onKeyboard)}
-      </View>
+        </KeyboardAccessoryScroll>
+        <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
+          <KeyboardIcon active={props.systemKeyboard} />
+        </AccessoryButton>
+        <AccessoryButton label="Special keys" onPress={props.onSpecialKeyboard} active={props.specialKeyboard}>
+          <KeyboardIcon special active={props.specialKeyboard} />
+        </AccessoryButton>
+      </KeyboardAccessory>
       <Modal
         visible={dialog !== null}
         transparent
@@ -126,33 +115,6 @@ export function TerminalKeys(props: Props) {
   );
 }
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 4,
-    backgroundColor: colors.panel,
-    borderTopWidth: 1,
-    borderColor: colors.line,
-    paddingTop: 4,
-  },
-  scroll: { flex: 1 },
-  keys: { gap: 4 },
-  key: {
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 3,
-    minWidth: 40,
-    minHeight: 40,
-    paddingHorizontal: 9,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  active: { backgroundColor: colors.accent, borderColor: colors.accent },
-  disabled: { opacity: 0.4 },
-  pressed: { opacity: 0.65 },
-  label: { color: colors.text, fontSize: 14 },
-  activeLabel: { color: colors.onAccent },
   overlay: { flex: 1, justifyContent: 'center', backgroundColor: colors.backdrop, padding: 16 },
   dialog: {
     backgroundColor: colors.panel,

@@ -63,7 +63,7 @@ For a local, bundled Android test APK, run `pnpm build:mobile:test`. Build prere
 
 Use Node 24, Go 1.27.3 or newer, and the pnpm version specified in package.json, running natively on the target OS and architecture. Go builds the bundled Tailscale helper; packaged-app users do not need Go.
 
-Never commit live or revoked credentials, including in test fixtures. Tests use synthetic inputs built at runtime. Run `pnpm test:secrets` before committing; it also runs with the packaging checks and reports file locations without printing matched values.
+Never commit live or revoked credentials, including in test fixtures. Tests use synthetic inputs assembled from non-secret fragments. Run `pnpm test:secrets` before committing; it also runs with the packaging checks and reports file locations without printing matched values.
 
 ```sh
 pnpm install --frozen-lockfile

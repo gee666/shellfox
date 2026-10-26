@@ -85,7 +85,7 @@ describe('remote machines', () => {
     expect(screen.queryByRole('dialog', { name: 'New session' })).not.toBeInTheDocument();
     expect(local.api.createSession).not.toHaveBeenCalled();
     await user.click(screen.getByRole('menuitem', { name: /Workstation/ }));
-    const input = await screen.findByRole('textbox', { name: 'Folder path' });
+    const input = await screen.findByRole('combobox', { name: 'Folder path' });
     expect(screen.getByText('Workstation')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Browse folders' })).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: '/srv/new-project' } });
     await act(async () => { fireEvent.submit(input.closest('form')!); });
@@ -130,7 +130,7 @@ describe('remote machines', () => {
     expect(screen.queryByRole('button', { name: 'Browse folders' })).not.toBeInTheDocument();
     await waitFor(() => expect(remote.request).toHaveBeenCalledWith({ peerId: 'workstation', method: 'getHomeDirectory', payload: {} }));
     remote.request.mockResolvedValueOnce(success({ matches: ['/srv/project/'] }));
-    const input = screen.getByRole('textbox', { name: 'Folder path' });
+    const input = screen.getByRole('combobox', { name: 'Folder path' });
     fireEvent.change(input, { target: { value: '/srv/pr' } });
     await act(async () => { fireEvent.keyDown(input, { key: 'Tab' }); });
     expect(input).toHaveValue('/srv/project/');

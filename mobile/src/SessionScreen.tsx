@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import type { TabDto } from '../../src/shared/contracts';
 import type { MachineView, ShellfoxModel } from './useShellfox';
@@ -8,6 +8,11 @@ import { TerminalView } from './terminal/TerminalView';
 import { ActionMenu, type MenuConfig } from './ActionMenu';
 import { tabDot } from '../../src/shared/terminal-status';
 import { StatusIndicator } from './StatusIndicator';
+import { ConnectionStatus } from './ConnectionStatus';
+import { TerminalOperationError } from './terminal/errors';
+import type { TerminalBridgeState } from './terminal/bridge';
+import { isConnectionFailure } from './connection-status';
+import { RemoteClientError } from './client';
 
 export function SessionScreen({
   machine,
@@ -32,6 +37,27 @@ export function SessionScreen({
   const client = machine.client;
   const terminalApi = client.terminalApi;
   const subscribeTerminal = client.subscribeTerminal;
+  const metadataCurrent = machine.snapshotConnectionId === machine.state.connectionId;
+  const canAttach = metadataCurrent && active?.lifecycle === 'open' && active.terminalKind !== 'external-legacy';
+  const terminalKey = `${machine.peer.id}/${sessionId}/${active?.id ?? ''}/${active?.generation ?? ''}/${machine.state.connectionId ?? ''}`;
+  const currentTerminalKey = useRef(terminalKey);
+  currentTerminalKey.current = terminalKey;
+  const [terminalPhase, setTerminalPhase] = useState<{ key: string; state: TerminalBridgeState } | null>(null);
+  const [terminalError, setTerminalError] = useState<{ key: string; message: string } | null>(null);
+  const phase = terminalPhase?.key === terminalKey ? terminalPhase.state : canAttach || !metadataCurrent || active?.lifecycle === 'launching' ? 'attaching' : 'closed';
+  const onTerminalState = useCallback((state: TerminalBridgeState) => {
+    if (currentTerminalKey.current !== terminalKey) return;
+    setTerminalPhase(previous => previous?.key === terminalKey && previous.state === state ? previous : { key: terminalKey, state });
+    if (state === 'attached' || state === 'closed') setTerminalError(previous => previous?.key === terminalKey ? null : previous);
+  }, [terminalKey]);
+  const onTerminalError = useCallback((error: Error) => {
+    if (currentTerminalKey.current !== terminalKey) return;
+    if (error instanceof TerminalOperationError) {
+      if (isConnectionFailure(error.detail)) return;
+      if (error.detail.code === 'TARGET_LOST' || error.detail.code === 'NOT_FOUND') { void model.refresh(client); return; }
+    }
+    setTerminalError({ key: terminalKey, message: error.message });
+  }, [terminalKey, model.refresh, client]);
   useEffect(() => {
     if (machine.state.status !== 'connected') return;
     void client.request('setVisibleSessions', { sessionIds: [sessionId] });
@@ -104,25 +130,25 @@ export function SessionScreen({
       ],
     });
   };
-  const add = () =>
+  const add = (profileId?: string) =>
+    run(async () => {
+      const previous = new Set(tabs.map(tab => tab.id));
+      const added = await client.request('addTab', { sessionId, ...(profileId ? { profileId } : {}) });
+      if (!added.ok) throw new RemoteClientError(added.error);
+      const created = added.value.tabs.find(tab => !previous.has(tab.id) && tab.lifecycle !== 'closed');
+      await model.refresh(client);
+      if (created) setSelected(created.id);
+    });
+  const chooseProfile = () =>
     run(async () => {
       const result = await client.request('getTerminalProfiles', {});
-      if (!result.ok) throw new Error(result.error.message);
-      const profiles = result.value.profiles.filter((profile) => profile.available && !profile.elevation);
-      const create = (profileId?: string) =>
-        run(async () => {
-          const added = await client.request('addTab', { sessionId, ...(profileId ? { profileId } : {}) });
-          if (!added.ok) throw new Error(added.error.message);
-          await model.refresh(client);
-          setSelected(added.value.tabs.at(-1)?.id ?? null);
-        });
-      if (profiles.length <= 1) create(profiles[0]?.id);
-      else
-        setMenu({
-          title: 'New terminal',
-          detail: 'Choose a shell on the host.',
-          actions: profiles.map((profile) => ({ title: profile.label, action: () => create(profile.id) })),
-        });
+      if (!result.ok) throw new RemoteClientError(result.error);
+      const profiles = result.value.profiles.filter(profile => profile.available && !profile.elevation);
+      setMenu({
+        title: 'New terminal',
+        detail: 'Choose a shell on the host.',
+        actions: profiles.map(profile => ({ title: profile.label, action: () => add(profile.id) })),
+      });
     });
   return (
     <View style={styles.page}>
@@ -133,16 +159,19 @@ export function SessionScreen({
           <Text numberOfLines={1} style={styles.label}>
             {session?.title ?? 'Session'}
           </Text>
-          <Text numberOfLines={1} style={styles.subtitle}>
-            {machine.peer.hostname}
-          </Text>
+          <View style={[styles.row, { gap: 6 }]}>
+            <Text numberOfLines={1} style={[styles.subtitle, styles.grow]}>{machine.peer.hostname}</Text>
+            <ConnectionStatus model={model} peerId={machine.peer.id} terminalState={phase} />
+          </View>
         </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="New terminal"
           accessibilityState={{ disabled: !session?.canAddTab || machine.state.status !== 'connected' }}
           disabled={!session?.canAddTab || machine.state.status !== 'connected'}
-          onPress={add}
+          accessibilityHint="Tap to add the default shell. Long press to choose a profile."
+          onPress={() => add()}
+          onLongPress={chooseProfile}
           style={({ pressed }) => ({
             width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.line,
             alignItems: 'center', justifyContent: 'center',
@@ -154,11 +183,8 @@ export function SessionScreen({
       </View>
       {machine.state.status !== 'connected' ? (
         <View style={styles.content}>
-          <Note>
-            {machine.state.status === 'awaiting-approval'
-              ? 'Approve this device on the host.'
-              : `Host ${machine.state.status.replaceAll('-', ' ')}. Remote shells are not closed.`}
-          </Note>
+          {machine.state.status === 'awaiting-approval' && <Note>Approve this device on the host.</Note>}
+          {machine.state.status === 'connecting' || machine.state.status === 'reconnecting' ? <StatusIndicator loading label="Connecting" /> : null}
           <Button title="Reconnect" onPress={() => client.reconnect()} />
         </View>
       ) : !session ? (
@@ -194,7 +220,7 @@ export function SessionScreen({
                     borderColor: active?.id === tab.id ? colors.accent : 'transparent',
                   }}
                 >
-                  <StatusIndicator kind={indicator.kind} label={indicator.title} />
+                  <StatusIndicator kind={indicator.kind} loading={!metadataCurrent} label={metadataCurrent ? indicator.title : 'Loading terminal'} />
                   <Text style={{ color: active?.id === tab.id ? colors.text : colors.muted }}>
                     {tab.title}
                   </Text>
@@ -203,7 +229,8 @@ export function SessionScreen({
               })}
             </ScrollView>
           </View>
-          {active && active.terminalKind !== 'external-legacy' ? (
+          {canAttach && terminalError?.key === terminalKey && <View style={[styles.row, { paddingHorizontal: 12, paddingVertical: 6 }]}><View style={styles.grow}><Note error>{terminalError.message}</Note></View><Button title="Dismiss" subtle onPress={() => setTerminalError(null)} /></View>}
+          {canAttach && active ? (
             <TerminalView
               key={active.id}
               api={terminalApi}
@@ -211,15 +238,12 @@ export function SessionScreen({
               tabId={active.id}
               fontSize={model.preferences.fontSize}
               connectionEpoch={machine.state.connectionId ?? ''}
-              onError={model.report}
+              onError={onTerminalError}
+              onState={onTerminalState}
             />
           ) : (
             <View style={styles.content}>
-              <Note>
-                {active
-                  ? 'This is a legacy external terminal. Create an embedded terminal on the host to use it here.'
-                  : 'No terminals. Add a tab to start a shell on the host.'}
-              </Note>
+              {!metadataCurrent || active?.lifecycle === 'launching' ? <StatusIndicator loading label="Opening terminal" /> : active?.terminalKind === 'external-legacy' ? <Note>External terminal</Note> : null}
             </View>
           )}
         </>

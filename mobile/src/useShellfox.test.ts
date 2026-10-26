@@ -120,9 +120,16 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
     expect(result.current.machines).toHaveLength(1); expect(transport.calls('/v1/pair')).toHaveLength(1);
     await foreground('background'); expect(result.current.machines[0].state.status).toBe('disconnected');
+    expect(result.current.machines[0].snapshot).toEqual(snapshot);
+    transport.operation = async () => JSON.stringify({ ok: true, value: { ...snapshot, revision: 0 } });
     const polls = mocks.status.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); expect(mocks.status).toHaveBeenCalledTimes(polls);
     await foreground('active'); expect(transport.calls('/v1/pair')).toHaveLength(2);
+    expect(result.current.machines[0].snapshot?.revision).toBe(0);
+    mocks.peers.mockResolvedValue([{ ...host, online: false }]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3250); });
+    expect(result.current.machines[0].state.status).toBe('disconnected');
+    expect(result.current.machines[0].snapshot?.revision).toBe(0);
     unmount(); expect(removeListener).toHaveBeenCalledOnce();
     const requests = mocks.status.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); expect(mocks.status).toHaveBeenCalledTimes(requests);

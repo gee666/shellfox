@@ -51,6 +51,65 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     const input = messages.filter(m => m.type === 'input').map(m => m.data).join('');
     for (const text of ['hello', '\r', '\x03', '\x04', '\x1b[A', '日本語']) assert.ok(input.includes(text), JSON.stringify({ input, text }));
   });
+  const noModifiers = { ctrl: false, alt: false, shift: false, meta: false, capsLock: false };
+  const key = async (key, modifiers = {}) => send({ type: 'key', event: { key, modifiers: { ...noModifiers, ...modifiers } } });
+  const receivedInput = () => messages.filter(m => m.type === 'input').map(m => m.data);
+  await t.test('accessory keys use xterm encoding and do not focus the hidden IME', async () => {
+    await send({ type: 'focus', focused: false });
+    const before = receivedInput().length;
+    for (const name of ['Escape', 'Tab', 'Enter', 'Backspace', 'ArrowUp', 'Home', 'End', 'PageUp', 'PageDown', 'Insert', 'Delete',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12']) await key(name);
+    const expected = ['\x1b', '\t', '\r', '\x7f', '\x1b[A', '\x1b[H', '\x1b[F', '\x1b[5~', '\x1b[6~', '\x1b[2~', '\x1b[3~',
+      '\x1bOP', '\x1bOQ', '\x1bOR', '\x1bOS', '\x1b[15~', '\x1b[17~', '\x1b[18~', '\x1b[19~', '\x1b[20~', '\x1b[21~', '\x1b[23~', '\x1b[24~'];
+    await expect.poll(() => receivedInput().slice(before)).toEqual(expected);
+    await expect(page.locator('.xterm-helper-textarea')).not.toBeFocused();
+    await output('\x1b[?1h');
+    const application = receivedInput().length;
+    await key('ArrowUp'); await key('Home'); await key('End');
+    await expect.poll(() => receivedInput().slice(application)).toEqual(['\x1bOA', '\x1bOH', '\x1bOF']);
+    await output('\x1b[?1l');
+  });
+  await t.test('modifier combinations, sticky IME modifiers, and fresh Ctrl+C events', async () => {
+    const before = receivedInput().length;
+    await key('Tab', { shift: true });
+    await key('ArrowUp', { ctrl: true });
+    await key('ArrowRight', { alt: true, shift: true });
+    await key('Delete', { ctrl: true, alt: true });
+    await key('F12', { shift: true });
+    await key('c', { alt: true });
+    await key('c', { shift: true });
+    await key('c', { capsLock: true });
+    await key('c', { shift: true, capsLock: true });
+    // Each tap must create a fresh interrupt, not reuse or debounce a DOM event.
+    for (let i = 0; i < 4; i++) { await key('c', { ctrl: true }); await key('Escape'); }
+    await expect.poll(() => receivedInput().slice(before)).toEqual([
+      '\x1b[Z', '\x1b[1;5A', '\x1b[1;4C', '\x1b[3;7~', '\x1b[24;2~', '\x1bc', 'C', 'C', 'c',
+      '\x03', '\x1b', '\x03', '\x1b', '\x03', '\x1b', '\x03', '\x1b',
+    ]);
+    await send({ type: 'modifiers', modifiers: { ...noModifiers, ctrl: true } });
+    await send({ type: 'focus', focused: true });
+    const sticky = receivedInput().length;
+    await page.keyboard.press('c'); await page.keyboard.press('c');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.insertText('c');
+    await page.keyboard.insertText('cc'); // Gboard can commit several ASCII characters in one input event.
+    await expect.poll(() => receivedInput().slice(sticky)).toEqual(['\x03', '\x03', '\x1b[1;5D', '\x03', '\x03', '\x03']);
+    const replay = receivedInput().length;
+    await output('\x1b[6n\x1b[c', true);
+    assert.equal(receivedInput().length, replay, 'historical replay must not send terminal query replies or inputs');
+    await send({ type: 'paste', data: 'unchanged paste' });
+    await expect.poll(() => receivedInput().at(-1)).toBe('unchanged paste');
+    await send({ type: 'modifiers', modifiers: noModifiers });
+    const plain = receivedInput().length;
+    await page.keyboard.type('after');
+    await expect.poll(() => receivedInput().slice(plain).join('')).toBe('after');
+  });
+  await t.test('Super follows xterm semantics without inventing global shortcuts', async () => {
+    const before = receivedInput().length;
+    await key('c', { meta: true }); // No legacy terminal encoding for Super+C.
+    await key('F1', { meta: true }); // xterm does encode modified function keys.
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['\x1b[1;9P']);
+  });
   await t.test('theme changes repaint the existing terminal without resetting its contents', async () => {
     await send({ type: 'theme', accentColor: '#123456', backgroundColor: '#ffffff' });
     assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(255, 255, 255)');

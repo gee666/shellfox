@@ -113,10 +113,17 @@ button.session-copy:hover { background: transparent; }
 .close-app-body footer { display: flex; justify-content: flex-end; gap: 6px; margin-top: 16px; }
 .directory-modal { width: 540px; border-radius: 4px; }
 .directory-form { padding: 12px; }
+.directory-path { position: relative; }
 .directory-line { display: flex; align-items: center; gap: 6px; padding: 3px 5px 3px 10px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 2px; font: 13px/22px 'Cascadia Code', Consolas, monospace; }
 .directory-line:focus-within { border-color: var(--accent); }
 .directory-cwd, .directory-chevron { color: var(--accent); }
-.directory-line input { flex: 1; padding: 3px 0; border: 0; border-radius: 0; background: transparent; font: inherit; }
+.directory-line input { flex: 1; min-width: 0; padding: 3px 0; border: 0; border-radius: 0; background: transparent; font: inherit; }
+.directory-completions { position: absolute; z-index: 1; top: 100%; left: 0; right: 0; max-height: min(180px, 30vh); overflow-y: auto; margin-top: 2px; padding: 2px; border: 1px solid var(--input-border); border-radius: 2px; background: var(--input-bg); box-shadow: 0 4px 10px var(--shadow); }
+.directory-completion { display: flex; align-items: center; gap: 6px; padding: 3px 6px; cursor: pointer; font: 12px/20px 'Cascadia Code', Consolas, monospace; }
+.directory-completion svg { flex-shrink: 0; color: var(--muted); }
+.directory-completion span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.directory-completion:hover { background: var(--hover); }
+.directory-completion[aria-selected="true"] { background: rgba(var(--accent-rgb), .12); outline: 1px solid var(--accent); outline-offset: -1px; }
 .directory-hint { margin-top: 6px; color: var(--muted); font-size: 10px; }
 .shellfox-env-modal { width: 480px; }
 .shellfox-env-body { padding: 16px; overflow: auto; min-height: 0; }

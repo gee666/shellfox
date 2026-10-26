@@ -35,7 +35,7 @@ func Request(peerID, path, body string) (string, error) {
 	defer release()
 	ctx, cancel := context.WithTimeout(n.ctx, requestTimeout)
 	defer cancel()
-	return request(ctx, n.client, n.server.Dial, peerID, path, body)
+	return n.transports.request(ctx, n.client, n.server.Dial, peerID, path, body)
 }
 
 func (n *node) admit(path string) (func(), error) {
@@ -58,8 +58,8 @@ func validateRequest(peerID, path, body string) error {
 	return nil
 }
 
-func request(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string) (string, error) {
-	data, status, err := postPeer(ctx, client, dial, peerID, path, body, responseLimit)
+func (p *transportPool) request(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string) (string, error) {
+	data, status, err := p.postPeer(ctx, client, dial, peerID, path, body, responseLimit)
 	if err != nil {
 		return "", err
 	}
@@ -73,39 +73,26 @@ func request(ctx context.Context, client peerClient, dial dialFunc, peerID, path
 }
 
 func postPeer(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string, limit int64) (string, int, error) {
+	pool := &transportPool{}
+	defer pool.close()
+	return pool.postPeer(ctx, client, dial, peerID, path, body, limit)
+}
+
+func (p *transportPool) postPeer(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string, limit int64) (string, int, error) {
 	if err := validateRequest(peerID, path, body); err != nil {
 		return "", 0, err
 	}
-	st, err := client.Status(ctx)
+	transport, address, err := p.transport(ctx, client, dial, peerID)
 	if err != nil {
-		return "", 0, errors.New("Network unavailable")
+		return "", 0, err
 	}
-	address := ""
-	for _, peer := range ownPeers(st) {
-		if peer.ID == peerID && peer.Online {
-			address = net.JoinHostPort(peer.Addresses[0], servicePort)
-			break
-		}
-	}
-	if address == "" {
-		return "", 0, errors.New("Peer unavailable or not owned by current user")
-	}
-	// Re-read ownership per request. Never reuse a connection across a map change.
-	transport := &http.Transport{
-		Proxy: nil, DisableKeepAlives: true, DisableCompression: true,
-		ResponseHeaderTimeout: requestTimeout, MaxResponseHeaderBytes: 16 * 1024,
-		DialContext: func(ctx context.Context, network, target string) (net.Conn, error) {
-			if network != "tcp" || target != address {
-				return nil, errors.New("Invalid tailnet target")
-			}
-			return dial(ctx, "tcp", address)
-		},
-	}
-	defer transport.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+address+path, strings.NewReader(body))
 	if err != nil {
 		return "", 0, errors.New("Invalid upstream request")
 	}
+	// A failed POST is uncertain, even on a reused connection. Do not let the
+	// standard transport replay it after a stale idle connection write failure.
+	req.GetBody = nil
 	req.Header.Set("Content-Type", "application/json")
 	httpClient := &http.Client{Transport: transport, Timeout: requestTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

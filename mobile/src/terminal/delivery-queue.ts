@@ -1,5 +1,6 @@
 import type { TerminalApi } from '../../../src/shared/contracts';
 import { responseSchemas } from '../../../src/shared/schemas';
+import { TerminalOperationError } from './errors';
 
 // Keep ordering and failed cleanup across a rapid unmount/remount of the same tab.
 interface DeliveryState { queue?: Promise<unknown>; generation?: string }
@@ -19,7 +20,7 @@ export async function detachAttachment(api: Pick<TerminalApi, 'detachTerminal'>,
   const delivery = state(api, tabId), generation = delivery.generation;
   if (!generation) return;
   const result = responseSchemas.detachTerminal.parse(await api.detachTerminal({ tabId, generation }));
-  if (!result.ok && result.error.code !== 'TARGET_LOST' && result.error.code !== 'NOT_FOUND') throw new Error(result.error.message);
+  if (!result.ok && result.error.code !== 'TARGET_LOST' && result.error.code !== 'NOT_FOUND') throw new TerminalOperationError(result.error);
   if (delivery.generation === generation) delete delivery.generation;
 }
 export function deliveryOperation<T>(api: object, tabId: string, operation: () => Promise<T>): Promise<T> {

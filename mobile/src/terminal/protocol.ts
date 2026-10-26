@@ -10,6 +10,20 @@ const identity = { viewId: token, epoch: token };
 const themeColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const terminalThemeSchema = z.object({ accentColor: themeColor, backgroundColor: themeColor }).strict();
 export type TerminalThemeInputs = z.infer<typeof terminalThemeSchema>;
+export const terminalModifiersSchema = z.object({
+  ctrl: z.boolean(), alt: z.boolean(), shift: z.boolean(), meta: z.boolean(), capsLock: z.boolean(),
+}).strict();
+export type TerminalModifiers = z.infer<typeof terminalModifiersSchema>;
+export const emptyModifiers: TerminalModifiers = { ctrl: false, alt: false, shift: false, meta: false, capsLock: false };
+export const terminalKeySchema = z.union([
+  z.enum(['Escape', 'Tab', 'Enter', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'Home', 'End', 'PageUp', 'PageDown', 'Insert', 'Delete',
+    'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12']),
+  z.string().length(1).regex(/^[\x20-\x7e]$/),
+]);
+export type TerminalKey = z.infer<typeof terminalKeySchema>;
+export const terminalKeyEventSchema = z.object({ key: terminalKeySchema, modifiers: terminalModifiersSchema }).strict();
+export type TerminalKeyEvent = z.infer<typeof terminalKeyEventSchema>;
 export const pageMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready'), viewId: token }).strict(),
   z.object({ type: z.literal('input'), ...identity, data: input }).strict(),
@@ -26,6 +40,8 @@ export const hostMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('font'), ...identity, fontSize: z.number().min(8).max(32) }).strict(),
   z.object({ type: z.literal('theme'), ...identity, ...terminalThemeSchema.shape }).strict(),
   z.object({ type: z.literal('paste'), ...identity, data: input }).strict(),
+  z.object({ type: z.literal('key'), ...identity, event: terminalKeyEventSchema }).strict(),
+  z.object({ type: z.literal('modifiers'), ...identity, modifiers: terminalModifiersSchema }).strict(),
   z.object({ type: z.literal('focus'), ...identity, focused: z.boolean() }).strict(),
   z.object({ type: z.literal('select'), ...identity, enabled: z.boolean() }).strict(),
 ]);
@@ -35,13 +51,6 @@ export function parsePageMessage(json: string): PageMessage | null {
   if (json.length > 400000) return null;
   try { const parsed = pageMessageSchema.safeParse(JSON.parse(json)); return parsed.success ? parsed.data : null; }
   catch { return null; }
-}
-
-export function controlInput(data: string, control: boolean): string {
-  if (!control || data.length !== 1) return data;
-  if (data === '?') return '\x7f';
-  const code = data.toUpperCase().charCodeAt(0);
-  return code >= 64 && code <= 95 ? String.fromCharCode(code & 31) : data;
 }
 
 // The initial inline document is the only permitted top-level navigation.

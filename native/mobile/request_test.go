@@ -29,6 +29,13 @@ func testNetwork() *fakeNetwork {
 	return &fakeNetwork{status: &ipnstate.Status{BackendState: "Running", Self: &ipnstate.PeerStatus{ID: "n-self", UserID: 42}, Peer: map[key.NodePublic]*ipnstate.PeerStatus{{}: p}}}
 }
 
+// Exercise one request in isolation, without retaining a pool across test cases.
+func request(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string) (string, error) {
+	pool := &transportPool{}
+	defer pool.close()
+	return pool.request(ctx, client, dial, peerID, path, body)
+}
+
 func noDial(t *testing.T) dialFunc {
 	t.Helper()
 	return func(context.Context, string, string) (net.Conn, error) {

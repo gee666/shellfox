@@ -129,6 +129,8 @@ it('rejects malformed event envelopes and caps response bytes before JSON decodi
 it('times out native requests without leaving JS polling active after stop', async () => {
   client.connect(); await flush();
   await vi.advanceTimersByTimeAsync(30_000);
+  expect(client.getState().status).toBe('connected');
+  await vi.advanceTimersByTimeAsync(5_000);
   expect(client.getState().status).toBe('reconnecting');
   client.stop(); await vi.advanceTimersByTimeAsync(60_000);
   expect(transport.polls).toHaveLength(1);

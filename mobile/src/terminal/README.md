@@ -17,7 +17,13 @@ Mount while the client is connected. Keep `api` and `subscribeTerminal` identiti
 
 The bridge validates messages, replays at the host's grid, waits for xterm parsing and a paint before acknowledging output, and recovers sequence gaps with a fresh bounded replay. It renews successful control leases every ten seconds with a resize, never artificial terminal input. Failed writes are not repeated.
 
-Tap the terminal or use Keyboard to show the native keyboard. Ctrl stays active until tapped again. Use Select and drag over terminal cells, or touch and hold, then Copy to open selectable native text. The native text menu copies the selection. Paste opens a native text field with the OS paste menu; Send routes text through xterm's bracketed-paste handling. Ordinary touch scrolling still uses xterm's scrollback.
+Tap the terminal or the keyboard icon to show the system keyboard. The fixed Fn icon opens the special-key panel instead. Tapping the active icon closes its keyboard. Ctrl, Alt, Shift, Super and CapsLock stay active until tapped again, including when switching keyboards. The special-key rows scroll horizontally to reach all function keys, navigation keys and shortcut characters.
+
+Keys use xterm's encoder, including the application's cursor-key mode and modifier sequences. Super is the Meta modifier, not an OS-global action. Legacy terminals have no byte sequence for Super alone or many Super+letter combinations; xterm sends only combinations it supports. CapsLock changes letter case locally. The existing NUL input restriction remains, so Ctrl+Space and Ctrl+@ are not supported.
+
+Use Select and drag over terminal cells, or touch and hold, then Copy to open selectable native text. The native text menu copies the selection. Paste opens a native text field with the OS paste menu; Send routes text through xterm's bracketed-paste handling without applying sticky modifiers. Ordinary touch scrolling still uses xterm's scrollback.
+
+`KeyboardAccessory`, `KeyboardAccessoryScroll` and `AccessoryButton` share the compact row and 44px touch targets with directory suggestions. `useKeyboardOverlap(ref)` measures the remaining Android IME overlap and the iOS vertical offset. Use its `keyboardInset` for bottom padding and `keyboardOffset` with an iOS padding-mode `KeyboardAvoidingView`; call `measureKeyboardInset()` when the outer container lays out.
 
 ## Build and tests
 

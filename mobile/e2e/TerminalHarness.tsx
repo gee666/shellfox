@@ -5,17 +5,24 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { success, type TerminalEvent } from '../../src/shared/contracts';
 import { TerminalView } from '../src/terminal/TerminalView';
 import type { MobileTerminalApi, SubscribeTerminal } from '../src/terminal/bridge';
+import { DirectoryHarness } from './DirectoryHarness';
 
 const tabId = '12345678-1234-4234-8234-123456789abc';
 const generation = '12345678-1234-4234-8234-123456789abd';
 const replay = '\x1b[32mNative terminal: café 日本語\x1b[0m\r\n$ ';
 export default function TerminalHarness() {
   const [mounted, setMounted] = useState(false);
+  const [directory, setDirectory] = useState(false);
   const [status, setStatus] = useState('Waiting');
+  const [delivery, setDelivery] = useState('Delivery 0/1');
   const [fixture] = useState(() => {
     let emit: (event: TerminalEvent) => void = () => {};
     let sequence = 1, input = '', grid = '', rendered = 0;
-    const update = () => setStatus(`Rendered ${rendered}; grid ${grid}; input ${input}`);
+    const update = () => {
+      const escaped = input.replace(/[\x00-\x1f\x7f]/g, value => `\\x${value.charCodeAt(0).toString(16).padStart(2, '0')}`);
+      setStatus(`Rendered ${rendered}; grid ${grid}; input ${escaped}`);
+      setDelivery(`Delivery ${rendered}/${sequence}`);
+    };
     const api: MobileTerminalApi = {
       attachTerminal: async () => success({ tabId, sessionId: tabId, generation, firstSequence: sequence,
         lastSequence: sequence, chunks: [{ type: 'data', tabId, generation, sequence, data: replay + input }],
@@ -37,7 +44,13 @@ export default function TerminalHarness() {
       onPress={() => setMounted(value => !value)} style={{ padding: 8 }}>
       <Text style={{ color: '#ffffff' }}>Terminal native test</Text>
     </Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel="Directory fixture"
+      onPress={() => { setMounted(false); setDirectory(value => !value); }} style={{ padding: 8 }}>
+      <Text style={{ color: '#ffffff' }}>Directory fixture</Text>
+    </Pressable>
+    {directory && <DirectoryHarness />}
     <Text style={{ color: '#ffffff', fontSize: 10 }}>{status}</Text>
+    <Text style={{ color: '#ffffff', fontSize: 10 }}>{delivery}</Text>
     {mounted && <TerminalView {...fixture} tabId={tabId} fontSize={14} connectionEpoch="fixture"
       onError={error => setStatus(`ERROR ${error.message}`)} />}
   </View></SafeAreaProvider>;

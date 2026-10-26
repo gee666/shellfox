@@ -105,7 +105,10 @@ export class RemoteClient extends RemoteOperations {
     for (const [tabId, generation] of attached) this.emit({ type: 'terminal', event: { type: 'error', tabId, generation, error } });
   }
   private interrupt(cycle: Cycle, error: AppError): void {
+    const run = this.run;
     cycle.failure = error; cycle.abort.abort();
+    if (this.run === run) this.setState(error.code === 'ACCESS_DENIED' ? 'rejected' : error.code === 'APPROVAL_REQUIRED' ? 'awaiting-approval' : 'reconnecting', error);
+    if (this.run === run) this.invalidate(error);
   }
   private async loop(run: Run): Promise<void> {
     let failures = 0;
@@ -132,11 +135,12 @@ export class RemoteClient extends RemoteOperations {
       } catch (error) {
         if (!this.active(run)) return;
         const detail = cycle?.failure ?? connectionError(error);
+        const denied = detail.code === 'ACCESS_DENIED';
+        if (this.state.lastError !== detail) this.setState(denied ? 'rejected' : detail.code === 'APPROVAL_REQUIRED' ? 'awaiting-approval' : 'reconnecting', detail);
+        if (!this.active(run)) return;
         this.invalidate(detail);
         if (!this.active(run)) return;
-        const denied = detail.code === 'ACCESS_DENIED';
         if (denied) this.run = undefined;
-        this.setState(denied ? 'rejected' : detail.code === 'APPROVAL_REQUIRED' ? 'awaiting-approval' : 'reconnecting', detail);
         if (denied || !cycle) return;
         cycle.abort.abort();
         if (run.cycle === cycle) run.cycle = undefined;
@@ -168,7 +172,7 @@ export class RemoteClient extends RemoteOperations {
       const raw = await this.send(cycle, '/v1/request', { clientId: cycle.clientId, method, payload: validated });
       if (!this.active(run, cycle)) throw new Error('Remote view changed.');
       const result = parseResponse(method, raw);
-      if (!result.ok && ['APPROVAL_REQUIRED', 'ACCESS_DENIED'].includes(result.error.code)) this.interrupt(cycle, result.error);
+      if (!result.ok && ['AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED'].includes(result.error.code)) this.interrupt(cycle, result.error);
       if (result.ok && method === 'attachTerminal') {
         const attachment = responseSchemas.attachTerminal.parse(result);
         if (attachment.ok) this.attachments.set(attachment.value.tabId, attachment.value.generation);
@@ -177,7 +181,8 @@ export class RemoteClient extends RemoteOperations {
       return result;
     } catch (error) {
       const detail = cycle.failure ?? connectionError(error);
-      if (this.active(run, cycle)) this.interrupt(cycle, detail);
+      // Local encoding failures never reached the host and do not invalidate its view.
+      if (this.active(run, cycle) && detail.code !== 'VALIDATION') this.interrupt(cycle, detail);
       return parseResponse(method, { ok: false, error: detail });
     } finally { cycle.pending--; }
   }

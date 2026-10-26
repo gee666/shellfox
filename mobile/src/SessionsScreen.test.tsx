@@ -3,7 +3,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionDto } from '../../src/shared/contracts';
-import { success } from '../../src/shared/contracts';
+import { failure, success } from '../../src/shared/contracts';
 import { session, snapshot } from '../../src/renderer/test-fixtures';
 import { derivePalette } from '../../src/renderer/theme';
 import { RemoteClient } from './client/client';
@@ -48,6 +48,8 @@ const animation = vi.hoisted(() => ({
   start: vi.fn(), stop: vi.fn(), timing: vi.fn(), setValue: vi.fn(),
   interpolate: vi.fn(({ outputRange }: { inputRange: number[]; outputRange: number[] }) => outputRange[0]),
 }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
+vi.mock('./terminal/useKeyboardOverlap', () => ({ useKeyboardOverlap: () => ({ keyboardVisible: false, keyboardInset: 0, keyboardOffset: 0, measureKeyboardInset: vi.fn() }) }));
 vi.mock('react-native', () => ({
   View: (props: NativeProps) => nativeElement('div', props),
   Text: (props: NativeProps) => nativeElement('span', props),
@@ -98,7 +100,7 @@ function machine(items: SessionDto[] = [session()], id = 'host'): MachineView {
   return {
     peer: { id, hostname: 'workstation', addresses: [], online: true }, client,
     state: { peerId: id, status: 'connected', connectionId: 'connection-1', lastError: null },
-    snapshot: snapshot(items), busyTabIds: {},
+    snapshot: snapshot(items), snapshotConnectionId: 'connection-1', busyTabIds: {},
   };
 }
 const open = vi.fn();
@@ -127,7 +129,7 @@ describe('compact Sessions screen', () => {
   });
   it('keeps machine name and connection, with compact separate 44px controls', () => {
     const host = machine(); render(ui(fixture([host])));
-    expect(screen.getByText('workstation')).toBeTruthy(); expect(screen.getByText('connected')).toBeTruthy();
+    expect(screen.getByText('workstation')).toBeTruthy(); expect(screen.getByLabelText('Connection connected')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Machines' })).toBeNull();
     expect(screen.queryByText(/terminals|agents|waiting/)).toBeNull();
     const plus = screen.getByRole('button', { name: 'New session on workstation' });
@@ -168,18 +170,90 @@ describe('compact Sessions screen', () => {
     expect(screen.getByRole('img', { name: 'Agent working' })).toBeTruthy();
     expect(screen.queryByText(/Agent|running/)).toBeNull(); expect(animation.start).toHaveBeenCalledOnce();
   });
-  it('preserves new-session creation, directory resolution, and request IDs on retry', async () => {
-    const host = machine(); render(ui(fixture([host])));
-    vi.mocked(host.client.request).mockResolvedValueOnce(success({ cwd: '/home/user' }));
+  it('creates through one OK action and retains the request ID after a failed submission', async () => {
+    const host = machine(); let attempts = 0;
+    vi.mocked(host.client.request).mockImplementation(async method => {
+      if (method === 'getHomeDirectory') return success({ cwd: '/home/user' });
+      if (method === 'completeDirectory') return success({ matches: [] });
+      if (method === 'resolveDirectory') return success({ cwd: '/work' });
+      if (method === 'createSession') return ++attempts === 1 ? failure('INTERNAL', 'Try again.') : success(session());
+      return success({ configured: true });
+    });
+    const model = fixture([host]); render(ui(model));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New session on workstation' })); });
-    const config = prompt.mock.calls[0][0]; expect(config.initial).toBe('/home/user');
-    vi.mocked(host.client.request).mockResolvedValueOnce(success({ cwd: '/work' })).mockResolvedValueOnce(success(session()));
-    await act(async () => { await config.submit('/work'); });
-    vi.mocked(host.client.request).mockResolvedValueOnce(success({ cwd: '/work' })).mockResolvedValueOnce(success(session()));
-    await act(async () => { await config.secondary?.action('/work'); });
+    expect(prompt).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'Host directory' })).toHaveProperty('value', '/home/user');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Host directory' }), { target: { value: '/work' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'OK' })); });
+    expect(screen.getByText('Try again.')).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'OK' })); });
     const calls = vi.mocked(host.client.request).mock.calls.filter(([method]) => method === 'createSession');
     expect(calls).toHaveLength(2); expect(calls[0]).toEqual(calls[1]);
-    expect(host.client.request).toHaveBeenCalledWith('createDirectory', { path: '/work' });
+    expect(calls[0][1]).toMatchObject({ cwd: '/work', requestId: expect.any(String) });
+    expect(host.client.request).not.toHaveBeenCalledWith('createDirectory', expect.anything());
+    expect(model.refresh).toHaveBeenCalledWith(host.client);
+    expect(open).toHaveBeenCalledWith({ peerId: 'host', sessionId: session().id });
+    expect(screen.queryByRole('button', { name: 'OK' })).toBeNull();
+  });
+  it('confirms recursive folder creation and keeps one request ID across session retries', async () => {
+    const host = machine(); let attempts = 0;
+    vi.mocked(host.client.request).mockImplementation(async method => {
+      if (method === 'getHomeDirectory') return success({ cwd: '/home/user' });
+      if (method === 'completeDirectory') return success({ matches: [] });
+      if (method === 'resolveDirectory') return failure('NOT_FOUND', 'Missing');
+      if (method === 'createDirectory') return success({ cwd: '/home/user/new/child' });
+      if (method === 'createSession') return ++attempts === 1 ? failure('INTERNAL', 'Retry session.') : success(session());
+      return success({ configured: true });
+    });
+    render(ui(fixture([host])));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New session on workstation' })); });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Host directory' }), { target: { value: '~/new/child' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'OK' })); });
+    expect(host.client.request).not.toHaveBeenCalledWith('createDirectory', expect.anything());
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Yes' })); });
+    expect(screen.getByText('Retry session.')).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Yes' })); });
+    const calls = vi.mocked(host.client.request).mock.calls.filter(([method]) => method === 'createSession');
+    expect(calls).toHaveLength(2); expect(calls[0]).toEqual(calls[1]);
+    expect(calls[0][1]).toMatchObject({ cwd: '/home/user/new/child', requestId: expect.any(String) });
+    expect(host.client.request).toHaveBeenCalledWith('createDirectory', { path: '~/new/child' });
+    expect(open).toHaveBeenCalledOnce();
+  });
+  it('does not open a stale session after the new-session modal is replaced', async () => {
+    const host = machine(); let finish!: (value: ReturnType<typeof success<SessionDto>>) => void;
+    const pending = new Promise<ReturnType<typeof success<SessionDto>>>(resolve => { finish = resolve; });
+    vi.mocked(host.client.request).mockImplementation(async method => {
+      if (method === 'getHomeDirectory') return success({ cwd: '/home/user' });
+      if (method === 'completeDirectory') return success({ matches: [] });
+      if (method === 'resolveDirectory') return success({ cwd: '/work' });
+      if (method === 'createSession') return pending;
+      return success({ configured: true });
+    });
+    const model = fixture([host]); render(ui(model));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New session on workstation' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'OK' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New session on workstation' })); });
+    await act(async () => { finish(success(session())); });
+    expect(open).not.toHaveBeenCalled(); expect(model.refresh).not.toHaveBeenCalled();
+    expect(screen.getByRole('textbox', { name: 'Host directory' })).toHaveProperty('value', '/home/user');
+    expect(screen.getByRole('button', { name: 'OK' })).toHaveProperty('disabled', false);
+  });
+  it('allocates a fresh request ID when opening another new-session dialog', async () => {
+    const host = machine();
+    vi.mocked(host.client.request).mockImplementation(async method => {
+      if (method === 'getHomeDirectory') return success({ cwd: '/home/user' });
+      if (method === 'completeDirectory') return success({ matches: [] });
+      if (method === 'resolveDirectory') return success({ cwd: '/work' });
+      if (method === 'createSession') return success(session());
+      return success({ configured: true });
+    });
+    render(ui(fixture([host])));
+    for (let i = 0; i < 2; i++) {
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'New session on workstation' })); });
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'OK' })); });
+    }
+    const calls = vi.mocked(host.client.request).mock.calls.filter(([method]) => method === 'createSession');
+    expect(calls).toHaveLength(2); expect(calls[0][1]).not.toEqual(calls[1][1]);
   });
   it('retains the management menu, environment editor, and pin action', async () => {
     const host = machine(); const model = fixture([host]); render(ui(model));

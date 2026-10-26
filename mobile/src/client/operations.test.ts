@@ -48,6 +48,37 @@ it('enforces the encoded request byte limit, including JSON expansion', async ()
   const result = await client.setSessionEnv({ sessionId: ids.session, env });
   expect(result).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(transport.calls('/v1/request')).toHaveLength(0);
+  expect(client.getState().status).toBe('connected');
+});
+
+it.each(['FOCUS_DENIED', 'TARGET_LOST', 'NOT_FOUND', 'NATIVE_UNAVAILABLE', 'VALIDATION'] as const)('does not re-pair for operation-level %s', async code => {
+  transport.operation = async () => JSON.stringify(failure(code, 'Operation failed.', true));
+  expect(await client.getHomeDirectory()).toMatchObject({ ok: false, error: { code } });
+  expect(client.getState().status).toBe('connected');
+  expect(transport.calls('/v1/pair')).toHaveLength(1);
+  expect(transport.polls).toHaveLength(1);
+});
+
+it('publishes request transport failure before invalidating terminal observers', async () => {
+  transport.operation = async () => JSON.stringify(success(attachment));
+  await client.attachTerminal({ tabId: ids.tab });
+  const states: string[] = [];
+  client.subscribeTerminal(event => { if (event.type === 'error') states.push(client.getState().status); });
+  transport.operation = async () => { throw new Error('lost response'); };
+  expect(await client.writeTerminal({ tabId: ids.tab, generation: ids.generation, data: '\x03' })).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
+  expect(client.getState().status).toBe('reconnecting');
+  expect(states).toEqual(['reconnecting']);
+  expect(transport.calls('/v1/request')).toHaveLength(2);
+});
+
+it.each([true, false])('re-pairs expired host views even with AUTH_FAILED retryable=%s', async retryable => {
+  transport.operation = async () => JSON.stringify(failure('AUTH_FAILED', 'Reconnect this view.', retryable));
+  expect(await client.getHomeDirectory()).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
+  expect(client.getState().status).toBe('reconnecting');
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(client.getState().status).toBe('connected');
+  expect(transport.calls('/v1/pair')).toHaveLength(2);
+  expect(transport.calls('/v1/request')).toHaveLength(1);
 });
 
 it('caps outstanding requests at eight, without counting the long poll', async () => {
