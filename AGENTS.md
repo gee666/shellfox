@@ -1,6 +1,6 @@
 Keep the app design minimal and slightly old-school, with compact controls and no unnecessary text.
 
-Every feature you build or work on - make sure it is fully supported across all the supported OS: Mac, Windows and Linux, unless it is eplicitely agreed with the user.
+Every feature you build or work on - make sure it is fully supported across all the supported OS: Mac, Windows, Linux, Android, iOS, headless clients, unless it is eplicitely agreed with the user.
 
 
 # Code quality bar
