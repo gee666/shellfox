@@ -1,3 +1,12 @@
+/** UI Automator can report a temporarily unavailable root instead of XML. */
+export function parseHierarchy(raw) {
+  const start = raw.indexOf('<?xml');
+  const opening = raw.indexOf('<hierarchy', start);
+  const end = raw.lastIndexOf('</hierarchy>');
+  if (start < 0 || opening < start || end <= opening) return undefined;
+  return raw.slice(start, end + '</hierarchy>'.length);
+}
+
 /** UI Automator keeps clipped controls in its tree with zero-area bounds. */
 export function controlBounds(node) {
   if (typeof node?.bounds !== 'string') return undefined;

@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { controlBounds, keyboardIsShown, needsKeyboardDismissal, revealControl, visibleControl } from './mobile-e2e-controls.mjs';
+import { controlBounds, keyboardIsShown, needsKeyboardDismissal, parseHierarchy, revealControl, visibleControl } from './mobile-e2e-controls.mjs';
+
+test('extracts only a complete UI hierarchy from the adb response', () => {
+  const xml = '<?xml version="1.0" encoding="UTF-8"?><hierarchy rotation="0"><node text="Ready" /></hierarchy>';
+  assert.equal(parseHierarchy('UI hierarchy dumped to /dev/tty\n' + xml + '\ncommand finished'), xml);
+});
+
+test('missing or truncated UI hierarchy is not yet a usable snapshot', () => {
+  for (const raw of ['', 'ERROR: null root node returned by UiTestAutomationBridge.', 'ERROR: could not get idle state.', '<?xml version="1.0"?>', '<?xml version="1.0"?><hierarchy><node', '<?xml version="1.0"?></hierarchy>']) {
+    assert.equal(parseHierarchy(raw), undefined, raw);
+  }
+});
+
+test('a transient unavailable snapshot does not prevent the next complete snapshot', () => {
+  const xml = '<?xml version="1.0"?><hierarchy></hierarchy>';
+  const snapshots = ['ERROR: null root node returned', '<?xml version="1.0"?><hierarchy>', xml].map(parseHierarchy);
+  assert.deepEqual(snapshots, [undefined, undefined, xml]);
+});
 
 const label = 'Use background #ffffff';
 const clipped = { label, text: '', bounds: '[0,0][0,0]' };

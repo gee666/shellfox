@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DOMParser } from '@xmldom/xmldom';
-import { controlBounds, needsKeyboardDismissal, revealControl, visibleControl } from './mobile-e2e-controls.mjs';
+import { controlBounds, needsKeyboardDismissal, parseHierarchy, revealControl, visibleControl } from './mobile-e2e-controls.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const options = process.argv.slice(2);
@@ -38,9 +38,12 @@ function nodes(xml) {
 }
 function dump() {
   const raw = adb(['exec-out', 'uiautomator', 'dump', '/dev/tty'], 20000);
-  const start = raw.indexOf('<?xml'); const end = raw.lastIndexOf('</hierarchy>');
-  if (start < 0 || end < 0) return [];
-  return nodes(raw.slice(start, end + '</hierarchy>'.length));
+  const xml = parseHierarchy(raw);
+  if (xml === undefined) {
+    writeFileSync(path.join(output, 'uiautomator-unavailable.txt'), redact(raw.slice(0, 16384)));
+    return [];
+  }
+  return nodes(xml);
 }
 function matches(node, text) { return node.text === text || node.label === text; }
 async function waitFor(predicate, description, timeout = 45000) {

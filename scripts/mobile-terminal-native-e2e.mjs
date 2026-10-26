@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DOMParser } from '@xmldom/xmldom';
+import { parseHierarchy } from './mobile-e2e-controls.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -39,7 +40,15 @@ const app = 'com.shellfox.mobile.terminaltest';
 const activity = `${app}/com.shellfox.mobile.MainActivity`;
 function dump() {
   const raw = adb(['exec-out', 'uiautomator', 'dump', '/dev/tty']);
-  const xml = raw.slice(raw.indexOf('<?xml'), raw.lastIndexOf('</hierarchy>') + 12);
+  const xml = parseHierarchy(raw);
+  if (xml === undefined) {
+    // Keep the last unavailable-root response for timeout diagnostics, but let
+    // waitFor retain its existing deadline while Android settles the UI tree.
+    const safe = raw.slice(0, 16384).replace(/https?:\/\/[^\s"<>]+/g, '[redacted-url]')
+      .replace(/tskey-[a-zA-Z0-9_-]+/g, '[redacted-key]');
+    writeFileSync(path.join(output, 'uiautomator-unavailable.txt'), safe);
+    return [];
+  }
   const dom = new DOMParser({ onError: () => {} }).parseFromString(xml, 'text/xml');
   return Array.from(dom.getElementsByTagName('node')).map(node => ({
     text: node.getAttribute('text') ?? '', label: node.getAttribute('content-desc') ?? '', bounds: node.getAttribute('bounds') ?? '', type: node.getAttribute('class') ?? '',
