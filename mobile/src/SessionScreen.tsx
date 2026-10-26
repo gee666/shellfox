@@ -2,10 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import type { TabDto } from '../../src/shared/contracts';
 import type { MachineView, ShellfoxModel } from './useShellfox';
-import { Button, Note, colors, styles } from './ui';
+import { Button, Note, useUi } from './ui';
 import type { PromptConfig } from './Prompt';
 import { TerminalView } from './terminal/TerminalView';
 import { ActionMenu, type MenuConfig } from './ActionMenu';
+import { tabDot } from '../../src/shared/terminal-status';
+import { StatusIndicator } from './StatusIndicator';
 
 export function SessionScreen({
   machine,
@@ -20,6 +22,7 @@ export function SessionScreen({
   back: () => void;
   prompt: (value: PromptConfig) => void;
 }) {
+  const { colors, styles } = useUi();
   const session = machine.snapshot?.sessions.find((item) => item.id === sessionId);
   const tabs = session?.tabs ?? [];
   const [selected, setSelected] = useState<string | null>(null);
@@ -134,12 +137,20 @@ export function SessionScreen({
             {machine.peer.hostname}
           </Text>
         </View>
-        <Button
-          title="+ Tab"
-          subtle
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="New terminal"
+          accessibilityState={{ disabled: !session?.canAddTab || machine.state.status !== 'connected' }}
           disabled={!session?.canAddTab || machine.state.status !== 'connected'}
           onPress={add}
-        />
+          style={({ pressed }) => ({
+            width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.line,
+            alignItems: 'center', justifyContent: 'center',
+            opacity: !session?.canAddTab || machine.state.status !== 'connected' ? 0.4 : pressed ? 0.65 : 1,
+          })}
+        >
+          <Text style={{ color: colors.text, fontSize: 26, lineHeight: 30 }}>+</Text>
+        </Pressable>
       </View>
       {machine.state.status !== 'connected' ? (
         <View style={styles.content}>
@@ -162,7 +173,9 @@ export function SessionScreen({
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 8 }}
             >
-              {tabs.map((tab) => (
+              {tabs.map((tab) => {
+                const indicator = tabDot(tab, machine.busyTabIds[tab.id]);
+                return (
                 <Pressable
                   key={tab.id}
                   accessibilityRole="tab"
@@ -171,18 +184,23 @@ export function SessionScreen({
                   onPress={() => setSelected(tab.id)}
                   onLongPress={() => manageTab(tab)}
                   style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 13,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    minHeight: 44,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 7,
                     borderBottomWidth: 2,
                     borderColor: active?.id === tab.id ? colors.accent : 'transparent',
                   }}
                 >
+                  <StatusIndicator kind={indicator.kind} label={indicator.title} />
                   <Text style={{ color: active?.id === tab.id ? colors.text : colors.muted }}>
                     {tab.title}
-                    {tab.lifecycle === 'closed' ? ' · exited' : ''}
                   </Text>
                 </Pressable>
-              ))}
+                );
+              })}
             </ScrollView>
           </View>
           {active && active.terminalKind !== 'external-legacy' ? (

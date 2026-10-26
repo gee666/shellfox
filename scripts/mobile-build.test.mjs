@@ -41,6 +41,15 @@ describe('mobile release contract', () => {
       assert.ok(readFileSync('.github/workflows/headless-packages.yml', 'utf8').includes(`platform: ${target}`));
     }
   });
+  it('keeps the native terminal fixture isolated from distributable apps', () => {
+    const build = readFileSync('scripts/mobile-build.mjs', 'utf8');
+    const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
+    const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
+    assert.match(build, /delete env\.ENTRY_FILE/);
+    assert.match(gradle, /terminalTest \{[\s\S]*?applicationIdSuffix ["']\.terminaltest["']/);
+    assert.match(workflow, /:app:assembleTerminalTest/);
+    assert.match(workflow, /mobile-terminal-native-e2e\.mjs --serial emulator-5554/);
+  });
   it('uses a separate preview build and never a debug-signed release fallback', () => {
     const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
     assert.match(gradle, /preview \{[\s\S]*?initWith release[\s\S]*?signingConfig signingConfigs\.debug[\s\S]*?debuggable false/);

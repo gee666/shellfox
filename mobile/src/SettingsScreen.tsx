@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
-import { Alert, AppState, Linking, Platform, ScrollView, Text, View } from 'react-native';
+import { Alert, Platform, ScrollView, Text, View } from 'react-native';
 import { remoteHostnameSchema } from '../../src/shared/remote-schemas';
 import type { ShellfoxModel } from './useShellfox';
-import { Button, Card, Field, Note, styles } from './ui';
+import { Button, Card, Field, Note, useUi } from './ui';
+import { ColorSwatches } from './ColorSwatches';
+import { DEFAULT_ACCENT, DEFAULT_BACKGROUND } from './theme';
 import type { PromptConfig } from './Prompt';
 import { updates } from './updates/native';
+import { useBrowserLogin } from './browser-login';
+import { StatusIndicator } from './StatusIndicator';
 
 export function SettingsScreen({
   model,
@@ -13,8 +17,11 @@ export function SettingsScreen({
   model: ShellfoxModel;
   prompt: (value: PromptConfig) => void;
 }) {
+  const { styles } = useUi();
   const [authKey, setAuthKey] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [actionBusy, setBusy] = useState(false);
+  const browser = useBrowserLogin(model);
+  const busy = actionBusy || browser.pending;
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const run = (action: () => Promise<unknown>) => {
@@ -22,12 +29,6 @@ export function SettingsScreen({
     void action()
       .catch(model.report)
       .finally(() => setBusy(false));
-  };
-  const openLogin = async (raw: string) => {
-    const url = new URL(raw);
-    if (url.origin !== 'https://login.tailscale.com' || url.username || url.password)
-      throw new Error('Invalid Tailscale sign-in URL.');
-    if (AppState.currentState === 'active') await Linking.openURL(url.href);
   };
   const signIn = () =>
     run(async () => {
@@ -51,7 +52,6 @@ export function SettingsScreen({
     <View style={styles.page}>
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Shellfox mobile</Text>
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.section}>Tailscale</Text>
@@ -77,9 +77,6 @@ export function SettingsScreen({
               }
             />
           </View>
-          <Note>
-            Built in. No separate VPN app needed. Sign in with the same Tailscale account as your host.
-          </Note>
           {model.network.error && <Note error>{model.network.error}</Note>}
           {!model.ready && model.error && (
             <Button title="Retry startup" subtle disabled={busy} onPress={() => run(model.retryStart)} />
@@ -87,17 +84,12 @@ export function SettingsScreen({
           {model.network.status !== 'online' && (
             <>
               <Button
-                title="Sign in with browser"
+                title={browser.pending ? 'Opening browser...' : 'Sign in with browser'}
                 disabled={busy || !model.ready}
-                onPress={() =>
-                  run(async () => {
-                    const url = model.network.loginUrl ?? (await model.login()).loginUrl;
-                    if (url) await openLogin(url);
-                  })
-                }
+                onPress={browser.start}
               />
               <Field
-                label="Or use a Tailscale auth key"
+                label="Auth key"
                 placeholder="tskey-auth-..."
                 secureTextEntry
                 value={authKey}
@@ -132,13 +124,9 @@ export function SettingsScreen({
             />
           )}
         </Card>
-        <Text style={styles.section}>Machines</Text>
-        {!model.peers.length && (
-          <Note>
-            {model.network.status === 'online'
-              ? 'No machines found. Enable remote access in Shellfox on your computer.'
-              : 'Sign in to see machines on your tailnet.'}
-          </Note>
+        {model.network.status === 'online' && <Text style={styles.section}>Machines</Text>}
+        {!model.peers.length && model.network.status === 'online' && (
+          model.loading ? <StatusIndicator loading label="Finding hosts" /> : <Note>No hosts</Note>
         )}
         {model.peers.map((peer) => {
           const machine = model.machines.find((item) => item.peer.id === peer.id);
@@ -149,8 +137,7 @@ export function SettingsScreen({
                 <View style={styles.grow}>
                   <Text style={styles.label}>{peer.hostname}</Text>
                   <Note>
-                    {peer.online ? 'Online' : 'Offline'}
-                    {machine ? ` · ${machine.state.status.replaceAll('-', ' ')}` : ''}
+                    {machine ? machine.state.status.replaceAll('-', ' ') : peer.online ? 'online' : 'offline'}
                   </Note>
                 </View>
                 <Button
@@ -176,6 +163,25 @@ export function SettingsScreen({
             </Card>
           );
         })}
+        <Text style={styles.section}>Colors</Text>
+        <Card>
+          <ColorSwatches
+            kind="accent"
+            value={model.preferences.accentColor ?? DEFAULT_ACCENT}
+            saved={model.preferences.customAccentColors ?? []}
+            disabled={busy}
+            onChange={accentColor => run(() => model.updatePreferences({ accentColor }))}
+            onSave={customAccentColors => run(() => model.updatePreferences({ customAccentColors }))}
+          />
+          <ColorSwatches
+            kind="background"
+            value={model.preferences.backgroundColor ?? DEFAULT_BACKGROUND}
+            saved={model.preferences.customBackgroundColors ?? []}
+            disabled={busy}
+            onChange={backgroundColor => run(() => model.updatePreferences({ backgroundColor }))}
+            onSave={customBackgroundColors => run(() => model.updatePreferences({ customBackgroundColors }))}
+          />
+        </Card>
         <Text style={styles.section}>Terminal</Text>
         <Card>
           <View style={styles.row}>
@@ -196,18 +202,11 @@ export function SettingsScreen({
               onPress={() => run(() => model.updatePreferences({ fontSize: model.preferences.fontSize + 1 }))}
             />
           </View>
-          <Note>
-            Long-press terminal text to select and copy. Use the key row for control shortcuts and navigation.
-          </Note>
         </Card>
         {Platform.OS === 'android' && (
           <>
             <Text style={styles.section}>Updates</Text>
             <Card>
-              <Note>
-                Install updates directly from this repository's GitHub releases. Android will ask you to
-                confirm the installation.
-              </Note>
               {updateMessage && <Note>{updateMessage}</Note>}
               <Button title="Check for updates" subtle disabled={busy} onPress={checkUpdate} />
               {updateAvailable && (
@@ -231,10 +230,6 @@ export function SettingsScreen({
             </Card>
           </>
         )}
-        <Note>
-          Client only. Sessions and processes run on your hosts, not on this device. Leaving this app does not
-          stop them.
-        </Note>
       </ScrollView>
     </View>
   );

@@ -8,7 +8,7 @@ import type { RemoteResponse } from '../../src/shared/remote-contracts';
 import { deferred, flush, TestTransport } from './client/test-fixtures';
 
 const mocks = vi.hoisted(() => ({
-  appState: { currentState: 'active', addEventListener: vi.fn() },
+  appState: { currentState: 'active', addEventListener: vi.fn() }, discovering: false,
   start: vi.fn(), stop: vi.fn(), login: vi.fn(), logout: vi.fn(), request: vi.fn(),
   status: vi.fn<() => Promise<NetworkStatus>>(), peers: vi.fn<() => Promise<NetworkPeer[]>>(),
   load: vi.fn<() => Promise<Preferences>>(), save: vi.fn<(_value: Preferences) => Promise<void>>(),
@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('react-native', () => ({ AppState: mocks.appState }));
 vi.mock('./network', () => ({
   nativeNetwork: { start: mocks.start, stop: mocks.stop, login: mocks.login, logout: mocks.logout, request: mocks.request },
-  networkStatus: mocks.status, networkPeers: mocks.peers,
+  networkStatus: mocks.status, discoverHosts: async () => ({ peers: await mocks.peers(), discovering: mocks.discovering }),
 }));
 vi.mock('./preferences', () => ({
   defaultPreferences: { hostname: 'shellfox-mobile', remembered: [], fontSize: 14 },
@@ -43,7 +43,7 @@ async function foreground(state: string) { await act(async () => { changeState(s
 
 beforeEach(() => {
   vi.resetAllMocks(); vi.useFakeTimers();
-  mocks.appState.currentState = 'active';
+  mocks.appState.currentState = 'active'; mocks.discovering = false;
   removeListener = vi.fn();
   mocks.appState.addEventListener.mockImplementation((_event: string, listener: (state: string) => void) => { changeState = listener; return { remove: removeListener }; });
   mocks.load.mockResolvedValue({ ...defaults, remembered: [] }); mocks.save.mockResolvedValue();
@@ -65,6 +65,39 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     expect(mocks.status).not.toHaveBeenCalled();
     starting.resolve(''); await settle();
     expect(result.current.ready).toBe(true); expect(mocks.status).toHaveBeenCalledOnce();
+  });
+  it('shows loading until saved preferences and the initial network status finish', async () => {
+    const starting = deferred<string>(); mocks.start.mockReturnValue(starting.promise);
+    const { result } = renderHook(useShellfox); await settle();
+    expect(result.current.loading).toBe(true);
+    starting.resolve(''); await settle();
+    expect(result.current.loading).toBe(false);
+  });
+  it('keeps loading while a remembered host pairs and its first snapshot is pending', async () => {
+    mocks.load.mockResolvedValue({ ...defaults, remembered: [host.id] }); mocks.status.mockResolvedValue(online);
+    const pending = deferred<string>(); transport.operation = () => pending.promise;
+    const { result } = renderHook(useShellfox); await settle();
+    expect(result.current.machines[0].state.status).toBe('connected');
+    expect(result.current.loading).toBe(true);
+    pending.resolve(JSON.stringify({ ok: true, value: snapshot })); await settle();
+    expect(result.current.loading).toBe(false);
+  });
+  it('waits for host discovery and polls it promptly instead of showing an empty connection prompt', async () => {
+    mocks.status.mockResolvedValue(online); mocks.peers.mockResolvedValue([]); mocks.discovering = true;
+    const { result } = renderHook(useShellfox); await settle();
+    expect(result.current.loading).toBe(true);
+    const calls = mocks.peers.mock.calls.length;
+    mocks.discovering = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.peers.mock.calls.length).toBeGreaterThan(calls); expect(result.current.loading).toBe(false);
+  });
+  it('tracks terminal activity for desktop-equivalent busy dots and clears it on disconnect', async () => {
+    mocks.load.mockResolvedValue({ ...defaults, remembered: [host.id] }); mocks.status.mockResolvedValue(online);
+    const { result } = renderHook(useShellfox); await settle();
+    const tabId = '20000000-0000-4000-8000-000000000001';
+    await act(async () => { transport.events([{ type: 'terminal', event: { type: 'activity', tabId, busy: true } }]); await flush(); });
+    expect(result.current.machines[0].busyTabIds[tabId]).toBe(true);
+    await foreground('background'); expect(result.current.machines[0].busyTabIds).toEqual({});
   });
   it('does not start native networking if unmounted while loading preferences', async () => {
     const loading = deferred<Preferences>(); mocks.load.mockReturnValue(loading.promise);

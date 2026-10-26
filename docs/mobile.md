@@ -2,6 +2,8 @@
 
 The React Native app is under `mobile/`. Android builds produce a universal APK containing arm64-v8a and x86_64 libraries. iOS uses the same client code but requires macOS, Xcode, CocoaPods and an iOS signing/distribution setup. An APK is not an iOS distribution.
 
+Sessions use compact title/path rows and the shared desktop status-dot logic. Search opens from the header icon. Settings includes the same accent/background presets, custom-color history, picker, contrast calculation, and terminal palette as the desktop app. Colors are local to the mobile client and never change host settings.
+
 ## Local Android build
 
 From the repository root:
@@ -89,6 +91,16 @@ adb shell am start -n com.shellfox.mobile/.MainActivity
 Replace the APK version with the root package version. Wait for `sys.boot_completed` to return `1`. Run emulator startup in a separate terminal. Desktop Playwright tests launch Electron and cannot validate a native Android APK. Mobile acceptance must exercise the installed APK, its WebView terminal, keyboard input, host approval, reconnection and app lifecycle. Use the repository's mobile E2E runner when available, not the Electron `test:e2e` command.
 
 For updater acceptance, install an older signed build and publish a newer stable build signed by the same key. Check the download, unknown-source permission denial and approval, installer cancellation, and successful interactive upgrade. Verify that wrong checksums, package names, certificates and version codes cannot reach the installer. A debug-signed preview cannot upgrade to the production signing identity. Uninstall it before testing production builds, which also removes its app data.
+
+## Host discovery
+
+`ShellfoxNetwork.hosts(): Promise<string>` returns bounded JSON with `{ peers, discovering }`. `discoverHosts()` in `mobile/src/network.ts` validates that response and returns `{ peers: NetworkPeer[], discovering: boolean }`. The compatibility wrapper `networkPeers()` returns only `peers`. These APIs list confirmed Shellfox hosts, not every Tailscale peer. An empty list with `discovering: true` is not a settled empty result.
+
+Native discovery returns cached hosts immediately and probes in the background. Up to four probes run independently of terminal requests and event polls. Each candidate has one two-second budget, including any legacy fallback, and a 4 KiB response limit. Probes use tsnet, same-owner untagged peers, and TCP 52743 only. Concurrent snapshots share a scan. Positive results are cached for five minutes and negative results for 30 seconds, so 250 ms progress polling or three-second settled polling does not repeat network probes. Confirmed hosts remain listed when offline or temporarily unreachable, provided they remain in the current same-owner peer map.
+
+New hosts answer authenticated `POST /v1/discover {}` with `{ ok: true, value: { service: 'shellfox', protocolVersion: 1 } }`. This bypasses pairing and approval without exposing sessions or creating a pending request. A 404 permits one compatibility probe, `POST /v1/request {}`. Only the exact legacy Shellfox `VALIDATION` envelope with message `Remote request could not be completed.` and `retryable: true` confirms a legacy host. Empty request validation happens before approval or client allocation. Discovery never sends a client ID, requests pairing, or uses hostname prefixes.
+
+Only confirmed IDs are persisted in the private atomic node state store, bound to the local node and signed-in owner. Successful logout clears them. Ordinary peers and UI remembered IDs cannot populate this cache. After restart, confirmed remembered hosts can reconnect on the first snapshot without waiting for unrelated probes. Corrupt or differently owned discovery records are ignored.
 
 ## Local host for a real mobile connection
 
@@ -179,10 +191,11 @@ TypeScript tests cover release validation, numeric version ordering, untrusted U
 
 Verified locally on Windows with the bundled Android preview APK:
 
-- Root and mobile typechecks; the full unit suite passed 2,580 tests with 50 platform/prerequisite skips.
-- 65 .NET native tests, desktop Tailscale offline tests, 21 mobile Go tests, three native build-script contracts, and 29 packaging tests.
-- Ten bundled-terminal Chromium checks, including input, Unicode, Ctrl shortcuts, bracketed paste, replay, resize, touch selection, stale callbacks, and blocked resource loading.
-- Android API 35 emulator smoke with the actual installed APK. Native startup, Sessions and Settings, device rename and font persistence across force-stop/relaunch, and opening the genuine HTTPS Tailscale sign-in page passed. No credentials were entered or enrollment performed. The final crash/JS/Go error log was empty.
+- Root and mobile typechecks, including the isolated native fixture; the full unit suite passed 2,675 tests with 50 platform/prerequisite skips.
+- 65 .NET native tests, desktop Tailscale offline tests, 29 mobile Go tests, three native build-script contracts, and 30 packaging tests.
+- Eleven bundled-terminal Chromium checks, including input, Unicode, Ctrl shortcuts, bracketed paste, replay, resize, touch selection, stale callbacks, live theme changes, and blocked resource loading.
+- The isolated Android terminal fixture mounted the actual production WebView, rendered replay, accepted keyboard input, kept the key row above the IME, refit the terminal grid, opened and dismissed the keyboard from its button, and remounted without crashing. Its package is separate from the normal app, and its runner rejects any other APK package before installing.
+- Android API 35 emulator smoke with the actual installed APK. Native startup, compact Sessions and toggled search, Settings, device rename, font and accent/background persistence across force-stop/relaunch, and opening the genuine HTTPS Tailscale sign-in page passed. No credentials were entered or enrollment performed. The final crash/JS/Go error log was empty.
 
 Reproduce the Android smoke with `pnpm test:mobile:e2e --serial emulator-5554 --apk tmp/mobile-artifacts/shellfox-mobile-0.8.0-android-test.apk --browser`. It uses ADB and UI Automator, saves screenshots and redacted logs under `tmp/mobile-e2e/`, restores the device name and text size, and never signs into an account. A fresh emulator may need Chrome's first-run setup completed without an account.
 

@@ -2,16 +2,27 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { BackHandler, Platform, Pressable, StatusBar, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { useShellfox } from './src/useShellfox';
+import { useShellfox, type ShellfoxModel } from './src/useShellfox';
 import { SessionsScreen, type OpenSession } from './src/SessionsScreen';
 import { SettingsScreen } from './src/SettingsScreen';
 import { SessionScreen } from './src/SessionScreen';
 import { Prompt, type PromptConfig } from './src/Prompt';
-import { Button, Note, colors, styles } from './src/ui';
+import { Button, Note, useUi } from './src/ui';
+import { ThemeProvider, useTheme } from './src/theme';
 import { updates } from './src/updates/native';
 
 function Shellfox() {
   const model = useShellfox();
+  return (
+    <ThemeProvider accentColor={model.preferences.accentColor} backgroundColor={model.preferences.backgroundColor}>
+      <ShellfoxView model={model} />
+    </ThemeProvider>
+  );
+}
+
+function ShellfoxView({ model }: { model: ShellfoxModel }) {
+  const { colors, styles } = useUi();
+  const { palette } = useTheme();
   const [section, setSection] = useState<'sessions' | 'settings'>('sessions');
   const [selection, setSelection] = useState<OpenSession | null>(null);
   const [prompt, setPrompt] = useState<{ id: string; config: PromptConfig } | null>(null);
@@ -54,7 +65,7 @@ function Shellfox() {
   }, [selection, model.ready, machine]);
   return (
     <SafeAreaView style={styles.page} edges={['top', 'left', 'right', 'bottom']}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={palette.scheme === 'dark' ? 'light-content' : 'dark-content'} />
       {section === 'sessions' ? (
         selection && machine ? (
           <SessionScreen
@@ -87,7 +98,7 @@ function Shellfox() {
         <View
           style={[
             styles.row,
-            { padding: 12, backgroundColor: '#35252b', borderTopWidth: 1, borderColor: colors.line },
+            { padding: 12, backgroundColor: colors.panel, borderTopWidth: 1, borderColor: colors.danger },
           ]}
         >
           <View style={styles.grow}>

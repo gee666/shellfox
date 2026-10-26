@@ -6,6 +6,7 @@ const nativeSchema = z.object({
   start: z.custom<(hostname: string) => Promise<string>>((value) => typeof value === 'function'),
   status: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
   peers: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
+  hosts: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
   login: z.custom<(authKey: string) => Promise<string>>((value) => typeof value === 'function'),
   request: z.custom<(peerId: string, path: string, body: string) => Promise<string>>(
     (value) => typeof value === 'function',
@@ -19,8 +20,14 @@ export type NetworkStatus = z.infer<typeof remoteStatusSchema>;
 export async function networkStatus(): Promise<NetworkStatus> {
   return remoteStatusSchema.parse(JSON.parse(await nativeNetwork.status()));
 }
-export async function networkPeers(): Promise<NetworkPeer[]> {
+// Returns verified cached hosts immediately; native discovery runs in the background.
+// Repeated calls pick up new hosts without probing ordinary peers every UI poll.
+export interface DiscoveredHosts { peers: NetworkPeer[]; discovering: boolean }
+export async function discoverHosts(): Promise<DiscoveredHosts> {
   return z
-    .object({ peers: z.array(remoteNetworkPeerSchema).max(1000) })
-    .parse(JSON.parse(await nativeNetwork.peers())).peers;
+    .object({ peers: z.array(remoteNetworkPeerSchema).max(1000), discovering: z.boolean() }).strict()
+    .parse(JSON.parse(await nativeNetwork.hosts()));
+}
+export async function networkPeers(): Promise<NetworkPeer[]> {
+  return (await discoverHosts()).peers;
 }

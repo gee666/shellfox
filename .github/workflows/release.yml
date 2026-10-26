@@ -68,6 +68,12 @@ jobs:
           SHELLFOX_ANDROID_KEY_ALIAS: ${{ secrets.SHELLFOX_ANDROID_KEY_ALIAS }}
           SHELLFOX_ANDROID_KEY_PASSWORD: ${{ secrets.SHELLFOX_ANDROID_KEY_PASSWORD }}
           SHELLFOX_ANDROID_CERT_SHA256: ${{ secrets.SHELLFOX_ANDROID_CERT_SHA256 }}
+      - name: Build isolated native terminal fixture
+        working-directory: mobile/android
+        env:
+          ENTRY_FILE: e2e/terminal-entry.js
+        run: ./gradlew --no-daemon --console=plain -PreactNativeArchitectures=x86_64 :app:assembleTerminalTest
+        timeout-minutes: 10
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -80,13 +86,17 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          script: node scripts/mobile-e2e.mjs --apk "$(find tmp/mobile-artifacts -name '*.apk' -print -quit)"
+          script: |
+            node scripts/mobile-terminal-native-e2e.mjs --serial emulator-5554 --apk mobile/android/app/build/outputs/apk/terminalTest/app-terminalTest.apk
+            node scripts/mobile-e2e.mjs --apk "$(find tmp/mobile-artifacts -name '*.apk' -print -quit)"
       - name: Mobile failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: mobile-diagnostics
-          path: tmp/mobile-e2e
+          path: |
+            tmp/mobile-e2e
+            tmp/mobile-terminal-native-e2e
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

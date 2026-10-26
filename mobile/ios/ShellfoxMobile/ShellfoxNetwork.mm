@@ -126,6 +126,13 @@ RCT_REMAP_METHOD(peers,
        resolve:resolve reject:reject];
 }
 
+RCT_REMAP_METHOD(hosts,
+                 hostsResolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
+  [self submitConcurrent:NO work:^id(NSError **error) { return MobileHosts(error); }
+       resolve:resolve reject:reject];
+}
+
 RCT_REMAP_METHOD(request,
                  requestPeerId:(NSString *)peerId
                  path:(NSString *)path

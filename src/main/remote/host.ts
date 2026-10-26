@@ -71,12 +71,15 @@ export class RemoteHost {
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
       const url = request.url ?? '';
-      if (request.method !== 'POST' || !['/v1/pair', '/v1/request', '/v1/events', '/v1/disconnect'].includes(url)) { response.writeHead(404); response.end(); return; }
+      if (request.method !== 'POST' || !['/v1/discover', '/v1/pair', '/v1/request', '/v1/events', '/v1/disconnect'].includes(url)) { response.writeHead(404); response.end(); return; }
       const body = await this.read(request), peer = verifyPeer(this.secret, request.headers, request.method, url, body);
       if (!peer) { this.reply(response, failure('AUTH_FAILED', 'Unverified remote peer.')); return; }
       let rate = this.rates.get(peer.id);
       if (!rate || Date.now() - rate.since > 1000) { rate = { since: Date.now(), count: 0 }; this.rates.set(peer.id, rate); }
       if (++rate.count > 240 || this.rates.size > 2000) { this.reply(response, failure('VALIDATION', 'Remote request rate exceeded.', true)); return; }
+      if (url === '/v1/discover') {
+        this.reply(response, success({ service: 'shellfox', protocolVersion: 1 })); return;
+      }
       const raw: unknown = JSON.parse(body.toString('utf8'));
       const input = url === '/v1/request' ? operation.parse(raw) : identity.parse(raw);
       const id = peer.id + '/' + input.clientId;

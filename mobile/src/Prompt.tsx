@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, View } from 'react-native';
-import { Button, Field, Note, styles } from './ui';
+import { Button, Field, Note, useUi } from './ui';
 
 export interface PromptConfig {
   title: string;
@@ -11,6 +11,7 @@ export interface PromptConfig {
   secondary?: { title: string; action: (value: string) => Promise<void> };
 }
 export function Prompt({ config, onClose }: { config: PromptConfig; onClose: () => void }) {
+  const { colors, styles } = useUi();
   const [value, setValue] = useState(config.initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export function Prompt({ config, onClose }: { config: PromptConfig; onClose: () 
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: '#000a' }}
+        style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: colors.backdrop }}
       >
         <ScrollView
           keyboardShouldPersistTaps="handled"

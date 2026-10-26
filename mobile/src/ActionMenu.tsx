@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { Button, Note, styles } from './ui';
+import { Button, Note, useUi } from './ui';
 
 export interface MenuAction {
   title: string;
@@ -13,12 +13,13 @@ export interface MenuConfig {
   actions: MenuAction[];
 }
 export function ActionMenu({ menu, close }: { menu: MenuConfig; close: () => void }) {
+  const { colors, styles } = useUi();
   return (
     <Modal transparent visible animationType="fade" onRequestClose={close}>
       <Pressable
         accessibilityLabel="Close menu"
         onPress={close}
-        style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: '#000a' }}
+        style={{ flex: 1, justifyContent: 'center', padding: 22, backgroundColor: colors.backdrop }}
       >
         <Pressable accessibilityViewIsModal onPress={() => undefined} style={styles.card}>
           <Text style={styles.label}>{menu.title}</Text>

@@ -1,0 +1,44 @@
+// Explicit native-only regression fixture. No production entry imports this file.
+import React, { useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { success, type TerminalEvent } from '../../src/shared/contracts';
+import { TerminalView } from '../src/terminal/TerminalView';
+import type { MobileTerminalApi, SubscribeTerminal } from '../src/terminal/bridge';
+
+const tabId = '12345678-1234-4234-8234-123456789abc';
+const generation = '12345678-1234-4234-8234-123456789abd';
+const replay = '\x1b[32mNative terminal: café 日本語\x1b[0m\r\n$ ';
+export default function TerminalHarness() {
+  const [mounted, setMounted] = useState(false);
+  const [status, setStatus] = useState('Waiting');
+  const [fixture] = useState(() => {
+    let emit: (event: TerminalEvent) => void = () => {};
+    let sequence = 1, input = '', grid = '', rendered = 0;
+    const update = () => setStatus(`Rendered ${rendered}; grid ${grid}; input ${input}`);
+    const api: MobileTerminalApi = {
+      attachTerminal: async () => success({ tabId, sessionId: tabId, generation, firstSequence: sequence,
+        lastSequence: sequence, chunks: [{ type: 'data', tabId, generation, sequence, data: replay + input }],
+        snapshot: true, truncated: sequence > 1, cols: 80, rows: 24, lifetime: 'app-owned', state: 'open', exitCode: null }),
+      writeTerminal: async request => {
+        input += request.data;
+        emit({ type: 'data', tabId, generation, sequence: ++sequence, data: request.data });
+        update(); return success({ written: true });
+      },
+      resizeTerminal: async request => { grid = `${request.cols}x${request.rows}`; update(); return success({ resized: true }); },
+      acknowledgeTerminal: async request => { rendered = request.sequence; update(); return success({ acknowledged: true }); },
+      detachTerminal: async () => success({ detached: true }),
+    };
+    const subscribeTerminal: SubscribeTerminal = listener => { emit = listener; return () => { emit = () => {}; }; };
+    return { api, subscribeTerminal };
+  });
+  return <SafeAreaProvider><View style={{ flex: 1, backgroundColor: '#111016', paddingTop: 30 }}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Toggle terminal fixture"
+      onPress={() => setMounted(value => !value)} style={{ padding: 8 }}>
+      <Text style={{ color: '#ffffff' }}>Terminal native test</Text>
+    </Pressable>
+    <Text style={{ color: '#ffffff', fontSize: 10 }}>{status}</Text>
+    {mounted && <TerminalView {...fixture} tabId={tabId} fontSize={14} connectionEpoch="fixture"
+      onError={error => setStatus(`ERROR ${error.message}`)} />}
+  </View></SafeAreaProvider>;
+}

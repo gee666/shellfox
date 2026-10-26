@@ -36,6 +36,33 @@ describe('mobile preferences', () => {
     expect(storage.setItem).not.toHaveBeenCalled();
     expect(preferencesSchema.safeParse({ ...defaultPreferences, remembered: Array.from({ length: 1001 }, () => 'host') }).success).toBe(false);
   });
+  it('persists color choices and independent last-three custom swatches', async () => {
+    await savePreferences({
+      ...defaultPreferences,
+      accentColor: '#AABBCC',
+      backgroundColor: '#ffffff',
+      customAccentColors: ['#112233', '#445566', '#EC4899', '#112233', '#778899', '#AABBCC'],
+      customBackgroundColors: ['#010203', '#000000', '#010203'],
+    });
+    const [, json] = storage.setItem.mock.calls[0];
+    storage.getItem.mockResolvedValue(json);
+    expect(await loadPreferences()).toEqual({
+      ...defaultPreferences,
+      accentColor: '#aabbcc',
+      backgroundColor: '#ffffff',
+      customAccentColors: ['#445566', '#778899', '#aabbcc'],
+      customBackgroundColors: ['#010203'],
+    });
+  });
+  it.each([
+    { accentColor: 'red' }, { backgroundColor: '#fff' },
+    { customAccentColors: ['#123456', 'bad'] }, { customBackgroundColors: ['#12345g'] },
+  ])('rejects malformed color preferences %j', async patch => {
+    await expect(savePreferences({ ...defaultPreferences, ...patch })).rejects.toThrow();
+    expect(storage.setItem).not.toHaveBeenCalled();
+    storage.getItem.mockResolvedValue(JSON.stringify({ ...defaultPreferences, ...patch }));
+    expect(await loadPreferences()).toEqual(defaultPreferences);
+  });
   it('does not hide storage read or write failures', async () => {
     storage.getItem.mockRejectedValue(new Error('read failed'));
     await expect(loadPreferences()).rejects.toThrow('read failed');

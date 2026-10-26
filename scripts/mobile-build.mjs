@@ -42,6 +42,8 @@ export function main(args = process.argv.slice(2)) {
   rmSync(destination + '.sha256', { force: true });
   const env = { ...process.env, TMP: scratch, TEMP: scratch, TMPDIR: scratch,
     GRADLE_USER_HOME: path.join(scratch, 'gradle-home'), npm_config_cache: path.join(scratch, 'npm-cache') };
+  // Test harnesses select their entry only for explicit, separate Gradle invocations.
+  delete env.ENTRY_FILE;
   const signingFile = path.join(scratch, 'mobile-release.keystore');
   if (!test) Object.assign(env, signingEnvironment(env, signingFile));
   // Do not let ambient Gradle properties change architectures or inject a debug signing key.

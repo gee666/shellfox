@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { colors } from '../ui';
+import { useTheme, type ThemeColors } from '../theme';
 
 interface Props {
   bottomInset: number;
@@ -32,6 +32,8 @@ const keys = [
   ['→', '\x1b[C'],
 ] as const;
 export function TerminalKeys(props: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [dialog, setDialog] = useState<'copy' | 'paste' | null>(null);
   const [paste, setPaste] = useState('');
   const button = (label: string, onPress: () => void, active = false, disabled = false) => (
@@ -123,7 +125,7 @@ export function TerminalKeys(props: Props) {
     </>
   );
 }
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: 4,
@@ -150,8 +152,8 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.4 },
   pressed: { opacity: 0.65 },
   label: { color: colors.text, fontSize: 14 },
-  activeLabel: { color: colors.bg },
-  overlay: { flex: 1, justifyContent: 'center', backgroundColor: '#0009', padding: 16 },
+  activeLabel: { color: colors.onAccent },
+  overlay: { flex: 1, justifyContent: 'center', backgroundColor: colors.backdrop, padding: 16 },
   dialog: {
     backgroundColor: colors.panel,
     borderWidth: 1,

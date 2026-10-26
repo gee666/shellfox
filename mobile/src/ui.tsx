@@ -1,17 +1,14 @@
-import React from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useMemo } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { TextInputProps, ViewStyle } from 'react-native';
 
-export const colors = {
-  bg: '#111318',
-  panel: '#1b1e25',
-  line: '#30343d',
-  text: '#e9eaf0',
-  muted: '#9bA1af',
-  accent: '#bcafff',
-  danger: '#ffa6a6',
-  green: '#a6d6ad',
-};
+import { useTheme, type ThemeColors } from './theme';
+
+export function useUi() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return { colors, styles };
+}
 export function Button({
   title,
   onPress,
@@ -27,6 +24,7 @@ export function Button({
   danger?: boolean;
   testID?: string;
 }) {
+  const { colors, styles } = useUi();
   return (
     <Pressable
       accessibilityRole="button"
@@ -48,34 +46,34 @@ export function Button({
   );
 }
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
+  const { colors, styles } = useUi();
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
         {...props}
         accessibilityLabel={label}
-        placeholderTextColor={colors.muted}
+        placeholderTextColor={colors.placeholder}
         style={[styles.input, props.style]}
       />
     </View>
   );
 }
 export function Note({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
+  const { colors, styles } = useUi();
   return (
     <Text accessibilityLiveRegion="polite" style={[styles.note, error && { color: colors.danger }]}>
       {children}
     </Text>
   );
 }
-export function Busy() {
-  return <ActivityIndicator color={colors.accent} style={{ padding: 20 }} />;
-}
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
+  const { styles } = useUi();
   return <View style={[styles.card, style]}>{children}</View>;
 }
-export const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 18, gap: 16, paddingBottom: 30 },
+  content: { padding: 12, gap: 12, paddingBottom: 24 },
   header: {
     paddingHorizontal: 18,
     paddingVertical: 12,
@@ -86,7 +84,7 @@ export const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors.line,
   },
-  title: { fontSize: 24, fontWeight: '600', color: colors.text },
+  title: { fontSize: 20, fontWeight: '600', color: colors.text },
   subtitle: { fontSize: 13, color: colors.muted, marginTop: 3 },
   section: {
     fontSize: 12,
@@ -98,10 +96,10 @@ export const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   grow: { flex: 1 },
   card: {
-    padding: 16,
-    gap: 12,
+    padding: 12,
+    gap: 10,
     backgroundColor: colors.panel,
-    borderRadius: 10,
+    borderRadius: 4,
     borderWidth: 1,
     borderColor: colors.line,
   },
@@ -113,20 +111,20 @@ export const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.accent,
-    borderRadius: 7,
+    borderRadius: 4,
   },
-  subtle: { backgroundColor: '#282c35' },
-  buttonText: { color: colors.bg, fontSize: 14, fontWeight: '600' },
+  subtle: { backgroundColor: colors.surface },
+  buttonText: { color: colors.onAccent, fontSize: 14, fontWeight: '600' },
   field: { gap: 7 },
   input: {
     minHeight: 46,
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: colors.text,
-    backgroundColor: colors.bg,
+    backgroundColor: colors.input,
     borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 7,
+    borderColor: colors.inputBorder,
+    borderRadius: 4,
     fontSize: 15,
   },
 });

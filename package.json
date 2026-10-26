@@ -14,6 +14,7 @@
     "build:mobile:test": "node scripts/mobile-build.mjs --test",
     "test:mobile:native": "node --test scripts/mobile-native.test.mjs && node scripts/mobile-native.mjs test",
     "test:mobile:terminal": "node --test mobile/src/terminal/terminal-page.test.mjs",
+    "test:mobile:terminal:native": "node scripts/mobile-terminal-native-e2e.mjs",
     "test:mobile:e2e": "node scripts/mobile-e2e.mjs",
     "test:unit": "vitest run",
     "test:native": "node scripts/native.mjs test",

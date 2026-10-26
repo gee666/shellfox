@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, View } from 'react-native';
 import type { EnvVar, SessionDto } from '../../src/shared/contracts';
 import { envVarsSchemaFor } from '../../src/shared/schemas';
-import { Button, Field, Note, styles } from './ui';
+import { Button, Field, Note, useUi } from './ui';
 
 export function EnvironmentEditor({
   session,
@@ -13,6 +13,7 @@ export function EnvironmentEditor({
   save: (env: EnvVar[]) => Promise<void>;
   close: () => void;
 }) {
+  const { styles } = useUi();
   const [env, setEnv] = useState(session.env);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +25,7 @@ export function EnvironmentEditor({
         <View style={[styles.content, { flex: 1, paddingTop: 48 }]}>
           <Text style={styles.title}>Environment</Text>
           <Note>
-            {session.title}. Changes apply to new terminals. Existing shells keep their current environment.
+            Applies to new terminals.
           </Note>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 14 }}>
             {env.map((item, index) => (

@@ -94,6 +94,9 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
   fun peers(promise: Promise) = submit(requests, promise) { Mobile.peers() }
 
   @ReactMethod
+  fun hosts(promise: Promise) = submit(requests, promise) { Mobile.hosts() }
+
+  @ReactMethod
   fun request(peerId: String, path: String, body: String, promise: Promise) = submit(if (path == "/v1/events") polls else requests, promise) {
     Mobile.request(peerId, path, body)
   }

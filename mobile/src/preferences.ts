@@ -1,12 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { z } from 'zod';
 import { remoteHostnameSchema, remotePeerIdSchema } from '../../src/shared/remote-schemas';
+import { colorSchema, customColors } from './color-settings';
 
 export const preferencesSchema = z
   .object({
     hostname: remoteHostnameSchema.default('shellfox-mobile'),
     remembered: z.array(remotePeerIdSchema).max(1000).default([]),
     fontSize: z.number().int().min(10).max(24).default(14),
+    // Missing color fields retain the desktop defaults without rewriting older preferences.
+    accentColor: colorSchema.optional(),
+    backgroundColor: colorSchema.optional(),
+    customAccentColors: z.array(colorSchema).max(1000).transform(values => customColors('accent', values)).optional(),
+    customBackgroundColors: z.array(colorSchema).max(1000).transform(values => customColors('background', values)).optional(),
   })
   .strict();
 export type Preferences = z.infer<typeof preferencesSchema>;

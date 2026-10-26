@@ -51,6 +51,13 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     const input = messages.filter(m => m.type === 'input').map(m => m.data).join('');
     for (const text of ['hello', '\r', '\x03', '\x04', '\x1b[A', '日本語']) assert.ok(input.includes(text), JSON.stringify({ input, text }));
   });
+  await t.test('theme changes repaint the existing terminal without resetting its contents', async () => {
+    await send({ type: 'theme', accentColor: '#123456', backgroundColor: '#ffffff' });
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(255, 255, 255)');
+    await expect(page.locator('.xterm-rows')).toContainText('REPLAY_SCREEN');
+    await send({ type: 'theme', accentColor: '#ec4899', backgroundColor: '#111016' });
+    assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(17, 16, 22)');
+  });
   await t.test('native paste honors bracketed paste mode', async () => {
     await output('\x1b[?2004h');
     await send({ type: 'paste', data: 'pasted\ntext' });

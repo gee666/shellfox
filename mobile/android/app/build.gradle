@@ -73,6 +73,11 @@ android {
             signingConfig signingConfigs.debug
             debuggable false
         }
+        terminalTest {
+            initWith preview
+            applicationIdSuffix ".terminaltest"
+            matchingFallbacks = ['release']
+        }
     }
 }
 

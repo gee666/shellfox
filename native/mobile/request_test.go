@@ -91,7 +91,7 @@ func TestOwnershipAndReachabilityFailClosed(t *testing.T) {
 }
 
 func TestForwardingUsesOnlyFixedTailnetPortAndJSON(t *testing.T) {
-	for _, path := range []string{"/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect"} {
+	for _, path := range []string{"/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect"} {
 		t.Run(path, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method != "POST" || r.URL.Path != path || r.Header.Get("Content-Type") != "application/json" {

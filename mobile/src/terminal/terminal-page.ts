@@ -2,12 +2,14 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { hostMessageSchema, type PageMessage } from './protocol';
+import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from '../../../src/renderer/theme';
 
 type NativeWindow = Window & { ReactNativeWebView?: { postMessage: (data: string) => void } };
 const viewId = `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let epoch = '', terminal: Terminal | null = null, fit: FitAddon | null = null;
 let historical = false, writing = false, selecting = false;
 let fitted = '', fitFrame = 0, fitPending = false;
+let theme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
 const host = document.getElementById('terminal');
 if (!host) throw new Error('Missing terminal container.');
 const container = host;
@@ -40,7 +42,7 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   fitted = ''; historical = true; writing = true; selecting = false; fitPending = false;
   const term = new Terminal({ cols, rows, fontSize, fontFamily: 'Menlo, Consolas, monospace',
     scrollback: 3000, convertEol: false, cursorBlink: true, allowProposedApi: false,
-    theme: { background: '#111318', foreground: '#e9eaf0', cursor: '#bcafff', selectionBackground: '#bcafff55' },
+    theme,
     linkHandler: { activate: () => undefined, allowNonHttpProtocols: false },
   });
   terminal = term; fit = new FitAddon(); term.loadAddon(fit); term.open(container);
@@ -82,8 +84,21 @@ function receive(event: MessageEvent) {
         }); break;
       }
       case 'font': terminal.options.fontSize = message.fontSize; fitTerminal(); break;
+      case 'theme': {
+        theme = derivePalette(message.accentColor, message.backgroundColor).terminal;
+        terminal.options.theme = theme;
+        document.documentElement.style.backgroundColor = message.backgroundColor;
+        document.body.style.backgroundColor = message.backgroundColor;
+        container.style.backgroundColor = message.backgroundColor;
+        break;
+      }
       case 'paste': terminal.paste(message.data); break;
-      case 'focus': if (message.focused) terminal.focus(); else terminal.blur(); break;
+      case 'focus':
+        if (message.focused) {
+          terminal.focus();
+          if (document.activeElement === terminal.textarea) send({ type: 'focused', ...identity() });
+        } else terminal.blur();
+        break;
       case 'select': selecting = message.enabled; if (!selecting) terminal.clearSelection(); break;
     }
   } catch {

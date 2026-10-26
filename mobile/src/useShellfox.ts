@@ -3,14 +3,16 @@ import { AppState } from 'react-native';
 import { v4 as uuid } from 'uuid';
 import type { ManagerSnapshot } from '../../src/shared/contracts';
 import { RemoteClient, type ClientState } from './client/client';
-import { nativeNetwork, networkPeers, networkStatus, type NetworkPeer, type NetworkStatus } from './network';
+import { nativeNetwork, discoverHosts, networkStatus, type NetworkPeer, type NetworkStatus } from './network';
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './preferences';
 
-export interface MachineView { peer: NetworkPeer; client: RemoteClient; state: ClientState; snapshot: ManagerSnapshot | null }
+export interface MachineView { peer: NetworkPeer; client: RemoteClient; state: ClientState; snapshot: ManagerSnapshot | null; busyTabIds: Record<string, boolean> }
 export const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Something went wrong.';
 export function useShellfox() {
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [ready, setReady] = useState(false);
+  const [discovering, setDiscovering] = useState(true);
+  const fastPoll = useRef(true);
   const [network, setNetwork] = useState<NetworkStatus>({ status: 'starting', loginUrl: null, error: null });
   const [peers, setPeers] = useState<NetworkPeer[]>([]);
   const [machines, setMachines] = useState<MachineView[]>([]);
@@ -48,7 +50,12 @@ export function useShellfox() {
     const result = await client.request('getSnapshot', {});
     const state = client.getState();
     if (!alive.current || state.status !== 'connected' || state.connectionId !== connectionId) return;
-    if (result.ok) setMachines(items => items.map(item => item.client === client && (!item.snapshot || result.value.revision >= item.snapshot.revision) ? { ...item, snapshot: result.value } : item));
+    if (result.ok) {
+      const tabIds = new Set(result.value.sessions.flatMap(session => session.tabs.map(tab => tab.id)));
+      setMachines(items => items.map(item => item.client === client && (!item.snapshot || result.value.revision >= item.snapshot.revision)
+        ? { ...item, snapshot: result.value, busyTabIds: Object.fromEntries(Object.entries(item.busyTabIds).filter(([id, busy]) => busy && tabIds.has(id))) }
+        : item));
+    }
     else report(new Error(result.error.message));
   }, [report]);
   const ensureClient = useCallback((peer: NetworkPeer) => {
@@ -56,19 +63,31 @@ export function useShellfox() {
     const client = new RemoteClient(peer.id, nativeNetwork, { createClientId: uuid });
     const unsubState = client.subscribeState(state => {
       if (!alive.current) return;
-      setMachines(items => items.map(item => item.client === client ? { ...item, state, snapshot: state.status === 'connected' ? item.snapshot : null } : item));
+      setMachines(items => items.map(item => item.client === client ? { ...item, state, snapshot: state.status === 'connected' ? item.snapshot : null, busyTabIds: state.status === 'connected' ? item.busyTabIds : {} } : item));
       if (state.status === 'connected') void refresh(client);
     });
     let refreshing = false, dirty = false;
     const unsubEvents = client.subscribe(event => {
-      if (event.type !== 'changed') return;
+      if (event.type === 'terminal') {
+        const terminal = event.event;
+        if (terminal.type === 'activity' || terminal.type === 'exit') {
+          setMachines(items => items.map(item => {
+            if (item.client !== client) return item;
+            const busyTabIds = { ...item.busyTabIds };
+            if (terminal.type === 'activity' && terminal.busy) busyTabIds[terminal.tabId] = true;
+            else delete busyTabIds[terminal.tabId];
+            return { ...item, busyTabIds };
+          }));
+        }
+        return;
+      }
       dirty = true;
       if (refreshing) return;
       refreshing = true;
       void (async () => { try { while (dirty && alive.current) { dirty = false; await refresh(client); } } finally { refreshing = false; } })();
     });
     clients.current.set(peer.id, { client, dispose: () => { unsubState(); unsubEvents(); client.stop(); } });
-    setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null }]);
+    setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null, busyTabIds: {} }]);
     return client;
   }, [refresh]);
 
@@ -76,6 +95,7 @@ export function useShellfox() {
     if (!alive.current) return;
     const attempt = ++startAttempt.current;
     ++epoch.current; started.current = false;
+    fastPoll.current = true; setDiscovering(true);
     setReady(false); setError(null); setNetwork({ status: 'starting', loginUrl: null, error: null });
     try {
       if (!loaded.current) {
@@ -88,6 +108,7 @@ export function useShellfox() {
       started.current = true; setReady(true); await pollNow.current();
     } catch (cause) {
       if (alive.current && attempt === startAttempt.current) {
+        fastPoll.current = false; setDiscovering(false);
         setNetwork({ status: 'error', loginUrl: null, error: errorMessage(cause) }); report(cause);
       }
     }
@@ -104,8 +125,11 @@ export function useShellfox() {
       const valid = () => alive.current && foreground.current && started.current && token === epoch.current;
       try {
         const status = await networkStatus(); if (!valid()) return; setNetwork(status);
+        fastPoll.current = status.status === 'starting';
         if (status.status === 'online') {
-          const found = await networkPeers(); if (!valid()) return; setPeers(found);
+          const discovery = await discoverHosts(); if (!valid()) return;
+          const found = discovery.peers; setPeers(found); setDiscovering(discovery.discovering);
+          fastPoll.current = discovery.discovering;
           setMachines(items => items.map(item => ({ ...item, peer: found.find(peer => peer.id === item.peer.id) ?? { ...item.peer, online: false } })));
           for (const peer of found) {
             if (!peer.online || disconnecting.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
@@ -113,14 +137,19 @@ export function useShellfox() {
             if (client.getState().status !== 'rejected') client.connect();
           }
         } else {
-          setPeers([]);
+          setDiscovering(status.status === 'starting'); setPeers([]);
           for (const { client } of clients.current.values()) if (client.getState().status !== 'rejected') client.stop();
         }
       } catch (cause) { if (valid()) report(cause); } finally { if (busy === token) busy = null; }
     };
     pollNow.current = poll;
     void retryStart();
-    const timer = setInterval(() => { void poll(); }, 3000);
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      await poll();
+      if (alive.current) timer = setTimeout(() => { void tick(); }, fastPoll.current ? 250 : 3000);
+    };
+    timer = setTimeout(() => { void tick(); }, 250);
     const subscription = AppState.addEventListener('change', state => {
       ++epoch.current;
       foreground.current = state === 'active';
@@ -129,7 +158,7 @@ export function useShellfox() {
     });
     return () => {
       alive.current = false; started.current = false; ++epoch.current; ++startAttempt.current;
-      clearInterval(timer); subscription.remove();
+      clearTimeout(timer); subscription.remove();
       for (const entry of clients.current.values()) entry.dispose(); clients.current.clear();
     };
   }, [ensureClient, report, retryStart]);
@@ -175,6 +204,9 @@ export function useShellfox() {
       await updatePreferences({ hostname });
     } finally { await retryStart(); }
   }, [updatePreferences, retryStart]);
-  return { ready, network, peers, machines, preferences, error, setError, report, updatePreferences, connect, disconnect, login, logout, renameDevice, refresh, retryStart };
+  const loading = !error && (!ready || network.status === 'starting'
+    || discovering && machines.length === 0
+    || machines.length > 0 && machines.every(machine => !machine.snapshot && ['connecting', 'reconnecting', 'connected'].includes(machine.state.status)));
+  return { ready, loading, network, peers, machines, preferences, error, setError, report, updatePreferences, connect, disconnect, login, logout, renameDevice, refresh, retryStart };
 }
 export type ShellfoxModel = ReturnType<typeof useShellfox>;

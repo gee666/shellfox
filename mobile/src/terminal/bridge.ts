@@ -1,7 +1,7 @@
 import type { Result, TerminalApi, TerminalDataEvent, TerminalEvent } from '../../../src/shared/contracts';
 import { responseSchemas, terminalEventSchema } from '../../../src/shared/schemas';
 import { deliveryOperation, detachAttachment, trackAttachment } from './delivery-queue';
-import { terminalFontSize, utf8Size, type HostMessage, type PageMessage } from './protocol';
+import { terminalFontSize, utf8Size, type HostMessage, type PageMessage, type TerminalThemeInputs } from './protocol';
 
 export type MobileTerminalApi = Pick<TerminalApi, 'attachTerminal' | 'writeTerminal' | 'resizeTerminal' | 'acknowledgeTerminal' | 'detachTerminal'>;
 export type SubscribeTerminal = (listener: (event: TerminalEvent) => void) => () => void;
@@ -9,6 +9,8 @@ interface Options {
   api: MobileTerminalApi; subscribeTerminal: SubscribeTerminal; tabId: string; viewId: string; fontSize: number;
   send: (message: HostMessage) => void; onError: (error: Error) => void;
   onSelection?: (text: string) => void;
+  onFocus?: () => void;
+  theme?: TerminalThemeInputs;
 }
 let nextEpoch = 0;
 const unwrap = <T>(result: Result<T>): T => { if (!result.ok) throw new Error(result.error.message); return result.value; };
@@ -39,6 +41,7 @@ export class TerminalBridge {
   private repaint = false;
   private control = false;
   private selecting = false;
+  private focusPending = false;
   private fontSize: number;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private recovery: ReturnType<typeof setTimeout> | null = null;
@@ -62,11 +65,18 @@ export class TerminalBridge {
     if (!result.ok && result.error.code === 'TARGET_LOST' && epoch === this.epoch) this.recover();
     return unwrap(result);
   }
+  setTheme(theme: TerminalThemeInputs): void {
+    this.options.theme = theme;
+    if (this.attached) this.send({ type: 'theme', ...this.identity(), ...theme });
+  }
   setFontSize(size: number): void {
     this.fontSize = terminalFontSize(size);
     if (this.attached) this.send({ type: 'font', ...this.identity(), fontSize: this.fontSize });
   }
-  focus(focused: boolean): void { if (this.attached) this.send({ type: 'focus', ...this.identity(), focused }); }
+  focus(focused: boolean): void {
+    this.focusPending = focused && this.attached;
+    if (this.attached) this.send({ type: 'focus', ...this.identity(), focused });
+  }
   select(enabled: boolean): void {
     this.selecting = enabled;
     if (this.attached) this.send({ type: 'select', ...this.identity(), enabled });
@@ -86,12 +96,15 @@ export class TerminalBridge {
         void this.acknowledge(this.consumed); this.drain(); break;
       }
       case 'selection': this.options.onSelection?.(message.text); break;
+      case 'focused':
+        if (this.focusPending) { this.focusPending = false; this.options.onFocus?.(); }
+        break;
       case 'error': this.report(new Error(message.message)); this.recover(); break;
     }
   }
   private async attach(): Promise<void> {
     if (!this.alive || this.attaching) return;
-    this.attaching = true; this.attached = false; this.control = false; this.nextSize = null;
+    this.attaching = true; this.attached = false; this.control = false; this.nextSize = null; this.focusPending = false;
     this.epoch = String(++nextEpoch); this.pending = null;
     this.queue = []; this.queuedBytes = 0; this.early = []; this.earlyBytes = 0; this.earlyOverflow = false;
     const { api, tabId } = this.options;
@@ -118,6 +131,7 @@ export class TerminalBridge {
       this.received = attachment.lastSequence; this.consumed = 0; this.open = attachment.state === 'open';
       this.repaint = attachment.truncated && !attachment.snapshot && this.open;
       this.send({ type: 'reset', ...this.identity(), cols: attachment.cols, rows: attachment.rows, fontSize: this.fontSize });
+      if (this.options.theme) this.send({ type: 'theme', ...this.identity(), ...this.options.theme });
       if (this.selecting) this.send({ type: 'select', ...this.identity(), enabled: true });
       this.options.onSelection?.(''); this.attached = true;
       const ticket = ++this.ticket;

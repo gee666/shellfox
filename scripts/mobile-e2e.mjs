@@ -24,7 +24,7 @@ const output = path.join(root, 'tmp', 'mobile-e2e', new Date().toISOString().rep
 mkdirSync(output, { recursive: true });
 function adb(args, timeout = 20000, encoding = 'utf8') {
   try { return execFileSync(adbPath, [...(serial ? ['-s', serial] : []), ...args], { timeout, encoding, windowsHide: true, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] }); }
-  catch { throw new Error(`adb ${args[0]} failed or timed out. Check device availability.`); }
+  catch (cause) { throw new Error(`adb ${args[0]} ${args[1] ?? ''} failed: ${redact(cause instanceof Error ? cause.message.slice(0, 500) : 'device unavailable')}`); }
 }
 const shell = (...args) => adb(['shell', ...args]);
 function nodes(xml) {
@@ -32,7 +32,7 @@ function nodes(xml) {
   return Array.from(document.getElementsByTagName('node')).map(node => ({
     text: node.getAttribute('text') ?? '', label: node.getAttribute('content-desc') ?? '',
     resource: node.getAttribute('resource-id') ?? '', type: node.getAttribute('class') ?? '',
-    enabled: node.getAttribute('enabled') !== 'false', bounds: node.getAttribute('bounds') ?? '',
+    enabled: node.getAttribute('enabled') !== 'false', selected: node.getAttribute('selected') === 'true', bounds: node.getAttribute('bounds') ?? '',
   }));
 }
 function dump() {
@@ -66,7 +66,7 @@ async function launch() {
   shell('am', 'force-stop', app);
   shell('am', 'start', '-W', '-n', `${app}/.MainActivity`);
   await waitFor(tree => {
-    const initial = control(tree, 'Connect to your first machine');
+    const initial = control(tree, 'Sessions list') ?? control(tree, 'No sessions');
     if (initial) return initial;
     try { shell('pidof', app); }
     catch { throw new Error('Android app exited during startup. Inspect errors.log for the native crash.'); }
@@ -74,6 +74,16 @@ async function launch() {
   }, 'initial Sessions screen');
 }
 async function settings() { await tap('Settings'); await find('TAILSCALE'); }
+async function reveal(text) {
+  for (let i = 0; i < 6; i++) {
+    const found = control(dump(), text); if (found) return found;
+    const dimensions = [...shell('wm', 'size').matchAll(/(?:Physical|Override) size: (\d+)x(\d+)/g)].at(-1);
+    assert(dimensions, 'Could not read screen dimensions.');
+    const width = Number(dimensions[1]), height = Number(dimensions[2]);
+    shell('input', 'swipe', String(Math.round(width / 2)), String(Math.round(height * .75)), String(Math.round(width / 2)), String(Math.round(height * .35)), '400');
+  }
+  throw new Error(`Could not reach ${text}.`);
+}
 async function screenshot(name) { writeFileSync(path.join(output, `${name}.png`), adb(['exec-out', 'screencap', '-p'], 20000, 'buffer')); }
 async function rename(hostname) {
   assert(/^[a-zA-Z0-9-]+$/.test(hostname), 'Refusing to type an unsafe hostname into adb shell.');
@@ -106,13 +116,21 @@ function redact(text) {
 }
 
 let originalName, originalSize, preferencesChanged = false, nameChanged = false;
+let originalColors = [], colorsChanged = false;
 let failure;
 const logSince = shell('date', "'+%m-%d %H:%M:%S.000'").trim();
 try {
   assert.equal(shell('getprop', 'sys.boot_completed').trim(), '1', 'Android device is not booted.');
   if (option('--apk')) adb(['install', '-r', path.resolve(option('--apk'))], 180000);
   assert(shell('pm', 'path', app).includes('package:'), 'Install the mobile APK first, or pass --apk.');
-  await launch(); await screenshot('sessions'); await settings();
+  await launch(); await screenshot('sessions');
+  assert(!control(dump(), 'Find a session'), 'Search should be hidden initially.');
+  await tap('Search sessions'); await find('Find a session');
+  await tap('Search sessions');
+  assert(!control(dump(), 'Find a session'), 'Search should close when toggled.');
+  assert(!control(dump(), 'Machines'), 'The redundant Machines action should not appear.');
+  console.log('PASS Compact sessions screen and hidden/toggled search.');
+  await settings();
   const tree = dump();
   assert(!tree.some(node => matches(node, 'Sign out')), 'This smoke test must not modify an enrolled device. Use a separate emulator.');
   assert(control(tree, 'Sign in with browser'), 'Expected signed-out settings.');
@@ -131,6 +149,17 @@ try {
   await screenshot('font-persisted');
   await tap(changedSize > originalSize ? '−' : '+'); await find(`${originalSize} px`); preferencesChanged = false;
   console.log('PASS Android initial sessions, signed-out settings and font persistence.');
+  await launch(); await settings(); await reveal('Use #4ade80');
+  originalColors = dump().filter(node => node.selected && /^(?:Use #[0-9a-f]{6}|Use background #[0-9a-f]{6}|Use custom (?:accent|background) #[0-9a-f]{6})$/.test(node.label)).map(node => node.label);
+  assert.equal(originalColors.length, 2, 'Could not preserve both selected theme colors.');
+  colorsChanged = true;
+  await tap('Use #4ade80'); await tap('Use background #ffffff');
+  await launch(); await settings(); await reveal('Use #4ade80');
+  for (const label of ['Use #4ade80', 'Use background #ffffff']) assert(control(dump(), label)?.selected, 'Theme selection did not persist.');
+  await screenshot('light-theme-persisted');
+  for (const label of originalColors) await tap(label);
+  colorsChanged = false;
+  console.log('PASS Accent/background selection and persistence.');
   // Native startup is required for rename and browser login, but not offline UI.
   await launch(); await settings();
   await waitFor(items => {
@@ -169,6 +198,10 @@ try {
   catch { /* Crash logs below remain useful if screenshots are unavailable. */ }
 }
 finally {
+  if (colorsChanged && originalColors.length === 2) {
+    try { await launch(); await settings(); for (const label of originalColors) tapNode(await reveal(label)); }
+    catch { console.error('Could not restore theme colors automatically. Restore them in Settings.'); }
+  }
   if (preferencesChanged && originalName && originalSize !== undefined) {
     try {
       await launch(); await settings();

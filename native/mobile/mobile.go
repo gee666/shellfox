@@ -32,6 +32,7 @@ type node struct {
 	polls     chan struct{}
 	directory string
 	hostname  string
+	discovery *hostDiscovery
 }
 
 // Start opens the persistent node in an absolute, app-private directory.
@@ -77,7 +78,7 @@ func Start(stateDirectory, hostname string) error {
 	singleton.node = &node{
 		server: s, client: client, ctx: ctx, cancel: cancel,
 		requests: make(chan struct{}, 12), polls: make(chan struct{}, 64),
-		directory: filepath.Clean(stateDirectory), hostname: hostname,
+		directory: filepath.Clean(stateDirectory), hostname: hostname, discovery: newHostDiscovery(store),
 	}
 	return nil
 }
@@ -156,6 +157,9 @@ func Logout() error {
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 	err := n.client.Logout(ctx)
+	if err == nil {
+		err = n.discovery.clear()
+	}
 	closeErr := stopLocked()
 	if err != nil {
 		return errors.New("Cannot log out of network")

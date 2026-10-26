@@ -16,7 +16,7 @@ function deferred<T>() {
 }
 function setup(attachment = snapshot()) {
   let emit: (event: TerminalEvent) => void = () => undefined;
-  const unsubscribe = vi.fn(), messages: HostMessage[] = [], onError = vi.fn();
+  const unsubscribe = vi.fn(), messages: HostMessage[] = [], onError = vi.fn(), onFocus = vi.fn();
   const api = {
     attachTerminal: vi.fn<MobileTerminalApi['attachTerminal']>(async () => success(attachment)),
     writeTerminal: vi.fn<MobileTerminalApi['writeTerminal']>(async () => success({ written: true })),
@@ -25,12 +25,12 @@ function setup(attachment = snapshot()) {
     detachTerminal: vi.fn<MobileTerminalApi['detachTerminal']>(async () => success({ detached: true })),
   };
   const subscribeTerminal = vi.fn((listener: (event: TerminalEvent) => void) => { emit = listener; return unsubscribe; });
-  const options = { api, subscribeTerminal, tabId, viewId: 'page-1', fontSize: 14, onError, send: (message: HostMessage) => messages.push(message) };
+  const options = { api, subscribeTerminal, tabId, viewId: 'page-1', fontSize: 14, onError, onFocus, send: (message: HostMessage) => messages.push(message) };
   const bridge = new TerminalBridge(options);
   const latest = () => messages.filter((m): m is Extract<HostMessage, { type: 'output' }> => m.type === 'output').at(-1)!;
   const rendered = () => { const m = latest(); bridge.receive({ type: 'rendered', viewId: m.viewId, epoch: m.epoch, ticket: m.ticket }); };
   bridge.start();
-  return { api, options, bridge, messages, onError, unsubscribe, latest, rendered, emit: (value: TerminalEvent) => emit(value), subscribeTerminal };
+  return { api, options, bridge, messages, onError, onFocus, unsubscribe, latest, rendered, emit: (value: TerminalEvent) => emit(value), subscribeTerminal };
 }
 afterEach(() => vi.useRealTimers());
 describe('mobile terminal delivery', () => {
@@ -45,6 +45,32 @@ describe('mobile terminal delivery', () => {
     await flush(); expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled();
     f.rendered(); await flush();
     expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, sequence: 8 });
+    f.bridge.dispose();
+  });
+  it('opens the native keyboard only after one matching explicit focus receipt', async () => {
+    const f = setup(); await flush();
+    const receipt = { type: 'focused' as const, viewId: 'page-1', epoch: f.latest().epoch };
+    f.bridge.receive(receipt);
+    expect(f.onFocus).not.toHaveBeenCalled();
+    f.bridge.focus(true);
+    expect(f.onFocus).not.toHaveBeenCalled();
+    f.bridge.receive({ ...receipt, epoch: 'stale' });
+    expect(f.onFocus).not.toHaveBeenCalled();
+    f.bridge.receive(receipt); f.bridge.receive(receipt);
+    expect(f.onFocus).toHaveBeenCalledOnce();
+    f.bridge.focus(true); f.bridge.focus(false); f.bridge.receive(receipt);
+    expect(f.onFocus).toHaveBeenCalledOnce();
+    f.bridge.dispose();
+  });
+  it('applies theme after reset and updates it without detaching the shell', async () => {
+    const f = setup();
+    f.bridge.setTheme({ accentColor: '#123456', backgroundColor: '#ffffff' });
+    await flush();
+    expect(f.messages[0]).toMatchObject({ type: 'reset' });
+    expect(f.messages[1]).toMatchObject({ type: 'theme', accentColor: '#123456', backgroundColor: '#ffffff' });
+    f.bridge.setTheme({ accentColor: '#654321', backgroundColor: '#111016' });
+    expect(f.messages.at(-1)).toMatchObject({ type: 'theme', accentColor: '#654321' });
+    expect(f.api.attachTerminal).toHaveBeenCalledOnce();
     f.bridge.dispose();
   });
   it('queues early and live output behind replay, ignores duplicates, and releases contiguous credit', async () => {
