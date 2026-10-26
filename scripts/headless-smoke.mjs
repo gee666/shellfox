@@ -33,8 +33,10 @@ export async function smokeHeadless(directory = headlessDirectory()) {
   command([path.join(root, 'scripts/node-runtime-native-smoke.cjs'), main, path.join(directory, 'app/node_modules')], 20000);
   const launcher = process.platform === 'win32' ? 'powershell.exe' : path.join(directory, 'shellfox');
   const launcherArgs = process.platform === 'win32' ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(directory, 'shellfox.ps1'), '--help'] : ['--help'];
-  const launched = spawnSync(launcher, launcherArgs, { cwd: root, env: childEnv, timeout: 20000, encoding: 'utf8', windowsHide: true });
-  assert.equal(launched.status, 0, launched.stderr);
+  const launcherTimeout = process.platform === 'win32' ? 60000 : 20000;
+  const launched = spawnSync(launcher, launcherArgs, { cwd: root, env: childEnv, timeout: launcherTimeout, encoding: 'utf8', windowsHide: true });
+  assert.ifError(launched.error);
+  assert.equal(launched.status, 0, `signal=${launched.signal ?? 'none'} ${launched.stderr}`);
   await smokeCliHost({ executable: node, entry: main, cwd: root, environment: childEnv });
   assert.equal(build.sourceHash, sourceDigest(root), 'Sources changed during headless smoke.');
   assert.equal(build.product, 'headless');

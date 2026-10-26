@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { mobileVersion, signingEnvironment } from './mobile-build.mjs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { androidBuildToolsDirectory, androidBuildToolsVersion, mobileVersion, signingEnvironment, verifyApkSigner } from './mobile-build.mjs';
 
 const signing = {
   SHELLFOX_ANDROID_KEYSTORE_BASE64: 'YQ==', SHELLFOX_ANDROID_STORE_PASSWORD: 'test-store',
@@ -9,6 +10,39 @@ const signing = {
   SHELLFOX_ANDROID_CERT_SHA256: 'ab'.repeat(32),
 };
 describe('mobile release contract', () => {
+  it('selects pinned build-tools even when a newer SDK is installed and fails closed if the pin is missing', () => {
+    mkdirSync('tmp', { recursive: true });
+    const sdk = mkdtempSync(path.resolve('tmp/mobile-sdk-test-'));
+    try {
+      for (const version of [androidBuildToolsVersion, '37.0.0']) {
+        const directory = path.join(sdk, 'build-tools', version);
+        mkdirSync(path.join(directory, 'lib'), { recursive: true });
+        writeFileSync(path.join(directory, 'lib/apksigner.jar'), 'fixture');
+        writeFileSync(path.join(directory, 'aapt' + (process.platform === 'win32' ? '.exe' : '')), 'fixture');
+      }
+      const pinned = path.join(sdk, 'build-tools', androidBuildToolsVersion);
+      assert.equal(androidBuildToolsDirectory(sdk), pinned);
+      rmSync(pinned, { recursive: true, force: true });
+      assert.throws(() => androidBuildToolsDirectory(sdk), /build-tools 36\.0\.0 are required/);
+    } finally { rmSync(sdk, { recursive: true, force: true }); }
+  });
+  it('keeps the verifier SDK pin aligned with Gradle and the workflow installation', () => {
+    const gradle = readFileSync('mobile/android/build.gradle', 'utf8');
+    const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
+    assert.ok(gradle.includes(`buildToolsVersion = "${androidBuildToolsVersion}"`));
+    assert.ok(workflow.includes(`'build-tools;${androidBuildToolsVersion}'`));
+  });
+  it('retains the exact single-signer certificate guard and diagnoses unrecognized SDK output without trusting it', () => {
+    const certificate = 'ab'.repeat(32), foreign = 'cd'.repeat(32);
+    const single = `Number of signers: 1\nSigner #1 certificate SHA-256 digest: ${certificate}\n`;
+    assert.doesNotThrow(() => verifyApkSigner(single, certificate.toUpperCase()));
+    assert.doesNotThrow(() => verifyApkSigner(single));
+    assert.throws(() => verifyApkSigner(single, foreign), /parsed signers=1/);
+    assert.throws(() => verifyApkSigner(single + `Signer #2 certificate SHA-256 digest: ${certificate}\n`, certificate), /parsed signers=2/);
+    const newerSDK = `Number of signers: 1\nV2 Signer: certificate SHA-256 digest: ${certificate}\n`;
+    assert.throws(() => verifyApkSigner(newerSDK, certificate), new RegExp(`parsed signers=0; reported SHA-256=${certificate}`));
+    assert.throws(() => verifyApkSigner('', certificate), /parsed signers=0; reported SHA-256=none/);
+  });
   it('maps stable versions to monotonically increasing Android version codes', () => {
     assert.deepEqual(mobileVersion('0.8.0'), { name: '0.8.0', code: 8000 });
     assert.ok(mobileVersion('1.0.0').code > mobileVersion('0.999.999').code);

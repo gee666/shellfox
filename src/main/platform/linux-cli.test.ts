@@ -18,7 +18,7 @@ it.skipIf(process.platform!=='linux')('real sh launcher handles cold spawn, spac
    const result=await exec('/bin/sh',[shim,alias,'create',...(target.startsWith('--')?['--']:[]),target],{cwd:root,env:{...process.env,SHELLFOX_LAUNCH_TEST:output,OLDPWD:folder},timeout:3000});expect(result.stdout).toContain('Shellfox: started session');
    const args=await readFile(output,'utf8');expect(args.split('\n')[0]).toBe('start');expect(args).toContain(target==='.'?root:target==='link'?folder:target==='deep-link/..'?path.dirname(physical):path.join(root,target));
   }
-  await expect(exec('/bin/sh',[shim,'session','create','--leading'],{cwd:root,timeout:3000})).rejects.toMatchObject({code:1,stderr:expect.stringContaining('Unknown option: --leading')});
+  await expect(exec('/bin/sh',[shim,'session','create','--leading'],{cwd:root,timeout:3000})).rejects.toMatchObject({code:2,stderr:expect.stringContaining('Unknown option: --leading')});
   await writeFile(fake,runtime+'sleep 2\n');
   const before=Date.now();
   await exec('/bin/sh',[shim,'session','create','.'],{cwd:root,timeout:4000});

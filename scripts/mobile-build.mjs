@@ -1,10 +1,30 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+export const androidBuildToolsVersion = '36.0.0';
+
+export function androidBuildToolsDirectory(sdk) {
+  const directory = path.join(sdk, 'build-tools', androidBuildToolsVersion);
+  const aapt = path.join(directory, 'aapt' + (process.platform === 'win32' ? '.exe' : ''));
+  if (!existsSync(path.join(directory, 'lib/apksigner.jar')) || !existsSync(aapt)) {
+    throw new Error(`Android build-tools ${androidBuildToolsVersion} are required.`);
+  }
+  return directory;
+}
+
+export function verifyApkSigner(output, expectedCertificate) {
+  const certs = [...output.matchAll(/^Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]{64})\r?$/gm)];
+  if (certs.length === 1 && (expectedCertificate === undefined || certs[0][1].toLowerCase() === expectedCertificate.toLowerCase())) return;
+  // Diagnostic extraction is deliberately broader than the authorization parser.
+  // Certificate fingerprints are public; no keystore or password is logged.
+  const reported = [...output.matchAll(/^.*certificate SHA-256 digest: ([a-fA-F0-9]{64})\r?$/gm)].map(match => match[1].toLowerCase());
+  throw new Error(`APK signing certificate verification failed: parsed signers=${certs.length}; reported SHA-256=${reported.join(',') || 'none'}.`);
+}
+
 export function mobileVersion(version) {
   if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error('Expected a stable mobile version.');
   const parts = version.split('.').map(Number);
@@ -40,6 +60,8 @@ export function main(args = process.argv.slice(2)) {
   const destination = path.join(output, name);
   rmSync(destination, { force: true });
   rmSync(destination + '.sha256', { force: true });
+  const verifierDiagnostic = path.join(output, 'apksigner-verification.txt');
+  rmSync(verifierDiagnostic, { force: true });
   const env = { ...process.env, TMP: scratch, TEMP: scratch, TMPDIR: scratch,
     GRADLE_USER_HOME: path.join(scratch, 'gradle-home'), npm_config_cache: path.join(scratch, 'npm-cache') };
   // Test harnesses select their entry only for explicit, separate Gradle invocations.
@@ -81,13 +103,12 @@ export function main(args = process.argv.slice(2)) {
     const variant = test ? 'preview' : 'release';
     const apk = path.join(android, `app/build/outputs/apk/${variant}/app-${variant}.apk`);
     if (!existsSync(apk)) throw new Error('Universal APK was not produced.');
-    const tools = readdirSync(path.join(sdk, 'build-tools')).filter(name => /^\d+\.\d+\.\d+$/.test(name))
-      .sort((a, b) => b.localeCompare(a, 'en', { numeric: true }));
-    if (!tools[0]) throw new Error('Android build-tools are required.');
-    const toolDirectory = path.join(sdk, 'build-tools', tools[0]);
+    // Verifier stdout is versioned too. SDK 37 changed signer labels, so using
+    // whichever SDK happens to be newest on the runner breaks certificate checks.
+    const toolDirectory = androidBuildToolsDirectory(sdk);
     const verified = run(javaBin('java'), ['-jar', path.join(toolDirectory, 'lib/apksigner.jar'), 'verify', '--verbose', '--print-certs', apk], root, true, 60_000).toString('utf8');
-    const certs = [...verified.matchAll(/^Signer #\d+ certificate SHA-256 digest: ([a-fA-F0-9]{64})\r?$/gm)];
-    if (certs.length !== 1 || (!test && certs[0][1].toLowerCase() !== env.SHELLFOX_ANDROID_CERT_SHA256.toLowerCase())) throw new Error('APK signing certificate verification failed.');
+    try { verifyApkSigner(verified, test ? undefined : env.SHELLFOX_ANDROID_CERT_SHA256); }
+    catch (error) { writeFileSync(verifierDiagnostic, verified); throw error; }
     const badging = run(path.join(toolDirectory, 'aapt' + (process.platform === 'win32' ? '.exe' : '')), ['dump', 'badging', apk], root, true, 60_000).toString('utf8');
     if (!badging.includes(`package: name='com.shellfox.mobile' versionCode='${version.code}' versionName='${version.name}'`) ||
         !/^native-code: 'arm64-v8a' 'x86_64'\r?$/m.test(badging) || /^application-debuggable/m.test(badging)) throw new Error('APK package, version, architecture or embedded-build validation failed.');

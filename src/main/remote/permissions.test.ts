@@ -14,6 +14,8 @@ async function networkFixture() {
   cleanups.push(host.dispose, client.dispose); return { host, client };
 }
 const attempt = z.object({ clientId: z.uuid() });
+// Approval retries wait one second before their next HTTP attempt.
+const approvalWait = { timeout: 5000 };
 it('exposes waiting/rejected states, stops rejected retries, and requests again with a fresh attempt', async () => {
   const { host, client } = await networkFixture(); await host.create();
   const view = client.remote.createView('cli'); cleanups.push(() => view.dispose());
@@ -32,7 +34,7 @@ it('exposes waiting/rejected states, stops rejected retries, and requests again 
   const pairs = client.helper.requests.filter(request => request.path === '/v1/pair');
   expect(attempt.parse(pairs.at(-1)?.body).clientId).not.toBe(first);
   await host.remote.approve({ peerId: 'client' });
-  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected', lastError: null })] } }), { timeout: 2000 });
+  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected', lastError: null })] } }), approvalWait);
   expect(await view.request({ peerId: 'host', method: 'getSnapshot', payload: {} })).toMatchObject({ ok: true });
 }, 10_000);
 it('withdraws a cancelled pending attempt, tombstones late retries and accepts a fresh request UUID', async () => {
@@ -53,7 +55,7 @@ it('revokes every active secondary view with a typed denial and never kills host
   const { host, client } = await networkFixture(); const created = await host.create(); if (!created.ok) throw new Error('Create failed');
   await client.remote.connect({ peerId: 'host' });
   await vi.waitFor(() => expect(host.remote.getState()).toMatchObject({ ok: true, value: { pending: [expect.anything()] } })); await host.remote.approve({ peerId: 'client' });
-  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }));
+  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }), approvalWait);
   const a = client.remote.createView('a'), b = client.remote.createView('b'); cleanups.push(() => a.dispose(), () => b.dispose());
   const events: RemoteEvent[] = []; a.subscribe(event => events.push(event)); b.subscribe(event => events.push(event));
   for (const view of [a, b]) expect(await view.request({ peerId: 'host', method: 'attachTerminal', payload: { tabId: created.value.tabs[0].id } })).toMatchObject({ ok: true });
@@ -66,13 +68,13 @@ it('revokes every active secondary view with a typed denial and never kills host
 it('interrupts a long event poll when a secondary view reports approval is required', async () => {
   const { host, client } = await networkFixture(); await client.remote.connect({ peerId: 'host' });
   await vi.waitFor(() => expect(host.remote.getState()).toMatchObject({ ok: true, value: { pending: [expect.anything()] } })); await host.remote.approve({ peerId: 'client' });
-  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }));
+  await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }), approvalWait);
   const states: string[] = []; client.remote.subscribe(event => { if (event.type === 'state') states.push(event.state.peers.find(peer => peer.id === 'host')?.connection ?? 'missing'); });
   const view = client.remote.createView('approval-view'); cleanups.push(() => view.dispose());
   const profiles = vi.spyOn(host.service, 'getTerminalProfiles').mockReturnValueOnce(failure('APPROVAL_REQUIRED', 'Host approval is pending.', true));
   expect(await view.request({ peerId: 'host', method: 'getTerminalProfiles', payload: {} })).toMatchObject({ ok: false, error: { code: 'APPROVAL_REQUIRED' } }); profiles.mockRestore();
   expect(states).toContain('awaiting-approval');
-  await vi.waitFor(() => expect(states.at(-1)).toBe('connected'), { timeout: 2000 });
+  await vi.waitFor(() => expect(states.at(-1)).toBe('connected'), approvalWait);
 });
 it('bounds pending notifications and preserves old denial decisions after a different attempt is approved', () => {
   let allowed = false; const changed = vi.fn(), policy = new RemoteApprovals(() => allowed, changed);

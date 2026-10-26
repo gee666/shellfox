@@ -99,6 +99,7 @@ jobs:
           path: |
             tmp/mobile-e2e
             tmp/mobile-terminal-native-e2e
+            tmp/mobile-artifacts/apksigner-verification.txt
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
