@@ -1,0 +1,102 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { FakeRemoteHelper, remoteFixture } from './test-fixtures';
+import { responseSchemas } from '../../shared/schemas';
+import { RemoteControlLeases } from './operations';
+const cleanups: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+it('runs real host/client services across authenticated HTTP, persists approval and keeps host shells on client quit', async () => {
+  const network = new Map<string, FakeRemoteHelper>();
+  const host = await remoteFixture(network, 'host'), client = await remoteFixture(network, 'client');
+  cleanups.push(host.dispose, client.dispose);
+  await host.create(); await client.create();
+  expect(await client.remote.connect({ peerId: 'host' })).toMatchObject({ ok: true });
+  await vi.waitFor(() => { const state = host.remote.getState(); expect(state.ok && state.value.pending[0]?.id).toBe('client'); });
+  expect(await host.remote.approve({ peerId: 'client' })).toMatchObject({ ok: true });
+  await vi.waitFor(() => { const state = client.remote.getState(); expect(state.ok && state.value.peers[0]?.connection).toBe('connected'); }, { timeout: 4000 });
+  const snapshot = responseSchemas.getSnapshot.parse(await client.remote.request({ peerId: 'host', method: 'getSnapshot', payload: {} }));
+  expect(snapshot.ok && snapshot.value.sessions.map(s => s.id)).toEqual(host.repository.sessions().map(s => s.id));
+  expect(snapshot.ok && snapshot.value.sessions[0].id).not.toBe(client.repository.sessions()[0].id);
+  if (!snapshot.ok) throw new Error('snapshot failed');
+  const tab = snapshot.value.sessions[0].tabs[0], terminal = { tabId: tab.id, generation: tab.generation!, data: 'first controller' };
+  expect(await client.remote.request({ peerId: 'host', method: 'writeTerminal', payload: terminal })).toEqual({ ok: true, value: { written: true } });
+  const localSession = client.repository.sessions()[0];
+  await client.remote.dispose(); await client.service.dispose();
+  expect(client.repository.tabs(localSession.id)).toHaveLength(0);
+  expect(host.service.ownedTerminalCount()).toBe(1); expect(host.processes[0].kill).not.toHaveBeenCalled();
+  expect((await host.store.load()).approvals[0]?.peerId).toBe('client');
+  const reopened = await remoteFixture(network, 'client'); cleanups.push(reopened.dispose);
+  await reopened.remote.connect({ peerId: 'host' });
+  await vi.waitFor(() => expect(reopened.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }));
+  expect(await reopened.remote.request({ peerId: 'host', method: 'writeTerminal', payload: { ...terminal, data: 'reopened controller' } })).toEqual({ ok: true, value: { written: true } });
+  expect(host.processes[0].write).toHaveBeenLastCalledWith('reopened controller');
+  expect(host.processes[0].kill).not.toHaveBeenCalled();
+});
+it('serializes approval/revocation/remember writes and caches no credentials or terminal metadata', async () => {
+  const network = new Map<string, FakeRemoteHelper>();
+  const host = await remoteFixture(network, 'host'), client = await remoteFixture(network, 'client');
+  cleanups.push(host.dispose, client.dispose);
+  await client.remote.connect({ peerId: 'host' });
+  await vi.waitFor(() => { const state = host.remote.getState(); expect(state.ok && state.value.pending.length).toBe(1); });
+  await Promise.all([host.remote.approve({ peerId: 'client' }), host.remote.revoke({ peerId: 'client' })]);
+  expect((await host.store.load()).approvals).toEqual([]);
+  await client.remote.login({ authKey: 'tskey-auth-private' });
+  const saved = await readFile(path.join(client.directory, 'remote.json'), 'utf8');
+  expect(saved).toContain('host');
+  for (const key of ['tskey-auth-private', 'backendSecret', 'proxySecret', 'sessions', 'env', 'chunks']) expect(saved).not.toContain(key);
+  await client.remote.forget({ peerId: 'host' });
+  expect((await client.store.load()).peers).toEqual([]);
+});
+it('rejects a pairing attempt without redisplaying retries, but permits an explicit new connection', async () => {
+  const network = new Map<string, FakeRemoteHelper>();
+  const host = await remoteFixture(network, 'host'), client = await remoteFixture(network, 'client');
+  cleanups.push(host.dispose, client.dispose);
+  await client.remote.connect({ peerId: 'host' });
+  await vi.waitFor(() => expect(host.remote.getState()).toMatchObject({ ok: true, value: { pending: [expect.objectContaining({ id: 'client' })] } }));
+  await host.remote.revoke({ peerId: 'client' });
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  expect(host.remote.getState()).toMatchObject({ ok: true, value: { pending: [] } });
+  await client.remote.disconnect({ peerId: 'host' }); await client.remote.connect({ peerId: 'host' });
+  await vi.waitFor(() => expect(host.remote.getState()).toMatchObject({ ok: true, value: { pending: [expect.objectContaining({ id: 'client' })] } }));
+});
+it('cannot establish a client after disable wins an earlier queued lifecycle mutation', async () => {
+  const network = new Map<string, FakeRemoteHelper>();
+  const host = await remoteFixture(network, 'host'), client = await remoteFixture(network, 'client');
+  cleanups.push(host.dispose, client.dispose);
+  const [disabled, connected] = await Promise.all([client.remote.configure({ enabled: false, hostname: 'client' }), client.remote.connect({ peerId: 'host' })]);
+  expect(disabled.ok).toBe(true); expect(connected.ok).toBe(false);
+  expect(client.remote.getState()).toMatchObject({ ok: true, value: { status: 'disabled', enabled: false, peers: [] } });
+});
+it('does not issue new helper commands when an old status poll completes after disable', async () => {
+  const network = new Map<string, FakeRemoteHelper>();
+  const client = await remoteFixture(network, 'client'); cleanups.push(client.dispose);
+  let statusStarted!: () => void, finishStatus!: (value: unknown) => void;
+  const started = new Promise<void>(resolve => { statusStarted = resolve; });
+  const status = new Promise<unknown>(resolve => { finishStatus = resolve; });
+  const command = client.helper.command.bind(client.helper);
+  vi.spyOn(client.helper, 'command').mockImplementation((method, payload) => {
+    if (method === 'status') { statusStarted(); return status; }
+    return command(method, payload);
+  });
+  await started;
+  await client.remote.configure({ enabled: false, hostname: 'client' });
+  const peersBefore = client.helper.commands.filter(c => c.method === 'peers').length;
+  finishStatus({ status: 'online', loginUrl: null, error: null });
+  await new Promise(resolve => setImmediate(resolve));
+  expect(client.helper.commands.filter(c => c.method === 'peers')).toHaveLength(peersBefore);
+  expect(client.remote.getState()).toMatchObject({ ok: true, value: { status: 'disabled', enabled: false } });
+}, 10_000);
+it('acquires session deletion leases atomically without stealing any free terminal on conflict', () => {
+  const leases = new RemoteControlLeases();
+  expect(leases.claim('occupied', 'a', 0)).toBe(true);
+  expect(leases.claimAll(['free', 'occupied'], 'b', 100)).toBe(false);
+  expect(leases.claim('free', 'c', 101)).toBe(true);
+  expect(leases.claim('occupied', 'a', 102)).toBe(true);
+});
+it('leases expire, release on disconnect, and never participate in local input', () => {
+  const leases = new RemoteControlLeases();
+  expect(leases.claim('tab', 'a', 0)).toBe(true); expect(leases.claim('tab', 'b', 100)).toBe(false);
+  expect(leases.claim('tab', 'a', 10_000)).toBe(true); expect(leases.claim('tab', 'b', 30_001)).toBe(false);
+  expect(leases.claim('tab', 'b', 40_001)).toBe(true); leases.release('b'); expect(leases.claim('tab', 'a', 40_002)).toBe(true);
+});

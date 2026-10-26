@@ -3,6 +3,7 @@ import path from 'node:path';
 import { runNode, root } from './common.mjs';
 import { darwinHelpers } from './terminal-native-helpers.mjs';
 import { sourceDigest } from './source-digest.mjs';
+import { helperTarget, probeHelper } from './tailscale.mjs';
 const mode = process.argv[2];
 // A running Windows package locks its images. Allow a fresh, project-tmp output
 // without deleting or stopping the user's current installation.
@@ -22,6 +23,12 @@ const stage = path.join(root, 'tmp/package-source');
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(path.join(stage, 'tmp'), { recursive: true });
 cpSync('tmp/build', path.join(stage, 'tmp/build'), { recursive: true });
+const tailscale = helperTarget(platform, arch);
+probeHelper(path.join(tailscale.directory, tailscale.basename), platform, arch);
+const tailscaleResources = path.join(root, 'tmp/package-resources/tailscale');
+rmSync(tailscaleResources, { recursive: true, force: true });
+cpSync(tailscale.directory, tailscaleResources, { recursive: true });
+chmodSync(path.join(tailscaleResources, tailscale.basename), 0o755);
 if (platform === 'win32') {
   const helper = path.join(root, 'tmp/terminal-native', 'win-' + arch);
   const resources = path.join(root, 'tmp/package-resources/elevated-terminal');

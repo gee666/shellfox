@@ -18,7 +18,7 @@ beforeEach(() => localStorage.clear());
 describe('background color setting', () => {
   function setup() {
     const initial = snapshot(); const fixture = mockApi(initial); const client = createManagerClient(fixture.api);
-    render(<SettingsPanel client={client} settings={initial.settings} explorer={initial.explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
+    render(<SettingsPanel client={client} settings={initial.settings} profiles={profiles} defaultProfileId="pwsh" />);
     return { fixture, initial };
   }
   it('offers dark and light presets next to a custom picker, with the default pressed', () => {

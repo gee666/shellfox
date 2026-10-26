@@ -1,0 +1,82 @@
+name: Headless packages
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  headless:
+    name: headless ${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, platform: linux, arch: x64 }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+          - { runner: windows-2022, platform: win32, arch: x64 }
+          - { runner: windows-11-arm, platform: win32, arch: arm64 }
+          - { runner: macos-15-intel, platform: darwin, arch: x64 }
+          - { runner: macos-15, platform: darwin, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TMP: ${{ github.workspace }}/tmp
+      TEMP: ${{ github.workspace }}/tmp
+      TMPDIR: ${{ github.workspace }}/tmp
+      npm_config_cache: ${{ github.workspace }}/tmp/npm-cache
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scratch directory
+        run: mkdir -p tmp
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          architecture: ${{ matrix.arch }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      # Windows/macOS native addons use npm's lockfile-verified Node-API prebuilds.
+      # Linux node-pty has no prebuild and compiles against verified Node headers.
+      - name: Verify native runner architecture
+        run: node -e "if(process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Wrong native target')"
+      - name: Linux compiler prerequisites, no display server
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++
+      - name: Install build dependencies without Electron or lifecycle rebuilds
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        timeout-minutes: 5
+      - name: Typecheck
+        run: pnpm typecheck
+        timeout-minutes: 3
+      - name: Headless build, runtime and workflow contracts
+        run: pnpm test:headless:contracts
+        timeout-minutes: 3
+      - name: Package headless and smoke actual archived host without a display
+        run: env -u DISPLAY -u WAYLAND_DISPLAY pnpm package:headless
+        timeout-minutes: 25
+      - name: Smoke staged headless host with DISPLAY unset
+        run: env -u DISPLAY -u WAYLAND_DISPLAY pnpm test:headless
+        timeout-minutes: 3
+      - name: Upload headless failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-diagnostics-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            tmp/build-diagnostics/*.json
+            tmp/headless-bundle-inputs.json
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shellfox-headless-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            tmp/headless-artifacts/*.zip
+            tmp/headless-artifacts/*.tar.gz
+            tmp/headless-artifacts/*.sha256
+          if-no-files-found: error

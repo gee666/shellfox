@@ -50,17 +50,22 @@ it('does not select a failed creation or open another legacy tab', async () => {
   expect(await handleCliRequest({ version: 1, kind: 'show' }, host, window)).toEqual(success({ handled: true }));
   expect(host.createSession).toHaveBeenCalledTimes(1); expect(window.focus).toHaveBeenCalledOnce();
 });
-it('exposes embedded Explorer support and saves the opt-in only after registry success', async () => {
+it('enables embedded Explorer automatically and cannot disable it through the public API', async () => {
   const f = factoryFixture(), repository = new MemoryRepository();
   const state: ExplorerIntegrationDto = { supported: true, installed: false, folderItemInstalled: false, backgroundInstalled: false, reason: null };
   const integration = { get: vi.fn(async () => success(state)), set: vi.fn(async (installed: boolean) => success({ ...state, installed, folderItemInstalled: installed, backgroundInstalled: installed })) };
   const service = new EmbeddedSessionService(repository, new PtyBackend(f.options), () => ({ setWatch() {}, dispose() {} }), integration);
-  await service.initialize(); expect(service.explorer.supported).toBe(true); expect(service.probe.capabilities.explorerContextMenu).toBe(true);
-  expect(await service.setExplorerIntegration({ installed: true })).toMatchObject({ ok: true, value: { installed: true } });
-  expect(repository.explorerPreference()).toBe(true);
-  integration.set.mockImplementationOnce(async () => failure('AUTH_FAILED', 'Foreign key'));
-  expect((await service.setExplorerIntegration({ installed: false })).ok).toBe(false); expect(repository.explorerPreference()).toBe(true);
-  await service.setExplorerIntegration({ installed: false }); expect(repository.explorerPreference()).toBe(false);
-  expect((await service.setExplorerIntegration({ installed: true, command: 'evil' } as { installed: boolean })).ok).toBe(false);
-  expect(integration.set).toHaveBeenCalledTimes(3); await service.dispose();
+  const savePreference = vi.spyOn(repository, 'saveExplorerPreference');
+  try {
+    await service.initialize(); expect(service.explorer.supported).toBe(true); expect(service.probe.capabilities.explorerContextMenu).toBe(true);
+    expect(integration.set).toHaveBeenCalledExactlyOnceWith(true);
+    expect(service.explorer.installed).toBe(true);
+    expect(await service.setExplorerIntegration({ installed: true })).toMatchObject({ ok: true, value: { installed: true } });
+    integration.set.mockImplementationOnce(async () => failure('AUTH_FAILED', 'Foreign key'));
+    expect(await service.setExplorerIntegration({ installed: true })).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
+    expect(await service.setExplorerIntegration({ installed: false })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+    const invalid = { installed: true, command: 'evil' };
+    expect((await service.setExplorerIntegration(invalid)).ok).toBe(false);
+    expect(integration.set).toHaveBeenCalledTimes(3); expect(savePreference).not.toHaveBeenCalled();
+  } finally { await service.dispose(); }
 });

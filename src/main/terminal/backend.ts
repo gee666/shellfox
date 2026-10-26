@@ -15,7 +15,7 @@ import { TerminalActivity } from './activity';
 import { nativeQueuedInputBytes, MAX_NATIVE_INPUT_BYTES } from './native-input';
 import { prepareDarwinSupervisor, type SupervisorLaunch, type SupervisorControl } from './darwin-supervisor';
 import { ScreenMirror } from './screen-mirror';
-import { ADMIN_POWERSHELL_PROFILE, launchElevatedPty, type ElevatedLaunch, type ElevatedPty } from './windows-elevated';
+import { ADMIN_POWERSHELL_PROFILE, launchElevatedPty, elevatedHelperPath, elevatedCapability, type ElevatedLaunch, type ElevatedPty } from './windows-elevated';
 
 export const REPLAY_BYTES = 256 * 1024;
 /** terminalAttachmentSchema rejects attachments above this many UTF-8 bytes of chunk data. */
@@ -52,7 +52,7 @@ interface Entry extends Omit<OwnedTerminal, 'processTitle'> {
   mirror: ScreenMirror;
 }
 function defaultFactory(): PtyFactory {
-  // Deliberately external/lazy: the packaging owner stages the Electron-ABI native addon.
+  // External and lazy. Packaging must stage the ABI for the embedding Node or Electron runtime.
   const require = createRequire(typeof __filename === 'string' ? __filename : path.join(process.cwd(), 'package.json'));
   const module = require('node-pty') as { spawn: PtyFactory };
   return (file, args, options) => {
@@ -64,6 +64,10 @@ function defaultFactory(): PtyFactory {
   };
 }
 export interface BackendOptions {
+  helperOptions?: import('./tracking').TrackingHelperOptions;
+  hostEnvironment?: import('./environment').HostTerminalEnvironment;
+  /** Headless hosts cannot display elevation approval UI. */
+  allowAdministrator?: boolean;
   factory?: PtyFactory; discover?: () => Promise<TerminalProfilesDto>;
   validateCwd?: (profile: TerminalProfileDto, cwd: string) => Promise<string>;
   terminateGuest?: TreeTerminator;
@@ -111,14 +115,20 @@ export class PtyBackend {
       await this.refreshProfiles();
       this.initialized = true;
       return success(this.getProfiles());
-    } catch { return failure('DEPENDENCY_MISSING', 'The embedded terminal addon or discovered shell is unavailable. Rebuild node-pty for this Electron runtime.'); }
+    } catch { return failure('DEPENDENCY_MISSING', 'The embedded terminal addon or discovered shell is unavailable. Rebuild node-pty for the current Node or Electron runtime.'); }
   }
   configurePythonPath(value: string | null): void { this.pythonPath = value; }
   getPython(): PythonProbe { return { ...this.python }; }
   async refreshProfiles(value = this.pythonPath): Promise<TerminalProfilesDto> {
     if (this.platform === 'linux') this.python = await resolvePython(value);
     this.pythonPath = value;
-    this.profiles = await (this.options.discover ?? (() => discoverProfiles({ platform: this.platform, pythonPath: value, python: this.python })))();
+    const administratorCapability = this.options.allowAdministrator === false
+      ? async () => ({ available: false, reason: 'Administrator terminals require a desktop host with elevation approval UI.' })
+      : this.options.helperOptions ? () => elevatedCapability(elevatedHelperPath(this.options.helperOptions)) : undefined;
+    this.profiles = await (this.options.discover ?? (() => discoverProfiles({
+      platform: this.platform, pythonPath: value, python: this.python,
+      supervisorOptions: this.options.helperOptions, administratorCapability,
+    })))();
     return this.getProfiles();
   }
   getProfiles(): TerminalProfilesDto { return structuredClone(this.profiles); }
@@ -191,7 +201,7 @@ export class PtyBackend {
     const marker = randomUUID();
     let supervisor: SupervisorLaunch | undefined;
     if (this.platform === 'darwin' && profile.environment === 'local') {
-      try { supervisor = await (this.options.prepareSupervisor ?? prepareDarwinSupervisor)(profile, cwd, marker); }
+      try { supervisor = await (this.options.prepareSupervisor ?? ((p, directory, token) => prepareDarwinSupervisor(p, directory, token, this.options.helperOptions)))(profile, cwd, marker); }
       catch { return failure('DEPENDENCY_MISSING', 'The bundled Darwin session supervisor failed native preflight or private control setup.'); }
     }
     // Native preflight/private endpoint preparation awaited again. Recheck all
@@ -205,7 +215,7 @@ export class PtyBackend {
       return failure('VALIDATION', 'Terminal ownership changed or the live terminal limit was reached during preparation.');
     }
     const command = administrator ? { file: profile.executable, args: [], cwd } : supervisor ?? spawnArguments(profile, cwd, marker, !!input.cliBin);
-    const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin, marker });
+    const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin, marker, host: this.options.hostEnvironment });
     if (supervisor) Object.assign(env, supervisor.env);
     // Unix node-pty writes options.name back to env.TERM, so use the session value.
     const termName = env.TERM ?? 'xterm-256color';
@@ -219,7 +229,7 @@ export class PtyBackend {
     let elevated: ElevatedPty | undefined;
     const bornBefore = (BigInt(Date.now()) + 11644473600000n) * 10000n;
     try {
-      if (administrator) pty = elevated = (this.options.elevatedFactory ?? launchElevatedPty)({ cwd, env, cols: 80, rows: 24 });
+      if (administrator) pty = elevated = (this.options.elevatedFactory ?? (launch => launchElevatedPty(launch, this.options.helperOptions ? elevatedHelperPath(this.options.helperOptions) : undefined)))({ cwd, env, cols: 80, rows: 24 });
       else pty = this.factory(spawn.file, spawn.args, { name: termName, cols: 80, rows: 24, cwd: spawn.cwd, env, useConpty: true, useConptyDll: true });
     }
     catch { await supervisor?.control.disposeConfirmed(); return failure('LAUNCH_FAILED', 'The selected interactive shell could not start.'); }

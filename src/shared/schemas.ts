@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { sshProfileInputSchema, sshProfileDtoSchema } from './ssh-schemas';
 import { parseWslUnc } from './wsl-path';
+import { tabStatSchema } from './process-stats-schemas';
 export const idSchema = z.string().uuid();
 export const adapterSchema = z.enum(['windows-terminal', 'gnome-terminal', 'embedded-pty']);
 export const shellIdSchema = z.enum(['pwsh', 'windows-powershell', 'bash', 'login-shell', 'wsl']);
@@ -15,7 +16,7 @@ export const pathSchema = text(32767).min(1).refine(s => isWslUncPath(s) || (/^[
 export const statusSchema = z.enum(['waiting', 'error', 'running', 'unknown', 'settled']);
 export const tabStatusSchema = z.enum(['waiting', 'error', 'running', 'unknown']);
 export const lifecycleSchema = z.enum(['launching', 'open', 'closed', 'launch-uncertain']);
-export const errorSchema = z.object({ code: z.enum(['VALIDATION', 'NOT_FOUND', 'UNSUPPORTED', 'DEPENDENCY_MISSING', 'LAUNCH_FAILED', 'REGISTRATION_TIMEOUT', 'TARGET_LOST', 'TARGET_AMBIGUOUS', 'FOCUS_DENIED', 'MONITOR_UNAVAILABLE', 'NATIVE_UNAVAILABLE', 'AUTH_FAILED', 'SETTLE_CONFIRM_REQUIRED', 'RETRY_CONFIRM_REQUIRED', 'STORAGE_FAILED', 'INTERNAL']), message: text(1000).min(1), retryable: z.boolean() }).strict();
+export const errorSchema = z.object({ code: z.enum(['VALIDATION', 'NOT_FOUND', 'UNSUPPORTED', 'DEPENDENCY_MISSING', 'LAUNCH_FAILED', 'REGISTRATION_TIMEOUT', 'TARGET_LOST', 'TARGET_AMBIGUOUS', 'FOCUS_DENIED', 'MONITOR_UNAVAILABLE', 'NATIVE_UNAVAILABLE', 'AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED', 'SETTLE_CONFIRM_REQUIRED', 'RETRY_CONFIRM_REQUIRED', 'STORAGE_FAILED', 'INTERNAL']), message: text(1000).min(1), retryable: z.boolean() }).strict();
 export const resultSchema = <T extends z.ZodType>(value: T) => z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), value }).strict(), z.object({ ok: z.literal(false), error: errorSchema }).strict()]);
 const count = z.number().int().min(0).max(1000000);
 export const capabilitiesSchema = z.object({ createWindow: z.boolean(), addTab: z.boolean(), focusWindow: z.boolean(), activateTab: z.boolean(), splitPane: z.literal(false), attachExisting: z.literal(false), closeTerminal: z.boolean(), commandExitStatus: z.literal(false), processTracking: z.boolean(), explorerContextMenu: z.boolean(), embeddedTerminal: z.boolean().optional(), terminalLifetime: z.enum(['app-owned', 'external-legacy']).optional(), shellSurvival: z.boolean().optional() }).strict();
@@ -29,7 +30,8 @@ export const explorerSchema = z.object({ supported: z.boolean(), installed: z.bo
 export const storedEnvVarSchema = z.object({ name: z.string().trim().min(1).max(256).refine(s => !/[=\u0000]/.test(s)), value: z.string().max(32767).refine(s => !s.includes('\u0000')) }).strict();
 export const envVarSchema = z.object({ name: z.string().trim().min(1).max(256).refine(s => !/[=:\/\s\u0000]/u.test(s), 'Names cannot contain whitespace, =, :, / or NUL'), value: z.string().max(32767).refine(s => !/[\r\n\u0000]/.test(s), 'Values must be single-line with no CR, LF or NUL') }).strict();
 export const envVarsSchemaFor = (windows: boolean) => z.array(envVarSchema).max(200).refine(vars => new Set(vars.map(v => windows ? v.name.toLowerCase() : v.name)).size === vars.length, 'Duplicate environment variable names');
-export const storedEnvVarsSchema = z.array(storedEnvVarSchema).max(200).refine(vars => new Set(vars.map(v => typeof process === 'undefined' || process.platform === 'win32' ? v.name.toLowerCase() : v.name)).size === vars.length, 'Duplicate environment variable names');
+// Reads can describe another OS. Case-insensitive uniqueness belongs to host-side writes.
+export const storedEnvVarsSchema = z.array(storedEnvVarSchema).max(200).refine(vars => new Set(vars.map(v => v.name)).size === vars.length, 'Duplicate environment variable names');
 export const envVarsSchema = envVarsSchemaFor(typeof process === 'undefined' || process.platform === 'win32');
 export const cliIntegrationSchema = z.object({ supported: z.boolean(), installed: z.boolean(), command: z.enum(['shellfox', 'shellfox start <path>']), reason: text(1000).nullable() }).strict();
 export const tabSchema = z.object({ id: idSchema, sessionId: idSchema, title: titleSchema, cwd: pathSchema, ordinal: count, createdAt: timestampSchema, lifecycle: lifecycleSchema, status: tabStatusSchema, agents: count, monitoringReason: text(1000).nullable(), error: errorSchema.nullable(), generation: idSchema.optional(), terminalKind: z.enum(['embedded', 'external-legacy']).optional(), profileId: profileIdSchema.nullable().optional(), exitCode: z.number().int().nullable().optional() }).strict();
@@ -73,9 +75,11 @@ export const requestSchemas = {
   importPuttySessions: empty,
   chooseSshKeyFile: empty,
   getSnapshot: empty,
+  getSessionStats: z.object({ sessionId: idSchema.optional() }).strict(),
   setVisibleSessions: z.object({ sessionIds: z.array(idSchema).max(10000).refine(ids => new Set(ids).size === ids.length, 'Duplicate session IDs') }).strict(),
   getHomeDirectory: empty,
   resolveDirectory: directoryPromptRequest,
+  createDirectory: directoryPromptRequest,
   completeDirectory: directoryPromptRequest,
   copyText: z.object({ text: z.string().max(CLIPBOARD_COPY_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_COPY_BYTES) }).strict(),
   readClipboardText: empty,
@@ -84,7 +88,7 @@ export const requestSchemas = {
   setKeepAwake: z.object({ active: z.boolean() }).strict(),
   openSessionFolder: sessionId,
   setSessionEnv: z.object({ sessionId: idSchema, env: envVarsSchema }).strict(),
-  setCliIntegration: z.object({ installed: z.boolean() }).strict(),
+  setCliIntegration: z.object({ installed: z.literal(true) }).strict(),
   createSession: z.object({ title: titleSchema.optional(), cwd: pathSchema, requestId: idSchema }).strict(),
   addTab: z.object({ sessionId: idSchema, title: titleSchema.optional(), profileId: profileIdSchema.optional(), cwd: pathSchema.optional() }).strict(),
   getTerminalProfiles: empty,
@@ -105,7 +109,7 @@ export const requestSchemas = {
   unsettleSession: sessionId, deleteSession: sessionId, clearSessionError: sessionId,
   retryTab: z.object({ tabId: idSchema, confirmPossibleDuplicate: z.boolean() }).strict(),
   saveSettings: settingsSchema,
-  setExplorerIntegration: z.object({ installed: z.boolean() }).strict(), chooseDirectory: empty, getUpdateStatus: empty, downloadUpdate: empty,
+  setExplorerIntegration: z.object({ installed: z.literal(true) }).strict(), chooseDirectory: empty, getUpdateStatus: empty, downloadUpdate: empty,
   installUpdate: z.object({ confirmCloseTerminals: z.literal(true) }).strict(),
 } as const;
 export type ManagerMethod = keyof typeof requestSchemas;
@@ -127,6 +131,7 @@ export const responseSchemas = {
   setVisibleSessions: resultSchema(z.object({ configured: z.literal(true) }).strict()),
   getHomeDirectory: resultSchema(z.object({ cwd: pathSchema }).strict()),
   resolveDirectory: resultSchema(z.object({ cwd: pathSchema }).strict()),
+  createDirectory: resultSchema(z.object({ cwd: pathSchema }).strict()),
   completeDirectory: resultSchema(z.object({ matches: z.array(directoryPromptPathSchema.min(1)).max(DIRECTORY_COMPLETION_LIMIT).refine(matches => matches.reduce((sum, match) => sum + utf8Size(match), 0) <= DIRECTORY_COMPLETION_BYTES) }).strict()),
   copyText: resultSchema(z.object({ copied: z.literal(true) }).strict()),
   readClipboardText: resultSchema(z.object({ text: z.string().max(CLIPBOARD_PASTE_BYTES).refine(s => utf8Size(s) <= CLIPBOARD_PASTE_BYTES) }).strict()),
@@ -141,6 +146,7 @@ export const responseSchemas = {
   writeTerminal: resultSchema(z.object({ written: z.literal(true) }).strict()), resizeTerminal: resultSchema(z.object({ resized: z.literal(true) }).strict()), closeTab: resultSchema(sessionSchema),
   renameTab: resultSchema(sessionSchema), reorderTabs: resultSchema(sessionSchema),
   activateSession: resultSchema(sessionSchema), refreshSessionMembership: resultSchema(sessionSchema), prepareSessionRegistration: resultSchema(registrationGuideSchema),
+  getSessionStats: resultSchema(z.object({ sessions: z.array(sessionSchema.extend({ env: storedEnvVarsSchema.length(0) })).max(10000), tabs: z.array(tabStatSchema).max(64) }).strict()),
   getSnapshot: resultSchema(snapshotSchema), createSession: resultSchema(sessionSchema), addTab: resultSchema(sessionSchema), focusSession: resultSchema(z.object({ focused: z.literal(true) }).strict()), renameSession: resultSchema(sessionSchema), setSessionPinned: resultSchema(sessionSchema), settleSession: resultSchema(sessionSchema), unsettleSession: resultSchema(sessionSchema), deleteSession: resultSchema(z.object({ deleted: z.literal(true) }).strict()), clearSessionError: resultSchema(sessionSchema), retryTab: resultSchema(sessionSchema), saveSettings: resultSchema(settingsSchema), setExplorerIntegration: resultSchema(explorerSchema), chooseDirectory: resultSchema(z.object({ cwd: pathSchema }).strict().nullable()),
   getUpdateStatus: resultSchema(updateStatusSchema),
   downloadUpdate: resultSchema(updateStatusSchema), installUpdate: resultSchema(updateStatusSchema),

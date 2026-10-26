@@ -7,7 +7,8 @@ import type { LaunchReceipt, NativeBackend, NativeEvent, NativeInit, TabObservat
 import { explorerSchema, launchReceiptSchema, nativeEventSchema, probeSchema, requestSchemas, resultSchema, windowTargetSchema } from '../shared/schemas';
 import { aggregateStatus, countTabs, publicStatus, sortSessions, tabStatus } from '../shared/status';
 import type { OperationRecord, RepositoryPort, SessionRecord, TabRecord } from './models';
-import { unavailableExplorer, unavailableProbe, unavailableCli } from './defaults';
+import { unavailableProbe, unavailableCli } from './defaults';
+import { DesktopIntegrations } from './integrations';
 import { validateDirectory } from './directory';
 import { hasSessionWindowBackend } from './platform/session-windows';
 import { SessionWindows } from './session-windows';
@@ -17,7 +18,8 @@ export class SessionService {
   revision = 0;
   probe: NativeProbe = unavailableProbe('Native backend has not initialized');
   cli = { ...unavailableCli, reason: 'Shellfox CLI integration requires embedded terminals.' };
-  explorer: ExplorerIntegrationDto = unavailableExplorer;
+  private readonly integrations: DesktopIntegrations;
+  get explorer(): ExplorerIntegrationDto { return this.integrations.explorer; }
   private observations = new Map<string, TabObservation>();
   private verified = new Set<string>();
   private listeners = new Set<(event: ChangedEvent) => void>();
@@ -32,7 +34,11 @@ export class SessionService {
   private windows?: SessionWindows;
   private readonly lifecycle: SessionLifecycle;
   private activations = new Map<string, Promise<Result<SessionDto>>>();
-  constructor(readonly repository: RepositoryPort, readonly backend: NativeBackend, private directoryValidator = validateDirectory, private packagedExecutable: string | null = null) {
+  constructor(readonly repository: RepositoryPort, readonly backend: NativeBackend, private directoryValidator = validateDirectory, packagedExecutable: string | null = null) {
+    this.integrations = new DesktopIntegrations(packagedExecutable ? {
+      get: () => this.native(() => this.backend.getExplorerIntegration(), explorerSchema),
+      set: () => this.native(() => this.backend.setExplorerIntegration({ installed: true, executablePath: packagedExecutable }), explorerSchema),
+    } : undefined, undefined, () => !this.disposed, () => this.changed('settings'));
     this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), async session => {
       // Legacy windows are external, not app-owned terminal handles.
       repository.deleteSession(session.id); this.verified.delete(session.id);
@@ -67,10 +73,7 @@ export class SessionService {
     });
     const result = await this.native(() => this.backend.initialize(input), probeSchema);
     this.probe = result.ok ? result.value : unavailableProbe(result.error.message);
-    const integration = await this.native(() => this.packagedExecutable && this.repository.explorerPreference()
-      ? this.backend.setExplorerIntegration({ installed: true, executablePath: this.packagedExecutable })
-      : this.backend.getExplorerIntegration(), explorerSchema);
-    this.explorer = integration.ok ? integration.value : { ...unavailableExplorer, reason: integration.error.message };
+    await this.integrations.initialize();
     this.repository.transaction(() => {
       for (const session of this.repository.sessions()) if (session.windowState === 'opening') {
         session.windowState = 'launch-uncertain';this.repository.saveSession(session);
@@ -88,10 +91,10 @@ export class SessionService {
     for (const session of this.repository.sessions()) {
       if (!session.binding && session.target && this.probe.available) await this.verify(session);
     }
-    this.lifecycle.start();
+    this.integrations.markReady(); this.lifecycle.start();
     this.changed('native');
   }
-  async dispose(): Promise<void> { this.disposed = true; this.lifecycle.stop(); this.lifecycle.flushActivity(); this.windows?.dispose(); this.unsubscribe?.(); await this.watchQueue; await this.backend.dispose(); }
+  async dispose(): Promise<void> { this.disposed = true; this.lifecycle.stop(); this.lifecycle.flushActivity(); this.windows?.dispose(); this.unsubscribe?.(); await this.watchQueue; await this.integrations.drain(); await this.backend.dispose(); }
   private serialize<T>(id: string, action: () => Promise<Result<T>>): Promise<Result<T>> {
     const previous = this.queues.get(id) || Promise.resolve();
     const next = previous.catch(() => undefined).then(action).catch(() => failure('STORAGE_FAILED', 'The operation could not be saved', true)) as Promise<Result<T>>;
@@ -407,7 +410,9 @@ export class SessionService {
   setSessionEnv(input: { sessionId: string; env: EnvVar[] }): Promise<Result<SessionDto>> {
     return Promise.resolve(failure('UNSUPPORTED', 'Environment overrides require embedded terminals.'));
   }
-  setCliIntegration(_input: { installed: boolean }) { return Promise.resolve(failure('UNSUPPORTED', 'Shellfox CLI integration requires embedded terminals.')); }
+  setCliIntegration(input: { installed: boolean }) {
+    return Promise.resolve(requestSchemas.setCliIntegration.safeParse(input).success ? failure('UNSUPPORTED', 'Shellfox CLI integration requires embedded terminals.') : failure('VALIDATION', 'CLI integration is always enabled.'));
+  }
   setSessionPinned(input: { sessionId: string; pinned: boolean }): Promise<Result<SessionDto>> {
     if (!requestSchemas.setSessionPinned.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid pin request'));
     return this.mutate(input.sessionId, s => {
@@ -508,13 +513,9 @@ export class SessionService {
       });
     });
   }
+  refreshIntegrations(): Promise<void> { return this.integrations.refresh(); }
   setExplorerIntegration(input: { installed: boolean }): Promise<Result<ExplorerIntegrationDto>> {
-    if (!requestSchemas.setExplorerIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid integration request'));
-    return this.serialize('explorer', async () => {
-      if (!this.packagedExecutable) return failure('UNSUPPORTED', 'Explorer integration requires an installed packaged application');
-      const response = await this.native(() => this.backend.setExplorerIntegration({ installed: input.installed, executablePath: this.packagedExecutable! }), explorerSchema);
-      if (response.ok) { this.explorer = response.value; this.repository.saveExplorerPreference(input.installed); this.changed('settings'); }
-      return response;
-    });
+    if (!requestSchemas.setExplorerIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'File-manager integration is always enabled.'));
+    return this.integrations.ensureExplorer();
   }
 }

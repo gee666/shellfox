@@ -5,52 +5,28 @@ import { constants } from 'node:fs';
 import type { CliIntegrationDto, Result } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { posixHelper } from './cli-helper';
+import { launchConfig } from './shellfox-cli-launch';
 import type { CliPort } from './shellfox-cli';
 import updateScript from '../update/shellfox-update.sh';
 export const LINUX_OWNER = 'Shellfox/linux-v1';
 export const ownsLinuxFile = (content: string) => content.split(/\r?\n/).includes('# ' + LINUX_OWNER);
-export interface LinuxCliOptions { executable: string; appPath?: string; cliHelper?: string; userData?: string; home?: string; env?: NodeJS.ProcessEnv; prefixArgs?: string[]; launchEnv?: Record<string,string>; systemLauncher?: string }
+export interface LinuxCliOptions { executable: string; appPath?: string; cliHelper?: string; userData?: string; home?: string; env?: NodeJS.ProcessEnv; prefixArgs?: string[]; launchEnv?: Record<string,string>; systemLauncher?: string; resourcesPath?: string; projectRoot?: string }
 export const shQuote = (value: string) => "'"+value.replaceAll("'","'\\''")+"'";
 export function linuxLauncher(options: LinuxCliOptions): string {
-  const target=[options.executable,...(options.appPath?[options.appPath]:[]),...(options.prefixArgs??[])].map(shQuote).join(' ');
   return `#!/bin/sh
 # ${LINUX_OWNER}
-if [ "\${1:-}" = '--help' ] || [ "\${1:-}" = ssh ] || [ "\${2:-}" = '--help' ] || [ "\${2:-}" = '-h' ] || [ "\${2:-}" = help ]; then
-${posixHelper(options, false)}fi
-unset ELECTRON_RUN_AS_NODE
-if [ "\${1:-}" = update ]; then
-  shift
-  shellfox_update_script=${shQuote(updateScript)}
-  SHELLFOX_APP_EXECUTABLE=${shQuote(options.executable)} exec /bin/sh -c "$shellfox_update_script" shellfox-update "$@"
-fi
-if [ "$#" -eq 0 ]; then mode=show
-elif { [ "$1" = start ] || [ "$1" = add ] || [ "$1" = new ] || [ "$1" = create ]; } && [ "$#" -le 2 ]; then
-  target=\${2:-.}
-  case "$target" in /*) ;; *) target=./$target ;; esac
-  folder=$(CDPATH='' cd -P -- "$target" 2>/dev/null && pwd -P) || { printf '%s\\n' 'Shellfox: directory does not exist or is inaccessible.' >&2; exit 1; }
-  mode=start
-else
-${posixHelper(options, false)}fi
-if [ ! -x ${shQuote(options.executable)} ]; then printf '%s\\n' 'Shellfox: application executable is missing.' >&2; exit 1; fi
-${Object.entries(options.launchEnv??{}).map(([key,value])=>`export ${key}=${shQuote(value)}`).join('\n')}
-launch() {
-  if command -v setsid >/dev/null 2>&1; then exec setsid --fork --wait ${target} "$@" </dev/null >/dev/null 2>&1
-  else exec nohup ${target} "$@" </dev/null >/dev/null 2>&1; fi
+export SHELLFOX_CLI_LAUNCH=${shQuote(launchConfig(options.executable, [...(options.appPath ? [options.appPath] : []), ...(options.prefixArgs ?? [])], options.launchEnv ?? {}))}
+case "$#:\${1:-}:\${2:-}" in
+  1:update:|2:update:--check)
+    unset ELECTRON_RUN_AS_NODE
+    shift
+    shellfox_update_script=${shQuote(updateScript)}
+    SHELLFOX_APP_EXECUTABLE=${shQuote(options.executable)} exec /bin/sh -c "$shellfox_update_script" shellfox-update "$@"
+    ;;
+esac
+${posixHelper({ ...options, userDataIsDefault: true }, false)}`;
 }
-# Redirect on exec inside the async child, not on a redirected shell function:
-# the latter can keep saved copies of the caller's output pipes open.
-if [ "$mode" = start ]; then launch start "$folder" &
-else launch & fi
-child=$!
-# A warm instance normally acknowledges by exiting; a cold GUI keeps running.
-# Bound this check, never wait for a GUI or shell lifetime and never signal it.
-i=0
-while [ "$i" -lt 5 ] && kill -0 "$child" 2>/dev/null; do sleep 0.1; i=$((i+1)); done
-if ! kill -0 "$child" 2>/dev/null; then wait "$child" || { printf '%s\\n' 'Shellfox: application rejected the launch.' >&2; exit 1; }; fi
-if [ "$mode" = start ]; then printf 'Shellfox: started session in %s\\n' "$folder"; fi
-exit 0
-`;
-}
+
 export class LinuxCliIntegration implements CliPort {
   readonly binDir: string;
   readonly launcher: string;

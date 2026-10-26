@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { failure, success } from '../shared/contracts';
 import { processRuleSchema } from '../shared/schemas';
 import { defaultSettings } from '../main/defaults';
+import { openSettingsTab, settingsControl } from './settings-test-navigation';
 import { SettingsPanel, createAgentRule } from './SettingsPanel';
 import { createManagerClient } from './store';
 import { deferred, mockApi, profiles, snapshot } from './test-fixtures';
@@ -14,7 +15,7 @@ afterEach(cleanup);
 function setup(initial = snapshot()) {
   const fixture = mockApi(initial); const client = createManagerClient(fixture.api);
   const user = userEvent.setup();
-  const rendered = render(<SettingsPanel client={client} settings={initial.settings} explorer={initial.explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
+  const rendered = render(<SettingsPanel client={client} settings={initial.settings} profiles={profiles} defaultProfileId="pwsh" />);
   return { ...rendered, fixture, client, user };
 }
 describe('autosaving settings', () => {
@@ -33,19 +34,20 @@ describe('autosaving settings', () => {
   it('excludes administrator profiles from automatic default-shell selection', () => {
     const initial = snapshot(), fixture = mockApi(initial), client = createManagerClient(fixture.api);
     const administrator = { ...profiles[0], id: 'administrator-powershell', label: 'Administrator PowerShell', elevation: 'administrator' as const };
-    render(<SettingsPanel client={client} settings={initial.settings} explorer={initial.explorer} cli={initial.cli} profiles={[...profiles, administrator]} defaultProfileId="pwsh" />);
+    render(<SettingsPanel client={client} settings={initial.settings} profiles={[...profiles, administrator]} defaultProfileId="pwsh" />);
+    openSettingsTab('Terminals');
     expect(screen.queryByRole('option', { name: 'Administrator PowerShell' })).not.toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'PowerShell 7' })).toBeInTheDocument();
     expect(fixture.api.saveSettings).not.toHaveBeenCalled();
   });
   it('saves the default shell from discovered profiles', async () => {
     const { fixture, user } = setup();
-    await user.selectOptions(screen.getByLabelText('Default shell'), 'wsl:Ubuntu');
+    await user.selectOptions(settingsControl('Default shell'), 'wsl:Ubuntu');
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ terminalProfileId: 'wsl:Ubuntu' })));
   });
   it('adds an agent by name with Enter and creates executable names without exposing ids', async () => {
     const { fixture, user } = setup();
-    await user.type(screen.getByLabelText('Add agent'), 'aider{Enter}');
+    await user.type(settingsControl('Add agent'), 'aider{Enter}');
     expect(screen.getByRole('switch', { name: 'Track aider' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByText('Process name: aider, aider.exe')).toBeVisible();
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
@@ -57,8 +59,8 @@ describe('autosaving settings', () => {
   });
   it.each(['C:\\Program Files\\Agent\\agent.exe', '/opt/Agent Tools/agent', '\\\\wsl.localhost\\Ubuntu\\opt\\Agent Tools\\agent', '\\\\wsl$\\Debian\\opt\\agent'])('adds an exact executable path with spaces: %s', async path => {
     const { fixture, user } = setup();
-    fireEvent.change(screen.getByLabelText('Add agent'), { target: { value: path } });
-    await user.click(within(screen.getByLabelText('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
+    fireEvent.change(settingsControl('Add agent'), { target: { value: path } });
+    await user.click(within(settingsControl('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
     expect(screen.getByText('Exact path: ' + path)).toBeVisible();
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
     const rule = fixture.api.saveSettings.mock.calls.at(-1)![0].processRules.at(-1)!;
@@ -68,10 +70,10 @@ describe('autosaving settings', () => {
   it('accepts paths longer than the label limit and keeps the entire path', async () => {
     const path = '/opt/' + 'agent-tools/'.repeat(25) + 'agent';
     const { fixture, user } = setup();
-    const input = screen.getByLabelText('Add agent');
+    const input = settingsControl('Add agent');
     expect(input).toHaveAttribute('maxlength', '32760');
     fireEvent.change(input, { target: { value: path } });
-    await user.click(within(screen.getByLabelText('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
+    await user.click(within(settingsControl('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
     const rule = fixture.api.saveSettings.mock.calls.at(-1)![0].processRules.at(-1)!;
     expect(rule.label).toBe('agent');
@@ -80,10 +82,10 @@ describe('autosaving settings', () => {
   });
   it.each(['./agent', 'tools/agent', 'C:agent.exe', '\\\\server\\share\\agent.exe', '\\\\?\\C:\\agent.exe', 'https://example.com/agent', 'agent --flag', '"C:\\Program Files\\agent.exe"', 'agent\u0000', 'agent\u0001--flag', 'a'.repeat(201)])('rejects invalid input without saving: %j', async value => {
     const { fixture, user, client } = setup();
-    fireEvent.change(screen.getByLabelText('Add agent'), { target: { value } });
-    await user.click(within(screen.getByLabelText('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
+    fireEvent.change(settingsControl('Add agent'), { target: { value } });
+    await user.click(within(settingsControl('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
     expect(screen.getByRole('alert')).toHaveTextContent('process name or an absolute local executable path');
-    expect(screen.getByLabelText('Add agent')).toHaveAttribute('aria-invalid', 'true');
+    expect(settingsControl('Add agent')).toHaveAttribute('aria-invalid', 'true');
     expect(client.settings.store.getState().draft?.processRules).toHaveLength(1);
     client.settings.flush();
     expect(fixture.api.saveSettings).not.toHaveBeenCalled();
@@ -92,8 +94,8 @@ describe('autosaving settings', () => {
     const initial = snapshot(); initial.settings.processRules = [createAgentRule('aider.exe')];
     const { fixture, user } = setup(initial);
     for (const name of ['aider', 'AIDER.EXE', ' aider ']) {
-      fireEvent.change(screen.getByLabelText('Add agent'), { target: { value: name } });
-      await user.click(within(screen.getByLabelText('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
+      fireEvent.change(settingsControl('Add agent'), { target: { value: name } });
+      await user.click(within(settingsControl('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
       expect(screen.getByRole('alert')).toHaveTextContent('already listed');
     }
     expect(fixture.api.saveSettings).not.toHaveBeenCalled();
@@ -101,13 +103,13 @@ describe('autosaving settings', () => {
   it.each(['bun', 'node'])('allows custom %s with actual bundled defaults and then rejects direct-name duplicates', async name => {
     const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
     const { fixture, user, client } = setup(initial);
-    await user.type(screen.getByLabelText('Add agent'), name + '{Enter}');
+    await user.type(settingsControl('Add agent'), name + '{Enter}');
     expect(screen.getByRole('switch', { name: 'Track ' + name })).toBeVisible();
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
     const rules = fixture.api.saveSettings.mock.calls[0]![0].processRules;
     expect(rules.slice(0, -1)).toEqual(defaultSettings.processRules);
     expect(rules.at(-1)).toMatchObject({ executableBasenames: [name, name + '.exe'], executablePaths: [], scriptPathSuffixes: [] });
-    await user.type(screen.getByLabelText('Add agent'), name.toUpperCase() + '.EXE{Enter}');
+    await user.type(settingsControl('Add agent'), name.toUpperCase() + '.EXE{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('already listed');
     client.settings.flush();
     expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
@@ -116,7 +118,7 @@ describe('autosaving settings', () => {
     const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
     for (const rule of initial.settings.processRules) delete rule.processNames;
     const { fixture, user } = setup(initial);
-    await user.type(screen.getByLabelText('Add agent'), 'node{Enter}');
+    await user.type(settingsControl('Add agent'), 'node{Enter}');
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
     expect(fixture.api.saveSettings.mock.calls[0]![0].processRules.at(-1)!.executableBasenames).toEqual(['node', 'node.exe']);
   });
@@ -124,7 +126,7 @@ describe('autosaving settings', () => {
     const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
     initial.settings.processRules.push({ ...createAgentRule('/opt/bun'), executableBasenames: ['bun', 'bun.exe'], processNames: ['bun', 'bun.exe'] });
     const { fixture, user } = setup(initial);
-    await user.type(screen.getByLabelText('Add agent'), 'bun{Enter}');
+    await user.type(settingsControl('Add agent'), 'bun{Enter}');
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
     expect(fixture.api.saveSettings.mock.calls[0]![0].processRules.at(-1)).toMatchObject({ executableBasenames: ['bun', 'bun.exe'], executablePaths: [] });
   });
@@ -132,8 +134,8 @@ describe('autosaving settings', () => {
     const path = 'C:\\Program Files\\agent.exe';
     const initial = snapshot(); initial.settings.processRules = [createAgentRule(path)];
     const { fixture, user, client } = setup(initial);
-    fireEvent.change(screen.getByLabelText('Add agent'), { target: { value: ' c:/PROGRAM FILES/AGENT.EXE ' } });
-    await user.click(within(screen.getByLabelText('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
+    fireEvent.change(settingsControl('Add agent'), { target: { value: ' c:/PROGRAM FILES/AGENT.EXE ' } });
+    await user.click(within(settingsControl('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
     expect(screen.getByRole('alert')).toHaveTextContent('already listed');
     expect(client.settings.store.getState().draft?.processRules[0]!.executablePaths).toEqual([path]);
     expect(fixture.api.saveSettings).not.toHaveBeenCalled();
@@ -141,13 +143,13 @@ describe('autosaving settings', () => {
   it('keeps Linux paths case-sensitive and name trust separate from exact path trust', async () => {
     const initial = snapshot(); initial.settings.processRules = [createAgentRule('/opt/agent')];
     const { fixture, user } = setup(initial);
-    const input = screen.getByLabelText('Add agent');
+    const input = settingsControl('Add agent');
     fireEvent.change(input, { target: { value: '/opt/agent' } });
-    await user.click(within(screen.getByLabelText('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
+    await user.click(within(settingsControl('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
     expect(screen.getByRole('alert')).toHaveTextContent('already listed');
     for (const value of ['/opt/Agent', 'agent']) {
       fireEvent.change(input, { target: { value } });
-      await user.click(within(screen.getByLabelText('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
+      await user.click(within(settingsControl('Add agent').closest('form')!).getByRole('button', { name: 'Add' }));
       expect(input).toHaveValue('');
     }
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalled());
@@ -157,6 +159,7 @@ describe('autosaving settings', () => {
     const initial = snapshot();
     initial.settings = structuredClone(defaultSettings);
     const { fixture, user } = setup(initial);
+    openSettingsTab('Agents');
     expect(screen.getAllByRole('switch', { name: /^Track / })).toHaveLength(4);
     expect(screen.queryByRole('switch', { name: /Native/ })).not.toBeInTheDocument();
     expect(screen.queryByText('Advanced')).not.toBeInTheDocument();
@@ -171,7 +174,7 @@ describe('autosaving settings', () => {
   it.each(['PI.EXE', 'claude', 'CODEX', 'opencode.exe'])('rejects actual built-in process name %s', async name => {
     const initial = snapshot(); initial.settings = structuredClone(defaultSettings);
     const { fixture, user } = setup(initial);
-    await user.type(screen.getByLabelText('Add agent'), name + '{Enter}');
+    await user.type(settingsControl('Add agent'), name + '{Enter}');
     expect(screen.getByRole('alert')).toHaveTextContent('already listed');
     expect(fixture.api.saveSettings).not.toHaveBeenCalled();
   });
@@ -179,6 +182,7 @@ describe('autosaving settings', () => {
     const initial = snapshot(); const custom = createAgentRule(value);
     initial.settings.processRules.push(custom);
     const { fixture, user } = setup(initial);
+    openSettingsTab('Agents');
     await user.click(screen.getByRole('button', { name: 'Remove ' + custom.label }));
     expect(screen.queryByRole('switch', { name: 'Track ' + custom.label })).not.toBeInTheDocument();
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ processRules: [initial.settings.processRules[0]] })));
@@ -189,6 +193,7 @@ describe('autosaving settings', () => {
     fixture.api.saveSettings.mockReturnValueOnce(pending.promise);
     await user.click(screen.getByRole('button', { name: 'Use #60a5fa' }));
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
+    openSettingsTab('Agents');
     await user.click(screen.getByRole('switch', { name: 'Track Pi' }));
     await new Promise(resolve => setTimeout(resolve, 450)); expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
     await act(async () => pending.resolve(success(fixture.api.saveSettings.mock.calls[0]![0])));
@@ -202,7 +207,7 @@ describe('autosaving settings', () => {
   });
   it('shows a backend validation error next to the changed field', async () => {
     const { fixture, user } = setup(); fixture.api.saveSettings.mockResolvedValueOnce(failure('VALIDATION', 'Unsupported shell.'));
-    await user.selectOptions(screen.getByLabelText('Default shell'), 'wsl:Ubuntu');
+    await user.selectOptions(settingsControl('Default shell'), 'wsl:Ubuntu');
     const error = await screen.findByRole('alert'); expect(error).toHaveTextContent('Unsupported shell.');
     expect(within(error.parentElement!).getByLabelText('Default shell')).toBeVisible();
   });
@@ -213,10 +218,13 @@ describe('autosaving settings', () => {
     fixture.api.saveSettings.mockReturnValueOnce(pending.promise);
     await user.click(screen.getByLabelText('Use #60a5fa'));
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
+    openSettingsTab('Agents');
     await user.click(screen.getByRole('switch', { name: 'Track Pi' })); unmount();
-    const second = render(<SettingsPanel client={client} settings={initial.settings} explorer={initial.explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
+    const second = render(<SettingsPanel client={client} settings={initial.settings} profiles={profiles} defaultProfileId="pwsh" />);
     expect(screen.getByLabelText('Use #60a5fa')).toHaveAttribute('aria-pressed', 'true');
+    openSettingsTab('Agents');
     expect(screen.getByRole('switch', { name: 'Track Pi' })).toHaveAttribute('aria-checked', 'false');
+    openSettingsTab('General');
     await user.click(screen.getByLabelText('Use #4ade80'));
     await new Promise(resolve => setTimeout(resolve, 450));
     expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
@@ -232,12 +240,13 @@ describe('autosaving settings', () => {
       const profile = profiles.find(profile => profile.id === value.terminalProfileId)!;
       return success({ ...value, shellId: profile.id === 'pwsh' ? 'pwsh' : 'wsl', shellExecutable: profile.executable });
     });
-    await user.selectOptions(screen.getByLabelText('Default shell'), 'wsl:Ubuntu');
+    await user.selectOptions(settingsControl('Default shell'), 'wsl:Ubuntu');
     await waitFor(() => expect(client.settings.store.getState().draft?.shellExecutable).toBe(profiles[1]!.executable));
-    await user.selectOptions(screen.getByLabelText('Default shell'), 'pwsh');
+    await user.selectOptions(settingsControl('Default shell'), 'pwsh');
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(2));
     expect(fixture.api.saveSettings.mock.calls[1]![0]).toMatchObject({ terminalProfileId: 'pwsh', shellId: 'wsl', shellExecutable: profiles[1]!.executable });
     await waitFor(() => expect(client.settings.store.getState().draft?.shellExecutable).toBe(profiles[0]!.executable));
+    openSettingsTab('Agents');
     await user.click(screen.getByRole('switch', { name: 'Track Pi' }));
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(3));
     expect(fixture.api.saveSettings.mock.calls[2]![0]).toMatchObject({ shellId: 'pwsh', shellExecutable: profiles[0]!.executable });
@@ -246,58 +255,42 @@ describe('autosaving settings', () => {
     const initial = snapshot(); const { fixture, client, rerender } = setup(initial);
     fireEvent.click(screen.getByLabelText('Use #60a5fa'));
     const external = { ...initial.settings, historyPageSize: 3 };
-    rerender(<SettingsPanel client={client} settings={external} explorer={initial.explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
+    rerender(<SettingsPanel client={client} settings={external} profiles={profiles} defaultProfileId="pwsh" />);
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1));
     expect(fixture.api.saveSettings.mock.calls[0]![0]).toMatchObject({ accentColor: '#60a5fa', historyPageSize: 3 });
   });
   it('updates path summaries from authoritative props without disturbing the add-agent input', async () => {
     const initial = snapshot(); const { client, rerender, user } = setup(initial);
-    await user.type(screen.getByLabelText('Add agent'), '/opt/partial path');
+    await user.type(settingsControl('Add agent'), '/opt/partial path');
     const external = { ...initial.settings, processRules: [{ ...initial.settings.processRules[0]!, executablePaths: ['C:\\external\\pi.exe'] }] };
-    rerender(<SettingsPanel client={client} settings={external} explorer={initial.explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
+    rerender(<SettingsPanel client={client} settings={external} profiles={profiles} defaultProfileId="pwsh" />);
     await waitFor(() => expect(screen.getByText(/Exact path: C:\\external\\pi.exe/)).toBeVisible());
-    expect(screen.getByLabelText('Add agent')).toHaveValue('/opt/partial path');
+    expect(settingsControl('Add agent')).toHaveValue('/opt/partial path');
   });
-  it('toggles the Terminal command using the CLI integration API and reflects authoritative updates', async () => {
-    const initial = snapshot(); const { fixture, client, user, rerender } = setup(initial);
-    expect(screen.getByRole('heading', { name: 'Terminal command' })).toBeVisible();
-    expect(screen.getByText('shellfox start .')).toBeVisible();
-    expect(screen.getAllByText('shellfox ssh')).toHaveLength(2);
-    expect(screen.getByRole('region', { name: 'Settings' })).toBeVisible();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    const toggle = screen.getByRole('switch', { name: 'Enable shellfox command in terminals' });
-    await user.click(toggle);
-    expect(fixture.api.setCliIntegration).toHaveBeenCalledWith({ installed: true });
-    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'));
-    await user.click(toggle);
-    expect(fixture.api.setCliIntegration).toHaveBeenLastCalledWith({ installed: false });
-    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'false'));
+  it.each(['win32', 'linux', 'darwin'])('has no integration tab or install toggles on %s', platform => {
+    const initial = snapshot(); initial.probe.platform = platform;
+    const { fixture } = setup(initial);
+    for (const name of ['General', 'Terminals', 'Agents', 'Remote access', 'SSH'] as const) {
+      openSettingsTab(name);
+      expect(screen.queryByRole('tab', { name: 'Integration' })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Enable shellfox command in terminals')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Add Open in Shellfox/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'Terminal command' })).not.toBeInTheDocument();
+    }
+    expect(fixture.api.setCliIntegration).not.toHaveBeenCalled();
+    expect(fixture.api.setExplorerIntegration).not.toHaveBeenCalled();
     expect(fixture.api.saveSettings).not.toHaveBeenCalled();
-    rerender(<SettingsPanel client={client} settings={initial.settings} explorer={initial.explorer} cli={{ ...initial.cli, installed: true }} profiles={profiles} defaultProfileId="pwsh" />);
-    expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
-  it('disables an unsupported Terminal command and shows the supplied reason', async () => {
-    const initial = snapshot(); initial.cli = { ...initial.cli, supported: false, reason: 'Windows integration only.' };
-    const { fixture, user } = setup(initial);
-    const toggle = screen.getByRole('switch', { name: 'Enable shellfox command in terminals' });
-    expect(toggle).toBeDisabled(); expect(screen.getByText('Windows integration only.')).toBeVisible();
-    await user.click(toggle); expect(fixture.api.setCliIntegration).not.toHaveBeenCalled();
-  });
-  it('shows integration guidance and startup errors even when Windows integration is supported', () => {
-    const initial = snapshot();
-    initial.explorer = { ...initial.explorer, supported: true, reason: 'Windows 11: use Show more options (Shift+F10) in Explorer.' };
-    initial.cli = { ...initial.cli, supported: true, reason: 'Shellfox user PATH access failed.' };
-    setup(initial);
-    expect(screen.getByText(initial.explorer.reason!)).toBeVisible();
-    expect(screen.getByText(initial.cli.reason!)).toBeVisible();
-  });
-  it('uses one Explorer switch and disables it with a reason when unsupported', async () => {
-    const initial = snapshot(); initial.explorer.supported = false; initial.explorer.reason = 'Windows only.';
-    const { user, fixture, rerender, client } = setup(initial);
-    const toggle = screen.getByRole('switch', { name: /Explorer/ });
-    expect(toggle).toBeDisabled(); expect(screen.getByText('Windows only.')).toBeVisible();
-    rerender(<SettingsPanel client={client} settings={initial.settings} explorer={snapshot().explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
-    await user.click(toggle); expect(fixture.api.setExplorerIntegration).toHaveBeenCalledWith({ installed: true });
-    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'));
+  it('does not restore removed integration controls or guidance after metadata updates', () => {
+    const initial = snapshot(), { fixture, client, rerender } = setup(initial);
+    const external = { ...initial, cli: { ...initial.cli, installed: true, reason: 'Installed with the package' }, explorer: { ...initial.explorer, installed: true, reason: 'Context menu is available.' } };
+    client.store.setState({ snapshot: external });
+    rerender(<SettingsPanel client={client} settings={external.settings} profiles={profiles} defaultProfileId="pwsh" />);
+    openSettingsTab('SSH');
+    expect(screen.queryByText('Installed with the package')).not.toBeInTheDocument();
+    expect(screen.queryByText('Context menu is available.')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Enable shellfox|Add Open in Shellfox/)).not.toBeInTheDocument();
+    expect(fixture.api.setCliIntegration).not.toHaveBeenCalled();
+    expect(fixture.api.setExplorerIntegration).not.toHaveBeenCalled();
   });
 });

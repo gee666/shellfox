@@ -47,18 +47,18 @@ test('production CLI bundle and staged runtime execute custom commands from the 
       catch (error) { if (typeof error.code !== 'number') throw error; return error; }
     };
     assert.equal((await invoke(['--version'])).stdout.trim(), version);
-    const help = await invoke(['--help']); assert.equal(help.code, 0); assert.match(help.stdout, /shellfox cmd --register <name> <script-path>/);
+    const help = await invoke(['--help']); assert.equal(help.code, 0); assert.match(help.stdout, /commands --register <name> <script-path>/);
     const script = path.join(root, windows ? 'script with spaces.ps1' : 'script with spaces.sh');
     await writeFile(script, windows ? '[Console]::Write((ConvertTo-Json -Compress -InputObject @($args))); exit 17' : 'printf "%s\\0" "$@"\nexit 17\n');
     const registered = await invoke(['cmd', '--register', 'custom', script]);
     assert.equal(registered.code, 0, registered.stderr + registered.stdout);
     const record = JSON.parse(await readFile(path.join(data, 'cli-commands.json'), 'utf8'));
     assert.deepEqual(record.commands, [{ name: 'custom', path: script }]);
-    const args = ['two words', 'literal & echo not-code', '--help', '--register', '--rename', '--rm', '--list', '--run'];
+    const args = ['two words', 'literal & echo not-code', '--help', '--register', '--rename', '--rm', '--list', '--run', '--json', '--host=literal'];
     const result = await invoke(['cmd', 'custom', ...args]); assert.equal(result.code, 17, result.stderr);
     assert.deepEqual(windows ? JSON.parse(result.stdout) : result.stdout.split('\0').slice(0, -1), args);
     if (windows) {
-      const literal = ['cmd', '--run', 'custom', '', '"quoted"', "it's", 'a&b', '%PATH%', '--help', 'line\nbreak'];
+      const literal = ['cmd', '--run', 'custom', '', '"quoted"', "it's", 'a&b', '%PATH%', '--help', '--json', 'line\nbreak'];
       const payload = Buffer.from(JSON.stringify(literal)).toString('base64');
       const quote = value => "'" + value.replaceAll("'", "''") + "'";
       const code = `$argv=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${payload}')) | ConvertFrom-Json; & ${quote(path.join(bin, 'shellfox.ps1'))} @argv; exit $LASTEXITCODE`;
@@ -73,7 +73,7 @@ test('production CLI bundle and staged runtime execute custom commands from the 
     assert.equal((await invoke(['cmd', '--register', 'CUSTOM', script])).code, 1);
     assert.equal((await invoke(['cmd', '--rename', 'custom', 'renamed'])).code, 0);
     // Custom names share no top-level namespace, even in the release bundle.
-    for (const name of ['version', 'start', 'ssh', 'cmd']) {
+    for (const name of ['version', 'session', 'ssh', 'commands']) {
       assert.equal((await invoke(['cmd', '--register', name, script])).code, 0);
       assert.equal((await invoke(['cmd', name])).stdout, 'latest file');
       const top = await invoke(name === 'version' ? ['version'] : [name, '--help']);
@@ -85,7 +85,8 @@ test('production CLI bundle and staged runtime execute custom commands from the 
     const builtin = await invoke(['version']); assert.equal(builtin.code, 0);
     assert.equal(builtin.stdout.trim(), version); assert.equal(builtin.stderr, '');
     assert.equal((await invoke(['register', 'obsolete', script])).code, 2);
-    assert.equal((await invoke(['commands'])).code, 2);
+    assert.equal((await invoke(['commands', '--unknown'])).code, 2);
+    for (const command of ['start', 'ls', 'stats', 'processes', 'delete', 'settle', 'unsettle', 'tab']) assert.equal((await invoke([command])).code, 2);
     assert.equal((await invoke(['list', '--commands'])).code, 2);
     assert.equal((await invoke(['cmd', '--remove', 'renamed'])).code, 0);
     assert.deepEqual(JSON.parse(await readFile(path.join(data, 'cli-commands.json'), 'utf8')).commands, []);

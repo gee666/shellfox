@@ -1,6 +1,6 @@
 # Platform support
 
-The embedded runtime uses one real PTY per right-workspace tab. It does not route tabs into Windows Terminal or GNOME Terminal. App-owned shells and owned descendant cleanup end through confirmed close/quit; restart retains saved sessions, not live shells.
+The shared host uses one real PTY per terminal tab. It does not route tabs into Windows Terminal or GNOME Terminal. Host-owned shells and owned descendant cleanup end through confirmed host shutdown; restart retains saved sessions, not live shells. Desktop and CLI clients can attach to the same host. The separate headless distribution needs no Electron or display server.
 
 ## Implementation and evidence
 
@@ -16,7 +16,7 @@ The six-target CI configuration is not evidence that all targets have launched o
 
 ## Prerequisites and preflight
 
-Normal startup/build needs no .NET SDK/runtime, Windows Terminal or GNOME Terminal. See [README](../README.md#development) and [macOS builds](macos.md) for compiler requirements.
+Packaged startup needs no installed .NET runtime, Windows Terminal, or GNOME Terminal. Source builds require Go; Windows desktop builds also need the .NET SDK for the self-contained administrator-terminal helper. Headless packages omit that helper and do not offer administrator profiles. See [README](../README.md#development) and [macOS builds](macos.md) for compiler requirements.
 
 Windows needs ConPTY and a discovered PowerShell. Backend requests the packaged ConPTY DLL path rather than the asynchronous AttachConsole/list-PID close path.
 
@@ -55,4 +55,4 @@ Stored bundled launcher rules migrate to the unified switches. An existing per-a
 - Interactive shell exit status is not arbitrary command-status detection.
 - Inaccessible tracking evidence stays unknown. Very short-lived, detached, elevated, remote/container or multiplexer activity is not guaranteed.
 
-No existing-terminal attachment, split panes, daemon-backed survival, SSH-specific profiles, command restoration, arbitrary executable templates or Explorer/Finder/Nautilus integration is advertised. Historical Windows Terminal routing and GNOME/.NET tests describe the retired backend, not embedded acceptance.
+Desktop and headless hosts support client attachment to their own terminals, including embedded Tailscale access. Closing a client does not close a separately owned host. Attachment to unrelated external terminals, split panes, survival after host exit, command restoration, and arbitrary executable templates are not implemented. See [headless deployment](headless.md) for package and startup-manager limits. Historical Windows Terminal routing and GNOME/.NET tests describe the retired backend, not embedded acceptance.

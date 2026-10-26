@@ -4,6 +4,8 @@ on:
 permissions:
   contents: read
 jobs:
+  headless:
+    uses: ./.github/workflows/headless-packages.yml
   native:
     strategy:
       fail-fast: false
@@ -48,6 +50,13 @@ jobs:
         with:
           node-version: 24.15.0
           architecture: ${{ matrix.arch }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Embedded Tailscale offline tests
+        run: node scripts/tailscale.mjs test
+        timeout-minutes: 10
       - name: Verify native runner architecture
         run: node -e "if(process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Wrong native target')"
       # Only changes disposable CI runners. No GNOME Terminal or .NET helper.
@@ -111,6 +120,6 @@ jobs:
       # resources. No Developer ID/notarization, installation acceptance or release.
       - uses: actions/upload-artifact@v4
         with:
-          name: shellfox-${{ matrix.platform }}-${{ matrix.arch }}-preview
+          name: shellfox-desktop-${{ matrix.platform }}-${{ matrix.arch }}-preview
           path: tmp/packages/make/**
           if-no-files-found: error

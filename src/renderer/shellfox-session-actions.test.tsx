@@ -6,6 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event';
 import { failure, success } from '../shared/contracts';
 import { App } from './App';
+import { openSettingsTab } from './settings-test-navigation';
 import { deferred, mockApi, session, snapshot } from './test-fixtures';
 
 afterEach(cleanup);
@@ -92,23 +93,18 @@ describe('Shellfox session actions', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not save environment variables.');
   });
-  it('toasts CLI and Explorer integration failures even after Settings closes', async () => {
+  it('never offers integration mutations while visiting or closing settings', async () => {
     const { fixture, user } = await setup();
-    for (const integration of ['cli', 'explorer'] as const) {
-      const pending = deferred<Awaited<ReturnType<typeof fixture.api.setCliIntegration>>>();
-      const explorerPending = deferred<Awaited<ReturnType<typeof fixture.api.setExplorerIntegration>>>();
-      if (integration === 'cli') fixture.api.setCliIntegration.mockReturnValueOnce(pending.promise);
-      else fixture.api.setExplorerIntegration.mockReturnValueOnce(explorerPending.promise);
-      await user.click(screen.getByRole('button', { name: 'Settings' }));
-      await user.click(screen.getByRole('switch', { name: integration === 'cli' ? 'Enable shellfox command in terminals' : 'Add Open in Shellfox to Explorer right-click menu' }));
-      await user.keyboard('{Escape}');
-      await act(async () => {
-        if (integration === 'cli') pending.resolve(failure('STORAGE_FAILED', 'Could not install Shellfox command.'));
-        else explorerPending.resolve(failure('STORAGE_FAILED', 'Could not install Explorer action.'));
-      });
-      expect(await screen.findByRole('alert')).toHaveTextContent(integration === 'cli' ? 'Could not install Shellfox command.' : 'Could not install Explorer action.');
-      await user.click(screen.getByRole('button', { name: 'Dismiss message' }));
+    await user.click(screen.getByRole('button', { name: 'Settings' }));
+    for (const name of ['General', 'Terminals', 'Agents', 'Remote access', 'SSH'] as const) {
+      openSettingsTab(name);
+      expect(screen.queryByLabelText(/Enable shellfox|Add Open in Shellfox/)).not.toBeInTheDocument();
     }
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('region', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(fixture.api.setCliIntegration).not.toHaveBeenCalled();
+    expect(fixture.api.setExplorerIntegration).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
   it('cannot close a newer editor when an old dismissed save completes', async () => {
     const { fixture, user } = await setup(snapshot([session(), session(2)]));

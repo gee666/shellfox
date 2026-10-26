@@ -9,7 +9,7 @@ const TARGETS = `${ROW}, ${TERMINAL}`;
 
 /** IntersectionObserver clips against both the viewport and scroll ancestors.
  * Mounted overscan and retained keyboard/menu rows are not polling targets. */
-export function useVisibleSessions(api: ManagerApi, rootRef: RefObject<HTMLElement | null>) {
+export function useVisibleSessions(api: ManagerApi, rootRef: RefObject<HTMLElement | null>, machineId?: string) {
   useEffect(() => {
     const root = rootRef.current;
     if (!root || typeof api.setVisibleSessions !== 'function') return;
@@ -50,7 +50,10 @@ export function useVisibleSessions(api: ManagerApi, rootRef: RefObject<HTMLEleme
     }, { root: null, rootMargin: '0px', threshold: [0, Number.EPSILON] });
 
     function syncTargets() {
-      const next = new Set(root!.querySelectorAll<HTMLElement>(TARGETS));
+      const next = new Set([...root!.querySelectorAll<HTMLElement>(TARGETS)].filter(node => {
+        const host = node.closest<HTMLElement>('[data-machine-id]')?.dataset.machineId;
+        return machineId === undefined || host === machineId;
+      }));
       for (const node of targets) {
         if (next.has(node)) continue;
         observer?.unobserve(node);
@@ -73,7 +76,7 @@ export function useVisibleSessions(api: ManagerApi, rootRef: RefObject<HTMLEleme
       // visibility attributes change the observed elements.
       if (records.some(record => record.type === 'attributes' || [...record.addedNodes, ...record.removedNodes].some(containsTarget))) syncTargets();
     });
-    mutations.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-session-id', 'data-terminal-session-id', 'hidden'] });
+    mutations.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-session-id', 'data-terminal-session-id', 'data-machine-id', 'hidden'] });
     function visibilityChanged() {
       if (frame !== undefined) { cancelAnimationFrame(frame); frame = undefined; }
       observer?.disconnect();
@@ -94,5 +97,5 @@ export function useVisibleSessions(api: ManagerApi, rootRef: RefObject<HTMLEleme
       if (frame !== undefined) cancelAnimationFrame(frame);
       report([]);
     };
-  }, [api, rootRef]);
+  }, [api, rootRef, machineId]);
 }

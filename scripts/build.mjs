@@ -17,6 +17,7 @@ const electronPath = process.platform === 'win32' ? 'electron.exe' : process.pla
 if (!existsSync(path.join('node_modules/electron/dist', electronPath))) runNode('node_modules/electron/install.js');
 runNode('scripts/rebuild.mjs', [], 600000);
 runNode('scripts/terminal-native.mjs', [], 300000);
+runNode('scripts/tailscale.mjs', ['build'], 600000);
 console.log('[build] bundling main, preload and SSH client');
 const options = { bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['electron', 'better-sqlite3', 'node-pty'], loader: { '.sh': 'text', '.ps1': 'text' }, sourcemap: false, minifySyntax: true, logLevel: 'info', alias: testBuild ? { '#test-native-backend': path.resolve('tests/fixtures/fake-native.ts') } : {}, define: { __TEST_BUILD__: String(testBuild), __PROJECT_ROOT__: JSON.stringify(testBuild ? root : '') } };
 await esbuild({ ...options, entryPoints: ['src/main/index.ts'], outfile: output + '/main/index.cjs' });

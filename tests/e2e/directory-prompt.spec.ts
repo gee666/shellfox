@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { launch, scratch, snapshot, value } from '../fixtures/electron';
 
 test('session path prompt completes real folders, resolves home paths and retains the native picker', async () => {
@@ -33,10 +34,17 @@ test('session path prompt completes real folders, resolves home paths and retain
     await expect(page.getByRole('dialog', { name: 'New session', exact: true })).toBeHidden();
     expect((await snapshot(page)).sessions[0].cwd).toBe(path.join(project, 'nested'));
     await page.getByRole('button', { name: 'New session', exact: true }).click();
-    await input.fill(path.join(dir, 'missing'));
+    const missing = path.join(dir, 'missing-parent', 'child');
+    await input.fill(missing);
     await input.press('Enter');
-    await expect(page.getByRole('alert')).toContainText(/directory/i);
-    await expect(input).toBeFocused();
+    await expect(page.getByRole('alertdialog', { name: 'Create missing folder?' })).toBeVisible();
+    expect(existsSync(missing)).toBe(false);
+    await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
+    await expect(input).toBeFocused(); await expect(input).toHaveValue(missing); expect(existsSync(missing)).toBe(false);
+    await input.press('Enter'); await page.getByRole('button', { name: 'Create folder', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'New session', exact: true })).toBeHidden();
+    expect(existsSync(missing)).toBe(true); expect((await snapshot(page)).sessions.some(session => session.cwd === missing)).toBe(true);
+    await page.getByRole('button', { name: 'New session', exact: true }).click();
     await input.fill('');
     await input.press('Enter');
     await expect(page.getByRole('dialog', { name: 'New session', exact: true })).toBeHidden();

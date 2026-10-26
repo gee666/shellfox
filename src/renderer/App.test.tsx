@@ -11,6 +11,7 @@ import type { KeepAwakeState, ManagerApi, Result, TerminalEvent } from '../share
 import { App } from './App';
 import { deferred, mockApi, profiles, session, snapshot } from './test-fixtures';
 import { SIDEBAR_WIDTH_KEY } from './sidebar-width';
+import { openSettingsTab } from './settings-test-navigation';
 
 afterEach(cleanup);
 beforeEach(() => localStorage.clear());
@@ -33,7 +34,7 @@ describe('compact workspace', () => {
     const button = await screen.findByRole('button', { name: 'Keep awake' });
     await waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'true'));
     const toolbar = Array.from(button.parentElement!.children).map(node => node.getAttribute('data-tip'));
-    expect(toolbar).toEqual(['Add a session', 'Keep awake', 'Settings']);
+    expect(toolbar).toEqual(['New session', 'Keep awake', 'Settings']);
     await user.click(button); expect(setKeepAwake).toHaveBeenLastCalledWith({ active: false });
     await waitFor(() => expect(button).toHaveAttribute('aria-pressed', 'false'));
     await user.click(button); expect(setKeepAwake).toHaveBeenLastCalledWith({ active: true });
@@ -282,7 +283,8 @@ describe('compact workspace', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Close settings' })).toHaveFocus();
-    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'Terminals' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(5);
     act(() => fixture.emitTerminal({ type: 'data', tabId: session().tabs[0]!.id, generation: session().tabs[0]!.generation, sequence: 1, data: 'live output\r\n' }));
     expect(original.output).toContain('live output'); expect(original.disposed).toBe(false);
     expect(screen.getByLabelText('Interactive terminal')).toBeInTheDocument();
@@ -339,6 +341,7 @@ describe('compact workspace', () => {
   it('lets the SSH editor consume Escape before closing Settings', async () => {
     const { user } = await ready();
     await user.click(screen.getByRole('button', { name: 'Settings' }));
+    openSettingsTab('SSH');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Import from PuTTY' })).toBeEnabled());
     await user.click(within(screen.getByRole('heading', { name: 'SSH connections' }).closest('section') as HTMLElement).getByRole('button', { name: 'Add' }));
     expect(screen.getByLabelText('Name')).toHaveFocus();

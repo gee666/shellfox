@@ -13,7 +13,7 @@ function setup(platform = 'win32') {
   const initial = snapshot(); initial.probe.platform = platform;
   const fixture = mockApi(initial); const client = createManagerClient(fixture.api);
   client.store.setState({ snapshot: initial });
-  render(<SettingsPanel client={client} settings={initial.settings} explorer={initial.explorer} cli={initial.cli} profiles={profiles} defaultProfileId="pwsh" />);
+  render(<SettingsPanel client={client} settings={initial.settings} profiles={profiles} defaultProfileId="pwsh" />);
   return fixture;
 }
 

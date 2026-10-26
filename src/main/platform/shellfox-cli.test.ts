@@ -10,30 +10,32 @@ import * as wslCli from './wsl-cli';
 import * as explorer from './explorer';
 const exec = promisify(execFile);
 const ps = async (script: string) => (await exec('powershell.exe', ['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')], { timeout: 10000, maxBuffer: 65536 })).stdout;
-it('generates immediate-return cmd and quoted POSIX/WSL launchers with usage and caller-directory resolution', () => {
+it('generates quoted shims that delegate host discovery and GUI fallback to the CLI', () => {
   const scripts = shellfoxShims({ executable: 'C:\\Program Files\\Shellfox.exe', appPath: 'P:\\project space' });
   const config = JSON.parse(Buffer.from(/SHELLFOX_CLI_LAUNCH=([^"\r\n]+)/.exec(scripts.cmd)![1], 'base64').toString());
   expect(config).toEqual({ executable: 'C:\\Program Files\\Shellfox.exe', args: ['P:\\project space'], env: {} });
   expect(scripts.cmd).toContain('setlocal DisableDelayedExpansion'); expect(scripts.cmd).not.toContain('/WAIT');
   expect(scripts.cmd).not.toContain('%~1'); expect(scripts.cmd).not.toContain('%~2');
-  expect(scripts.posix).toContain('wslpath -w "$(realpath "$folder")"');
+  expect(scripts.posix).toContain('export SHELLFOX_CLI_WSL_CWD="$PWD"');
   expect(scripts.posix).toContain("export MSYS_ARG_CONV_EXCL='*'");
-  expect(scripts.posix).toContain('>/dev/null 2>&1 &'); // Git Bash stays detached.
-  expect(scripts.posix).toContain('-File "$dispatcher" -Folder "$folder" >/dev/null || exit 1');
+  expect(scripts.posix).toContain('SHELLFOX_CLI_LAUNCH=');
+  expect(scripts.posix).toContain('exec "$runtime" "$helper"');
+  expect(scripts.posix).not.toContain('start "$folder"');
   expect(scripts.dispatcher).toContain("param([Parameter(Mandatory=$true)][string]$Folder)");
   expect(scripts.dispatcher).toContain('FromBase64String(');
   expect(scripts.dispatcher).toContain('Start-Process -FilePath $config.executable');
   expect(scripts.dispatcher).not.toContain('Invoke-Expression');
 });
-it('routes every non-start command to the helper and forwards start aliases to the GUI', () => {
+it('routes canonical groups and namespace aliases to the helper before considering a GUI', () => {
  const scripts=shellfoxShims({executable:'C:\\app.exe',userData:'C:\\test data'});
  expect(scripts.cmd).toContain('SHELLFOX_CLI_LAUNCH=');
  expect(scripts.cmd).not.toContain('goto');
- for(const alias of ['add','new','create']) expect(scripts.posix).toContain(`[ "$1" != ${alias} ]`);
- expect(scripts.posix).toContain('[ "${2:-}" = -h ]');
+ expect(scripts.posix).toContain('"$@"');
+ expect(scripts.posix).not.toContain('[ "$1" != start ]');
+ expect(scripts.posix).toContain('shellfox_wsl_env SHELLFOX_CLI_LAUNCH');
  expect(scripts.cmd).not.toContain('if /i');
  expect(scripts.posix).toContain('SHELLFOX_TERMINAL_MARKER');
- expect(scripts.cmd).toContain('"--user-data" "C:\\test data" %*');
+ expect(scripts.cmd).toContain('"--shellfox-default-user-data" "C:\\test data" %*');
 });
 it.skipIf(process.platform !== 'win32')('runs the cmd helper for controls/help/version with quoted argv and exit codes', async () => {
  await mkdir(path.resolve('tmp'),{recursive:true}); const root=await mkdtemp(path.resolve('tmp/cmd-cli-routing-'));
@@ -45,13 +47,13 @@ it.skipIf(process.platform !== 'win32')('runs the cmd helper for controls/help/v
   // Use the installed test runner's Node instead of copying a second runtime.
   const runtime=path.win32.join(path.dirname(helper),'../cli-runtime/node.exe');
   await writeFile(shim,cmd.replaceAll(runtime,process.execPath));
-  for(const args of [['ls','--name','two words'],['status','--current'],['proc','--pid','42'],['delete'],['settle'],['unsettle'],['tab','new'],['awake'],['--version'],['-v'],['version'],['-h'],['help','ls'],['start','--help'],['add','-h'],['create','help'],['update','-h'],['unknown']]) {
+  for(const args of [['session','list','--name','two words'],['ss','stats','--current'],['session','processes','--pid','42'],['session','delete'],['session','settle'],['session','unsettle'],['tm','create'],['host','keep-awake'],['--version'],['-v'],['version'],['-h'],['help','session'],['session','create','--help'],['ss','-h'],['terminals','help'],['update','-h'],['unknown']]) {
    const result=await exec('cmd.exe',['/d','/c',shim,...args],{cwd:root,timeout:5000,env:{...process.env,SHELLFOX_TERMINAL_MARKER:'context'}}).catch(error=>error);
-   expect(result.code).toBe(17); expect(JSON.parse(result.stdout)).toEqual({args:['--user-data',data,...args],marker:'context'});
+   expect(result.code).toBe(17); expect(JSON.parse(result.stdout)).toEqual({args:['--shellfox-default-user-data',data,...args],marker:'context'});
   }
  } finally { await rm(root,{recursive:true,force:true}); }
 });
-it.skipIf(process.platform !== 'win32')('runs all start aliases through the GUI route without waiting for its lifetime', async () => {
+it.skipIf(process.platform !== 'win32')('runs session create namespace aliases through the GUI fallback without waiting for its lifetime', async () => {
  await mkdir(path.resolve('tmp'),{recursive:true}); const root=await mkdtemp(path.resolve('tmp/cmd-start-aliases-'));
  try {
   const gui=path.join(root,'gui.cjs'), shim=path.join(root,'shellfox.cmd'), log=path.join(root,'gui-args.json');
@@ -61,15 +63,15 @@ it.skipIf(process.platform !== 'win32')('runs all start aliases through the GUI 
   await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
   const runtime = path.win32.join(path.dirname(helper), '../cli-runtime/node.exe');
   await writeFile(shim,shellfoxShims({executable:process.execPath,appPath:gui,cliHelper:helper,userData:path.join(root,'data')}).cmd.replaceAll(runtime,process.execPath));
-  for(const alias of ['start','add','new','create']) {
+  for(const alias of ['session','ss','sessions']) {
    await rm(log,{force:true});
-   const result=await exec('cmd.exe',['/d','/c',shim,alias,folder],{cwd:root,timeout:5000,env:{...process.env,SHELLFOX_TEST_ARGS:log}});
+   const result=await exec('cmd.exe',['/d','/c',shim,alias,'create',folder],{cwd:root,timeout:5000,env:{...process.env,SHELLFOX_TEST_ARGS:log}});
    expect(result.stdout).toContain('Shellfox: started session');
    await vi.waitFor(async()=>expect(JSON.parse(await readFile(log,'utf8'))).toEqual(['start',folder]),{timeout:3000});
   }
   await mkdir(path.join(root, 'data'), { recursive: true });
-  await writeFile(path.join(root, 'data', 'cli-commands.json'), JSON.stringify({ version: 1, commands: [{ name: 'start', path: path.join(root, 'never-run.sh') }] }));
-  const collision = await exec('cmd.exe', ['/d', '/c', shim, 'start', folder], { cwd: root, timeout: 5000, env: { ...process.env, SHELLFOX_TEST_ARGS: log } });
+  await writeFile(path.join(root, 'data', 'cli-commands.json'), JSON.stringify({ version: 1, commands: [{ name: 'session', path: path.join(root, 'never-run.sh') }] }));
+  const collision = await exec('cmd.exe', ['/d', '/c', shim, 'session', 'create', folder], { cwd: root, timeout: 5000, env: { ...process.env, SHELLFOX_TEST_ARGS: log } });
   expect(collision.stderr).toBe('');
   expect(collision.stdout).toContain('started session');
  } finally { await rm(root,{recursive:true,force:true,maxRetries:10,retryDelay:100}); }

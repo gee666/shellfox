@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { OwnedTerminal } from './terminal/backend';
 import type { TrackingProcess, TrackingSnapshot, SnapshotProvider } from './terminal/tracking';
-import { collectSessionStats, createSessionStatsCollector } from './control-stats';
+import { createSessionStatsCollector } from './control-stats';
 import { linuxElapsed, parseDarwinPs, parseLinuxMemory, parseLinuxStat, parseMetricRows, type MetricsProvider } from './control-stats-metrics';
 
 const entry = (tabId = 'a', pid = 10, overrides: Partial<OwnedTerminal['root']> = {}): OwnedTerminal => ({
@@ -32,7 +32,7 @@ describe('session stats ownership', () => {
     const h = harness([]);
     expect(await h.collect([])).toEqual([]);
     expect(h.provider).not.toHaveBeenCalled(); expect(h.metrics).not.toHaveBeenCalled();
-    expect(await collectSessionStats([])).toEqual([]);
+    expect(await createSessionStatsCollector()([])).toEqual([]);
   });
   it('attributes only root and owned descendants, batching both tabs once', async () => {
     const h = harness([snapshot([shell(), proc(11, 10), proc(12, 11), shell(20, 'b'), proc(21, 20), proc(99, 1)])]);

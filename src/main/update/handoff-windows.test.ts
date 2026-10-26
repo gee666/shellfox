@@ -1,14 +1,12 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { promisify } from 'node:util';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { powershellCommitGate, startHandoff, type InstallHandoff } from './handoff';
 import { createUpdatePlatform } from './platform-installer';
-
-const exec = promisify(execFile);
+import { cleanupHandoffFixtures, terminateHandoffFixture } from './handoff-test-process';
 // Deliberately use Windows PowerShell 5.1, not pwsh or a PATH shim.
 const powershell = path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const psArgs = () => ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
@@ -35,13 +33,6 @@ async function waitUntil(check: () => Promise<boolean>, description: string, tim
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false; throw error; }
-}
-
-async function killTree(pid: number | undefined): Promise<void> {
-  if (pid && alive(pid)) {
-    await exec('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { timeout: 5000, windowsHide: true }).catch(() => {});
-    await waitUntil(async () => !alive(pid), `process ${pid} to stop`, 5000);
-  }
 }
 
 function runParent(parent: string, args: string[], root: string) {
@@ -185,6 +176,42 @@ Start-Sleep -Seconds 60
     return helper;
   }
 
+  it('does not kill a reused PID belonging to another fixture or the Vitest worker', async () => {
+    const root = await scratch(), other = await scratch();
+    const helper = await stubbornHelper(other);
+    const child = spawn(powershell, [...psArgs(), '-File', helper, '-Control', other], { stdio: 'ignore', windowsHide: true });
+    const closed = new Promise<void>((resolve, reject) => { child.once('close', () => resolve()); child.once('error', reject); });
+    try {
+      await waitUntil(() => exists(path.join(other, 'ready')), 'unrelated fixture readiness');
+      // Simulate an old receipt whose PID now identifies a different live fixture.
+      expect(await terminateHandoffFixture(child.pid, root)).toBe('not-owned');
+      expect(child.exitCode).toBeNull(); expect(child.signalCode).toBeNull();
+      expect(await terminateHandoffFixture(process.pid, root)).toBe('not-owned');
+      expect(await terminateHandoffFixture(child.pid, other)).toBe('terminated');
+      await closed;
+      expect(['exited', 'not-owned']).toContain(await terminateHandoffFixture(child.pid, other));
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await closed;
+      await Promise.all([root, other].map(directory => rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
+    }
+  }, 20_000);
+
+  it('refuses a non-PowerShell process even when its arguments name this fixture', async () => {
+    const root = await scratch();
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', '--', '-File', path.join(root, 'stubborn.ps1'), '-Control', root], { stdio: 'ignore', windowsHide: true });
+    const closed = new Promise<void>(resolve => child.once('close', () => resolve()));
+    try {
+      await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+      expect(await terminateHandoffFixture(child.pid, root)).toBe('not-owned');
+      expect(child.exitCode).toBeNull(); expect(child.signalCode).toBeNull();
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      await closed;
+      await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  }, 15_000);
+
   it('passes metacharacters and Windows argv escaping as data, then cancels a racing commit', async () => {
     const root = await scratch();
     let lease: InstallHandoff | undefined;
@@ -225,11 +252,7 @@ Start-Sleep -Seconds 60
       expect(alive(helperPid)).toBe(false);
       expect(await exists(path.join(root, 'helper-exited'))).toBe(true);
     } finally {
-      if (!helperPid) {
-        try { helperPid = (JSON.parse(await readFile(path.join(root, 'helper-process.json'), 'utf8')) as { pid: number }).pid; }
-        catch { /* Bootstrap did not launch. */ }
-      }
-      try { await killTree(helperPid); }
+      try { await cleanupHandoffFixtures(root, helperPid); }
       finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
     }
   }, 15_000);
@@ -244,18 +267,14 @@ Start-Sleep -Seconds 60
       const info = JSON.parse(await readFile(path.join(root, 'helper-process.json'), 'utf8')) as { pid: number; bootstrapPid: number };
       helperPid = info.pid; bootstrapPid = info.bootstrapPid;
       // Kill only the bootstrap, not its independent process tree.
-      process.kill(bootstrapPid);
-      await waitUntil(async () => !alive(bootstrapPid!), 'bootstrap exit');
+      expect(await terminateHandoffFixture(bootstrapPid, root)).toBe('terminated');
       expect(alive(helperPid)).toBe(true);
       await expect(lease.cancel()).rejects.toThrow('cancellation was not confirmed');
       expect(lease.committed).toBe(false);
       expect(alive(helperPid)).toBe(true);
     } finally {
-      try { await killTree(bootstrapPid); }
-      finally {
-        try { await killTree(helperPid); }
-        finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
-      }
+      try { await cleanupHandoffFixtures(root, helperPid, bootstrapPid); }
+      finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
     }
   }, 20_000);
 
@@ -265,6 +284,7 @@ Start-Sleep -Seconds 60
       : 'exits without doing work when its parent dies before commit', async () => {
       const root = await scratch();
       let parentPid: number | undefined;
+      let parentRun: ReturnType<typeof runParent> | undefined;
       let helperPid: number | undefined;
       try {
         const helper = path.join(root, 'benign.ps1');
@@ -274,7 +294,7 @@ Start-Sleep -Seconds 60
           stdin: { contents: fixtureParent, resolveDir: process.cwd(), sourcefile: 'handoff-fixture-parent.ts', loader: 'ts' },
           bundle: true, platform: 'node', target: 'node22', format: 'esm', outfile: parent,
         });
-        const parentRun = runParent(parent, [powershell, helper, root, mode], root);
+        parentRun = runParent(parent, [powershell, helper, root, mode], root);
         parentPid = parentRun.child.pid;
         const outcome = await parentRun.result;
         helperPid = Number(await readFile(path.join(root, 'helper.pid'), 'utf8'));
@@ -307,18 +327,11 @@ Start-Sleep -Seconds 60
       } finally {
         // A failed startup assertion or parent timeout must not orphan PowerShell.
         try {
-          await killTree(parentPid);
-        } finally {
-          try {
-            if (!helperPid) {
-              try { helperPid = Number(await readFile(path.join(root, 'helper.pid'), 'utf8')); }
-              catch { /* The script never started. */ }
-            }
-            await killTree(helperPid);
-          } finally {
-            await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+          if (parentRun && parentRun.child.exitCode === null && parentRun.child.signalCode === null) {
+            parentRun.child.kill(); await parentRun.result.catch(() => {});
           }
-        }
+          await cleanupHandoffFixtures(root, helperPid);
+        } finally { await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
       }
     }, 50_000);
   }

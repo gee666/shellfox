@@ -4,8 +4,8 @@ import { createPortal } from 'react-dom';
 import type { AppError, Result, SessionDto, TabDto } from '../shared/contracts';
 import { request } from './api';
 
-export function Icon({ name }: { name: 'plus' | 'settings' | 'close' | 'chevron' | 'pin' | 'folder' | 'edit' | 'more' | 'eye' | 'eye-off' | 'settle' | 'unsettle' }) {
-  const paths = { settle: 'M3 8.5 6.5 12 13 4', unsettle: 'M6 3 2 7l4 4M2 7h7a4 4 0 0 1 4 4v2', more: 'M3 8h.01M8 8h.01M13 8h.01', edit: 'm10 2 4 4-8 8H2v-4l8-8ZM8.5 3.5l4 4', folder: 'M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2', pin: 'M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5', plus: 'M8 3v10M3 8h10', close: 'm4 4 8 8M12 4l-8 8', chevron: 'm6 3 5 5-5 5', eye: 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z', 'eye-off': 'M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8',
+export function Icon({ name }: { name: 'plus' | 'settings' | 'close' | 'chevron' | 'pin' | 'folder' | 'edit' | 'more' | 'eye' | 'eye-off' | 'settle' | 'unsettle' | 'connect' | 'disconnect' | 'monitor' | 'server' | 'check' | 'shield' }) {
+  const paths = { connect: 'M6 5V2M10 5V2M4 5h8v3a4 4 0 0 1-8 0V5ZM8 12v2', disconnect: 'M3 2l11 12M6 2v2M10 2v3M4 5h8v3c0 .5-.1 1-.3 1.4M9.5 11.7A4 4 0 0 1 4 8V6M8 12v2', monitor: 'M2 3h12v8H2V3ZM8 11v3M5 14h6', server: 'M3 2h10v5H3V2ZM3 9h10v5H3V9ZM5 4.5h.01M5 11.5h.01M8 4.5h3M8 11.5h3', check: 'm3 8 3.5 3.5L13 4', shield: 'M8 1.5 13 3v4c0 3-2 5.5-5 7-3-1.5-5-4-5-7V3l5-1.5ZM8 5v3M8 10.5h.01', settle: 'M3 8.5 6.5 12 13 4', unsettle: 'M6 3 2 7l4 4M2 7h7a4 4 0 0 1 4 4v2', more: 'M3 8h.01M8 8h.01M13 8h.01', edit: 'm10 2 4 4-8 8H2v-4l8-8ZM8.5 3.5l4 4', folder: 'M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2', pin: 'M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5', plus: 'M8 3v10M3 8h10', close: 'm4 4 8 8M12 4l-8 8', chevron: 'm6 3 5 5-5 5', eye: 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z', 'eye-off': 'M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8',
     settings: 'm6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z' };
   return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} />{name === 'settings' && <circle cx="8" cy="7.5" r="2.25" />}{name === 'eye' && <circle cx="8" cy="8" r="2" />}</svg>;
 }
@@ -26,11 +26,12 @@ export function StatusDot({ state }: { state: DotState }) {
   return <span className={`status-dot dot-${state.kind}`} aria-label={state.title} />;
 }
 
-type ShellfoxNotice = AppError | { message: string; tone: 'info'; durationMs?: number };
+interface NoticeAction { label: string; run(): void }
+type ShellfoxNotice = (AppError | { message: string; tone: 'info'; durationMs?: number }) & { action?: NoticeAction; key?: string };
 const NotificationContext = createContext<(notice: ShellfoxNotice) => void>(() => {});
 export const useNotify = () => useContext(NotificationContext);
 export function Notifications({ children }: { children: ReactNode }) {
-  const [messages, setMessages] = useState<{ id: number; message: string; info: boolean }[]>([]);
+  const [messages, setMessages] = useState<{ id: number; message: string; info: boolean; action?: NoticeAction }[]>([]);
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const serial = useRef(0);
   const recent = useRef(new Map<string, number>());
@@ -38,7 +39,7 @@ export function Notifications({ children }: { children: ReactNode }) {
   const notify = useCallback((notice: ShellfoxNotice) => {
     const info = 'tone' in notice && notice.tone === 'info';
     const duration = ('durationMs' in notice ? notice.durationMs : undefined) ?? (info ? 2000 : 6000);
-    const key = JSON.stringify([info ? 'info' : 'code' in notice ? notice.code : 'error', notice.message]);
+    const key = JSON.stringify([notice.key, info ? 'info' : 'code' in notice ? notice.code : 'error', notice.message]);
     const now = Date.now();
     for (const [key, expires] of recent.current) if (expires <= now) recent.current.delete(key);
     if (recent.current.has(key)) return;
@@ -46,11 +47,11 @@ export function Notifications({ children }: { children: ReactNode }) {
     // A later user attempt can report the same failure once this short window expires.
     recent.current.set(key, now + duration);
     const id = ++serial.current;
-    setMessages(items => [...items.slice(-3), { message: notice.message, info, id }]);
+    setMessages(items => [...items.slice(-3), { message: notice.message, info, id, action: notice.action }]);
     const timer = setTimeout(() => { setMessages(items => items.filter(item => item.id !== id)); timers.current.delete(timer); }, duration);
     timers.current.add(timer);
   }, []);
-  return <NotificationContext.Provider value={notify}>{children}<div className="toasts" aria-live="polite">{messages.map(message => <div className={`toast${message.info ? ' shellfox-toast-info' : ''}`} role={message.info ? 'status' : 'alert'} key={message.id}><span>{message.message}</span><button className="icon-button" aria-label="Dismiss message" onClick={() => setMessages(items => items.filter(item => item.id !== message.id))}><Icon name="close" /></button></div>)}</div></NotificationContext.Provider>;
+  return <NotificationContext.Provider value={notify}>{children}<div className="toasts" aria-live="polite">{messages.map(message => <div className={`toast${message.info ? ' shellfox-toast-info' : ''}`} role={message.info ? 'status' : 'alert'} key={message.id}><span>{message.message}</span>{message.action && <button className="notice-action" onClick={() => { message.action?.run(); setMessages(items => items.filter(item => item.id !== message.id)); }}>{message.action.label}</button>}<button className="icon-button" aria-label="Dismiss message" onClick={() => setMessages(items => items.filter(item => item.id !== message.id))}><Icon name="close" /></button></div>)}</div></NotificationContext.Provider>;
 }
 export function useAction() {
   const [pending, setPending] = useState(false);
@@ -94,7 +95,7 @@ export function Modal({ title, children, onClose, className = '', initialFocus }
   return <div className="modal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><div className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={title} ref={root} tabIndex={-1}><header><h2>{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={onClose}><Icon name="close" /></button></header>{children}</div></div>;
 }
 
-export function ContextMenu({ x, y, children, onClose }: { x: number; y: number; children: ReactNode; onClose: () => void }) {
+export function ContextMenu({ x, y, children, onClose, initialFocus }: { x: number; y: number; children: ReactNode; onClose: () => void; initialFocus?: string }) {
   const root = useRef<HTMLDivElement>(null);
   const close = useRef(onClose); close.current = onClose;
   useEffect(() => {
@@ -103,7 +104,7 @@ export function ContextMenu({ x, y, children, onClose }: { x: number; y: number;
     const rect = node.getBoundingClientRect();
     node.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
     node.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 4))}px`;
-    node.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+    (initialFocus ? node.querySelector<HTMLElement>(initialFocus) ?? node.querySelector<HTMLElement>('button:not(:disabled)') : node.querySelector<HTMLElement>('button:not(:disabled)'))?.focus();
     const dismiss = (event: PointerEvent) => { if (!node.contains(event.target as Node)) close.current(); };
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape' || event.key === 'Tab') { close.current(); return; }

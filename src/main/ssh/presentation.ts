@@ -1,3 +1,4 @@
+import { cliHelp } from '../../cli/help';
 import type { StoredProfile } from './storage';
 import type { ControlResponse, ProcessStat, TabStat } from '../control-types';
 
@@ -19,31 +20,7 @@ export function pickerLines(profiles: StoredProfile[], selected: number, color: 
     return i === selected ? `  ${s.accent('› ' + name + '  ' + target)}${folder ? '  ' + s.dim(folder) : ''}` : `    ${name}  ${s.dim(target)}${folder ? '  ' + s.dim(folder) : ''}`;
   }), '', '  ' + s.dim('↑↓ select  enter connect  esc cancel')];
 }
-export function helpText(version: string, color: boolean, opensApp = true): string {
-  const s = styles(color);
-  const rows = [
-    ...(opensApp ? [['shellfox', 'open shellfox']] : []),
-    ['shellfox start [path]', 'new session; aliases: add, new, create'],
-    ['shellfox ls [filters]', 'sessions; aliases: list, sessions'],
-    ['shellfox stats [filters]', 'RSS and duration; aliases: status, usage'],
-    ['shellfox processes [filters]', 'process PIDs; aliases: proc, ps'],
-    ['shellfox delete [UUID]', 'inspect and confirm; aliases: remove, rm'],
-    ['shellfox settle [UUID]', 'mark settled; keep terminals running'],
-    ['shellfox unsettle [UUID]', 'clear settled status; keep terminals running'],
-    ['shellfox tab open', 'open tab here; aliases: add, new'],
-    ['shellfox tab close', 'close this tab; aliases: remove, rm'],
-    ['shellfox keep-alive', 'toggle sleep prevention; aliases: keepalive, awake'],
-    ['shellfox ssh [--profile name]', 'connect to a saved ssh connection'],
-    ['shellfox update [--check]', 'install the latest release'],
-    ['shellfox --version', 'version; aliases: -v, version'],
-    ['shellfox help [command]', 'help; aliases: --help, -h'],
-  ];
-  return ['','  ' + s.bold(s.accent('shellfox')) + ' ' + s.dim(escapeTerminal(version)) + '  ' + s.dim('terminal manager'), '',
-    ...rows.map(([cmd, description]) => '    ' + s.accent(cmd.padEnd(32)) + s.dim(description)), '',
-    '  Filters: --running --idle --no-agents --current --id UUID --name TEXT --path TEXT --tab UUID',
-    '  processes also accepts --pid PID. Filters combine with AND; --running and --idle conflict.',
-    '  Run shellfox help <command> for semantics. IDs are full UUIDs, never row numbers.', '', ''].join('\n');
-}
+export function helpText(version: string, color: boolean, _opensApp = true): string { return cliHelp(version, undefined, color); }
 export function sshHelp(color: boolean): string {
   const s = styles(color);
   return '\n  ' + s.accent('shellfox ssh') + ' [--profile name]\n  ' + s.dim('connect to a saved ssh connection') + '\n  ' + s.dim('without a name, choose a connection with ↑↓ and enter') + '\n';
@@ -63,56 +40,8 @@ export function remoteCommand(cwd: string | null, color = false): string {
   return prefix+'exec "${SHELL:-/bin/sh}" -il';
 }
 
-const filterHelp = [
-  '  --running       session activity is running',
-  '  --idle          live session activity is waiting, not unknown/error/settled',
-  '  --no-agents     reported session agent count is zero, not proof of no processes',
-  '  --current       session containing SHELLFOX_TERMINAL_MARKER; fails outside Shellfox',
-  '  --id UUID       exact session UUID',
-  '  --name TEXT     case-insensitive substring of session name',
-  '  --path TEXT     case-insensitive substring of starting path, not live shell CWD',
-  '  --tab UUID      exact tab UUID; show only that tab and its containing session',
-  '  Filters combine with AND. --running and --idle cannot be combined.',
-  '  Use full UUIDs from ls/stats, never row numbers or UUID prefixes.',
-];
 export function commandHelp(topic: string, color: boolean): string {
-  if (topic === 'ssh') return sshHelp(color);
-  const s = styles(color);
-  const aliases: Record<string, string> = {
-    start: 'add, new, create', ls: 'list, sessions', delete: 'remove, rm',
-    stats: 'status, usage', processes: 'proc, ps', 'keep-alive': 'keepalive, awake',
-    'tab open': 'tab add, tab new', 'tab close': 'tab remove, tab rm', version: '--version, -v',
-  };
-  const lines: Record<string, string[]> = {
-    start: ['shellfox start [path]', '  Create a GUI session in path. Default: caller current folder.'],
-    ls: ['shellfox ls [filters]', '  List session name, UUID, starting path and tab count.', ...filterHelp],
-    stats: ['shellfox stats [filters]', '  Session and tab RSS and duration. Unavailable metrics are n/a.',
-      '  Session RSS sums included tabs; duration is their oldest measured shell age.',
-      '  Closed tabs without stats are excluded; closed tabs with cleanup stats still count.',
-      '  Missing live-tab metrics keep the corresponding session metric n/a.', ...filterHelp],
-    processes: ['shellfox processes [filters]', '  Session > tab > process hierarchy with PID, PPID, domain, RSS and duration.',
-      ...filterHelp, '  --pid PID        exact positive PID within each tab; may match multiple domains',
-      '  --pid filters rows and their containing tabs/sessions, not full-tab metrics.',
-      '  Session totals aggregate included tabs, not just the matching process rows.',
-      '  Closed tabs without stats are excluded from totals; missing live stats remain n/a.',
-      '  n/a means unavailable, not zero. Processes are observed owned trees, not the whole OS.'],
-    delete: ['shellfox delete [UUID | --id UUID | --current]', '  Delete the session and close owned terminals after inspection.',
-      '  Without a UUID, target the current Shellfox terminal session.', '  Requires TTY input/output and explicit y or yes. EOF, other answers and pipes cancel.'],
-    settle: ['shellfox settle [UUID | --id UUID | --current]', '  Mark the session settled without closing terminals or stopping agents.',
-      '  Without a UUID, target the current Shellfox terminal session. No confirmation.'],
-    unsettle: ['shellfox unsettle [UUID | --id UUID | --current]', '  Clear settled status without changing terminals or agents.',
-      '  Without a UUID, target the current Shellfox terminal session. No confirmation.'],
-    tab: ['shellfox tab open [--current]', '  shellfox tab close [--current]', '  open aliases: add, new. close aliases: remove, rm.',
-      '  Requires the current Shellfox terminal marker. UUID targets are not accepted.'],
-    'tab open': ['shellfox tab open [--current]', '  Open a tab in the current session with its defaults. Requires a Shellfox terminal marker.'],
-    'tab close': ['shellfox tab close [--current]', '  Close the invoking owned Shellfox tab. Requires its live terminal marker.'],
-    'keep-alive': ['shellfox keep-alive', '  Toggle the existing app sleep-prevention switch. Not persisted across app restarts.'],
-    version: ['shellfox --version', '  Print the installed version without contacting the app.'],
-    update: ['shellfox update [--check]', '  Install the latest release; --check only checks.'],
-  };
-  const [usage, ...body] = lines[topic] ?? [];
-  return '\n  ' + s.accent(usage ?? 'shellfox help') + '\n' + body.join('\n') + '\n' +
-    (aliases[topic] ? '  Aliases: ' + aliases[topic] + '\n' : '') + '  Help: --help, -h, help, or shellfox help ' + topic + '\n';
+  return topic === 'ssh' ? sshHelp(color) : cliHelp('', topic, color);
 }
 
 export const formatRss = (bytes: number | null | undefined): string =>
@@ -155,14 +84,17 @@ function processLines(processes: ProcessStat[]): string[] {
   for (const p of sorted) visit(p); // Cycles and missing parents must not hide processes.
   return result;
 }
-export function formatControl(action: string, response: ControlResponse): string {
+export function formatControl(action: string, response: ControlResponse, color = false): string {
   const sessions = response.sessions ?? (response.session ? [response.session] : []);
   if (!sessions.length) return '  No matching sessions.\n';
   if (action === 'list') {
-    const rows = [['NAME', 'ID', 'PATH', 'TABS'], ...sessions.map(s =>
-      [escapeTerminal(s.title), escapeTerminal(s.id), escapeTerminal(s.cwd), String(s.tabs.length)])];
+    const rows = [['NAME', 'ID', 'STATUS', 'AGENTS', 'PATH', 'TERMINALS'], ...sessions.map(s =>
+      [escapeTerminal(s.title), escapeTerminal(s.id), s.status, String(s.counts.agents), escapeTerminal(s.cwd), String(s.tabs.length)])];
     const widths = rows[0].map((_, i) => Math.max(...rows.map(row => row[i].length)));
-    return rows.map(row => '  ' + row.map((cell, i) => i === row.length - 1 ? cell : cell.padEnd(widths[i])).join('  ')).join('\n') + '\n';
+    return rows.map((row, index) => '  ' + row.map((cell, i) => {
+      const text = i === row.length - 1 ? cell : cell.padEnd(widths[i]);
+      return index === 0 ? styles(color).accent(text) : text;
+    }).join('  ')).join('\n') + '\n';
   }
   const stats = new Map((response.tabs ?? []).map(t => [t.tabId, t]));
   const lines: string[] = [];
@@ -171,7 +103,7 @@ export function formatControl(action: string, response: ControlResponse): string
     // descendant cleanup is pending, and retain missing live stats as unknown.
     const tabs = session.tabs.filter(t => t.lifecycle !== 'closed' || stats.has(t.id)).map(t => stats.get(t.id));
     const metrics = '  RSS ' + formatRss(aggregate(tabs, 'memoryBytes')) + '  duration ' + formatDuration(aggregate(tabs, 'elapsedSeconds'));
-    lines.push('  ' + escapeTerminal(session.title) + '  ' + escapeTerminal(session.id) + metrics);
+    lines.push('  ' + styles(color).accent(escapeTerminal(session.title)) + '  ' + escapeTerminal(session.id) + metrics);
     if (!session.tabs.length) lines.push('    No tabs.');
     for (const tab of session.tabs) {
       const stat = stats.get(tab.id);

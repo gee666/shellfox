@@ -10,10 +10,10 @@ import { publishControlEndpoint } from './control-endpoint';
 import { EmbeddedSessionService } from './terminal/service';
 import { PtyBackend } from './terminal/backend';
 import { MemoryRepository, factoryFixture } from './terminal/test-fixtures';
-import { collectSessionStats } from './control-stats';
+const collectSessionStats = vi.hoisted(() => vi.fn<ReturnType<typeof import('./control-stats').createSessionStatsCollector>>(async () => []));
 import type { ControlResponse } from './control-types';
 import type { Result } from '../shared/contracts';
-vi.mock('./control-stats', () => ({ collectSessionStats: vi.fn(async () => []) }));
+vi.mock('./control-stats', () => ({ createSessionStatsCollector: () => collectSessionStats }));
 
 const awake = { active: false, set: vi.fn(function (this: { active: boolean }, active: boolean) { return this.active = active; }) };
 let directory: string, service: EmbeddedSessionService, server: ControlServer;

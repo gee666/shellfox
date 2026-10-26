@@ -11,6 +11,7 @@ import { createManagerClient } from './store';
 import type { ManagerClient } from './store';
 import { mockApi, session, snapshot } from './test-fixtures';
 import { useVisibleSessions } from './visible-sessions';
+import { remoteFixture } from './remote-test-fixtures';
 
 const clients: ManagerClient[] = [];
 const observers: TestIntersectionObserver[] = [];
@@ -72,7 +73,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup(); clients.splice(0).forEach(client => client.stop());
-  observers.splice(0); resizeCallbacks.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  observers.splice(0); resizeCallbacks.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); delete window.shellfoxRemote;
 });
 function Sidebar({ client, items }: { client: ManagerClient; items: SessionDto[] }) {
   const root = useRef<HTMLDivElement>(null);
@@ -86,6 +87,44 @@ function sidebar(items: SessionDto[]) {
   const scroll = view.container.querySelector<HTMLDivElement>('.sidebar-scroll')!;
   return { ...view, fixture, client, scroll };
 }
+
+it('reports visible remote rows and the selected remote workspace without replacing local interests', async () => {
+  const local = mockApi(), remote = remoteFixture();
+  window.shellfoxRemote = remote.api;
+  render(<App api={local.api} />);
+  await screen.findByRole('button', { name: 'Select session Remote session' });
+  await deliver();
+  const id = remote.remoteSnapshot.sessions[0]!.id;
+  expect(remote.request).toHaveBeenCalledWith({ peerId: 'workstation', method: 'setVisibleSessions', payload: { sessionIds: [id] } });
+  expect(ids(local.api)).toEqual([id]);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Local · 1/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Workstation · 1/ }));
+  });
+  await deliver();
+  expect(ids(local.api)).toEqual([]);
+  const remoteVisibility = () => remote.request.mock.calls.filter(([input]) => input.method === 'setVisibleSessions').at(-1)?.[0];
+  expect(remoteVisibility()).toEqual({ peerId: 'workstation', method: 'setVisibleSessions', payload: { sessionIds: [id] } });
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Settings' })); });
+  await deliver();
+  expect(remoteVisibility()).toEqual({ peerId: 'workstation', method: 'setVisibleSessions', payload: { sessionIds: [] } });
+});
+
+it('does not poll another machine when its session IDs collide with local IDs', async () => {
+  const fixture = mockApi();
+  function Machines() {
+    const root = useRef<HTMLDivElement>(null);
+    useVisibleSessions(fixture.api, root, 'local');
+    return <div ref={root}><section data-machine-id="local"><div data-terminal-session-id="same-id" /></section><section data-machine-id="remote"><div data-terminal-session-id="same-id" /><div data-terminal-session-id="remote-only" /></section></div>;
+  }
+  const { container } = render(<Machines />);
+  const targets = [...observers[0]!.targets];
+  expect(targets).toHaveLength(1);
+  expect(targets[0]?.closest('[data-machine-id]')).toHaveAttribute('data-machine-id', 'local');
+  const host = container.querySelector('[data-machine-id="local"]')!;
+  await act(async () => { host.setAttribute('data-machine-id', 'remote'); });
+  expect(observers[0]!.targets.size).toBe(0);
+});
 
 it('reports partial viewport rows, excluding overscan, pinned, boundary and menu-retained offscreen rows', async () => {
   const items = Array.from({ length: 1000 }, (_, index) => session(index + 1));

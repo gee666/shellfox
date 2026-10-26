@@ -24,6 +24,12 @@ it('uses private stdio, not Electron elevation, shell interpolation or an extern
   expect(JSON.parse(f.sent[1])).toMatchObject({ type: 'launch', cwd: "C:\\a';& folder", env: { TEST: 'a\nb' } });
   f.message({ type: 'exit', exitCode: 1 });
 });
+it('uses an explicitly configured helper instead of an Electron resource path', () => {
+  const f = fixture(); mocks.spawn.mockReturnValue(f.child);
+  const pty = launchElevatedPty({ cwd: 'C:\\work', env: {}, cols: 80, rows: 24 }, 'C:\\custom-resources\\elevated-terminal\\helper.exe'); processes.push(pty);
+  expect(mocks.spawn).toHaveBeenCalledWith('C:\\custom-resources\\elevated-terminal\\helper.exe', ['launch'], expect.any(Object));
+  f.message({ type: 'exit', exitCode: 0 });
+});
 it('rejects oversized launch before spawning a process', () => {
   expect(() => launchElevatedPty({ cwd: 'C:\\work', env: { TOO_BIG: 'x'.repeat(262144) }, cols: 80, rows: 24 })).toThrow('too large');
   expect(mocks.spawn).not.toHaveBeenCalled();

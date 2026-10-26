@@ -9,7 +9,7 @@ export async function validateDirectory(input: string): Promise<string> {
   if (process.platform === 'win32' && !isWslUncPath(input) && (!/^[A-Za-z]:[\\/]/.test(input) || input.slice(2).includes(':'))) throw new Error('Expected a local drive directory');
   const canonical = await realpath(input);
   pathSchema.parse(canonical);
-  if (!(await stat(canonical)).isDirectory()) throw new Error('Not a directory');
+  if (!(await stat(canonical)).isDirectory()) throw Object.assign(new Error('Not a directory'), { code: 'ENOTDIR' });
   await access(canonical);
   if (process.platform === 'win32' && !isWslUncPath(canonical)) {
     // Only the validated drive letter enters this fixed script, never the folder.
@@ -17,7 +17,7 @@ export async function validateDirectory(input: string): Promise<string> {
     if (!/^[A-Z]$/.test(drive)) throw new Error('Remote paths are unsupported');
     const executable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     const script = "[Console]::Write([System.IO.DriveInfo]::new('" + drive + ":\\').DriveType.ToString())";
-    const { stdout } = await exec(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, timeout: 5000, maxBuffer: 4096 });
+    const { stdout } = await exec(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true, timeout: 5000, maxBuffer: 4096 }).catch(error => { throw new Error('Local drive verification is unavailable.', { cause: error }); });
     if (!['Fixed', 'Removable', 'Ram'].includes(stdout.trim())) throw new Error('Only local drives are supported');
   }
   return path.normalize(input);

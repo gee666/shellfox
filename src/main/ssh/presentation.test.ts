@@ -15,41 +15,34 @@ it('matches the compact picker design and removes color without a TTY',()=>{
  const plain=pickerLines(profiles,0,false).join('\n');expect(plain).toBe('\n  ssh\n  › prod-web  deploy@10.0.0.5              /var/www\n    staging   root@stage.example.com:2222\n    nas       admin@192.168.1.20         \n\n  ↑↓ select  enter connect  esc cancel');
  expect(plain).not.toContain('\x1b');expect(pickerLines(profiles,1,true).join('\n')).toContain('\x1b[38;2;236;72;153m› staging');
 });
-it('documents commands, aliases and filters while retaining four-line SSH help',()=>{
+it('documents one canonical session group and human-first flags while retaining compact SSH help', () => {
  const help = helpText('0.4.0', false);
- for (const command of ['start', 'ls', 'stats', 'processes', 'delete', 'settle', 'unsettle', 'tab open', 'tab close', 'keep-alive', 'ssh', 'update', '--version', 'help']) expect(help).toContain('shellfox ' + command);
- for (const alias of ['add', 'new', 'create', 'list', 'sessions', 'remove', 'rm', 'status', 'usage', 'proc', 'ps', 'keepalive', 'awake', '-v', '-h']) expect(help).toContain(alias);
- expect(help).not.toContain('\x1b'); expect(help).not.toContain('archive');
- expect(helpText('0.4.0',false,false)).not.toContain('open shellfox');expect(sshHelp(false).split('\n')).toHaveLength(5);
- for (const topic of ['ls', 'stats', 'processes']) {
-  const text = commandHelp(topic, false);
-  for (const flag of ['--running', '--idle', '--no-agents', '--current', '--id', '--name', '--path', '--tab']) expect(text).toContain(flag);
-  expect(text).toContain('AND'); expect(text).toContain('UUID');
- }
- expect(commandHelp('processes', false)).toContain('--pid');
- expect(commandHelp('processes', false)).toContain('not full-tab metrics');
- expect(commandHelp('stats', false)).toContain('Closed tabs without stats are excluded');
- expect(commandHelp('stats', false)).toContain('closed tabs with cleanup stats still count');
- expect(commandHelp('delete', false)).toContain('EOF'); expect(commandHelp('delete', false)).toContain('TTY');
- for (const topic of ['settle', 'unsettle']) {
-  const text = commandHelp(topic, false);
-  expect(text).toContain('No confirmation'); expect(text).toContain('--current');
-  expect(text).not.toContain('TTY'); expect(text).not.toContain('archive');
- }
- for (const flag of ['--help', '-h', 'help']) expect(parseSshArgs([flag])).toEqual({help:true});
+ for (const group of ['Host','Session','Terminals','Network','Machines','Approvals','Settings','Commands','SSH','Automation']) expect(help.split('\n')).toContain(group);
+ expect(help.match(/^Session$/gm)).toHaveLength(1);
+ for (const removed of ['start','ls','stats','processes','delete','settle','unsettle','tab open','tab close']) expect(help).not.toMatch(new RegExp('^  ' + removed + '(?: |$)', 'm'));
+ for (const command of ['session list','session delete','session stats','session processes','terminals attach','commands --register']) expect(help).toContain(command);
+ expect(help).not.toContain('\x1b'); expect(help).toContain('--json'); expect(sshHelp(false).split('\n')).toHaveLength(5);
+ const sessionHelp = commandHelp('session', false);
+ for (const flag of ['--running','--idle','--no-agents','--current','--id','--name','--path','--tab','--pid','--all']) expect(sessionHelp).toContain(flag);
+ expect(sessionHelp).toContain('UUID'); expect(sessionHelp).toContain('explicit'); expect(sessionHelp).toContain('Remote');
+ expect(commandHelp('terminals', true)).toContain('\x1b[');
+ for (const flag of ['--help','-h','help']) expect(parseSshArgs([flag])).toEqual({help:true});
 });
 it('renders unavailable metrics as n/a, not zero', () => {
  expect(formatRss(null)).toBe('n/a'); expect(formatRss(undefined)).toBe('n/a'); expect(formatRss(0)).toBe('0.0 MiB');
  expect(formatRss(1048576)).toBe('1.0 MiB'); expect(formatRss(NaN)).toBe('n/a');
  expect(formatDuration(null)).toBe('n/a'); expect(formatDuration(0)).toBe('0s'); expect(formatDuration(3661.9)).toBe('1h 1m 1s');
 });
-const sessionOutput = { id: 'session-uuid', title: 'test', cwd: '/work', tabs: [
- { id: 'tab-uuid', title: 'bash', lifecycle: 'open', monitoringReason: null },
- { id: 'tab-two', title: 'zsh', lifecycle: 'open', monitoringReason: null },
-] } as SessionDto;
-it('formats an aligned ls table with full IDs and paths', () => {
+const sessionOutput: SessionDto = { id: 'session-uuid', title: 'test', cwd: '/work', status: 'running', activityStatus: 'running',
+ adapterId: 'embedded-pty', shellId: 'bash', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+ settledAt: null, pinnedAt: null, counts: { agents: 0, running: 2, waiting: 0, unknown: 0, error: 0, closed: 0 },
+ env: [], canFocus: true, canAddTab: true, controlReason: null, error: null,
+ tabs: ['bash', 'zsh'].map((title, ordinal) => ({ id: ordinal ? 'tab-two' : 'tab-uuid', sessionId: 'session-uuid', title,
+   cwd: '/work', ordinal, createdAt: '2026-01-01T00:00:00Z', lifecycle: 'open', status: 'running', agents: 0, monitoringReason: null, error: null })),
+};
+it('formats an aligned session list with full IDs, status and paths', () => {
  const text = formatControl('list', { sessions: [sessionOutput] });
- expect(text).toBe('  NAME  ID            PATH   TABS\n  test  session-uuid  /work  2\n');
+ expect(text).toBe('  NAME  ID            STATUS   AGENTS  PATH   TERMINALS\n  test  session-uuid  running  0       /work  2\n');
  expect(formatControl('list', {})).toBe('  No matching sessions.\n');
 });
 it('formats session/tab totals without treating missing metrics as zero', () => {

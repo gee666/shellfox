@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { envVarsSchemaFor, requestSchemas, responseSchemas, pathSchema } from './schemas';
+import { envVarsSchemaFor, requestSchemas, responseSchemas, pathSchema, storedEnvVarsSchema } from './schemas';
+import { remoteForwardRequestSchema } from './remote-schemas';
 it('trims env names, bounds entries and rejects NUL, equals and platform duplicates', () => {
   const windows = envVarsSchemaFor(true), unix = envVarsSchemaFor(false);
   expect(windows.parse([{ name: '  API_KEY ', value: 'a=b line' }])).toEqual([{ name: 'API_KEY', value: 'a=b line' }]);
@@ -7,6 +8,13 @@ it('trims env names, bounds entries and rejects NUL, equals and platform duplica
   expect(unix.safeParse([{ name: 'Path', value: '' }, { name: 'PATH', value: '' }]).success).toBe(true);
 });
 it('rejects nontransportable env names/values consistently on Windows and Unix', () => { for (const windows of [true, false]) { const schema = envVarsSchemaFor(windows); for (const name of ['BAD:NAME', 'BAD/NAME', 'BAD NAME', 'BAD\tNAME']) expect(schema.safeParse([{ name, value: 'ok' }]).success).toBe(false); for (const value of ['a\rb', 'a\nb', 'a\r\nb']) expect(schema.safeParse([{ name: 'GOOD', value }]).success).toBe(false); } });
+it('reads remote Unix environment names without applying the client OS case policy', () => {
+  const env = [{ name: 'Path', value: '/bin' }, { name: 'PATH', value: '/usr/bin' }];
+  expect(storedEnvVarsSchema.safeParse(env).success).toBe(true);
+  expect(storedEnvVarsSchema.safeParse([...env, env[0]]).success).toBe(false);
+  expect(remoteForwardRequestSchema.safeParse({ peerId: 'node-1', method: 'setSessionEnv', payload: { sessionId: crypto.randomUUID(), env } }).success).toBe(true);
+  expect(envVarsSchemaFor(true).safeParse(env).success).toBe(false);
+});
 it('bounds clipboard UTF-8 bytes and never accepts arbitrary folder paths', () => {
   expect(requestSchemas.copyText.safeParse({ text: '\n雪' }).success).toBe(true);
   expect(requestSchemas.copyText.safeParse({ text: '雪'.repeat(11000) }).success).toBe(true);

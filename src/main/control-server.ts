@@ -3,18 +3,17 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { ControlRequest, ControlResponse } from './control-types';
 import type { SessionService } from './service';
 import { EmbeddedSessionService } from './terminal/service';
-import type { KeepAwake } from './keep-awake';
-import { collectSessionStats } from './control-stats';
 import { publishControlEndpoint } from './control-endpoint';
 import { CONTROL_REQUEST_BYTES, CONTROL_RESPONSE_BYTES, CONTROL_TIMEOUT_MS, ControlFrame, controlEnvelopeSchema, controlReplySchema, controlRequestSchema } from './control-protocol';
 
 type Service = SessionService | EmbeddedSessionService;
-export async function handleControlRequest(service: Service, keepAwake: Pick<KeepAwake, 'active' | 'set'>, input: ControlRequest, signal?: AbortSignal): Promise<ControlResponse> {
+export interface ControlKeepAwake { readonly active: boolean; set(active: boolean): boolean | Promise<boolean> }
+export async function handleControlRequest(service: Service, keepAwake: ControlKeepAwake, input: ControlRequest, signal?: AbortSignal): Promise<ControlResponse> {
   const parsed = controlRequestSchema.safeParse(input);
   if (!parsed.success) throw new Error('Invalid control request.');
   const request = parsed.data;
   signal?.throwIfAborted();
-  if (request.action === 'keep-alive') return { message: keepAwake.set(!keepAwake.active) ? 'Keep alive enabled.' : 'Keep alive disabled.' };
+  if (request.action === 'keep-alive') return { message: await keepAwake.set(!keepAwake.active) ? 'Keep alive enabled.' : 'Keep alive disabled.' };
   if (request.action === 'list' || request.action === 'stats' || request.action === 'processes') {
     const snapshot = service instanceof EmbeddedSessionService ? await service.getControlSnapshot() : service.getSnapshot();
     signal?.throwIfAborted();
@@ -30,7 +29,9 @@ export async function handleControlRequest(service: Service, keepAwake: Pick<Kee
     if (request.action === 'list') return { sessions };
     if (!(service instanceof EmbeddedSessionService)) throw new Error('Live process statistics require embedded terminals.');
     signal?.throwIfAborted();
-    const tabs = await collectSessionStats(service.backend.live());
+    const stats = await service.getSessionStats(sessions.length === 1 ? { sessionId: sessions[0].id } : {});
+    if (!stats.ok) throw new Error(stats.error.message);
+    const tabs = stats.value.tabs;
     // Keep only the selected sessions' app-owned process details, including settled sessions.
     const selectedTabs = new Set(sessions.flatMap(s => s.tabs.map(t => t.id)));
     return { sessions, tabs: tabs.filter(t => selectedTabs.has(t.tabId)) };
@@ -45,15 +46,19 @@ export async function handleControlRequest(service: Service, keepAwake: Pick<Kee
   if (!result.ok) throw new Error(result.error.message);
   if (request.action === 'inspect') {
     signal?.throwIfAborted();
-    const tabs = await collectSessionStats(service.backend.live());
-    const ids = new Set(result.value.session!.tabs.map(t => t.id));
+    const session = result.value.session;
+    if (!session) throw new Error('Session inspection did not return a session.');
+    const stats = await service.getSessionStats({ sessionId: session.id });
+    if (!stats.ok) throw new Error(stats.error.message);
+    const tabs = stats.value.tabs;
+    const ids = new Set(session.tabs.map(t => t.id));
     return { ...result.value, tabs: tabs.filter(t => ids.has(t.tabId)) };
   }
   return result.value;
 }
 
 export interface ControlServer { dispose(): Promise<void> }
-export async function startControlServer(userData: string, service: Service, keepAwake: Pick<KeepAwake, 'active' | 'set'>): Promise<ControlServer> {
+export async function startControlServer(userData: string, service: Service, keepAwake: ControlKeepAwake, guard?: () => void): Promise<ControlServer> {
   const secret = randomBytes(32).toString('hex');
   const sockets = new Set<Socket>();
   let operations = 0;
@@ -90,6 +95,7 @@ export async function startControlServer(userData: string, service: Service, kee
         const envelope = controlEnvelopeSchema.safeParse(JSON.parse(text));
         if (!envelope.success) throw new Error('Invalid control request.');
         if (!timingSafeEqual(Buffer.from(envelope.data.secret, 'hex'), Buffer.from(secret, 'hex'))) throw new Error('Control authentication failed.');
+        guard?.();
         request = envelope.data.request;
       } catch (error) { received = true; reply({ ok: false, error: error instanceof Error ? error.message.slice(0, 1000) : 'Invalid control request.' }); return; }
       // Disconnected stats requests may still be draining the collector. Count

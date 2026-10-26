@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SelfUpdater } from './update/self-updater';
+import type { HostRpc, HostRpcOptions } from '../host/rpc';
 
 // Exercise the actual main close/before-quit wiring and updater transaction.
 // Electron, storage, control transport and terminal/installer effects are replaced.
@@ -22,6 +23,8 @@ const state = vi.hoisted(() => ({
   confirmation: { request: vi.fn(), dispose: vi.fn() },
   service: { initialize: vi.fn(), ownedTerminalCount: vi.fn(), closeForUpdate: vi.fn(), dispose: vi.fn() },
   control: { start: vi.fn(), dispose: vi.fn() },
+  remote: { initialize: vi.fn(), dispose: vi.fn(), install: vi.fn(), uninstall: vi.fn() },
+  host: { acquire: vi.fn(), release: vi.fn(), start: vi.fn<(options: HostRpcOptions) => Promise<HostRpc>>(), close: vi.fn(), waitForStopReplies: vi.fn(), onLost: vi.fn<(listener: (error: Error) => void) => () => void>(), assertOwned: vi.fn() },
   repository: { windowState: () => null, settings: () => ({}), close: vi.fn() },
   fetch: vi.fn(), prepare: vi.fn(), start: vi.fn(), commit: vi.fn(), cancel: vi.fn(), resume: vi.fn(),
   uninstallIpc: vi.fn(), trackerDispose: vi.fn(),
@@ -44,6 +47,10 @@ vi.mock('./terminal/service', () => ({ EmbeddedSessionService: class {
   dispose = state.service.dispose;
 } }));
 vi.mock('./control-server', () => ({ startControlServer: state.control.start }));
+vi.mock('./remote/service', () => ({ RemoteService: class { initialize = state.remote.initialize; dispose = state.remote.dispose; } }));
+vi.mock('./remote/ipc', () => ({ installRemoteIpc: state.remote.install }));
+vi.mock('../host/ownership', () => ({ acquireHostOwnership: state.host.acquire }));
+vi.mock('../host/rpc', () => ({ startHostRpc: state.host.start }));
 vi.mock('./ipc', () => ({ installIpc: (_window: unknown, _url: unknown, _service: unknown, _ready: unknown, updates: SelfUpdater) => {
   state.updater = updates; return state.uninstallIpc;
 } }));
@@ -90,6 +97,12 @@ beforeEach(async () => {
   state.service.dispose.mockResolvedValue(undefined);
   state.control.dispose.mockResolvedValue(undefined);
   state.control.start.mockResolvedValue({ dispose: state.control.dispose });
+  state.remote.initialize.mockResolvedValue(undefined); state.remote.dispose.mockResolvedValue(undefined);
+  state.remote.install.mockReturnValue(state.remote.uninstall);
+  state.host.acquire.mockResolvedValue({ release: state.host.release, onLost: state.host.onLost, assertOwned: state.host.assertOwned }); state.host.release.mockResolvedValue(undefined);
+  state.host.onLost.mockReturnValue(() => {});
+  state.host.start.mockResolvedValue({ close: state.host.close, waitForStopReplies: state.host.waitForStopReplies }); state.host.close.mockResolvedValue(undefined);
+  state.host.waitForStopReplies.mockResolvedValue(undefined);
   state.fetch.mockImplementation(async url => url.includes('/releases/latest') ? Response.json(release) : new Response(installer));
   state.prepare.mockResolvedValue(state.start);
   state.start.mockImplementation(async () => ({
@@ -99,7 +112,7 @@ beforeEach(async () => {
   await import('./index');
   await expect.poll(() => state.app.on.mock.calls.some(([name]) => name === 'before-quit')).toBe(true);
   expect(state.app.exit).not.toHaveBeenCalled(); expect(state.dialog.showErrorBox).not.toHaveBeenCalled();
-  expect(state.control.start).toHaveBeenCalledWith(state.userData, expect.anything(), expect.anything());
+  expect(state.control.start).toHaveBeenCalledWith(state.userData, expect.anything(), expect.anything(), expect.any(Function));
   expect(state.service.initialize.mock.invocationCallOrder[0]).toBeLessThan(state.control.start.mock.invocationCallOrder[0]!);
 });
 afterEach(async () => {
@@ -108,6 +121,32 @@ afterEach(async () => {
 });
 
 describe('main automatic update on close/quit', () => {
+  it('honors an authenticated CLI stop without a renderer confirmation or update handoff', async () => {
+    await stage(); state.owned = 2; state.confirmation.request.mockResolvedValue(false);
+    await state.host.start.mock.calls[0]![0].shutdown();
+    expect(state.service.dispose).toHaveBeenCalledTimes(1);
+    expect(state.confirmation.request).not.toHaveBeenCalled(); expect(state.start).not.toHaveBeenCalled();
+    expect(state.host.close).toHaveBeenCalledTimes(1); expect(state.host.release).toHaveBeenCalledTimes(1);
+    expect(state.repository.close).toHaveBeenCalledTimes(1);
+  });
+  it('returns failed CLI shutdown to the caller and restores normal UI confirmation', async () => {
+    state.owned = 2; state.service.dispose.mockRejectedValueOnce(new Error('Close unconfirmed.'));
+    await expect(state.host.start.mock.calls[0]![0].shutdown()).rejects.toThrow('Owned terminal shutdown failed.');
+    expect(state.host.release).not.toHaveBeenCalled(); expect(state.host.close).not.toHaveBeenCalled();
+    quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
+    expect(state.confirmation.request).toHaveBeenCalledTimes(1);
+  });
+  it('fails closed on ownership-helper loss without offering to keep an unlocked host alive', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      state.owned = 2; state.confirmation.request.mockResolvedValue(false);
+      state.host.onLost.mock.calls[0]![0](new Error('Ownership helper stopped.'));
+      await expect.poll(() => state.app.exit.mock.calls.length).toBe(1);
+      expect(state.app.exit).toHaveBeenCalledWith(1); expect(state.service.dispose).toHaveBeenCalledTimes(1);
+      expect(state.host.close).toHaveBeenCalledTimes(1); expect(state.repository.close).toHaveBeenCalledTimes(1);
+      expect(state.confirmation.request).not.toHaveBeenCalled();
+    } finally { logged.mockRestore(); }
+  });
   it.each(['close', 'quit'])('installs a ready update on %s before final cleanup, without an idle-app prompt', async action => {
     await stage();
     const event = { preventDefault: vi.fn() };
@@ -123,6 +162,9 @@ describe('main automatic update on close/quit', () => {
     expect(state.service.dispose).toHaveBeenCalledTimes(1); expect(state.cancel).not.toHaveBeenCalled();
     expect(state.uninstallIpc).toHaveBeenCalledTimes(1); expect(state.trackerDispose).toHaveBeenCalledTimes(1);
     expect(state.control.dispose).toHaveBeenCalledTimes(1);
+    expect(state.remote.dispose).toHaveBeenCalledTimes(1); expect(state.remote.uninstall).toHaveBeenCalledTimes(1);
+    expect(state.host.close).toHaveBeenCalledTimes(1); expect(state.host.release).toHaveBeenCalledTimes(1);
+    expect(state.commit.mock.invocationCallOrder[0]).toBeLessThan(state.remote.dispose.mock.invocationCallOrder[0]!);
     expect(await readdir(state.root)).toContainEqual(expect.stringMatching(/^shellfox-update-/));
     expect(quit().preventDefault).not.toHaveBeenCalled(); expect(state.start).toHaveBeenCalledTimes(1);
   });
@@ -132,7 +174,7 @@ describe('main automatic update on close/quit', () => {
     await expect.poll(async () => ({ phase: (await state.updater!.status()).phase, prompts: state.confirmation.request.mock.calls.length })).toEqual({ phase: 'ready', prompts: 1 });
     expect(state.start).not.toHaveBeenCalled(); expect(state.service.dispose).not.toHaveBeenCalled();
     expect(state.service.closeForUpdate).not.toHaveBeenCalled(); expect(state.repository.close).not.toHaveBeenCalled();
-    expect(state.control.dispose).not.toHaveBeenCalled();
+    expect(state.control.dispose).not.toHaveBeenCalled(); expect(state.remote.dispose).not.toHaveBeenCalled();
     expect(state.owned).toBe(2); expect(await readdir(state.root)).toContainEqual(expect.stringMatching(/^shellfox-update-/));
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
     expect(state.confirmation.request).toHaveBeenCalledTimes(2); expect(state.start).toHaveBeenCalledTimes(1);
@@ -206,8 +248,9 @@ describe('main automatic update on close/quit', () => {
     state.service.dispose.mockRejectedValueOnce(new Error('Close unconfirmed.'));
     quit(); await expect.poll(() => state.dialog.showErrorBox.mock.calls.length).toBe(1);
     expect(state.control.dispose).not.toHaveBeenCalled(); expect(state.repository.close).not.toHaveBeenCalled();
+    expect(state.remote.dispose).not.toHaveBeenCalled(); expect(state.host.close).not.toHaveBeenCalled(); expect(state.host.release).not.toHaveBeenCalled();
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
-    expect(state.control.dispose).toHaveBeenCalledTimes(1);
+    expect(state.control.dispose).toHaveBeenCalledTimes(1); expect(state.remote.dispose).toHaveBeenCalledTimes(1);
   });
   it('does not strand a disposed manager if control endpoint cleanup fails', async () => {
     state.control.dispose.mockRejectedValueOnce(new Error('Endpoint cleanup failed.'));
@@ -229,8 +272,10 @@ describe('main automatic update on close/quit', () => {
       await expect.poll(() => state.app.exit.mock.calls.length).toBe(1);
       expect(state.app.exit).toHaveBeenCalledWith(1);
       expect(state.service.dispose).toHaveBeenCalledTimes(1); expect(state.repository.close).toHaveBeenCalledTimes(1);
+      expect(state.host.release).toHaveBeenCalledTimes(1);
       if (phase === 'renderer') {
         expect(state.control.dispose).toHaveBeenCalledTimes(1); expect(state.uninstallIpc).toHaveBeenCalledTimes(1);
+        expect(state.remote.dispose).toHaveBeenCalledTimes(1); expect(state.remote.uninstall).toHaveBeenCalledTimes(1);
         expect(state.control.dispose.mock.invocationCallOrder[0]).toBeLessThan(state.service.dispose.mock.invocationCallOrder[0]!);
       } else expect(state.control.dispose).not.toHaveBeenCalled();
     } finally { logged.mockRestore(); }

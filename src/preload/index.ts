@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { closeConfirmationApi } from './close-confirmation';
+import { remoteApi } from './remote';
 import type { ChangedEvent, KeepAwakeState, ManagerApi, TerminalEvent } from '../shared/contracts';
 import { failure } from '../shared/contracts';
 import { changedEventSchema, keepAwakeStateSchema, terminalEventSchema, requestSchemas, responseSchemas, type ManagerMethod } from '../shared/schemas';
@@ -18,6 +19,7 @@ const api: ManagerApi = {
   importPuttySessions: () => request('importPuttySessions', {}),
   chooseSshKeyFile: () => request('chooseSshKeyFile', {}),
   getSnapshot: () => request('getSnapshot', {}),
+  getSessionStats: input => request('getSessionStats', input),
   setVisibleSessions: input => request('setVisibleSessions', input),
   getTerminalProfiles: () => request('getTerminalProfiles', {}),
   attachTerminal: input => request('attachTerminal', input),
@@ -72,6 +74,7 @@ const api: ManagerApi = {
   chooseDirectory: () => request('chooseDirectory', {}),
   getHomeDirectory: () => request('getHomeDirectory', {}),
   resolveDirectory: input => request('resolveDirectory', input),
+  createDirectory: input => request('createDirectory', input),
   completeDirectory: input => request('completeDirectory', input),
   getUpdateStatus: () => request('getUpdateStatus', {}),
   downloadUpdate: () => request('downloadUpdate', {}),
@@ -87,3 +90,4 @@ const api: ManagerApi = {
   },
 };
 contextBridge.exposeInMainWorld('shellfox', Object.freeze(api));
+contextBridge.exposeInMainWorld('shellfoxRemote', Object.freeze(remoteApi));

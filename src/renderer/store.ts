@@ -16,12 +16,16 @@ export interface ManagerState {
 
 // One subscription per mounted application. Fetches are serialized so an older
 // response cannot replace a newer one, and events during a fetch are not lost.
-export function createManagerClient(api: ManagerApi) {
+export type ManagerSelection = Pick<ManagerState, 'selectedId' | 'activeTabIds'>;
+
+export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSelection) {
   const store = createStore<ManagerState>(() => ({
     snapshot: null, loading: true, error: null,
     selectedId: null, activeTabIds: {}, selectionEpoch: 0, busyTabIds: {}, openingSessionIds: {},
   }));
   let active = false;
+  let pendingSelection = savedSelection;
+  const selectFirst = savedSelection === undefined;
   let generation = 0;
   let dirty = false;
   let revisionFloor = 0;
@@ -57,8 +61,16 @@ export function createManagerClient(api: ManagerApi) {
           // repair a missing selection when a previously known session vanished.
           const removedSelection = state.selectedId && !sessionIds.has(state.selectedId)
             && state.snapshot?.sessions.some(session => session.id === state.selectedId);
-          const selectedId = removedSelection ? sessions[0]?.id ?? null : state.selectedId ?? sessions[0]?.id ?? null;
-          const activeTabIds = { ...state.activeTabIds };
+          let selectedId = removedSelection ? sessions[0]?.id ?? null : state.selectedId ?? (selectFirst ? sessions[0]?.id ?? null : null);
+          const restored = pendingSelection;
+          pendingSelection = undefined;
+          if (restored) {
+            const session = sessions.find(item => item.id === restored.selectedId);
+            const chosen = session && restored.activeTabIds[session.id];
+            // A missing saved tab must not redirect input into a different shell.
+            selectedId = session && (!chosen || session.tabs.some(tab => tab.id === chosen && tab.lifecycle !== 'closed')) ? session.id : null;
+          }
+          const activeTabIds = { ...(restored?.activeTabIds ?? state.activeTabIds) };
           const busyTabIds = { ...state.busyTabIds };
           const tabIds = new Set(sessions.flatMap(session => session.tabs.map(tab => tab.id)));
           for (const id of Object.keys(activeTabIds)) if (!sessionIds.has(id)) delete activeTabIds[id];

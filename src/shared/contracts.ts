@@ -1,3 +1,5 @@
+import type { TabStatDto } from './process-stats-schemas';
+export interface SessionStatsDto { sessions: SessionDto[]; tabs: TabStatDto[] }
 export const ADMIN_POWERSHELL_PROFILE = 'administrator-powershell';
 export type Id = string;
 export type Timestamp = string;
@@ -6,7 +8,7 @@ export type TabStatus = Exclude<Status, 'settled'>;
 export type TabLifecycle = 'launching' | 'open' | 'closed' | 'launch-uncertain';
 export type AdapterId = 'windows-terminal' | 'gnome-terminal' | 'embedded-pty';
 export type ShellId = 'pwsh' | 'windows-powershell' | 'bash' | 'login-shell' | 'wsl';
-export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'DEPENDENCY_MISSING' | 'LAUNCH_FAILED' | 'REGISTRATION_TIMEOUT' | 'TARGET_LOST' | 'TARGET_AMBIGUOUS' | 'FOCUS_DENIED' | 'MONITOR_UNAVAILABLE' | 'NATIVE_UNAVAILABLE' | 'AUTH_FAILED' | 'SETTLE_CONFIRM_REQUIRED' | 'RETRY_CONFIRM_REQUIRED' | 'STORAGE_FAILED' | 'INTERNAL';
+export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'DEPENDENCY_MISSING' | 'LAUNCH_FAILED' | 'REGISTRATION_TIMEOUT' | 'TARGET_LOST' | 'TARGET_AMBIGUOUS' | 'FOCUS_DENIED' | 'MONITOR_UNAVAILABLE' | 'NATIVE_UNAVAILABLE' | 'AUTH_FAILED' | 'APPROVAL_REQUIRED' | 'ACCESS_DENIED' | 'SETTLE_CONFIRM_REQUIRED' | 'RETRY_CONFIRM_REQUIRED' | 'STORAGE_FAILED' | 'INTERNAL';
 export interface AppError { code: ErrorCode; message: string; retryable: boolean }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: AppError };
 export interface Counts { running: number; waiting: number; unknown: number; error: number; closed: number; agents: number }
@@ -129,6 +131,7 @@ export interface SshProfileInput {
 export interface SshImportResultDto { profiles: SshProfileDto[]; added: number; updated: number; found: number }
 export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmationApi> {
   getSnapshot(): Promise<Result<ManagerSnapshot>>;
+  getSessionStats?(input: { sessionId?: Id }): Promise<Result<SessionStatsDto>>;
   /** Renderer viewport rows plus the displayed terminal session. Empty while the document is hidden. */
   setVisibleSessions(input: { sessionIds: string[] }): Promise<Result<{ configured: true }>>;
   activateSession(input: { sessionId: Id }): Promise<Result<SessionDto>>;
@@ -148,7 +151,7 @@ export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmat
   clearSessionError(input: { sessionId: Id }): Promise<Result<SessionDto>>;
   retryTab(input: { tabId: Id; confirmPossibleDuplicate: boolean }): Promise<Result<SessionDto>>;
   saveSettings(input: SettingsDto): Promise<Result<SettingsDto>>;
-  setExplorerIntegration(input: { installed: boolean }): Promise<Result<ExplorerIntegrationDto>>;
+  setExplorerIntegration(input: { installed: true }): Promise<Result<ExplorerIntegrationDto>>;
   copyText(input: { text: string }): Promise<Result<{ copied: true }>>;
   readClipboardText?(): Promise<Result<{ text: string }>>;
   openSessionFolder(input: { sessionId: Id }): Promise<Result<{ opened: true }>>;
@@ -157,7 +160,7 @@ export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmat
   setKeepAwake?(input: { active: boolean }): Promise<Result<KeepAwakeState>>;
   subscribeKeepAwake?(listener: (state: KeepAwakeState) => void): () => void;
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
-  setCliIntegration(input: { installed: boolean }): Promise<Result<CliIntegrationDto>>;
+  setCliIntegration(input: { installed: true }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;
   listSshProfiles(): Promise<Result<SshProfileDto[]>>;
   /** Names are unique case-insensitively; a clash fails with VALIDATION. Returns the full sorted list. */
@@ -169,6 +172,7 @@ export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmat
   chooseSshKeyFile(): Promise<Result<{ path: string } | null>>;
   getHomeDirectory(): Promise<Result<{ cwd: string }>>;
   resolveDirectory(input: { path: string }): Promise<Result<{ cwd: string }>>;
+  createDirectory?(input: { path: string }): Promise<Result<{ cwd: string }>>;
   completeDirectory(input: { path: string }): Promise<Result<{ matches: string[] }>>;
   getUpdateStatus?(): Promise<Result<UpdateStatusDto>>;
   downloadUpdate?(): Promise<Result<UpdateStatusDto>>;

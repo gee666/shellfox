@@ -1,79 +1,229 @@
 # Terminal commands
 
-Enable the shellfox command in Settings on Windows and loose Linux/macOS builds. Debian packages include `/usr/bin/shellfox`. The launcher uses the app's exact user-data directory.
+The same CLI controls desktop-owned and headless-owned hosts on Windows, macOS and Linux. Session operations belong under `shellfox session`; terminal operations belong under `shellfox terminals`. The namespace shortcuts are `ss` and `tm`. `sessions` remains an accepted namespace alias for earlier automation, but help shows only the canonical group.
 
-`start` launches or forwards to the GUI. Session controls require the app to be running; they do not start a second manager or open its window. Help and version work without the app. SSH stays independent of the app and uses saved connections. `update` uses the existing platform updater.
+Run `shellfox` or `shellfox help` for grouped help. There are no top-level session verbs or `tab` namespace. A desktop icon still opens the desktop application separately.
 
-## WSL routing
+## Output and global options
 
-The Windows-installed WSL command invokes bundled Windows `node.exe` with the manager's Windows user-data path. It reads the Windows control endpoint and connects on Windows loopback, not the guest's loopback or Linux home directory. The shim forwards `SHELLFOX_TERMINAL_MARKER` unchanged through WSLENV, replacing conflicting path/direction flags and duplicate entries while preserving unrelated entries. Missing interop or a missing Windows runtime fails without a Linux helper fallback.
-
-Use the Windows-installed command to control the Windows app. A separately installed Linux command controls a Linux manager, not the Windows app. If an older Linux launcher shadows the Windows shim, reload the startup file Shellfox updated and run `hash -r`, or restart the shell. Check the command with `type -a shellfox`.
-
-The isolated Windows-loopback regression test can be run with `SHELLFOX_CLI_TEST_WSL=1 pnpm exec vitest run src/main/platform/wsl-control-launcher.test.ts`. It defaults to Debian; set `SHELLFOX_CLI_TEST_WSL_DISTRO` to choose another distro. It boots that distro but writes startup files only in a project `tmp/` fixture home and never changes the user's PATH or startup files.
-
-## Commands and aliases
-
-| Command | Aliases | Behavior |
-| --- | --- | --- |
-| `start [path]` | `add`, `new`, `create` | Create a GUI session. Path defaults to the caller's working directory. |
-| `ls [filters]` | `list`, `sessions` | Table of session name, full UUID, starting path and saved tab count. Closed tabs count too. |
-| `stats [filters]` | `status`, `usage` | Session and tab RSS and duration. |
-| `processes [filters]` | `proc`, `ps` | Session, tab and process hierarchy with PID, parent PID, domain, RSS and duration. |
-| `delete [UUID]` | `remove`, `rm` | Inspect, confirm, close owned terminals and delete the session. |
-| `settle [UUID]` | None | Mark the session settled without closing terminals or stopping agents. No confirmation. |
-| `unsettle [UUID]` | None | Clear settled status without changing terminals or agents. No confirmation. |
-| `tab open` | `tab add`, `tab new` | Open a tab in the invoking terminal's session with that session's defaults. |
-| `tab close` | `tab remove`, `tab rm` | Close the invoking owned tab. |
-| `keep-alive` | `keepalive`, `awake` | Toggle the existing app sleep-prevention switch. The switch is not persisted across app restarts. |
-| `ssh [--profile name]` | `ssh name`, `ssh -p name` | Connect to a saved SSH connection; without a name, show the picker. |
-| `update [--check]` | None | Install the latest release, or only check with `--check`. |
-| `--version` | `-v`, `version` | Print the installed version. |
-| `help [command]` | `--help`, `-h` | Main help or help for a command. |
-| `cmd --register <name> <script-path>` | None | Save an absolute script path reference. |
-| `cmd <name> [args...]` | `cmd --run <name> [args...]` | Execute the script's current contents. All arguments after the name pass unchanged. |
-| `cmd --ls` | `cmd --list` | List custom names, absolute paths and WSL distros. |
-| `cmd --remove <name>` | `cmd --rm`, `cmd --unregister` | Remove a reference without deleting the script. |
-| `cmd --rename <old-name> <new-name>` | None | Rename a custom command without overwriting another command. |
-| `cmd --help` | `cmd -h`, `cmd` | Custom command usage. |
-
-Commands accept `--help`, `-h` or `help` as their subcommand help argument. For example, `shellfox stats -h`, `shellfox tab new help`, `shellfox help tab close` and `shellfox help ssh`. Help works with aliases too. Start aliases still go to the GUI; they are not tab commands.
-
-## Custom script commands
+Human-readable tables and key-value fields are the default, including generic API results. Terminal output uses color on a TTY. Redirected output, `NO_COLOR`, and `TERM=dumb` disable color. Session and terminal IDs are full UUIDs that can be copied directly into commands. UUID prefixes, titles and row numbers are not selectors.
 
 ```sh
-shellfox cmd --register deploy "/path with spaces/deploy.sh"
-shellfox cmd deploy staging "two words"
-shellfox cmd --run deploy --help --register literal-argument
-shellfox cmd --ls
-shellfox cmd --list
-shellfox cmd --rename deploy ship
-shellfox cmd --remove ship
+shellfox session list
+shellfox session inspect SESSION_UUID
+shellfox --host remote-machine session stats SESSION_UUID
+shellfox --user-data /absolute/private/data host status
 ```
 
-Registration stores an absolute path reference in `<userData>/cli-commands.json`, not a copy of the script. Relative paths resolve against the registering shell's working directory. Each invocation opens the current file, so edits and replacements take effect without registering again. Symlinks remain path references too. Unregistering removes only the reference. Custom commands work without the GUI.
+| Option | Meaning |
+| --- | --- |
+| `--host local` | Use the local host, the default. |
+| `--host <peer-id-or-hostname>` | Route manager requests through the local host to an approved, connected Tailscale peer. Hostnames must be unambiguous. |
+| `--user-data <path>` | Select the host's data directory. An explicit value overrides the installed launcher's default. |
+| `--json` | Structured output and errors instead of human formatting. Never prompt. |
+| `--yes` | Confirm a destructive operation without an interactive prompt. |
 
-Names start with a letter and contain up to 64 ASCII letters, digits, underscores or hyphens. Names are case-insensitive on every platform. Only duplicate custom names and invalid names are rejected. Custom names may match any top-level command, including `start`, `cmd`, `ssh`, `list` or `help`, because they run only under `shellfox cmd`. Rename cannot overwrite another custom command. Top-level commands never inspect the custom registry and never warn about name collisions. Existing version-1 registrations remain usable without migration.
+Globals can appear before or after ordinary arguments, including command administration: `shellfox commands --list --json` and `shellfox cmd --remove name --yes --json` work. Required option values and administrative operands are never mistaken for globals. `--` stops option parsing for literal values that begin with a flag.
 
-`shellfox list` and `shellfox ls` still list sessions. Custom management is available only through `shellfox cmd`; the former top-level `register`, `rename`, `unregister`, `commands` and `list --commands` forms are not supported. `cmd --ls` and `cmd --list` list references without contacting the app. WSL entries also show their distro. Paths are JSON-quoted to make spaces and terminal control characters visible.
+For script execution, put globals before the script name. Everything after that name is opaque: `shellfox commands deploy --json` passes `--json` to the script, as does the `--run deploy` form. SSH accepts trailing globals, but `shellfox ssh profile --json` reports a structured error because interactive SSH does not support JSON mode.
 
-### Tab completion
+JSON is opt-in. Each ordinary command writes exactly one compact record to stdout, including errors, with no headings or progress messages on stderr:
 
-`shellfox completion <powershell|bash|zsh>` prints a hook for that shell. It does not edit profiles or install files. The Debian package installs the Bash and zsh hooks system-wide (`/usr/share/bash-completion/completions/shellfox`, `/usr/share/zsh/vendor-completions/_shellfox`), so every new Bash shell with bash-completion enabled, and zsh after `compinit`, completes without extra steps. New regular embedded PowerShell tabs load the hook automatically when the CLI integration is enabled. Existing tabs, administrator tabs and other installs need the explicit loading step below. Unix tabs keep their normal login/rc startup unchanged.
+```json
+{"ok":true,"value":{"stopped":true}}
+{"ok":false,"error":{"code":"VALIDATION","message":"A session ID is required.","retryable":false}}
+```
 
-PowerShell 5.1 or newer:
+Exit status is `0` for success or help, `2` for invalid arguments or missing context, and `1` for failed operations or cancellation. SSH retains the remote exit code, `130` for cancellation, and `255` for connection failure. A failed manager result is never wrapped as a successful value.
+
+`--input` accepts inline JSON, `@file.json`, or `-` to read stdin. JSON files and stdin are limited to 1 MiB. Terminal writes from stdin have a 64 KiB limit. Interactive attach, SSH, and custom script execution reject `--json`; registry management and completion generation support it.
+
+## Session
+
+```sh
+shellfox session list
+shellfox session create . --title project
+shellfox session inspect SESSION_UUID
+shellfox session rename SESSION_UUID "new title"
+shellfox session pin SESSION_UUID
+shellfox session pin SESSION_UUID --off
+shellfox session env SESSION_UUID
+shellfox session env SESSION_UUID --input '[{"name":"LANG","value":"C"}]'
+shellfox session settle SESSION_UUID
+shellfox session settle SESSION_UUID --confirm-active --yes
+shellfox session unsettle SESSION_UUID
+shellfox session delete SESSION_UUID --yes
+shellfox session rm SESSION_UUID --yes
+shellfox session stats SESSION_UUID
+shellfox session processes SESSION_UUID
+shellfox session stats --all
+shellfox session processes --all --pid 4242
+shellfox session focus SESSION_UUID
+shellfox session refresh SESSION_UUID
+shellfox session clear-error SESSION_UUID
+```
+
+`list` lists all sessions by default. `create` uses the caller's working directory unless a path is supplied; on a remote host its default is the remote home directory. Creating sessions does not change desktop selection. New sessions use the host's default terminal profile.
+
+Targeted operations accept a positional session UUID or `--id UUID`. If neither is given, the CLI resolves `SHELLFOX_TERMINAL_MARKER` through the local host's authenticated context resolver. Missing, stale or ambiguous context fails. It never falls back to a selected desktop session, working directory or caller PID.
+
+An explicit ID always wins over the ambient marker and `--current`. Supplying two explicit IDs, even if identical, is an error. Remote targeted commands require an explicit ID. A local marker is never forwarded to another host. Commands run inside that remote host's own terminal naturally use its localhost context instead.
+
+These commands are useful inside a Shellfox terminal:
+
+```sh
+shellfox ss inspect
+shellfox ss rename "current project"
+shellfox ss pin
+shellfox ss env
+shellfox ss stats
+shellfox ss processes
+shellfox ss rm --yes
+```
+
+`stats` and `processes` require a session ID, current context, or explicit `--all`. They use the same validated `getSessionStats` method locally and remotely. `list` also requests fresh observations. Generic `api getSnapshot` reads the cached manager snapshot instead; it does not force a native tracking poll.
+
+`env --input` replaces the entire saved environment. Without `--input`, it reads it. `settle` and `unsettle` change status without closing terminals or stopping agents. If settling active work requires confirmation, use `--confirm-active --yes`. `delete`, `rm`, and `-rm` are the same operation within the session namespace. Noninteractive deletion requires `--yes`; piping `yes` is not a substitute. Interactive deletion inspects the resolved target before prompting and keeps that UUID pinned for the mutation.
+
+### Filters and metrics
+
+`session list`, `session stats`, and `session processes` accept these filters. Values accept both `--name text` and `--name=text` syntax.
+
+| Filter | Meaning |
+| --- | --- |
+| `--running` | Session activity is running, not a CPU-utilization measurement. |
+| `--idle` | A live session is waiting. Unknown, error and settled sessions do not qualify. |
+| `--no-agents` | The reported agent count is zero, not proof that no process exists. |
+| `--current` | Select the invoking Shellfox terminal's session unless an explicit ID is supplied. |
+| `--id UUID` | Select one session by full UUID. |
+| `--name TEXT` | Case-insensitive substring of the session name. |
+| `--path TEXT` | Case-insensitive substring of its starting directory, not the shell's live CWD. |
+| `--tab UUID` | Include only that terminal and its containing session. |
+| `--pid PID` | `processes` only. Match a positive PID within each process domain. |
+
+Filters combine with AND. `--running` and `--idle` conflict. Use `--all` intentionally for aggregate metrics rather than relying on ambient context. `--all` cannot be combined with an explicit session ID or `--current`.
+
+RSS is in MiB. Session RSS sums included terminal measurements; duration is the oldest measured shell root. Closed terminals without stats are excluded from totals but remain visible as saved rows with `n/a`. Closed terminals with pending-cleanup stats still contribute. Missing live-terminal metrics leave the corresponding aggregate unavailable, not zero.
+
+`--pid` filters process rows and selects their containing sessions and terminals. It does not recompute full-terminal RSS or duration. Process output covers observed owned trees, not all OS processes. Local and WSL domains are labeled separately. Short-lived, inaccessible, detached, remote, container or multiplexer activity may be missed. Control bytes in metadata are escaped rather than sent to the terminal.
+
+## Terminals
+
+```sh
+shellfox terminals list
+shellfox terminals list SESSION_UUID
+shellfox terminals list --current
+shellfox tm create
+shellfox terminals create SESSION_UUID --title shell --profile PROFILE_ID
+shellfox terminals rename SESSION_UUID TAB_UUID "new title"
+shellfox tm rename TAB_UUID "current-session terminal"
+shellfox terminals reorder SESSION_UUID FIRST_TAB_UUID SECOND_TAB_UUID
+shellfox tm reorder --current FIRST_TAB_UUID SECOND_TAB_UUID
+shellfox terminals write TAB_UUID "text without an Enter key"
+shellfox terminals write TAB_UUID --stdin < commands.txt
+shellfox terminals close TAB_UUID --yes
+shellfox terminals attach TAB_UUID
+```
+
+`tm` is a namespace alias for the same terminals. `create` and `rename` can resolve the containing session from current context when their session ID is omitted. `list` defaults to all terminals; `--current` selects the current session. `reorder` takes the complete saved permutation, including closed terminals. Supply the session ID first, or use `--current` or `--id SESSION_UUID` to treat all positional UUIDs as terminal IDs. Attach, write and close require an explicit terminal UUID.
+
+Interactive attach requires TTY stdin and stdout and rejects `--json`. Ctrl+] detaches locally; Ctrl+C goes to the shell. EOF, errors, termination signals and connection loss restore raw-input state. Cleanup resets mouse/focus reports, bracketed paste, keypad modes, colors, scroll region and cursor visibility before leaving the local alternate screen.
+
+The CLI replays the saved screen at the host grid before requesting the client's PTY size. It temporarily requests a terminal-window resize with CSI 8 and restores dimensions in cleanup, including failed replay. Emulators that ignore resize requests may wrap historical content differently; the CLI has no separate virtual-grid renderer. Multiple clients share one terminal's size and input.
+
+Output is acknowledged after delivery. Input is limited to 64 KiB per frame and 128 KiB pending. Oversized paste or a full queue detaches with an explicit error, not silent truncation. A lost reply may mean input was already delivered. The CLI never reconnects and resends that uncertain input. Inspect the terminal before sending it again. Detaching or exiting a client never closes the shell or stops the host.
+
+## Host
+
+```sh
+shellfox host run
+shellfox host run --json
+shellfox host status --json
+shellfox host keep-awake on
+shellfox host stop --yes --json
+shellfox host service install
+shellfox host service install --startup
+shellfox host service uninstall --yes
+```
+
+An existing desktop-owned or headless-owned host handles commands without opening or focusing a window. With no host, human-readable `session create` in a desktop install retains GUI fallback. JSON mode reports `HOST_UNAVAILABLE` rather than claiming an asynchronous GUI launch created a session. Headless packages never launch Electron or a GUI; start their host explicitly.
+
+`host run` stays in the foreground until stopped or signaled. With `--json`, it writes one readiness record and stays running; a later fatal error is a separate error record. `host status` reports ownership mode, PID, start time and capabilities. `host stop` waits for shutdown and requires confirmation or `--yes`.
+
+`host service` uses the installer shipped with either the desktop CLI or headless package. Linux uses systemd user services, macOS a LaunchAgent, and Windows a same-user limited Scheduled Task, not an SCM service. Without `--startup`, Windows installation is login autostart. The startup option requires elevated registration and uses the current account, never LocalSystem. See [headless deployment](headless.md) for boot-time, account, credential and network limitations. No test or ordinary status command installs OS startup.
+
+## Network, machines and approvals
+
+```sh
+shellfox network status
+shellfox network enable --hostname workstation
+shellfox network login
+shellfox network login --auth-key-stdin < private-auth-key
+shellfox network login --auth-key-file /protected/auth-key
+shellfox machines list
+shellfox machines connect PEER_ID
+shellfox machines disconnect PEER_ID
+shellfox machines forget PEER_ID --yes
+shellfox approvals list
+shellfox approvals approve PEER_ID
+shellfox approvals reject PEER_ID --yes
+shellfox approvals revoke PEER_ID --yes
+shellfox network disable --yes
+```
+
+Login without a key returns a Tailscale login URL when authentication is needed. Auth keys are never accepted in argv, including generic remote-login payloads. Protected files contain raw key text, with an optional trailing newline. On Unix, the file must belong to the current user and have mode `0600` or stricter. On Windows, allow rules may grant access only to its current-user owner, SYSTEM or Administrators. Links and oversized files are rejected.
+
+Approval listing includes saved approvals and pending requests. Reject denies a pending pairing attempt. Revoke removes an existing grant. Being on the same tailnet is not enough to access a Shellfox host. Machine states distinguish waiting for approval, explicit rejection, disconnection and connection errors. Network, machine and approval commands always manage the local host and reject a remote `--host` instead of silently changing the wrong machine.
+
+## Settings and automation
+
+```sh
+shellfox settings read
+shellfox settings update --input '{"historyPageSize":30}'
+shellfox profiles list
+shellfox path home
+shellfox path resolve "~/project"
+shellfox path complete /work/pro
+shellfox path create /work/new-project
+shellfox api getSnapshot
+shellfox api getSessionStats --input '{"sessionId":"SESSION_UUID"}' --json
+shellfox api renameSession --input '{"sessionId":"SESSION_UUID","title":"new title"}' --json
+shellfox remote api getState --json
+```
+
+Settings updates merge supplied fields into current settings and validate the full result. `profiles` lists terminal profiles and availability. Directory helpers run on the selected host; `path create` is an explicit request to create a directory.
+
+`api` accepts every validated `ManagerMethod` from `src/shared/schemas.ts`, including methods without a dedicated spelling. Input defaults to `{}`. Requests and responses use the application schemas. Desktop-only or unavailable OS actions report `UNSUPPORTED`. Remote requests cannot bypass the existing method allowlist. `remote api` exposes validated local remote management and generic peer requests. Destructive methods require confirmation or `--yes` in both generic channels. Human formatting remains the default; add `--json` for structured automation.
+
+## Commands and SSH
+
+```sh
+shellfox commands --register deploy "/path with spaces/deploy.sh"
+shellfox commands deploy staging "two words"
+shellfox commands --run deploy --help --register literal-argument
+shellfox commands --list
+shellfox commands --rename deploy ship
+shellfox commands --remove ship
+shellfox ssh --profile production
+```
+
+`cmd` remains an alias for `commands`. Either namespace alone shows the same canonical Commands help. Every argument after a script's name is literal, including `--help`, `--json`, `--register` and `--run`. Top-level commands never inspect the registry or collide with custom names. Registry management works without a host.
+
+Registration stores an absolute path reference in `<userData>/cli-commands.json`, not a script copy. Each invocation reads the current file. Names are case-insensitive ASCII identifiers beginning with a letter, up to 64 letters, digits, underscores or hyphens. Rename cannot overwrite an existing name. Unregistering never deletes the script.
+
+`.sh` runs with Bash. Windows uses Git Bash, or the distro saved when registering through its WSL shim. `.ps1` uses Windows PowerShell on Windows or `pwsh` on Unix. Other Unix files need an executable bit and valid executable format. Other Windows files must be `.exe` or `.com`; batch scripts are rejected to avoid reparsing arguments as command text. Scripts inherit the caller's directory and streams, and run with the caller's permissions, not in a sandbox. Their exit status is preserved.
+
+Windows installs `.cmd` and `.ps1` shims. Prefer PowerShell or the POSIX shim when empty arguments or embedded quotes matter; the PowerShell shim uses encoded JSON argv. In cmd, the calling shell's percent expansion, caret handling and metacharacter quoting still apply. WSL registrations preserve the distro and guest path. Cross-distro execution requires Windows interop and WSL support for `--cd`.
+
+### Completion and WSL routing
 
 ```powershell
 shellfox completion powershell | Out-String | Invoke-Expression
 ```
 
-Bash 3.2 or newer, including Git Bash and WSL:
-
 ```bash
 source <(shellfox completion bash)
 ```
-
-zsh, after enabling its completion system:
 
 ```zsh
 autoload -Uz compinit
@@ -81,104 +231,8 @@ compinit
 source <(shellfox completion zsh)
 ```
 
-These commands load generated Shellfox code, not registry contents. Use the trusted installed `shellfox` command. To persist completion, add the appropriate loading line yourself to `$PROFILE`, `~/.bashrc` or `~/.zshrc`. For zsh, keep it after your existing `compinit` call. Reloading a hook is safe. Remove the line to disable it in future shells. PowerShell execution policy still applies to the CLI's `.ps1` shim.
+Completion shows canonical groups and their operations, plus custom-management flags and validated script names. It also recognizes aliases already typed. It does not query session IDs or execute registry text. Loading a hook is safe more than once and does not edit profiles. The Debian package installs Bash and zsh hooks system-wide.
 
-Tab completes `cmd`, `delete`, `settle` and `unsettle` at the top level, plus custom-management flags and registered names under `cmd`. Names also complete immediately after `--run`, `--remove`, `--rm`, `--unregister` and `--rename`. Completion stops after the selected name. It does not suggest existing names for a new registration or the destination of a rename, and it does not interpret script arguments. Session UUIDs and other top-level commands are outside this hook's scope.
+The Windows-installed WSL command runs bundled Windows Node against Windows loopback and the installation's Windows data directory. It forwards `SHELLFOX_TERMINAL_MARKER` unchanged through WSLENV and never falls back to Linux Node or Linux user data. A separately installed Linux command controls a Linux host. Use `type -a shellfox` and `hash -r` when diagnosing a shadowed command.
 
-Use Tab to fill a matching command name. In PowerShell's default Windows editing mode, repeated Tab presses cycle matches. No additional keybindings are required or installed; your shell's existing Tab behavior is preserved. This is command-line completion, not automatic ghost-text prediction while typing.
-
-The hook queries `shellfox cmd --complete <prefix>` on each name completion. This read-only endpoint returns matching registered names, one per line, without descriptions or headers. An empty prefix requests all names. It needs neither the GUI nor the script files and never runs a registered command. Missing CLI commands, registry errors and empty results produce no dynamic suggestions. The hooks accept only valid command names from the endpoint and never evaluate them as shell source. In WSL, use the Windows-installed shim to complete the Windows registry, or the separate Linux CLI for its own registry.
-
-### Interpreters and arguments
-
-| Script | Execution |
-| --- | --- |
-| `.sh` on Linux/macOS | `bash -- <absolute-path> [args...]`, with Bash available on PATH. No executable bit required. |
-| `.sh` from cmd or PowerShell | Git Bash from the standard Git installation directories. A nonstandard installation can set `SHELLFOX_CLI_GIT_BASH` to its absolute `bash.exe` path. |
-| `.sh` from Git Bash | The invoking Git Bash interpreter. POSIX paths are converted with `cygpath` before storage. |
-| Script registered through the Windows WSL shim | Store the guest's absolute path and distro. Execute through `wsl.exe --distribution <distro> --cd <caller-directory> --exec`. `.sh` uses `/bin/bash`; other files must be guest executables with a valid shebang. |
-| `.ps1` outside WSL | Windows PowerShell 5.1 on Windows, or `pwsh` on Linux/macOS. Pass arguments through a base64 JSON payload and array splatting. |
-| Other files on Linux/macOS | Execute the file directly. It needs an executable bit and a valid shebang or native executable format. |
-| Other files on Windows | Only `.exe` and `.com` programs. `.bat` and `.cmd` scripts are rejected because cmd reparses arguments as command text. |
-
-`.sh` explicitly means Bash, regardless of its shebang. Use LF line endings. Shellfox executes scripts with your permissions, not in a sandbox. Register only scripts you trust.
-
-Arguments are separate values, never interpolated into a shell command or evaluated with `eval`/`Invoke-Expression`. Empty strings, spaces, quotes, flags, dollar signs and shell metacharacters survive after the calling shell has parsed them. Git Bash receives fully quoted Windows argv, including apostrophes that Node's normal quoting would leave bare. Management flags are interpreted only before the script name. Every argument after the name goes to the script unchanged, including `--help`, `help`, `--register`, `--rm`, `--rename`, `--list` and `--run`. The same rule applies to `cmd --run <name>`. For management help, run `shellfox cmd --help`; `shellfox cmd help` runs a custom script named `help`.
-
-Windows installs both `shellfox.cmd` and `shellfox.ps1`. The PowerShell shim encodes argv before calling Node, avoiding PowerShell 5.1's native-command loss of empty values and embedded quotes. PowerShell normally selects the `.ps1` shim. If execution policy blocks locally generated scripts, allow them under your organization's policy or invoke the shim with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<bin>/shellfox.ps1" ...`. `shellfox.cmd` remains available but uses cmd's quoting rules, even when invoked from PowerShell. In cmd, quote values containing `&`, `|`, `<`, `>` or spaces; `%` expansion and caret processing happen in cmd before Shellfox can see the arguments. Prefer the PowerShell or POSIX shim when exact embedded quotes or empty values matter. Windows command-line length limits still apply.
-
-Scripts inherit the invoking working directory, stdin, stdout and stderr. For a WSL reference invoked from Windows, Shellfox converts the Windows caller directory with `wslpath` in the stored distro. From that distro's WSL shim, it uses the guest caller directory unchanged. WSL execution requires Windows interoperability and a version supporting `--cd`. A separately installed Linux CLI has its own Linux registry. It does not share the Windows registry. Missing files, removed distros and missing interpreters produce errors without deleting the registration.
-
-The script's exit code becomes Shellfox's exit code. POSIX signal exits use `130` for SIGINT and `143` for SIGTERM. Registration/registry/execution errors return `1`; invalid management syntax returns `2`. Writes use an exclusive lock and an atomic replacement to avoid losing concurrent registrations. After a crashed writer, check that no registration is running before removing `<userData>/cli-commands.json.lock`.
-
-### Custom-command tests
-
-```sh
-pnpm exec vitest run src/main/platform/shellfox-cli*.test.ts
-node --test scripts/packaging.test.mjs scripts/shellfox-cli-package.test.mjs
-SHELLFOX_TEST_WSL_DISTRO=Debian pnpm exec vitest run src/main/platform/shellfox-cli-scripts.test.ts
-```
-
-The CLI packaging smoke builds the production helper through the same build function as release builds, stages the checksum-pinned Windows runtime, and exercises the installed shims under `resources/cli`. It uses the verified cache or downloads the pinned Node assets if needed.
-
-The WSL test is opt-in. It boots the selected distro and writes only fixtures below the project's `tmp/`, using the Windows mount from inside WSL. It does not change startup files or the user's registry. To also run the native Linux helper test, set `SHELLFOX_TEST_LINUX_NODE` to the guest's absolute Node executable. In Git Bash, set `MSYS2_ENV_CONV_EXCL=SHELLFOX_TEST_LINUX_NODE` so MSYS does not convert that Linux path.
-
-## Filters
-
-`ls`, `stats` and `processes` accept these filters. Options with values accept either `--name text` or `--name=text` syntax. Quote paths and names containing spaces.
-
-| Filter | Meaning |
-| --- | --- |
-| `--running` | Session activity is `running`. This is tracked activity, not CPU utilization. |
-| `--idle` | A live session's activity is `waiting`. Unknown, error and settled sessions do not qualify. This does not prove a shell is waiting for user input. |
-| `--no-agents` | The reported session agent count is zero. Unknown tracking can also report zero; this is not proof that no agent or process exists. |
-| `--current` | Restrict to the session containing the invoking Shellfox terminal marker. |
-| `--id UUID` | Exact session UUID. |
-| `--name TEXT` | Case-insensitive substring of the session name, not a tab or process name. |
-| `--path TEXT` | Case-insensitive substring of the session's starting path. It is not the shell's live working directory. |
-| `--tab UUID` | Exact tab UUID. Show only that tab and its containing session; the `ls` tab count then counts only that matching tab. |
-| `--pid PID` | `processes` only. Show matching positive integer PIDs and their containing tabs/sessions. Filter process rows without recomputing full-tab RSS/duration. PIDs can repeat across local and guest domains; output labels the domain. Nonmatching ancestors are not displayed. |
-
-Filters combine with AND. `--running` and `--idle` are mutually exclusive. State and agent filters apply to the whole session, even when `--tab` selects one tab. `--current --id UUID` is an intersection, not an override. Repeated options, missing values and unsupported filters return a usage error.
-
-IDs are full UUIDs, not table row numbers, titles or UUID prefixes. Get session UUIDs from `ls` and tab UUIDs from `stats` or `processes`.
-
-```sh
-shellfox ls --running --no-agents --path project
-shellfox sessions --name "web app"
-shellfox stats --current
-shellfox usage --id c36951c8-03f5-49c7-bb11-ad8828044a31
-shellfox proc --tab c36951c8-03f5-49c7-bb11-ad8828044a33 --pid 4242
-```
-
-## Metrics and output
-
-RSS is in MiB. A session's RSS sums its included tab measurements. Its duration is the maximum included tab duration, the age of the oldest measured shell root. Process duration is that process's elapsed lifetime.
-
-Closed tabs without stats are excluded from session totals, but remain visible as saved tab rows with `n/a` measurements. Closed tabs that still have stats are included, for example while owned descendant cleanup is pending. Missing stats for a live, launching or launch-uncertain tab still keep session totals unavailable. A missing RSS or duration affects only that corresponding session metric. No included measurements means `n/a`, not zero. Tracking failure reasons appear below tabs.
-
-`--pid` filters process rows and selects their containing tabs/sessions; it does not recompute tab metrics from those matching rows. Session totals aggregate the full measurements of the included tabs. They can therefore include processes hidden by the PID filter. `--tab` restricts which tab contributes to the session total.
-
-Process output covers observed app-owned trees, not all OS processes. Domain labels distinguish local and WSL processes. Short-lived, inaccessible, detached, remote, container or multiplexer activity may be missed. RSS is not a deduplicated physical-memory measurement. Control bytes in names, paths, domains and errors are printed as visible Unicode escapes so they cannot issue terminal commands.
-
-## Current terminal and destructive commands
-
-Current context comes only from `SHELLFOX_TERMINAL_MARKER`. The app resolves it to a live owned terminal. There is no fallback to a selected GUI session, caller directory or caller PID. Missing, stale or ambiguous context fails.
-
-`delete`, `settle` and `unsettle` accept a positional session UUID or `--id UUID`. Without an ID, they use current context; `--current` makes that explicit. An ID and `--current` cannot be combined for these mutations.
-
-`settle` and `unsettle` only change status. They keep tabs, terminals and agents running, need no confirmation and work with redirected input/output.
-
-`delete` inspects the target and prints session/tab metrics and observed processes first. It then requires TTY input and output and an explicit `y` or `yes`, case-insensitively. Blank input, any other answer, EOF and non-TTY input/output cancel without a destructive request. There is no `--yes` or force flag, and piping `yes` does not bypass confirmation. The confirmed request uses the inspected session UUID, not a second lookup of the current marker. Failed inspection never reaches confirmation. Terminal closure can still fail if ownership or platform prerequisites are unavailable; the command reports the service error.
-
-```sh
-shellfox settle c36951c8-03f5-49c7-bb11-ad8828044a31
-shellfox unsettle --current
-shellfox rm --current
-shellfox tab add
-shellfox tab close
-```
-
-Tab commands are context-only. They accept optional `--current`, but not UUID targets or read filters. `tab close` closes the invoking tab without the session-level delete prompt.
-
-Exit codes are `0` for success/help/version, `2` for invalid arguments or missing current context, and `1` for cancellation or control-service failure. SSH retains its remote exit codes, `130` for cancellation and `255` for connection failures.
+The opt-in WSL regression test is `SHELLFOX_CLI_TEST_WSL=1 pnpm exec vitest run src/main/platform/wsl-control-launcher.test.ts`. It defaults to Debian, selectable with `SHELLFOX_CLI_TEST_WSL_DISTRO`. It boots that distro but writes startup files only in project `tmp/` fixtures. No test changes the user's PATH, startup files, live host installation or preview data.

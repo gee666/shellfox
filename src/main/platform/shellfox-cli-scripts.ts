@@ -133,5 +133,5 @@ elif command -v cygpath >/dev/null 2>&1; then
   export SHELLFOX_CLI_GIT_CWD="$(cygpath -w "$PWD")"
 fi
 `;
-  return prefix + helper.replace('if [ "${NO_COLOR+x}" = x ]; then', 'shellfox_wsl_env SHELLFOX_CLI_DISTRO\n  shellfox_wsl_env SHELLFOX_CLI_WSL_CWD\n  if [ "${NO_COLOR+x}" = x ]; then');
+  return prefix + helper.replace('if [ "${NO_COLOR+x}" = x ]; then', 'shellfox_wsl_env SHELLFOX_CLI_DISTRO\n  shellfox_wsl_env SHELLFOX_CLI_WSL_CWD\n  shellfox_wsl_env SHELLFOX_CLI_LAUNCH\n  shellfox_wsl_env SHELLFOX_CLI_UPDATE\n  if [ "${NO_COLOR+x}" = x ]; then');
 }

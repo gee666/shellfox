@@ -12,6 +12,8 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  headless:
+    uses: ./.github/workflows/headless-packages.yml
   package:
     name: package ${{ matrix.platform }}-${{ matrix.arch }}
     strategy:
@@ -47,6 +49,13 @@ jobs:
         with:
           node-version: 24.15.0
           architecture: ${{ matrix.arch }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Embedded Tailscale offline tests
+        run: node scripts/tailscale.mjs test
+        timeout-minutes: 10
       - name: Verify native runner architecture
         run: |
           node -e "if(process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Wrong native target: ' + process.platform + '-' + process.arch)"
@@ -109,7 +118,7 @@ jobs:
         run: find tmp/packages/make -type f \( -name '*.deb' -o -name '*.zip' -o -name '*.exe' -o -name '*.nupkg' \) -exec ls -l {} \;
       - uses: actions/upload-artifact@v4
         with:
-          name: shellfox-${{ matrix.platform }}-${{ matrix.arch }}
+          name: shellfox-desktop-${{ matrix.platform }}-${{ matrix.arch }}
           path: |
             tmp/packages/make/**/*.deb
             tmp/packages/make/**/*.zip
@@ -118,7 +127,7 @@ jobs:
           if-no-files-found: error
   release:
     name: publish GitHub release
-    needs: package
+    needs: [package, headless]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -127,6 +136,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: shellfox-*
           merge-multiple: true
       - name: Release files
         run: find dist -type f -exec ls -l {} \;
@@ -140,3 +150,5 @@ jobs:
             dist/**/*.zip
             dist/**/*.exe
             dist/**/*.nupkg
+            dist/**/*.tar.gz
+            dist/**/*.sha256

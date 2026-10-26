@@ -116,9 +116,3 @@ export function createSessionStatsCollector(
     return work;
   };
 }
-
-let collector: ReturnType<typeof createSessionStatsCollector> | undefined;
-export function collectSessionStats(live: readonly LiveTerminal[]): Promise<TabStat[]> {
-  collector ??= createSessionStatsCollector();
-  return collector(live);
-}

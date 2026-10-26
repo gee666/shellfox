@@ -1,33 +1,35 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalAttachmentDto, TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
+import type { SessionStatsDto, AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalAttachmentDto, TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { parseWslUnc } from '../../shared/wsl-path';
 import { requestSchemas } from '../../shared/schemas';
 import { aggregateStatus, countTabs, publicStatus, sortSessions, tabStatus } from '../../shared/status';
 import type { NativeInit, TabObservation } from '../../shared/native-port';
 import type { OperationRecord, RepositoryPort, SessionRecord, TabRecord } from '../models';
-import { unavailableExplorer, unavailableProbe, unavailableCli, defaultSettings } from '../defaults';
+import { unavailableProbe, defaultSettings } from '../defaults';
+import { DesktopIntegrations } from '../integrations';
 import { resolvePython } from './python';
 import { PtyBackend } from './backend';
-import { ProcessTracker, getProcessTrackingCapability } from './tracking';
+import { ProcessTracker, getProcessTrackingCapability, createSystemSnapshotProvider, type TrackingHelperOptions } from './tracking';
 import { closeGuest } from './guest-close';
+import { createSessionStatsCollector } from '../control-stats';
+import { VisibilityInterest } from './visibility-interest';
 import type { ExplorerPort } from '../platform/explorer';
 import type { CliPort } from '../platform/shellfox-cli';
 import type { ControlRequest, ControlResponse } from '../control-types';
 import { controlRequestSchema } from '../control-protocol';
 import { SessionLifecycle, processActivityKey } from '../session-lifecycle';
 
-export const LIFETIME_NOTICE = 'Embedded shells run only while Shellfox is running. Quitting closes owned terminals after confirmation; restarting does not restore commands.';
-const INTEGRATION_FRESHNESS_MS = 5000;
-interface IntegrationCheck { checkedAt?: number; revision: number; mutations: number }
+export const LIFETIME_NOTICE = 'Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands.';
 const shellId = (p: TerminalProfileDto): ShellId => p.environment === 'wsl' ? 'wsl' : p.id === 'pwsh' ? 'pwsh' : p.id === 'windows-powershell' || p.elevation === 'administrator' ? 'windows-powershell' : 'login-shell';
 export interface TrackerPort { setVisibleSessions?: ProcessTracker['setVisibleSessions']; setWatch: ProcessTracker['setWatch']; dispose(): void; poll?: ProcessTracker['poll']; resolveIdentity?: ProcessTracker['resolveIdentity']; resolveDescendants?: ProcessTracker['resolveDescendants'] }
 export class EmbeddedSessionService {
   revision = 0;
   probe: NativeProbe = { ...unavailableProbe('Embedded backend has not initialized.'), adapterId: 'embedded-pty' };
-  cli = { ...unavailableCli };
-  explorer: ExplorerIntegrationDto = { ...unavailableExplorer, reason: 'Explorer integration has not initialized.' };
+  private readonly integrations: DesktopIntegrations;
+  get cli() { return this.integrations.cli; }
+  get explorer() { return this.integrations.explorer; }
   private readonly listeners = new Set<(event: ChangedEvent) => void>();
   private readonly streams = new Set<(event: TerminalEvent) => void>();
   private readonly queues = new Map<string, Promise<unknown>>();
@@ -35,12 +37,20 @@ export class EmbeddedSessionService {
   private readonly tracker: TrackerPort;
   private readonly lifecycle: SessionLifecycle;
   private readonly processKeys = new Map<string, string>();
+  private readonly visibility = new VisibilityInterest(ids => this.tracker.setVisibleSessions?.(ids));
   setVisibleSessions(input: { sessionIds: string[] }): Result<{ configured: true }> {
     const parsed = requestSchemas.setVisibleSessions.safeParse(input);
     if (!parsed.success) return failure('VALIDATION', 'Invalid visible sessions.');
-    this.tracker.setVisibleSessions?.(parsed.data.sessionIds);
+    this.visibility.setLocal(parsed.data.sessionIds);
     return success({ configured: true });
   }
+  setRemoteVisibleSessions(clientId: string, input: { sessionIds: string[] }): Result<{ configured: true }> {
+    const parsed = requestSchemas.setVisibleSessions.safeParse(input);
+    if (!parsed.success) return failure('VALIDATION', 'Invalid visible sessions.');
+    if (!this.visibility.setRemote(clientId, parsed.data.sessionIds)) return failure('VALIDATION', 'Too many remote polling views.');
+    return success({ configured: true });
+  }
+  clearRemoteVisibleSessions(clientId: string): void { this.visibility.removeRemote(clientId); }
   private readonly pendingExits = new Map<string, Extract<TerminalEvent, { type: 'exit' }>>();
   private exitRetryTimer?: ReturnType<typeof setInterval>;
   private readonly reportedExitFailures = new Set<string>();
@@ -48,7 +58,8 @@ export class EmbeddedSessionService {
   private unsubscribeTitle?: () => void;
   private disposed = false;
   private updateClosing = false;
-  constructor(readonly repository: RepositoryPort, readonly backend = new PtyBackend(), trackerFactory: (emit: (items: TabObservation[]) => void) => TrackerPort = emit => new ProcessTracker(emit), private readonly explorerIntegration?: ExplorerPort, private readonly cliIntegration?: CliPort) {
+  constructor(readonly repository: RepositoryPort, readonly backend = new PtyBackend(), trackerFactory: (emit: (items: TabObservation[]) => void) => TrackerPort = emit => new ProcessTracker(emit), explorerIntegration?: ExplorerPort, private readonly cliIntegration?: CliPort, private readonly helperOptions: TrackingHelperOptions = {}) {
+    this.integrations = new DesktopIntegrations(explorerIntegration, cliIntegration, () => !this.disposed && !this.updateClosing, () => this.changed('settings'));
     let expiryPollAt = -Infinity;
     this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), session => this.removeSession(session), () => this.changed(), async () => {
       expiryPollAt = Date.now();
@@ -72,7 +83,7 @@ export class EmbeddedSessionService {
       }
       this.changed('native');
     });
-    this.tracker.setVisibleSessions?.([]);
+    this.visibility.setLocal([]);
     backend.configureGuestTermination(async (root, captured, known) => {
       // Explicit cleanup polls all owned roots; automatic status polls are viewport-scoped.
       await this.tracker.poll?.();
@@ -100,33 +111,9 @@ export class EmbeddedSessionService {
       if (owned?.generation === event.generation && tab?.operationId === event.generation && tab.terminal?.userTitle === null) this.changed();
     });
     this.backend.configurePythonPath(this.repository.settings().pythonPath ?? null);
-    const initializeExplorer = async () => {
-      if (!this.explorerIntegration) return;
-      // Reapply saved opt-in with the new identity; get() also removes owned legacy verbs.
-      const integration = this.repository.explorerPreference()
-        ? await this.explorerIntegration.set(true) : await this.explorerIntegration.get();
-      this.explorer = integration.ok ? integration.value : { ...unavailableExplorer, supported: ['win32', 'linux'].includes(process.platform), reason: integration.error.message };
-    };
-    const initializeCli = async () => {
-      if (!this.cliIntegration) return;
-      // Round 3 already used Shellfox shims. Refresh their executable after the rename.
-      const integration = this.repository.cliPreference?.() === true
-        ? await this.cliIntegration.set(true) : await this.cliIntegration.get();
-      this.cli = integration.ok ? integration.value : { ...unavailableCli, supported: ['win32', 'linux', 'darwin'].includes(process.platform), reason: integration.error.message };
-    };
-    const initializeIntegrations = async () => {
-      // Linux menus inspect/install the same CLI launcher. Keep that dependency
-      // ordered; Windows Explorer verbs and CLI files/PATH are independent.
-      if (process.platform === 'linux') { await initializeExplorer(); await initializeCli(); }
-      else {
-        const integrations = [initializeExplorer(), initializeCli()];
-        await Promise.allSettled(integrations);
-        await Promise.all(integrations);
-      }
-    };
     // Drain even unexpected rejections before returning, so no startup mutation
     // outlives initialize. Result failures still feed the probe and migrations.
-    const readiness = [this.backend.initialize(), initializeIntegrations(), getProcessTrackingCapability()] as const;
+    const readiness = [this.backend.initialize(), this.integrations.initialize(), getProcessTrackingCapability(this.helperOptions)] as const;
     await Promise.allSettled(readiness);
     const [result, , tracking] = await Promise.all(readiness);
     const profiles = this.backend.getProfiles();
@@ -160,8 +147,7 @@ export class EmbeddedSessionService {
       }
     });
     this.refreshWatch();
-    const checkedAt = Date.now();
-    this.integrationChecks.explorer.checkedAt = this.integrationChecks.cli.checkedAt = checkedAt;
+    this.integrations.markReady();
     this.lifecycle.start();
     this.changed('native');
   }
@@ -228,6 +214,21 @@ export class EmbeddedSessionService {
       window: { state: 'unsupported', canReopen: false, canRegister: false, reason: 'Embedded tabs do not use native window ownership or external shell registration.' } };
   }
   getSnapshot(): Result<ManagerSnapshot> { return success({ revision: this.revision, sessions: sortSessions(this.repository.sessions().map(s => this.toDto(s))), settings: this.repository.settings(), probe: this.probe, explorer: this.explorer, cli: this.cli }); }
+  private stats?: ReturnType<typeof createSessionStatsCollector>;
+  async getSessionStats(input: { sessionId?: string }): Promise<Result<SessionStatsDto>> {
+    const parsed = requestSchemas.getSessionStats.safeParse(input);
+    if (!parsed.success) return failure('VALIDATION', 'Invalid session stats request.');
+    if (this.disposed || this.updateClosing) return failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.');
+    const snapshot = this.getSnapshot(); if (!snapshot.ok) return snapshot;
+    const sessions = snapshot.value.sessions.filter(session => !parsed.data.sessionId || session.id === parsed.data.sessionId).map(session => ({ ...session, env: [] }));
+    if (parsed.data.sessionId && !sessions.length) return failure('NOT_FOUND', 'Session not found.');
+    const ids = new Set(sessions.map(session => session.id));
+    this.stats ??= createSessionStatsCollector(createSystemSnapshotProvider(this.helperOptions));
+    try {
+      const tabs = await this.stats(this.backend.live().filter(tab => ids.has(tab.sessionId)));
+      return this.disposed || this.updateClosing ? failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.') : success({ sessions, tabs });
+    } catch { return failure('MONITOR_UNAVAILABLE', 'Owned process statistics could not be collected.', true); }
+  }
   /** CLI filters need fresh evidence for hidden sessions as well as visible ones.
    * Explicit poll() covers the lifetime watch without changing renderer interest. */
   async getControlSnapshot(): Promise<Result<ManagerSnapshot>> {
@@ -558,96 +559,14 @@ export class EmbeddedSessionService {
       this.changed('settings'); return success(settings);
     });
   }
-  private integrationRefresh?: Promise<void>;
-  // Only integration status metadata is cached. Backend/profile/ownership checks
-  // and explicit integration writes do not use this freshness window.
-  private readonly integrationChecks: Record<'explorer' | 'cli', IntegrationCheck> = {
-    explorer: { revision: 0, mutations: 0 }, cli: { revision: 0, mutations: 0 },
-  };
-  private needsIntegrationCheck(kind: 'explorer' | 'cli'): boolean {
-    const check = this.integrationChecks[kind];
-    if (check.mutations) return false; // Keep the last stable metadata during a write.
-    const age = check.checkedAt === undefined ? Infinity : Date.now() - check.checkedAt;
-    return age < 0 || age >= INTEGRATION_FRESHNESS_MS;
-  }
-  private beginIntegrationMutation(kind: 'explorer' | 'cli'): () => void {
-    // Linux menu status depends on the CLI launcher, and menu installation can
-    // update that launcher. Invalidate both, without changing write behavior.
-    const affected = process.platform === 'linux' ? ['explorer', 'cli'] as const : [kind];
-    for (const name of affected) {
-      const check = this.integrationChecks[name];
-      check.revision++; check.mutations++; check.checkedAt = undefined;
-    }
-    return () => {
-      for (const name of affected) {
-        const check = this.integrationChecks[name];
-        check.revision++; check.mutations--;
-        if (name !== kind) check.checkedAt = undefined;
-      }
-    };
-  }
-  async refreshIntegrations(): Promise<void> {
-    if (this.disposed || this.updateClosing) return;
-    if (this.integrationRefresh) return this.integrationRefresh;
-    if (!(this.explorerIntegration && this.needsIntegrationCheck('explorer')) &&
-        !(this.cliIntegration && this.needsIntegrationCheck('cli'))) return;
-    let metadataChanged = false;
-    this.integrationRefresh = (async () => {
-      if (this.explorerIntegration && this.needsIntegrationCheck('explorer')) {
-        const check = this.integrationChecks.explorer, revision = check.revision;
-        const current = await this.explorerIntegration.get();
-        if (!this.disposed && check.revision === revision && !check.mutations) {
-          const next = current.ok ? current.value : { ...this.explorer, installed: false, reason: current.error.message };
-          metadataChanged ||= JSON.stringify(this.explorer) !== JSON.stringify(next);
-          this.explorer = next;
-          check.checkedAt = Date.now();
-        }
-      }
-      if (!this.disposed && this.cliIntegration && this.needsIntegrationCheck('cli')) {
-        const check = this.integrationChecks.cli, revision = check.revision;
-        const current = await this.cliIntegration.get();
-        if (!this.disposed && check.revision === revision && !check.mutations) {
-          const next = current.ok ? current.value : { ...this.cli, installed: false, reason: current.error.message };
-          metadataChanged ||= JSON.stringify(this.cli) !== JSON.stringify(next);
-          this.cli = next;
-          check.checkedAt = Date.now();
-        }
-      }
-    })().finally(() => {
-      this.integrationRefresh = undefined;
-      if (metadataChanged && !this.disposed) this.changed('settings');
-    });
-    return this.integrationRefresh;
-  }
+  refreshIntegrations(): Promise<void> { return this.integrations.refresh(); }
   setCliIntegration(input: { installed: boolean }) {
-    if (!requestSchemas.setCliIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid Shellfox CLI request.'));
-    return this.serialize('cli', async () => {
-      if (!this.cliIntegration) return failure('UNSUPPORTED', 'Shellfox CLI integration requires Windows.');
-      const finish = this.beginIntegrationMutation('cli');
-      try {
-        const result = await this.cliIntegration.set(input.installed);
-        if (!result.ok) return result;
-        this.cli = result.value; this.repository.saveCliPreference?.(input.installed);
-        this.integrationChecks.cli.checkedAt = Date.now();
-        this.changed('settings'); return result;
-      } finally { finish(); }
-    });
+    if (!requestSchemas.setCliIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'CLI integration is always enabled.'));
+    return this.integrations.ensureCli();
   }
   setExplorerIntegration(input: { installed: boolean }): Promise<Result<ExplorerIntegrationDto>> {
-    if (!requestSchemas.setExplorerIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid integration request.'));
-    return this.serialize('explorer', async () => {
-      if (!this.explorerIntegration) return failure('UNSUPPORTED', 'Explorer integration requires Windows.');
-      const finish = this.beginIntegrationMutation('explorer');
-      try {
-        const result = await this.explorerIntegration.set(input.installed);
-        if (!result.ok) return result;
-        this.explorer = result.value;
-        this.repository.saveExplorerPreference(input.installed);
-        this.integrationChecks.explorer.checkedAt = Date.now();
-        this.changed('settings');
-        return result;
-      } finally { finish(); }
-    });
+    if (!requestSchemas.setExplorerIntegration.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'File-manager integration is always enabled.'));
+    return this.integrations.ensureExplorer();
   }
   ownedTerminalCount(): number { return this.backend.live().length + this.repository.tabs().filter(t => t.terminal && t.lifecycle === 'launching' && !this.backend.get(t.id)).length; }
   private async closeOwnedTerminals(): Promise<void> {
@@ -655,6 +574,7 @@ export class EmbeddedSessionService {
     // for those queues, while keeping every unconfirmed helper handle owned.
     await this.backend.cancelPendingStartups();
     await Promise.allSettled([...this.queues.values()]);
+    await this.integrations.drain();
     const results = await Promise.all(this.backend.live().map(e => this.backend.close({ tabId: e.tabId, generation: e.generation })));
     if (results.some(r => !r.ok)) throw new Error('Owned terminal shutdown was not confirmed.');
     this.reconcileExits();
@@ -668,19 +588,24 @@ export class EmbeddedSessionService {
     try { await this.closeOwnedTerminals(); return resume; }
     catch (error) { resume(); throw error; }
   }
-  async dispose(): Promise<void> {
+  async dispose(options: { fatal?: boolean } = {}): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
     this.lifecycle.stop();
+    let fatalError: unknown;
     try {
       // Save confirmed exits before irreversibly disposing the backend. Storage
       // failures must leave a backend capable of opening fresh shells on retry.
       await this.closeOwnedTerminals();
       this.lifecycle.flushActivity();
       await this.backend.dispose();
-    } catch (error) { this.disposed = false; this.lifecycle.start(); this.refreshWatch(); throw error; }
+    } catch (error) {
+      if (!options.fatal) { this.disposed = false; this.lifecycle.start(); this.refreshWatch(); throw error; }
+      fatalError = error;
+    }
     this.tracker.dispose();
     if (this.exitRetryTimer) clearInterval(this.exitRetryTimer);
     this.unsubscribe?.(); this.unsubscribeTitle?.(); this.listeners.clear(); this.streams.clear();
+    if (fatalError !== undefined) throw fatalError;
   }
 }

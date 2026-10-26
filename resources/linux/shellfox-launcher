@@ -1,26 +1,15 @@
 #!/bin/sh
 # Shellfox/linux-v1
-if [ "${1:-}" = --help ] || [ "${1:-}" = ssh ] || [ "${2:-}" = --help ] || [ "${2:-}" = -h ] || [ "${2:-}" = help ]; then
-  ELECTRON_RUN_AS_NODE=1 exec /usr/lib/shellfox/shellfox /usr/lib/shellfox/resources/cli/main/cli.cjs "$@"
-fi
-unset ELECTRON_RUN_AS_NODE
-if [ "${1:-}" = update ]; then
-  shift; exec /bin/sh /usr/lib/shellfox/resources/shellfox-update.sh "$@"
-fi
-if [ "$#" -eq 0 ]; then mode=show
-elif { [ "$1" = start ] || [ "$1" = add ] || [ "$1" = new ] || [ "$1" = create ]; } && [ "$#" -le 2 ]; then
-  target=${2:-.}
-  case "$target" in /*) ;; *) target=./$target ;; esac
-  folder=$(CDPATH='' cd -P -- "$target" 2>/dev/null && pwd -P) || { printf '%s\n' 'Shellfox: directory does not exist or is inaccessible.' >&2; exit 1; }
-  mode=start
-else ELECTRON_RUN_AS_NODE=1 exec /usr/lib/shellfox/shellfox /usr/lib/shellfox/resources/cli/main/cli.cjs "$@"; fi
-launch() { exec setsid --fork --wait /usr/lib/shellfox/shellfox "$@" </dev/null >/dev/null 2>&1; }
-# Do not retain saved copies of the caller's output pipes in a shell function.
-if [ "$mode" = start ]; then launch start "$folder" &
-else launch & fi
-child=$!
-i=0
-while [ "$i" -lt 5 ] && kill -0 "$child" 2>/dev/null; do sleep 0.1; i=$((i+1)); done
-if ! kill -0 "$child" 2>/dev/null; then wait "$child" || { printf '%s\n' 'Shellfox: application rejected the launch.' >&2; exit 1; }; fi
-if [ "$mode" = start ]; then printf 'Shellfox: started session in %s\n' "$folder"; fi
-exit 0
+shellfox_root=/usr/lib/shellfox
+# Fixed native application binding. Only the CLI may choose GUI cold fallback.
+export SHELLFOX_CLI_LAUNCH=eyJleGVjdXRhYmxlIjoiL3Vzci9saWIvc2hlbGxmb3gvc2hlbGxmb3giLCJhcmdzIjpbXSwiZW52Ijp7fX0=
+unset SHELLFOX_PROJECT_ROOT SHELLFOX_RUNTIME_PATH
+export SHELLFOX_RESOURCES_PATH="$shellfox_root/resources"
+case "$#:${1:-}:${2:-}" in
+  1:update:|2:update:--check)
+    unset ELECTRON_RUN_AS_NODE
+    shift
+    exec /bin/sh "$shellfox_root/resources/shellfox-update.sh" "$@"
+    ;;
+esac
+ELECTRON_RUN_AS_NODE=1 exec "$shellfox_root/shellfox" "$shellfox_root/resources/cli/main/cli.cjs" "$@"

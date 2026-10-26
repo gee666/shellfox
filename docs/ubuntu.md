@@ -12,15 +12,15 @@ shellfox
 Do not launch Shellfox with sudo. Ubuntu 22.04, 24.04+ and desktop flavours use the same package; GNOME is not required. The package installs the Electron runtime libraries, Python 3 and the `/usr/bin/shellfox` launcher. It recommends `python3-nautilus` for GNOME Files.
 
 ```sh
-shellfox start .
-shellfox start ..
-shellfox start "/home/me/a folder with spaces"
+shellfox session create .
+shellfox session create ..
+shellfox session create "/home/me/a folder with spaces"
 shellfox --help
 ```
 
-Paths resolve against the caller's directory. Each call creates/selects one session with a default terminal and returns without waiting for the app to close. Symlinks are resolved by the launcher. A missing folder prints an error and returns exit 1. With no arguments, `shellfox` opens the app normally.
+Paths resolve against the caller's directory. Each call creates/selects one session with a default terminal and returns without waiting for the app to close. Symlinks are resolved by the launcher. A missing folder prints an error and returns exit 1. With no arguments, `shellfox` prints grouped help. Open the desktop application from your application menu, or use an interactive `session create` command.
 
-The launcher installed by the package is always available. A loose package or from-source build can install its owned launcher in `~/.local/bin` using Settings → Terminal command. If that directory is absent from PATH, add it or log out and in:
+The launcher installed by the package is always available. A loose package or from-source desktop build automatically installs and repairs its owned launcher in `~/.local/bin`. If that directory is absent from PATH, add it or log out and in:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -30,7 +30,7 @@ Add that line to your shell's startup file if needed. New Shellfox tabs receive 
 
 ## Right-click menus
 
-In Settings → Explorer, enable **Add “Open in Shellfox” to the file manager right-click menu**. Shellfox detects installed file managers and installs per-user entries for every supported one:
+Desktop Shellfox automatically detects installed file managers and installs per-user “Open in Shellfox” entries for every supported one:
 
 - **GNOME Files / Nautilus:** single folder and background menu provider for Nautilus 3.0 and 4.0. For the top-level menu, install the optional binding:
   `sudo apt install python3-nautilus`.
@@ -40,7 +40,7 @@ In Settings → Explorer, enable **Add “Open in Shellfox” to the file manage
 - **Thunar:** a custom action merged into uca.xml without removing other actions.
 - **Caja:** Scripts → Open in Shellfox, using the selected folder or current local folder.
 
-Only local file locations are passed as argv; no folder text is executable shell source. Disabling integration removes only Shellfox-owned entries. Existing foreign files/actions are not overwritten. Installed state is checked from the actual files and launcher, not just a saved switch.
+Only local file locations are passed as argv; no folder text is executable shell source. Uninstall cleanup removes only Shellfox-owned entries. Existing foreign files/actions are not overwritten. Installed state is checked from the actual files and launcher, not just a saved switch.
 
 ## Python
 

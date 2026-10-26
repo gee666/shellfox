@@ -1,0 +1,32 @@
+import { randomUUID } from 'node:crypto';
+import { afterEach, expect, it, vi } from 'vitest';
+const mocks = vi.hoisted(() => ({ collect: vi.fn() }));
+vi.mock('./control-stats', () => ({ createSessionStatsCollector: () => mocks.collect }));
+import { EmbeddedSessionService } from './terminal/service';
+import { PtyBackend } from './terminal/backend';
+import { MemoryRepository, factoryFixture } from './terminal/test-fixtures';
+import { responseSchemas } from '../shared/schemas';
+
+const cleanup: Array<() => Promise<void>> = [];
+afterEach(async () => { for (const close of cleanup.splice(0)) await close(); vi.clearAllMocks(); });
+it('scopes stats to owned session tabs without polling UI snapshots or returning environment secrets', async () => {
+  const fixture = factoryFixture(), trackerPoll = vi.fn(async () => {});
+  const service = new EmbeddedSessionService(new MemoryRepository(), new PtyBackend(fixture.options), () => ({ setWatch() {}, dispose() {}, poll: trackerPoll }));
+  cleanup.push(() => service.dispose()); await service.initialize();
+  const first = await service.createSession({ cwd: '/work', requestId: randomUUID() });
+  const second = await service.createSession({ cwd: '/work', requestId: randomUUID() });
+  if (!first.ok || !second.ok) throw new Error('Create failed');
+  await service.setSessionEnv({ sessionId: first.value.id, env: [{ name: 'SECRET', value: 'never-in-stats' }] });
+  const tabId = first.value.tabs[0].id, tab = { tabId, processes: [{ pid: 123, parentPid: 1, name: 'shell', memoryBytes: 1000, elapsedSeconds: 2, domain: 'local' }], memoryBytes: 1000, elapsedSeconds: 2 };
+  mocks.collect.mockResolvedValue([tab]);
+  service.getSnapshot(); service.getSnapshot(); expect(trackerPoll).not.toHaveBeenCalled();
+  const result = await service.getSessionStats({ sessionId: first.value.id });
+  expect(result).toMatchObject({ ok: true, value: { sessions: [{ id: first.value.id, env: [] }], tabs: [tab] } });
+  expect(mocks.collect).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ tabId, sessionId: first.value.id })]);
+  expect(JSON.stringify(result)).not.toContain('never-in-stats'); expect(trackerPoll).not.toHaveBeenCalled();
+  expect(responseSchemas.getSessionStats.safeParse(result).success).toBe(true);
+  expect(responseSchemas.getSessionStats.safeParse({ ok: true, value: { sessions: [], tabs: [{ ...tab, processes: [{ ...tab.processes[0], argv: ['secret'] }] }] } }).success).toBe(false);
+  const snapshot = service.getSnapshot(); if (!snapshot.ok) throw new Error('Snapshot failed');
+  expect(responseSchemas.getSessionStats.safeParse({ ok: true, value: { sessions: snapshot.value.sessions, tabs: [] } }).success).toBe(false);
+  expect(await service.getSessionStats({ sessionId: randomUUID() })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+});

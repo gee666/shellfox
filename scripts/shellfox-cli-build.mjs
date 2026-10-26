@@ -2,6 +2,9 @@ import path from 'node:path';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { stageSshRuntime } from './ssh-runtime.mjs';
+import { stageNodeNativeModules } from './node-runtime-native.mjs';
+import { root, runNode } from './common.mjs';
+import { writeHeadlessSupport } from './headless-support.mjs';
 
 /** Static bash/zsh completion files, installed system-wide by the Debian package. */
 export async function writeCompletionFiles(directory) {
@@ -34,4 +37,12 @@ export async function buildShellfoxCli(output) {
   await copyFile('node_modules/ssh2/LICENSE', path.join(output, 'SSH2-LICENSE'));
   await copyFile('node_modules/hash-wasm/LICENSE', path.join(output, 'HASH-WASM-LICENSE'));
   await stageSshRuntime(output);
+  const modules = path.resolve(output, 'node_modules');
+  await rm(modules, { recursive: true, force: true });
+  const node = process.platform === 'win32' ? path.resolve(output, 'cli-runtime/node.exe') : process.execPath;
+  await stageNodeNativeModules(node, modules, { workName: 'desktop-cli-native' });
+  writeHeadlessSupport(path.resolve(output), { version: 1, node: process.platform === 'win32' ? 'cli-runtime/node.exe' : process.platform === 'darwin' ? '../../MacOS/Shellfox' : '../../shellfox', entry: 'main/cli.cjs', resources: '..', runAsNode: process.platform !== 'win32', headless: false });
+  // Unix desktop shims use Electron as Node. Check the same isolated Node-API
+  // files in that runtime too, rather than relying on the app's ASAR modules.
+  if (process.platform !== 'win32') runNode('node_modules/electron/cli.js', [path.join(root, 'scripts/node-runtime-native-smoke.cjs'), path.resolve(output, 'main/cli.cjs'), modules, 'electron'], 30000, { ELECTRON_RUN_AS_NODE: '1' });
 }

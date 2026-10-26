@@ -2,7 +2,7 @@
 # Shellfox/linux-v1
 Name=Shellfox
 Comment=Terminal manager
-Exec=/usr/bin/shellfox
+Exec=/usr/lib/shellfox/shellfox
 Terminal=false
 Type=Application
 Icon=shellfox

@@ -15,7 +15,7 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
     // approve any newly exposed capability, including accidental raw IPC.
     expect(isolation.keys).toEqual([
       'activateSession', 'prepareSessionRegistration', 'refreshSessionMembership', 'addTab',
-      'chooseDirectory', 'getHomeDirectory', 'resolveDirectory', 'completeDirectory',
+      'chooseDirectory', 'getHomeDirectory', 'resolveDirectory', 'completeDirectory', 'createDirectory', 'getSessionStats',
       'clearSessionError', 'createSession', 'focusSession', 'getSnapshot',
       'renameSession', 'retryTab', 'saveSettings', 'setExplorerIntegration', 'settleSession',
       'subscribe', 'unsettleSession', 'getTerminalProfiles', 'attachTerminal', 'writeTerminal',

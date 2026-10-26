@@ -2,13 +2,13 @@
 
 Shellfox — terminal manager.
 
-Shellfox keeps saved tasks on the left and real interactive terminals in the right workspace. Each workspace tab owns an independent `node-pty` shell, rendered by `@xterm/xterm` and sized by `@xterm/addon-fit`. It no longer opens Windows Terminal or GNOME Terminal windows for normal use.
+Shellfox keeps saved tasks on the left and real interactive terminals in the right workspace. Each terminal tab has an independent `node-pty` shell owned by its host, rendered by `@xterm/xterm` and sized by `@xterm/addon-fit`. It no longer opens Windows Terminal or GNOME Terminal windows for normal use.
 
 This is an embedded-terminal preview. Windows x64 dependency/build/package checks have run locally, but full desktop acceptance is not complete. Linux, macOS, ARM64 and WSL remain release-unverified. See [platform support](docs/platform-support.md) and [verification](docs/verification.md).
 
 ## Using the workspace
 
-- Create a session with an accessible folder. Multiple sessions can use the same folder.
+- Click + to create a session. If remote machines are saved, choose the target machine directly under the button. Local folders also offer a native picker; remote folders use the path prompt and host-side completion. Missing folders are created recursively only after confirmation; Keep editing preserves the path. Multiple sessions can use the same folder.
 - Select a session to show its current or first live tab. If it has no open terminal (for example after a restart), selecting it opens one fresh shell; commands are never restored. The session's environment variables apply to every new terminal in it.
 - After a restart all saved sessions are listed, but no terminals open until you select a session.
 - Right-click a session → Pin to top keeps it above the others (in pin order); Unpin returns it to the normal order. Settled sessions keep their pins and stay in the same list. Pins prevent automatic deletion.
@@ -16,12 +16,12 @@ This is an embedded-terminal preview. Windows x64 dependency/build/package check
 - Copy selected terminal text with Ctrl+Shift+C or a middle click; paste with Ctrl+Shift+V. In mouse-enabled apps, hold Shift while dragging to select text. Windows-hosted PowerShell and WSL tabs use the Windows clipboard; `xclip` is not needed.
 - Click an http(s) link in a terminal to open it in the system browser; hover shows its target. Other schemes are ignored. URLs that a TUI broke across rows inside a table column are clickable on every row. Shells get `FORCE_HYPERLINK=1` and `PI_HYPERLINKS=1`, so pi and similar CLIs print compact clickable labels (OSC 8) instead of long URLs; set either to `0` in a session to opt out.
 - The eye button keeps the computer awake while Shellfox runs (open eye: on). It blocks idle, system and display sleep, so the screen does not lock. Closing the lid does not suspend either: Linux holds a logind `handle-lid-switch` inhibitor, and Windows sets the lid-close action to "do nothing" and restores the original when switched off (also after a crash, on next start). macOS cannot override lid-close sleep without root. On Windows it also nudges the mouse by one pixel every 30 s to defeat idle-lock policies. A helper that dies is restarted after 30 s. It resets to off on restart.
-- Settings opens as a full page in the workspace, with the sidebar still usable. Press Esc or × to return. Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
+- Settings opens as a tabbed page with General, Terminals, Agents, Remote access and SSH, with the sidebar still usable. Press Esc or × to return. Switching sessions or Settings does not stop shells. Reattachment uses a bounded in-memory output replay; it is not a permanent terminal transcript.
 - Closing a tab explicitly terminates its owned shell and verified descendants. Closure requires exit evidence, not just a sent signal. Do not use it on work you want to keep running.
 - Settle marks a session without stopping shells or agents. Unsettle clears that status. Both keep the session in the list with its tabs. Delete closes owned terminals and removes the session after confirmation.
 - Inactive sessions settle after 24 hours and delete after another 30 days without activity by default. Settings changes both intervals. Pinned sessions never delete automatically.
 
-Terminals are app-owned. Quitting with live shells shows a compact, themed in-app confirmation on Windows, macOS and Linux, and closes them only after approval. Cancel keeps the app running. Failed termination or missing exit evidence keeps the manager open for a retry. Closing or restarting the manager does not preserve shells. On startup, former embedded live tabs become closed records; commands and screen output are not restored. This replaces the previous external-terminal survival behavior.
+Terminals are host-owned. In desktop-owned mode, quitting with live shells shows a compact, themed in-app confirmation on Windows, macOS and Linux, and closes them only after approval. Cancel keeps the app running. Failed termination or missing exit evidence keeps the manager open for a retry. Closing or restarting the manager does not preserve its local shells. Disconnecting from a remote machine does not stop that machine's shells; its desktop-owned or headless host must remain running. A desktop attached to an existing headless host is only a client, so closing that window does not terminate host terminals. On startup, former embedded live tabs become closed records; commands and screen output are not restored. This replaces the previous external-terminal survival behavior.
 
 Saved external-window sessions remain legacy metadata. The embedded runtime does not adopt, watch, focus or kill those old windows. Old titles, registrations and window bindings are not evidence of an owned embedded shell.
 
@@ -37,25 +37,42 @@ Linux/WSL close freezes and enumerates the owned PTY session to a fixed point, s
 
 If prerequisites disappear after launch, or members become elevated/inaccessible or exceed the 256-member bound, close can fail honestly. The manager does not kill `wsl.exe` first or use numeric-PID fallback. Exit the shell manually or restore the prerequisites. Actual Linux pidfd/tree safety fixtures and a target-native installed Debian x64 UI/CLI smoke passed inside WSL Debian. This does not establish Ubuntu-flavour physical desktop, AppArmor-policy or ARM64 acceptance.
 
+## Headless host and CLI automation
+
+The headless distribution runs the same host without Electron, Chromium, or a display server. It bundles Node, native terminal helpers, and Tailscale. Desktop and CLI clients see the same sessions and terminals.
+
+```sh
+shellfox host run
+shellfox host status --json
+shellfox session list --json
+shellfox api getSnapshot --json
+shellfox host stop --yes --json
+```
+
+The same CLI commands work with a running desktop-owned host. JSON responses have stable success/error envelopes for automation. Use `--user-data` consistently to select an instance, and `--host` for connected remote sessions. The desktop attaches rather than opening the database independently if a headless host already owns its data directory.
+
+See [headless deployment](docs/headless.md) and the [CLI reference](docs/cli.md) for installation, remote login, interactive attachment, startup management, and the build/release matrix. GitHub workflows build desktop and headless products for Windows, macOS, and Linux, retaining existing architecture variants.
+
 ## Development
 
-Use Node 24 and the pnpm version specified in package.json, running natively on the target OS and architecture.
+Use Node 24, Go 1.27.3 or newer, and the pnpm version specified in package.json, running natively on the target OS and architecture. Go builds the bundled Tailscale helper; packaged-app users do not need Go.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test:unit
+pnpm test:tailscale
 pnpm build
 pnpm test:storage
 pnpm test:pty
 pnpm start
 ```
 
-`pnpm dev` builds and launches the app. It is not a hot-reload server. Normal install, build, package and make do not require .NET or an external terminal application.
+`pnpm dev` builds and launches the app. It is not a hot-reload server. Packaged apps do not need an installed Tailscale client, .NET runtime, or an external terminal application. Source builds need the platform tools below.
 
 Build prerequisites:
 
-- Windows requires a supported Electron Windows version with ConPTY, practically Windows 10 1809 or newer, or Windows 11. PowerShell must be available. Source compilation additionally needs Python 3, Visual Studio C++ build tools, Windows SDK and Spectre-mitigated libraries for the target architecture.
+- Windows requires a supported Electron Windows version with ConPTY, practically Windows 10 1809 or newer, or Windows 11. PowerShell must be available. Desktop builds need the .NET 8 SDK to publish the self-contained administrator-terminal helper; headless builds do not. Native addon source compilation additionally needs Python 3, Visual Studio C++ build tools, Windows SDK and Spectre-mitigated libraries for the target architecture.
 - Linux requires Python 3, `make`, a C/C++ compiler and Electron's graphical/runtime libraries. `node-pty` 1.1.0 has no Linux prebuild, so it compiles against the pinned Electron. Debian packaging also needs `dpkg` and `fakeroot`. A graphical session is needed for the desktop app; headless Electron tests need Xvfb.
 - macOS builds always need Xcode Command Line Tools and the macOS SDK to compile the native tracking/lifecycle helpers. Python 3 is needed only if native addons must compile from source, not by the installed Darwin terminal runtime. The helper build targets macOS 13 or newer; this is not a broader Electron compatibility claim.
 
@@ -101,13 +118,13 @@ The manual [CI workflow](.github/workflows/embedded-packages.yml) configures six
 
 ## CLI
 
-See the [command reference](docs/cli.md) for all aliases, filters, UUID targeting and confirmation behavior. `start` also accepts `add`, `new` and `create`. With the app running, use `ls` for sessions, `stats` for RSS/duration, `processes` for PIDs, `tab open`/`tab close` inside an owned terminal, and `keep-alive` to toggle sleep prevention. `settle` and `unsettle` change session status without confirmation or terminal closure. `delete` inspects the target and requires explicit TTY confirmation. Help and version do not require the app.
+See the [command reference](docs/cli.md) for grouped commands, filters, UUID targeting and confirmation behavior. Session commands use `session` or `ss`; terminal commands use `terminals` or `tm`. Targeted session commands use the current terminal context when no ID is supplied, and an explicit ID always wins. Human-readable tables and status output are the default; add `--json` for automation. Old top-level session verbs and the `tab` namespace are not accepted. Help and version do not require a running host.
 
 ```sh
-shellfox ls --running --no-agents
-shellfox stats --current
-shellfox processes --name project --pid 4242
-shellfox help tab
+shellfox session list --running --no-agents
+shellfox session stats --all
+shellfox session processes --all --name project --pid 4242
+shellfox help terminals
 shellfox --version
 ```
 
@@ -117,25 +134,31 @@ After build:
 pnpm exec electron . --new-session --cwd "C:\work\project"
 ```
 
-On Ubuntu/Debian, install with `sudo apt install ./shellfox_*.deb`; `/usr/bin/shellfox` is included. `shellfox` opens the app and `shellfox start .` selects a session for your current folder. Linux Settings also installs per-user right-click entries for Files/Nautilus, Nemo, Dolphin, Thunar and Caja. See [Ubuntu install and usage](docs/ubuntu.md), including Python path and sandbox details.
+On Ubuntu/Debian, install with `sudo apt install ./shellfox_*.deb`; `/usr/bin/shellfox` is included. `shellfox` prints help and `shellfox session create .` creates a session for your current folder. Linux Settings also installs per-user right-click entries for Files/Nautilus, Nemo, Dolphin, Thunar and Caja. See [Ubuntu install and usage](docs/ubuntu.md), including Python path and sandbox details.
 
-For Windows or loose/from-source Linux/macOS builds, enable **Enable shellfox command in terminals** in Settings to install the terminal command. Run `shellfox start .` or `shellfox start "C:\folder with spaces"` from cmd, PowerShell, Git Bash or WSL. Paths resolve against the caller's working directory. The command returns without waiting for the app to close. Run `shellfox --help` for usage. New external terminals pick up the user PATH change; new embedded terminals receive it immediately.
+Desktop Shellfox automatically installs and repairs its terminal command on supported systems. There is no integration toggle. Run `shellfox session create .` or `shellfox session create "C:\folder with spaces"` from cmd, PowerShell, Git Bash or WSL. Paths resolve against the caller's working directory. The command returns without waiting for the app to close. Run `shellfox --help` for usage. New external terminals pick up the user PATH change; new embedded terminals receive it immediately.
 
-On Windows, enabling the CLI also prepends the Windows launcher directory in each registered WSL distribution's default user's shell startup files. This makes bare `shellfox` resolve to the Windows launcher before an older `/usr/bin/shellfox`. Bash uses `~/.bashrc` and the first existing login file among `~/.bash_profile`, `~/.bash_login`, and `~/.profile`, creating `.profile` only if none exists. Zsh uses `~/.zprofile`, `~/.zshrc`, and `~/.zlogin` when zsh or its startup files are present. Shellfox adds marked blocks, preserves other content, and removes only its blocks when disabled. It does not use sudo or change the Linux launcher.
+On Windows, automatic CLI setup also prepends the Windows launcher directory in each registered WSL distribution's default user's shell startup files. This makes bare `shellfox` resolve to the Windows launcher before an older `/usr/bin/shellfox`. Bash uses `~/.bashrc` and the first existing login file among `~/.bash_profile`, `~/.bash_login`, and `~/.profile`, creating `.profile` only if none exists. Zsh uses `~/.zprofile`, `~/.zshrc`, and `~/.zlogin` when zsh or its startup files are present. Shellfox adds marked blocks, preserves other content, and removes only its blocks when uninstalled. It does not use sudo or change the Linux launcher.
 
-`shellfox start .` from WSL opens a session in the running Windows window. PowerShell tabs use the Windows drive or `\\wsl.localhost\<distro>\...` path; WSL tabs use the guest path. The Windows app has no Electron menu bar. Linux behavior is unchanged.
+`shellfox session create .` from WSL opens a session in the running Windows window. PowerShell tabs use the Windows drive or `\\wsl.localhost\<distro>\...` path; WSL tabs use the guest path. The Windows app has no Electron menu bar. Linux behavior is unchanged.
 
-Restart existing WSL shells after enabling or disabling. To apply enabling in place, reload the startup file Shellfox updated, then run `hash -r` in Bash or `rehash` in zsh. A hash reset alone does not change an existing shell's PATH. After disabling, restart to remove the injected PATH entry. Check with `type -a shellfox`.
+Restart existing WSL shells after automatic setup or application removal. To apply setup in place, reload the startup file Shellfox updated, then run `hash -r` in Bash or `rehash` in zsh. A hash reset alone does not change an existing shell's PATH. After uninstalling, restart to remove the injected PATH entry. Check with `type -a shellfox`.
 
-WSL integration is best-effort and can boot registered distributions. It requires guest Python 3, `wslpath`, access to the Windows bin directory, and Windows interoperability to launch the app. Missing WSL or a failed guest update does not disable the Windows CLI. Symlinked, hard-linked, inaccessible, non-regular, or other-user startup files and malformed Shellfox blocks are left untouched. Only each distribution's default user is configured, not root or other users unless they are the default. Other shells, custom `ZDOTDIR`, shells started without startup files, aliases/functions named `shellfox`, and later PATH overrides are not covered. New distributions need the setting reapplied. CLI installed status checks Windows files and PATH, not every guest's startup configuration.
+WSL integration is best-effort and can boot registered distributions. It requires guest Python 3, `wslpath`, access to the Windows bin directory, and Windows interoperability to launch the app. Missing WSL or a failed guest update does not disable the Windows CLI. Symlinked, hard-linked, inaccessible, non-regular, or other-user startup files and malformed Shellfox blocks are left untouched. Only each distribution's default user is configured, not root or other users unless they are the default. Other shells, custom `ZDOTDIR`, shells started without startup files, aliases/functions named `shellfox`, and later PATH overrides are not covered. New distributions are configured on a later automatic setup pass. CLI installed status checks Windows files and PATH, not every guest's startup configuration.
 
 Tests with a custom CLI bin, registry key, or registry runner skip WSL by default. `ShellfoxCliOptions.wsl` accepts an explicit injected `run` and/or an absolute guest `home` for isolated testing; `wsl: false` disables guest updates. Do not opt test builds into a real guest HOME.
 
 The older `--new-session --cwd` flags are also supported, with both flags required. Each invocation creates a separate saved session, even in the same folder. Request UUIDs prevent duplicate delivery. Early requests wait for initialization. Settings also offers `Open in Shellfox` for Explorer folder and background menus. On Windows 11, use Show more options. Registry changes affect only app-owned verbs.
 
+## Remote Shellfox connections
+
+Embedded Tailscale connects your own machines without a separate VPN application or SSH server. Enable remote access in Settings, sign in on both machines, connect, and approve the client on the host. Each machine has its own foldable sidebar section. Remote terminals and CLI applications run on the host; reconnecting attaches to the same running terminals while that host's Shellfox desktop or headless process stays running. Quitting a client ends only its local terminals. Quitting the host ends its terminals.
+
+See [remote connections](docs/remote-connections.md) for account requirements, security, lifecycle, build prerequisites, and verification limits. Android remains a future client, not an included APK.
+
 ## SSH connections
 
-Add connections in Settings → SSH connections, or import PuTTY sessions. Windows reads the current user's PuTTY registry; Linux/macOS read `~/.putty/sessions`. Import merges case-insensitive names and keeps existing passwords and remote folders. Host parsing follows PuTTY: the part before the last `@` overrides UserName, spaces/tabs are removed from the hostname, and a single colon suffix outside IPv6 brackets is discarded without changing the separate port field. The same normalisation applies before IPC saves and at legacy-profile read/connect time. IPv6 brackets are removed for the resolver. Key filenames are literal, as in PuTTY, not environment-variable expressions. AddressFamily, TryAgent and AgentFwd are retained internally; proxy/jump-host sessions import but produce a clear unsupported message rather than attempting a misleading direct connection.
+Add connections in Settings → SSH, or import PuTTY sessions. Windows reads the current user's PuTTY registry; Linux/macOS read `~/.putty/sessions`. Import merges case-insensitive names and keeps existing passwords and remote folders. Host parsing follows PuTTY: the part before the last `@` overrides UserName, spaces/tabs are removed from the hostname, and a single colon suffix outside IPv6 brackets is discarded without changing the separate port field. The same normalisation applies before IPC saves and at legacy-profile read/connect time. IPv6 brackets are removed for the resolver. Key filenames are literal, as in PuTTY, not environment-variable expressions. AddressFamily, TryAgent and AgentFwd are retained internally; proxy/jump-host sessions import but produce a clear unsupported message rather than attempting a misleading direct connection.
 
 ```sh
 shellfox ssh
@@ -151,7 +174,7 @@ Each connection runs one independent plain login shell, preserving the outer ter
 
 Register local scripts with `shellfox cmd --register deploy "/path/to/deploy.sh"`, then run `shellfox cmd deploy [args]` or `shellfox cmd --run deploy [args]`. Shellfox stores the absolute path and executes the latest file contents. Use `shellfox cmd --ls` or `--list` to show names and paths, `shellfox cmd --rename deploy ship` to rename, and `shellfox cmd --remove ship` or `--rm ship` to remove a reference. Custom names may match top-level built-ins; duplicate custom names are rejected. All arguments after the script name pass unchanged. See [custom commands and interpreter/quoting rules](docs/cli.md#custom-script-commands), including the Windows PowerShell shim and WSL distro references. [Tab completion](docs/cli.md#tab-completion) supports PowerShell, Bash and zsh through `shellfox completion <shell>`, with automatic loading in regular embedded PowerShell tabs and system-wide Bash/zsh hooks in the Debian package.
 
-The SSH command in the CLI helper has no Electron GUI or app-instance dependency; session controls connect to the running app. Every installed shim passes the app's exact userData directory, including `--test-user-data` instances. Direct helper launches default to `%APPDATA%\\Shellfox`, `$XDG_CONFIG_HOME/Shellfox` or `~/.config/Shellfox`, and `~/Library/Application Support/Shellfox`. Enabling the command also adds its bin directory to new embedded terminals. With integration disabled, Shellfox does not add it to PATH. Owned enabled shims are rewritten on app startup after upgrades.
+The SSH command in the CLI helper has no Electron GUI or app-instance dependency; session controls connect to the running app. Every installed shim passes the app's exact userData directory, including `--test-user-data` instances. Direct helper launches default to `%APPDATA%\\Shellfox`, `$XDG_CONFIG_HOME/Shellfox` or `~/.config/Shellfox`, and `~/Library/Application Support/Shellfox`. The command's bin directory is added to new embedded terminals. Owned shims are installed automatically and repaired on startup after upgrades; old disabled preferences do not turn them off.
 
 Windows uses a checksum-pinned, bundled console Node runtime because Electron's GUI binary cannot read a raw console TTY. WSL also launches that same Windows node.exe through interop; its pseudoconsole passed raw input, UTF-8, resize and terminal-restoration tests. Git Bash's mintty needs its supplied winpty; ConPTY-based shells run directly. Linux/macOS run the helper using their Electron binary with ELECTRON_RUN_AS_NODE scoped to that invocation. SSH2 and its JavaScript crypto are bundled outside ASAR, with optional native accelerators disabled. No installed Node or SSH client is needed. Windows builds download the pinned official Node runtime once into `tmp/ssh-runtime-cache`; node.exe is 87.45 MiB uncompressed. The former 117.20 MiB Linux Node copy is no longer shipped.
 
@@ -164,7 +187,7 @@ pnpm exec electron .\tmp\build-test\main\index.cjs --test-user-data "$PWD\tmp\ss
 
 Validated compiled test instances auto-approve quit/update shutdown without showing a prompt. To exercise the themed confirmation, set `SHELLFOX_TEST_CONFIRM_QUIT=1` before launching that test instance. The opt-in works with either test backend and does not require a visible desktop window. Production builds never bypass approval based on test environment variables.
 
-After adding profiles and enabling the command in that instance, invoke its isolated shim explicitly:
+After adding profiles, invoke that instance's automatically created isolated shim explicitly:
 
 ```powershell
 & .\tmp\ssh-dev\Shellfox\bin\shellfox.cmd ssh
@@ -186,4 +209,4 @@ Counts mean matched descendant process identities, not logical tasks, input-wait
 
 The renderer is sandboxed with no Node integration or raw IPC. Preload exposes validated terminal operations; main checks sender, generation and ownership before input, resize or close. VT output goes to xterm rather than HTML. OSC clipboard and link activation are disabled; no clipboard or web-links addon is installed. A shell's exit code is not arbitrary command-status detection.
 
-Attachment to existing external terminals, split panes, arbitrary command templates, automatic command restoration and persistent detached terminals are not implemented. Legacy .NET and external-window tests remain in the repository for regression work only; their historical successes are not acceptance evidence for this runtime.
+Attachment to existing external terminals, split panes, arbitrary command templates, automatic command restoration and terminal survival after the owning host exits are not implemented. Legacy .NET and external-window tests remain in the repository for regression work only; their historical successes are not acceptance evidence for this runtime.

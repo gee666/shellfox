@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { mkdir, readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { failure, success, type Result } from '../shared/contracts';
@@ -47,15 +47,16 @@ export function directoryCompletionTarget(input: string, home = homedir(), platf
   return { directory: promptPath(prefix, home, platform), prefix, fragment, separator };
 }
 
-function pathFailure(error: unknown, completion: boolean): Result<never> {
+function pathFailure(error: unknown, completion: boolean, creating = false): Result<never> {
   if (error instanceof PromptPathError) return failure('VALIDATION', error.message);
   const code = (error as NodeJS.ErrnoException | null)?.code;
-  const action = completion ? 'Cannot complete path' : 'Cannot resolve directory';
-  if (code === 'ENOENT' || code === 'ENOTDIR') return failure('NOT_FOUND', action + ': directory does not exist or is not a directory.');
+  const action = completion ? 'Cannot complete path' : creating ? 'Cannot create directory' : 'Cannot resolve directory';
+  if (code === 'ENOENT') return failure('NOT_FOUND', action + ': directory does not exist.');
+  if (code === 'ENOTDIR') return failure(completion ? 'NOT_FOUND' : 'VALIDATION', action + ': path is not a directory.');
   if (code === 'EACCES' || code === 'EPERM') return failure('VALIDATION', action + ': directory is not accessible.');
   return completion
     ? failure('INTERNAL', 'Could not read directory completions.', true)
-    : failure('VALIDATION', 'Cannot resolve directory: choose an accessible local or WSL directory.');
+    : failure('VALIDATION', action + ': choose an accessible local or WSL directory.');
 }
 
 export function getHomeDirectory(): Result<{ cwd: string }> {
@@ -65,9 +66,38 @@ export function getHomeDirectory(): Result<{ cwd: string }> {
   } catch { return failure('INTERNAL', 'Could not determine the home directory.'); }
 }
 
+async function validateExistingAncestor(cwd: string): Promise<void> {
+  let parent = cwd;
+  for (;;) {
+    try { await validateDirectory(parent); return; }
+    catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+      const next = path.dirname(parent); if (next === parent) throw error;
+      parent = next;
+    }
+  }
+}
 export async function resolveDirectory(input: { path: string }): Promise<Result<{ cwd: string }>> {
-  try { return success({ cwd: await validateDirectory(directoryPromptPath(input.path)) }); }
-  catch (error) { return pathFailure(error, false); }
+  try {
+    const cwd = directoryPromptPath(input.path);
+    try { return success({ cwd: await validateDirectory(cwd) }); }
+    catch (error) {
+      // Windows can report ENOENT for a child of a file. Verify ancestors before offering mkdir.
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') await validateExistingAncestor(path.dirname(cwd));
+      throw error;
+    }
+  } catch (error) { return pathFailure(error, false); }
+}
+
+/** Validate the nearest existing ancestor before creating any directories. */
+export async function createDirectory(input: { path: string }): Promise<Result<{ cwd: string }>> {
+  try {
+    const cwd = directoryPromptPath(input.path);
+    pathSchema.parse(cwd);
+    await validateExistingAncestor(cwd);
+    await mkdir(cwd, { recursive: true });
+    return success({ cwd: await validateDirectory(cwd) });
+  } catch (error) { return pathFailure(error, false, true); }
 }
 
 export async function completeDirectory(input: { path: string }): Promise<Result<{ matches: string[] }>> {

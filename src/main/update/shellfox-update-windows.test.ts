@@ -122,7 +122,8 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
     for (const flag of ['--help', '-h', 'help']) {
       const result = await run('cmd', 0, false, flag);
       expect(result.code, result.err).toBe(0);
-      expect(result.out).toContain('shellfox update [--check]');
+      expect(result.out).toContain('update [--check]');
+      expect(result.out).toContain('Application');
     }
   }, 15000);
   it('invalid update arguments return usage code 2 without starting an installer', async () => {

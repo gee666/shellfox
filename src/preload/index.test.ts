@@ -2,7 +2,7 @@ import { beforeEach, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { ManagerApi } from '../shared/contracts';
 const bridge = vi.hoisted(() => ({ api: undefined as ManagerApi | undefined, listeners: new Map<string, Set<(e: unknown, value: unknown) => void>>(), invoke: vi.fn(), removed: vi.fn() }));
-vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: (name: string, api: ManagerApi) => { if (name !== 'shellfox') throw new Error('Unexpected bridge'); bridge.api = api; } }, ipcRenderer: {
+vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: (name: string, api: ManagerApi) => { if (name === 'shellfox') bridge.api = api; } }, ipcRenderer: {
   invoke: bridge.invoke,
   on: (channel: string, fn: (e: unknown, value: unknown) => void) => { const set = bridge.listeners.get(channel) ?? new Set(); set.add(fn); bridge.listeners.set(channel, set); },
   removeListener: (channel: string, fn: (e: unknown, value: unknown) => void) => { bridge.listeners.get(channel)?.delete(fn); bridge.removed(channel); },

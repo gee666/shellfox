@@ -67,7 +67,7 @@ it('keeps the prompt and restores focus when session creation returns false', as
 it('reports rejected creation callbacks without closing or leaving the prompt locked', async () => {
   const f = await setup(); f.onCreate.mockRejectedValueOnce(new Error('creation failed'));
   await f.submit();
-  expect(screen.getByRole('alert')).toHaveTextContent(/could not create.*session/i);
+  expect(screen.getByRole('alert')).toHaveTextContent(/session was not confirmed/i);
   expect(f.onClose).not.toHaveBeenCalled(); expect(f.browse).toBeEnabled(); expect(f.input).toHaveFocus();
 });
 

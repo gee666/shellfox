@@ -79,12 +79,12 @@ check 2 shellfox unsettle ''
   const log = path.join(root, 'queries');
   const { stdout } = await exec(bash, ['--noprofile', '--norc', '-c', script, 'completion-test', posix(hook), posix(log)], { cwd: root, timeout: 10000 });
   const lines = stdout.trim().split(/\r?\n/);
-  expect(lines[0]).toBe('[cmd]');
+  expect(lines[0]).toBe('[commands completion]');
   expect(lines[1]).toBe('[--run --register --remove --rm --rename]');
   expect(lines[2]).toContain('Deploy development');
   expect(lines.slice(3, 8)).toEqual(Array(5).fill('[Deploy development]'));
   expect(lines.slice(8, 14)).toEqual(Array(6).fill('[]'));
-  expect(lines.slice(14)).toEqual(['[settle]', '[unsettle]', '[]', '[]']);
+  expect(lines.slice(14)).toEqual(['[session settings]', '[]', '[]', '[]']);
   const queries = await readFile(log, 'utf8');
   expect(queries.trim().split(/\r?\n/)).toHaveLength(7);
   expect(queries).toContain('cmd|--complete|De');
@@ -104,21 +104,21 @@ $env:PATH=${psQuote(root + ';')}+$env:PATH
 . ${psQuote(hook)}
 . ${psQuote(hook)}
 $global:LASTEXITCODE=42
-$lines=@('shellfox c','shellfox cmd --r','shellfox cmd ','shellfox cmd --run De','shellfox cmd --remove De','shellfox cmd --rm De','shellfox cmd --unregister De','shellfox cmd --rename De','shellfox cmd --register new','shellfox cmd --rename old new','shellfox cmd Deploy arg','shellfox cmd --run Deploy arg','shellfox cmd fail','shellfox se','shellfox un','shellfox de')
+$lines=@('shellfox comm','shellfox cmd --r','shellfox cmd ','shellfox cmd --run De','shellfox cmd --remove De','shellfox cmd --rm De','shellfox cmd --unregister De','shellfox cmd --rename De','shellfox cmd --register new','shellfox cmd --rename old new','shellfox cmd Deploy arg','shellfox cmd --run Deploy arg','shellfox cmd fail','shellfox se','shellfox un','shellfox de')
 $results=@(foreach ($line in $lines) {
-  $matches=@((TabExpansion2 $line $line.Length).CompletionMatches | Where-Object { $_.CompletionText -match '^(cmd|--|Deploy|development|settle|unsettle|delete)' } | ForEach-Object { @{text=$_.CompletionText;hint=$_.ToolTip} })
+  $matches=@((TabExpansion2 $line $line.Length).CompletionMatches | Where-Object { $_.CompletionText -match '^(commands|--|Deploy|development|session|settings|settle|unsettle|delete)'  } | ForEach-Object { @{text=$_.CompletionText;hint=$_.ToolTip} })
   ,$matches
 })
 @{results=$results;last=$global:LASTEXITCODE} | ConvertTo-Json -Depth 8 -Compress
 `);
   const { results, last } = JSON.parse(result);
-  expect(results[0].map((item: { text: string }) => item.text)).toEqual(['cmd']);
-  expect(results[0][0].hint).toContain('custom script');
+  expect(results[0].map((item: { text: string }) => item.text)).toEqual(['commands']);
+  expect(results[0][0].hint).toContain('script');
   expect(results[1].some((item: { text: string; hint: string }) => item.text === '--rename' && item.hint.includes('Rename'))).toBe(true);
   expect(results[2].some((item: { text: string }) => item.text === 'Deploy')).toBe(true);
   for (const matches of results.slice(3, 8)) expect(matches.map((item: { text: string }) => item.text)).toEqual(['Deploy', 'development']);
   expect(results.slice(8, 13)).toEqual(Array(5).fill([]));
-  expect(results.slice(13).map((matches: { text: string }[]) => matches.map(item => item.text))).toEqual([['settle'], ['unsettle'], ['delete']]);
+  expect(results.slice(13).map((matches: { text: string }[]) => matches.map(item => item.text))).toEqual([['session', 'settings'], [], []]);
   expect(last).toBe(42);
   const queries = (await readFile(log, 'utf8')).trim().split(/\r?\n/).map(line => JSON.parse(line));
   expect(queries).toHaveLength(7);
@@ -164,6 +164,6 @@ it('routes completion generation through the bundled helper without reading or c
     expect(stdout).toBe(bashCompletion());
   }
   // Both POSIX launchers route non-GUI commands through the same helper.
-  expect(shellfoxShims({ executable: 'C:\\app.exe' }).posix).toContain('[ "$1" != start ]');
+  expect(shellfoxShims({ executable: 'C:\\app.exe' }).posix).toContain('exec "$runtime" "$helper"');
   expect(linuxLauncher({ executable: '/app' })).toContain('cli/main/cli.cjs');
 });

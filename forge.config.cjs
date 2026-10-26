@@ -12,7 +12,7 @@ const macSigning = {
     hardenedRuntime: macIdentity !== '-',
     ...(macIdentity === '-' ? { timestamp: 'none' } : {}),
     // Native C helpers need no Electron JIT/library-validation entitlements.
-    ...(file.includes('/terminal-native/') || path.basename(file) === 'spawn-helper' ? { entitlements: [] } : {}),
+    ...(file.includes('/terminal-native/') || file.includes('/tailscale/') || path.basename(file) === 'spawn-helper' ? { entitlements: [] } : {}),
   }),
 };
 const makers = [
@@ -48,14 +48,14 @@ module.exports = {
     executableName: platform === 'linux' ? 'shellfox' : 'Shellfox',
     name: 'Shellfox', appBundleId: 'local.shellfox',
     icon: path.join(__dirname, 'resources/icon/icon'),
-    ...(platform === 'linux' ? { extraResource: [path.join(__dirname, 'resources/linux/shellfox-launcher'), path.join(__dirname, 'src/main/update/shellfox-update.sh'), path.join(__dirname, 'tmp/build/cli')] } : {}),
+    ...(platform === 'linux' ? { extraResource: [path.join(__dirname, 'resources/linux/shellfox-launcher'), path.join(__dirname, 'src/main/update/shellfox-update.sh'), path.join(__dirname, 'tmp/build/cli'), path.join(__dirname, 'tmp/package-resources/tailscale')] } : {}),
     ...(platform === 'darwin' ? {
-      extraResource: [path.join(__dirname, 'tmp/package-resources/terminal-native'), path.join(__dirname, 'tmp/build/cli')],
+      extraResource: [path.join(__dirname, 'tmp/package-resources/terminal-native'), path.join(__dirname, 'tmp/build/cli'), path.join(__dirname, 'tmp/package-resources/tailscale')],
       // Packager signs resources and unpacked native code inside-out before
       // sealing the app. Never add/chmod native resources after this step.
       osxSign: macSigning,
     } : {}),
-    ...(platform === 'win32' ? { extraResource: [path.join(__dirname, 'tmp/build/cli'), path.join(__dirname, 'tmp/package-resources/elevated-terminal')] } : {}),
+    ...(platform === 'win32' ? { extraResource: [path.join(__dirname, 'tmp/build/cli'), path.join(__dirname, 'tmp/package-resources/elevated-terminal'), path.join(__dirname, 'tmp/package-resources/tailscale')] } : {}),
     prune: false, // scripts/forge.mjs stages only the external native runtime.
     // Entire node-pty is unpacked, including JS child-process agents, DLLs,
     // OpenConsole.exe, winpty-agent.exe and the macOS spawn-helper.

@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { ManagerApi } from '../shared/contracts';
 const bridge = vi.hoisted(() => ({ api: undefined as ManagerApi | undefined, listeners: new Map<string, (e: unknown, value: unknown) => void>() }));
-vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: (_name: string, api: ManagerApi) => { bridge.api = api; } }, ipcRenderer: {
+vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: (name: string, api: ManagerApi) => { if (name === 'shellfox') bridge.api = api; } }, ipcRenderer: {
   invoke: vi.fn(), on: (channel: string, listener: (e: unknown, value: unknown) => void) => bridge.listeners.set(channel, listener),
   removeListener: (channel: string) => bridge.listeners.delete(channel),
 } }));

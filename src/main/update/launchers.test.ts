@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import path from 'node:path';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { execFile, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { promisify } from 'node:util';
+import { build } from 'esbuild';
 import { linuxLauncher } from '../platform/linux-cli';
 import { shellfoxShims } from '../platform/shellfox-cli';
 import updateSh from './shellfox-update.sh';
@@ -14,23 +17,42 @@ describe('launchers route `update`', () => {
     expect(launcher).toContain('SHELLFOX_APP_EXECUTABLE=\'/Applications/Shellfox.app/Contents/MacOS/Shellfox\' exec /bin/sh -c "$shellfox_update_script" shellfox-update "$@"');
     expect(launcher).toContain('dpkg-query -W');
   });
-  it.skipIf(process.platform !== 'linux')('routes updater help through the CLI and invalid update arguments to the updater, never launching the GUI', async () => {
-    await mkdir(path.resolve('tmp'), { recursive: true });
-    const root = await mkdtemp(path.resolve('tmp/update-launcher-'));
+  const shell = process.platform === 'win32' ? path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe') : '/bin/sh';
+  it.skipIf(!existsSync(shell))('routes help and JSON update requests through the universal CLI without launching GUI or the updater', async () => {
+    await mkdir(path.resolve('tmp'), { recursive: true }); const root = await mkdtemp(path.resolve('tmp/update-launcher-'));
+    const posix = (value: string) => process.platform === 'win32' ? value.replace(/^([A-Za-z]):/, (_, drive: string) => '/' + drive.toLowerCase()).replaceAll('\\', '/') : value;
+    const exec = promisify(execFile);
     try {
-      const marker = path.join(root, 'launched'), exe = path.join(root, "app 'x'"), launcher = path.join(root, 'shellfox');
-      const helper = path.join(root, 'helper'), args = path.join(root, 'helper-args');
-      await writeFile(exe, `#!/bin/sh\nif [ "$1" = "$SHELLFOX_TEST_HELPER" ]; then printf '%s\\n' "$@" > "$SHELLFOX_TEST_ARGS"; printf '%s\\n' 'shellfox update [--check]'; exit 0; fi\necho launched > '${marker}'\n`); await chmod(exe, 0o755);
-      const env = { ...process.env, SHELLFOX_TEST_HELPER: helper, SHELLFOX_TEST_ARGS: args };
-      await writeFile(launcher, linuxLauncher({ executable: exe, cliHelper: helper })); await chmod(launcher, 0o755);
-      const help = await new Promise<string>((resolve, reject) => execFile('/bin/sh', [launcher, 'update', '--help'], { timeout: 5000, env }, (error, out) => error ? reject(error) : resolve(out)));
-      expect(help).toContain('shellfox update [--check]');
-      expect(await readFile(args, 'utf8')).toBe([helper, 'update', '--help', ''].join('\n'));
-      const bad = await new Promise<number>(resolve => execFile('/bin/sh', [launcher, 'update', '--nope'], { timeout: 5000, env }, error => resolve((error as { code?: number } | null)?.code ?? 0)));
-      expect(bad).toBe(2);
+      const marker = path.join(root, 'launched'), exe = path.join(root, "app 'x'"), launcher = path.join(root, 'shellfox'), helper = path.join(root, 'cli.cjs');
+      await writeFile(exe, `#!/bin/sh
+if [ "\${ELECTRON_RUN_AS_NODE:-}" = 1 ]; then
+  helper=$1; shift
+  if command -v cygpath >/dev/null 2>&1; then helper=$(cygpath -w "$helper") || exit 1; fi
+  export MSYS_ARG_CONV_EXCL='*'
+  exec "$SHELLFOX_TEST_NODE" "$helper" "$@"
+fi
+printf launched > "$SHELLFOX_TEST_GUI"
+`); await chmod(exe, 0o755);
+      await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs',
+        packages: 'external', loader: { '.sh': 'text', '.ps1': 'text' }, define: { __SHELLFOX_VERSION__: '"test"' } });
+      const env = { ...process.env, SHELLFOX_TEST_NODE: posix(process.execPath), SHELLFOX_TEST_GUI: posix(marker) };
+      await writeFile(launcher, linuxLauncher({ executable: posix(exe), cliHelper: posix(helper), userData: path.join(root, 'private data') }));
+      for (const args of [['update', '--help'], ['update', '-h'], ['update', 'help'], ['update', '--check', '--help']]) {
+        const { stdout } = await exec(shell, [posix(launcher), ...args], { cwd: root, env, timeout: 10000 });
+        expect(stdout).toContain('update [--check]'); expect(stdout).toContain('Application');
+      }
+      for (const args of [['update', '--json'], ['--json', 'update'], ['update', '--check', '--json'], ['update', '--json', '--check'], ['--yes', 'update', '--json']]) {
+        const result = await exec(shell, [posix(launcher), ...args], { cwd: root, env, timeout: 10000 }).catch((error: unknown) => {
+          if (!(error instanceof Error) || !('code' in error) || !('stdout' in error) || !('stderr' in error)) throw error;
+          return { code: error.code, stdout: String(error.stdout), stderr: String(error.stderr) };
+        });
+        expect('code' in result ? result.code : 0).toBe(2); expect(result.stderr).toBe('');
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+      }
+      await expect(exec(shell, [posix(launcher), 'update', '--bad'], { cwd: root, env, timeout: 10000 })).rejects.toMatchObject({ code: 2 });
       await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     } finally { await rm(root, { recursive: true, force: true }); }
-  });
+  }, 30000);
   it('routes `update` in the Windows cmd and POSIX shims to the PowerShell updater', () => {
     const shims = shellfoxShims({ executable: 'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe', updateScript: updatePs1 });
     // cmd forwards argv to the bundled helper, which spawns the updater without cmd /c.
@@ -40,9 +62,9 @@ describe('launchers route `update`', () => {
     expect(shims.cmd).toContain('cli\\main\\cli.cjs" %*');
     expect(shims.cmd).toContain('exit /b %errorlevel%');
     expect(shims.cmd).not.toContain('%~1'); expect(shims.cmd).not.toContain('%~2');
-    expect(shims.posix).toContain('if [ "$1" = update ]; then');
-    expect(shims.posix).toContain('-File "$script" -Executable \'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe\'');
-    expect(shims.posix).toContain('cygpath -w "$script"'); expect(shims.posix).toContain('wslpath -w "$script"');
+    expect(shims.posix).toContain('export SHELLFOX_CLI_UPDATE="$shellfox_update"');
+    expect(shims.posix).toContain('exec "$runtime" "$helper"');
+    expect(shims.posix).toContain('cygpath -w "$shellfox_update"'); expect(shims.posix).toContain('wslpath -w "$shellfox_update"');
     expect(shims.posix).toContain('shellfox-update.ps1');
     expect(shims.update).toBe(updatePs1);
   });

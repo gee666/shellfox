@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { ManagerApi } from '../shared/contracts';
 const bridge = vi.hoisted(() => ({ api: undefined as ManagerApi | undefined, invoke: vi.fn() }));
 vi.mock('electron', () => ({
-  contextBridge: { exposeInMainWorld: (_name: string, api: ManagerApi) => { bridge.api = api; } },
+  contextBridge: { exposeInMainWorld: (name: string, api: ManagerApi) => { if (name === 'shellfox') bridge.api = api; } },
   ipcRenderer: { invoke: bridge.invoke, on: vi.fn(), removeListener: vi.fn() },
 }));
 import './index';

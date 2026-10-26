@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { SessionDto } from '../shared/contracts';
 import { parseWslUnc } from '../shared/wsl-path';
 import { request } from './api';
@@ -12,8 +12,9 @@ export function shortenHome(cwd: string) {
   cwd = parseWslUnc(cwd)?.guestPath ?? cwd;
   return cwd.replace(/^[a-z]:[\\/]Users[\\/][^\\/]+(?=[\\/]|$)/i, '~').replace(/^\/home\/[^/]+(?=\/|$)|^\/Users\/[^/]+(?=\/|$)/, '~');
 }
-export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, onSelect }: {
+export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, onSelect, label = 'Local', remote = false, actions, onSectionSelect, scrollContainer }: {
   client: ManagerClient; sessions: SessionDto[]; selectedId: string | null; busy: Record<string, boolean>; pageSize: number; onSelect?: () => void;
+  label?: string; remote?: boolean; actions?: ReactNode; onSectionSelect?: () => void; scrollContainer?: RefObject<HTMLDivElement | null>;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [pagination, setPagination] = useState({ pageSize, pages: 1 });
@@ -22,7 +23,8 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [deleting, setDeleting] = useState<SessionDto | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const ownScrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = scrollContainer ?? ownScrollRef;
   const moreFocus = useRef<HTMLElement | null>(null);
   const action = useAction();
   const notify = useNotify();
@@ -34,7 +36,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
     moreFocus.current = null;
     if (!prior || prior.isConnected || document.activeElement !== document.body) return;
     // The last page removes Show more. Leave keyboard focus on the last row.
-    const rows = scrollRef.current?.querySelectorAll('[role="listitem"]');
+    const rows = ownScrollRef.current?.querySelectorAll('[role="listitem"]');
     rows?.[rows.length - 1]?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
   });
   function more() {
@@ -112,14 +114,14 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
   }
   const retainedIds = [renaming, menu?.session.id ?? null, deleting?.id ?? null];
   const menuSettled = menu && sessionDot(menu.session, busy).kind === 'settled';
-  return <div className="sidebar-scroll" ref={scrollRef}>
-    <button className="session-section-toggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><span>Local · {sessions.length}</span><span className={expanded ? 'expanded' : ''}><Icon name="chevron" /></span></button>
-    {expanded && <div role="region" aria-label="Local sessions">{shown.length ? <WindowedSessionList sessions={shown} scrollRef={scrollRef} selectedId={selectedId} retainedIds={retainedIds} renderRow={row} /> : <p className="empty-small">No sessions, press +</p>}{shown.length < sessions.length && <button className="text-button session-more" onClick={more}>Show more</button>}</div>}
+  return <div className="sidebar-scroll" ref={ownScrollRef}>
+    <div className="machine-section-heading"><button className="session-section-toggle" aria-expanded={expanded} onClick={() => { setExpanded(value => !value); onSectionSelect?.(); }}><span className={`section-chevron${expanded ? ' expanded' : ''}`}><Icon name="chevron" /></span><span className="section-label">{label} · {sessions.length}</span></button>{actions}</div>
+    {expanded && <div role="region" aria-label={`${label} sessions`}>{shown.length ? <WindowedSessionList sessions={shown} scrollRef={scrollRef} selectedId={selectedId} retainedIds={retainedIds} renderRow={row} /> : <p className="empty-small">No sessions, press +</p>}{shown.length < sessions.length && <button className="text-button session-more" onClick={more}>Show more</button>}</div>}
     {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
       <button role="menuitem" disabled={action.pending} onClick={() => void pin(menu.session, !menu.session.pinnedAt)}>{menu.session.pinnedAt ? 'Unpin' : 'Pin to top'}</button>
       <button role="menuitem" disabled={action.pending} onClick={() => rename(menu.session)}>Rename</button>
       <button role="menuitem" disabled={action.pending} onClick={() => { setEditingEnv(menu.session); setMenu(null); }}>Environment variables…</button>
-      <button role="menuitem" disabled={action.pending} onClick={() => { const sessionId = menu.session.id; setMenu(null); void action.run(() => client.api.openSessionFolder({ sessionId })); }}>Open in File Explorer</button>
+      {!remote && <button role="menuitem" disabled={action.pending} onClick={() => { const sessionId = menu.session.id; setMenu(null); void action.run(() => client.api.openSessionFolder({ sessionId })); }}>Open in File Explorer</button>}
       <button role="menuitem" disabled={action.pending} onClick={() => { const cwd = menu.session.cwd; setMenu(null); void copyPath(cwd); }}>Copy path</button>
       {(menu.session.status === 'error' || menu.session.error || menu.session.tabs.some(tab => tab.error)) && <button role="menuitem" disabled={action.pending} onClick={() => { const session = menu.session; setMenu(null); void action.run(() => client.api.clearSessionError({ sessionId: session.id })).then(result => { if (result?.ok) client.accept(result.value); }); }}>Clear error</button>}
       <button role="menuitem" disabled={action.pending} onClick={() => void toggleSettled(menu.session)}>{menuSettled ? 'Unsettle' : 'Settle'}</button>

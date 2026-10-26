@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { z } from 'zod';
-import { sessionSchema, idSchema } from '../shared/schemas';
+import { sessionSchema } from '../shared/schemas';
+import { tabStatSchema } from '../shared/process-stats-schemas';
 
 export const CONTROL_ENDPOINT_FILE = path.join('control', 'endpoint.json');
 export const CONTROL_REQUEST_BYTES = 4096;
@@ -28,9 +29,6 @@ export const controlRequestSchema = z.object({
 });
 export const controlEndpointSchema = z.object({ version: z.literal(1), host: z.literal('127.0.0.1'), port: z.number().int().min(1).max(65535), secret: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 export const controlEnvelopeSchema = z.object({ version: z.literal(1), secret: z.string().regex(/^[a-f0-9]{64}$/), request: controlRequestSchema }).strict();
-const measurement = z.number().finite().nonnegative().nullable();
-const processStatSchema = z.object({ pid: z.number().int().positive().max(4294967295), parentPid: z.number().int().nonnegative().max(4294967295), name: z.string().max(4096), memoryBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(), elapsedSeconds: measurement, domain: z.string().min(1).max(4096) }).strict();
-const tabStatSchema = z.object({ tabId: idSchema, processes: z.array(processStatSchema).max(100000), memoryBytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(), elapsedSeconds: measurement, reason: z.string().max(65536).optional() }).strict();
 export const controlResponseSchema = z.object({ sessions: z.array(sessionSchema).max(10000).optional(), session: sessionSchema.optional(), tabs: z.array(tabStatSchema).max(64).optional(), message: z.string().max(1000).optional() }).strict();
 export const controlReplySchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), response: controlResponseSchema }).strict(),

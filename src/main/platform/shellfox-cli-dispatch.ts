@@ -1,3 +1,5 @@
+import { colorEnabled } from '../../cli/human';
+import { styles } from '../ssh/presentation';
 import { CustomCommandStore, commandKey, validateCommandName } from './shellfox-cli-commands';
 import { executeScript, resolveScriptLocation, scriptContext, type ScriptContext } from './shellfox-cli-scripts';
 
@@ -14,7 +16,7 @@ Paths are references. Each invocation reads the current script.
 All arguments after the name go to the script unchanged.
 `;
 export interface CustomCliOptions {
-  output?: { write(text: string): unknown };
+  output?: { write(text: string): unknown; isTTY?: boolean };
   error?: { write(text: string): unknown };
   context?: ScriptContext;
   execute?: typeof executeScript;
@@ -25,7 +27,9 @@ class UsageError extends Error {}
 /** Only the cmd namespace is handled here. Other commands never read the registry. */
 export async function dispatchCustomCli(argv: string[], userData: string, options: CustomCliOptions = {}): Promise<number | null> {
   if (commandKey(argv[0] ?? '') !== 'cmd') return null;
-  const output = options.output ?? process.stdout, error = options.error ?? process.stderr;
+  const destination = options.output ?? process.stdout, error = options.error ?? process.stderr;
+  const color = argv[1] !== '--complete' && colorEnabled(destination);
+  const output = { write: (text: string) => destination.write(color ? styles(true).accent(text) : text) };
   const store = new CustomCommandStore(userData);
   const args = argv.slice(1), operation = args.shift();
   try {

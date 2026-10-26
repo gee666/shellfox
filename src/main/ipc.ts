@@ -1,11 +1,11 @@
-import { ipcMain, dialog, clipboard, shell, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { failure, success } from '../shared/contracts';
-import { CLIPBOARD_PASTE_BYTES, requestEnvelopeSchema, requestSchemas, responseSchemas } from '../shared/schemas';
+import { requestEnvelopeSchema, requestSchemas, responseSchemas } from '../shared/schemas';
 import type { SessionService } from './service';
 import type { EmbeddedSessionService } from './terminal/service';
 import { TerminalDelivery } from './terminal/delivery';
-import { validateDirectory } from './directory';
-import { getHomeDirectory, resolveDirectory, completeDirectory } from './directory-prompt';
+import { desktopRequest } from './desktop-requests';
+import { getHomeDirectory, resolveDirectory, createDirectory, completeDirectory } from './directory-prompt';
 import { SshProfileStore } from './ssh/storage';
 import { readPuttySessions } from './ssh/putty';
 import type { UpdateSource } from './update/self-updater';
@@ -15,7 +15,7 @@ export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow
   return !window.isDestroyed() && event.sender === window.webContents && !!event.senderFrame &&
     event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === rendererUrl;
 }
-export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource, ssh?: SshProfileStore, keepAwake?: KeepAwake): () => void {
+export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource, ssh?: SshProfileStore, keepAwake?: KeepAwake, assertOwnership?: () => void): () => void {
   let announcedReady = false;
   const embedded = 'attachTerminal' in service ? service : null;
   const delivery = embedded ? new TerminalDelivery(input => embedded.attachTerminal(input), event => {
@@ -30,6 +30,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
   });
   ipcMain.handle('manager:request', async (event, raw: unknown) => {
     if (!isTrustedSender(event, window, rendererUrl)) return failure('AUTH_FAILED', 'Request did not come from the application renderer');
+    try { assertOwnership?.(); } catch { return failure('NATIVE_UNAVAILABLE', 'Host ownership was lost. Shellfox is shutting down.'); }
     const envelope = requestEnvelopeSchema.safeParse(raw);
     if (!envelope.success) return failure('VALIDATION', 'Invalid request envelope');
     const { method, payload } = envelope.data;
@@ -40,9 +41,9 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
       if ('authorizeForegroundFocus' in backend && typeof backend.authorizeForegroundFocus === 'function') backend.authorizeForegroundFocus();
     }
     try {
-      let result: unknown;
+      let result = await desktopRequest(method, payload, { window, updates, sessionDirectory: id => service.repository.session(id)?.cwd ?? null });
       // Keep methods explicit. There is no property lookup into the service.
-      switch (method) {
+      if (result === undefined) switch (method) {
         case 'listSshProfiles': result = ssh ? await ssh.list() : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
         case 'saveSshProfile': result = ssh ? await ssh.save(requestSchemas.saveSshProfile.parse(payload)) : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
         case 'deleteSshProfile': result = ssh ? await ssh.delete(requestSchemas.deleteSshProfile.parse(payload).id) : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
@@ -52,18 +53,15 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
           catch(error){result=failure('STORAGE_FAILED',('PuTTY import failed: '+(error as Error).message).replace(/[\x00-\x1f\x7f]/g,' ').slice(0,1000),true);}
           break;
         }
-        case 'chooseSshKeyFile': {
-          const selection = await dialog.showOpenDialog(window, { properties: ['openFile'], title: 'Choose SSH private key' });
-          result = success(selection.canceled || !selection.filePaths[0] ? null : { path: selection.filePaths[0] }); break;
-        }
         case 'getSnapshot':
           // Registry/PATH status is metadata, not terminal readiness. Return
           // runtime state now; changed metadata publishes its own notification.
-          if (embedded) void embedded.refreshIntegrations().catch(() => {});
+          void service.refreshIntegrations?.().catch(() => {});
           result = service.getSnapshot();
           // The renderer subscribes before its first snapshot request. Load completion alone is not enough.
           if (!announcedReady) { announcedReady = true; rendererReady?.(); }
           break;
+        case 'getSessionStats': result = embedded ? await embedded.getSessionStats(requestSchemas.getSessionStats.parse(payload)) : failure('UNSUPPORTED', 'Process stats require embedded terminals.'); break;
         case 'setVisibleSessions': result = embedded ? embedded.setVisibleSessions(requestSchemas.setVisibleSessions.parse(payload)) : success({ configured: true }); break;
         case 'getTerminalProfiles': result = embedded ? embedded.getTerminalProfiles() : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
         case 'attachTerminal': {
@@ -95,54 +93,12 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'setExplorerIntegration': result = await service.setExplorerIntegration(requestSchemas.setExplorerIntegration.parse(payload)); break;
         case 'setSessionEnv': result = await service.setSessionEnv(requestSchemas.setSessionEnv.parse(payload)); break;
         case 'setCliIntegration': result = await service.setCliIntegration(requestSchemas.setCliIntegration.parse(payload)); break;
-        case 'copyText': {
-          try { await clipboard.writeText(requestSchemas.copyText.parse(payload).text); result = success({ copied: true }); }
-          catch { result = failure('INTERNAL', 'Could not copy text to the system clipboard.', true); }
-          break;
-        }
-        case 'readClipboardText': {
-          requestSchemas.readClipboardText.parse(payload);
-          try {
-            const text = await clipboard.readText();
-            result = new TextEncoder().encode(text).byteLength > CLIPBOARD_PASTE_BYTES
-              ? failure('VALIDATION', 'Clipboard text is too large to paste (limit 64 KiB). Paste smaller sections.')
-              : success({ text });
-          } catch { result = failure('INTERNAL', 'Could not read the system clipboard.', true); }
-          break;
-        }
-        case 'openSessionFolder': {
-          const { sessionId } = requestSchemas.openSessionFolder.parse(payload);
-          const saved = service.repository.session(sessionId);
-          if (!saved) { result = failure('NOT_FOUND', 'Session not found.'); break; }
-          try {
-            const cwd = await validateDirectory(saved.cwd), error = await shell.openPath(cwd);
-            result = error ? failure('INTERNAL', 'The session folder could not be opened: ' + error) : success({ opened: true });
-          } catch { result = failure('NOT_FOUND', 'The session folder is missing or inaccessible.'); }
-          break;
-        }
-        case 'openExternal': {
-          const { url } = requestSchemas.openExternal.parse(payload);
-          try { await shell.openExternal(new URL(url).href); result = success({ opened: true }); }
-          catch { result = failure('INTERNAL', 'The link could not be opened.'); }
-          break;
-        }
         case 'getKeepAwake': result = keepAwake ? success({ active: keepAwake.active }) : failure('UNSUPPORTED', 'Keep awake is unavailable.'); break;
         case 'setKeepAwake': result = keepAwake ? success({ active: keepAwake.set(requestSchemas.setKeepAwake.parse(payload).active) }) : failure('UNSUPPORTED', 'Keep awake is unavailable.'); break;
-        case 'getUpdateStatus': result = updates ? success(await updates.status()) : failure('UNSUPPORTED', 'Update checks are unavailable.'); break;
-        case 'downloadUpdate': result = updates?.download ? await updates.download() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;
-        case 'installUpdate': result = updates?.install ? await updates.install() : failure('UNSUPPORTED', 'In-app updates are unavailable.'); break;
         case 'getHomeDirectory': result = getHomeDirectory(); break;
         case 'resolveDirectory': result = await resolveDirectory(requestSchemas.resolveDirectory.parse(payload)); break;
+        case 'createDirectory': result = await createDirectory(requestSchemas.createDirectory.parse(payload)); break;
         case 'completeDirectory': result = await completeDirectory(requestSchemas.completeDirectory.parse(payload)); break;
-        case 'chooseDirectory': {
-          const selection = await dialog.showOpenDialog(window, { properties: ['openDirectory'], title: 'Choose default working directory' });
-          if (selection.canceled || !selection.filePaths[0]) result = success(null);
-          else {
-            try { result = success({ cwd: await validateDirectory(selection.filePaths[0]) }); }
-            catch { result = failure('VALIDATION', 'Choose an accessible local directory'); }
-          }
-          break;
-        }
       }
       const response = responseSchemas[method].safeParse(result);
       return response.success ? response.data : failure('INTERNAL', 'Invalid application response');

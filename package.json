@@ -12,8 +12,14 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:native": "node scripts/native.mjs test",
+    "test:tailscale": "node scripts/tailscale.mjs test",
+    "build:tailscale": "node scripts/tailscale.mjs build",
     "build:native": "node scripts/native.mjs publish",
     "build": "node scripts/build.mjs",
+    "build:headless": "node scripts/headless-build.mjs",
+    "package:headless": "node scripts/headless-package.mjs",
+    "test:headless": "node scripts/headless-smoke.mjs",
+    "test:headless:contracts": "node --test scripts/headless.test.mjs",
     "build:test": "node scripts/build.mjs --test",
     "test:e2e": "node scripts/verify.mjs e2e",
     "test:windows": "node scripts/verify.mjs windows",
@@ -21,6 +27,7 @@
     "make": "node scripts/forge.mjs make",
     "test:packaged": "node scripts/package-smoke.mjs",
     "test:packaged:startup": "node scripts/package-ui-smoke.mjs",
+    "test:packaged:remote": "node scripts/package-remote-smoke.mjs",
     "start": "electron .",
     "dev": "node scripts/dev.mjs",
     "rebuild": "node scripts/rebuild.mjs",
@@ -29,7 +36,7 @@
     "build:terminal-native": "node scripts/terminal-native.mjs",
     "test:terminal-native": "node scripts/terminal-native-preflight.mjs",
     "test:administrator": "node scripts/elevated-terminal-test.mjs",
-    "test:packaging": "node --test scripts/packaging.test.mjs"
+    "test:packaging": "node --test scripts/packaging.test.mjs scripts/headless.test.mjs"
   },
   "dependencies": {
     "@xmldom/xmldom": "0.9.12",

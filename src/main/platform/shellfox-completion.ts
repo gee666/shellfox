@@ -1,9 +1,23 @@
 /** Generated hooks only query names. Registry output is data, never shell source. */
+const sessionOperations = ['list', 'create', 'inspect', 'rename', 'pin', 'env', 'settle', 'unsettle', 'delete', 'stats', 'processes', 'focus', 'refresh', 'clear-error'];
+const terminalOperations = ['list', 'create', 'rename', 'reorder', 'close', 'attach', 'write'];
+const subcommands: Record<string, string[]> = {
+  host: ['run', 'status', 'stop', 'service', 'keep-awake'], network: ['enable', 'disable', 'login', 'status'],
+  machines: ['list', 'connect', 'disconnect', 'forget'], approvals: ['list', 'approve', 'revoke', 'reject'],
+  session: sessionOperations, ss: sessionOperations, sessions: sessionOperations,
+  terminals: terminalOperations, tm: terminalOperations,
+  settings: ['read', 'update'], profiles: ['list'], path: ['home', 'resolve', 'complete', 'create'], remote: ['api'],
+};
 const commands = [
-  ['cmd', 'Run or manage custom script commands'],
-  ['delete', 'Inspect, confirm and delete a session'],
-  ['settle', 'Mark a session settled without closing terminals'],
-  ['unsettle', 'Clear settled status without changing terminals'],
+  ['host', 'Run or manage the host'], ['session', 'Manage sessions'],
+  ['terminals', 'Manage and attach terminals'], ['network', 'Manage Tailscale networking'],
+  ['machines', 'Manage remote machines'], ['approvals', 'Manage access approvals'],
+  ['settings', 'Read or update settings'], ['profiles', 'List terminal profiles'],
+  ['path', 'Use host path helpers'], ['commands', 'Run or manage script commands'],
+  ['ssh', 'Connect to a saved SSH profile'], ['api', 'Call a validated manager method'],
+  ['remote', 'Call remote management'], ['update', 'Update Shellfox'], ['version', 'Print the version'],
+  ['help', 'Show help'], ['completion', 'Print shell completion'],
+  ['--host', 'Select a local or remote host'], ['--json', 'Print JSON'], ['--yes', 'Confirm destructive operations'],
 ] as const;
 const operations = [
   ['--run', 'Run a registered command'],
@@ -27,7 +41,14 @@ Register-ArgumentCompleter -Native -CommandName shellfox,shellfox.ps1,shellfox.c
   $position=$before.Count + 1
   $items=@()
   if ($position -eq 1) { $items=@(${entries(commands)}) }
-  elseif ($before[0].Extent.Text -notmatch '^(?i:cmd)$') { return }
+  elseif ($before[0].Extent.Text -notmatch '^(?i:cmd|commands)$') {
+    if ($position -eq 2) {
+      $namespace=$before[0].Extent.Text
+      switch ($namespace) {
+${Object.entries(subcommands).map(([name, values]) => `        ${psQuote(name)} { $items=@(${entries(values.map(value => [value, value]))}) }`).join('\n')}
+      }
+    }
+  }
   elseif ($position -eq 2) { $items=@(${entries(operations)}) }
   elseif ($position -ne 3 -or $before[1].Extent.Text -notin @(${nameOperations.map(psQuote).join(',')})) { return }
   foreach ($item in $items) {
@@ -35,7 +56,7 @@ Register-ArgumentCompleter -Native -CommandName shellfox,shellfox.ps1,shellfox.c
       [System.Management.Automation.CompletionResult]::new($item[0],$item[0],'ParameterValue',$item[1])
     }
   }
-  if ($position -ge 2 -and -not $wordToComplete.StartsWith('-')) {
+  if ($before.Count -gt 0 -and $before[0].Extent.Text -match '^(?i:cmd|commands)$' -and $position -ge 2 -and -not $wordToComplete.StartsWith('-')) {
     $savedExit=$global:LASTEXITCODE
     try {
       $commandName=$commandAst.CommandElements[0].Value
@@ -65,7 +86,15 @@ _shellfox_complete() {
     done
     return 0
   fi
-  [[ \${COMP_WORDS[1]} == cmd ]] || return 0
+  if [[ \${COMP_WORDS[1]} != cmd && \${COMP_WORDS[1]} != commands ]]; then
+    [[ $COMP_CWORD -eq 2 ]] || return 0
+    case "\${COMP_WORDS[1]}" in
+${Object.entries(subcommands).map(([name, values]) => `      ${name}) output='${values.join(' ')}' ;;`).join('\n')}
+      *) return 0 ;;
+    esac
+    for candidate in $output; do [[ $candidate == "$current"* ]] && COMPREPLY+=("$candidate"); done
+    return 0
+  fi
   if [[ $COMP_CWORD -eq 2 ]]; then
     for candidate in ${operations.map(([name]) => name).join(' ')}; do
       [[ $candidate == "$current"* ]] && COMPREPLY+=("$candidate")
@@ -97,7 +126,15 @@ _shellfox_complete() {
     _describe 'Shellfox command' subcommands
     return 0
   fi
-  [[ $words[2] == cmd ]] || return 0
+  if [[ $words[2] != cmd && $words[2] != commands ]]; then
+    (( CURRENT == 3 )) || return 0
+    case "$words[2]" in
+${Object.entries(subcommands).map(([name, values]) => `      ${name}) subcommands=(${values.join(' ')}) ;;`).join('\n')}
+      *) return 0 ;;
+    esac
+    compadd -- "\${subcommands[@]}"
+    return 0
+  fi
   if (( CURRENT == 3 )); then
     local -a operations
     operations=(${operations.map(([name, hint]) => `'${name}:${hint}'`).join(' ')})

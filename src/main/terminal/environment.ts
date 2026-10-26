@@ -5,14 +5,20 @@ import { envVarsSchemaFor } from '../../shared/schemas';
 export const HYPERLINK_VARIABLES: readonly (readonly [string, string])[] = [['FORCE_HYPERLINK', '1'], ['PI_HYPERLINKS', '1']];
 const MANAGED_NAMES = ['term', 'colorterm', ...HYPERLINK_VARIABLES.map(([name]) => name.toLowerCase())];
 
-/** Session overrides win, except the owned marker, including Windows' case-insensitive names. */
-export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: EnvVar[], options: { windows: boolean; wsl: boolean; cliBin?: string; marker?: string }): Record<string, string> {
+export interface HostTerminalEnvironment { userData: string; runtimePath?: string; resourcesPath?: string; headless?: boolean }
+/** Session overrides win, except host identity and the owned marker. */
+export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: EnvVar[], options: { windows: boolean; wsl: boolean; cliBin?: string; marker?: string; host?: HostTerminalEnvironment }): Record<string, string> {
   const env: Record<string, string> = Object.create(null);
   const set = (name: string, value: string) => {
     if (options.windows) for (const key of Object.keys(env)) if (key.toLowerCase() === name.toLowerCase()) delete env[key];
     env[name] = value;
   };
-  for (const [key, value] of Object.entries(inherited)) if (typeof value === 'string' && !key.startsWith('SHELLFOX_')) set(key, value);
+  for (const [key, value] of Object.entries(inherited)) {
+    if (typeof value !== 'string' || key.toUpperCase().startsWith('SHELLFOX_')) continue;
+    // The CLI's Electron-as-Node launcher mode belongs to its private shim, not user programs.
+    if (options.host && key.toUpperCase() === 'ELECTRON_RUN_AS_NODE') continue;
+    set(key, value);
+  }
   // Terminal capabilities are defaults, not inherited host-console limitations.
   // Apply overrides last, including case-insensitive Windows names.
   set('TERM', 'xterm-256color');
@@ -34,13 +40,20 @@ export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: Env
     for (const key of Object.keys(env)) if (key.toLowerCase() === 'shellfox_terminal_marker') delete env[key];
     set('SHELLFOX_TERMINAL_MARKER', options.marker);
   }
+  const hostPaths = new Set<string>();
+  if (options.host) {
+    const values = { SHELLFOX_USER_DATA: options.host.userData, SHELLFOX_RUNTIME_PATH: options.host.runtimePath, SHELLFOX_RESOURCES_PATH: options.host.resourcesPath };
+    for (const [name, value] of Object.entries(values)) if (value !== undefined) { set(name, value); hostPaths.add(name); }
+    if (options.host.headless) set('SHELLFOX_HEADLESS', '1');
+  }
   // Every Windows shell can launch wsl.exe later. Prepare the same transfer
   // list for local and direct WSL tabs, without exporting the whole host env.
   if (options.windows || options.wsl) {
     const key = Object.keys(env).find(key => key.toLowerCase() === 'wslenv') ?? 'WSLENV';
     const transfer = [...new Set([
       'TERM', 'COLORTERM', ...HYPERLINK_VARIABLES.map(([name]) => name), ...parsed.map(v => v.name),
-      ...(options.marker !== undefined ? ['SHELLFOX_TERMINAL_MARKER'] : []),
+      ...(options.marker !== undefined ? ['SHELLFOX_TERMINAL_MARKER'] : []), ...hostPaths,
+      ...(options.host?.headless ? ['SHELLFOX_HEADLESS'] : []),
     ]
       .map(name => Object.keys(env).find(key => key.toLowerCase() === name.toLowerCase()) ?? name))]
       .filter(name => name.toLowerCase() !== 'wslenv');
@@ -48,7 +61,7 @@ export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: Env
     // Strip transfer restrictions/transforms from managed values. The marker must
     // cross both directions unchanged; unrelated WSLENV entries keep their flags.
     const previous = (env[key] ?? '').split(':').filter(entry => entry && !names.has(entry.split('/')[0]!.toLowerCase()));
-    set('WSLENV', [...previous, ...transfer].join(':'));
+    set('WSLENV', [...previous, ...transfer.map(name => hostPaths.has(name) ? name + '/p' : name)].join(':'));
   }
   return env;
 }

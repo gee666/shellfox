@@ -6,20 +6,21 @@ import { resultSchema } from '../../shared/schemas';
 import { z } from 'zod';
 import { shellfoxDispatcher } from './shellfox-dispatcher';
 import { runRegistry, type RegistryRunner } from './explorer';
-import { helperPath, helperData, posixHelper as basePosixHelper } from './cli-helper';
+import { helperPath, helperData, helperHostEnvironment, posixHelper as basePosixHelper } from './cli-helper';
 import { customScriptContext } from './shellfox-cli-scripts';
 import { launchConfig } from './shellfox-cli-launch';
 import { powershellShim } from './shellfox-cli-powershell';
-const posixHelper = (options: ShellfoxCliOptions, windows: boolean) => customScriptContext(basePosixHelper(options, windows));
+const posixHelper = (options: ShellfoxCliOptions, windows: boolean) => customScriptContext(basePosixHelper({ ...options, userDataIsDefault: true }, windows));
 import { setWslCli, type WslCliOptions } from './wsl-cli';
 
 export const SHELLFOX_COMMAND = 'shellfox';
 const OWNER = 'Shellfox/cli-v1';
-export interface CliPort { binDir: string; get(): Promise<Result<CliIntegrationDto>>; set(installed: boolean): Promise<Result<CliIntegrationDto>> }
+export interface CliPort { binDir: string; readonly readOnly?: true; get(): Promise<Result<CliIntegrationDto>>; set(installed: boolean): Promise<Result<CliIntegrationDto>> }
 export interface ShellfoxCliOptions {
   /** Text of shellfox-update.ps1, written next to the shims (supplied by the main process bundle). */
   updateScript?: string;
   executable: string; appPath?: string; cliHelper?: string; userData?: string; binDir?: string; platform?: NodeJS.Platform;
+  resourcesPath?: string; projectRoot?: string;
   registryKey?: string; run?: RegistryRunner; prefixArgs?: string[]; launchEnv?: Record<string, string>;
   /** Disabled by default with a custom bin, registry key, or registry runner. Explicitly opt in
    * only with an injected runner or an isolated guest home when testing. */
@@ -32,15 +33,23 @@ function cmdQuote(s: string): string {
 }
 export function shellfoxShims(options: ShellfoxCliOptions): { cmd: string; powershell: string; posix: string; dispatcher: string; update: string } {
   const args = [...(options.appPath ? [options.appPath] : []), ...(options.prefixArgs ?? [])];
-  const environment = options.launchEnv ?? {};
-  let posix = `#!/bin/sh\n# ${OWNER}\nif [ "$#" -eq 0 ] || [ "$1" = '--help' ]; then\n  printf '%s\\n' 'Usage: shellfox start [path]' '       shellfox update [--check]' 'Starts a session. Path defaults to the current directory.' 'update installs the latest published release.'\n  exit 0\nfi\nif [ "$1" = update ]; then\n  shift\n  case "\${1:-}" in ''|--check|--help) ;; *) printf '%s\\n' 'Usage: shellfox update [--check]' >&2; exit 2 ;; esac\n  if [ "$#" -gt 1 ]; then printf '%s\\n' 'Usage: shellfox update [--check]' >&2; exit 2; fi\n  script=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)/shellfox-update.ps1 || exit 1\n  launcher=powershell.exe\n  if [ -n "\${WSL_DISTRO_NAME:-}" ]; then\n    launcher=$(wslpath -u ${shQuote(path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'))}) || exit 1\n    script=$(wslpath -w "$script") || exit 1\n  elif command -v cygpath >/dev/null 2>&1; then script=$(cygpath -w "$script") || exit 1; fi\n  extra=\n  case "\${1:-}" in --check) extra=-Check ;; --help) extra=-Help ;; esac\n  # shellcheck disable=SC2086\n  MSYS_ARG_CONV_EXCL='*' exec "$launcher" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$script" -Executable ${shQuote(options.executable)} $extra\nfi\nif [ "$1" != start ] || [ "$#" -gt 2 ]; then printf '%s\\n' 'Usage: shellfox start [path] | shellfox update [--check]' >&2; exit 2; fi\nfolder=$(cd -- "\${2:-.}" && pwd -P) || exit 1\nexe=${shQuote(options.executable)}\nif [ -n "\${WSL_DISTRO_NAME:-}" ]; then\n  folder=$(wslpath -w "$(realpath "$folder")") || exit 1\n  exe=$(wslpath -u "$exe") || exit 1\nelif command -v cygpath >/dev/null 2>&1; then\n  folder=$(cygpath -w "$folder") || exit 1\n  exe=$(cygpath -u "$exe") || exit 1\nfi\nif [ ! -f "$exe" ]; then printf '%s\\n' 'Shellfox: application executable is missing.' >&2; exit 1; fi\n(\n  export MSYS_ARG_CONV_EXCL='*'\n${Object.entries(environment).map(([name,value])=> `  export ${name}=${shQuote(value)}`).join('\n')}\n  if [ -n "\${WSL_DISTRO_NAME:-}" ]; then\n    launcher=${shQuote(path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'))}\n    launcher=$(wslpath -u "$launcher") || exit 1\n    script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1\n    dispatcher=$(wslpath -w "$script_dir/shellfox-dispatch.ps1") || exit 1\n    "$launcher" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$dispatcher" -Folder "$folder" >/dev/null || exit 1\n  else\n    "$exe" ${args.map(shQuote).join(' ')} start "$folder" >/dev/null 2>&1 &\n  fi\n) || exit $?\nprintf 'Shellfox: started session in %s\\n' "$folder"\n`;
+  const environment = options.launchEnv ?? {}, hostEnvironment = helperHostEnvironment(options);
+  const posix = `#!/bin/sh
+# ${OWNER}
+unset ELECTRON_RUN_AS_NODE
+export SHELLFOX_CLI_LAUNCH=${shQuote(launchConfig(options.executable, args, environment))}
+shellfox_update=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)/shellfox-update.ps1 || exit 1
+if [ -n "\${WSL_DISTRO_NAME:-}" ]; then
+  shellfox_update=$(wslpath -w "$shellfox_update") || exit 1
+elif command -v cygpath >/dev/null 2>&1; then
+  shellfox_update=$(cygpath -w "$shellfox_update") || exit 1
+fi
+export SHELLFOX_CLI_UPDATE="$shellfox_update"
+${posixHelper(options, true)}`;
   const helper = helperPath(options), runtime = path.win32.join(path.win32.dirname(helper), '../cli-runtime/node.exe'), data = helperData(options);
-  const helperCall = [runtime, helper, ...(data ? ['--user-data', data] : [])].map(cmdQuote).join(' ');
-  const cmd = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE="\r\nset "SHELLFOX_CLI_DISTRO="\r\nset "SHELLFOX_CLI_WSL_CWD="\r\nset "SHELLFOX_CLI_GIT_BASH="\r\nset "SHELLFOX_CLI_GIT_CWD="\r\nset "SHELLFOX_CLI_LAUNCH=${launchConfig(options.executable, args, environment)}"\r\nset "SHELLFOX_CLI_UPDATE=%~dp0shellfox-update.ps1"\r\n${helperCall} %*\r\nexit /b %errorlevel%\r\n`;
-  const start = posix.indexOf('if [ "$1" = update ]');
-  posix = '#!/bin/sh\n# ' + OWNER + '\nunset ELECTRON_RUN_AS_NODE\nif [ "$#" -eq 0 ] || [ "$1" = --help ] || [ "$1" = ssh ] || [ "\${2:-}" = --help ] || [ "\${2:-}" = -h ] || [ "\${2:-}" = help ]; then\n  if [ "$#" -eq 0 ]; then set -- --help; fi\n' + posixHelper(options, true) + 'fi\n' + posix.slice(start);
-  posix = posix.replace(`if [ "$1" != start ] || [ "$#" -gt 2 ]; then printf '%s\\n' 'Usage: shellfox start [path] | shellfox update [--check]' >&2; exit 2; fi`, 'if { [ "$1" != start ] && [ "$1" != add ] && [ "$1" != new ] && [ "$1" != create ]; } || [ "$#" -gt 2 ] || [ "\${2:-}" = --help ] || [ "\${2:-}" = -h ] || [ "\${2:-}" = help ]; then\n' + posixHelper(options, true) + 'fi');
-  return { cmd, powershell: powershellShim(runtime, helper, data, options.executable, args, environment), posix, dispatcher: shellfoxDispatcher(options), update: options.updateScript ?? '' };
+  const helperCall = [runtime, helper, ...(data ? ['--shellfox-default-user-data', data] : [])].map(cmdQuote).join(' ');
+  const cmd = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "ELECTRON_RUN_AS_NODE="\r\nset "SHELLFOX_CLI_DISTRO="\r\nset "SHELLFOX_CLI_WSL_CWD="\r\nset "SHELLFOX_CLI_GIT_BASH="\r\nset "SHELLFOX_CLI_GIT_CWD="\r\nset "SHELLFOX_RESOURCES_PATH="\r\nset "SHELLFOX_PROJECT_ROOT="\r\nset "SHELLFOX_RUNTIME_PATH="\r\nset "SHELLFOX_CLI_LAUNCH=${launchConfig(options.executable, args, environment)}"\r\nset "SHELLFOX_CLI_UPDATE=%~dp0shellfox-update.ps1"\r\n${Object.entries(hostEnvironment).map(([name, value]) => 'set ' + cmdQuote(name + '=' + value) + '\r\n').join('')}${helperCall} %*\r\nexit /b %errorlevel%\r\n`;
+  return { cmd, powershell: powershellShim(runtime, helper, data, options.executable, args, environment, hostEnvironment), posix, dispatcher: shellfoxDispatcher(options), update: options.updateScript ?? '' };
 }
 const registryState = z.object({ installed: z.boolean() }).strict();
 export class WindowsCliIntegration implements CliPort {

@@ -21,7 +21,7 @@ export interface ElevatedPty extends PtyProcess {
   /** Resolves only after authenticated zero-member job cleanup or proof no shell was started. */
   closeConfirmed(): Promise<void>;
 }
-export function elevatedHelperPath(options: { resourcesPath?: string; packaged?: boolean; arch?: string } = {}): string {
+export function elevatedHelperPath(options: { resourcesPath?: string; packaged?: boolean; arch?: string; projectRoot?: string } = {}): string {
   const runtime = process as NodeJS.Process & { resourcesPath?: string; defaultApp?: boolean };
   const resources = options.resourcesPath ?? runtime.resourcesPath;
   const packaged = options.packaged ?? (!!resources && runtime.defaultApp !== true);
@@ -29,7 +29,7 @@ export function elevatedHelperPath(options: { resourcesPath?: string; packaged?:
     if (!resources) throw new Error('Packaged administrator terminals require process.resourcesPath.');
     return path.join(resources, 'elevated-terminal', 'Shellfox.ElevatedTerminal.exe');
   }
-  return path.resolve('tmp/terminal-native', `win-${options.arch ?? process.arch}`, 'Shellfox.ElevatedTerminal.exe');
+  return path.resolve(options.projectRoot ?? process.cwd(), 'tmp/terminal-native', `win-${options.arch ?? process.arch}`, 'Shellfox.ElevatedTerminal.exe');
 }
 export async function elevatedCapability(file = elevatedHelperPath()): Promise<{ available: boolean; reason: string | null }> {
   try {
@@ -201,11 +201,11 @@ export function elevatedLauncherEnvironment(inherited: NodeJS.ProcessEnv): Recor
   // The privileged ConPTY constructor repeats this filter independently.
   return Object.fromEntries(Object.entries(inherited).filter((entry): entry is [string, string] => entry[1] !== undefined && !/^(?:DOTNET_|COMPLUS_|CORECLR_|COR_)/i.test(entry[0])));
 }
-export function launchElevatedPty(launch: ElevatedLaunch): ElevatedPty {
+export function launchElevatedPty(launch: ElevatedLaunch, helperPath = elevatedHelperPath()): ElevatedPty {
   launch = { ...launch, env: elevatedLauncherEnvironment(launch.env) };
   // Validate the whole serialized launch BEFORE acquiring a child process.
   if (Buffer.byteLength(JSON.stringify({ type: 'launch', ...launch }) + '\n') > MAX_FRAME) throw new Error('Administrator launch environment is too large.');
-  const child = spawn(elevatedHelperPath(), ['launch'], { windowsHide: true, stdio: 'pipe', shell: false, env: elevatedLauncherEnvironment(process.env) });
+  const child = spawn(helperPath, ['launch'], { windowsHide: true, stdio: 'pipe', shell: false, env: elevatedLauncherEnvironment(process.env) });
   try { return new WindowsElevatedPty(child, launch); }
   catch (error) { child.stdin.destroy(); child.stdout.resume(); child.stderr.resume(); throw error; }
 }
