@@ -34,6 +34,8 @@ describe('mobile release contract', () => {
     assert.match(workflow, /needs: \[package, headless, mobile\]/);
     assert.match(workflow, /dist\/\*\*\/\*\.apk/);
     assert.match(workflow, /shellfox-mobile-\*-android\.apk/);
+    // The action defaults include obsolete SDK "tools", removed upstream.
+    assert.match(workflow, /uses: android-actions\/setup-android@v3\s+with:\s+packages: ['"]platform-tools['"]/);
     assert.doesNotMatch(workflow, /mobile-build\.mjs --test/);
     for (const key of Object.keys(signing)) assert.ok(workflow.includes(`secrets.${key}`));
     for (const target of ['linux', 'win32', 'darwin']) {

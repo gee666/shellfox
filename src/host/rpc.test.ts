@@ -125,8 +125,12 @@ it('bounds the close drain for other disconnected desktop actions', async () => 
 });
 describe.skipIf(!existsSync(hostResourcePaths().tailscale))('host ownership and lifecycle, requires build:tailscale', () => {
   it('has exactly one winner for concurrent acquisition and releases without stale files', async () => {
-    const userData = await directory(); const results = await Promise.all(Array.from({ length: 8 }, () => acquireHostOwnership(userData)));
-    const owners = results.filter(lock => lock !== null); expect(owners).toHaveLength(1);
+    const userData = await directory();
+    const results = await Promise.allSettled(Array.from({ length: 8 }, () => acquireHostOwnership(userData)));
+    const owners = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
+    for (const owner of owners) cleanup.push(() => owner.release());
+    expect(results.filter(result => result.status === 'rejected')).toEqual([]);
+    expect(owners).toHaveLength(1);
     expect(await isHostRunning(userData)).toBe(true); await owners[0].release();
     expect(await isHostRunning(userData)).toBe(false);
   });

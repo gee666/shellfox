@@ -41,6 +41,8 @@ jobs:
           go-version: '1.27.3'
           cache: false
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
       - name: Install pinned Android SDK and NDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'cmake;3.22.1'
         timeout-minutes: 10

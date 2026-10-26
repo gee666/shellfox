@@ -35,7 +35,7 @@ $encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
 & ${ps(binding.executable)} ${ps(binding.entry)} --shellfox-argv-json $encoded
 exit $LASTEXITCODE
 `;
-  const shell = '#!/bin/sh\nset -eu\nunset NODE_PATH NODE_OPTIONS\nexport SHELLFOX_HEADLESS=1\nexport SHELLFOX_USER_DATA=' + quoteSh(canonical) + '\n' + customScriptContext(posixHelper({ executable: binding.executable, runtime: binding.executable, cliHelper: binding.entry, userData: canonical, runAsNode: binding.runAsNode, resourcesPath: options.resourcesPath, projectRoot: options.projectRoot, runtimePath: options.runtimePath }, process.platform === 'win32'));
+  const shell = '#!/bin/sh\nset -eu\nunset NODE_PATH NODE_OPTIONS\nexport SHELLFOX_HEADLESS=1\nexport SHELLFOX_USER_DATA=' + quoteSh(canonical) + '\n' + customScriptContext(posixHelper({ executable: binding.executable, runtime: binding.executable, cliHelper: binding.entry, userData: canonical, userDataIsDefault: true, runAsNode: binding.runAsNode, resourcesPath: options.resourcesPath, projectRoot: options.projectRoot, runtimePath: options.runtimePath }, process.platform === 'win32'));
   const cmd = '@echo off\r\nsetlocal DisableDelayedExpansion\r\n"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0shellfox.ps1" %*\r\nexit /b %errorlevel%\r\n';
   for (const [name, content] of Object.entries({ shellfox: shell, 'shellfox.ps1': '\ufeff' + powershell, 'shellfox.cmd': cmd })) {
     const stage = path.join(binDir, randomUUID() + '.tmp');

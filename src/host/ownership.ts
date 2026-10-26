@@ -50,7 +50,9 @@ export async function acquireHostOwnership(userData: string, mode: HostMode = 'd
       const finish = (error?: Error, value?: boolean) => { if (done) return; done = true; clearTimeout(timer); if (error) reject(error); else resolve(value === true); };
       const timer = setTimeout(() => finish(new Error('Shellfox ownership helper timed out.')), 8000);
       child.once('error', error => finish(new Error('Shellfox ownership helper could not start: ' + helperPath, { cause: error })));
-      child.once('exit', () => { if (!done) finish(new Error('Shellfox ownership helper exited before confirming the lock.')); });
+      // A busy helper exits immediately after writing its reply. Its stdout may
+      // still be draining at exit; close is the actual end of the handshake.
+      child.once('close', () => { if (!done) finish(new Error('Shellfox ownership helper exited before confirming the lock.')); });
       child.stderr.on('data', (chunk: Buffer) => { bytes += chunk.length; if (bytes > 4096) finish(new Error('Ownership helper exceeded its output limit.')); });
       child.stdout.on('data', (chunk: Buffer) => {
         bytes += chunk.length;

@@ -59,8 +59,11 @@ test('headless launchers execute packaged Node and preserve arguments and runtim
   const args = ['--user-data', 'two words', 'host', 'run', '--json', 'quoted"value'];
   const command = process.platform === 'win32' ? 'powershell.exe' : path.join(install, 'shellfox');
   const commandArgs = process.platform === 'win32' ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(install, 'shellfox.ps1'), ...args] : args;
-  const result = spawnSync(command, commandArgs, { cwd: directory, timeout: 15000, encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: 'not-used' } });
-  assert.equal(result.status, 0, result.stderr);
+  // Cold PowerShell and copied executable startup can exceed 15s on Windows ARM runners.
+  const launcherTimeout = process.platform === 'win32' ? 60000 : 15000;
+  const result = spawnSync(command, commandArgs, { cwd: directory, timeout: launcherTimeout, encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: 'not-used' } });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, `signal=${result.signal ?? 'none'} ${result.stderr}`);
   const value = JSON.parse(result.stdout);
   assert.deepEqual(value.args, args);
   assert.equal(value.headless, '1');
@@ -69,8 +72,9 @@ test('headless launchers execute packaged Node and preserve arguments and runtim
   assert.equal(value.electron, undefined);
   assert.equal(value.nodePath, undefined);
   if (process.platform === 'win32') {
-    const cmd = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${path.join(install, 'shellfox.cmd')}" --user-data "two words" host run --json"`], { cwd: directory, windowsVerbatimArguments: true, timeout: 15000, encoding: 'utf8' });
-    assert.equal(cmd.status, 0, cmd.stderr);
+    const cmd = spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${path.join(install, 'shellfox.cmd')}" --user-data "two words" host run --json"`], { cwd: directory, windowsVerbatimArguments: true, timeout: launcherTimeout, encoding: 'utf8' });
+    assert.ifError(cmd.error);
+    assert.equal(cmd.status, 0, `signal=${cmd.signal ?? 'none'} ${cmd.stderr}`);
     assert.deepEqual(JSON.parse(cmd.stdout).args, args.slice(0, -1));
   }
 }));

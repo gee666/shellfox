@@ -57,7 +57,7 @@ open ShellfoxMobile.xcworkspace
 
 Choose a development team in Xcode and run the app on a simulator or device. The local pod links the generated `Mobile.xcframework`; the same React Native screens and host protocol run on both platforms. iOS does not request a device-wide VPN entitlement or promise background terminal connectivity. On return to the foreground, it reconnects to the host-owned shells. APK installation is Android-only.
 
-The Xcode app version currently matches root `0.9.0`, build `9000`. Until iOS distribution is automated, update both Xcode configurations when changing the root release version. These sources have not been compiled on this Windows development machine. A Mac build and iOS device acceptance are still required. iOS is intentionally absent from GitHub release builds.
+The Xcode app version currently matches root `0.9.1`, build `9001`. Until iOS distribution is automated, update both Xcode configurations when changing the root release version. These sources have not been compiled on this Windows development machine. A Mac build and iOS device acceptance are still required. iOS is intentionally absent from GitHub release builds.
 
 ## Emulator and E2E
 
