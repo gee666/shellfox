@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { Button } from '../ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import { TerminalBridge, type MobileTerminalApi, type SubscribeTerminal, type TerminalBridgeState } from './bridge';
@@ -50,6 +51,8 @@ export function TerminalView({
   };
   const [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState('');
+  const [blocked, setBlocked] = useState(false);
+  const [taking, setTaking] = useState(false);
   const insets = useSafeAreaInsets();
   const report = useCallback((error: Error) => callbacks.current.onError?.(error), []);
 
@@ -77,14 +80,20 @@ export function TerminalView({
       theme: { accentColor: callbacks.current.accent, backgroundColor: callbacks.current.background },
       send: (message) => web.current?.postMessage(JSON.stringify(message)),
       onError: report,
-      onState: state => callbacks.current.onState?.(state),
+      onState: state => {
+        setBlocked(state === 'blocked');
+        if (state === 'blocked') {
+          keyboardModeRef.current = 'closed'; setKeyboardMode('closed'); setSelecting(false); Keyboard.dismiss();
+        }
+        callbacks.current.onState?.(state);
+      },
       onSelection: setSelection,
       onFocus: () => {
         if (Platform.OS === 'android' && keyboardModeRef.current === 'system') void showTerminalKeyboard().catch(report);
       },
     });
     bridge.current = current;
-    setSelection('');
+    setSelection(''); setBlocked(false); setTaking(false);
     setSelecting(false);
     modifiersRef.current = emptyModifiers;
     setModifiers(emptyModifiers);
@@ -140,10 +149,15 @@ export function TerminalView({
     <View ref={container} onLayout={() => measureKeyboardInset()} style={[styles.container, { backgroundColor: colors.bg }]}>
       <KeyboardAvoidingView style={[styles.container, { paddingBottom: keyboardInset }]}
         keyboardVerticalOffset={keyboardOffset} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.container}>
         <WebView
           ref={web}
           source={source}
-          style={[styles.web, { backgroundColor: colors.bg }]}
+          style={[styles.web, { backgroundColor: colors.bg, opacity: blocked ? 0 : 1 }]}
+          accessible={!blocked}
+          accessibilityElementsHidden={blocked}
+          importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}
+          pointerEvents={blocked ? 'none' : 'auto'}
           onMessage={onMessage}
           // A narrow originWhitelist opens rejected URLs in the OS browser before onShouldStart runs.
           // Route every URL through our deny-by-default callback instead.
@@ -184,7 +198,15 @@ export function TerminalView({
             web.current?.reload();
           }}
         />
-        <TerminalKeys
+        {blocked && <View style={[styles.blocked, { backgroundColor: colors.bg }]}>
+          <Text style={{ color: colors.muted, textAlign: 'center' }}>Another client is controlling this terminal</Text>
+          <Button title={taking ? 'Taking...' : 'Take it'} disabled={taking} onPress={() => {
+            setTaking(true);
+            void (async () => { try { await bridge.current?.takeControl(); } finally { setTaking(false); } })();
+          }} />
+        </View>}
+        </View>
+        {!blocked && <TerminalKeys
           bottomInset={keyboardVisible || specialKeyboard ? 0 : insets.bottom}
           control={modifiers.ctrl}
           selecting={selecting}
@@ -206,8 +228,8 @@ export function TerminalView({
           onKeyboard={toggleKeyboard}
           onSpecialKeyboard={toggleSpecialKeyboard}
           onPaste={(text) => bridge.current?.paste(text)}
-        />
-        {specialKeyboard && <SpecialKeyboard modifiers={modifiers} onModifier={toggleModifier}
+        />}
+        {!blocked && specialKeyboard && <SpecialKeyboard modifiers={modifiers} onModifier={toggleModifier}
           onKey={sendKey} bottomInset={insets.bottom} />}
       </KeyboardAvoidingView>
     </View>
@@ -216,4 +238,5 @@ export function TerminalView({
 const styles = StyleSheet.create({
   container: { flex: 1 },
   web: { flex: 1 },
+  blocked: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 20 },
 });

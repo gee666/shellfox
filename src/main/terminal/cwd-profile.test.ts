@@ -101,8 +101,10 @@ describe('cwd-aware implicit terminal profiles', () => {
     expect(value(await f.service.addTab({ sessionId: s.id, cwd: unc, profileId: 'pwsh' })).tabs.at(-1)!.profileId).toBe('pwsh');
     expect(value(await f.service.addTab({ sessionId: s.id, cwd: '/home/user', profileId: 'wsl:Ubuntu' })).tabs.at(-1)!.profileId).toBe('wsl:Ubuntu');
     const calls = vi.mocked(f.factory).mock.calls.length;
-    const mismatch = value(await f.service.addTab({ sessionId: s.id, cwd: unc, profileId: 'wsl:Ubuntu' }));
-    expect(mismatch.error).toMatchObject({ code: 'VALIDATION' }); expect(mismatch.tabs).toHaveLength(4);
+    // A profile/directory mismatch is an action failure, with diagnostics kept on the saved session.
+    expect(await f.service.addTab({ sessionId: s.id, cwd: unc, profileId: 'wsl:Ubuntu' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+    const mismatch = value(f.service.getSnapshot()).sessions.find(session => session.id === s.id);
+    expect(mismatch?.error).toMatchObject({ code: 'VALIDATION' }); expect(mismatch?.tabs).toHaveLength(4);
     expect(await f.service.addTab({ sessionId: s.id, profileId: 'not-discovered' })).toMatchObject({ ok: false, error: { code: 'DEPENDENCY_MISSING' } });
     expect(f.factory).toHaveBeenCalledTimes(calls);
     const unavailable = await fixture(undefined, { ...windowsProfiles, profiles: windowsProfiles.profiles.map(p => p.id === 'wsl:Ubuntu' ? { ...p, available: false } : p) });

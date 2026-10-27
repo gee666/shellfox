@@ -6,7 +6,7 @@ import type { ManagerClient } from './store';
 import { ContextMenu, Icon, StatusDot, sessionDot, useAction, useNotify } from './components';
 import { ShellfoxEnvModal } from './shellfox-env-modal';
 import { WindowedSessionList } from './WindowedSessionList';
-import { sortVisibleSessions } from './session-order';
+import { sortVisibleSessions } from '../shared/session-order';
 
 export function shortenHome(cwd: string) {
   cwd = parseWslUnc(cwd)?.guestPath ?? cwd;

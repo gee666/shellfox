@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import path from 'node:path';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { CustomCommandStore } from './shellfox-cli-commands';
+import { textWidth } from '../../cli/terminal-text';
 import { CUSTOM_COMMAND_HELP, dispatchCustomCli } from './shellfox-cli-dispatch';
 import { resolveScriptLocation, scriptInvocation, customScriptContext } from './shellfox-cli-scripts';
 
@@ -33,11 +34,18 @@ it('registers, lists paths and renames case-insensitively under cmd only', async
   for (const flag of ['--list', '--ls']) {
     output.write.mockClear();
     expect(await dispatchCustomCli(['cmd', flag], store.userData, options)).toBe(0);
-    expect(output.write).toHaveBeenCalledWith('Build\t' + JSON.stringify(file) + '\n');
+    expect(output.write).toHaveBeenCalledWith('NAME   PATH\nBuild  ' + JSON.stringify(file) + '\n');
   }
   expect(await dispatchCustomCli(['cmd', '--rename', 'BUILD', 'deploy'], store.userData, options)).toBe(0);
   expect(await store.read()).toEqual([{ name: 'deploy', path: file }]);
   expect(error.write).not.toHaveBeenCalled();
+});
+it('fits custom command listings to narrow destinations without dropping paths', async () => {
+  const { file, store, error } = await fixture(); await store.register('Build', { path: file });
+  let text = ''; const output = { columns: 40, write: (value: string) => { text += value; } };
+  expect(await dispatchCustomCli(['cmd', '--list'], store.userData, { output, error })).toBe(0);
+  for (const line of text.split('\n')) expect(textWidth(line)).toBeLessThanOrEqual(40);
+  expect(text.replaceAll('\n', '')).toContain(JSON.stringify(file));
 });
 it.each(['--remove', '--rm', '--unregister'])('supports removal through %s without deleting the script', async flag => {
   const { file, store, output, error } = await fixture(); await store.register('Build', { path: file });

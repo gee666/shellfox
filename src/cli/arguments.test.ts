@@ -73,6 +73,21 @@ describe('host command parser', () => {
     [['machines', 'connect', 'peer-1'], 'remote'], [['approvals', 'reject', 'peer-1'], 'remote'],
     [['remote', 'api', 'getState'], 'remote-api'],
   ])('parses %j', (args, kind) => expect(parseCommand(args)).toMatchObject({ kind }));
+  it.each(['terminals', 'tm'])('requires an existing full terminal UUID for %s attach locally and remotely', namespace => {
+    for (const remote of [false, true]) {
+      expect(parseCommand([namespace, 'attach', id], remote)).toEqual({ kind: 'terminal', operation: 'attach', tabId: id });
+      expect(() => parseCommand([namespace, 'attach'], remote)).toThrow(CliUsageError);
+    }
+  });
+  it.each([
+    ['terminals', 'attach'], ['tm', 'attach', 'short'],
+    ['terminals', 'attach', id, '--cwd', '.'], ['tm', 'attach', id, '--session-id', id],
+    ['tm', 'attach', '--session-id', id], ['tm', 'attach', '--cwd', '.'],
+    ['tm', 'attach', id, id], ['tm', 'attach', id, '--take'],
+  ])('rejects missing attach IDs and unsupported creation/control flags %j', (...args) => expect(() => parseCommand(args)).toThrow(CliUsageError));
+  it('keeps explicit one-shot write takeover separate from attach arguments', () => {
+    expect(parseCommand(['terminals', 'write', id, 'text', '--take'])).toMatchObject({ kind: 'terminal', operation: 'write', tabId: id, take: true });
+  });
   it('does not resolve remote directory paths on the client OS', () => {
     expect(parseCommand(['sessions', 'create', '/remote/project'], true)).toMatchObject({ cwd: '/remote/project' });
     expect(parseCommand(['sessions', 'create'], true)).toMatchObject({ cwd: '~' });

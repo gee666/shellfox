@@ -56,7 +56,7 @@ Only the UI process is sandboxed; terminals and agents run with your full user p
 
 ## Build from source
 
-Use target-native Node 24, pnpm matching package.json and fresh Linux dependencies. Never copy Windows node_modules.
+Use target-native Node 24.22.1, pnpm matching package.json and fresh Linux dependencies. Never copy Windows node_modules.
 
 ```sh
 sudo apt install build-essential python3 curl fakeroot dpkg libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils

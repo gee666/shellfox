@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { SessionDto } from '../shared/contracts';
-import { sessionDot } from './components';
+import type { SessionDto } from './contracts';
+import { sessionDot } from './terminal-status';
 import { sortVisibleSessions } from './session-order';
-import { session } from './test-fixtures';
+import { session } from '../renderer/test-fixtures';
 
 const ids = (items: SessionDto[]) => items.map(item => item.id);
 describe('visible session sorting', () => {

@@ -24,17 +24,18 @@ export default function TerminalHarness() {
       setDelivery(`Delivery ${rendered}/${sequence}`);
     };
     const api: MobileTerminalApi = {
-      attachTerminal: async () => success({ tabId, sessionId: tabId, generation, firstSequence: sequence,
+      attachTerminal: async () => success({ control: 'owned', controlEpoch: 1, tabId, sessionId: tabId, generation, firstSequence: sequence,
         lastSequence: sequence, chunks: [{ type: 'data', tabId, generation, sequence, data: replay + input }],
         snapshot: true, truncated: sequence > 1, cols: 80, rows: 24, lifetime: 'app-owned', state: 'open', exitCode: null }),
       writeTerminal: async request => {
         input += request.data;
-        emit({ type: 'data', tabId, generation, sequence: ++sequence, data: request.data });
+        emit({ type: 'data', tabId, generation, controlEpoch: 1, sequence: ++sequence, data: request.data });
         update(); return success({ written: true });
       },
       resizeTerminal: async request => { grid = `${request.cols}x${request.rows}`; update(); return success({ resized: true }); },
       acknowledgeTerminal: async request => { rendered = request.sequence; update(); return success({ acknowledged: true }); },
       detachTerminal: async () => success({ detached: true }),
+      takeTerminalControl: async () => success({ taken: true }),
     };
     const subscribeTerminal: SubscribeTerminal = listener => { emit = listener; return () => { emit = () => {}; }; };
     return { api, subscribeTerminal };

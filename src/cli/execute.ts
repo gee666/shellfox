@@ -35,6 +35,7 @@ export function managerTarget(host: CliHost, peerId?: string): ManagerTarget {
     getSnapshot: async () => responseSchemas.getSnapshot.parse(await call('getSnapshot')),
     resolveDirectory: async input => responseSchemas.resolveDirectory.parse(await call('resolveDirectory', input)),
     attachTerminal: async input => responseSchemas.attachTerminal.parse(await call('attachTerminal', input)),
+    takeTerminalControl: async input => responseSchemas.takeTerminalControl.parse(await call('takeTerminalControl', input)),
     writeTerminal: async input => responseSchemas.writeTerminal.parse(await call('writeTerminal', input)),
     resizeTerminal: async input => responseSchemas.resizeTerminal.parse(await call('resizeTerminal', input)),
     acknowledgeTerminal: async input => responseSchemas.acknowledgeTerminal.parse(await call('acknowledgeTerminal', input)),
@@ -121,11 +122,13 @@ export async function executeCommand(command: Command, host: CliHost, options: G
     case 'terminal': {
       if (command.operation === 'attach') {
         if (options.json) throw new CliUsageError('Interactive attach does not support --json. Use terminals write and api attachTerminal for automation.');
-        if (!service.attachTerminal || !service.writeTerminal || !service.resizeTerminal || !service.acknowledgeTerminal || !service.detachTerminal || !service.subscribeTerminal) throw new CliFailure('UNSUPPORTED', 'This host does not support interactive attach.');
-        const api: AttachApi = { attachTerminal: service.attachTerminal, writeTerminal: service.writeTerminal, resizeTerminal: service.resizeTerminal,
-          acknowledgeTerminal: service.acknowledgeTerminal, detachTerminal: service.detachTerminal, subscribeTerminal: service.subscribeTerminal };
+        if (!service.attachTerminal || !service.takeTerminalControl || !service.writeTerminal || !service.resizeTerminal || !service.acknowledgeTerminal || !service.detachTerminal || !service.subscribeTerminal) throw new CliFailure('UNSUPPORTED', 'This host does not support interactive attach.');
         const disconnected = (listener: () => void) => host.onDisconnect(listener);
-        await attachTerminal(api, command.tabId, attachIo ?? { input: process.stdin, output: process.stdout, signals: process, onDisconnect: disconnected });
+        const io = attachIo ?? { input: process.stdin, output: process.stdout, signals: process, onDisconnect: disconnected };
+        if (!io.input.isTTY || !io.output.isTTY) throw new CliUsageError('Interactive attach requires a TTY on stdin and stdout.');
+        const api: AttachApi = { attachTerminal: service.attachTerminal, takeTerminalControl: service.takeTerminalControl, writeTerminal: service.writeTerminal, resizeTerminal: service.resizeTerminal,
+          acknowledgeTerminal: service.acknowledgeTerminal, detachTerminal: service.detachTerminal, subscribeTerminal: service.subscribeTerminal };
+        await attachTerminal(api, command.tabId, io);
         return undefined;
       }
       if (command.operation === 'close') await requireConfirmation(options, 'Close terminal ' + command.tabId);
@@ -135,11 +138,23 @@ export async function executeCommand(command: Command, host: CliHost, options: G
       const identity = { tabId: tab.id, generation: tab.generation };
       if (command.operation === 'close') return request(host, 'closeTab', identity, options.host);
       const data = command.stdin ? await readStdin(process.stdin, 65536) : command.data;
-      try { return await request(host, 'writeTerminal', { ...identity, data }, options.host); }
-      catch (error) {
+      if (!service.attachTerminal || !service.detachTerminal) throw new CliFailure('UNSUPPORTED', 'This host does not support exclusive terminal control.');
+      const checked = requestSchemas.writeTerminal.safeParse({ ...identity, controlEpoch: 1, data });
+      if (!checked.success) throw new CliUsageError('Terminal input must be nonempty and fit within 64 KiB.');
+      // A one-shot write joins without stealing. --take is an explicit handoff.
+      let attachment = unwrap(await service.attachTerminal(identity));
+      try {
+        if (attachment.control === 'blocked' && command.take) {
+          await request(host, 'takeTerminalControl', identity, options.host);
+          attachment = unwrap(await service.attachTerminal(identity));
+        }
+        if (attachment.control !== 'owned') throw new CliFailure('TERMINAL_CONTROL_REQUIRED', 'Another client is controlling this terminal. Use --take to switch control explicitly.');
+        return await request(host, 'writeTerminal', { ...identity, controlEpoch: attachment.controlEpoch, data: checked.data.data }, options.host);
+      } catch (error) {
         if (error instanceof CliFailure || error instanceof CliUsageError) throw error;
         throw new CliFailure('TARGET_LOST', 'Terminal input delivery is uncertain; input was not retried. Inspect the terminal before sending it again.');
-      }
+      } finally { await service.detachTerminal(identity).catch(() => {}); }
+
     }
     case 'remote': return executeRemote(command, host, options);
     case 'remote-api': {
@@ -175,7 +190,7 @@ async function executeRemote(command: Extract<Command, { kind: 'remote' }>, host
   const peer = { peerId: command.peerId ?? '' };
   switch (command.operation) {
     case 'network:status': return unwrap(await remote.getState());
-    case 'machines:list': return unwrap(await remote.getState()).peers;
+    case 'machines:list': return unwrap(await remote.getState()).peers.filter(peer => peer.hostConfirmed === true || (peer.hostConfirmed === undefined && peer.connection === 'connected'));
     case 'approvals:list': { const state = unwrap(await remote.getState()); return { approvals: state.approvals, pending: state.pending }; }
     case 'network:enable': case 'network:disable': {
       const state = unwrap(await remote.getState());

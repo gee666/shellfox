@@ -69,7 +69,10 @@ test('in-app quit confirmation defaults to Cancel, preserves owned shells on can
     const retained = (await snapshot(page)).sessions.find(item => item.id === session.id)!;
     expect(retained.tabs.map(tab => [tab.id, tab.generation])).toEqual(original);
     for (const tab of retained.tabs) {
-      expect(value(await page.evaluate(input => window.shellfox.attachTerminal!(input), { tabId: tab.id, generation: tab.generation! })).state).toBe('open');
+      const attachment = value(await page.evaluate(input => window.shellfox.attachTerminal!(input), { tabId: tab.id, generation: tab.generation! }));
+      expect(attachment.control).toBe('owned');
+      if (attachment.control !== 'owned') throw new Error('Local terminal unexpectedly controlled elsewhere.');
+      expect(attachment.state).toBe('open');
     }
 
     await app.evaluate(({ app }) => { app.quit(); });

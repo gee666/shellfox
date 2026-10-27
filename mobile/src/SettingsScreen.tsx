@@ -24,6 +24,10 @@ export function SettingsScreen({
   const [actionBusy, setBusy] = useState(false);
   const browser = useBrowserLogin(model);
   const busy = actionBusy || browser.pending;
+  const peers = [...model.peers];
+  for (const machine of model.machines) {
+    if (!peers.some(peer => peer.id === machine.peer.id) && model.preferences.remembered.includes(machine.peer.id)) peers.push(machine.peer);
+  }
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const run = (action: () => Promise<unknown>) => {
@@ -80,7 +84,7 @@ export function SettingsScreen({
               }
             />
           </View>
-          {model.network.error && !model.ready && <Note error>{model.network.error}</Note>}
+          {model.network.error && <Note error>{model.network.error}</Note>}
           {!model.ready && model.error && (
             <Button title="Retry startup" subtle disabled={busy} onPress={() => run(model.retryStart)} />
           )}
@@ -128,10 +132,10 @@ export function SettingsScreen({
           )}
         </Card>
         {model.network.status === 'online' && <Text style={styles.section}>Machines</Text>}
-        {!model.peers.length && model.network.status === 'online' && (
+        {!peers.length && model.network.status === 'online' && (
           model.loading ? <StatusIndicator loading label="Finding hosts" /> : <Note>No hosts</Note>
         )}
-        {model.peers.map((peer) => {
+        {peers.map((peer) => {
           const machine = model.machines.find((item) => item.peer.id === peer.id);
           const remembered = model.preferences.remembered.includes(peer.id);
           return (
@@ -144,10 +148,10 @@ export function SettingsScreen({
                   </Note>
                 </View>
                 <Button
-                  title={remembered ? 'Disconnect' : 'Connect'}
+                  title={machine?.state.status === 'awaiting-approval' ? 'Cancel request' : remembered ? 'Disconnect' : 'Connect'}
                   subtle
                   disabled={busy || (!peer.online && !remembered)}
-                  onPress={() => run(() => (remembered ? model.disconnect(peer.id) : model.connect(peer)))}
+                  onPress={() => run(() => (remembered || machine?.state.status === 'awaiting-approval' ? model.disconnect(peer.id) : model.connect(peer)))}
                 />
               </View>
               {machine?.state.status === 'awaiting-approval' && (

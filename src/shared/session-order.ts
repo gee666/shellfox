@@ -1,11 +1,10 @@
-import type { SessionDto } from '../shared/contracts';
-import { sessionDot } from './components';
-import type { DotState } from './components';
+import type { SessionDto } from './contracts';
+import { sessionDot, type DotState } from './terminal-status';
 
 const order: Record<DotState['kind'], number> = { error: 0, running: 1, busy: 2, shell: 3, settled: 4 };
 
 /** Sort by the status users see, not the underlying waiting/unknown distinction. */
-export function sortVisibleSessions(sessions: SessionDto[], busy: Record<string, boolean>): SessionDto[] {
+export function sortVisibleSessions(sessions: readonly SessionDto[], busy: Readonly<Record<string, boolean>>): SessionDto[] {
   return sessions.map(session => ({ session, kind: sessionDot(session, busy).kind }))
     .sort((a, b) => {
       const aPin = a.session.pinnedAt;

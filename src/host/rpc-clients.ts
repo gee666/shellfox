@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { HostEvent } from '../shared/host-contracts';
-import { TerminalDelivery } from '../main/terminal/delivery';
+import type { TerminalControlView } from '../main/terminal/control';
 import type { HostSessionService } from './operations';
 import type { RemoteViewPort } from '../main/remote/view';
 
 export interface RpcClient {
-  id: string; delivery: TerminalDelivery; events: HostEvent[]; bytes: number; touched: number;
+  id: string; delivery: TerminalControlView; events: HostEvent[]; bytes: number; touched: number;
   busy: number; polling: boolean; notify?: () => void; remote?: RemoteViewPort; unsubscribeRemote?: () => void;
 }
 export class RpcClients {
@@ -19,7 +19,7 @@ export class RpcClients {
   open(): RpcClient {
     if (this.clients.size >= 64) throw new Error('Too many host clients.');
     const id = randomUUID();
-    const client: RpcClient = { id, delivery: new TerminalDelivery(input => this.service.attachTerminal(input), event => this.push(client, { type: 'terminal', event })), events: [], bytes: 0, touched: Date.now(), busy: 0, polling: false };
+    const client: RpcClient = { id, delivery: this.service.createTerminalView(event => this.push(client, { type: 'terminal', event }), tabId => this.purge(client, tabId)), events: [], bytes: 0, touched: Date.now(), busy: 0, polling: false };
     client.remote = this.remoteView?.(id);
     client.unsubscribeRemote = client.remote?.subscribe(event => this.push(client, { type: 'remote', event }));
     this.clients.set(id, client); return client;
@@ -31,6 +31,11 @@ export class RpcClients {
   }
   private push(client: RpcClient, event: HostEvent): void {
     if (!this.clients.has(client.id)) return;
+    if (event.type === 'remote' && event.event.type === 'terminal' && event.event.event.type === 'control') {
+      const peerId = event.event.peerId, tabId = event.event.event.tabId;
+      client.events = client.events.filter(queued => queued.type !== 'remote' || queued.event.type !== 'terminal' || queued.event.peerId !== peerId || queued.event.event.tabId !== tabId);
+      client.bytes = client.events.reduce((sum, queued) => sum + Buffer.byteLength(JSON.stringify(queued)), 0);
+    }
     const bytes = Buffer.byteLength(JSON.stringify(event));
     if (client.events.length >= 1024 || client.bytes + bytes > 1024 * 1024) {
       // Disconnect the view rather than silently lose a credited terminal frame.
@@ -39,7 +44,10 @@ export class RpcClients {
     client.events.push(event); client.bytes += bytes; client.notify?.();
   }
   broadcast(event: Exclude<HostEvent, { type: 'terminal' }>): void { for (const client of this.clients.values()) this.push(client, event); }
-  terminal(event: Parameters<TerminalDelivery['event']>[0]): void { for (const client of this.clients.values()) client.delivery.event(event); }
+  private purge(client: RpcClient, tabId: string): void {
+    client.events = client.events.filter(event => event.type !== 'terminal' || event.event.tabId !== tabId);
+    client.bytes = client.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event)), 0);
+  }
   async poll(client: RpcClient, signal: AbortSignal): Promise<{ events: HostEvent[] }> {
     if (client.polling) throw new Error('Only one event poll per client is allowed.');
     client.polling = true;

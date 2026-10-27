@@ -23,6 +23,7 @@ const api: ManagerApi = {
   setVisibleSessions: input => request('setVisibleSessions', input),
   getTerminalProfiles: () => request('getTerminalProfiles', {}),
   attachTerminal: input => request('attachTerminal', input),
+  takeTerminalControl: input => request('takeTerminalControl', input),
   writeTerminal: input => request('writeTerminal', input),
   resizeTerminal: input => request('resizeTerminal', input),
   closeTab: input => request('closeTab', input),

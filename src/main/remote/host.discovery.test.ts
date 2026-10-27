@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RemoteHost } from './host';
-import { RemoteControlLeases } from './operations';
 import { embeddedFixture, identity, signedHeaders } from './test-fixtures';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -28,14 +27,14 @@ it('returns only a service signature to authenticated same-owner peers without a
   if (!created.ok) throw new Error('fixture session missing');
   const snapshot = vi.spyOn(f.service, 'getSnapshot'), visible = vi.spyOn(f.service, 'setRemoteVisibleSessions');
   const clear = vi.spyOn(f.service, 'clearRemoteVisibleSessions'), attach = vi.spyOn(f.service, 'attachTerminal');
-  const lease = vi.spyOn(RemoteControlLeases.prototype, 'claim');
+  const view = vi.spyOn(f.service, 'createTerminalView');
   // The body is irrelevant to discovery, including any supplied client identity.
   for (const body of ['{}', JSON.stringify({ clientId: randomUUID() }), 'null']) {
     expect(await f.send('/v1/discover', body)).toEqual({ ok: true, value: { service: 'shellfox', protocolVersion: 1 } });
   }
   expect(f.pending).not.toHaveBeenCalled(); expect(f.authorize).not.toHaveBeenCalled();
   expect(f.approved).not.toHaveBeenCalled(); expect(f.withdraw).not.toHaveBeenCalled();
-  for (const operation of [snapshot, visible, clear, attach, lease]) expect(operation).not.toHaveBeenCalled();
+  for (const operation of [snapshot, visible, clear, attach, view]) expect(operation).not.toHaveBeenCalled();
   expect(f.service.ownedTerminalCount()).toBe(1); expect(f.processes[0].kill).not.toHaveBeenCalled();
   f.approved.mockReturnValue(true);
   expect(await f.send('/v1/request', JSON.stringify({ clientId: randomUUID(), method: 'getSnapshot', payload: {} })))
@@ -73,7 +72,7 @@ it('keeps the legacy empty request signature validate-before-approval with no pe
   const created = await f.service.createSession({ cwd: '/work', requestId: randomUUID() });
   if (!created.ok) throw new Error('fixture session missing');
   const snapshot = vi.spyOn(f.service, 'getSnapshot'), attach = vi.spyOn(f.service, 'attachTerminal');
-  const clear = vi.spyOn(f.service, 'clearRemoteVisibleSessions'), lease = vi.spyOn(RemoteControlLeases.prototype, 'claim');
+  const clear = vi.spyOn(f.service, 'clearRemoteVisibleSessions'), view = vi.spyOn(f.service, 'createTerminalView');
   for (const approved of [false, true]) {
     f.approved.mockReturnValue(approved);
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -84,7 +83,7 @@ it('keeps the legacy empty request signature validate-before-approval with no pe
   }
   expect(f.pending).not.toHaveBeenCalled(); expect(f.authorize).not.toHaveBeenCalled();
   expect(f.approved).not.toHaveBeenCalled(); expect(f.withdraw).not.toHaveBeenCalled();
-  for (const operation of [snapshot, attach, clear, lease]) expect(operation).not.toHaveBeenCalled();
+  for (const operation of [snapshot, attach, clear, view]) expect(operation).not.toHaveBeenCalled();
   expect(f.service.ownedTerminalCount()).toBe(1); expect(f.processes[0].kill).not.toHaveBeenCalled();
   expect(await f.send('/v1/request', JSON.stringify({ clientId: randomUUID(), method: 'getSnapshot', payload: {} })))
     .toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });

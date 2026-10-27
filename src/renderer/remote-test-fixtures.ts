@@ -9,8 +9,8 @@ export function remoteFixture() {
   const state: RemoteState = {
     enabled: true, hostname: 'local', status: 'online', error: null, loginUrl: null,
     peers: [
-      { id: 'workstation', hostname: 'Workstation', addresses: ['100.64.0.1'], online: true, connection: 'connected', approved: true, remembered: true },
-      { id: 'server', hostname: 'Linux server', addresses: ['100.64.0.2'], online: false, connection: 'disconnected', approved: true, remembered: true },
+      { id: 'workstation', hostname: 'Workstation', addresses: ['100.64.0.1'], online: true, connection: 'connected', approved: true, remembered: true, hostConfirmed: true },
+      { id: 'server', hostname: 'Linux server', addresses: ['100.64.0.2'], online: false, connection: 'disconnected', approved: true, remembered: true, hostConfirmed: true },
     ], approvals: [], pending: [],
   };
   const item = session(); item.title = 'Remote session'; item.cwd = '/home/remote/project';

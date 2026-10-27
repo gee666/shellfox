@@ -3,17 +3,17 @@ import './terminal-test-mocks';
 import { terminalMocks } from './terminal-test-mocks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { success, failure } from '../shared/contracts';
-import type { Result, TerminalAttachmentDto, TerminalDataEvent } from '../shared/contracts';
+import type { Result, TerminalAttachmentDto, OwnedTerminalAttachmentDto, TerminalDataEvent, TerminalEvent } from '../shared/contracts';
 import { TerminalRegistry, clipboardShortcut, createTerminalSurface, type SurfaceFactory } from './terminal-client';
 import { deferred, mockApi, session } from './test-fixtures';
 
 const tab = session().tabs[0]!;
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
-const chunk = (sequence: number, data = `${sequence}`, generation = tab.generation): TerminalDataEvent => ({ type: 'data', tabId: tab.id, generation, sequence, data });
-const attachment = (chunks: TerminalDataEvent[] = [], extras: Partial<TerminalAttachmentDto> = {}): TerminalAttachmentDto => ({
-  tabId: tab.id, sessionId: tab.sessionId, generation: tab.generation,
+const chunk = (sequence: number, data = `${sequence}`, generation = tab.generation, controlEpoch = 1): Extract<TerminalEvent, { type: 'data' }> => ({ type: 'data', tabId: tab.id, generation, controlEpoch, sequence, data });
+const attachment = (chunks: TerminalDataEvent[] = [], extras: Partial<OwnedTerminalAttachmentDto> = {}): OwnedTerminalAttachmentDto => ({
+  control: 'owned', controlEpoch: 1, tabId: tab.id, sessionId: tab.sessionId, generation: tab.generation,
   firstSequence: chunks[0]?.sequence ?? 1, lastSequence: chunks.at(-1)?.sequence ?? 0,
-  chunks, truncated: false, state: 'open', exitCode: null, cols: 80, rows: 24, lifetime: 'app-owned', ...extras,
+  chunks: chunks.map(({ type, tabId, generation, sequence, data }) => ({ type, tabId, generation, sequence, data })), truncated: false, state: 'open', exitCode: null, cols: 80, rows: 24, lifetime: 'app-owned', ...extras,
 });
 function surfaces(delayed = false) {
   const values: { output: string; writes: { data: string; historical: boolean }[]; input: (data: string, userInitiated?: boolean) => void; callbacks: (() => void)[]; dispose: ReturnType<typeof vi.fn>; fit: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }[] = [];
@@ -42,7 +42,7 @@ describe('terminal stream ownership', () => {
     const screen = f.latest();
     f.emitTerminal(chunk(4, 'live'));
     screen.input('typed during replay', true); await flush();
-    expect(f.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, data: 'typed during replay' });
+    expect(f.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: 'typed during replay' });
     while (screen.callbacks.length) { screen.callbacks.shift()!(); await flush(); }
     expect(screen.writes).toEqual([
       { data: 'one', historical: true }, { data: 'twothree', historical: true }, { data: 'live', historical: false },
@@ -75,7 +75,7 @@ describe('terminal stream ownership', () => {
     fixture.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(1, 'a'), chunk(2, 'b'), chunk(3, 'c')])));
     fixture.emitTerminal(chunk(3, 'c')); fixture.emitTerminal(chunk(2, 'b')); await flush();
     expect(fixture.latest().output).toBe('abc');
-    expect(fixture.api.detachTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation });
+    expect(fixture.api.detachTerminal).not.toHaveBeenCalled();
     expect(fixture.api.attachTerminal).toHaveBeenLastCalledWith({ tabId: tab.id });
   });
   it('reports an inconsistent replay gap instead of busy-looping or restarting a shell', async () => {
@@ -96,7 +96,7 @@ describe('terminal stream ownership', () => {
     old.callbacks.forEach(done => done()); old.input('stale terminal reply'); await flush();
     expect(fixture.api.writeTerminal).not.toHaveBeenCalled();
     fixture.emitTerminal(chunk(2, 'stale'));
-    fixture.emitTerminal({ type: 'exit', tabId: tab.id, generation: tab.generation, lastSequence: 2, exitCode: 9, signal: null });
+    fixture.emitTerminal({ type: 'exit', controlEpoch: 1, tabId: tab.id, generation: tab.generation, lastSequence: 2, exitCode: 9, signal: null });
     expect(fixture.latest().output).toBe('new'); expect(old.dispose).toHaveBeenCalledTimes(1);
     expect(fixture.registry.getState(tab.id)).toMatchObject({ generation, phase: 'open' });
   });
@@ -123,7 +123,7 @@ describe('terminal stream ownership', () => {
     expect(order.slice(0, 2)).toEqual(['resize:132x43', 'write:screen']);
     expect(registry.getState(tab.id)).toMatchObject({ phase: 'open', warning: null });
     // The grid is changed to the viewport only afterwards, through the normal fit/resize path.
-    expect(fixture.api.resizeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, cols: 120, rows: 30 });
+    expect(fixture.api.resizeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, cols: 120, rows: 30 });
   });
   it('does not fit a replay to the viewport until all asynchronous writes have parsed', async () => {
     const f = setup(true); await flush(); f.emitTerminal(chunk(1, 'pending old output'));
@@ -156,7 +156,7 @@ describe('terminal stream ownership', () => {
       // SIGWINCH is only observable when the size really changes: shrink, wait, restore.
       expect(fixture.api.resizeTerminal.mock.calls.map(([size]) => `${size.cols}x${size.rows}`)).toEqual(['80x23', '80x24']);
       fixture.api.resizeTerminal.mockClear(); fixture.registry.refresh(tab.id); await vi.advanceTimersByTimeAsync(300); await flush();
-      expect(fixture.api.resizeTerminal).not.toHaveBeenCalled();
+      expect(fixture.api.resizeTerminal.mock.calls.map(([size]) => `${size.cols}x${size.rows}`)).toEqual(['80x24']);
     } finally { vi.useRealTimers(); }
   });
   it('drains output while hidden without resizing, focusing or allowing hidden input', async () => {
@@ -164,13 +164,13 @@ describe('terminal stream ownership', () => {
     fixture.registry.visibility(tab.id, false); fixture.emitTerminal(chunk(1, 'background')); fixture.latest().input('hidden'); fixture.registry.fit(tab.id); await flush();
     expect(fixture.latest().output).toBe('background'); expect(fixture.api.resizeTerminal).not.toHaveBeenCalled(); expect(fixture.api.writeTerminal).not.toHaveBeenCalled();
     fixture.registry.visibility(tab.id, true); fixture.latest().input('visible'); await flush();
-    expect(fixture.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, data: 'visible' });
+    expect(fixture.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: 'visible' });
   });
   it('allows parser device replies during hidden output without enabling arbitrary hidden input', async () => {
     const fixture = setup(true); await flush(); fixture.registry.visibility(tab.id, false);
     fixture.latest().input('hidden keystroke'); await flush(); expect(fixture.api.writeTerminal).not.toHaveBeenCalled();
     fixture.emitTerminal(chunk(1, '\u001b[6n')); fixture.latest().input('\u001b[1;1R'); await flush();
-    expect(fixture.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, data: '\u001b[1;1R' });
+    expect(fixture.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: '\u001b[1;1R' });
   });
   it('preserves its screen through host unmount/reattach and never spawns or closes a shell', async () => {
     const fixture = setup(); await flush(); fixture.emitTerminal(chunk(1, 'screen'));
@@ -183,9 +183,9 @@ describe('terminal stream ownership', () => {
     const fixture = setup(true); await flush(); fixture.emitTerminal(chunk(1, 'one')); fixture.emitTerminal(chunk(2, 'two'));
     expect(fixture.api.acknowledgeTerminal).not.toHaveBeenCalled();
     fixture.latest().callbacks.shift()!(); await flush();
-    expect(fixture.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: tab.id, generation: tab.generation, sequence: 1 });
+    expect(fixture.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, sequence: 1 });
     fixture.latest().callbacks.shift()!(); await flush(); fixture.emitTerminal(chunk(2, 'duplicate'));
-    expect(fixture.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: tab.id, generation: tab.generation, sequence: 2 });
+    expect(fixture.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, sequence: 2 });
     expect(fixture.api.acknowledgeTerminal).toHaveBeenCalledTimes(2);
   });
   it('detaches without closing and waits for late detach before reattaching the same generation', async () => {
@@ -202,7 +202,7 @@ describe('terminal stream ownership', () => {
     fixture.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(1, 'new', generation)], { generation, truncated: true })));
     fixture.emitTerminal(chunk(1, 'new', generation)); await flush(); old.callbacks.shift()!(); await flush();
     expect(fixture.api.acknowledgeTerminal).not.toHaveBeenCalled(); fixture.latest().callbacks.shift()!(); await flush();
-    expect(fixture.api.acknowledgeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation, sequence: 1 });
+    expect(fixture.api.acknowledgeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation, controlEpoch: 1, sequence: 1 });
   });
   it('validates input byte bounds/NUL and serializes accepted input without automatic retry', async () => {
     const fixture = setup(); await flush();
@@ -243,8 +243,9 @@ describe('terminal stream ownership', () => {
   });
   it('keeps an unsafe detach failure actionable when it blocks attach and allows retry', async () => {
     const fixture = setup(); await flush();
-    fixture.api.detachTerminal.mockResolvedValueOnce(failure('INTERNAL', 'Cannot detach view'));
-    fixture.registry.refresh(tab.id); await flush();
+    fixture.api.detachTerminal.mockResolvedValueOnce(failure('INTERNAL', 'Cannot detach view')).mockResolvedValueOnce(failure('INTERNAL', 'Cannot detach view'));
+    fixture.unmount(); await flush();
+    fixture.registry.mount(tab.id, fixture.host, true); await flush();
     expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'unavailable', error: { message: 'Cannot detach view' } });
     expect(fixture.api.attachTerminal).toHaveBeenCalledTimes(1);
     fixture.registry.refresh(tab.id); await flush();
@@ -354,12 +355,30 @@ describe('terminal stream ownership', () => {
     unsubscribers.forEach(unsubscribe => unsubscribe());
     expect(f.values.filter(value => !value.dispose.mock.calls.length)).toHaveLength(24);
   });
+  it('reasserts the viewport size after another client resized a detached terminal', async () => {
+    const f = setup(); await flush();
+    f.latest().fit.mockReturnValue({ cols: 115, rows: 45 });
+    f.registry.fit(tab.id); await flush(); f.api.resizeTerminal.mockClear();
+    f.unmount(); await flush();
+    f.api.attachTerminal.mockResolvedValueOnce(success(attachment([], { cols: 52, rows: 24 })));
+    f.registry.mount(tab.id, f.host, true); await flush();
+    expect(f.api.resizeTerminal).toHaveBeenCalledExactlyOnceWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, cols: 115, rows: 45 });
+  });
+  it('reasserts the viewport size when shown after settings hid it without detaching', async () => {
+    const f = setup(); await flush(); f.api.resizeTerminal.mockClear();
+    f.registry.visibility(tab.id, false);
+    f.registry.visibility(tab.id, true); await flush();
+    expect(f.api.resizeTerminal).toHaveBeenCalledExactlyOnceWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, cols: 80, rows: 24 });
+    f.api.resizeTerminal.mockClear();
+    f.registry.visibility(tab.id, true); f.registry.fit(tab.id); await flush();
+    expect(f.api.resizeTerminal).not.toHaveBeenCalled();
+  });
   it('validates resize dimensions and coalesces unchanged sizes', async () => {
     const fixture = setup(); await flush(); fixture.api.resizeTerminal.mockClear();
     fixture.registry.fit(tab.id); fixture.registry.fit(tab.id); await flush(); expect(fixture.api.resizeTerminal).not.toHaveBeenCalled();
     fixture.latest().fit.mockReturnValue({ cols: 0, rows: 700 }); fixture.registry.fit(tab.id); await flush(); expect(fixture.api.resizeTerminal).not.toHaveBeenCalled();
     fixture.latest().fit.mockReturnValue({ cols: 100, rows: 30 }); fixture.registry.fit(tab.id); await flush();
-    expect(fixture.api.resizeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, cols: 100, rows: 30 });
+    expect(fixture.api.resizeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, cols: 100, rows: 30 });
   });
   it('bounds delayed display writes by resetting from backend replay', async () => {
     const fixture = setup(true); await flush(); fixture.api.attachTerminal.mockResolvedValue(success(attachment([chunk(33, 'retained')], { truncated: true, firstSequence: 33, lastSequence: 33 })));
@@ -381,9 +400,9 @@ describe('terminal stream ownership', () => {
     expect(screen.output).toBe(''); expect(fixture.terminalUnsubscribe).toHaveBeenCalledTimes(1);
   });
   it('recovers stream errors quietly and preserves exit state without claiming command success', async () => {
-    const fixture = setup(); await flush(); fixture.emitTerminal({ type: 'error', tabId: tab.id, generation: tab.generation, error: { code: 'MONITOR_UNAVAILABLE', message: 'Unavailable evidence', retryable: true } });
+    const fixture = setup(); await flush(); fixture.emitTerminal({ type: 'error', controlEpoch: 1, tabId: tab.id, generation: tab.generation, error: { code: 'MONITOR_UNAVAILABLE', message: 'Unavailable evidence', retryable: true } });
     expect(fixture.registry.getState(tab.id).error).toBeNull();
-    fixture.emitTerminal({ type: 'exit', tabId: tab.id, generation: tab.generation, lastSequence: 0, exitCode: 3, signal: null }); await flush();
+    fixture.emitTerminal({ type: 'exit', controlEpoch: 1, tabId: tab.id, generation: tab.generation, lastSequence: 0, exitCode: 3, signal: null }); await flush();
     expect(fixture.registry.getState(tab.id)).toMatchObject({ phase: 'closed', exitCode: 3 });
   });
 });

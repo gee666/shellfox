@@ -19,8 +19,9 @@ export interface RemoteClientOptions {
   reconnectDelayMs?: number;
   maxReconnectDelayMs?: number;
 }
-interface Cycle { clientId: string; abort: AbortController; pending: number; failure?: AppError }
-interface Run { clientId: string; abort: AbortController; cycle?: Cycle }
+interface Cycle { clientId: string; abort: AbortController; pending: number; native: Set<Promise<unknown>>; failure?: AppError }
+interface Run { clientId: string; abort: AbortController; cycle?: Cycle; suspended: boolean; pairing: boolean; restart: boolean; resume?: () => void }
+interface VisibilityRequest { cycle: Cycle; next: RemoteRequestPayload<'setVisibleSessions'> | null; promise: Promise<RemoteResponse<'setVisibleSessions'>> }
 
 /** One authenticated host view and event poll per peer, independent of React/UI lifetime. */
 export class RemoteClient extends RemoteOperations {
@@ -28,10 +29,12 @@ export class RemoteClient extends RemoteOperations {
   private run?: Run;
   private readonly listeners = new Set<(event: RemoteHostEvent) => void>();
   private readonly stateListeners = new Set<(state: ClientState) => void>();
-  private readonly attachments = new Map<string, string>();
+  private readonly attachments = new Map<string, { generation: string; controlEpoch: number }>();
   private epoch = 0;
-  readonly terminalApi: Pick<TerminalApi, 'attachTerminal' | 'writeTerminal' | 'resizeTerminal' | 'acknowledgeTerminal' | 'detachTerminal'> = {
+  private visibility?: VisibilityRequest;
+  readonly terminalApi: Pick<TerminalApi, 'attachTerminal' | 'writeTerminal' | 'resizeTerminal' | 'acknowledgeTerminal' | 'detachTerminal' | 'takeTerminalControl'> = {
     attachTerminal: input => this.attachTerminal(input),
+    takeTerminalControl: input => this.takeTerminalControl(input),
     writeTerminal: input => this.writeTerminal(input),
     resizeTerminal: input => this.resizeTerminal(input),
     acknowledgeTerminal: input => this.acknowledgeTerminal(input),
@@ -71,16 +74,32 @@ export class RemoteClient extends RemoteOperations {
 
   /** Starts pairing in the background. Pending approval retries; denial needs explicit connect(). */
   connect(): void {
-    if (this.run) return;
-    const run: Run = { clientId: idSchema.parse(this.options.createClientId()), abort: new AbortController() }; this.run = run;
+    if (this.run) {
+      this.run.suspended = false; this.run.resume?.();
+      if (this.state.status === 'disconnected') this.setState('reconnecting');
+      return;
+    }
+    const run: Run = { clientId: idSchema.parse(this.options.createClientId()), abort: new AbortController(), suspended: false, pairing: false, restart: false }; this.run = run;
     this.setState('connecting');
     void this.loop(run);
   }
   reconnect(): void { this.stop(); this.connect(); }
+  /** Pause background traffic without withdrawing an approval request, including an in-flight pair. */
+  suspend(): void {
+    const run = this.run; if (!run) return;
+    run.suspended = true; run.restart = true;
+    if (this.state.status === 'connected') {
+      // Relinquish owned and waiting views without cancelling the device's pairing attempt.
+      for (const [tabId, value] of this.attachments) void this.detachTerminal({ tabId, generation: value.generation });
+      this.setState('disconnected');
+      for (const [tabId, value] of this.attachments) this.emit({ type: 'terminal', event: { type: 'control', tabId, ...value, control: 'blocked' } });
+      this.attachments.clear();
+    }
+  }
   /** Stops retries/polling immediately. Host cleanup is best effort and never closes shells. */
   stop(): void {
     const run = this.run; this.run = undefined;
-    run?.abort.abort(); run?.cycle?.abort.abort();
+    run?.abort.abort(); run?.cycle?.abort.abort(); run?.resume?.();
     if (run) this.release(run.clientId);
     this.invalidate({ code: 'NATIVE_UNAVAILABLE', message: 'Remote view stopped. Reattach after connecting.', retryable: true });
     if (!this.run) this.setState('disconnected');
@@ -98,11 +117,14 @@ export class RemoteClient extends RemoteOperations {
       if (path === '/v1/pair' && this.run?.clientId !== cycle.clientId) this.release(cycle.clientId);
       return parseJson(json);
     });
+    cycle.native.add(work);
+    const finished = () => { cycle.native.delete(work); };
+    void work.then(finished, finished);
     return untilStopped(work, cycle.abort.signal);
   }
   private invalidate(error: AppError): void {
     const attached = [...this.attachments]; this.attachments.clear();
-    for (const [tabId, generation] of attached) this.emit({ type: 'terminal', event: { type: 'error', tabId, generation, error } });
+    for (const [tabId, value] of attached) this.emit({ type: 'terminal', event: { type: 'error', tabId, ...value, error } });
   }
   private interrupt(cycle: Cycle, error: AppError): void {
     const run = this.run;
@@ -113,29 +135,47 @@ export class RemoteClient extends RemoteOperations {
   private async loop(run: Run): Promise<void> {
     let failures = 0;
     while (this.active(run)) {
+      while (run.suspended && this.active(run)) {
+        await new Promise<void>(resolve => { run.resume = resolve; });
+        run.resume = undefined;
+        if (!this.active(run)) return;
+      }
       let cycle: Cycle | undefined;
       try {
-        cycle = { clientId: run.clientId, abort: new AbortController(), pending: 0 };
-        run.cycle = cycle;
-        const pair = remotePairResponseSchema.parse(await this.send(cycle, '/v1/pair', { clientId: cycle.clientId }));
+        cycle = { clientId: run.clientId, abort: new AbortController(), pending: 0, native: new Set() };
+        run.cycle = cycle; run.pairing = true; run.restart = false;
+        const parsedPair = remotePairResponseSchema.safeParse(await this.send(cycle, '/v1/pair', { clientId: cycle.clientId }));
+        if (!parsedPair.success) throw new RemoteClientError({ code: 'UNSUPPORTED', message: 'Upgrade the host to use exclusive terminal control.', retryable: false });
+        const pair = parsedPair.data;
         if (!pair.ok) throw new RemoteClientError(pair.error);
+        run.pairing = false;
         if (!this.active(run, cycle)) return;
+        if (run.suspended) continue;
+        run.restart = false;
         failures = 0; this.setState('connected', null, `${cycle.clientId}:${++this.epoch}`);
-        while (this.active(run, cycle)) {
+        while (this.active(run, cycle) && !run.suspended && !run.restart) {
           const result = remotePollResponseSchema.parse(await this.send(cycle, '/v1/events', { clientId: cycle.clientId }));
           if (!result.ok) throw new RemoteClientError(result.error);
           if (!this.active(run, cycle)) return;
+          if (run.restart) break;
           for (const event of result.value.events) {
             if (!this.active(run, cycle)) return;
-            if (event.type === 'terminal' && event.event.type === 'exit') this.attachments.delete(event.event.tabId);
+            if (run.restart) break;
+            if (event.type === 'terminal' && event.event.type === 'control') {
+              const previous = this.attachments.get(event.event.tabId);
+              if (previous?.generation === event.event.generation && event.event.controlEpoch >= previous.controlEpoch) previous.controlEpoch = event.event.controlEpoch;
+            }
             this.emit(event);
           }
         }
         if (cycle.failure) throw new RemoteClientError(cycle.failure);
       } catch (error) {
         if (!this.active(run)) return;
+        // A suspended event poll is not a failed connection. A completed pair still records host decisions.
+        if (run.suspended && !run.pairing && !cycle?.failure && !(error instanceof RemoteClientError)) continue;
+        run.pairing = false;
         const detail = cycle?.failure ?? connectionError(error);
-        const denied = detail.code === 'ACCESS_DENIED';
+        const denied = detail.code === 'ACCESS_DENIED' || detail.code === 'UNSUPPORTED' && !detail.retryable;
         if (this.state.lastError !== detail) this.setState(denied ? 'rejected' : detail.code === 'APPROVAL_REQUIRED' ? 'awaiting-approval' : 'reconnecting', detail);
         if (!this.active(run)) return;
         this.invalidate(detail);
@@ -145,15 +185,40 @@ export class RemoteClient extends RemoteOperations {
         cycle.abort.abort();
         if (run.cycle === cycle) run.cycle = undefined;
         const delay = detail.code === 'APPROVAL_REQUIRED' ? this.approvalRetryMs : Math.min(this.maxReconnectDelayMs, this.reconnectDelayMs * 2 ** Math.min(failures++, 10));
-        await waitForRetry(delay, run.abort.signal);
+        if (!run.suspended) await waitForRetry(delay, run.abort.signal);
       } finally {
-        cycle?.abort.abort();
+        run.pairing = false; cycle?.abort.abort();
         if (!this.active(run)) this.release(run.clientId);
+        // Native calls cannot be cancelled through the bridge. Drain before replacing this cycle.
+        else if (cycle) await Promise.allSettled(cycle.native);
       }
     }
   }
 
   async request<M extends RemoteMethod>(method: M, payload: RemoteRequestPayload<M>): Promise<RemoteResponse<M>> {
+    if (method !== 'setVisibleSessions') return this.executeRequest(method, payload);
+    const parsed = requestSchemas.setVisibleSessions.safeParse(payload);
+    if (!parsed.success) return parseResponse(method, failure('VALIDATION', 'Invalid remote operation.'));
+    const cycle = this.run?.cycle;
+    if (!cycle || this.state.status !== 'connected') return this.executeRequest(method, payload);
+    const pending = this.visibility;
+    if (pending?.cycle === cycle) { pending.next = parsed.data; return parseResponse(method, await pending.promise); }
+    const task: VisibilityRequest = { cycle, next: parsed.data, promise: Promise.resolve(failure('NATIVE_UNAVAILABLE', 'Remote view changed.', true)) };
+    this.visibility = task;
+    task.promise = (async () => {
+      let result: RemoteResponse<'setVisibleSessions'> = failure('NATIVE_UNAVAILABLE', 'Remote view changed.', true);
+      try {
+        while (task.next && this.run?.cycle === cycle && !cycle.abort.signal.aborted) {
+          const input = task.next; task.next = null;
+          result = await this.executeRequest('setVisibleSessions', input);
+        }
+        return result;
+      } finally { if (this.visibility === task) this.visibility = undefined; }
+    })();
+    return parseResponse(method, await task.promise);
+  }
+
+  private async executeRequest<M extends RemoteMethod>(method: M, payload: RemoteRequestPayload<M>): Promise<RemoteResponse<M>> {
     const invalid = () => parseResponse(method, failure('VALIDATION', 'Invalid remote operation.'));
     let validated: unknown;
     try {
@@ -175,7 +240,7 @@ export class RemoteClient extends RemoteOperations {
       if (!result.ok && ['AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED'].includes(result.error.code)) this.interrupt(cycle, result.error);
       if (result.ok && method === 'attachTerminal') {
         const attachment = responseSchemas.attachTerminal.parse(result);
-        if (attachment.ok) this.attachments.set(attachment.value.tabId, attachment.value.generation);
+        if (attachment.ok) this.attachments.set(attachment.value.tabId, { generation: attachment.value.generation, controlEpoch: attachment.value.controlEpoch });
       }
       if (result.ok && method === 'detachTerminal') this.attachments.delete(requestSchemas.detachTerminal.parse(validated).tabId);
       return result;

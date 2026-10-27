@@ -1,9 +1,19 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { value } from '../fixtures/electron';
 import { remoteApps } from '../fixtures/remote-apps';
+
+async function typeCommand(page: Page, command: string) {
+  const take = page.getByRole('button', { name: 'Take it', exact: true });
+  if (await take.isVisible()) await take.click();
+  const input = page.locator('.xterm-helper-textarea');
+  await expect(input).toBeEditable();
+  await input.focus();
+  await page.keyboard.insertText(command.replace(/\r$/, ''));
+  await page.keyboard.press('Enter');
+}
 
 // Only the network transport is simulated. Electron, preload, session storage,
 // PTYs, host approval, delivery, and terminal rendering use production code.
@@ -45,7 +55,7 @@ test('remote approval, client quit and reconnect preserve the host terminal', as
     const command = process.platform === 'win32'
       ? `1..80 | ForEach-Object { Add-Content -LiteralPath '${progress.replaceAll("'", "''")}' -Value $_; Start-Sleep -Milliseconds 100 }\r`
       : `for i in $(seq 1 80); do printf '%s\\n' "$i" >> '${progress.replaceAll("'", "'\\''")}'; sleep 0.1; done\r`;
-    value(await client.page.evaluate(input => window.shellfoxRemote!.request({ peerId: 'workstation', method: 'writeTerminal', payload: input }), { ...identity, data: command }));
+    await typeCommand(client.page, command);
     await expect.poll(async () => (await readFile(progress, 'utf8').catch(() => '')).trim().split(/\r?\n/).filter(Boolean).length).toBeGreaterThan(0);
     await client.app.close(); applications.delete(client.app);
     // It must still be running after the client exits, not finish during shutdown.
@@ -57,14 +67,14 @@ test('remote approval, client quit and reconnect preserve the host terminal', as
     await expect.poll(async () => (await state(client.page)).status).toBe('online');
     value(await client.page.evaluate(() => window.shellfoxRemote!.connect({ peerId: 'workstation' })));
     await expect.poll(async () => (await state(client.page)).peers.find(peer => peer.id === 'workstation')?.connection).toBe('connected');
-    const restored = value(await client.page.evaluate(input => window.shellfoxRemote!.request({ peerId: 'workstation', method: 'attachTerminal', payload: input }), identity));
-    expect(restored.state).toBe('open');
-    expect(restored.generation).toBe(tab.generation);
+    await client.page.getByRole('button', { name: 'Select session Remote agent' }).click();
+    const restored = value(await client.page.evaluate(() => window.shellfoxRemote!.request({ peerId: 'workstation', method: 'getSnapshot', payload: {} })));
+    expect(restored.sessions.flatMap(session => session.tabs).find(current => current.id === tab.id)).toMatchObject({ lifecycle: 'open', generation: tab.generation });
     const resumedFile = path.join(directory, 'reconnected.txt');
     const resumedCommand = process.platform === 'win32'
       ? `Set-Content -LiteralPath '${resumedFile.replaceAll("'", "''")}' -Value RECONNECTED\r`
       : `printf RECONNECTED > '${resumedFile.replaceAll("'", "'\\''")}'\r`;
-    value(await client.page.evaluate(input => window.shellfoxRemote!.request({ peerId: 'workstation', method: 'writeTerminal', payload: input }), { ...identity, data: resumedCommand }));
+    await typeCommand(client.page, resumedCommand);
     await expect.poll(async () => (await readFile(resumedFile, 'utf8').catch(() => '')).trim()).toBe('RECONNECTED');
     const remote = value(await client.page.evaluate(() => window.shellfoxRemote!.request({ peerId: 'workstation', method: 'getSnapshot', payload: {} })));
     expect(remote.sessions.some(item => item.id === session.id)).toBe(true);

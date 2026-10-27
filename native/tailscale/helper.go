@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
@@ -34,11 +35,7 @@ type startConfig struct {
 	ProxySecret    string `json:"proxySecret"`
 }
 
-type networkStatus struct {
-	Status   string  `json:"status"`
-	LoginURL *string `json:"loginUrl"`
-	Error    *string `json:"error"`
-}
+type networkStatus = nethealth.Status
 
 type peer struct {
 	ID        string   `json:"id"`
@@ -54,6 +51,7 @@ type helper struct {
 	incoming *http.Server
 	cancel   context.CancelFunc
 	workers  sync.WaitGroup
+	health   *nethealth.Monitor
 	emit     func(networkStatus)
 }
 
@@ -159,28 +157,18 @@ func (h *helper) start(c startConfig) (interface{}, error) {
 	h.incoming = httpServer(http.HandlerFunc(bridge.incoming))
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
+	h.health, err = nethealth.New(nethealth.ServerSource(s, client), nethealth.DefaultConfig(), h.emit)
+	if err != nil {
+		_ = tailListener.Close()
+		_ = loopListener.Close()
+		return fail("network health")
+	}
 	h.workers.Add(3)
 	go h.serve(h.proxy, loopListener)
 	go h.serve(h.incoming, tailListener)
 	go func() {
 		defer h.workers.Done()
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		var last networkStatus
-		for {
-			callCtx, done := context.WithTimeout(ctx, 5*time.Second)
-			status := h.status(callCtx)
-			done()
-			if !sameStatus(last, status) && ctx.Err() == nil {
-				h.emit(status)
-				last = status
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
+		h.health.Run(ctx)
 	}()
 	return map[string]string{"proxyUrl": "http://" + loopListener.Addr().String()}, nil
 }
@@ -207,51 +195,15 @@ func (h *helper) close() {
 	if h.server != nil {
 		_ = h.server.Close()
 	}
-	h.proxy, h.incoming, h.server, h.client, h.cancel = nil, nil, nil, nil, nil
+	h.proxy, h.incoming, h.server, h.client, h.cancel, h.health = nil, nil, nil, nil, nil, nil
 }
 
 func (h *helper) status(ctx context.Context) networkStatus {
-	st, err := h.client.StatusWithoutPeers(ctx)
-	if err != nil {
-		message := "Cannot read network status"
+	if h.health == nil {
+		message := "Network health is unavailable."
 		return networkStatus{Status: "error", Error: &message}
 	}
-	result := networkStatus{Status: "starting"}
-	switch st.BackendState {
-	case "Running":
-		result.Status = "online"
-	case "NeedsLogin", "NeedsMachineAuth", "Stopped":
-		result.Status = "login-required"
-	case "NoState", "Starting":
-	default:
-		message := "Network unavailable"
-		result.Status, result.Error = "error", &message
-	}
-	result.LoginURL = loginURLForState(result.Status, st.AuthURL)
-	return result
-}
-
-// A completed login may leave an old AuthURL in the SDK status. Never offer it again.
-func loginURLForState(status, raw string) *string {
-	if status != "login-required" || !safeLoginURL(raw) {
-		return nil
-	}
-	return &raw
-}
-
-func safeLoginURL(raw string) bool {
-	u, err := url.Parse(raw)
-	return err == nil && u.Scheme == "https" && u.Hostname() == "login.tailscale.com" && u.User == nil && u.Port() == ""
-}
-
-func sameStatus(a, b networkStatus) bool {
-	value := func(s *string) string {
-		if s == nil {
-			return ""
-		}
-		return *s
-	}
-	return a.Status == b.Status && value(a.LoginURL) == value(b.LoginURL) && value(a.Error) == value(b.Error)
+	return h.health.Status(ctx)
 }
 
 func ownPeers(st *ipnstate.Status) []peer {

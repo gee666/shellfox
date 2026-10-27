@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 )
@@ -48,10 +49,10 @@ func (f *fakeLogin) Start(_ context.Context, o ipn.Options) error {
 func TestEnrollmentAndInteractiveLogin(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		f := &fakeLogin{st: &ipnstate.Status{BackendState: "Running", HaveNodeKey: existing}}
-		if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil {
+		if err := enroll(context.Background(), f, "tskey"+"-auth-"+"synthetic-secret"); err != nil {
 			t.Fatal(err)
 		}
-		if f.starts != 1 || f.got.AuthKey != "tskey" + "-auth-" + "synthetic-secret" || !f.got.UpdatePrefs.WantRunning {
+		if f.starts != 1 || f.got.AuthKey != "tskey"+"-auth-"+"synthetic-secret" || !f.got.UpdatePrefs.WantRunning {
 			t.Fatal("key not installed")
 		}
 		expected := 1
@@ -67,7 +68,7 @@ func TestEnrollmentAndInteractiveLogin(t *testing.T) {
 		t.Fatal("interactive login failed")
 	}
 	f = &fakeLogin{st: &ipnstate.Status{BackendState: "NeedsLogin", HaveNodeKey: true}}
-	if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil || f.interactive != 1 {
+	if err := enroll(context.Background(), f, "tskey"+"-auth-"+"synthetic-secret"); err != nil || f.interactive != 1 {
 		t.Fatal("expired key not reauthenticated")
 	}
 }
@@ -81,7 +82,7 @@ func TestEnrollmentValidationAndRedactedFailures(t *testing.T) {
 	}
 	for _, phase := range []string{"status", "prefs", "start", "interactive"} {
 		f := &fakeLogin{st: &ipnstate.Status{}, fail: phase}
-		err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret")
+		err := enroll(context.Background(), f, "tskey"+"-auth-"+"synthetic-secret")
 		if err == nil || strings.Contains(err.Error(), "secret") {
 			t.Fatal("key or raw SDK error exposed")
 		}
@@ -90,7 +91,7 @@ func TestEnrollmentValidationAndRedactedFailures(t *testing.T) {
 
 func TestStatusNeverExposesStaleOrUntrustedLoginURL(t *testing.T) {
 	for _, raw := range []string{"http://login.tailscale.com/a", "https://evil.test/a", "https://login.tailscale.com.evil.test/a", "https://user@login.tailscale.com/a", "https://login.tailscale.com:443/a"} {
-		if safeLoginURL(raw) {
+		if nethealth.SafeLoginURL(raw) {
 			t.Fatalf("unsafe URL %s", raw)
 		}
 	}

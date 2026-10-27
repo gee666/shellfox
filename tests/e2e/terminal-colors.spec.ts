@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 
 test('real local and WSL PTYs advertise truecolor and preserve RGB cells through xterm 6', async () => {
   test.setTimeout(120000);
@@ -30,7 +30,7 @@ test('real local and WSL PTYs advertise truecolor and preserve RGB cells through
       const command = powershell
         ? "[Console]::WriteLine('COLOR_ENV=' + $env:TERM + ',' + $env:COLORTERM); [Console]::WriteLine(([char]27 + '[38;2;255;100;0mRGB_TEST' + [char]27 + '[0m')); $g=''; 0..63 | ForEach-Object { $g += [char]27 + '[38;2;' + ($_ * 4) + ';' + (255 - $_ * 4) + ';123m#' }; [Console]::WriteLine($g + [char]27 + '[0m'); [Console]::WriteLine('COLOR_DONE')\r"
         : "printf 'COLOR_ENV=%s,%s\\n' \"$TERM\" \"$COLORTERM\"; printf '\\033[38;2;255;100;0mRGB_TEST\\033[0m\\n'; awk 'BEGIN { for (i=0;i<64;i++) printf \"\\033[38;2;%d;%d;123m#\",i*4,255-i*4; printf \"\\033[0m\\n\" }'; echo COLOR_DONE\r";
-      value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: command }));
+      value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: command }));
       await expect.poll(async () => {
         const replay: any = value(await app.evaluate((_electron, tabId) => (globalThis as any).__shellfoxTest.backend.attach({ tabId }), tab.id));
         return page.evaluate(async (chunks: Array<{ data: string }>) => {
@@ -65,7 +65,7 @@ test('real local and WSL PTYs advertise truecolor and preserve RGB cells through
       const printOverride = powershell
         ? "[Console]::WriteLine(('OVERRIDE_' + 'ENV=') + $env:TERM + ',' + $env:COLORTERM)\r"
         : "printf 'OVERRIDE_%s=%s,%s\\n' ENV \"$TERM\" \"$COLORTERM\"\r";
-      value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: overridden.id, generation: overridden.generation!, data: printOverride }));
+      value(await seedTerminal(app, { tabId: overridden.id, generation: overridden.generation!, data: printOverride }));
       await expect.poll(async () => app.evaluate((_electron, tabId) => {
         const replay = (globalThis as any).__shellfoxTest.backend.attach({ tabId });
         return replay.ok && replay.value.chunks.map((c: any) => c.data).join('').includes('OVERRIDE_ENV=vt100,24bit');

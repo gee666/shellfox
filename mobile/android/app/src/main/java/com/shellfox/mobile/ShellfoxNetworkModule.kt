@@ -1,5 +1,6 @@
 package com.shellfox.mobile
 
+import android.os.PowerManager
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -35,7 +36,7 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
     "Cannot create node state", "Invalid node state file", "Cannot secure node state",
     "Cannot read node state", "Invalid node state data", "Cannot initialize embedded Tailscale",
     "Cannot read Android network interfaces", "Cannot initialize network API", "Cannot read network status",
-    "Cannot configure embedded runtime",
+    "Cannot configure embedded runtime", "Cannot initialize network health",
   )
 
   override fun getName() = "ShellfoxNetwork"
@@ -98,7 +99,14 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
 
   @ReactMethod
   fun request(peerId: String, path: String, body: String, promise: Promise) = submit(if (path == "/v1/events") polls else requests, promise) {
-    Mobile.request(peerId, path, body)
+    // Finish a foreground-started approval POST across screen-off. Never keep an idle client awake.
+    val wakeLock = if (path == "/v1/pair") {
+      reactApplicationContext.getSystemService(PowerManager::class.java)
+        ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Shellfox:PairApproval")
+        ?.apply { acquire(35_000L) }
+    } else null
+    try { Mobile.request(peerId, path, body) }
+    finally { if (wakeLock?.isHeld == true) wakeLock.release() }
   }
 
   @ReactMethod

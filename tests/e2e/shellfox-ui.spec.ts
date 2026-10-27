@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { launch, scratch, snapshot } from '../fixtures/electron';
 
-test('Shellfox env editor, native menu actions, and Terminal command settings', async () => {
+test('Shellfox env editor, native menu actions, and Settings without obsolete CLI controls', async () => {
   test.skip(process.platform !== 'win32', 'Windows embedded-shell UI coverage.');
   const cwd = await scratch('shellfox-ui');
   const { app, page } = await launch(path.join(cwd, 'data'), 'real');
@@ -53,14 +53,17 @@ test('Shellfox env editor, native menu actions, and Terminal command settings', 
     await expect(page.getByRole('alert')).toContainText('Fixture folder unavailable');
 
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Terminal command', exact: true })).toBeVisible();
-    await expect(page.getByText('shellfox start .', { exact: true })).toBeVisible();
-    const cli = (await snapshot(page)).cli;
-    const toggle = page.getByRole('region', { name: 'Settings', exact: true })
-      .getByRole('switch', { name: 'Enable shellfox command in terminals', exact: true });
-    await expect(toggle).toHaveAttribute('aria-checked', String(cli.installed));
-    if (!cli.supported) await expect(toggle).toBeDisabled();
-    // Do not install or remove the user's real PATH integration in a UI test.
+    const settings = page.getByRole('region', { name: 'Settings', exact: true });
+    await expect(settings).toBeVisible();
+    await expect(settings.getByRole('tablist', { name: 'Settings categories' }).getByRole('tab')).toHaveText(['General', 'Terminals', 'Agents', 'Remote access', 'SSH']);
+    await settings.getByRole('tab', { name: 'Terminals', exact: true }).click();
+    await expect(settings.getByRole('heading', { name: 'Default shell', exact: true })).toBeVisible();
+    await expect(settings.getByRole('combobox', { name: 'Default shell', exact: true })).toBeVisible();
+    // Integration is automatic. Do not restore install switches or obsolete root-command guidance.
+    await expect(settings.getByRole('heading', { name: 'Terminal command', exact: true, includeHidden: true })).toHaveCount(0);
+    await expect(settings.getByRole('switch', { name: 'Enable shellfox command in terminals', exact: true, includeHidden: true })).toHaveCount(0);
+    await expect(settings.getByText('shellfox start .', { exact: true })).toHaveCount(0);
+    expect((await snapshot(page)).cli.command).toBe('shellfox');
   } finally {
     // Dispose only this isolated test application's embedded shells.
     await page.evaluate(async () => {

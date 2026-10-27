@@ -8,7 +8,7 @@ export type TabStatus = Exclude<Status, 'settled'>;
 export type TabLifecycle = 'launching' | 'open' | 'closed' | 'launch-uncertain';
 export type AdapterId = 'windows-terminal' | 'gnome-terminal' | 'embedded-pty';
 export type ShellId = 'pwsh' | 'windows-powershell' | 'bash' | 'login-shell' | 'wsl';
-export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'DEPENDENCY_MISSING' | 'LAUNCH_FAILED' | 'REGISTRATION_TIMEOUT' | 'TARGET_LOST' | 'TARGET_AMBIGUOUS' | 'FOCUS_DENIED' | 'MONITOR_UNAVAILABLE' | 'NATIVE_UNAVAILABLE' | 'AUTH_FAILED' | 'APPROVAL_REQUIRED' | 'ACCESS_DENIED' | 'SETTLE_CONFIRM_REQUIRED' | 'RETRY_CONFIRM_REQUIRED' | 'STORAGE_FAILED' | 'INTERNAL';
+export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'DEPENDENCY_MISSING' | 'LAUNCH_FAILED' | 'REGISTRATION_TIMEOUT' | 'TARGET_LOST' | 'TARGET_AMBIGUOUS' | 'FOCUS_DENIED' | 'MONITOR_UNAVAILABLE' | 'NATIVE_UNAVAILABLE' | 'AUTH_FAILED' | 'APPROVAL_REQUIRED' | 'ACCESS_DENIED' | 'TERMINAL_CONTROL_REQUIRED' | 'SETTLE_CONFIRM_REQUIRED' | 'RETRY_CONFIRM_REQUIRED' | 'STORAGE_FAILED' | 'INTERNAL';
 export interface AppError { code: ErrorCode; message: string; retryable: boolean }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: AppError };
 export interface Counts { running: number; waiting: number; unknown: number; error: number; closed: number; agents: number }
@@ -87,23 +87,31 @@ export interface TerminalProfilesDto {
   profiles: TerminalProfileDto[]; defaultProfileId: string | null; lifetime: 'app-owned'; shellSurvival: false;
 }
 export interface TerminalDataEvent { type: 'data'; tabId: Id; generation: Id; sequence: number; data: string }
-export type TerminalEvent = TerminalDataEvent
+export type TerminalBackendEvent = TerminalDataEvent
   | { type: 'activity'; tabId: Id; busy: boolean }
   | { type: 'exit'; tabId: Id; generation: Id; exitCode: number | null; signal: number | null; lastSequence: number }
   | { type: 'error'; tabId: Id; generation: Id; error: AppError };
-export interface TerminalAttachmentDto {
+export type TerminalEvent = Extract<TerminalBackendEvent, { type: 'activity' }>
+  | (Exclude<TerminalBackendEvent, { type: 'activity' }> & { controlEpoch: number })
+  | { type: 'control'; tabId: Id; generation: Id; control: 'owned' | 'blocked'; controlEpoch: number };
+export interface TerminalSnapshotDto {
   tabId: Id; sessionId: Id; generation: Id; firstSequence: number; lastSequence: number;
   /** With `snapshot`, the leading chunks are a serialized screen (history, visible rows, modes) at `cols` x `rows`, not raw PTY output. */
   chunks: TerminalDataEvent[]; truncated: boolean; snapshot?: boolean; state: 'open' | 'closed'; exitCode: number | null;
   cols: number; rows: number; lifetime: 'app-owned';
 }
+export type OwnedTerminalAttachmentDto = TerminalSnapshotDto & { control: 'owned'; controlEpoch: number };
+export interface BlockedTerminalAttachmentDto { tabId: Id; sessionId: Id; generation: Id; control: 'blocked'; controlEpoch: number }
+export type TerminalAttachmentDto = OwnedTerminalAttachmentDto | BlockedTerminalAttachmentDto;
+export interface TerminalControlIdentity { tabId: Id; generation: Id; controlEpoch: number }
 export interface TerminalApi {
   getTerminalProfiles(): Promise<Result<TerminalProfilesDto>>;
   attachTerminal(input: { tabId: Id; afterSequence?: number; generation?: Id }): Promise<Result<TerminalAttachmentDto>>;
-  writeTerminal(input: { tabId: Id; generation: Id; data: string }): Promise<Result<{ written: true }>>;
-  resizeTerminal(input: { tabId: Id; generation: Id; cols: number; rows: number }): Promise<Result<{ resized: true }>>;
+  takeTerminalControl(input: { tabId: Id; generation: Id }): Promise<Result<{ taken: true }>>;
+  writeTerminal(input: TerminalControlIdentity & { data: string }): Promise<Result<{ written: true }>>;
+  resizeTerminal(input: TerminalControlIdentity & { cols: number; rows: number }): Promise<Result<{ resized: true }>>;
   closeTab(input: { tabId: Id; generation: Id }): Promise<Result<SessionDto>>;
-  acknowledgeTerminal(input: { tabId: Id; generation: Id; sequence: number }): Promise<Result<{ acknowledged: true }>>;
+  acknowledgeTerminal(input: TerminalControlIdentity & { sequence: number }): Promise<Result<{ acknowledged: true }>>;
   detachTerminal(input: { tabId: Id; generation: Id }): Promise<Result<{ detached: true }>>;
   subscribeTerminal(listener: (event: TerminalEvent) => void): () => void;
   /** Clipboard bridge for terminal Ctrl+Shift+C / Ctrl+Shift+V. Optional for legacy injected clients. */

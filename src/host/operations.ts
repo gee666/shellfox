@@ -1,14 +1,14 @@
 import { failure, success, type KeepAwakeState } from '../shared/contracts';
 import { requestSchemas, type ManagerMethod } from '../shared/schemas';
 import type { EmbeddedSessionService } from '../main/terminal/service';
-import type { TerminalDelivery } from '../main/terminal/delivery';
+import type { TerminalControlView } from '../main/terminal/control';
 import { getHomeDirectory, resolveDirectory, createDirectory, completeDirectory } from '../main/directory-prompt';
 import type { SshProfileStore } from '../main/ssh/storage';
 import { readPuttySessions } from '../main/ssh/putty';
 
 export type HostSessionService = Pick<EmbeddedSessionService,
-  'subscribe' | 'subscribeTerminal' | 'getSessionStats' | 'getSnapshot' | 'getTerminalProfiles' | 'attachTerminal' | 'writeTerminal' |
-  'resizeTerminal' | 'closeTab' | 'createSession' | 'addTab' | 'activateSession' | 'focusSession' |
+  'subscribe' | 'createTerminalView' | 'getSessionStats' | 'getSnapshot' | 'getTerminalProfiles' |
+  'closeTab' | 'createSession' | 'addTab' | 'activateSession' | 'focusSession' |
   'refreshSessionMembership' | 'prepareSessionRegistration' | 'renameSession' | 'renameTab' | 'reorderTabs' |
   'setSessionPinned' | 'settleSession' | 'unsettleSession' | 'deleteSession' | 'clearSessionError' | 'retryTab' |
   'setSessionEnv' | 'saveSettings' | 'setExplorerIntegration' | 'setCliIntegration' |
@@ -20,7 +20,7 @@ export interface HostKeepAwake {
   subscribe(listener: (state: KeepAwakeState) => void): () => void;
 }
 export interface ManagerContext {
-  service: HostSessionService; delivery: TerminalDelivery; clientId: string;
+  service: HostSessionService; delivery: TerminalControlView; clientId: string;
   keepAwake?: HostKeepAwake; ssh?: SshProfileStore;
   desktop?: (method: ManagerMethod, payload: unknown) => Promise<unknown>;
 }
@@ -31,15 +31,12 @@ export async function managerOperation(ctx: ManagerContext, method: ManagerMetho
     case 'getSessionStats': return service.getSessionStats(requestSchemas.getSessionStats.parse(payload));
     case 'getTerminalProfiles': return service.getTerminalProfiles();
     case 'setVisibleSessions': return service.setRemoteVisibleSessions(ctx.clientId, requestSchemas.setVisibleSessions.parse(payload));
-    case 'attachTerminal': {
-      const result = service.attachTerminal(requestSchemas.attachTerminal.parse(payload));
-      if (!result.ok) return result;
-      const attached = delivery.attached(result.value); return attached.ok ? result : attached;
-    }
+    case 'attachTerminal': return delivery.attach(requestSchemas.attachTerminal.parse(payload));
+    case 'takeTerminalControl': return delivery.take(requestSchemas.takeTerminalControl.parse(payload));
     case 'acknowledgeTerminal': return delivery.acknowledge(requestSchemas.acknowledgeTerminal.parse(payload));
     case 'detachTerminal': return delivery.detach(requestSchemas.detachTerminal.parse(payload));
-    case 'writeTerminal': return service.writeTerminal(requestSchemas.writeTerminal.parse(payload));
-    case 'resizeTerminal': return service.resizeTerminal(requestSchemas.resizeTerminal.parse(payload));
+    case 'writeTerminal': return delivery.write(requestSchemas.writeTerminal.parse(payload));
+    case 'resizeTerminal': return delivery.resize(requestSchemas.resizeTerminal.parse(payload));
     case 'closeTab': return service.closeTab(requestSchemas.closeTab.parse(payload));
     case 'createSession': return service.createSession(requestSchemas.createSession.parse(payload));
     case 'addTab': return service.addTab(requestSchemas.addTab.parse(payload));

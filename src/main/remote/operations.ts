@@ -3,21 +3,9 @@ import { sessionSchema } from '../../shared/schemas';
 import { requestSchemas, responseSchemas, remoteMethodSchema } from '../../shared/remote-schemas';
 import type { EmbeddedSessionService } from '../terminal/service';
 import { getHomeDirectory, resolveDirectory, createDirectory, completeDirectory } from '../directory-prompt';
-import type { TerminalDelivery } from '../terminal/delivery';
+import type { TerminalControlView } from '../terminal/control';
 
-/** Local input is never gated. Remote writers share a renewable 30 second control lease. */
-export class RemoteControlLeases {
-  private readonly owners = new Map<string, { clientId: string; until: number }>();
-  claim(tabId: string, clientId: string, now = Date.now()): boolean { return this.claimAll([tabId], clientId, now); }
-  claimAll(tabIds: string[], clientId: string, now = Date.now()): boolean {
-    for (const [id, lease] of this.owners) if (lease.until <= now) this.owners.delete(id);
-    if (tabIds.some(id => { const owner = this.owners.get(id); return owner && owner.clientId !== clientId; })) return false;
-    for (const tabId of tabIds) this.owners.set(tabId, { clientId, until: now + 30_000 });
-    return true;
-  }
-  release(clientId: string): void { for (const [tabId, owner] of this.owners) if (owner.clientId === clientId) this.owners.delete(tabId); }
-}
-export async function remoteOperation(service: EmbeddedSessionService, delivery: TerminalDelivery, leases: RemoteControlLeases, clientId: string, method: unknown, payload: unknown): Promise<unknown> {
+export async function remoteOperation(service: EmbeddedSessionService, delivery: TerminalControlView, clientId: string, method: unknown, payload: unknown): Promise<unknown> {
   const parsedMethod = remoteMethodSchema.safeParse(method);
   if (!parsedMethod.success) return failure('AUTH_FAILED', 'This operation is not available remotely.');
   const m = parsedMethod.data;
@@ -37,6 +25,7 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
   let tabId: string | undefined;
   switch (m) {
     case 'attachTerminal': tabId = requestSchemas.attachTerminal.parse(payload).tabId; break;
+    case 'takeTerminalControl': tabId = requestSchemas.takeTerminalControl.parse(payload).tabId; break;
     case 'writeTerminal': tabId = requestSchemas.writeTerminal.parse(payload).tabId; break;
     case 'resizeTerminal': tabId = requestSchemas.resizeTerminal.parse(payload).tabId; break;
     case 'closeTab': tabId = requestSchemas.closeTab.parse(payload).tabId; break;
@@ -45,14 +34,13 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
   if (m === 'deleteSession') {
     const p = requestSchemas.deleteSession.parse(payload);
     if (service.repository.tabs(p.sessionId).some(tab => elevated.has(tab.terminal?.profileId ?? ''))) return failure('AUTH_FAILED', 'Sessions containing elevated terminals can only be deleted locally.');
-    const tabs = service.backend.live().filter(tab => tab.sessionId === p.sessionId && tab.state === 'open').map(tab => tab.tabId);
-    if (!leases.claimAll(tabs, clientId)) return failure('FOCUS_DENIED', 'Another remote client controls a terminal in this session. Disconnect it or wait for its control lease to expire before deleting the session.', true);
+
   }
   if (m === 'writeTerminal' || m === 'resizeTerminal' || m === 'closeTab') {
     const p = m === 'writeTerminal' ? requestSchemas.writeTerminal.parse(payload) : m === 'resizeTerminal' ? requestSchemas.resizeTerminal.parse(payload) : requestSchemas.closeTab.parse(payload);
     const owned = service.backend.get(p.tabId);
     if (!owned || owned.generation !== p.generation || service.repository.tab(p.tabId)?.operationId !== p.generation) return failure('TARGET_LOST', 'Stale terminal generation.');
-    if (!leases.claim(p.tabId, clientId)) return failure('FOCUS_DENIED', 'Another remote client controls this terminal. Retry after its 30 second lease expires or it disconnects. Local input always remains available.', true);
+
   }
   let result: unknown;
   switch (m) {
@@ -70,13 +58,10 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
     }
     case 'setVisibleSessions': result = service.setRemoteVisibleSessions(clientId, requestSchemas.setVisibleSessions.parse(payload)); break;
     case 'getTerminalProfiles': result = success({ ...profiles.value, profiles: profiles.value.profiles.filter(profile => !profile.elevation) }); break;
-    case 'attachTerminal': {
-      const attachment = service.attachTerminal(requestSchemas.attachTerminal.parse(payload));
-      const accepted = attachment.ok ? delivery.attached(attachment.value) : null;
-      result = accepted && !accepted.ok ? accepted : attachment; break;
-    }
-    case 'writeTerminal': result = service.writeTerminal(requestSchemas.writeTerminal.parse(payload)); break;
-    case 'resizeTerminal': result = service.resizeTerminal(requestSchemas.resizeTerminal.parse(payload)); break;
+    case 'attachTerminal': result = delivery.attach(requestSchemas.attachTerminal.parse(payload)); break;
+    case 'takeTerminalControl': result = delivery.take(requestSchemas.takeTerminalControl.parse(payload)); break;
+    case 'writeTerminal': result = delivery.write(requestSchemas.writeTerminal.parse(payload)); break;
+    case 'resizeTerminal': result = delivery.resize(requestSchemas.resizeTerminal.parse(payload)); break;
     case 'closeTab': result = await service.closeTab(requestSchemas.closeTab.parse(payload)); break;
     case 'acknowledgeTerminal': result = delivery.acknowledge(requestSchemas.acknowledgeTerminal.parse(payload)); break;
     case 'detachTerminal': result = delivery.detach(requestSchemas.detachTerminal.parse(payload)); break;

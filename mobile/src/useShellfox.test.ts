@@ -124,11 +124,11 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     transport.operation = async () => JSON.stringify({ ok: true, value: { ...snapshot, revision: 0 } });
     const polls = mocks.status.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); expect(mocks.status).toHaveBeenCalledTimes(polls);
-    await foreground('active'); expect(transport.calls('/v1/pair')).toHaveLength(2);
+    transport.events([]); await settle(); await foreground('active'); expect(transport.calls('/v1/pair')).toHaveLength(2);
     expect(result.current.machines[0].snapshot?.revision).toBe(0);
     mocks.peers.mockResolvedValue([{ ...host, online: false }]);
     await act(async () => { await vi.advanceTimersByTimeAsync(3250); });
-    expect(result.current.machines[0].state.status).toBe('disconnected');
+    expect(result.current.machines[0].state.status).toBe('connected');
     expect(result.current.machines[0].snapshot?.revision).toBe(0);
     unmount(); expect(removeListener).toHaveBeenCalledOnce();
     const requests = mocks.status.mock.calls.length;
@@ -299,17 +299,18 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     await act(async () => { await expect(result.current.logout()).rejects.toThrow('storage unavailable'); });
     expect(result.current.network.status).toBe('login-required'); expect(result.current.ready).toBe(true);
   });
-  it('does not regress a snapshot when refresh responses arrive out of order', async () => {
+  it('coalesces explicit and pushed refreshes, with one follow-up for changes during a read', async () => {
     mocks.status.mockResolvedValue(online);
     const { result } = renderHook(useShellfox); await settle();
     await act(async () => { await result.current.connect(host); await flush(); });
-    const older = deferred<string>(), newer = deferred<string>();
+    const older = deferred<string>(), newer = deferred<string>(), client = result.current.machines[0].client;
     let requests = 0; transport.operation = () => requests++ === 0 ? older.promise : newer.promise;
-    const client = result.current.machines[0].client;
-    let first = Promise.resolve(), second = Promise.resolve();
-    act(() => { first = result.current.refresh(client); second = result.current.refresh(client); });
-    await act(async () => { newer.resolve(JSON.stringify({ ok: true, value: { ...snapshot, revision: 3 } })); await second; });
-    await act(async () => { older.resolve(JSON.stringify({ ok: true, value: { ...snapshot, revision: 2 } })); await first; });
+    const pending: Promise<void>[] = [];
+    act(() => { for (let i = 0; i < 20; i++) pending.push(result.current.refresh(client)); });
+    await act(async () => { transport.events([{ type: 'changed', event: { revision: 3, reason: 'native' } }]); await flush(); });
+    expect(requests).toBe(1); expect(result.current.error).toBeNull();
+    await act(async () => { older.resolve(JSON.stringify({ ok: true, value: { ...snapshot, revision: 3 } })); await pending[0]; await flush(); }); expect(requests).toBe(2);
+    await act(async () => { newer.resolve(JSON.stringify({ ok: true, value: { ...snapshot, revision: 2 } })); await Promise.all(pending); });
     expect(result.current.machines[0].snapshot?.revision).toBe(3);
   });
   it('ignores a refresh completed by an older connection epoch', async () => {

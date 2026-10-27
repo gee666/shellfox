@@ -2,9 +2,9 @@ import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 
-test('embedded startup settles legacy sessions in Local, removes obsolete roots and upgrades untouched rules', async () => {
+test('embedded startup preserves legacy session activity, removes obsolete roots and upgrades untouched rules', async () => {
   const dir = await scratch('legacy-settled'), data = path.join(dir, 'data'), sessionId = randomUUID(), tabId = randomUUID();
   let running = await launch(data, 'real');
   try {
@@ -28,7 +28,7 @@ test('embedded startup settles legacy sessions in Local, removes obsolete roots 
     running = await launch(data, 'real');
     const sessions = (await snapshot(running.page)).sessions;
     expect(sessions).toHaveLength(1);
-    expect(sessions[0]).toMatchObject({ id: sessionId, status: 'settled', settledAt: expect.any(String), tabs: [] });
+    expect(sessions[0]).toMatchObject({ id: sessionId, settledAt: null, updatedAt: now, tabs: [] });
     const settings = (await snapshot(running.page)).settings;
     expect(settings.processRules.find(rule => rule.label === 'Pi')).toMatchObject({ enabled: false, processNames: ['pi', 'pi.exe'] });
     expect(settings.processRules.find(rule => rule.label === 'Pi')?.scriptPathSuffixes).toContain('@earendil-works/pi-coding-agent/dist/bundle/cli.js');
@@ -45,7 +45,7 @@ test('embedded startup settles legacy sessions in Local, removes obsolete roots 
     await running.page.getByRole('region', { name: 'Local sessions', exact: true }).getByRole('button', { name: 'Select session learn-language', exact: true }).click();
     await expect.poll(async () => (await snapshot(running.page)).sessions[0].tabs[0]?.lifecycle, { timeout: 20000 }).toBe('open');
     const reopened = (await snapshot(running.page)).sessions[0];
-    expect(reopened).toMatchObject({ id: sessionId, adapterId: 'embedded-pty', status: 'settled', settledAt: sessions[0].settledAt });
+    expect(reopened).toMatchObject({ id: sessionId, adapterId: 'embedded-pty', settledAt: null });
     expect(reopened.tabs).toHaveLength(1);
     expect(reopened.tabs[0]).toMatchObject({ terminalKind: 'embedded', lifecycle: 'open' });
     expect(reopened.tabs[0].id).not.toBe(tabId);
@@ -71,7 +71,7 @@ test('real PowerShell 7 Pi shim becomes running/green and output produces busy t
       (window as any).acceptanceActivity = [];
       window.shellfox.subscribeTerminal!(event => { if (event.type === 'activity' && event.tabId === id) (window as any).acceptanceActivity.push(event); });
     }, tab.id);
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: 'pi\r' }));
+    value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: 'pi\r' }));
     await expect.poll(async () => (await snapshot(page)).sessions[0].tabs[0].status, { timeout: 25000 }).toBe('running');
     expect((await snapshot(page)).sessions[0].tabs[0].agents).toBeGreaterThan(0);
     await expect.poll(async () => page.evaluate(() => (window as any).acceptanceActivity.some((event: any) => event.busy)), { timeout: 20000 }).toBe(true);

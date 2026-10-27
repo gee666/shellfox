@@ -2,8 +2,11 @@ module shellfox.local/mobile
 
 go 1.27.3
 
+replace shellfox.local/tailscale-helper => ../tailscale
+
 require (
 	golang.org/x/mobile v0.0.0-20261011034528-197770444867
+	shellfox.local/tailscale-helper v0.0.0
 	tailscale.com v1.104.2
 )
 

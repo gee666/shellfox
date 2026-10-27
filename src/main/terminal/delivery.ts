@@ -1,6 +1,6 @@
-import type { Result, TerminalAttachmentDto, TerminalEvent } from '../../shared/contracts';
+import type { Result, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
-import { requestSchemas, terminalEventSchema } from '../../shared/schemas';
+import { requestSchemas, terminalBackendEventSchema as terminalEventSchema } from '../../shared/schemas';
 const CREDIT = 128 * 1024;
 interface Attachment { generation: string; sent: number; acked: number; replayPending: number | null; pending: { sequence: number; bytes: number }[]; pendingBytes: number; blocked: boolean; exit?: Extract<TerminalEvent, { type: 'exit' }> }
 /** Per renderer view. No output queue here: unsent data lives only in the bounded PTY replay. */
@@ -9,7 +9,6 @@ export class TerminalDelivery {
   constructor(private readonly attach: (input: { tabId: string; generation?: string; afterSequence?: number }) => Result<TerminalAttachmentDto>, private readonly send: (event: TerminalEvent) => void) {}
   attached(snapshot: TerminalAttachmentDto): Result<{ attached: true }> {
     const current = this.attachments.get(snapshot.tabId);
-    if (current?.generation === snapshot.generation && (current.pending.length || current.replayPending !== null)) return failure('RETRY_CONFIRM_REQUIRED', 'Consume and acknowledge the previous terminal output, or explicitly detach the view before reattaching.');
     if (!current && this.attachments.size >= 16) return failure('VALIDATION', 'At most 16 terminal views may be attached. Detach unused views first.');
     this.attachments.set(snapshot.tabId, { generation: snapshot.generation, sent: snapshot.lastSequence, acked: 0, replayPending: snapshot.chunks.length ? snapshot.lastSequence : null, pending: [], pendingBytes: 0, blocked: false });
     return success({ attached: true });
@@ -21,7 +20,7 @@ export class TerminalDelivery {
     this.attachments.delete(input.tabId); return success({ detached: true });
   }
   acknowledge(input: { tabId: string; generation: string; sequence: number }): Result<{ acknowledged: true }> {
-    if (!requestSchemas.acknowledgeTerminal.safeParse(input).success) return failure('VALIDATION', 'Invalid terminal acknowledgement.');
+    if (!requestSchemas.acknowledgeTerminal.omit({ controlEpoch: true }).safeParse(input).success) return failure('VALIDATION', 'Invalid terminal acknowledgement.');
     const a = this.attachments.get(input.tabId);
     if (!a || a.generation !== input.generation) return failure('TARGET_LOST', 'This terminal view is no longer attached.');
     if (input.sequence < a.acked || input.sequence > a.sent) return failure('VALIDATION', 'Acknowledgement is outside the delivered sequence range.');

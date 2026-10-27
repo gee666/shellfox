@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/headless';
 import type { Result, TerminalApi, TerminalEvent } from '../shared/contracts';
 import { success } from '../shared/contracts';
 import { PtyBackend } from '../main/terminal/backend';
-import { TerminalDelivery } from '../main/terminal/delivery';
+import { TerminalControlBroker } from '../main/terminal/control';
 import { tuiStream, tuiUpdate } from '../main/terminal/tui-fixture';
 import { factoryFixture, launchInput } from '../main/terminal/test-fixtures';
 import { TerminalRegistry, type SurfaceFactory } from './terminal-client';
@@ -26,8 +26,9 @@ async function fixture() {
   const pty = factoryFixture(); const backend = new PtyBackend(pty.options);
   value(await backend.initialize()); const input = launchInput(); value(await backend.launch(input));
   const listeners = new Set<(event: TerminalEvent) => void>();
-  const delivery = new TerminalDelivery(args => backend.attach(args), event => { for (const listener of listeners) listener(event); });
-  const off = backend.subscribe(event => delivery.event(event));
+  const broker = new TerminalControlBroker({ identity: id => backend.get(id), snapshot: args => backend.attach(args), write: args => backend.write(args), resize: args => backend.resize(args) });
+  const delivery = broker.createView(event => { for (const listener of listeners) listener(event); });
+  const off = backend.subscribe(event => broker.event(event));
   const terminals: Terminal[] = []; const sizes: string[] = [];
   const disposed = new Set<Terminal>(); const viewport = { ...VIEW };
   const factory: SurfaceFactory = () => {
@@ -41,16 +42,17 @@ async function fixture() {
   const api: TerminalApi = {
     getTerminalProfiles: async () => success(backend.getProfiles()),
     subscribeTerminal(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    attachTerminal: vi.fn(async args => { const replay = backend.attach(args); if (!replay.ok) return replay; const registered = delivery.attached(replay.value); return registered.ok ? replay : registered; }),
+    attachTerminal: vi.fn(async args => delivery.attach(args)),
+    takeTerminalControl: async args => delivery.take(args),
     acknowledgeTerminal: async args => delivery.acknowledge(args),
     detachTerminal: async args => delivery.detach(args),
-    writeTerminal: async args => backend.write(args),
-    resizeTerminal: vi.fn(async args => backend.resize(args)),
+    writeTerminal: async args => delivery.write(args),
+    resizeTerminal: vi.fn(async args => delivery.resize(args)),
     closeTab: async () => { throw new Error('must not close'); },
   };
   const registry = new TerminalRegistry(api, factory); registry.start();
   const reference = new Terminal({ ...VIEW, scrollback: 3000, allowProposedApi: true });
-  cleanups.push(async () => { registry.dispose(); reference.dispose(); off(); delivery.dispose(); await backend.dispose(); });
+  cleanups.push(async () => { registry.dispose(); reference.dispose(); off(); broker.dispose(); await backend.dispose(); });
   const host = document.createElement('div'); document.body.append(host);
   const pump = async (chunks: string[]) => {
     for (let i = 0; i < chunks.length; i++) {

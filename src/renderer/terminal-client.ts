@@ -1,12 +1,10 @@
-import { Terminal, type ITheme } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { installTerminalQueryHandlers } from './terminal-queries';
+import type { ITheme } from '@xterm/xterm';
+import { createTerminalSurface, type SurfaceFactory, type SurfaceClipboard, type TerminalSurface } from './terminal-surface';
+export { createTerminalSurface, clipboardShortcut } from './terminal-surface';
+export type { SurfaceFactory, SurfaceClipboard, TerminalSurface } from './terminal-surface';
 import type { AppError, Result, TerminalApi, TerminalAttachmentDto, TerminalEvent } from '../shared/contracts';
+import { failure } from '../shared/contracts';
 import { request } from './api';
-import { isWebLink, webLinkProvider } from './terminal-links';
-import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from './theme';
-
-const DEFAULT_THEME: ITheme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
 
 // Activity is metadata-only and has no terminal generation or output sequence.
 type DeliveryEvent = Exclude<TerminalEvent, { type: 'activity' }>;
@@ -17,155 +15,12 @@ const MAX_QUEUED_CHUNKS = 8192 + 256;
 const WRITE_BATCH_BYTES = 16 * 1024;
 const REPAINT_NUDGE_MS = 80;
 const encoder = new TextEncoder();
-export interface TerminalSurface {
-  element: HTMLElement;
-  write(data: string, done: () => void, historical?: boolean): void;
-  reset(): void;
-  fit(): { cols: number; rows: number } | null;
-  /** Sets the grid before any output is parsed, so a snapshot is replayed at the size it was taken at. */
-  resize?(cols: number, rows: number): void;
-  focus(): void;
-  setInput(enabled: boolean): void;
-  /** Pause display-only work while retaining the parser, buffers and device replies. */
-  setVisible?(visible: boolean): void;
-  setTheme?(theme: ITheme): void;
-  dispose(): void;
-}
-/** Clipboard access goes through the main process; the renderer has no clipboard permissions. */
-export interface SurfaceClipboard {
-  copy(text: string): void;
-  /** Resolves with clipboard text, or null when nothing can be pasted. */
-  read(): Promise<string | null>;
-  /** Opens an http(s) link in the system browser. */
-  openLink?(url: string): void;
-}
-export type SurfaceFactory = (input: (data: string, userInitiated?: boolean) => void, theme?: ITheme, clipboard?: SurfaceClipboard) => TerminalSurface;
-/** Ctrl+Shift+C / Ctrl+Shift+V (KeyboardEvent.code, so it is keyboard-layout independent). */
-export function clipboardShortcut(ev: KeyboardEvent): 'copy' | 'paste' | null {
-  if (!ev.ctrlKey || !ev.shiftKey || ev.altKey || ev.metaKey) return null;
-  return ev.code === 'KeyC' ? 'copy' : ev.code === 'KeyV' ? 'paste' : null;
-}
-export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THEME, clipboard) => {
-  const element = document.createElement('div');
-  element.className = 'terminal-surface';
-  const terminal = new Terminal({
-    allowProposedApi: true, scrollback: 3000, fontSize: 14,
-    fontFamily: "'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace",
-    cursorBlink: false, convertEol: false, disableStdin: true,
-    // Preserve application RGB choices; bold must not remap ANSI palette colors.
-    minimumContrastRatio: 1, drawBoldTextInBrightColors: false,
-    overviewRuler: { width: 8 },
-    theme,
-    // OSC 8 hyperlinks: only http(s), opened by the main process in the system browser.
-    // OSC 8 text hides its target, so hovering shows it as a tooltip.
-    linkHandler: {
-      activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) clipboard?.openLink?.(uri); },
-      hover: (_event, uri) => { if (isWebLink(uri)) element.title = uri; },
-      leave: () => element.removeAttribute('title'),
-      allowNonHttpProtocols: false,
-    },
-  });
-  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, url => clipboard.openLink!(url), {
-    hover: url => { element.title = url; }, leave: () => element.removeAttribute('title'),
-  }));
-  const fit = new FitAddon();
-  terminal.loadAddon(fit);
-  // Shell output must not read/write the OS clipboard.
-  terminal.parser.registerOscHandler(52, () => true);
-  let historical = false;
-  const queries = installTerminalQueryHandlers(terminal.parser, () => historical);
-  let parsing = false;
-  let disposed = false;
-  let visible = false;
-  let needsRefresh = true;
-  let userInput = false;
-  // Output parsing emits device replies through onData too. Browser input and
-  // explicit clipboard paste remain user operations even during a slow write.
-  const markUserInput = () => { userInput = true; queueMicrotask(() => { userInput = false; }); };
-  const inputEvents = ['keydown', 'keypress', 'input', 'compositionend', 'paste', 'mousedown', 'mouseup', 'mousemove', 'wheel'];
-  inputEvents.forEach(type => element.addEventListener(type, markUserInput, true));
-  terminal.onData(data => input(data, userInput || !parsing));
-  // xterm 6 treats SGR hover reports as user input and clears local selection.
-  // Capture only button-free motion; drag events must still reach selection/TUI handlers.
-  const preserveSelection = (ev: MouseEvent) => {
-    if (terminal.modes.mouseTrackingMode === 'any' && ev.buttons === 0 && (ev.shiftKey || terminal.hasSelection())) {
-      ev.stopPropagation();
-    }
-  };
-  element.addEventListener('mousemove', preserveSelection, true);
-  // Middle click with a selection copies it to the clipboard instead of pasting
-  // the primary selection or reporting the click to a mouse-enabled app.
-  let middleCopyUntil = 0;
-  const middleCopy = (ev: MouseEvent) => {
-    if (ev.button !== 1) return;
-    if (ev.type === 'mousedown') {
-      if (!clipboard || !terminal.hasSelection()) { middleCopyUntil = 0; return; }
-      clipboard.copy(terminal.getSelection());
-      middleCopyUntil = Date.now() + 1000;
-    } else if (Date.now() > middleCopyUntil) return;
-    ev.preventDefault(); ev.stopPropagation();
-  };
-  const blockMiddlePaste = (ev: Event) => {
-    if (Date.now() <= middleCopyUntil) { middleCopyUntil = 0; ev.preventDefault(); ev.stopPropagation(); }
-  };
-  const middleEvents = ['mousedown', 'mouseup', 'auxclick'] as const;
-  middleEvents.forEach(type => element.addEventListener(type, middleCopy, true));
-  element.addEventListener('paste', blockMiddlePaste, true);
-  if (clipboard) terminal.attachCustomKeyEventHandler(ev => {
-    const action = clipboardShortcut(ev);
-    if (!action) return true;
-    // Swallow keydown/keypress/keyup so xterm never sends ^C/^V, and stop Chromium's
-    // own paste-as-plain-text from firing a second paste event.
-    if (ev.type !== 'keydown') return false;
-    ev.preventDefault();
-    if (action === 'copy') { if (terminal.hasSelection()) clipboard.copy(terminal.getSelection()); }
-    // paste() applies bracketed-paste mode and newline normalization, then emits onData.
-    else void clipboard.read().then(text => {
-      if (text && !disposed) { userInput = true; try { terminal.paste(text); } finally { userInput = false; } }
-    });
-    return false;
-  });
-  let opened = false;
-  return {
-    element,
-    write: (data, done, replay = false) => {
-      parsing = true; historical = replay;
-      terminal.write(data, () => { parsing = false; historical = false; done(); });
-    }, reset: () => terminal.reset(),
-    fit() {
-      if (!element.isConnected || element.clientWidth < 20 || element.clientHeight < 20) return null;
-      if (!opened) { terminal.open(element); opened = true; }
-      const size = fit.proposeDimensions();
-      if (!size || !Number.isFinite(size.cols) || !Number.isFinite(size.rows)) return null;
-      const cols = Math.max(2, Math.min(500, Math.floor(size.cols)));
-      const rows = Math.max(2, Math.min(500, Math.floor(size.rows)));
-      if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows);
-      if (needsRefresh) { terminal.refresh(0, terminal.rows - 1); needsRefresh = false; }
-      return { cols, rows };
-    },
-    resize: (cols, rows) => { if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows); },
-    focus: () => { if (opened) terminal.focus(); },
-    setInput: enabled => { terminal.options.disableStdin = !enabled; },
-    setVisible: next => {
-      if (visible === next) return;
-      visible = next; terminal.options.cursorBlink = next;
-      if (next) needsRefresh = true;
-    },
-    setTheme: next => { terminal.options.theme = next; },
-    dispose: () => {
-      disposed = true;
-      inputEvents.forEach(type => element.removeEventListener(type, markUserInput, true));
-      element.removeEventListener('mousemove', preserveSelection, true);
-      middleEvents.forEach(type => element.removeEventListener(type, middleCopy, true));
-      element.removeEventListener('paste', blockMiddlePaste, true);
-      queries.dispose(); terminal.dispose(); element.remove();
-    },
-  };
-};
 
 export interface TerminalViewState {
   generation: string | null;
-  phase: 'connecting' | 'open' | 'closed' | 'unavailable';
+  phase: 'connecting' | 'open' | 'closed' | 'unavailable' | 'blocked';
+  controlEpoch: number | null;
+  taking: boolean;
   /** Only a failed connection/replay, shown beside the reconnect control. */
   error: AppError | null;
   /** A failed user input or clipboard operation, never a background delivery request. */
@@ -180,9 +35,9 @@ interface Entry {
   early: DeliveryEvent[]; earlyBytes: number; retired: Set<string>;
   attaching: boolean; attachToken: number; replayAgain: boolean; fullReplay: boolean;
   writes: { sequence: number; data: string; bytes: number; historical: boolean }[]; writeBytes: number; writing: boolean; epoch: number; inputEpoch: number;
-  consumed: number; nextAck: number; ackTask: Promise<void> | null; detachQueue: Promise<Result<{ detached: true }>>;
+  consumed: number; nextAck: number; ackTask: Promise<void> | null; detachFailed: boolean; detachQueue: Promise<Result<{ detached: true }>>;
   inputQueue: Promise<void>; inputBytes: number;
-  resized: string; resizing: boolean; nextSize: { cols: number; rows: number } | null; fitPending: boolean;
+  resized: string; resizeEpoch: number; resizing: boolean; nextSize: { cols: number; rows: number; controlEpoch: number } | null; fitPending: boolean;
   // Set when a view was rebuilt from a partial raw tail: the app is asked to repaint itself.
   repaint: boolean;
 }
@@ -226,13 +81,13 @@ export class TerminalRegistry {
     if (existing) return existing;
     const entry: Entry = {
       id, surface: this.factory((data, userInitiated) => { if (entry.inputEpoch === 0) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry)),
-      state: { generation: null, phase: 'connecting', error: null, operationError: null, warning: null, exitCode: null },
+      state: { generation: null, phase: 'connecting', controlEpoch: null, taking: false, error: null, operationError: null, warning: null, exitCode: null },
       listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0,
       pending: new Map(), pendingBytes: 0, early: [], earlyBytes: 0, retired: new Set(), attaching: false,
       attachToken: 0, replayAgain: false, fullReplay: false,
       writes: [], writeBytes: 0, writing: false, epoch: 0, inputEpoch: 0,
-      consumed: 0, nextAck: 0, ackTask: null, detachQueue: Promise.resolve({ ok: true, value: { detached: true } }),
-      inputQueue: Promise.resolve(), inputBytes: 0, resized: '', resizing: false, nextSize: null, fitPending: false, repaint: false,
+      consumed: 0, nextAck: 0, ackTask: null, detachFailed: false, detachQueue: Promise.resolve({ ok: true, value: { detached: true } }),
+      inputQueue: Promise.resolve(), inputBytes: 0, resized: '', resizeEpoch: 0, resizing: false, nextSize: null, fitPending: false, repaint: false,
     };
     this.entries.set(id, entry);
     return entry;
@@ -279,7 +134,7 @@ export class TerminalRegistry {
     const entry = this.ensure(id);
     entry.host = host; entry.visible = visible; entry.used = Date.now();
     host.append(entry.surface.element);
-    entry.surface.setVisible?.(visible);
+    entry.surface.setVisible?.(visible && entry.state.phase !== 'blocked');
     entry.surface.setInput(entry.state.phase === 'open');
     if (!this.active) this.update(entry, { phase: 'unavailable', error: { code: 'INTERNAL', message: 'Terminal connection unavailable. Refresh the terminal to reconnect.', retryable: true } });
     else void this.attach(entry);
@@ -292,29 +147,64 @@ export class TerminalRegistry {
     };
   }
   visibility(id: string, visible: boolean) {
-    const entry = this.ensure(id); entry.visible = visible;
-    entry.surface.setVisible?.(visible && !!entry.host);
+    const entry = this.ensure(id);
+    // Visibility changes invalidate any fit measured before the layout changed.
+    if (visible !== entry.visible) { entry.resized = ''; entry.resizeEpoch++; entry.nextSize = null; }
+    entry.visible = visible;
+    entry.surface.setVisible?.(visible && !!entry.host && entry.state.phase !== 'blocked');
     entry.surface.setInput(entry.state.phase === 'open');
     if (visible) this.fit(id);
   }
   focus(id: string) {
     const entry = this.entries.get(id);
-    if (entry?.visible && !document.querySelector('[role="dialog"], .tab-rename')) entry.surface.focus();
+    if (entry?.visible && entry.state.phase !== 'blocked' && !document.querySelector('[role="dialog"], .tab-rename')) entry.surface.focus();
   }
   fit(id: string) {
     const entry = this.entries.get(id);
-    if (!entry?.visible || !entry.host) return;
+    if (!entry?.visible || !entry.host || entry.state.phase === 'blocked') return;
     // xterm parses writes asynchronously. Resizing before a replay has parsed
     // changes the grid under cursor-addressed output and corrupts its layout.
     if (entry.attaching || entry.writing || entry.writes.length) { entry.fitPending = true; return; }
     entry.fitPending = false;
     const size = entry.surface.fit();
-    if (entry.state.phase !== 'open' || !entry.state.generation) return;
+    if (entry.state.phase !== 'open' || !entry.state.generation || entry.state.controlEpoch === null) return;
     if (!size || !Number.isInteger(size.cols) || !Number.isInteger(size.rows) || size.cols < 2 || size.cols > 500 || size.rows < 2 || size.rows > 500) return;
-    entry.nextSize = size;
+    entry.nextSize = { ...size, controlEpoch: entry.state.controlEpoch };
     void this.resize(entry);
   }
   refresh(id: string) { if (!this.active) this.start(); const entry = this.ensure(id); void this.attach(entry); }
+  async take(id: string) {
+    const entry = this.entries.get(id), api = this.api;
+    if (!api || !entry?.host || entry.state.phase !== 'blocked' || entry.state.taking || !entry.state.generation) return;
+    const generation = entry.state.generation, controlEpoch = entry.state.controlEpoch, host = entry.host;
+    this.update(entry, { taking: true, operationError: null });
+    try {
+      const result = await this.deliver(id, () => {
+        if (!this.active || entry.host !== host || this.entries.get(id) !== entry || entry.state.phase !== 'blocked' || entry.state.controlEpoch !== controlEpoch) return Promise.resolve(failure('TARGET_LOST', 'Terminal view retired.'));
+        return request(() => api.takeTerminalControl({ tabId: id, generation }));
+      });
+      if (!this.active || this.entries.get(id) !== entry || entry.state.generation !== generation) return;
+      if (entry.host && entry.host !== host) return;
+      if (!entry.host) { this.detach(entry); return; }
+      if (!result.ok && entry.state.controlEpoch === controlEpoch) this.update(entry, { operationError: result.error });
+      else if (result.ok && entry.state.phase === 'blocked' && entry.state.controlEpoch === controlEpoch) {
+        entry.fullReplay = true; void this.attach(entry);
+      }
+    } finally { if (this.entries.get(id) === entry) this.update(entry, { taking: false }); }
+  }
+  private control(entry: Entry, event: Extract<TerminalEvent, { type: 'control' }>) {
+    if (event.controlEpoch <= (entry.state.controlEpoch ?? -1)) return;
+    this.suspend(entry, event.control === 'blocked' ? 'blocked' : 'connecting', event.generation, event.controlEpoch);
+    if (event.control === 'owned' && entry.host) void this.attach(entry);
+  }
+  private suspend(entry: Entry, phase: 'blocked' | 'connecting', generation: string, controlEpoch: number) {
+    entry.epoch++; entry.resizeEpoch++; entry.nextSize = null; entry.fitPending = false;
+    entry.early = []; entry.earlyBytes = 0; entry.repaint = false; entry.fullReplay = true;
+    this.resetSurface(entry, 0);
+    entry.surface.element.hidden = phase === 'blocked';
+    entry.surface.setVisible?.(phase !== 'blocked' && entry.visible && !!entry.host);
+    this.update(entry, { phase, generation, controlEpoch, warning: null, error: null, operationError: null, exitCode: null });
+  }
   private trim() {
     if (this.entries.size <= 24) return;
     // Detached screens can be recovered from backend replay, never by relaunch.
@@ -333,6 +223,7 @@ export class TerminalRegistry {
   private receive(event: DeliveryEvent) {
     const entry = this.entries.get(event.tabId);
     if (!entry || entry.retired.has(event.generation)) return;
+    if (event.type === 'control' && event.generation === entry.state.generation) { this.control(entry, event); return; }
     if (entry.attaching || !entry.state.generation || event.generation !== entry.state.generation) {
       entry.early.push(event);
       entry.earlyBytes += event.type === 'data' ? encoder.encode(event.data).length : 128;
@@ -344,6 +235,8 @@ export class TerminalRegistry {
   }
   private apply(entry: Entry, event: DeliveryEvent, historical = false) {
     if (event.generation !== entry.state.generation) return;
+    if (event.type === 'control') { this.control(entry, event); return; }
+    if (entry.state.phase === 'blocked' || entry.state.phase === 'connecting' || event.controlEpoch !== entry.state.controlEpoch) return;
     if (event.type === 'error') {
       // Delivery errors request recovery. Only a failed recovery needs user attention.
       entry.fullReplay = true; void this.attach(entry); return;
@@ -377,6 +270,7 @@ export class TerminalRegistry {
     if (entry.attaching) { entry.replayAgain = true; return; }
     entry.attaching = true;
     const token = ++entry.attachToken;
+    const requestedControlEpoch = entry.state.controlEpoch;
     const full = entry.fullReplay || entry.writing || entry.writes.length > 0 || entry.pending.size > 0 || entry.sequence > entry.consumed;
     entry.fullReplay = false;
     // ACK/parser callbacks belong to a delivery view, not just a PTY generation.
@@ -387,7 +281,10 @@ export class TerminalRegistry {
       this.resetSurface(entry, 0);
       this.update(entry, { phase: 'connecting', warning: 'Reloading the retained terminal buffer.' });
     }
-    if (entry.state.generation) this.detach(entry);
+    // Recovery keeps the ownership claim. Finish invoked ACKs before replacing
+    // delivery credit; detaching here would promote another waiting client.
+    await entry.ackTask;
+    if (entry.detachFailed) this.detach(entry);
     const detached = await entry.detachQueue;
     if (!this.active || entry.attachToken !== token || this.entries.get(entry.id) !== entry) return;
     if (!entry.host) { entry.attaching = false; return; }
@@ -424,6 +321,29 @@ export class TerminalRegistry {
       entry.early = []; entry.earlyBytes = 0; entry.replayAgain = false; return;
     }
     const attachment: TerminalAttachmentDto = result.value;
+    if (attachment.generation === entry.state.generation && attachment.controlEpoch < (entry.state.controlEpoch ?? -1)) {
+      entry.attaching = false;
+      if (entry.state.phase !== 'blocked') { entry.fullReplay = true; void this.attach(entry); }
+      return;
+    }
+    const newerControl = entry.early.filter((event): event is Extract<TerminalEvent, { type: 'control' }> => event.type === 'control' && event.generation === attachment.generation && event.controlEpoch > attachment.controlEpoch)
+      .reduce<Extract<TerminalEvent, { type: 'control' }> | undefined>((latest, event) => !latest || event.controlEpoch > latest.controlEpoch ? event : latest, undefined);
+    if (newerControl) {
+      entry.attaching = false;
+      this.suspend(entry, newerControl.control === 'blocked' ? 'blocked' : 'connecting', newerControl.generation, newerControl.controlEpoch);
+      if (newerControl.control === 'owned') void this.attach(entry);
+      return;
+    }
+    if (attachment.control === 'blocked') {
+      entry.attaching = false;
+      this.suspend(entry, 'blocked', attachment.generation, attachment.controlEpoch);
+      return;
+    }
+    if (!full && requestedControlEpoch !== null && requestedControlEpoch !== entry.state.controlEpoch) {
+      entry.attaching = false; entry.fullReplay = true; void this.attach(entry); return;
+    }
+    // A retained local grid does not prove the shared PTY still has that size.
+    entry.resized = ''; entry.resizeEpoch++;
     const replaced = entry.state.generation !== attachment.generation;
     if (replaced || attachment.truncated || full) {
       if (replaced && entry.state.generation) {
@@ -443,9 +363,10 @@ export class TerminalRegistry {
       // way to complete the screen is to make the app repaint itself.
       entry.repaint = !attachment.snapshot && attachment.truncated && attachment.state === 'open';
     }
-    this.update(entry, { generation: attachment.generation, phase: attachment.state, exitCode: attachment.exitCode, error: null,
+    entry.surface.element.hidden = false;
+    this.update(entry, { generation: attachment.generation, controlEpoch: attachment.controlEpoch, phase: attachment.state, exitCode: attachment.exitCode, error: null,
       warning: attachment.snapshot ? null : attachment.truncated || full ? 'Earlier output is unavailable. Showing the retained terminal buffer.' : entry.state.warning });
-    for (const chunk of attachment.chunks) this.apply(entry, chunk, true);
+    for (const chunk of attachment.chunks) this.apply(entry, { ...chunk, controlEpoch: attachment.controlEpoch }, true);
     const early = entry.early; entry.early = []; entry.earlyBytes = 0;
     // The attachment, not arbitrary event arrival order, selects the generation.
     let generationRefresh = false;
@@ -472,7 +393,7 @@ export class TerminalRegistry {
       entry.surface = this.factory((data, userInitiated) => { if (entry.inputEpoch === inputEpoch) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry));
     }
     if (entry.host && entry.surface.element.parentElement !== entry.host) entry.host.append(entry.surface.element);
-    entry.surface.setVisible?.(entry.visible && !!entry.host);
+    entry.surface.setVisible?.(entry.visible && !!entry.host && entry.state.phase !== 'blocked');
     entry.writes = []; entry.writeBytes = 0; entry.writing = false;
     entry.pending.clear(); entry.pendingBytes = 0;
     entry.sequence = sequence; entry.consumed = sequence; entry.nextAck = 0; entry.resized = '';
@@ -521,6 +442,7 @@ export class TerminalRegistry {
     entry.detachQueue = this.deliver(entry.id, async () => {
       await ackTask;
       const result = await request(() => api.detachTerminal({ tabId: entry.id, generation }));
+      if (entry.state.generation === generation) entry.detachFailed = !result.ok && result.error.code !== 'TARGET_LOST' && result.error.code !== 'NOT_FOUND';
       // Unmount cleanup must not notify or poison a newer view. An attach waiting
       // on this queue handles a real failure with its own host/token checks.
       return result;
@@ -528,14 +450,15 @@ export class TerminalRegistry {
   }
   private acknowledge(entry: Entry) {
     const api = this.api;
-    if (!api || entry.ackTask || entry.attaching || !entry.host) return;
+    const controlEpoch = entry.state.controlEpoch;
+    if (!api || entry.ackTask || entry.attaching || !entry.host || controlEpoch === null || entry.state.phase === 'blocked' || entry.state.phase === 'connecting') return;
     const epoch = entry.epoch;
     // Defer invocation until ackTask is assigned. A synchronous backend pump
     // may request recovery inside acknowledgeTerminal itself.
     const task = Promise.resolve().then(async () => {
-      while (this.active && entry.host && !entry.attaching && epoch === entry.epoch && entry.nextAck > 0 && entry.state.generation) {
+      while (this.active && entry.host && !entry.attaching && epoch === entry.epoch && entry.state.controlEpoch === controlEpoch && entry.nextAck > 0 && entry.state.generation) {
         const generation = entry.state.generation; const sequence = entry.nextAck; entry.nextAck = 0;
-        const result = await request(() => api.acknowledgeTerminal({ tabId: entry.id, generation, sequence }));
+        const result = await request(() => api.acknowledgeTerminal({ tabId: entry.id, generation, controlEpoch, sequence }));
         if (!this.active || this.entries.get(entry.id) !== entry || epoch !== entry.epoch) return;
         if (entry.state.generation !== generation) return;
         if (!result.ok) {
@@ -547,14 +470,14 @@ export class TerminalRegistry {
     }).finally(() => {
       if (entry.ackTask !== task) return;
       entry.ackTask = null;
-      if (this.active && !entry.attaching && entry.nextAck > 0 && epoch === entry.epoch) void this.acknowledge(entry);
+      if (this.active && !entry.attaching && entry.nextAck > 0) void this.acknowledge(entry);
     });
     entry.ackTask = task;
     return task;
   }
   private input(entry: Entry, data: string, userInitiated?: boolean) {
-    const generation = entry.state.generation; const api = this.api;
-    if (!api || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
+    const generation = entry.state.generation, controlEpoch = entry.state.controlEpoch; const api = this.api;
+    if (!api || controlEpoch === null || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
     // xterm emits device replies while parsing output, including hidden replay.
     const userOperation = entry.visible && (userInitiated ?? !entry.writing);
     const epoch = entry.epoch;
@@ -566,9 +489,9 @@ export class TerminalRegistry {
     entry.inputQueue = entry.inputQueue.then(async () => {
       // A display replay invalidates device replies, not queued user intent for
       // the same shell. Never automatically repeat a failed write.
-      if (!this.active || (!userOperation && epoch !== entry.epoch) || entry.state.generation !== generation || entry.state.phase !== 'open') return;
-      const result = await request(() => api.writeTerminal({ tabId: entry.id, generation, data }));
-      if (!result.ok && userOperation && this.active && entry.host && entry.visible && this.entries.get(entry.id) === entry && entry.state.generation === generation) this.update(entry, { operationError: result.error });
+      if (!this.active || (!userOperation && epoch !== entry.epoch) || entry.state.generation !== generation || entry.state.controlEpoch !== controlEpoch || entry.state.phase !== 'open') return;
+      const result = await request(() => api.writeTerminal({ tabId: entry.id, generation, controlEpoch, data }));
+      if (!result.ok && userOperation && this.active && entry.host && entry.visible && this.entries.get(entry.id) === entry && entry.state.generation === generation && entry.state.controlEpoch === controlEpoch) this.update(entry, { operationError: result.error });
     }).finally(() => { entry.inputBytes -= bytes; });
   }
   private async resize(entry: Entry) {
@@ -578,20 +501,23 @@ export class TerminalRegistry {
     try {
       while (entry.nextSize && this.active && entry.visible && entry.state.phase === 'open' && entry.state.generation) {
         const size = entry.nextSize; entry.nextSize = null; const generation = entry.state.generation;
-        const key = `${generation}:${size.cols}:${size.rows}`;
+        const epoch = entry.epoch; const resizeEpoch = entry.resizeEpoch;
+        const controlEpoch = size.controlEpoch;
+        if (controlEpoch !== entry.state.controlEpoch) continue;
+        const key = `${generation}:${controlEpoch}:${size.cols}:${size.rows}`;
         if (entry.repaint) {
           // SIGWINCH is only delivered, and TUIs (Node's tty 'resize', ncurses) only repaint, when the
           // size really changes: shrink by one row, give the app time to notice, then restore.
           entry.repaint = false; entry.resized = '';
-          const nudged = await request(() => api.resizeTerminal({ tabId: entry.id, generation, cols: size.cols, rows: Math.max(2, size.rows - 1) }));
+          const nudged = await request(() => api.resizeTerminal({ tabId: entry.id, generation, controlEpoch, cols: size.cols, rows: Math.max(2, size.rows - 1) }));
           if (!this.active || this.entries.get(entry.id) !== entry) break;
           if (nudged.ok) await new Promise(resolve => setTimeout(resolve, REPAINT_NUDGE_MS));
-          if (!this.active || this.entries.get(entry.id) !== entry || entry.state.generation !== generation) continue;
+          if (!this.active || this.entries.get(entry.id) !== entry || !entry.visible || !entry.host || entry.state.generation !== generation || entry.state.controlEpoch !== controlEpoch || entry.resizeEpoch !== resizeEpoch) continue;
         }
         if (entry.resized === key) continue;
         const result = await request(() => api.resizeTerminal({ tabId: entry.id, generation, ...size }));
         if (!this.active || this.entries.get(entry.id) !== entry) break;
-        if (entry.state.generation !== generation) continue;
+        if (entry.state.generation !== generation || entry.state.controlEpoch !== controlEpoch || entry.epoch !== epoch || entry.resizeEpoch !== resizeEpoch) continue;
         // Resize is automatic and can race an exited/replaced runtime. Leave the
         // size unconfirmed so the next fit can retry, without an error toast.
         if (!result.ok) break;

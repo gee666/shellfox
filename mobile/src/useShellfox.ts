@@ -9,6 +9,7 @@ import { nativeNetwork, discoverHosts, networkStatus, type NetworkPeer, type Net
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './preferences';
 
 export interface MachineView { peer: NetworkPeer; client: RemoteClient; state: ClientState; snapshot: ManagerSnapshot | null; snapshotConnectionId: string | null; busyTabIds: Record<string, boolean> }
+interface SnapshotRefresh { connectionId: string | null; promise: Promise<void>; next?: SnapshotRefresh }
 export const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Something went wrong.';
 export function useShellfox() {
   const [preferences, setPreferences] = useState(defaultPreferences);
@@ -22,6 +23,7 @@ export function useShellfox() {
   const clients = useRef(new Map<string, { client: RemoteClient; dispose: () => void }>());
   const current = useRef(defaultPreferences);
   const disconnecting = useRef(new Set<string>());
+  const cancelled = useRef(new Set<string>());
   const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const loaded = useRef(false);
   const started = useRef(false);
@@ -30,6 +32,7 @@ export function useShellfox() {
   const epoch = useRef(0);
   const startAttempt = useRef(0);
   const pollNow = useRef<() => Promise<void>>(async () => {});
+  const refreshes = useRef(new WeakMap<RemoteClient, SnapshotRefresh>());
 
   const report = useCallback((cause: unknown) => {
     if (cause instanceof RemoteClientError && isConnectionFailure(cause.detail)) return;
@@ -50,11 +53,11 @@ export function useShellfox() {
     return work;
   }, []);
   const updatePreferences = useCallback((patch: Partial<Preferences>) => changePreferences(value => ({ ...value, ...patch })), [changePreferences]);
-  const refresh = useCallback(async (client: RemoteClient) => {
+  const readSnapshot = useCallback(async (client: RemoteClient) => {
     const connectionId = client.getState().connectionId;
     const result = await client.request('getSnapshot', {});
     const state = client.getState();
-    if (!alive.current || state.status !== 'connected' || state.connectionId !== connectionId) return;
+    if (!alive.current || !foreground.current || state.status !== 'connected' || state.connectionId !== connectionId) return;
     if (result.ok) {
       const tabIds = new Set(result.value.sessions.flatMap(session => session.tabs.map(tab => tab.id)));
       setMachines(items => items.map(item => item.client === client && (!item.snapshot || item.snapshotConnectionId !== connectionId || result.value.revision >= item.snapshot.revision)
@@ -63,6 +66,24 @@ export function useShellfox() {
     }
     else if (!isConnectionFailure(result.error)) report(new RemoteClientError(result.error));
   }, [report]);
+  const refresh = useCallback((client: RemoteClient): Promise<void> => {
+    const connectionId = client.getState().connectionId;
+    const previous = refreshes.current.get(client);
+    const pending = previous?.connectionId === connectionId ? previous : undefined;
+    if (pending?.next) return pending.next.promise;
+    const task: SnapshotRefresh = { connectionId, promise: Promise.resolve() };
+    if (pending) pending.next = task;
+    else refreshes.current.set(client, task);
+    // Callers wait for their read, not for the host to stop changing indefinitely.
+    const read = async () => {
+      if (!alive.current || !foreground.current || client.getState().status !== 'connected' || client.getState().connectionId !== connectionId) return;
+      refreshes.current.set(client, task);
+      await readSnapshot(client);
+    };
+    task.promise = (pending ? pending.promise.then(read) : read())
+      .finally(() => { if (refreshes.current.get(client) === task && !task.next) refreshes.current.delete(client); });
+    return task.promise;
+  }, [readSnapshot]);
   const ensureClient = useCallback((peer: NetworkPeer) => {
     const found = clients.current.get(peer.id); if (found) return found.client;
     const client = new RemoteClient(peer.id, nativeNetwork, { createClientId: uuid });
@@ -76,7 +97,6 @@ export function useShellfox() {
       } : item));
       if (state.status === 'connected') void refresh(client);
     });
-    let refreshing = false, dirty = false;
     const unsubEvents = client.subscribe(event => {
       if (event.type === 'terminal') {
         const terminal = event.event;
@@ -91,10 +111,7 @@ export function useShellfox() {
         }
         return;
       }
-      dirty = true;
-      if (refreshing) return;
-      refreshing = true;
-      void (async () => { try { while (dirty && alive.current) { dirty = false; await refresh(client); } } finally { refreshing = false; } })();
+      void refresh(client);
     });
     clients.current.set(peer.id, { client, dispose: () => { unsubState(); unsubEvents(); client.stop(); } });
     setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null, snapshotConnectionId: null, busyTabIds: {} }]);
@@ -143,16 +160,19 @@ export function useShellfox() {
           setMachines(items => items.map(item => ({ ...item, peer: found.find(peer => peer.id === item.peer.id) ?? { ...item.peer, online: false } })));
           for (const { client } of clients.current.values()) {
             const status = client.getState().status;
-            if (status !== 'rejected' && status !== 'disconnected' && !found.some(peer => peer.id === client.peerId && peer.online)) client.stop();
+            if (status !== 'rejected' && status !== 'disconnected' && status !== 'connected' && !found.some(peer => peer.id === client.peerId && peer.online)) client.suspend();
           }
           for (const peer of found) {
-            if (!peer.online || disconnecting.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
+            if (!peer.online || disconnecting.current.has(peer.id) || cancelled.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
             const client = ensureClient(peer);
             if (client.getState().status !== 'rejected') client.connect();
           }
         } else {
           setDiscovering(status.status === 'starting'); setPeers([]);
-          for (const { client } of clients.current.values()) if (client.getState().status !== 'rejected') client.stop();
+          for (const { client } of clients.current.values()) {
+            if (status.status === 'login-required' || status.status === 'disabled') client.stop();
+            else if (client.getState().status !== 'connected') client.suspend();
+          }
         }
       } catch (cause) {
         if (valid()) {
@@ -173,7 +193,7 @@ export function useShellfox() {
       ++epoch.current;
       foreground.current = state === 'active';
       if (foreground.current) void poll();
-      else for (const { client } of clients.current.values()) if (client.getState().status !== 'rejected') client.stop();
+      else for (const { client } of clients.current.values()) client.suspend();
     });
     return () => {
       alive.current = false; started.current = false; ++epoch.current; ++startAttempt.current;
@@ -185,11 +205,12 @@ export function useShellfox() {
   const connect = useCallback(async (peer: NetworkPeer) => {
     const token = epoch.current;
     await changePreferences(value => ({ ...value, remembered: [...new Set([...value.remembered, peer.id])] }));
+    cancelled.current.delete(peer.id);
     if (alive.current && foreground.current && started.current && token === epoch.current && !disconnecting.current.has(peer.id)) ensureClient(peer).connect();
   }, [ensureClient, changePreferences]);
   const disconnect = useCallback(async (peerId: string, forget = false) => {
     // Stop immediately, including when another save is ahead of this one.
-    disconnecting.current.add(peerId);
+    disconnecting.current.add(peerId); cancelled.current.add(peerId);
     clients.current.get(peerId)?.client.stop();
     setMachines(items => items.map(item => item.peer.id === peerId ? { ...item, snapshot: null, snapshotConnectionId: null, busyTabIds: {} } : item));
     try {

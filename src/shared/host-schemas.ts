@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { terminalResponseCompatibility } from './terminal-compat';
 import { changedEventSchema, keepAwakeStateSchema, requestSchemas, responseSchemas } from './schemas';
 import { terminalEventSchema } from './schemas';
 import { remoteEventSchema, remoteRequestSchemas, remoteResponseSchemas } from './remote-schemas';
@@ -58,5 +59,5 @@ export const hostReplySchema = z.discriminatedUnion('ok', [
 ]);
 export function parseHostResponse<M extends keyof typeof hostResponseSchemas>(method: M, raw: unknown): z.output<(typeof hostResponseSchemas)[M]>;
 export function parseHostResponse(method: keyof typeof hostResponseSchemas, raw: unknown): unknown {
-  return hostResponseSchemas[method].parse(raw);
+  return hostResponseSchemas[method].parse(terminalResponseCompatibility(method, raw));
 }

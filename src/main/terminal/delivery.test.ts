@@ -1,13 +1,13 @@
 import { it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import type { Result, TerminalEvent } from '../../shared/contracts';
+import type { Result, TerminalBackendEvent } from '../../shared/contracts';
 import { PtyBackend } from './backend';
 import { TerminalDelivery } from './delivery';
 import { factoryFixture, launchInput } from './test-fixtures';
 const value = <T>(r: Result<T>): T => { if (!r.ok) throw new Error(r.error.code); return r.value; };
 async function fixture() {
   const f = factoryFixture(), backend = new PtyBackend(f.options); value(await backend.initialize()); const input = launchInput(); value(await backend.launch(input));
-  const received: TerminalEvent[] = [], delivery = new TerminalDelivery(args => backend.attach(args), e => received.push(e));
+  const received: TerminalBackendEvent[] = [], delivery = new TerminalDelivery(args => backend.attach(args), e => received.push(e));
   backend.subscribe(e => delivery.event(e)); return { ...f, backend, input, received, delivery };
 }
 it('delivers contiguous live output for 16 views without replay reads or process changes', async () => {
@@ -37,11 +37,12 @@ it('accounts for UTF-8 credit across partial and duplicate acknowledgements', as
   expect(data().map(e => e.sequence)).toEqual(Array.from({ length: 14 }, (_, i) => i + 1));
   await f.backend.dispose();
 });
-it('reattachment cannot reset outstanding live or replay credit without acknowledgement', async () => {
+it('replacement holds live output until its new replay has been acknowledged', async () => {
   const f = await fixture(); value(f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId })))); f.processes[0].output('x'.repeat(128 * 1024));
-  for (let i = 0; i < 10; i++) expect(f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId })))).toMatchObject({ ok: false, error: { code: 'RETRY_CONFIRM_REQUIRED' } });
+  // The control broker replaces a view under a new epoch. Replayed output is
+  // returned to the caller, never emitted again as live data by this delivery.
+  for (let i = 0; i < 10; i++) expect(f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId })))).toMatchObject({ ok: true });
   expect(f.received.filter(e => e.type === 'data')).toHaveLength(32);
-  value(f.delivery.acknowledge({ tabId: f.input.tabId, generation: f.input.generation, sequence: 32 })); value(f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId }))));
   f.processes[0].output('pending until replay consumed'); expect(f.received.filter(e => e.type === 'data')).toHaveLength(32);
   value(f.delivery.acknowledge({ tabId: f.input.tabId, generation: f.input.generation, sequence: 32 })); expect(f.received.at(-1)).toMatchObject({ type: 'data', data: 'pending until replay consumed' }); await f.backend.dispose();
 });
@@ -52,7 +53,7 @@ it('forwards activity globally but data only to attached views; detach never kil
 });
 it('bounds outstanding live output at 128 KiB until acknowledgements', async () => {
   const f = await fixture(); f.delivery.attached(value(f.backend.attach({ tabId: f.input.tabId }))); f.processes[0].output('x'.repeat(200 * 1024));
-  const bytes = f.received.filter((e): e is Extract<TerminalEvent, { type: 'data' }> => e.type === 'data').reduce((n, e) => n + Buffer.byteLength(e.data), 0); expect(bytes).toBe(128 * 1024);
+  const bytes = f.received.filter((e): e is Extract<TerminalBackendEvent, { type: 'data' }> => e.type === 'data').reduce((n, e) => n + Buffer.byteLength(e.data), 0); expect(bytes).toBe(128 * 1024);
   const last = f.received.at(-1)!; expect(last.type).toBe('data'); if (last.type === 'data') value(f.delivery.acknowledge({ tabId: f.input.tabId, generation: f.input.generation, sequence: last.sequence }));
   expect(f.received.filter(e => e.type === 'data').length).toBe(50); await f.backend.dispose();
 });

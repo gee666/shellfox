@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { FakeRemoteHelper, remoteFixture } from './test-fixtures';
 import { responseSchemas } from '../../shared/schemas';
-import { RemoteControlLeases } from './operations';
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 it('runs real host/client services across authenticated HTTP, persists approval and keeps host shells on client quit', async () => {
@@ -19,7 +18,10 @@ it('runs real host/client services across authenticated HTTP, persists approval 
   expect(snapshot.ok && snapshot.value.sessions.map(s => s.id)).toEqual(host.repository.sessions().map(s => s.id));
   expect(snapshot.ok && snapshot.value.sessions[0].id).not.toBe(client.repository.sessions()[0].id);
   if (!snapshot.ok) throw new Error('snapshot failed');
-  const tab = snapshot.value.sessions[0].tabs[0], terminal = { tabId: tab.id, generation: tab.generation!, data: 'first controller' };
+  const tab = snapshot.value.sessions[0].tabs[0];
+  const attachment = responseSchemas.attachTerminal.parse(await client.remote.request({ peerId: 'host', method: 'attachTerminal', payload: { tabId: tab.id } }));
+  if (!attachment.ok || attachment.value.control !== 'owned') throw new Error('No terminal owner');
+  const terminal = { tabId: tab.id, generation: tab.generation!, controlEpoch: attachment.value.controlEpoch, data: 'first controller' };
   expect(await client.remote.request({ peerId: 'host', method: 'writeTerminal', payload: terminal })).toEqual({ ok: true, value: { written: true } });
   const localSession = client.repository.sessions()[0];
   await client.remote.dispose(); await client.service.dispose();
@@ -29,7 +31,9 @@ it('runs real host/client services across authenticated HTTP, persists approval 
   const reopened = await remoteFixture(network, 'client'); cleanups.push(reopened.dispose);
   await reopened.remote.connect({ peerId: 'host' });
   await vi.waitFor(() => expect(reopened.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }));
-  expect(await reopened.remote.request({ peerId: 'host', method: 'writeTerminal', payload: { ...terminal, data: 'reopened controller' } })).toEqual({ ok: true, value: { written: true } });
+  const restored = responseSchemas.attachTerminal.parse(await reopened.remote.request({ peerId: 'host', method: 'attachTerminal', payload: { tabId: tab.id } }));
+  if (!restored.ok || restored.value.control !== 'owned') throw new Error('No restored owner');
+  expect(await reopened.remote.request({ peerId: 'host', method: 'writeTerminal', payload: { ...terminal, controlEpoch: restored.value.controlEpoch, data: 'reopened controller' } })).toEqual({ ok: true, value: { written: true } });
   expect(host.processes[0].write).toHaveBeenLastCalledWith('reopened controller');
   expect(host.processes[0].kill).not.toHaveBeenCalled();
 });
@@ -87,16 +91,3 @@ it('does not issue new helper commands when an old status poll completes after d
   expect(client.helper.commands.filter(c => c.method === 'peers')).toHaveLength(peersBefore);
   expect(client.remote.getState()).toMatchObject({ ok: true, value: { status: 'disabled', enabled: false } });
 }, 10_000);
-it('acquires session deletion leases atomically without stealing any free terminal on conflict', () => {
-  const leases = new RemoteControlLeases();
-  expect(leases.claim('occupied', 'a', 0)).toBe(true);
-  expect(leases.claimAll(['free', 'occupied'], 'b', 100)).toBe(false);
-  expect(leases.claim('free', 'c', 101)).toBe(true);
-  expect(leases.claim('occupied', 'a', 102)).toBe(true);
-});
-it('leases expire, release on disconnect, and never participate in local input', () => {
-  const leases = new RemoteControlLeases();
-  expect(leases.claim('tab', 'a', 0)).toBe(true); expect(leases.claim('tab', 'b', 100)).toBe(false);
-  expect(leases.claim('tab', 'a', 10_000)).toBe(true); expect(leases.claim('tab', 'b', 30_001)).toBe(false);
-  expect(leases.claim('tab', 'b', 40_001)).toBe(true); leases.release('b'); expect(leases.claim('tab', 'a', 40_002)).toBe(true);
-});

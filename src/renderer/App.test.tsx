@@ -285,7 +285,7 @@ describe('compact workspace', () => {
     expect(screen.getByRole('button', { name: 'Close settings' })).toHaveFocus();
     expect(screen.queryByRole('tablist', { name: 'Terminals' })).not.toBeInTheDocument();
     expect(screen.getAllByRole('tab')).toHaveLength(5);
-    act(() => fixture.emitTerminal({ type: 'data', tabId: session().tabs[0]!.id, generation: session().tabs[0]!.generation, sequence: 1, data: 'live output\r\n' }));
+    act(() => fixture.emitTerminal({ type: 'data', controlEpoch: 1, tabId: session().tabs[0]!.id, generation: session().tabs[0]!.generation, sequence: 1, data: 'live output\r\n' }));
     expect(original.output).toContain('live output'); expect(original.disposed).toBe(false);
     expect(screen.getByLabelText('Interactive terminal')).toBeInTheDocument();
     expect(screen.getByLabelText('Interactive terminal')).not.toBeVisible();

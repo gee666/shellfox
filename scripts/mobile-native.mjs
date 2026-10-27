@@ -50,7 +50,8 @@ function notices(directory, target) {
     const rows = capture(['list', '-mod=readonly', '-deps', '-f', '{{with .Module}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}', '.', 'golang.org/x/mobile/bind/seq'], { GOOS: target, GOARCH: arch, CGO_ENABLED: '1' });
     for (const row of rows.split(/\r?\n/)) {
       const [name, version, directory] = row.split('\t');
-      if (name && version && directory) modules.set(name, { version, directory });
+      // Local shared Shellfox code is first-party, not a third-party notice.
+      if (name && version && directory && !name.startsWith('shellfox.local/')) modules.set(name, { version, directory });
     }
   }
   if (!modules.has('tailscale.com') || !modules.has('golang.org/x/mobile')) throw new Error('Embedded dependency graph is incomplete.');
@@ -97,7 +98,7 @@ export function main(args = process.argv.slice(2)) {
     for (const tool of ['gomobile', 'gobind']) run(go, ['install', `golang.org/x/mobile/cmd/${tool}@${mobileVersion}`]);
     run(gomobile, ['init']);
   } else if (command === 'test') {
-    run(go, ['test', '-mod=readonly', '-count=1', '-timeout=60s', './...'], { CGO_ENABLED: '0' });
+    run(go, ['test', '-mod=readonly', '-count=1', '-timeout=60s', './...', 'shellfox.local/tailscale-helper/nethealth'], { CGO_ENABLED: '0' });
   } else if (command === 'build') {
     if (!['android', 'ios'].includes(target)) throw new Error('Target must be android or ios.');
     if (target === 'ios' && process.platform !== 'darwin') throw new Error('iOS frameworks require macOS with Xcode and iOS SDKs.');

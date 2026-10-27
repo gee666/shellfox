@@ -1,3 +1,5 @@
+import { terminalWidth, wrapText } from './terminal-text';
+
 const groups: Record<string, { heading: string; rows: Array<[string, string]>; notes?: string[] }> = {
   host: { heading: 'Host', rows: [
     ['host run', 'Run the host in the foreground'], ['host status', 'Show owner, capabilities and uptime'],
@@ -27,9 +29,9 @@ const groups: Record<string, { heading: string; rows: Array<[string, string]>; n
     ['terminals create [session-id] [--profile id]', 'Create a terminal in a session'],
     ['terminals rename [session-id] <tab-id> <title>', 'Rename a terminal'],
     ['terminals reorder <session-id> <tab-id>...', 'Save the complete terminal order'],
-    ['terminals close <tab-id>', 'Close an owned terminal'], ['terminals attach <tab-id>', 'Attach interactively; Ctrl+] detaches'],
-    ['terminals write <tab-id> <text> | --stdin', 'Write literal input once, without retries'],
-  ], notes: ['Alias: tm. There is no tab command.', 'Attach requires a TTY and rejects --json. Detaching never stops the shell or host.'] },
+    ['terminals close <tab-id>', 'Close an owned terminal'], ['terminals attach <tab-id>', 'Attach an existing terminal; Ctrl+] detaches'],
+    ['terminals write <tab-id> <text> | --stdin [--take]', 'Write literal input once, without retries'],
+  ], notes: ['Alias: tm. There is no tab command.', 'Attach requires an existing terminal UUID and never creates a session or tab.', 'Attach requires a TTY and rejects --json.', 'Only one client views and controls a terminal. Ctrl+T takes it from another client.', 'write refuses an occupied terminal unless --take explicitly switches control.', 'Detaching never stops the shell or host.'] },
   network: { heading: 'Network', rows: [
     ['network status', 'Show Tailscale state and login URL'], ['network enable [--hostname name]', 'Enable remote access'],
     ['network disable', 'Disable remote access'], ['network login [--auth-key-stdin|--auth-key-file path]', 'Log in without secret argv'],
@@ -37,14 +39,14 @@ const groups: Record<string, { heading: string; rows: Array<[string, string]>; n
   machines: { heading: 'Machines', rows: [['machines list', 'List discovered and remembered machines'], ['machines connect <peer-id>', 'Connect to a machine'], ['machines disconnect <peer-id>', 'Disconnect'], ['machines forget <peer-id>', 'Forget a saved machine']] },
   approvals: { heading: 'Approvals', rows: [['approvals list', 'List approvals and pending requests'], ['approvals approve <peer-id>', 'Grant access'], ['approvals revoke <peer-id>', 'Remove approval'], ['approvals reject <peer-id>', 'Reject a pending request']] },
   settings: { heading: 'Settings', rows: [['settings read', 'Read current settings'], ['settings update --input JSON', 'Merge and validate settings'], ['profiles list', 'List terminal profiles'], ['path home|resolve|complete|create [path]', 'Use host directory helpers']] },
-  commands: { heading: 'Commands', rows: [['commands --register <name> <script-path>', 'Register a script reference'], ['commands <name> [args...]', 'Run a script with literal arguments'], ['commands --list', 'List saved script commands'], ['commands --remove <name>', 'Remove a reference'], ['commands --rename <old> <new>', 'Rename a reference']], notes: ['Alias: cmd. Administration accepts trailing global flags; everything after a script name is opaque.'] },
-  ssh: { heading: 'SSH', rows: [['ssh [--profile name]', 'Connect to a saved SSH profile']] },
+  commands: { heading: 'Commands', rows: [['commands --register <name> <script-path>', 'Register a script reference'], ['commands <name> [args...]', 'Run a script with literal arguments'], ['commands --list', 'List saved script commands'], ['commands --remove <name>', 'Remove a reference'], ['commands --rename <old> <new>', 'Rename a reference']], notes: ['Alias: cmd. Administration accepts trailing global flags; everything after a script name is opaque.', 'Aliases: --run <name> for execution, --ls for --list, --rm and --unregister for --remove.'] },
+  ssh: { heading: 'SSH', rows: [['ssh [--profile name]', 'Connect to a saved SSH profile']], notes: ['Alias: -p for --profile. A positional profile name is also accepted.'] },
   automation: { heading: 'Automation', rows: [['api <ManagerMethod> [--input JSON]', 'Call a validated manager method'], ['remote api <method> [--input JSON]', 'Call local remote management'], ['completion <powershell|bash|zsh>', 'Print shell completion code']], notes: ['--input accepts inline JSON, @file.json, or - for stdin. Human-readable output is the default.'] },
-  application: { heading: 'Application', rows: [['update [--check]', 'Use the desktop platform updater'], ['version', 'Print the installed version'], ['help [group]', 'Show command help']] },
+  application: { heading: 'Application', rows: [['update [--check]', 'Use the desktop platform updater'], ['version', 'Print the installed version'], ['help [group]', 'Show command help']], notes: ['Aliases: --version, -v for version; --help, -h for help.'] },
 };
 const aliases: Record<string, string> = { ss: 'session', sessions: 'session', tm: 'terminals', cmd: 'commands', profiles: 'settings', path: 'settings', api: 'automation', remote: 'automation', completion: 'automation', update: 'application', version: 'application' };
 export function knownHelpTopic(topic: string): boolean { return Object.hasOwn(groups, aliases[topic] ?? topic); }
-export function cliHelp(version = '', topic?: string, color = false): string {
+export function cliHelp(version = '', topic?: string, color = false, columns = terminalWidth()): string {
   const key = topic ? aliases[topic.split(' ')[0]] ?? topic.split(' ')[0] : undefined;
   const selected = key ? groups[key] ? [groups[key]] : [] : Object.values(groups);
   const accent = (text: string) => color ? '\x1b[38;2;236;72;153m' + text + '\x1b[0m' : text;
@@ -52,10 +54,13 @@ export function cliHelp(version = '', topic?: string, color = false): string {
   for (const group of selected) {
     lines.push(accent(group.heading));
     const width = Math.max(...group.rows.map(([command]) => command.length));
-    for (const [command, description] of group.rows) lines.push('  ' + command.padEnd(width) + '  ' + description);
-    if (topic) for (const note of group.notes ?? []) lines.push('  ' + note);
+    for (const [command, description] of group.rows) {
+      if (width + description.length + 4 <= columns) lines.push('  ' + command.padEnd(width) + '  ' + description);
+      else lines.push('  ' + command, '    ' + description);
+    }
+    for (const note of group.notes ?? []) if (topic || /^Alias(?:es)?:/.test(note)) lines.push('  ' + note);
     lines.push('');
   }
   lines.push('Global options', '  --host <local|peer-id|hostname>  Select the host', '  --user-data <path>              Select the host data directory', '  --json                         Structured output and errors; never prompt', '  --yes                          Confirm destructive operations', '', 'Destructive noninteractive operations require --yes. NO_COLOR disables color.', 'Run shellfox help <group> for context rules and options.', '');
-  return lines.join('\n');
+  return wrapText(lines.join('\n'), columns);
 }

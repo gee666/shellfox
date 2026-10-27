@@ -25,6 +25,18 @@ describe('manager client', () => {
     expect(fixture.unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps an explicit action refresh queued even if the current read covers every changed revision', async () => {
+    const f = mockApi(), pending = deferred<Result<ManagerSnapshot>>();
+    f.api.getSnapshot.mockReturnValueOnce(pending.promise);
+    const client = createManagerClient(f.api); client.start();
+    f.emit({ ...snapshot(), revision: 2 });
+    client.refresh();
+    pending.resolve(success({ ...snapshot(), revision: 2 })); await flush();
+    expect(f.api.getSnapshot).toHaveBeenCalledTimes(2);
+    expect(client.store.getState().snapshot?.revision).toBe(2);
+    client.stop();
+  });
+
   it('does not replace newer state with an older revision', async () => {
     const fixture = mockApi({ ...snapshot(), revision: 5 });
     const client = createManagerClient(fixture.api);
@@ -139,7 +151,7 @@ describe('manager client', () => {
     const tab = session().tabs[0]!;
     fixture.emitTerminal({ type: 'activity', tabId: tab.id, busy: true } as TerminalEvent);
     expect(client.store.getState().busyTabIds[tab.id]).toBe(true);
-    fixture.emitTerminal({ type: 'exit', tabId: tab.id, generation: tab.generation, exitCode: 0, signal: null, lastSequence: 0 });
+    fixture.emitTerminal({ type: 'exit', controlEpoch: 1, tabId: tab.id, generation: tab.generation, exitCode: 0, signal: null, lastSequence: 0 });
     expect(client.store.getState().busyTabIds[tab.id]).toBe(false);
     expect(fixture.api.getSnapshot).toHaveBeenCalledTimes(1); client.stop();
     fixture.emitTerminal({ type: 'activity', tabId: tab.id, busy: true } as TerminalEvent);
@@ -153,7 +165,7 @@ describe('manager client', () => {
     const tabId = session().tabs[0]!.id;
     for (let i = 0; i < 100; i += 1) fixture.emitTerminal({ type: 'activity', tabId, busy: true } as TerminalEvent);
     expect(listener).toHaveBeenCalledTimes(1);
-    for (let i = 0; i < 100; i += 1) fixture.emitTerminal({ type: 'exit', tabId } as TerminalEvent);
+    for (let i = 0; i < 100; i += 1) fixture.emitTerminal({ type: 'exit', controlEpoch: 1, tabId } as TerminalEvent);
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe(); client.stop();
   });

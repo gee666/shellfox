@@ -61,15 +61,20 @@ describe.each(['desktop', 'headless'] as const)('%s-owned host CLI', mode => {
   }, 15000);
 });
 it('uses local remote management and --host forwarding rather than local session methods', async () => {
-  const state: RemoteState = { status: 'online', loginUrl: null, error: null, enabled: true, hostname: 'local', peers: [{ id: 'peer-1', hostname: 'remote', online: true, addresses: ['100.64.0.2'], connection: 'connected', approved: true, remembered: true }], approvals: [], pending: [] };
+  const state: RemoteState = { status: 'online', loginUrl: null, error: null, enabled: true, hostname: 'local', peers: [{ id: 'peer-1', hostname: 'remote', online: true, addresses: ['100.64.0.2'], connection: 'connected', approved: true, remembered: true, hostConfirmed: true }], approvals: [], pending: [] };
   const remote: HostRemoteService = {
     getState: vi.fn(() => success(state)), configure: vi.fn(async () => success(state)), login: vi.fn(async () => success(state)),
     connect: vi.fn(async () => success(state)), disconnect: vi.fn(async () => success(state)), approve: vi.fn(async () => success(state)),
     revoke: vi.fn(async () => success(state)), reject: vi.fn(async () => success(state)), forget: vi.fn(async () => success(state)), subscribe: () => () => {},
     request: vi.fn(async (input: Parameters<HostRemoteService['request']>[0]) => input !== null && typeof input === 'object' && 'method' in input && input.method === 'getSessionStats' ? success({ sessions: [], tabs: [] }) : success({ cwd: '/remote/home' })),
   };
+  state.peers.push(
+    { ...state.peers[0], id: 'ordinary', hostname: 'phone', hostConfirmed: false },
+    { ...state.peers[0], id: 'legacy-unverified', hostname: 'legacy', hostConfirmed: undefined, connection: 'disconnected' },
+    { ...state.peers[0], id: 'legacy-connected', hostname: 'legacy-host', hostConfirmed: undefined },
+  );
   const f = await fixture('desktop', remote);
-  expect((await run(f.userData, ['machines', 'list'])).value.value[0].id).toBe('peer-1');
+  expect((await run(f.userData, ['machines', 'list'])).value.value.map((peer: { id: string }) => peer.id)).toEqual(['peer-1', 'legacy-connected']);
   const result = await run(f.userData, ['--host', 'remote', 'path', 'home']);
   expect(result.value.value.cwd).toBe('/remote/home'); expect(remote.request).toHaveBeenCalledWith(expect.objectContaining({ peerId: 'peer-1', method: 'getHomeDirectory', payload: {} }));
   const statsId = randomUUID();
@@ -124,7 +129,9 @@ it('uses one canonical commands help and accepts trailing JSON for administratio
 it('reports argument errors and rejects JSON attach before attempting a connection', async () => {
   const missing = path.resolve('tmp/does-not-exist-' + randomUUID());
   const unknown = await run(missing, ['misspelled']); expect(unknown.code).toBe(2); expect(unknown.value.error.code).toBe('VALIDATION');
-  const attach = await run(missing, ['terminals', 'attach', randomUUID()]); expect(attach.code).toBe(2); expect(attach.value.error.message).toContain('--json');
+  for (const args of [['terminals', 'attach', randomUUID()], ['tm', 'attach', randomUUID()]]) {
+    const attach = await run(missing, args); expect(attach.code).toBe(2); expect(attach.value.error.message).toContain('--json');
+  }
   vi.stubEnv('SHELLFOX_HEADLESS', '1'); vi.stubEnv('SHELLFOX_CLI_LAUNCH', Buffer.from(JSON.stringify({ executable: 'never-launch', args: [], env: {} })).toString('base64'));
   const start = await run(missing, ['session', 'create', '.']); expect(start.code).toBe(1); expect(start.value.error.code).toBe('HOST_UNAVAILABLE');
 });

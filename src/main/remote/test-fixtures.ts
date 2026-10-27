@@ -23,7 +23,7 @@ export async function embeddedFixture() {
   return { ...f, repository, service, backend };
 }
 const startSchema = z.object({ backendUrl: z.url(), backendSecret: z.string(), proxySecret: z.string() });
-const proxySchema = z.object({ peerId: z.string(), path: z.enum(['/v1/pair', '/v1/events', '/v1/request', '/v1/disconnect']), body: z.unknown() });
+const proxySchema = z.object({ peerId: z.string(), path: z.enum(['/v1/discover', '/v1/pair', '/v1/events', '/v1/request', '/v1/disconnect']), body: z.unknown() });
 /** Exercises real HTTP and real session/delivery code; replaces only tsnet discovery and dialing. */
 export class FakeRemoteHelper implements HelperPort {
   server?: Server;
@@ -49,7 +49,7 @@ export class FakeRemoteHelper implements HelperPort {
         const host = this.network.get(input.peerId); if (!host) { res.writeHead(503); res.end(); return; }
         const body = JSON.stringify(input.body);
         const response = await fetch(host.backendUrl + input.path, { method: 'POST', body, headers: signedHeaders(host.secret, { id: this.id, hostname: this.id }, input.path, body) });
-        res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(await response.text());
+        res.writeHead(response.status, { 'Content-Type': 'application/json' }); res.end(await response.text());
       })().catch(() => { if (!res.destroyed) { res.writeHead(500); res.end(); } });
     });
     const server = this.server;

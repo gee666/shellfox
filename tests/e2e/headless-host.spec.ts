@@ -80,12 +80,14 @@ test.describe('desktop and Electron-free CLI use one host', () => {
       const command = process.platform === 'win32'
         ? `1..40 | ForEach-Object { Add-Content -LiteralPath '${progress.replaceAll("'", "''")}' -Value $_; Start-Sleep -Milliseconds 100 }\r`
         : `for i in $(seq 1 40); do printf '%s\\n' "$i" >> '${progress.replaceAll("'", "'\\''")}'; sleep 0.1; done\r`;
-      await cli(data, z.unknown(), ['terminals', 'write', tab.id, command]);
+      await cli(data, z.unknown(), ['terminals', 'write', tab.id, command, '--take']);
       await expect.poll(async () => (await readFile(progress, 'utf8').catch(() => '')).trim().length).toBeGreaterThan(0);
       await application.close(); application = undefined;
       expect((await cli(data, hostStatusSchema, ['host', 'status'])).pid).toBe(status.pid);
       await expect.poll(async () => (await readFile(progress, 'utf8').catch(() => '')).trim().split(/\r?\n/).filter(Boolean).length).toBe(40);
       const attachment = await cli(data, terminalAttachmentSchema, ['api', 'attachTerminal', '--input', JSON.stringify({ tabId: tab.id, generation: tab.generation })]);
+      expect(attachment.control).toBe('owned');
+      if (attachment.control !== 'owned') throw new Error('Headless terminal was not released by the desktop.');
       expect(attachment.state).toBe('open'); expect(attachment.generation).toBe(tab.generation);
     } finally { await application?.close().catch(() => {}); await stop(data, child); }
   });

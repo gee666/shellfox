@@ -3,6 +3,7 @@ import { Alert, Pressable, SectionList, StyleSheet, Text, TextInput, View } from
 import { v4 as uuid } from 'uuid';
 import type { SessionDto } from '../../src/shared/contracts';
 import { sessionDot, type DotState } from '../../src/shared/terminal-status';
+import { sortVisibleSessions } from '../../src/shared/session-order';
 import type { MachineView, ShellfoxModel } from './useShellfox';
 import { Button, Note, useUi } from './ui';
 import { StatusIndicator } from './StatusIndicator';
@@ -81,11 +82,10 @@ export function SessionsScreen({
       model.machines.map((machine) => ({
         key: machine.peer.id,
         machine,
-        data: (machine.snapshot?.sessions ?? [])
-          .filter((session) => `${session.title} ${session.cwd}`.toLowerCase().includes(search.toLowerCase()))
-          .sort(
-            (a, b) => Number(!!b.pinnedAt) - Number(!!a.pinnedAt) || b.updatedAt.localeCompare(a.updatedAt),
-          ),
+        data: sortVisibleSessions(
+          (machine.snapshot?.sessions ?? []).filter((session) => `${session.title} ${session.cwd}`.toLowerCase().includes(search.toLowerCase())),
+          machine.busyTabIds,
+        ),
       })),
     [model.machines, search],
   );
@@ -280,7 +280,9 @@ export function SessionsScreen({
                   >
                     <Text style={{ color: colors.text, fontSize: 26, lineHeight: 30 }}>+</Text>
                   </Pressable>
-                ) : <Button title="Connect" subtle onPress={() => act(() => model.connect(machine.peer))} />}
+                ) : machine.state.status === 'awaiting-approval'
+                  ? <Button title="Cancel request" subtle onPress={() => act(() => model.disconnect(machine.peer.id))} />
+                  : <Button title="Connect" subtle onPress={() => act(() => model.connect(machine.peer))} />}
               </View>
               {machine.state.status === 'connected' && !machine.snapshot && (
                 <View style={{ padding: 8 }}><StatusIndicator loading label={`Loading sessions on ${machine.peer.hostname}`} /></View>

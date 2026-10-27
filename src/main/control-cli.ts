@@ -8,6 +8,7 @@ import { CliUsageError } from '../cli/arguments';
 import { printError, printValue } from '../cli/output';
 import { colorEnabled } from '../cli/human';
 import { knownHelpTopic } from '../cli/help';
+import { terminalWidth } from '../cli/terminal-text';
 
 const aliases: Record<string, string> = { ss: 'session', sessions: 'session', '--version': 'version', '-v': 'version', '--help': 'help', '-h': 'help' };
 export const canonicalCommand = (command: string): string => Object.hasOwn(aliases, command) ? aliases[command] : command;
@@ -91,7 +92,7 @@ export function filterControl(response: ControlResponse, filters: ControlFilters
 }
 
 export interface ControlCliIo {
-  input: Readable & { isTTY?: boolean }; output: Writable & { isTTY?: boolean };
+  input: Readable & { isTTY?: boolean }; output: Writable & { isTTY?: boolean; columns?: number };
   error: Writable; marker?: string; request: (userData: string, request: ControlRequest) => Promise<ControlResponse>;
 }
 export function confirmControl(question: string, input: ControlCliIo['input'], output: ControlCliIo['output']): Promise<boolean> {
@@ -115,9 +116,9 @@ export function confirmControl(question: string, input: ControlCliIo['input'], o
     output.write(question);
   });
 }
-function inspectionText(session: SessionDto, tabs: TabStat[]): string {
-  return formatControl('list', { sessions: [session] }) +
-    formatControl('processes', { sessions: [session], tabs });
+function inspectionText(session: SessionDto, tabs: TabStat[], width: number): string {
+  return formatControl('list', { sessions: [session] }, false, width) +
+    formatControl('processes', { sessions: [session], tabs }, false, width);
 }
 export async function runControlCli(argv: string[], userData: string, version: string, options: Partial<ControlCliIo> & { color?: boolean; opensApp?: boolean; json?: boolean; yes?: boolean } = {}): Promise<number> {
   const io: ControlCliIo = { input: process.stdin, output: process.stdout, error: process.stderr,
@@ -128,7 +129,7 @@ export async function runControlCli(argv: string[], userData: string, version: s
     return printError(new CliUsageError(error instanceof Error ? error.message : 'Invalid command.'), options.json ?? false, io.output, io.error);
   }
   if (parsed.kind === 'help') {
-    const text = parsed.topic ? commandHelp(parsed.topic, options.color ?? false) : helpText(version, options.color ?? false, options.opensApp ?? true);
+    const text = parsed.topic ? commandHelp(parsed.topic, options.color ?? false, terminalWidth(io.output)) : helpText(version, options.color ?? false, options.opensApp ?? true, terminalWidth(io.output));
     if (options.json) printValue(text, true, io.output); else io.output.write(text);
     return 0;
   }
@@ -148,7 +149,7 @@ export async function runControlCli(argv: string[], userData: string, version: s
       const session = inspected.session;
       if (!session || !uuid.test(session.id) || (filters.id && session.id.toLowerCase() !== filters.id)) throw new Error('Could not inspect the target session');
       if (!options.json) {
-        io.output.write(inspectionText(session, inspected.tabs ?? []));
+        io.output.write(inspectionText(session, inspected.tabs ?? [], terminalWidth(io.output)));
         io.output.write('  Delete session and close its owned terminals.\n');
       }
       if (!options.yes && !await confirmControl('  ' + action + ' ' + escapeTerminal(session.id) + '? [y/N] ', io.input, io.output)) {
@@ -161,7 +162,7 @@ export async function runControlCli(argv: string[], userData: string, version: s
       const response = await io.request(userData, request);
       const result = ['list', 'stats', 'processes'].includes(action) ? filterControl(response, filters) : response;
       if (options.json) printValue(action === 'list' ? result.sessions ?? [] : action === 'settle' || action === 'unsettle' ? result.session : result, true, io.output);
-      else if (['list', 'stats', 'processes'].includes(action)) io.output.write(formatControl(action, result, options.color ?? colorEnabled(io.output)));
+      else if (['list', 'stats', 'processes'].includes(action)) io.output.write(formatControl(action, result, options.color ?? colorEnabled(io.output), terminalWidth(io.output)));
       else io.output.write('  ' + escapeTerminal(response.message ?? 'Done.') + '\n');
     }
     return 0;

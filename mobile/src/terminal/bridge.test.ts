@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { failure, success, type TerminalAttachmentDto, type TerminalEvent } from '../../../src/shared/contracts';
+import { failure, success, type TerminalAttachmentDto, type OwnedTerminalAttachmentDto, type TerminalEvent } from '../../../src/shared/contracts';
 import { TerminalBridge, type MobileTerminalApi } from './bridge';
 import { emptyModifiers, type HostMessage } from './protocol';
 import { TerminalOperationError } from './errors';
 const tabId = '12345678-1234-4234-8234-123456789abc', generation = '12345678-1234-4234-8234-123456789abd';
-const event = (sequence: number, data = `${sequence}`): TerminalEvent & { type: 'data' } => ({ type: 'data', tabId, generation, sequence, data });
-const snapshot = (chunks = [event(1, 'screen')], extras: Partial<TerminalAttachmentDto> = {}): TerminalAttachmentDto => ({
-  tabId, sessionId: tabId, generation, firstSequence: 1, lastSequence: chunks.at(-1)?.sequence ?? 0, chunks,
+const event = (sequence: number, data = `${sequence}`): TerminalEvent & { type: 'data' } => ({ type: 'data', tabId, generation, controlEpoch: 1, sequence, data });
+const snapshot = (chunks = [event(1, 'screen')], extras: Partial<OwnedTerminalAttachmentDto> = {}): OwnedTerminalAttachmentDto => ({
+  control: 'owned', controlEpoch: 1, tabId, sessionId: tabId, generation, firstSequence: 1, lastSequence: chunks.at(-1)?.sequence ?? 0,
+  chunks: chunks.map(({ type, tabId, generation, sequence, data }) => ({ type, tabId, generation, sequence, data })),
   truncated: false, cols: 80, rows: 24, lifetime: 'app-owned', state: 'open', exitCode: null, ...extras,
 });
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
@@ -15,7 +16,7 @@ function deferred<T>() {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 }
-function setup(attachment = snapshot()) {
+function setup(attachment: TerminalAttachmentDto = snapshot()) {
   let emit: (event: TerminalEvent) => void = () => undefined;
   const unsubscribe = vi.fn(), messages: HostMessage[] = [], onError = vi.fn(), onFocus = vi.fn(), onState = vi.fn();
   const api = {
@@ -24,6 +25,7 @@ function setup(attachment = snapshot()) {
     resizeTerminal: vi.fn<MobileTerminalApi['resizeTerminal']>(async () => success({ resized: true })),
     acknowledgeTerminal: vi.fn<MobileTerminalApi['acknowledgeTerminal']>(async () => success({ acknowledged: true })),
     detachTerminal: vi.fn<MobileTerminalApi['detachTerminal']>(async () => success({ detached: true })),
+    takeTerminalControl: vi.fn<MobileTerminalApi['takeTerminalControl']>(async () => success({ taken: true })),
   };
   const subscribeTerminal = vi.fn((listener: (event: TerminalEvent) => void) => { emit = listener; return unsubscribe; });
   const options = { api, subscribeTerminal, tabId, viewId: 'page-1', fontSize: 14, onError, onFocus, onState, send: (message: HostMessage) => messages.push(message) };
@@ -45,7 +47,7 @@ describe('mobile terminal delivery', () => {
     f.bridge.receive({ type: 'rendered', viewId: 'wrong', epoch: f.latest().epoch, ticket: f.latest().ticket });
     await flush(); expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled();
     f.rendered(); await flush();
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, sequence: 8 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 1, sequence: 8 });
     f.bridge.dispose();
   });
   it('opens the native keyboard only after one matching explicit focus receipt', async () => {
@@ -79,9 +81,9 @@ describe('mobile terminal delivery', () => {
     expect(f.messages.filter(m => m.type === 'output')).toHaveLength(1);
     f.rendered(); await flush(); expect(f.latest().data).toBe('live');
     f.emit(event(2)); f.emit(event(3, 'next')); f.rendered(); await flush();
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, sequence: 2 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 1, sequence: 2 });
     expect(f.latest().data).toBe('next'); f.rendered(); await flush();
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, sequence: 3 }); f.bridge.dispose();
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 1, sequence: 3 }); f.bridge.dispose();
   });
   it('detaches before sequence gap recovery and fences stale same-generation callbacks', async () => {
     vi.useFakeTimers(); const f = setup(); await flush(); const stale = f.latest();
@@ -91,19 +93,20 @@ describe('mobile terminal delivery', () => {
     await flush(); expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled();
     f.rendered(); await flush(); expect(f.api.acknowledgeTerminal).toHaveBeenCalledOnce(); f.bridge.dispose();
   });
-  it('recovers an expired delivery and renews control with resize, not fake input', async () => {
+  it('keeps ownership without idle polling or resize renewal and recovers a failed rendered ACK', async () => {
     vi.useFakeTimers(); const f = setup(); await flush(); f.rendered(); await flush();
     f.bridge.receive({ type: 'resize', viewId: 'page-1', epoch: f.latest().epoch, cols: 90, rows: 30 }); await flush();
-    await vi.advanceTimersByTimeAsync(10000); await flush();
-    expect(f.api.resizeTerminal).toHaveBeenCalledTimes(2);
-    expect(f.api.writeTerminal).not.toHaveBeenCalled();
-    f.api.acknowledgeTerminal.mockResolvedValueOnce(failure('TARGET_LOST', 'expired'));
-    await vi.advanceTimersByTimeAsync(10250); await flush(); expect(f.api.attachTerminal).toHaveBeenCalledTimes(2); f.bridge.dispose();
+    await vi.advanceTimersByTimeAsync(60000); await flush();
+    expect(f.api.resizeTerminal).toHaveBeenCalledOnce(); expect(f.api.acknowledgeTerminal).toHaveBeenCalledOnce();
+    expect(f.onState).toHaveBeenLastCalledWith('attached'); expect(f.api.writeTerminal).not.toHaveBeenCalled();
+    f.api.acknowledgeTerminal.mockResolvedValueOnce(failure('TARGET_LOST', 'lost delivery'));
+    f.emit(event(2)); f.rendered(); await flush();
+    await vi.advanceTimersByTimeAsync(250); await flush(); expect(f.api.attachTerminal).toHaveBeenCalledTimes(2); f.bridge.dispose();
   });
-  it('keeps the idle render cursor at zero while replay has not rendered', async () => {
+  it('does not acknowledge idle output before replay has rendered', async () => {
     vi.useFakeTimers(); const f = setup(); await flush();
-    await vi.advanceTimersByTimeAsync(10000); await flush();
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, sequence: 0 }); f.bridge.dispose();
+    await vi.advanceTimersByTimeAsync(60000); await flush();
+    expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled(); expect(f.api.resizeTerminal).not.toHaveBeenCalled(); f.bridge.dispose();
   });
   it('uses xterm paste, bounds queued input, and never repeats failed writes', async () => {
     const f = setup(); await flush();
@@ -159,17 +162,20 @@ describe('mobile terminal delivery', () => {
     expect(f.api.detachTerminal.mock.invocationCallOrder[2]).toBeLessThan(f.api.attachTerminal.mock.invocationCallOrder[1]!);
     replacement.dispose();
   });
-  it('stops lease renewal after a failed write, but keeps receiving output and allows another explicit write', async () => {
+  it('clears a denied view and resumes input only after an explicit ownership grant', async () => {
     vi.useFakeTimers(); const f = setup(); await flush(); f.rendered(); await flush();
     f.bridge.receive({ type: 'resize', viewId: 'page-1', epoch: f.latest().epoch, cols: 80, rows: 24 }); await flush();
-    f.api.writeTerminal.mockResolvedValueOnce(failure('FOCUS_DENIED', 'busy'));
+    f.api.writeTerminal.mockResolvedValueOnce(failure('TERMINAL_CONTROL_REQUIRED', 'busy'));
     f.bridge.input('once'); await flush(); await vi.advanceTimersByTimeAsync(10000); await flush();
     expect(f.api.resizeTerminal).toHaveBeenCalledOnce(); expect(f.api.writeTerminal).toHaveBeenCalledOnce();
     expect(f.api.attachTerminal).toHaveBeenCalledOnce();
-    f.emit(event(2, 'output still works')); f.rendered(); await flush();
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, sequence: 2 });
-    f.bridge.input('explicit retry'); await flush(); await vi.advanceTimersByTimeAsync(10000); await flush();
-    expect(f.api.writeTerminal).toHaveBeenCalledTimes(2); expect(f.api.resizeTerminal).toHaveBeenCalledTimes(2);
+    f.emit(event(2, 'not for this view')); f.rendered(); f.bridge.input('blocked'); await flush();
+    expect(f.onState).toHaveBeenLastCalledWith('blocked'); expect(f.messages.at(-1)).toMatchObject({ type: 'clear' });
+    expect(f.api.acknowledgeTerminal).toHaveBeenCalledOnce(); expect(f.api.writeTerminal).toHaveBeenCalledOnce();
+    f.api.attachTerminal.mockResolvedValueOnce(success(snapshot(undefined, { controlEpoch: 2 })));
+    f.emit({ type: 'control', tabId, generation, control: 'owned', controlEpoch: 2 }); await flush();
+    f.bridge.input('explicit retry'); await flush();
+    expect(f.api.writeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 2, data: 'explicit retry' });
     f.bridge.dispose();
   });
   it.each(['writeTerminal', 'resizeTerminal'] as const)('recovers a stale identity from %s without repeating input', async method => {
@@ -195,7 +201,7 @@ describe('mobile terminal delivery', () => {
   });
   it('rejects an internally gapped replay without releasing credit', async () => {
     const f = setup(snapshot([event(1), event(3)])); await flush();
-    expect(f.onError).toHaveBeenCalled(); expect(f.messages).toHaveLength(0);
+    expect(f.onError).toHaveBeenCalled(); expect(f.messages).toEqual([expect.objectContaining({ type: 'clear' })]);
     expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled(); f.bridge.dispose();
   });
   it('selects generations from attachments and ignores delayed retired-generation events', async () => {
@@ -208,25 +214,25 @@ describe('mobile terminal delivery', () => {
     f.emit(event(2, 'retired')); await vi.advanceTimersByTimeAsync(250); await flush();
     expect(f.api.attachTerminal).toHaveBeenCalledTimes(2);
     f.rendered(); await flush();
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation: nextGeneration, sequence: 1 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation: nextGeneration, controlEpoch: 1, sequence: 1 });
     f.bridge.dispose();
   });
   it('forces a real resize for a truncated raw TUI tail, but not for a snapshot', async () => {
     vi.useFakeTimers(); const f = setup(snapshot([event(8, 'tail')], { firstSequence: 8, truncated: true }));
     await flush(); f.rendered(); await flush();
     f.bridge.receive({ type: 'resize', viewId: 'page-1', epoch: f.latest().epoch, cols: 80, rows: 24 }); await flush();
-    expect(f.api.resizeTerminal).toHaveBeenLastCalledWith({ tabId, generation, cols: 80, rows: 23 });
+    expect(f.api.resizeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 1, cols: 80, rows: 23 });
     await vi.advanceTimersByTimeAsync(60); await flush();
-    expect(f.api.resizeTerminal).toHaveBeenLastCalledWith({ tabId, generation, cols: 80, rows: 24 });
+    expect(f.api.resizeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 1, cols: 80, rows: 24 });
     f.bridge.dispose();
   });
-  it('coalesces queued keyboard resize events and stops lease heartbeats after denial', async () => {
+  it('coalesces queued keyboard resize events without automatic idle resizing', async () => {
     vi.useFakeTimers(); const f = setup(); await flush();
-    f.api.resizeTerminal.mockResolvedValueOnce(failure('FOCUS_DENIED', 'busy'));
+    f.api.resizeTerminal.mockResolvedValueOnce(failure('TERMINAL_CONTROL_REQUIRED', 'busy'));
     const epoch = f.latest().epoch;
     for (let rows = 20; rows <= 30; rows++) f.bridge.receive({ type: 'resize', viewId: 'page-1', epoch, cols: 80, rows });
     await flush(); expect(f.api.resizeTerminal).toHaveBeenCalledOnce();
-    expect(f.api.resizeTerminal).toHaveBeenLastCalledWith({ tabId, generation, cols: 80, rows: 30 });
+    expect(f.api.resizeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 1, cols: 80, rows: 30 });
     await vi.advanceTimersByTimeAsync(10000); await flush(); expect(f.api.resizeTerminal).toHaveBeenCalledOnce();
     f.bridge.dispose();
   });
@@ -240,7 +246,7 @@ describe('mobile terminal delivery', () => {
     expect(f.onState).toHaveBeenLastCalledWith('reconnecting');
     await vi.advanceTimersByTimeAsync(250); await flush();
     expect(f.onState).toHaveBeenLastCalledWith('attached');
-    f.emit({ type: 'exit', tabId, generation, lastSequence: 1, exitCode: 0, signal: null });
+    f.emit({ type: 'exit', tabId, generation, controlEpoch: 1, lastSequence: 1, exitCode: 0, signal: null });
     expect(f.onState).toHaveBeenLastCalledWith('closed');
     f.bridge.dispose();
   });
@@ -276,7 +282,7 @@ describe('mobile terminal delivery', () => {
     ]);
     expect(f.api.writeTerminal).not.toHaveBeenCalled();
     f.bridge.receive({ type: 'input', viewId: 'page-1', epoch: f.latest().epoch, data: '\x03\x03' }); await flush();
-    expect(f.api.writeTerminal).toHaveBeenCalledExactlyOnceWith({ tabId, generation, data: '\x03\x03' });
+    expect(f.api.writeTerminal).toHaveBeenCalledExactlyOnceWith({ tabId, generation, controlEpoch: 1, data: '\x03\x03' });
     f.bridge.dispose(); f.bridge.key({ key: 'c', modifiers });
     expect(f.messages.filter(message => message.type === 'key')).toHaveLength(2);
   });
@@ -291,7 +297,7 @@ describe('mobile terminal delivery', () => {
     expect(f.api.acknowledgeTerminal).toHaveBeenCalledOnce();
     pending.resolve(success({ acknowledged: true })); await flush();
     expect(f.api.acknowledgeTerminal).toHaveBeenCalledTimes(2);
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, sequence: 100 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 1, sequence: 100 });
     f.bridge.dispose();
   });
   it('bounds live queues and reattaches rather than ACKing dropped output', async () => {

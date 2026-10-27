@@ -2,9 +2,10 @@
 import './terminal-test-mocks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { failure, success } from '../shared/contracts';
-import type { RemoteResponse } from '../shared/remote-contracts';
+import type { RemoteResponse, RemoteState } from '../shared/remote-contracts';
 import { responseSchemas } from '../shared/schemas';
 import { createRemoteController, type RemoteController } from './remote-controller';
+import { machineState } from './machine-state';
 import { remoteFixture } from './remote-test-fixtures';
 import { deferred, mockApi, profiles, session, snapshot } from './test-fixtures';
 
@@ -42,6 +43,64 @@ it('keeps automatic unsupported-backend discovery quiet without hiding manual fa
   expect(controller.store.getState().error).toBeNull();
   await controller.run(async () => failure('UNSUPPORTED', 'Manual operation unavailable.'));
   expect(controller.store.getState().error?.message).toBe('Manual operation unavailable.');
+});
+
+it('does not let a delayed action refresh overwrite a newer approval event', async () => {
+  const f = setup(); await ready(f);
+  const connect = deferred<Awaited<ReturnType<typeof f.remote.api.connect>>>();
+  const fresh = deferred<Awaited<ReturnType<typeof f.remote.api.getState>>>();
+  vi.mocked(f.remote.api.getState).mockReturnValueOnce(fresh.promise);
+  const action = f.controller.run(() => connect.promise, { peerAction: { peerId: 'server', kind: 'connect' } });
+  f.remote.emit({ type: 'state', state: { ...f.remote.state, pending: [{ id: 'unrelated', hostname: 'Unrelated device', online: true, addresses: [] }] } });
+  connect.resolve(success({ ...f.remote.state, peers: f.remote.state.peers.map(peer => peer.id === 'server' ? { ...peer, connection: 'connecting' } : peer) }));
+  await vi.waitFor(() => expect(f.remote.api.getState).toHaveBeenCalledTimes(2));
+  const latest = { ...f.remote.state, peers: f.remote.state.peers.map(peer => peer.id === 'server' ? { ...peer, connection: 'rejected' as const } : peer) };
+  f.remote.emit({ type: 'state', state: latest });
+  fresh.resolve(success(f.remote.state)); await action;
+  expect(f.controller.store.getState().state?.peers.find(peer => peer.id === 'server')?.connection).toBe('rejected');
+});
+
+it('fences pending peer actions across controller stop and restart', async () => {
+  const f = setup(); await ready(f);
+  const pending = deferred<Awaited<ReturnType<typeof f.remote.api.connect>>>();
+  const action = f.controller.run(() => pending.promise, { peerAction: { peerId: 'server', kind: 'connect' } });
+  f.controller.stop(); f.controller.start(); await ready(f);
+  pending.resolve(failure('NATIVE_UNAVAILABLE', 'Retired action.')); await action;
+  expect(f.controller.store.getState().error).toBeNull();
+  expect(f.controller.store.getState().state?.peers.find(peer => peer.id === 'server')?.connection).toBe('disconnected');
+});
+
+it('keeps an authenticated connected runtime and its label through control-health error/starting with stale offline discovery', async () => {
+  const f = setup(); await ready(f);
+  const runtime = f.runtime()!;
+  const dispose = vi.spyOn(runtime.registry, 'dispose');
+  for (const status of ['error', 'starting'] as const) {
+    const state: RemoteState = { ...f.remote.state, status, error: 'Control connection is recovering.', peers: f.remote.state.peers.map(peer => ({ ...peer, online: false })) };
+    f.remote.emit({ type: 'state', state });
+    expect(f.runtime()).toBe(runtime);
+    expect(machineState(state.peers[0]!)).toMatchObject({ label: 'Connected', active: true });
+    expect((await runtime.client.api.getSnapshot()).ok).toBe(true);
+  }
+  expect(dispose).not.toHaveBeenCalled();
+  expect(f.remote.request.mock.calls.some(([input]) => input.method === 'detachTerminal' || input.method === 'closeTab')).toBe(false);
+});
+
+it('retires connected runtimes on actual HTTP failure, rejection, explicit disconnect, or global auth loss/disable', async () => {
+  const cases: { status: RemoteState['status']; enabled: boolean; connection: RemoteState['peers'][number]['connection'] }[] = [
+    { status: 'error', enabled: true, connection: 'reconnecting' },
+    { status: 'online', enabled: true, connection: 'rejected' },
+    { status: 'online', enabled: true, connection: 'disconnected' },
+    { status: 'login-required', enabled: true, connection: 'connected' },
+    { status: 'disabled', enabled: true, connection: 'connected' },
+    { status: 'online', enabled: false, connection: 'connected' },
+  ];
+  for (const { connection, ...network } of cases) {
+    const f = setup(); await ready(f);
+    const dispose = vi.spyOn(f.runtime()!.registry, 'dispose');
+    f.remote.emit({ type: 'state', state: { ...f.remote.state, ...network, peers: f.remote.state.peers.map(peer => ({ ...peer, online: false, connection })) } });
+    expect(f.runtime()).toBeUndefined(); expect(dispose).toHaveBeenCalledOnce();
+    expect(f.remote.request.mock.calls.some(([input]) => input.method === 'closeTab')).toBe(false);
+  }
 });
 
 describe('remote reconnection', () => {
@@ -90,33 +149,37 @@ describe('remote shell discovery', () => {
     expect(f.getProfiles).toHaveBeenCalledTimes(2);
   });
 
-  it('applies a slow successful response despite repeated state and native events, then refreshes once', async () => {
+  it('keeps one slow profile read across 1500 poll-only native and repeated state events', async () => {
     const f = setup(), pending = deferred<RemoteResponse<'getTerminalProfiles'>>();
     f.getProfiles.mockReturnValueOnce(pending.promise);
     await vi.waitFor(() => expect(f.getProfiles).toHaveBeenCalledTimes(1));
     vi.useFakeTimers();
-    for (let index = 0; index < 20; index++) {
+    for (let index = 0; index < 1500; index++) {
       f.connected();
       f.remote.emit({ type: 'changed', peerId: 'workstation', event: { revision: 1, reason: 'native' } });
     }
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(f.getProfiles).toHaveBeenCalledTimes(1);
     pending.resolve(f.profileResult);
     await vi.advanceTimersByTimeAsync(0);
     expect(f.runtime()?.profiles).toHaveLength(profiles.length);
     expect(f.getProfiles).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(f.getProfiles).toHaveBeenCalledTimes(2);
+    expect(f.getProfiles).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(f.getProfiles).toHaveBeenCalledTimes(2);
+    expect(f.getProfiles).toHaveBeenCalledTimes(1);
   });
 
   it('refreshes changed availability after queued host events without overlapping requests', async () => {
     const f = setup(); await ready(f); vi.useFakeTimers();
     const pending = deferred<RemoteResponse<'getTerminalProfiles'>>();
     f.getProfiles.mockReturnValueOnce(pending.promise);
-    const changed = () => f.remote.emit({ type: 'changed', peerId: 'workstation', event: { revision: 1, reason: 'native' } });
-    changed(); await vi.advanceTimersByTimeAsync(5_000);
+    const changed = (revision: number) => f.remote.emit({ type: 'changed', peerId: 'workstation', event: { revision, reason: 'native' } });
+    f.setSnapshot({ ...f.remote.remoteSnapshot, revision: 2, probe: { ...f.remote.remoteSnapshot.probe, available: false } });
+    changed(2); await vi.advanceTimersByTimeAsync(5_000);
     expect(f.getProfiles).toHaveBeenCalledTimes(2);
-    for (let index = 0; index < 20; index++) changed();
+    f.setSnapshot({ ...f.remote.remoteSnapshot, revision: 3, settings: { ...f.remote.remoteSnapshot.settings, pythonPath: '/new/python' } });
+    for (let index = 0; index < 20; index++) changed(3);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(f.getProfiles).toHaveBeenCalledTimes(2);
     const updated = responseSchemas.getTerminalProfiles.parse(success({ profiles: [{ ...profiles[0]!, available: false }], defaultProfileId: null, lifetime: 'app-owned', shellSurvival: false }));
@@ -133,7 +196,9 @@ describe('remote shell discovery', () => {
     const f = setup(); await ready(f); vi.useFakeTimers();
     const pending = deferred<RemoteResponse<'getTerminalProfiles'>>();
     f.getProfiles.mockReturnValueOnce(pending.promise);
-    f.connected(); await vi.advanceTimersByTimeAsync(5_000);
+    f.setSnapshot({ ...f.remote.remoteSnapshot, revision: 2, probe: { ...f.remote.remoteSnapshot.probe, available: false } });
+    f.remote.emit({ type: 'changed', peerId: 'workstation', event: { revision: 2, reason: 'native' } });
+    await vi.advanceTimersByTimeAsync(5_000);
     f.disconnected(); f.connected(); await vi.advanceTimersByTimeAsync(0);
     expect(f.getProfiles).toHaveBeenCalledTimes(3);
     pending.resolve(responseSchemas.getTerminalProfiles.parse(success({ profiles: [], defaultProfileId: null, lifetime: 'app-owned', shellSurvival: false })));

@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { EnvVar, Result, TerminalAttachmentDto, TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
+import type { EnvVar, Result, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { idSchema, pathSchema, profileIdSchema, requestSchemas } from '../../shared/schemas';
 import { z } from 'zod';
@@ -358,8 +358,8 @@ export class PtyBackend {
     if (e.generation !== generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
     return success(e);
   }
-  write(input: { tabId: string; generation: string; data: string }): Result<{ written: true }> {
-    if (!requestSchemas.writeTerminal.safeParse(input).success) return failure('VALIDATION', 'Invalid or oversized terminal input.');
+  write(input: { tabId: string; generation: string; data: string; controlEpoch?: number }): Result<{ written: true }> {
+    if (!requestSchemas.writeTerminal.partial({ controlEpoch: true }).safeParse(input).success) return failure('VALIDATION', 'Invalid or oversized terminal input.');
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
     return this.writeInput(owned.value, input.data, true);
   }
@@ -376,12 +376,14 @@ export class PtyBackend {
     try { if (userInitiated) e.activity.input(); e.pty.write(data); e.inputBytes += bytes; return success({ written: true }); }
     catch { return failure('NATIVE_UNAVAILABLE', 'Terminal input could not be written.'); }
   }
-  resize(input: { tabId: string; generation: string; cols: number; rows: number }): Result<{ resized: true }> {
-    if (!requestSchemas.resizeTerminal.safeParse(input).success) return failure('VALIDATION', 'Invalid terminal dimensions.');
+  resize(input: { tabId: string; generation: string; cols: number; rows: number; controlEpoch?: number }): Result<{ resized: true }> {
+    if (!requestSchemas.resizeTerminal.partial({ controlEpoch: true }).safeParse(input).success) return failure('VALIDATION', 'Invalid terminal dimensions.');
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
-    const e = owned.value; if (e.state !== 'open') return failure('TARGET_LOST', 'This shell has exited.');
+    const e = owned.value;
+    if (e.state !== 'open') return failure('TARGET_LOST', 'This shell has exited.');
     if (e.closing) return failure('TARGET_LOST', 'Owned terminal cleanup is in progress; no resize was enqueued.');
-    if (!e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal channel is still being prepared. No deferred resize was enqueued.');
+    if (!e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal channel is still being prepared.');
+    if (e.cols === input.cols && e.rows === input.rows) return success({ resized: true });
     try { e.pty.resize(input.cols, input.rows); e.cols = input.cols; e.rows = input.rows; e.mirror.resize(input.cols, input.rows); return success({ resized: true }); }
     catch { return failure('NATIVE_UNAVAILABLE', 'Terminal could not be resized.'); }
   }

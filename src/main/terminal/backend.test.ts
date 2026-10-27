@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import type { Result, TerminalEvent } from '../../shared/contracts';
-import { terminalAttachmentSchema, terminalEventSchema } from '../../shared/schemas';
+import type { Result, TerminalBackendEvent } from '../../shared/contracts';
+import { terminalSnapshotSchema, terminalBackendEventSchema } from '../../shared/schemas';
 import { PtyBackend, REPLAY_BYTES } from './backend';
 import { factoryFixture, launchInput } from './test-fixtures';
 const value = <T>(r: Result<T>): T => { if (!r.ok) throw new Error(r.error.code); return r.value; };
@@ -99,12 +99,12 @@ describe('owned PTY backend', () => {
     expect(await b.initialize()).toMatchObject({ ok: false, error: { code: 'DEPENDENCY_MISSING' } }); await b.dispose();
   });
   it('keeps raw VT controls and Unicode intact through ordered bounded chunks', async () => {
-    const f = await fixture(), events: TerminalEvent[] = [], stop = f.backend.subscribe(e => events.push(e));
+    const f = await fixture(), events: TerminalBackendEvent[] = [], stop = f.backend.subscribe(e => events.push(e));
     const output = '\x1b[31m' + '雪🙂'.repeat(5000) + '\x00\r\n'; f.pty.output(output);
     const attached = value(f.backend.attach({ tabId: f.input.tabId }));
     expect(attached.chunks.map(c => c.data).join('')).toBe(output); expect(attached.chunks.every(c => Buffer.byteLength(c.data) <= 16384)).toBe(true);
     expect(attached.chunks.map(c => c.sequence)).toEqual(attached.chunks.map((_, i) => i + 1));
-    expect(events.every(e => terminalEventSchema.safeParse(e).success)).toBe(true); expect(terminalAttachmentSchema.safeParse(attached).success).toBe(true); stop(); await f.backend.dispose();
+    expect(events.every(e => terminalBackendEventSchema.safeParse(e).success)).toBe(true); expect(terminalSnapshotSchema.safeParse(attached).success).toBe(true); stop(); await f.backend.dispose();
   });
   it('discards old output by bytes and replays only after the cursor', async () => {
     const f = await fixture(); f.pty.output('x'.repeat(REPLAY_BYTES * 3));
@@ -163,7 +163,7 @@ describe('owned PTY backend', () => {
     expect(f.backend.write({ ...identity, data: 'x' }).ok).toBe(false); expect(f.pty.write).toHaveBeenCalledTimes(4); await f.backend.dispose();
   });
   it('sends one authoritative exit, keeps replay, and closes only exact owned handles', async () => {
-    const f = await fixture(), events: TerminalEvent[] = []; f.backend.subscribe(e => events.push(e)); f.pty.output('done'); f.pty.exit(7); f.pty.exit(8);
+    const f = await fixture(), events: TerminalBackendEvent[] = []; f.backend.subscribe(e => events.push(e)); f.pty.output('done'); f.pty.exit(7); f.pty.exit(8);
     const a = value(f.backend.attach({ tabId: f.input.tabId })); expect(a).toMatchObject({ state: 'closed', exitCode: 7 }); expect(events.filter(e => e.type === 'exit')).toHaveLength(1);
     expect((await f.backend.close({ tabId: randomUUID(), generation: f.input.generation })).ok).toBe(false);
     expect(f.backend.write({ tabId: f.input.tabId, generation: f.input.generation, data: 'x' }).ok).toBe(false);

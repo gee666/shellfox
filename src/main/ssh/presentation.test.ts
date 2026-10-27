@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { textWidth } from '../../cli/terminal-text';
 import { parseSshArgs, pickerLines, helpText, sshHelp, remoteCommand, commandHelp, escapeTerminal, formatControl, formatDuration, formatRss } from './presentation';
 import type { SessionDto } from '../../shared/contracts';
 import { filterControl } from '../control-cli';
@@ -44,6 +45,19 @@ it('formats an aligned session list with full IDs, status and paths', () => {
  const text = formatControl('list', { sessions: [sessionOutput] });
  expect(text).toBe('  NAME  ID            STATUS   AGENTS  PATH   TERMINALS\n  test  session-uuid  running  0       /work  2\n');
  expect(formatControl('list', {})).toBe('  No matching sessions.\n');
+});
+it.each([20, 40, 60, 80, 100])('fits session lists, metrics, process trees and SSH rows to %i columns', width => {
+ const id = '11111111-1111-4111-8111-111111111111';
+ const response = { sessions: [{ ...sessionOutput, id, title: 'long-project-name-'.repeat(3), cwd: '/very/long/project/path/'.repeat(4) }], tabs: [{
+  tabId: 'tab-uuid', memoryBytes: null, elapsedSeconds: null, processes: [{ pid: 42, parentPid: 1, domain: 'local', name: 'long-process-name'.repeat(4), memoryBytes: null, elapsedSeconds: null }],
+ }] };
+ for (const action of ['list', 'stats', 'processes']) {
+  const text = formatControl(action, response, true, width);
+  for (const line of text.split('\n')) expect(textWidth(line)).toBeLessThanOrEqual(width);
+  expect(text.replaceAll('\n', '').replaceAll(' ', '')).toContain(id);
+  if (action === 'list' && width >= 40) expect(text).toContain(id);
+ }
+ for (const line of pickerLines([p('very-long-profile', 'host.example.com', 'user', 22, '/long/path')], 0, true, width)) expect(textWidth(line)).toBeLessThanOrEqual(width);
 });
 it('formats session/tab totals without treating missing metrics as zero', () => {
  const tabs = [

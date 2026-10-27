@@ -27,6 +27,23 @@ describe('database retention lifecycle', () => {
       expect(f.repository.session(f.session.id)?.title).toBe('Keep metadata');
     } finally { await f.service.dispose(); }
   });
+  it.each(['exit', 'delete'] as const)('denies new attachments after %s while the existing owner can acknowledge final output', async action => {
+    const f = await fixture(), tab = f.session.tabs[0];
+    const owner = f.service.createTerminalView(() => {}), other = f.service.createTerminalView(() => {});
+    try {
+      const attachment = value(owner.attach({ tabId: tab.id }));
+      if (attachment.control !== 'owned') throw new Error('Missing test owner');
+      f.processes[0].output('retained final screen');
+      if (action === 'exit') f.processes[0].exit(0);
+      else value(await f.service.deleteSession({ sessionId: f.session.id }));
+      expect(f.repository.tab(tab.id)).toBeUndefined();
+      expect(value(f.backend.attach({ tabId: tab.id })).chunks.map(chunk => chunk.data).join('')).toContain('retained final screen');
+      expect(owner.acknowledge({ tabId: tab.id, generation: tab.generation!, controlEpoch: attachment.controlEpoch, sequence: 1 })).toEqual({ ok: true, value: { acknowledged: true } });
+      expect(owner.attach({ tabId: tab.id })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+      expect(owner.take({ tabId: tab.id, generation: tab.generation! })).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
+      expect(other.attach({ tabId: tab.id })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+    } finally { owner.dispose(); other.dispose(); await f.service.dispose(); }
+  });
   it('settles and unsets without closing terminals or removing saved ownership', async () => {
     const f = await fixture();
     try {
@@ -76,7 +93,9 @@ describe('database retention lifecycle', () => {
     const service = new EmbeddedSessionService(repository, backend, () => ({ setWatch() {}, dispose() {} }));
     await service.initialize();
     try {
-      const session = value(await service.createSession({ cwd: '/work', requestId: randomUUID() }));
+      expect(await service.createSession({ cwd: '/work', requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
+      // The action failed, but its retained session must not recreate the exited shell.
+      const session = value(service.getSnapshot()).sessions[0];
       expect(session.tabs).toEqual([]); expect(repository.operationMap.size).toBe(0); expect(repository.session(session.id)).toBeDefined();
     } finally { await service.dispose(); }
   });

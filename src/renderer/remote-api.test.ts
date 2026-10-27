@@ -10,12 +10,12 @@ describe('machine API boundary', () => {
     const api = createRemoteManagerApi(remote.api, 'workstation', local);
     remote.request.mockReset().mockResolvedValue(failure('UNSUPPORTED', 'Unavailable.'));
     await api.createSession({ cwd: '/srv/project', requestId: 'request-1' });
-    await api.writeTerminal!({ tabId: 'same-tab', generation: 'generation', data: 'pwd\r' });
+    await api.writeTerminal!({ tabId: 'same-tab', generation: 'generation', controlEpoch: 1, data: 'pwd\r' });
     await api.completeDirectory({ path: '/srv/pr' });
     await api.setSessionEnv({ sessionId: 'same-session', env: [{ name: 'Path', value: 'one' }, { name: 'PATH', value: 'two' }] });
     expect(remote.request.mock.calls.map(([input]) => input)).toEqual([
       { peerId: 'workstation', method: 'createSession', payload: { cwd: '/srv/project', requestId: 'request-1' } },
-      { peerId: 'workstation', method: 'writeTerminal', payload: { tabId: 'same-tab', generation: 'generation', data: 'pwd\r' } },
+      { peerId: 'workstation', method: 'writeTerminal', payload: { tabId: 'same-tab', generation: 'generation', controlEpoch: 1, data: 'pwd\r' } },
       { peerId: 'workstation', method: 'completeDirectory', payload: { path: '/srv/pr' } },
       { peerId: 'workstation', method: 'setSessionEnv', payload: { sessionId: 'same-session', env: [{ name: 'Path', value: 'one' }, { name: 'PATH', value: 'two' }] } },
     ]);
@@ -39,7 +39,7 @@ describe('machine API boundary', () => {
     const remote = remoteFixture(), local = mockApi().api;
     const api = createRemoteManagerApi(remote.api, 'workstation', local), changed = vi.fn(), terminal = vi.fn();
     const stopChanged = api.subscribe(changed), stopTerminal = api.subscribeTerminal!(terminal);
-    const event = { type: 'data' as const, tabId: 'tab-1', generation: 'g', sequence: 1, data: 'remote' };
+    const event = { type: 'data' as const, controlEpoch: 1, tabId: 'tab-1', generation: 'g', sequence: 1, data: 'remote' };
     remote.emit({ type: 'terminal', peerId: 'server', event }); remote.emit({ type: 'changed', peerId: 'server', event: { revision: 1, reason: 'sessions' } });
     expect(terminal).not.toHaveBeenCalled(); expect(changed).not.toHaveBeenCalled();
     remote.emit({ type: 'terminal', peerId: 'workstation', event }); remote.emit({ type: 'changed', peerId: 'workstation', event: { revision: 2, reason: 'sessions' } });

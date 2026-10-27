@@ -26,6 +26,8 @@ At restart, old embedded handles cannot be restored from saved PIDs. Their tabs 
 
 `sessionSettleHours` defaults to 24 hours. `sessionDeleteHours` defaults to 720 hours, or 30 days. Both are configurable. A minute sweep marks inactive sessions settled after the first interval. That starts a fresh deletion grace period, including after a long shutdown. After the second interval without activity, the sweep closes owned terminals and deletes unpinned settled sessions. Pinned sessions are exempt from automatic deletion, not from settling or explicit deletion.
 
+Startup preserves each session's settled state and last activity, including sessions migrated from external terminals. Removing obsolete terminal handles does not settle a session.
+
 Session selection, terminal input/output and process activity update the session's activity time. The deletion interval starts from whichever is later, the settled timestamp or the latest activity. Automatic cleanup uses the same ownership checks as explicit deletion and retries on later sweeps if closure or storage fails.
 
 ## Existing databases

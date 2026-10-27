@@ -1,5 +1,6 @@
 import { colorEnabled } from '../../cli/human';
-import { styles } from '../ssh/presentation';
+import { styles, terminalWidth } from '../../cli/terminal-text';
+import { formatTable } from '../../cli/table';
 import { CustomCommandStore, commandKey, validateCommandName } from './shellfox-cli-commands';
 import { executeScript, resolveScriptLocation, scriptContext, type ScriptContext } from './shellfox-cli-scripts';
 
@@ -16,7 +17,7 @@ Paths are references. Each invocation reads the current script.
 All arguments after the name go to the script unchanged.
 `;
 export interface CustomCliOptions {
-  output?: { write(text: string): unknown; isTTY?: boolean };
+  output?: { write(text: string): unknown; isTTY?: boolean; columns?: number };
   error?: { write(text: string): unknown };
   context?: ScriptContext;
   execute?: typeof executeScript;
@@ -63,8 +64,11 @@ export async function dispatchCustomCli(argv: string[], userData: string, option
     if (['--ls', '--list'].includes(operation)) {
       if (args.length) throw new UsageError('Usage: shellfox cmd ' + operation);
       const commands = (await store.read()).sort((a, b) => commandKey(a.name).localeCompare(commandKey(b.name)));
-      for (const custom of commands) output.write(custom.name + '\t' + display(custom.path) + (custom.distro ? '\tWSL ' + display(custom.distro) : '') + '\n');
-      if (!commands.length) output.write('No custom commands.\n');
+      if (commands.length) {
+        const wsl = commands.some(custom => custom.distro);
+        output.write(formatTable(wsl ? ['NAME', 'PATH', 'WSL'] : ['NAME', 'PATH'], commands.map(custom =>
+          [custom.name, display(custom.path), ...(wsl ? [custom.distro ? display(custom.distro) : 'none'] : [])]), false, terminalWidth(destination)) + '\n');
+      } else output.write('No custom commands.\n');
       return 0;
     }
     const name = operation === '--run' ? args.shift() : operation;

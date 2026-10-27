@@ -1,12 +1,12 @@
 # Terminal commands
 
-The same CLI controls desktop-owned and headless-owned hosts on Windows, macOS and Linux. Session operations belong under `shellfox session`; terminal operations belong under `shellfox terminals`. The namespace shortcuts are `ss` and `tm`. `sessions` remains an accepted namespace alias for earlier automation, but help shows only the canonical group.
+The same CLI controls desktop-owned and headless-owned hosts on Windows, macOS and Linux. Session operations belong under `shellfox session`; terminal operations belong under `shellfox terminals`. The namespace shortcuts are `ss` and `tm`. `sessions` is also an alias for `session`, and `cmd` is an alias for `commands`. Root and group help list the aliases alongside the canonical commands.
 
 Run `shellfox` or `shellfox help` for grouped help. There are no top-level session verbs or `tab` namespace. A desktop icon still opens the desktop application separately.
 
 ## Output and global options
 
-Human-readable tables and key-value fields are the default, including generic API results. Terminal output uses color on a TTY. Redirected output, `NO_COLOR`, and `TERM=dumb` disable color. Session and terminal IDs are full UUIDs that can be copied directly into commands. UUID prefixes, titles and row numbers are not selectors.
+Human-readable tables and key-value fields are the default, including generic API results. Terminal output uses color on a TTY. Redirected output, `NO_COLOR`, and `TERM=dumb` disable color. Session and terminal IDs are full UUIDs that can be copied directly into commands. UUID prefixes, titles and row numbers are not selectors. Tables use aligned columns when they fit the output terminal. Narrow terminals use labeled records and wrap long values without truncation. The same layout applies to session and terminal lists, machines, generic API data and custom commands. Help and process trees also wrap to the available width. Redirected output has no width limit; JSON output does not change.
 
 ```sh
 shellfox session list
@@ -121,17 +121,34 @@ shellfox terminals reorder SESSION_UUID FIRST_TAB_UUID SECOND_TAB_UUID
 shellfox tm reorder --current FIRST_TAB_UUID SECOND_TAB_UUID
 shellfox terminals write TAB_UUID "text without an Enter key"
 shellfox terminals write TAB_UUID --stdin < commands.txt
+shellfox terminals write TAB_UUID --take "explicitly switch control before writing"
 shellfox terminals close TAB_UUID --yes
 shellfox terminals attach TAB_UUID
+shellfox tm attach TAB_UUID
 ```
 
-`tm` is a namespace alias for the same terminals. `create` and `rename` can resolve the containing session from current context when their session ID is omitted. `list` defaults to all terminals; `--current` selects the current session. `reorder` takes the complete saved permutation, including closed terminals. Supply the session ID first, or use `--current` or `--id SESSION_UUID` to treat all positional UUIDs as terminal IDs. Attach, write and close require an explicit terminal UUID.
+`tm` is a namespace alias for the same terminals. `create` and `rename` can resolve the containing session from current context when their session ID is omitted. `list` defaults to all terminals; `--current` selects the current session. `reorder` takes the complete saved permutation, including closed terminals. Supply the session ID first, or use `--current` or `--id SESSION_UUID` to treat all positional UUIDs as terminal IDs. Write and close require an explicit terminal UUID.
 
-Interactive attach requires TTY stdin and stdout and rejects `--json`. Ctrl+] detaches locally; Ctrl+C goes to the shell. EOF, errors, termination signals and connection loss restore raw-input state. Cleanup resets mouse/focus reports, bracketed paste, keypad modes, colors, scroll region and cursor visibility before leaving the local alternate screen.
+`attach TAB_UUID` requires an existing terminal UUID and never creates a session or tab. It does not accept `--cwd` or `--session-id`, and it never falls back to desktop selection or ambient session context. The terminal keeps its existing shell and working directory.
 
-The CLI replays the saved screen at the host grid before requesting the client's PTY size. It temporarily requests a terminal-window resize with CSI 8 and restores dimensions in cleanup, including failed replay. Emulators that ignore resize requests may wrap historical content differently; the CLI has no separate virtual-grid renderer. Multiple clients share one terminal's size and input.
+Interactive attach requires TTY stdin and stdout and rejects `--json`. Only one client views and controls a terminal at a time. A blocked CLI shows a blank screen and a control message. Ctrl+T explicitly takes the terminal; a fresh replay is displayed before input is enabled. Losing control clears the view and drops stale queued input. Ctrl+] detaches locally; Ctrl+C goes to the shell only while this client owns it. There is no control timeout. An attached waiting client receives control automatically when the owner detaches or disconnects. One-shot `terminals write` refuses an occupied terminal unless `--take` is supplied. EOF, errors, termination signals and connection loss restore raw-input state. Cleanup resets mouse/focus reports, bracketed paste, keypad modes, colors, scroll region and cursor visibility before leaving the local alternate screen.
+
+The CLI replays the saved screen at the host grid before requesting the client's PTY size. It temporarily requests a terminal-window resize with CSI 8 and restores the caller's dimensions, including failed replay. Those temporary changes are not treated as user resizes. If both grids already match, one short resize/restore pair forces a TUI repaint; a 100 ms hold prevents ConPTY from coalescing it. There is no resize heartbeat.
+
+Queries answered by the host parser are not replayed to a second terminal responder. Historical color queries are removed while palette settings remain. Remote window-resize commands and ConPTY's private input mode cannot change the caller's window or keyboard protocol. This prevents nested resize and capability-reply feedback loops. Only the current owner can view terminal contents or change its size and input. Waiting clients receive a fresh replay after taking control or being promoted.
 
 Output is acknowledged after delivery. Input is limited to 64 KiB per frame and 128 KiB pending. Oversized paste or a full queue detaches with an explicit error, not silent truncation. A lost reply may mean input was already delivered. The CLI never reconnects and resends that uncertain input. Inspect the terminal before sending it again. Detaching or exiting a client never closes the shell or stops the host.
+
+### External TTY verification
+
+After the final test build, run this smoke against an isolated real desktop host:
+
+```sh
+pnpm build:test
+pnpm exec playwright test --project=e2e tests/e2e/cli-attach-tty.spec.ts
+```
+
+The smoke creates its sessions and tabs through the window API before launching the built CLI through `node-pty`, not mocked streams. A separate bundled-Node driver loads the staged terminal addon; the Playwright worker never loads it. The harness exchanges JSON lines over ordinary stdio pipes, with only input-write and test-owned kill commands after startup. Evidence records native PTY data/exit events, command acknowledgements, driver errors, stderr and driver exit status. A driver failure never substitutes a terminal exit code. It attaches existing UUIDs through `terminals` and `tm`, checks that a missing UUID fails without mutation, and verifies that no CLI attach changes the session/tab identities. Each client explicitly takes control with Ctrl+T if another viewer owns the terminal, sends a shell command, checks the returned live working directory, and detaches with Ctrl+]. The test checks that the shell remains open after the client exits. A second case starts a resize-driven Node TUI on a pre-sized 90x40 terminal and takes it from an external 90x40 CLI. It checks that the TUI repaints at 90x40 without manually resizing the external TTY. Playwright attaches `external-tty-evidence.json` and `same-grid-repaint.json` with the isolated data directory, CLI/runtime paths, session/tab IDs, shell output, exit codes and repaint counters. It does not access the installed host or register startup tasks. Windows, macOS and Linux require their normal desktop/native build prerequisites. Mobile and headless clients use the same existing manager contracts; the external desktop smoke does not verify those platforms.
 
 ## Host
 
@@ -172,6 +189,8 @@ shellfox network disable --yes
 ```
 
 Login without a key returns a Tailscale login URL when authentication is needed. Auth keys are never accepted in argv, including generic remote-login payloads. Protected files contain raw key text, with an optional trailing newline. On Unix, the file must belong to the current user and have mode `0600` or stricter. On Windows, allow rules may grant access only to its current-user owner, SYSTEM or Administrators. Links and oversized files are rejected.
+
+`machines list` includes only confirmed Shellfox hosts, not every Tailscale device. Saved confirmed hosts can appear offline. Unverified legacy saved targets remain visible in connection status but not this list until discovery succeeds. When an older running local host omits `hostConfirmed`, an already connected peer is included because its completed Shellfox pairing proves the host. Unconnected legacy peers and explicit `hostConfirmed: false` remain excluded. Discovery runs in the host, refreshes the peer map every three seconds and caches negative probes for 30 seconds; it does not pair or request approval.
 
 Approval listing includes saved approvals and pending requests. Reject denies a pending pairing attempt. Revoke removes an existing grant. Being on the same tailnet is not enough to access a Shellfox host. Machine states distinguish waiting for approval, explicit rejection, disconnection and connection errors. Network, machine and approval commands always manage the local host and reject a remote `--host` instead of silently changing the wrong machine.
 

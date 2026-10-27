@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 )
@@ -109,11 +110,11 @@ func TestPeersAndAddressesFailClosed(t *testing.T) {
 }
 
 func TestLoginURLsAndProtocolValidation(t *testing.T) {
-	if !safeLoginURL("https://login.tailscale.com/a/abc") {
+	if !nethealth.SafeLoginURL("https://login.tailscale.com/a/abc") {
 		t.Fatal("valid login URL rejected")
 	}
 	for _, u := range []string{"", "http://login.tailscale.com/a", "https://evil.test/a", "https://login.tailscale.com.evil.test/a", "https://user@login.tailscale.com/a", "https://login.tailscale.com:443/a"} {
-		if safeLoginURL(u) {
+		if nethealth.SafeLoginURL(u) {
 			t.Errorf("unsafe login URL %s", u)
 		}
 	}
@@ -130,9 +131,6 @@ func TestLoginURLsAndProtocolValidation(t *testing.T) {
 	var p loginPayload
 	if decode([]byte(`{"authKey":"key","unexpected":true}`), &p) == nil || decode([]byte(`{} {}`), &p) == nil {
 		t.Error("invalid JSON accepted")
-	}
-	if !sameStatus(networkStatus{Status: "online"}, networkStatus{Status: "online"}) {
-		t.Error("equal statuses differ")
 	}
 }
 

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 
 test('second real PowerShell tab detects idle Pi ten times', async () => {
   test.skip(process.platform !== 'win32' || !existsSync(path.join(process.env.USERPROFILE ?? '', '.pi/agent/bin/pi.exe')));
@@ -33,7 +33,7 @@ test('second real PowerShell tab detects idle Pi ten times', async () => {
       await page.getByRole('button', { name: `Select session Second Pi ${n}`, exact: true }).click();
       if (n % 2) {
         const first = session.tabs[0];
-        value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: first.id, generation: first.generation!, data: 'pi\r' }));
+        value(await seedTerminal(app, { tabId: first.id, generation: first.generation!, data: 'pi\r' }));
         await expect.poll(async () => (await snapshot(page)).sessions.find(s => s.id === session.id)!.tabs[0].status, { timeout: 12000 }).toBe('running');
       }
       if (n % 3 === 2) {
@@ -48,7 +48,7 @@ test('second real PowerShell tab detects idle Pi ten times', async () => {
       if (n % 2) expect(added.tabs[0].status).toBe('running');
       const tab = added.tabs[1];
       // Wait for shell startup, not Pi startup. This marker cannot match the echoed command.
-      value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: `[Console]::WriteLine(('PI_' + 'READY_${n}'))\r` }));
+      value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: `[Console]::WriteLine(('PI_' + 'READY_${n}'))\r` }));
       await expect.poll(async () => app.evaluate((_electron, input) => {
         const replay = (globalThis as any).__shellfoxTest.backend.attach({ tabId: input.id });
         return replay.ok && replay.value.chunks.map((c: any) => c.data).join('').includes(input.marker);
@@ -59,7 +59,7 @@ test('second real PowerShell tab detects idle Pi ten times', async () => {
       const start = await app.evaluate(() => Date.now());
       let source: { completedAt: number; duration: number; shellPid: number; piPid: number } | null = null;
       let sourceCompletedAt = 0;
-      value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: 'pi\r' }));
+      value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: 'pi\r' }));
       try {
         // Windows CIM and the optional running-WSL scan are asynchronous and can
         // exceed 3s under suite load. Wait for independent native evidence of

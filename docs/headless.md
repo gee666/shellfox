@@ -129,7 +129,7 @@ pnpm package:headless
 pnpm test:headless
 ```
 
-Source builds require Node 24, the pinned pnpm version, Go 1.27.3 or newer, and the relevant native build tools. Matching Node-API prebuilds are staged separately from Electron's modules. Linux PTY source builds use checksum-verified Node headers. Downloads are verified before extraction or execution.
+Source builds require Node 24.22.1, the pinned pnpm version, Go 1.27.3 or newer, and the relevant native build tools. Matching Node-API prebuilds are staged separately from Electron's modules. Linux PTY source builds use checksum-verified Node headers. Downloads are verified before extraction or execution.
 
 Headless output is under `tmp/headless/shellfox-headless-<platform>-<arch>/`; archives and SHA-256 sidecars are under `tmp/headless-artifacts/`. The package holds `bin/node`, `app/main.cjs`, private native runtime modules, and `resources/`. Its normal dependencies do not include Electron.
 

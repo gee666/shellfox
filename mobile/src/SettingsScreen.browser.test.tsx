@@ -41,6 +41,13 @@ function setup(loginUrl: string | null = valid, returnedUrl: string | null = val
 beforeEach(() => { vi.resetAllMocks(); native.openURL.mockResolvedValue(undefined); native.appState.currentState = 'active'; });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe('explicit browser sign-in', () => {
+  it('shows degraded network health after startup without asking for login again', () => {
+    const model = setup(null, null, false);
+    model.source.network = { status: 'online', loginUrl: null, error: 'Relay connectivity is degraded.' };
+    model.rerender();
+    expect(screen.getByText('Relay connectivity is degraded.')).toBeInTheDocument();
+    expect(native.openURL).not.toHaveBeenCalled(); expect(model.login).not.toHaveBeenCalled();
+  });
   it.each(['active', 'inactive', 'background', null])('opens the validated URL even when AppState is %s', async state => {
     native.appState.currentState = state;
     const model = setup();

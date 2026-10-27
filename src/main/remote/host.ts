@@ -4,29 +4,26 @@ import { failure, success, type AppError } from '../../shared/contracts';
 import type { RemoteHostEvent } from '../../shared/remote-contracts';
 import { REMOTE_REQUEST_BYTES } from '../../shared/remote-schemas';
 import type { EmbeddedSessionService } from '../terminal/service';
-import { TerminalDelivery } from '../terminal/delivery';
+import type { TerminalControlView } from '../terminal/control';
 import { verifyPeer, type peerIdentitySchema } from './auth';
-import { RemoteControlLeases, remoteOperation } from './operations';
+import { remoteOperation } from './operations';
 const identity = z.object({ clientId: z.uuid() }).strict();
 const operation = identity.extend({ method: z.string().max(100), payload: z.unknown() });
 interface Client {
-  peerId: string; delivery: TerminalDelivery; events: RemoteHostEvent[]; bytes: number; touched: number;
+  peerId: string; delivery: TerminalControlView; events: RemoteHostEvent[]; bytes: number; touched: number;
   notify?: () => void; pendingPoll: boolean; requests: number;
 }
 export class RemoteHost {
   private readonly server = createServer((request, response) => { void this.handle(request, response); });
   private readonly clients = new Map<string, Client>();
   private readonly rates = new Map<string, { since: number; count: number }>();
-  private readonly leases = new RemoteControlLeases();
   private readonly denied = new Map<string, number>();
   private readonly unsubscribe: () => void;
-  private readonly unsubscribeTerminal: () => void;
   private readonly sweep: ReturnType<typeof setInterval>;
   constructor(private readonly service: EmbeddedSessionService, private readonly secret: string, private readonly approved: (peerId: string) => boolean, private readonly pending: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => void, private readonly authorize?: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => AppError | null, private readonly withdraw?: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => void) {
     this.server.requestTimeout = 30_000; this.server.headersTimeout = 10_000; this.server.maxConnections = 64;
     // Host-local CLI focus requests must never redirect a remote client's input.
     this.unsubscribe = service.subscribe(({ revision, reason }) => { for (const [id] of this.clients) this.enqueue(id, { type: 'changed', event: { revision, reason } }); });
-    this.unsubscribeTerminal = service.subscribeTerminal(event => { for (const client of this.clients.values()) client.delivery.event(event); });
     this.sweep = setInterval(() => {
       for (const [id, client] of this.clients) if (Date.now() - client.touched > 60_000 || !this.approved(client.peerId)) this.drop(id);
       for (const [id, rate] of this.rates) if (Date.now() - rate.since > 60_000) this.rates.delete(id);
@@ -48,7 +45,12 @@ export class RemoteHost {
     this.denied.delete(id); return false;
   }
   revoke(peerId: string): void { for (const [id, client] of this.clients) if (client.peerId === peerId) { this.block(id); this.drop(id); } }
-  private drop(id: string): void { const client = this.clients.get(id); if (!client) return; this.clients.delete(id); client.delivery.dispose(); this.leases.release(id); this.service.clearRemoteVisibleSessions(id); client.notify?.(); }
+  private drop(id: string): void { const client = this.clients.get(id); if (!client) return; this.clients.delete(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.(); }
+  private purge(id: string, tabId: string): void {
+    const client = this.clients.get(id); if (!client) return;
+    client.events = client.events.filter(event => event.type !== 'terminal' || event.event.tabId !== tabId);
+    client.bytes = client.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event)), 0);
+  }
   private enqueue(id: string, event: RemoteHostEvent): void {
     const client = this.clients.get(id); if (!client) return;
     // Metadata changes coalesce, terminal credit and queue limits bound each viewer.
@@ -92,12 +94,13 @@ export class RemoteHost {
       if (permission) { this.reply(response, { ok: false, error: permission }); return; }
       if (!this.approved(peer.id)) { this.pending(peer, input.clientId); this.reply(response, failure('APPROVAL_REQUIRED', 'Approve this device in Shellfox on the host first.', true)); return; }
       if (url === '/v1/pair') {
-        this.drop(id);
-        if (!this.clients.has(id)) {
+        const existing = this.clients.get(id);
+        if (existing) { existing.touched = Date.now(); existing.notify?.(); }
+        if (!existing) {
           if (this.clients.size >= 32) { this.reply(response, failure('VALIDATION', 'Too many remote clients.')); return; }
-          this.clients.set(id, { peerId: peer.id, delivery: new TerminalDelivery(input => this.service.attachTerminal(input), event => this.enqueue(id, { type: 'terminal', event })), events: [], bytes: 0, touched: Date.now(), pendingPoll: false, requests: 0 });
+          this.clients.set(id, { peerId: peer.id, delivery: this.service.createTerminalView(event => this.enqueue(id, { type: 'terminal', event }), tabId => this.purge(id, tabId)), events: [], bytes: 0, touched: Date.now(), pendingPoll: false, requests: 0 });
         }
-        this.reply(response, success({ paired: true })); return;
+        this.reply(response, success({ paired: true, terminalControl: 'exclusive-v1' })); return;
       }
       const client = this.clients.get(id);
       if (!client) { this.reply(response, failure('AUTH_FAILED', 'Reconnect this remote view.', true)); return; }
@@ -118,7 +121,7 @@ export class RemoteHost {
       if (client.requests >= 8) { this.reply(response, failure('VALIDATION', 'Too many pending operations.', true)); return; }
       const command = operation.parse(raw); client.requests++;
       try {
-        const result = await remoteOperation(this.service, client.delivery, this.leases, id, command.method, command.payload);
+        const result = await remoteOperation(this.service, client.delivery, id, command.method, command.payload);
         const permission = this.authorize?.(peer, input.clientId);
         if (!this.approved(peer.id) || this.isDenied(id) || permission?.code === 'ACCESS_DENIED') this.reply(response, failure('ACCESS_DENIED', 'The host revoked this connection.', false));
         else this.reply(response, result);
@@ -127,7 +130,7 @@ export class RemoteHost {
     } catch { this.reply(response, failure('VALIDATION', 'Remote request could not be completed.', true)); }
   }
   async dispose(): Promise<void> {
-    clearInterval(this.sweep); this.unsubscribe(); this.unsubscribeTerminal(); for (const id of this.clients.keys()) this.drop(id);
+    clearInterval(this.sweep); this.unsubscribe(); for (const id of this.clients.keys()) this.drop(id);
     this.server.closeAllConnections(); await new Promise<void>(resolve => this.server.close(() => resolve()));
   }
 }

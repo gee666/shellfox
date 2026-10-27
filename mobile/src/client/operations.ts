@@ -24,6 +24,7 @@ export abstract class RemoteOperations {
   resolveDirectory(input: RemoteRequestPayload<'resolveDirectory'>) { return this.request('resolveDirectory', input); }
   createDirectory(input: RemoteRequestPayload<'createDirectory'>) { return this.request('createDirectory', input); }
   completeDirectory(input: RemoteRequestPayload<'completeDirectory'>) { return this.request('completeDirectory', input); }
+  takeTerminalControl(input: RemoteRequestPayload<'takeTerminalControl'>) { return this.request('takeTerminalControl', input); }
   attachTerminal(input: RemoteRequestPayload<'attachTerminal'>) { return this.request('attachTerminal', input); }
   writeTerminal(input: RemoteRequestPayload<'writeTerminal'>) { return this.request('writeTerminal', input); }
   resizeTerminal(input: RemoteRequestPayload<'resizeTerminal'>) { return this.request('resizeTerminal', input); }

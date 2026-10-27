@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 
 test('two tabs in each of eight real sessions keep Pi detection under concurrent load', async () => {
   test.skip(process.platform !== 'win32' || !existsSync(path.join(process.env.USERPROFILE ?? '', '.pi/agent/bin/pi.exe')));
@@ -25,7 +25,7 @@ test('two tabs in each of eight real sessions keep Pi detection under concurrent
     for (let n = 0; n < 8; n++) {
       const session = value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID(), title: `Concurrent Pi ${n}` }));
       const added = value(await page.evaluate(sessionId => window.shellfox.addTab({ sessionId }), session.id));
-      for (const tab of added.tabs) value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: 'pi\r' }));
+      for (const tab of added.tabs) value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: 'pi\r' }));
     }
     const start = Date.now();
     for (let i = 0; i < 20; i++) { await page.waitForTimeout(1000); evidence.push({ ms: Date.now() - start, sessions: (await snapshot(page)).sessions }); }

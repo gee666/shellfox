@@ -1,4 +1,4 @@
-import { test, expect, type ElectronApplication, type Page } from '@playwright/test';
+import { test, expect, type ElectronApplication } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
@@ -6,9 +6,10 @@ import { randomUUID, createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { TabDto } from '../../src/shared/contracts';
+import { responseSchemas } from '../../src/shared/schemas';
 import { shellfoxShims } from '../../src/main/platform/shellfox-cli';
 import { setWslCli, runWslCli, type WslCliRunner } from '../../src/main/platform/wsl-cli';
-import { launch, scratch, snapshot, value, root, testMain } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value, root, testMain } from '../fixtures/electron';
 
 const exec = promisify(execFile);
 const wsl = path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'wsl.exe');
@@ -22,7 +23,7 @@ async function output(app: ElectronApplication, tabId: string) {
     return result.value.chunks.map((chunk: { data: string }) => chunk.data).join('');
   }, tabId);
 }
-async function shellCwd(app: ElectronApplication, page: Page, tab: TabDto, environment: 'local' | 'wsl') {
+async function shellCwd(app: ElectronApplication, tab: TabDto, environment: 'local' | 'wsl') {
   expect(tab.lifecycle, JSON.stringify(tab)).toBe('open');
   const token = randomUUID().replace(/-/g, '');
   // Encode the result to keep spaces, quotes and terminal control sequences out of the assertion.
@@ -30,7 +31,7 @@ async function shellCwd(app: ElectronApplication, page: Page, tab: TabDto, envir
   const command = environment === 'local'
     ? `[Console]::WriteLine(('CWD_'+'${token}='+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Location).Path))+'_'+ 'END'))`
     : `printf 'CWD_%s=%s_%s\\n' '${token}' "$(printf '%s' "$PWD" | base64 -w0)" END`;
-  value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: command + '\r' }));
+  value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: command + '\r' }));
   const match = new RegExp(`CWD_${token}=([A-Za-z0-9+/=]+)_END`);
   let encoded = '';
   await expect.poll(async () => {
@@ -95,7 +96,7 @@ for (const kind of ['mounted drive', 'guest filesystem'] as const) {
         guestCwd = `${home}/shellfox-cwd-${randomUUID()} space & 'quote' % ! 雪`;
         await guest(distro, ['mkdir', '--', guestCwd]);
       }
-      // This is the exact path representation forwarded by a WSL shellfox start caller.
+      // This is the exact path representation forwarded by a WSL session create caller.
       hostCwd = await guest(distro, ['wslpath', '-w', guestCwd]);
       await mkdir(bin);
       const shims = shellfoxShims({ executable: createRequire(path.resolve('package.json'))('electron') as string, appPath: testMain,
@@ -120,7 +121,7 @@ for (const kind of ['mounted drive', 'guest filesystem'] as const) {
           { timeout: 30000, windowsHide: true, maxBuffer: 65536 });
         return { stdout: result.stdout.replace(/\r/g, ''), stderr: result.stderr };
       };
-      const probeCommand = 'printf "RESOLVED=%s\\n" "$(command -v shellfox)"; shellfox start .';
+      const probeCommand = 'printf "RESOLVED=%s\\n" "$(command -v shellfox)"; shellfox session create . --json';
       const old = await bash(probeCommand);
       expect(old.stdout).toContain(`RESOLVED=${oldLauncher}\n`);
       expect(old.stdout).toContain('OLD_SHELLFOX_0.1.1');
@@ -140,18 +141,21 @@ for (const kind of ['mounted drive', 'guest filesystem'] as const) {
         startupEvidence.push({ stage: 'bare interactive dispatch', ...result });
         expect(result.stdout).toContain(`RESOLVED=${shim}\n`);
         expect(result.stdout).not.toContain('OLD_SHELLFOX_0.1.1');
-        expect(result.stdout).toContain('Shellfox: started session');
+        const json = result.stdout.split('\n').find(line => line.startsWith('{'));
+        const created = value(responseSchemas.createSession.parse(JSON.parse(json ?? 'null')));
+        expect(created.tabs[0]?.lifecycle).toBe('open');
         await expect.poll(async () => (await snapshot(page)).sessions.filter(s => !before.has(s.id)).length, { timeout: 20000 }).toBe(1);
-        // Dispatch acknowledges before shell startup. A saved launching tab is
-        // not evidence that the runtime can execute the CWD probe yet.
+        // The warm RPC acknowledges actual startup. Independently verify its
+        // returned identity agrees with persisted state and the CWD probe.
         await expect.poll(async () => (await snapshot(page)).sessions.find(s => !before.has(s.id))?.tabs[0]?.lifecycle, { timeout: 20000 }).toBe('open');
         const session = (await snapshot(page)).sessions.find(s => !before.has(s.id))!;
+        expect(session.id).toBe(created.id); expect(session.tabs[0]?.generation).toBe(created.tabs[0]?.generation);
         expect(session.cwd.toLowerCase()).toBe(hostCwd.toLowerCase());
         expect(await appState()).toEqual(originalApp);
         return session;
       };
       const check = async (tab: TabDto, environment: 'local' | 'wsl') => {
-        const actual = await shellCwd(app, page, tab, environment);
+        const actual = await shellCwd(app, tab, environment);
         const expected = environment === 'wsl' ? guestCwd : hostCwd;
         evidence.push({ kind, profileId: tab.profileId, tabCwd: tab.cwd, actual, expected, output: await output(app, tab.id) });
         // Saved WSL UNC paths remain host-readable; drive folders are translated
@@ -197,7 +201,7 @@ for (const kind of ['mounted drive', 'guest filesystem'] as const) {
       const restored = await bash(probeCommand);
       expect(restored.stdout).toContain(`RESOLVED=${oldLauncher}\n`);
       expect(restored.stdout).toContain('OLD_SHELLFOX_0.1.1');
-      expect(restored.stdout).not.toContain('Shellfox: started session');
+      expect(restored.stdout).not.toContain('"ok":true');
       expect((await snapshot(page)).sessions.map(s => s.id)).toEqual(beforeDisable);
       expect(await appState()).toEqual(originalApp);
       startupEvidence.push({ stage: 'disabled', reason: disabled, ...restored, restoredStartup: await startupBytes(), app: await appState() });

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import type { ManagerApi } from '../shared/contracts';
-import { request } from './api';
+import { visibilityReporter } from './visibility-reporter';
 
 const ROW = '[role="listitem"][data-session-id]';
 const TERMINAL = '[data-terminal-session-id]';
@@ -15,16 +15,10 @@ export function useVisibleSessions(api: ManagerApi, rootRef: RefObject<HTMLEleme
     if (!root || typeof api.setVisibleSessions !== 'function') return;
     const targets = new Set<HTMLElement>();
     const intersecting = new Set<HTMLElement>();
-    let last: string[] | undefined;
+    const report = visibilityReporter(api);
     let frame: number | undefined;
     let active = true;
 
-    function report(sessionIds: string[]) {
-      if (last && last.length === sessionIds.length && last.every((id, index) => id === sessionIds[index])) return;
-      last = sessionIds;
-      // Background configuration failures must not produce notification storms.
-      void request(() => api.setVisibleSessions({ sessionIds }));
-    }
     function publish() {
       frame = undefined;
       const ids = document.hidden ? [] : [...intersecting]

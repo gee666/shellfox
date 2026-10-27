@@ -1,18 +1,16 @@
 import { test, expect, type ElectronApplication } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { spawn as spawnPty } from 'node-pty';
-import { launch, scratch, snapshot, value, env, root, testMain } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value, env, root } from '../fixtures/electron';
 import { requestControl } from '../../src/main/control-client';
 import type { OwnedTerminal } from '../../src/main/terminal/backend';
 
 const helper = path.join(root, 'tmp/build-test/cli/main/cli.cjs');
 const runtime = process.platform === 'win32' ? path.join(root, 'tmp/build-test/cli/cli-runtime/node.exe') : process.execPath;
-const electron = createRequire(path.join(root, 'package.json'))('electron') as string;
 const plain = (text: string) => stripVTControlCharacters(text).replace(/\r/g, '');
 const quote = (text: string, powershell: boolean) => "'" + text.replaceAll("'", powershell ? "''" : "'\\''") + "'";
 const live = (app: ElectronApplication): Promise<OwnedTerminal[]> => app.evaluate(() => (globalThis as any).__shellfoxTest.backend.live());
@@ -61,7 +59,7 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
   expect(path.relative(path.join(root, 'tmp'), dir)).not.toMatch(/^\.\./);
   const keepCwd = path.join(dir, 'control-keep'), settledCwd = path.join(dir, 'control-settled');
   await mkdir(keepCwd); await mkdir(settledCwd); await access(helper); await access(runtime);
-  const running = await launch(data, 'real', false, ['start', keepCwd]);
+  const running = await launch(data, 'real', false, ['--new-session', '--cwd', keepCwd]);
   const { app, page } = running;
   const evidence: { userData: string; steps: unknown[] } = { userData: data, steps: [] };
   const record = (name: string, details: unknown) => evidence.steps.push({ name, details });
@@ -104,18 +102,18 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     const suffix = powershell
       ? `; $controlCode=$LASTEXITCODE; [Console]::WriteLine(('CONTROL_RESULT_' + '${token}' + ':' + $controlCode))`
       : `; control_code=$?; printf '%s:%s\\n' '${marker}' "$control_code"`;
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: terminal.tabId, generation: terminal.generation, data: command + suffix + '\r' }));
+    value(await seedTerminal(app, { tabId: terminal.tabId, generation: terminal.generation, data: command + suffix + '\r' }));
     await expect.poll(async () => (await replay(app, terminal.tabId)).includes(marker + ':0'), { timeout: 60000 }).toBe(true);
     const output = await replay(app, terminal.tabId);
     record('owned shell ' + args.join(' '), { tabId: terminal.tabId, generation: terminal.generation, marker: terminal.root.marker, output });
     return output;
   }
   async function confirmInside(terminal: OwnedTerminal, action: 'delete') {
-    const command = invoke(terminal, [action, '--current']).command;
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: terminal.tabId, generation: terminal.generation, data: command + '\r' }));
+    const command = invoke(terminal, ['session', action, '--current']).command;
+    value(await seedTerminal(app, { tabId: terminal.tabId, generation: terminal.generation, data: command + '\r' }));
     await expect.poll(async () => (await replay(app, terminal.tabId)).includes(`${action} ${terminal.sessionId}? [y/N]`), { timeout: 60000 }).toBe(true);
     record('inherited-context TTY prompt ' + action, { terminal, output: await replay(app, terminal.tabId) });
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: terminal.tabId, generation: terminal.generation, data: 'y\r' }));
+    value(await seedTerminal(app, { tabId: terminal.tabId, generation: terminal.generation, data: 'y\r' }));
   }
   try {
     expect(await app.evaluate(({ app }) => app.getPath('userData'))).toBe(data);
@@ -124,9 +122,9 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     await waitForRoutedShell(keepCwd, 1);
     const keep = (await snapshot(page)).sessions[0]!;
     expect(keep.cwd).toBe(keepCwd);
-    // Warm alias goes through Electron single-instance/renderer routing. Gate
-    // only its timing to reproduce intent-before-PTY deterministically; release
-    // still runs the original backend/native factory, with no synthetic roots.
+    // A warm canonical create uses host RPC. Hold the real native launch to
+    // expose saved intent, and prove the CLI does not acknowledge a ready shell
+    // before that launch finishes. No backend result or process is synthesized.
     await app.evaluate((_electron, cwd) => {
       const scope = globalThis as any, backend = scope.__shellfoxTest.backend;
       const original = backend.launch;
@@ -143,14 +141,14 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
         return original.call(backend, input);
       };
     }, settledCwd);
+    let createFinished = false;
+    const creating = helperPipe(['session', 'create', settledCwd]).then(result => { createFinished = true; return result; });
     try {
-      const routed = await pipe(electron, [testMain, '--test-user-data', data, '--test-backend', 'real', 'add', settledCwd], dir);
-      record('app routing add', routed); expect(routed.code).toBe(0);
       await expect.poll(() => app.evaluate(() => (globalThis as any).__liveControlLaunchGate.entered)).toBe(true);
       const intent = (await snapshot(page)).sessions.find(s => s.cwd === settledCwd)!;
       expect(intent.tabs[0]!.lifecycle).toBe('launching');
       expect((await snapshot(page)).sessions).toHaveLength(2);
-      expect(await live(app)).toHaveLength(1);
+      expect(await live(app)).toHaveLength(1); expect(createFinished).toBe(false);
       record('reproduced saved intent before second native launch', { session: intent, roots: await live(app) });
     } finally {
       await app.evaluate(() => {
@@ -158,6 +156,7 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
         scope.__liveControlLaunchGate?.release(); delete scope.__liveControlLaunchGate;
       });
     }
+    const routed = await creating; expect(routed.code).toBe(0);
     // Waiting only for two DTOs raced here in the full suite. Native ownership
     // and persisted open/generation metadata must agree before CLI operations.
     await waitForRoutedShell(settledCwd, 2);
@@ -170,29 +169,29 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     const originalKeep = roots.find(t => t.sessionId === keep.id)!;
     const keepIdentity = identity([originalKeep]);
 
-    const listed = await helperPipe(['ls']);
+    const listed = await helperPipe(['session', 'list']);
     expect(listed.code).toBe(0); expect(listed.output).toContain(keep.id); expect(listed.output).toContain(candidate.id);
-    const currentListing = await inShell(originalKeep, ['ls', '--current']);
+    const currentListing = await inShell(originalKeep, ['session', 'list', '--current']);
     expect(currentListing).toContain(keep.id);
-    await inShell(originalKeep, ['tab', 'open']);
+    await inShell(originalKeep, ['terminals', 'create']);
     await expect.poll(async () => (await live(app)).filter(t => t.sessionId === keep.id).length).toBe(2);
     roots = await live(app);
     expect(identity(roots.filter(t => t.tabId === originalKeep.tabId))).toEqual(keepIdentity);
     const added = roots.find(t => t.sessionId === keep.id && t.tabId !== originalKeep.tabId)!;
-    const addedCommand = invoke(added, ['tab', 'close']).command;
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: added.tabId, generation: added.generation, data: addedCommand + '\r' }));
+    const addedCommand = invoke(added, ['terminals', 'close', added.tabId, '--yes']).command;
+    value(await seedTerminal(app, { tabId: added.tabId, generation: added.generation, data: addedCommand + '\r' }));
     await expect.poll(async () => (await live(app)).some(t => t.tabId === added.tabId), { timeout: 30000 }).toBe(false);
     expect(identity((await live(app)).filter(t => t.sessionId === keep.id))).toEqual(keepIdentity);
-    record('current tab-close killed invoking CLI without closing siblings', { closed: added, remaining: await live(app) });
+    record('explicit terminal close killed invoking CLI without closing siblings', { closed: added, remaining: await live(app) });
 
     for (const active of [true, false]) {
-      const result = await helperPipe(['keep-alive']); expect(result.code).toBe(0);
+      const result = await helperPipe(['host', 'keep-awake', active ? 'on' : 'off']); expect(result.code).toBe(0);
       expect(value(await page.evaluate(() => window.shellfox.getKeepAwake!())).active).toBe(active);
       await expect(page.getByRole('button', { name: 'Keep awake' })).toHaveAttribute('aria-pressed', String(active));
-      record('keep-alive updates the mounted eye button without reload', { active, ariaPressed: await page.getByRole('button', { name: 'Keep awake' }).getAttribute('aria-pressed') });
+      record('host keep-awake updates the mounted eye button without reload', { active, ariaPressed: await page.getByRole('button', { name: 'Keep awake' }).getAttribute('aria-pressed') });
     }
     for (const action of ['stats', 'processes'] as const) {
-      const result = await helperPipe([action]);
+      const result = await helperPipe(['session', action, '--all']);
       expect(result.code).toBe(0); expect(result.output).toContain(keep.id); expect(result.output).toContain(candidate.id);
       expect(result.output).toContain('RSS'); expect(result.output).toContain('duration');
       const response = await requestControl(data, { action });
@@ -206,9 +205,9 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
       }
       record('real transport ' + action, response);
     }
-    const refused = await helperPipe(['delete', keep.id]);
-    expect(refused.code).toBe(1); expect(refused.output).toContain('Cancelled. No changes made.');
-    const cancelled = await tty(data, ['delete', keep.id], dir, 'n');
+    const refused = await helperPipe(['session', 'delete', keep.id]);
+    expect(refused.code).toBe(2); expect(refused.output).toContain('requires --yes');
+    const cancelled = await tty(data, ['session', 'delete', keep.id], dir, 'n');
     record('external real PTY refuses confirmation', cancelled);
     expect(cancelled.answered).toBe(true); expect(cancelled.code).toBe(1); expect(cancelled.output).toContain('Cancelled.');
     expect(identity((await live(app)).filter(t => t.sessionId === keep.id))).toEqual(keepIdentity);
@@ -218,16 +217,16 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     expect(settledRoots).toHaveLength(2);
     const candidateIdentity = identity(settledRoots);
     // The invoking CLI must return normally, without confirmation or closing either shell.
-    const insideSettle = await inShell(settledRoots[0]!, ['settle', '--current']);
+    const insideSettle = await inShell(settledRoots[0]!, ['session', 'settle', '--current']);
     expect(insideSettle).not.toContain('? [y/N]');
     expect((await snapshot(page)).sessions.find(s => s.id === candidate.id)).toMatchObject({ status: 'settled', settledAt: expect.any(String) });
     expect(identity((await live(app)).filter(t => t.sessionId === candidate.id))).toEqual(candidateIdentity);
     expect((await requestControl(data, { action: 'list' })).sessions?.map(s => s.id).sort()).toEqual([keep.id, candidate.id].sort());
-    const insideUnsettle = await inShell(settledRoots[0]!, ['unsettle', '--current']);
+    const insideUnsettle = await inShell(settledRoots[0]!, ['session', 'unsettle', '--current']);
     expect(insideUnsettle).not.toContain('? [y/N]');
     expect((await snapshot(page)).sessions.find(s => s.id === candidate.id)?.settledAt).toBeNull();
     for (const action of ['settle', 'unsettle', 'settle'] as const) {
-      const result = await helperPipe([action, candidate.id]);
+      const result = await helperPipe(['session', action, candidate.id]);
       expect(result.code).toBe(0);
       expect(result.output).not.toContain('? [y/N]');
       expect((await snapshot(page)).sessions.find(s => s.id === candidate.id)?.settledAt === null).toBe(action === 'unsettle');
@@ -237,9 +236,9 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     const retired = await helperPipe(['archive', candidate.id]);
     expect(retired.code).not.toBe(0);
     expect(identity((await live(app)).filter(t => t.sessionId === candidate.id))).toEqual(candidateIdentity);
-    const deletedSettled = await tty(data, ['delete', candidate.id], dir, 'y');
+    const deletedSettled = await tty(data, ['session', 'delete', candidate.id], dir, 'y');
     record('external real PTY confirms deletion of a settled session with live tabs', deletedSettled);
-    expect(deletedSettled.answered).toBe(true); expect(deletedSettled.code).toBe(0); expect(deletedSettled.output).toContain('Session deleted.');
+    expect(deletedSettled.answered).toBe(true); expect(deletedSettled.code).toBe(0); expect(deletedSettled.output).toMatch(/deleted\s+yes/);
     expect(await app.evaluate((_electron, id) => (globalThis as any).__shellfoxTest.repository.session(id) ?? null, candidate.id)).toBeNull();
     expect((await live(app)).some(t => t.sessionId === candidate.id)).toBe(false);
     expect(identity((await live(app)).filter(t => t.sessionId === keep.id))).toEqual(keepIdentity);
@@ -255,7 +254,7 @@ test('real Electron live CLI transport, inherited context, TTY confirmation and 
     record('delete committed after invoking CLI socket disappeared', { deletedSessionId: doomed.id, remaining: await live(app) });
     const stale = await requestControl(data, { action: 'inspect', marker: doomedRoots[0]!.root.marker }).then(() => 'unexpected success', error => String(error.message));
     expect(stale).toContain('context'); record('stale marker rejected', stale);
-    const finalList = await helperPipe(['ls']);
+    const finalList = await helperPipe(['session', 'list']);
     expect(finalList.code).toBe(0); expect(finalList.output).toContain(keep.id); expect(finalList.output).not.toContain(candidate.id); expect(finalList.output).not.toContain(doomed.id);
   } finally {
     const file = path.join(dir, 'control-evidence.json');

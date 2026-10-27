@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import { success, type SessionDto, type TerminalAttachmentDto } from '../../../src/shared/contracts';
+import { success, type SessionDto, type OwnedTerminalAttachmentDto } from '../../../src/shared/contracts';
 import type { RemoteHostEvent } from '../../../src/shared/remote-contracts';
 import type { NativeRemoteTransport, RemotePath } from './protocol';
 
@@ -18,8 +18,8 @@ export function deferred<T>() {
 }
 export async function flush() { for (let i = 0; i < 30; i++) await Promise.resolve(); }
 
-export const attachment: TerminalAttachmentDto = {
-  tabId: ids.tab, sessionId: ids.session, generation: ids.generation,
+export const attachment: OwnedTerminalAttachmentDto = {
+  control: 'owned', controlEpoch: 1, tabId: ids.tab, sessionId: ids.session, generation: ids.generation,
   firstSequence: 1, lastSequence: 1,
   chunks: [{ type: 'data', tabId: ids.tab, generation: ids.generation, sequence: 1, data: 'hello' }],
   truncated: false, snapshot: true, state: 'open', exitCode: null, cols: 80, rows: 24, lifetime: 'app-owned',
@@ -35,7 +35,7 @@ export const session: SessionDto = {
 /** Test-only stand-in at the native string/JSON boundary, with manually driven long polls. */
 export class TestTransport implements NativeRemoteTransport {
   readonly polls: ReturnType<typeof deferred<string>>[] = [];
-  pair: () => Promise<string> = async () => JSON.stringify(success({ paired: true }));
+  pair: () => Promise<string> = async () => JSON.stringify(success({ paired: true, terminalControl: 'exclusive-v1' }));
   operation: (body: string) => Promise<string> = async () => JSON.stringify(success({ cwd: '/home/work' }));
   readonly request = vi.fn(async (_peerId: string, path: RemotePath, body: string): Promise<string> => {
     if (path === '/v1/pair') return this.pair();

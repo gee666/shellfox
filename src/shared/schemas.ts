@@ -16,7 +16,7 @@ export const pathSchema = text(32767).min(1).refine(s => isWslUncPath(s) || (/^[
 export const statusSchema = z.enum(['waiting', 'error', 'running', 'unknown', 'settled']);
 export const tabStatusSchema = z.enum(['waiting', 'error', 'running', 'unknown']);
 export const lifecycleSchema = z.enum(['launching', 'open', 'closed', 'launch-uncertain']);
-export const errorSchema = z.object({ code: z.enum(['VALIDATION', 'NOT_FOUND', 'UNSUPPORTED', 'DEPENDENCY_MISSING', 'LAUNCH_FAILED', 'REGISTRATION_TIMEOUT', 'TARGET_LOST', 'TARGET_AMBIGUOUS', 'FOCUS_DENIED', 'MONITOR_UNAVAILABLE', 'NATIVE_UNAVAILABLE', 'AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED', 'SETTLE_CONFIRM_REQUIRED', 'RETRY_CONFIRM_REQUIRED', 'STORAGE_FAILED', 'INTERNAL']), message: text(1000).min(1), retryable: z.boolean() }).strict();
+export const errorSchema = z.object({ code: z.enum(['VALIDATION', 'NOT_FOUND', 'UNSUPPORTED', 'DEPENDENCY_MISSING', 'LAUNCH_FAILED', 'REGISTRATION_TIMEOUT', 'TARGET_LOST', 'TARGET_AMBIGUOUS', 'FOCUS_DENIED', 'MONITOR_UNAVAILABLE', 'NATIVE_UNAVAILABLE', 'AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED', 'TERMINAL_CONTROL_REQUIRED', 'SETTLE_CONFIRM_REQUIRED', 'RETRY_CONFIRM_REQUIRED', 'STORAGE_FAILED', 'INTERNAL']), message: text(1000).min(1), retryable: z.boolean() }).strict();
 export const resultSchema = <T extends z.ZodType>(value: T) => z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), value }).strict(), z.object({ ok: z.literal(false), error: errorSchema }).strict()]);
 const count = z.number().int().min(0).max(1000000);
 export const capabilitiesSchema = z.object({ createWindow: z.boolean(), addTab: z.boolean(), focusWindow: z.boolean(), activateTab: z.boolean(), splitPane: z.literal(false), attachExisting: z.literal(false), closeTerminal: z.boolean(), commandExitStatus: z.literal(false), processTracking: z.boolean(), explorerContextMenu: z.boolean(), embeddedTerminal: z.boolean().optional(), terminalLifetime: z.enum(['app-owned', 'external-legacy']).optional(), shellSurvival: z.boolean().optional() }).strict();
@@ -50,16 +50,29 @@ export const launchReceiptSchema = z.object({ operationId: idSchema, dispatch: z
 export const observationSchema = z.object({ sessionId: idSchema, tabId: idSchema, observedAt: timestampSchema, root: z.enum(['alive', 'exited', 'unavailable']), health: z.enum(['healthy', 'unknown']), agents: count, reason: text(1000).nullable() }).strict();
 export const nativeEventSchema = z.discriminatedUnion('type', [z.object({ type: z.literal('registered'), registration: registrationSchema, target: windowTargetSchema.nullable() }).strict(), z.object({ type: z.literal('observations'), items: z.array(observationSchema).max(1000) }).strict(), z.object({ type: z.literal('target-lost'), sessionId: idSchema, reason: text(1000) }).strict(), z.object({ type: z.literal('operation-error'), sessionId: idSchema, tabId: idSchema, operationId: idSchema, error: errorSchema }).strict(), z.object({ type: z.literal('unavailable'), error: errorSchema }).strict()]);
 export const terminalDataSchema = z.object({ type: z.literal('data'), tabId: idSchema, generation: idSchema, sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), data: z.string().min(1).max(16384).refine(s => utf8Size(s) <= 16384) }).strict();
-export const terminalEventSchema = z.discriminatedUnion('type', [
+export const terminalBackendEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('activity'), tabId: idSchema, busy: z.boolean() }).strict(),
   terminalDataSchema,
   z.object({ type: z.literal('exit'), tabId: idSchema, generation: idSchema, exitCode: z.number().int().nullable(), signal: z.number().int().nullable(), lastSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
   z.object({ type: z.literal('error'), tabId: idSchema, generation: idSchema, error: errorSchema }).strict(),
 ]);
+export const controlEpochSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+export const terminalEventSchema = z.discriminatedUnion('type', [
+  terminalBackendEventSchema.options[0],
+  terminalDataSchema.extend({ controlEpoch: controlEpochSchema }),
+  terminalBackendEventSchema.options[2].extend({ controlEpoch: controlEpochSchema }),
+  terminalBackendEventSchema.options[3].extend({ controlEpoch: controlEpochSchema }),
+  z.object({ type: z.literal('control'), tabId: idSchema, generation: idSchema, control: z.enum(['owned', 'blocked']), controlEpoch: controlEpochSchema }).strict(),
+]);
 export const terminalProfileSchema = z.object({ id: profileIdSchema, label: titleSchema, environment: z.enum(['local', 'wsl']), executable: pathSchema, args: z.array(z.string().max(4096)).max(30), distro: text(200).min(1).nullable(), available: z.boolean(), unavailableReason: text(1000).nullable().optional(), canTerminateDescendants: z.boolean().optional(), elevation: z.literal('administrator').optional() }).strict();
 export const terminalProfilesSchema = z.object({ profiles: z.array(terminalProfileSchema).max(100), defaultProfileId: profileIdSchema.nullable(), lifetime: z.literal('app-owned'), shellSurvival: z.literal(false) }).strict();
-export const terminalAttachmentSchema = z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, firstSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), lastSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), chunks: z.array(terminalDataSchema).max(8192), truncated: z.boolean(), snapshot: z.boolean().optional(), state: z.enum(['open', 'closed']), exitCode: z.number().int().nullable(), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500), lifetime: z.literal('app-owned') }).strict().refine(a => a.chunks.reduce((sum, c) => sum + utf8Size(c.data), 0) <= 262144 && a.firstSequence <= a.lastSequence + 1 && a.chunks.every((c,i) => c.tabId === a.tabId && c.generation === a.generation && c.sequence >= a.firstSequence && c.sequence <= a.lastSequence && (!i || c.sequence > a.chunks[i-1].sequence)));
+export const terminalSnapshotSchema = z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, firstSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), lastSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), chunks: z.array(terminalDataSchema).max(8192), truncated: z.boolean(), snapshot: z.boolean().optional(), state: z.enum(['open', 'closed']), exitCode: z.number().int().nullable(), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500), lifetime: z.literal('app-owned') }).strict().refine(a => a.chunks.reduce((sum, c) => sum + utf8Size(c.data), 0) <= 262144 && a.firstSequence <= a.lastSequence + 1 && a.chunks.every((c,i) => c.tabId === a.tabId && c.generation === a.generation && c.sequence >= a.firstSequence && c.sequence <= a.lastSequence && (!i || c.sequence > a.chunks[i-1].sequence)));
+export const terminalAttachmentSchema = z.discriminatedUnion('control', [
+  terminalSnapshotSchema.safeExtend({ control: z.literal('owned'), controlEpoch: controlEpochSchema }),
+  z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, control: z.literal('blocked'), controlEpoch: controlEpochSchema }).strict(),
+]);
 const terminalIdentity = { tabId: idSchema, generation: idSchema };
+const terminalControlIdentity = { ...terminalIdentity, controlEpoch: controlEpochSchema };
 const empty = z.object({}).strict();
 // Prompt text is not a stored cwd: empty, relative and quoted paths are allowed.
 export const directoryPromptPathSchema = text(32767);
@@ -95,12 +108,13 @@ export const requestSchemas = {
   addTab: z.object({ sessionId: idSchema, title: titleSchema.optional(), profileId: profileIdSchema.optional(), cwd: pathSchema.optional() }).strict(),
   getTerminalProfiles: empty,
   attachTerminal: z.object({ tabId: idSchema, afterSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), generation: idSchema.optional() }).strict(),
-  writeTerminal: z.object({ ...terminalIdentity, data: z.string().min(1).max(65536).refine(s => !s.includes('\u0000') && utf8Size(s) <= 65536) }).strict(),
-  resizeTerminal: z.object({ ...terminalIdentity, cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500) }).strict(),
+  takeTerminalControl: z.object(terminalIdentity).strict(),
+  writeTerminal: z.object({ ...terminalControlIdentity, data: z.string().min(1).max(65536).refine(s => !s.includes('\u0000') && utf8Size(s) <= 65536) }).strict(),
+  resizeTerminal: z.object({ ...terminalControlIdentity, cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500) }).strict(),
   closeTab: z.object(terminalIdentity).strict(),
   renameTab: z.object({ sessionId: idSchema, tabId: idSchema, title: titleSchema }).strict(),
   reorderTabs: z.object({ sessionId: idSchema, tabIds: z.array(idSchema).min(1).max(1000).refine(ids => new Set(ids).size === ids.length, 'Duplicate tab IDs') }).strict(),
-  acknowledgeTerminal: z.object({ ...terminalIdentity, sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
+  acknowledgeTerminal: z.object({ ...terminalControlIdentity, sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }).strict(),
   detachTerminal: z.object(terminalIdentity).strict(),
   focusSession: sessionId,
   activateSession: sessionId, refreshSessionMembership: sessionId,
@@ -144,6 +158,7 @@ export const responseSchemas = {
   setSessionEnv: resultSchema(sessionSchema),
   setCliIntegration: resultSchema(cliIntegrationSchema),
   getTerminalProfiles: resultSchema(terminalProfilesSchema), attachTerminal: resultSchema(terminalAttachmentSchema),
+  takeTerminalControl: resultSchema(z.object({ taken: z.literal(true) }).strict()),
   acknowledgeTerminal: resultSchema(z.object({ acknowledged: z.literal(true) }).strict()), detachTerminal: resultSchema(z.object({ detached: z.literal(true) }).strict()),
   writeTerminal: resultSchema(z.object({ written: z.literal(true) }).strict()), resizeTerminal: resultSchema(z.object({ resized: z.literal(true) }).strict()), closeTab: resultSchema(sessionSchema),
   renameTab: resultSchema(sessionSchema), reorderTabs: resultSchema(sessionSchema),

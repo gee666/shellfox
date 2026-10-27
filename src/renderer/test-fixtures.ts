@@ -68,9 +68,10 @@ export function mockApi(initial = snapshot()) {
     attachTerminal: vi.fn<TerminalApi['attachTerminal']>(async input => {
       const item = current.sessions.find(s => s.tabs.some(t => t.id === input.tabId)) ?? session();
       const tab = item.tabs.find(t => t.id === input.tabId) ?? session().tabs[0]!;
-      return success({ tabId: input.tabId, sessionId: item.id, generation: tab.generation ?? session().tabs[0]!.generation, firstSequence: 1, lastSequence: 0, chunks: [], truncated: false,
+      return success({ control: 'owned', controlEpoch: 1, tabId: input.tabId, sessionId: item.id, generation: tab.generation ?? session().tabs[0]!.generation, firstSequence: 1, lastSequence: 0, chunks: [], truncated: false,
         state: tab.lifecycle === 'closed' ? 'closed' : 'open', exitCode: tab.exitCode ?? null, cols: 80, rows: 24, lifetime: 'app-owned' });
     }),
+    takeTerminalControl: vi.fn<TerminalApi['takeTerminalControl']>(async () => success({ taken: true })),
     acknowledgeTerminal: vi.fn<TerminalApi['acknowledgeTerminal']>(async () => success({ acknowledged: true })),
     detachTerminal: vi.fn<TerminalApi['detachTerminal']>(async () => success({ detached: true })),
     writeTerminal: vi.fn<TerminalApi['writeTerminal']>(async () => success({ written: true })),
@@ -78,7 +79,7 @@ export function mockApi(initial = snapshot()) {
     closeTab: vi.fn<TerminalApi['closeTab']>(async input => {
       const item = current.sessions.find(s => s.tabs.some(t => t.id === input.tabId))!;
       const result = update({ ...item, tabs: item.tabs.map(tab => tab.id === input.tabId ? { ...tab, lifecycle: 'closed', exitCode: 0 } : tab) });
-      terminalListeners.forEach(listener => listener({ type: 'exit', tabId: input.tabId, generation: input.generation, exitCode: 0, signal: null, lastSequence: 0 }));
+      terminalListeners.forEach(listener => listener({ type: 'exit', tabId: input.tabId, generation: input.generation, controlEpoch: 1, exitCode: 0, signal: null, lastSequence: 0 }));
       return result;
     }),
     subscribeTerminal: vi.fn<TerminalApi['subscribeTerminal']>(listener => {

@@ -26,6 +26,26 @@ test('alternate preview outputs stay under project tmp without replacing a runni
   } finally { if (previous === undefined) delete process.env.SHELLFOX_HEADLESS_OUT_DIR; else process.env.SHELLFOX_HEADLESS_OUT_DIR = previous; }
 });
 
+test('runtime and workflow pins retain the fixed Windows libuv release and official checksums', async () => {
+  // libuv #5107 fixes the native Windows TCP stack-cookie crash in older Node builds.
+  assert.equal(nodeVersion, '24.22.1');
+  const manifest = await readFile(new URL('./fixtures/node-v24.22.1-SHASUMS256.txt', import.meta.url), 'utf8');
+  const official = new Map(manifest.trim().split(/\r?\n/).map(line => { const [hash, file] = line.split(/\s+/); return [file, hash]; }));
+  assert.equal(Object.keys(nodeHashes).length, 12);
+  for (const [file, hash] of Object.entries(nodeHashes)) {
+    if (file !== 'LICENSE') assert.equal(hash, official.get(file), 'Official release checksum: ' + file);
+  }
+  assert.equal(nodeHashes.LICENSE, '5888dbb9a1d2b18f2c3e6c5f6af1b39de658372b402a0577b002777f14c62ace');
+  for (const file of ['release.yml', 'embedded-packages.yml', 'headless-packages.yml']) {
+    const workflow = await readFile('.github/workflows/' + file, 'utf8');
+    const versions = [...workflow.matchAll(/^\s+node-version:\s*([^\s]+)/gm)].map(match => match[1]);
+    assert.ok(versions.length > 0);
+    for (const version of versions) assert.equal(version, nodeVersion, file + ' must use the fixed runtime');
+  }
+  for (const file of ['README.md', 'docs/mobile.md', 'docs/headless.md', 'docs/macos.md', 'docs/ubuntu.md']) {
+    assert.ok((await readFile(file, 'utf8')).includes('Node ' + nodeVersion), file + ' must document the current Node prerequisite');
+  }
+});
 test('all six target runtimes and build headers have committed checksum pins', () => {
   for (const platform of ['win32', 'darwin', 'linux']) for (const arch of ['x64', 'arm64']) {
     const archive = runtimeArchive(platform, arch);
@@ -47,6 +67,17 @@ test('runtime archives reject tampering before extraction or execution and clean
   assert.equal(downloads, 3);
   assert.deepEqual(await readdir(cache), []);
   await assert.rejects(verifiedAsset('SHASUMS256.txt', options), /Unsupported/);
+}));
+test('unversioned CLI runtime caches are reverified after the runtime pin changes', async () => scratch(async directory => {
+  const cache = path.join(directory, 'cache'); await mkdir(cache);
+  const old = path.join(cache, 'win-x64-node.exe'); await writeFile(old, 'previous runtime fixture');
+  let downloads = 0;
+  await assert.rejects(verifiedAsset('win-x64/node.exe', { cache, log: () => {}, download: async (url, file) => {
+    downloads++; assert.equal(url, `https://nodejs.org/dist/v${nodeVersion}/win-x64/node.exe`);
+    await writeFile(file, 'corrupt replacement fixture');
+  } }), /checksum mismatch/);
+  assert.equal(downloads, 1); assert.deepEqual(await readdir(cache), ['win-x64-node.exe']);
+  assert.equal(await readFile(old, 'utf8'), 'previous runtime fixture');
 }));
 test('headless launchers execute packaged Node and preserve arguments and runtime paths', async () => scratch(async directory => {
   const install = path.join(directory, "install space ' & %");
@@ -122,6 +153,7 @@ test('same-user startup resources are executable installers, include graceful st
   assert.ok(system.includes('KillMode=control-group'));
   const docs = await readFile(path.join(directory, 'README.txt'), 'utf8');
   assert.ok(docs.includes('notarization') && docs.includes('NOT an SCM') && docs.includes('S4U'));
+  assert.ok(docs.includes('It includes Node ' + nodeVersion));
   assert.equal(systemdEscape('/path % "quoted"'), '/path %% \\"quoted\\"');
   assert.equal(xmlEscape('/a&<>"'), '/a&amp;&lt;&gt;&quot;');
   assert.equal(renderSystemd('ExecStart="@INSTALL_ROOT@/bin/node" --user-data "@DATA_ROOT@"\nEnvironment="ROOT=@INSTALL_ROOT@"', '/root $value %', '/data $state'), 'ExecStart="/root $$value %%/bin/node" --user-data "/data $$state"\nEnvironment="ROOT=/root $value %%"');

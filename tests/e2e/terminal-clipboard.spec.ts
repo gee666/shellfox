@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 
 test('terminal clipboard shortcuts use the host clipboard for local and WSL shells', async () => {
   test.setTimeout(180000);
@@ -29,7 +29,7 @@ test('terminal clipboard shortcuts use the host clipboard for local and WSL shel
           // Keep the local tab selected until Bash executes input. Mounting the guest then
           // replays old ConPTY startup queries, which must not inject replies into readline.
           const ready = randomUUID().replaceAll('-', '');
-          value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: `printf 'CLIPBOARD_READY_%s\\n' '${ready}'\r` }));
+          value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: `printf 'CLIPBOARD_READY_%s\\n' '${ready}'\r` }));
           await expect.poll(() => app.evaluate((_electron, input) => {
             const replay = (globalThis as any).__shellfoxTest.backend.attach({ tabId: input.tabId });
             return replay.ok && replay.value.chunks.map((chunk: { data: string }) => chunk.data).join('').includes(input.marker);
@@ -47,7 +47,7 @@ test('terminal clipboard shortcuts use the host clipboard for local and WSL shel
       const command = powershell
         ? "[Console]::Write(([char]27 + '[2J' + [char]27 + '[HCLIPBOARD_' + 'COPY_OK' + [char]27 + '[?1003h' + [char]27 + '[?1006h')); [Console]::WriteLine()\r"
         : "printf '\\033[2J\\033[HCLIPBOARD_%s\\033[?1003h\\033[?1006h\\n' COPY_OK\r";
-      value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: command }));
+      value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: command }));
       await expect.poll(() => app.evaluate((_electron, tabId) => {
         const replay = (globalThis as any).__shellfoxTest.backend.attach({ tabId });
         return replay.ok ? replay.value.chunks.map((c: any) => c.data).join('') : JSON.stringify(replay);

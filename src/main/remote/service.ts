@@ -12,11 +12,14 @@ import { proxyRequest, validateProxyUrl } from './transport';
 import { RemoteView, type RemoteViewPort } from './view';
 import { RemoteApprovals } from './approvals';
 import { RemoteAccessError, requirePair, remoteFailure, waitForRemoteRetry } from './pairing';
+import { RemoteDiscovery, probeShellfoxHost } from './discovery';
+import { DiscoveryCache } from './discovery-cache';
 interface Connection { clientId: string; abort: AbortController; status: RemotePeer['connection']; lastError: AppError | null; pending: number; cycle?: AbortController }
 export class RemoteService {
   private stored: RemoteStoredState;
   private status: Pick<RemoteState, 'status' | 'loginUrl' | 'error'> = { status: 'disabled', loginUrl: null, error: null };
   private peers: z.infer<typeof remoteNetworkPeerSchema>[] = [];
+  private readonly discovery: RemoteDiscovery;
   private readonly approvals = new RemoteApprovals(id => this.stored.approvals.some(approval => approval.peerId === id), () => this.emitState());
   private readonly listeners = new Set<(event: RemoteEvent) => void>();
   private readonly connections = new Map<string, Connection>();
@@ -58,17 +61,23 @@ export class RemoteService {
   private disposed = false;
   constructor(private readonly directory: string, private readonly store: RemoteStore, private readonly helper: HelperPort, private readonly service: EmbeddedSessionService, hostname: string) {
     this.stored = { version: 1, enabled: false, hostname, approvals: [], peers: [] };
+    this.discovery = new RemoteDiscovery((peerId, signal) => this.proxyUrl
+      ? probeShellfoxHost(this.proxyUrl, this.proxySecret, peerId, signal) : Promise.resolve(false),
+    () => { if (!this.disposed) this.emitState(); }, Date.now, new DiscoveryCache(directory));
   }
   async initialize(): Promise<void> {
-    try { this.stored = await this.store.load(); if (this.stored.enabled) await this.start(); }
+    try { await this.discovery.load(); this.stored = await this.store.load(); if (this.stored.enabled) await this.start(); }
     catch { this.status = { status: 'error', loginUrl: null, error: 'Remote access could not start. Check the Tailscale helper and saved preferences.' }; }
     this.emitState();
   }
   getState(): Result<RemoteState> {
     const known = new Map(this.stored.peers.map(peer => [peer.id, { ...peer, online: false }]));
-    for (const peer of this.peers) known.set(peer.id, peer);
+    for (const peer of this.peers) {
+      const confirmed = this.discovery.confirmed(peer.id);
+      if (confirmed || known.has(peer.id) || this.connections.has(peer.id)) known.set(peer.id, { ...peer, online: confirmed && peer.online });
+    }
     return success({ ...this.status, enabled: this.stored.enabled, hostname: this.stored.hostname,
-      peers: [...known.values()].map(peer => ({ ...peer, connection: this.connections.get(peer.id)?.status ?? 'disconnected' as const, lastError: this.connections.get(peer.id)?.lastError ?? null, approved: this.stored.approvals.some(a => a.peerId === peer.id), remembered: this.stored.peers.some(saved => saved.id === peer.id) })),
+      peers: [...known.values()].map(peer => ({ ...peer, hostConfirmed: this.discovery.confirmed(peer.id), connection: this.connections.get(peer.id)?.status ?? 'disconnected' as const, lastError: this.connections.get(peer.id)?.lastError ?? null, approved: this.stored.approvals.some(a => a.peerId === peer.id), remembered: this.stored.peers.some(saved => saved.id === peer.id) })),
       approvals: this.stored.approvals, pending: [...this.approvals.pending.values()] });
   }
   subscribe(listener: (event: RemoteEvent) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -90,20 +99,24 @@ export class RemoteService {
       const result = await this.helper.command('start', { stateDirectory: path.join(this.directory, 'tailscale'), hostname: this.stored.hostname, ...(authKey ? { authKey } : {}), backendUrl, backendSecret, proxySecret: this.proxySecret });
       this.proxyUrl = validateProxyUrl(result);
       await this.refresh();
-      this.poll = setInterval(() => { this.approvals.expire(); void this.refresh(); }, 5000); this.poll.unref();
+      this.poll = setInterval(() => { this.approvals.expire(); void this.refresh(); }, 3000); this.poll.unref();
     } catch (error) { await this.stop(); throw error; }
   }
   private applyStatus(status: Pick<RemoteState, 'status' | 'loginUrl' | 'error'>): void {
     this.status = { ...status, loginUrl: status.status === 'login-required' ? status.loginUrl : null };
-    if (status.status !== 'online') this.peers = [];
+    if (status.status !== 'online') { this.peers = []; this.discovery.clear(); }
     this.emitState();
   }
   private async refreshPeers(): Promise<void> {
-    if (this.peersRefreshing || this.disposed || !this.proxyUrl) return;
+    if (this.peersRefreshing || this.disposed || !this.proxyUrl || this.status.status !== 'online') return;
     const epoch = this.networkEpoch, revision = this.statusRevision; this.peersRefreshing = true;
     try {
       const result = z.object({ peers: z.array(remoteNetworkPeerSchema).max(1000) }).strict().parse(await this.helper.command('peers', {}));
-      if (epoch === this.networkEpoch && revision === this.statusRevision && !this.disposed && this.proxyUrl && this.status.status === 'online') { this.peers = result.peers; this.emitState(); }
+      if (epoch === this.networkEpoch && revision === this.statusRevision && !this.disposed && this.proxyUrl && this.status.status === 'online') {
+        this.peers = result.peers;
+        this.discovery.update(result.peers, [...this.stored.peers.map(peer => peer.id), ...this.connections.keys()]);
+        this.emitState();
+      }
     } catch { /* A peer refresh must not replace a fresh login status event. */ }
     finally {
       this.peersRefreshing = false;
@@ -120,7 +133,7 @@ export class RemoteService {
       if (revision === this.statusRevision) this.applyStatus(status);
       await this.refreshPeers();
     } catch {
-      if (epoch === this.networkEpoch && revision === this.statusRevision && !this.disposed) { this.status = { status: 'error', loginUrl: null, error: 'Tailscale is unavailable. Disable and re-enable remote access to restart it.' }; this.peers = []; }
+      if (epoch === this.networkEpoch && revision === this.statusRevision && !this.disposed) { this.status = { status: 'error', loginUrl: null, error: 'Tailscale status is unavailable. Retrying the health check.' }; this.peers = []; }
     } finally { this.refreshing = false; if (epoch === this.networkEpoch && !this.disposed) this.emitState(); }
   }
   private async configureNow(input: { enabled: boolean; hostname: string }) {
@@ -165,7 +178,7 @@ export class RemoteService {
     if (this.disposed) return failure('NATIVE_UNAVAILABLE', 'Shellfox is shutting down.');
     if (!this.proxyUrl || !this.stored.enabled) return failure('UNSUPPORTED', 'Remote access is not running.');
     const previous = this.connections.get(input.peerId);
-    if (previous?.status === 'rejected') await this.disconnectNow(input);
+    if (previous?.status === 'rejected' || previous?.lastError?.code === 'UNSUPPORTED') await this.disconnectNow(input);
     else if (previous) return this.getState();
     const peer = this.peers.find(p => p.id === input.peerId) ?? this.stored.peers.find(p => p.id === input.peerId);
     if (!peer) return failure('NOT_FOUND', 'Tailscale device not found.');
@@ -184,7 +197,7 @@ export class RemoteService {
         requirePair(await this.send(peerId, '/v1/pair', { clientId: connection.clientId }, signal));
         signal.throwIfAborted();
         if (connection.abort.signal.aborted || this.connections.get(peerId) !== connection) return;
-        connection.status = 'connected'; connection.lastError = null; failures = 0; this.emitState();
+        connection.status = 'connected'; connection.lastError = null; failures = 0; this.discovery.confirm(peerId); this.emitState();
         while (!connection.abort.signal.aborted) {
           const raw = await this.send(peerId, '/v1/events', { clientId: connection.clientId }, signal);
           signal.throwIfAborted();
@@ -196,7 +209,7 @@ export class RemoteService {
         if (connection.abort.signal.aborted) break;
         const detail = cycle.signal.aborted && connection.lastError?.code === 'APPROVAL_REQUIRED' ? connection.lastError : remoteFailure(error);
         this.accessFailure(peerId, detail, connection);
-        if (detail.code === 'ACCESS_DENIED') break;
+        if (detail.code === 'ACCESS_DENIED' || detail.code === 'UNSUPPORTED') break;
         const delay = detail.code === 'APPROVAL_REQUIRED' ? 1000 : Math.min(30_000, 1000 * 2 ** Math.min(failures++, 5));
         await waitForRemoteRetry(delay, signal);
       }
@@ -205,7 +218,7 @@ export class RemoteService {
   private accessFailure(peerId: string, error: AppError, expected?: Connection, interrupt = false): void {
     const connection = this.connections.get(peerId); if (!connection || expected && connection !== expected) return;
     connection.lastError = error;
-    connection.status = error.code === 'ACCESS_DENIED' ? 'rejected' : error.code === 'APPROVAL_REQUIRED' ? 'awaiting-approval' : 'reconnecting';
+    connection.status = error.code === 'ACCESS_DENIED' ? 'rejected' : error.code === 'UNSUPPORTED' ? 'disconnected' : error.code === 'APPROVAL_REQUIRED' ? 'awaiting-approval' : 'reconnecting';
     // An approval response from another local view must interrupt a 20 second event poll.
     if (interrupt && error.code === 'APPROVAL_REQUIRED') connection.cycle?.abort();
     if (error.code === 'ACCESS_DENIED') { connection.abort.abort(); void Promise.allSettled([...this.views.values()].map(view => view.deny(peerId, error))); }
@@ -243,14 +256,14 @@ export class RemoteService {
     finally { connection.pending--; }
   }
   private async stop(): Promise<void> {
-    this.networkEpoch++; this.unsubscribeStatus?.(); this.unsubscribeStatus = undefined;
+    this.networkEpoch++; this.unsubscribeStatus?.(); this.unsubscribeStatus = undefined; this.discovery.clear();
     await Promise.allSettled([...this.views.values()].map(view => view.disconnect()));
     if (this.poll) clearInterval(this.poll); this.poll = undefined;
     const connections = [...this.connections.entries()], proxyUrl = this.proxyUrl;
     for (const [, connection] of connections) connection.abort.abort(); this.connections.clear();
     this.proxyUrl = undefined; this.peers = [];
     if (proxyUrl && connections.length) {
-      // Release host views and leases before closing our only route to them.
+      // Release host views and terminal ownership before closing our route.
       const deadline = AbortSignal.timeout(1500);
       await Promise.allSettled(connections.map(([peerId, connection]) => proxyRequest(proxyUrl, this.proxySecret, peerId, '/v1/disconnect', { clientId: connection.clientId }, deadline)));
     }

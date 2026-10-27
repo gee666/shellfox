@@ -6,7 +6,7 @@ import { mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { stripVTControlCharacters } from 'node:util';
 import { PtyBackend } from './backend';
-import type { Result, TerminalEvent } from '../../shared/contracts';
+import type { Result, TerminalBackendEvent } from '../../shared/contracts';
 declare const __PROJECT_ROOT__: string;
 const value = <T>(r: Result<T>): T => { if (!r.ok) throw new Error(r.error.code + ': ' + r.error.message); return r.value; };
 async function waitFor(condition: () => boolean, timeout = 10000): Promise<void> {
@@ -18,7 +18,7 @@ async function run() {
   try {
     const discovered = value(await backend.initialize()), profile = discovered.profiles.find(p => p.environment === 'local' && p.available); assert.ok(profile, 'No local native shell available.');
     const identity = { tabId: randomUUID(), generation: randomUUID() }, sessionId = randomUUID();
-    const events: TerminalEvent[] = []; let output = '';
+    const events: TerminalBackendEvent[] = []; let output = '';
     backend.subscribe(event => { events.push(event); if (event.type === 'data' && event.tabId === identity.tabId) output = (output + event.data).slice(-1024 * 1024); });
     value(await backend.launch({ ...identity, sessionId, profileId: profile.id, cwd }));
     value(backend.resize({ ...identity, cols: 100, rows: 40 }));

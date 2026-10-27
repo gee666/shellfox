@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { ManagerSnapshot, Result } from '../../src/shared/contracts';
+import { responseSchemas } from '../../src/shared/schemas';
 export const root = path.resolve('.');
 export const executable = path.join(root, 'tmp/packages/Shellfox-win32-x64/Shellfox.exe');
 export const testMain = path.join(root, 'tmp/build-test/main/index.cjs');
@@ -30,6 +31,16 @@ export function value<T>(result: Result<T>): T {
   expect(result.ok, JSON.stringify(result)).toBe(true);
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
+}
+/** Seed shell output without changing the renderer's ownership or delivery credit. */
+export async function seedTerminal(app: ElectronApplication, input: { tabId: string; generation: string; data: string }): Promise<Result<{ written: true }>> {
+  const result: unknown = await app.evaluate((_electron, payload) => {
+    const hook: unknown = Reflect.get(globalThis, '__shellfoxTest');
+    if (!hook || typeof hook !== 'object' || !('service' in hook) || !hook.service || typeof hook.service !== 'object'
+      || !('writeTerminal' in hook.service) || typeof hook.service.writeTerminal !== 'function') throw new Error('Test terminal service unavailable.');
+    return hook.service.writeTerminal(payload);
+  }, input);
+  return responseSchemas.writeTerminal.parse(result);
 }
 export async function observe(app: ElectronApplication, agents = 0, rootState: 'alive' | 'exited' | 'unavailable' = 'alive', health: 'healthy' | 'unknown' = 'healthy') {
   await app.evaluate((_electron, args) => (globalThis as any).__shellfoxTest.backend.observe(...args), [agents, rootState, health]);

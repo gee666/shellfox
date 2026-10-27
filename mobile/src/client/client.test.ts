@@ -29,7 +29,7 @@ it('pairs, reports state and delivers typed events through one long poll', async
 
 it('retries pending approval with the same attempt ID, without withdrawing it', async () => {
   let attempts = 0;
-  transport.pair = async () => JSON.stringify(++attempts === 1 ? failure('APPROVAL_REQUIRED', 'Approve on host.', true) : success({ paired: true }));
+  transport.pair = async () => JSON.stringify(++attempts === 1 ? failure('APPROVAL_REQUIRED', 'Approve on host.', true) : success({ paired: true, terminalControl: 'exclusive-v1' }));
   client.connect(); await flush();
   expect(client.getState()).toMatchObject({ status: 'awaiting-approval', lastError: { code: 'APPROVAL_REQUIRED' } });
   expect(transport.calls('/v1/disconnect')).toHaveLength(0);
@@ -46,15 +46,22 @@ it('does not retry a rejected attempt and uses a fresh UUID on explicit connect'
   expect(client.getState().status).toBe('rejected');
   await vi.advanceTimersByTimeAsync(60_000);
   expect(transport.calls('/v1/pair')).toHaveLength(1);
-  transport.pair = async () => JSON.stringify(success({ paired: true }));
+  transport.pair = async () => JSON.stringify(success({ paired: true, terminalControl: 'exclusive-v1' }));
   client.connect(); await flush();
   expect(client.getState().status).toBe('connected');
   expect(JSON.parse(transport.calls('/v1/pair')[1])).toEqual({ clientId: ids.nextClient });
 });
 
+it('requires an exclusive-v1 host and stops rather than reconnecting forever to a legacy host', async () => {
+  transport.pair = async () => JSON.stringify(success({ paired: true }));
+  client.connect(); await flush();
+  expect(client.getState()).toMatchObject({ status: 'rejected', lastError: { code: 'UNSUPPORTED', retryable: false, message: 'Upgrade the host to use exclusive terminal control.' } });
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(transport.calls('/v1/pair')).toHaveLength(1); expect(transport.polls).toHaveLength(0);
+});
 it('backs off unavailable hosts, stops timers, and reconnects with a new epoch', async () => {
   let attempts = 0;
-  transport.pair = async () => { if (++attempts < 3) throw new Error('offline'); return JSON.stringify(success({ paired: true })); };
+  transport.pair = async () => { if (++attempts < 3) throw new Error('offline'); return JSON.stringify(success({ paired: true, terminalControl: 'exclusive-v1' })); };
   client.connect(); await flush();
   expect(client.getState().status).toBe('reconnecting');
   await vi.advanceTimersByTimeAsync(999); expect(attempts).toBe(1);
@@ -85,7 +92,7 @@ it('withdraws a late native pair after stop, even if the first disconnect arrive
   const pair = deferred<string>(); transport.pair = () => pair.promise;
   client.connect(); await flush(); client.stop(); await flush();
   const releases = transport.calls('/v1/disconnect').length;
-  pair.resolve(JSON.stringify(success({ paired: true }))); await flush();
+  pair.resolve(JSON.stringify(success({ paired: true, terminalControl: 'exclusive-v1' }))); await flush();
   expect(transport.calls('/v1/disconnect').length).toBeGreaterThan(releases);
   expect(client.getState().status).toBe('disconnected');
   expect(transport.polls).toHaveLength(0);
@@ -98,6 +105,7 @@ it('interrupts a pending event poll on operation-level approval or denial', asyn
   expect(result).toMatchObject({ ok: false, error: { code: 'APPROVAL_REQUIRED' } });
   expect(client.getState().status).toBe('awaiting-approval');
   transport.pair = async () => JSON.stringify(failure('ACCESS_DENIED', 'Revoked.', false));
+  transport.events([]); // The uncancellable native long poll must drain before another cycle.
   await vi.advanceTimersByTimeAsync(1000);
   expect(client.getState().status).toBe('rejected');
   await vi.advanceTimersByTimeAsync(60_000);

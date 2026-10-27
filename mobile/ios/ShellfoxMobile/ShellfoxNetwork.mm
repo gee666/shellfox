@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import <React/RCTBridgeModule.h>
 #import <React/RCTInvalidating.h>
 #import <Mobile/Mobile.h>
@@ -139,6 +140,26 @@ RCT_REMAP_METHOD(request,
                  body:(NSString *)body
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
+  if ([path isEqualToString:@"/v1/pair"]) {
+    // iOS grants a finite completion window, not indefinite background networking.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      __block UIBackgroundTaskIdentifier task = UIBackgroundTaskInvalid;
+      void (^finish)(void) = ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+          if (task != UIBackgroundTaskInvalid) {
+            [[UIApplication sharedApplication] endBackgroundTask:task];
+            task = UIBackgroundTaskInvalid;
+          }
+        });
+      };
+      task = [[UIApplication sharedApplication] beginBackgroundTaskWithName:@"Shellfox approval" expirationHandler:finish];
+      [self submitConcurrent:NO
+                       work:^id(NSError **error) { return MobileRequest(peerId, path, body, error); }
+                    resolve:^(id value) { finish(); resolve(value); }
+                     reject:^(NSString *code, NSString *message, NSError *error) { finish(); reject(code, message, error); }];
+    });
+    return;
+  }
   // Long-polls must never occupy the workers used for terminal input or peers.
   [self submitConcurrent:[path isEqualToString:@"/v1/events"]
                     work:^id(NSError **error) { return MobileRequest(peerId, path, body, error); }

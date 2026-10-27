@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import type { TerminalEvent } from '../../shared/contracts';
+import type { TerminalBackendEvent } from '../../shared/contracts';
 import { TerminalActivity } from './activity';
 import { PtyBackend } from './backend';
 import { factoryFixture, launchInput } from './test-fixtures';
@@ -24,7 +24,7 @@ describe('terminal activity', () => {
     expect(emit).toHaveBeenLastCalledWith({ type: 'activity', tabId: 'tab', busy: false });
   });
   it('tracks every owned tab independently without attachment and clears timers on exit/disposal', async () => {
-    vi.useFakeTimers(); const f = factoryFixture(), backend = new PtyBackend(f.options), events: TerminalEvent[] = [];
+    vi.useFakeTimers(); const f = factoryFixture(), backend = new PtyBackend(f.options), events: TerminalBackendEvent[] = [];
     await backend.initialize(); const first = launchInput(), second = { ...launchInput(), tabId: randomUUID() };
     await backend.launch(first); await backend.launch(second); backend.subscribe(e => events.push(e));
     backend.write({ tabId: first.tabId, generation: first.generation, data: 'x' });

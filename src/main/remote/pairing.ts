@@ -5,8 +5,9 @@ export class RemoteAccessError extends Error {
   constructor(readonly detail: AppError) { super(detail.message); }
 }
 export function requirePair(raw: unknown): void {
-  const result = remotePairResponseSchema.parse(raw);
-  if (!result.ok) throw new RemoteAccessError(result.error);
+  const parsed = remotePairResponseSchema.safeParse(raw);
+  if (!parsed.success) throw new RemoteAccessError({ code: 'UNSUPPORTED', message: 'Upgrade the host to use exclusive terminal control.', retryable: false });
+  if (!parsed.data.ok) throw new RemoteAccessError(parsed.data.error);
 }
 export function remoteFailure(error: unknown): AppError {
   return error instanceof RemoteAccessError ? error.detail : { code: 'NATIVE_UNAVAILABLE', message: 'Remote connection failed. Reconnect before retrying an uncertain operation.', retryable: true };

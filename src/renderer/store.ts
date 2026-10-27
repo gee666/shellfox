@@ -28,6 +28,7 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
   const selectFirst = savedSelection === undefined;
   let generation = 0;
   let dirty = false;
+  let refreshVersion = 0;
   let revisionFloor = 0;
   let fetching = false;
   let unsubscribe: (() => void) | undefined;
@@ -40,7 +41,8 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
     try {
       while (dirty && active && token === generation) {
         dirty = false;
-        const result = await request(() => api.getSnapshot());
+        const refreshTicket = refreshVersion;
+        const result = await request(() => api.getSnapshot(), 0);
         if (!active || token !== generation) return;
         if (!result.ok) {
           store.setState({ error: result.error, loading: false });
@@ -86,6 +88,9 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
           store.setState({
             snapshot: result.value, error: null, loading: false, selectedId, activeTabIds, busyTabIds,
           });
+          // This reply may already include every event received during the read.
+          // An explicit refresh/action still requires its own subsequent read.
+          if (refreshVersion === refreshTicket && result.value.revision >= revisionFloor) dirty = false;
         }
       }
     } finally {
@@ -96,6 +101,7 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
   }
 
   function refresh() {
+    refreshVersion++;
     dirty = true;
     if (active) void drain(generation);
   }
@@ -112,9 +118,11 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
         unsubscribe = api.subscribe(event => {
           if (!active) return;
           const selection = (event as { selectSessionId?: string }).selectSessionId;
-          if (selection) store.setState(state => ({ selectedId: selection, selectionEpoch: state.selectionEpoch + 1 }));
+          if (selection && selection !== store.getState().selectedId) store.setState(state => ({ selectedId: selection, selectionEpoch: state.selectionEpoch + 1 }));
+          if (event.revision <= (store.getState().snapshot?.revision ?? -1) || fetching && event.revision <= revisionFloor) return;
           revisionFloor = Math.max(revisionFloor, event.revision);
-          refresh();
+          dirty = true;
+          void drain(generation);
         });
         unsubscribeTerminal = api.subscribeTerminal?.(event => {
           if (!active) return;

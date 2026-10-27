@@ -4,7 +4,7 @@ macOS uses a read-only process snapshot helper and a per-tab lifecycle superviso
 
 ## Build and package paths
 
-Build on native macOS x64 or arm64 with matching Node 24, pnpm 12.8.1, Xcode Command Line Tools and the macOS SDK.
+Build on native macOS x64 or arm64 with matching Node 24.22.1, pnpm matching package.json, Xcode Command Line Tools and the macOS SDK.
 
 - `src/main/terminal/native/darwin-process-snapshot.c` produces `shellfox-process-snapshot`.
 - `src/main/terminal/native/darwin-terminal-supervisor.c` produces `shellfox-terminal-supervisor`.

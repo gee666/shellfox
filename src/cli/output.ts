@@ -1,8 +1,8 @@
 import { CliUsageError } from './arguments';
 import type { Result } from '../shared/contracts';
 import { colorEnabled, renderHuman } from './human';
-import { escapeTerminal, styles } from '../main/ssh/presentation';
-export interface TextOutput { write(text: string): unknown; isTTY?: boolean }
+import { escapeTerminal, styles, terminalWidth } from './terminal-text';
+export interface TextOutput { write(text: string): unknown; isTTY?: boolean; columns?: number }
 export class CliFailure extends Error {
   constructor(readonly code: string, message: string, readonly retryable = false) { super(message); }
 }
@@ -16,7 +16,7 @@ function encode(value: unknown): string {
 }
 export function printValue(value: unknown, json: boolean, output: TextOutput): void {
   if (json) output.write(encode({ ok: true, value: value ?? null }) + '\n');
-  else output.write(renderHuman(value, colorEnabled(output)) + '\n');
+  else output.write(renderHuman(value, colorEnabled(output), terminalWidth(output)) + '\n');
 }
 export function printError(error: unknown, json: boolean, output: TextOutput, stderr: TextOutput): number {
   const code = error instanceof CliUsageError ? 'VALIDATION' : error instanceof CliFailure ? error.code : 'INTERNAL';

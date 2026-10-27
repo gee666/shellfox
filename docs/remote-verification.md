@@ -57,9 +57,9 @@ Use two test devices and a dedicated test account or tailnet. Do not use product
 1. Enable remote access on both devices and enroll each through browser login. Repeat enrollment with an untagged auth key on a fresh test identity.
 2. Confirm each embedded node appears as a separate Tailscale device. Test the documented access policy for TCP 52743.
 3. Connect, deny an unapproved read, approve, create a terminal, and run an interactive CLI application. Confirm it runs on the host OS and uses the host filesystem.
-4. Change terminal size, switch tabs, generate output beyond the replay ring, disconnect, and reconnect. Verify the screen and terminal generation rather than merely finding old text.
+4. As the controlling client, change terminal size, switch tabs, generate output beyond the replay ring, disconnect, and reconnect. Verify the screen and terminal generation rather than merely finding old text. A waiting client must receive no terminal contents, and its resize/input requests must fail.
 5. Quit the client completely. Confirm the host command continues, then reopen and reconnect.
-6. Interact with the same session in the host's local window. Test two remote clients competing for a control lease and verify local input remains available.
+6. Attach the host's local window and two remote clients to the same terminal. Only one may show contents or accept input. Others must show "Another client is controlling this terminal" and "Take it". Take control from each client in turn, including taking it from the local desktop. Verify the old screen clears, stale queued input/resize/ACK requests fail, and the new owner restores a fresh screen at its own size. Disconnect the owner and verify FIFO promotion of the longest-waiting attached client, without a timer or shell restart.
 7. Remove network access, restore it, and repeat on a network that requires a Tailscale relay. Verify bounded retries and no duplicate shell creation.
 8. Revoke access during an active connection. Later requests must fail. An operation already accepted by the host may finish.
 9. Quit the host. Its local terminals must close; the remote client must show disconnection without claiming that the host's processes are still alive.

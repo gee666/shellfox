@@ -27,7 +27,7 @@ The build script generates terminal HTML, sets up gomobile when absent, builds t
 
 Prerequisites:
 
-- Node 24.15.0 and pnpm 12.9.1, matching the desktop release.
+- Node 24.22.1 and pnpm 12.9.1, matching the desktop release.
 - JDK 17 with `JAVA_HOME` set.
 - `ANDROID_HOME` pointing to an Android SDK with platform 36, build-tools 36.0.0, NDK 27.1.12297006 and CMake 3.22.1.
 - Go 1.27.3 and the pinned gomobile toolchain. `scripts/mobile-native.mjs` uses `SHELLFOX_GO`, the repository's `tmp/go-toolchain/go/bin/go` cache, or Go on PATH. It supports `setup`, `test` and `build android` commands.
@@ -61,11 +61,11 @@ The Xcode app version currently matches root `0.9.4`, build `9004`. Until iOS di
 
 ## Emulator and E2E
 
-The Windows development machine was inspected with these results:
+The Windows development machine was inspected with the tools below. The Node requirement now follows the fixed release pin; this does not claim that the global Node installation was upgraded.
 
 | Tool | Available locally |
 | --- | --- |
-| Node / pnpm | 24.15.0 / 12.9.1 |
+| Node / pnpm | 24.22.1 / 12.9.1 required; the earlier inspection used Node 24.15.0 |
 | Java | Microsoft OpenJDK 17.0.15 |
 | Android SDK | `C:\Users\user\AppData\Local\Android\Sdk` |
 | Platforms | 34, 35, 36 |

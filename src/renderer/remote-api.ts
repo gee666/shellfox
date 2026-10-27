@@ -11,6 +11,7 @@ export function createRemoteManagerApi(remote: RemoteApi, peerId: string, local:
     getSnapshot: () => forward('getSnapshot', {}),
     getTerminalProfiles: () => forward('getTerminalProfiles', {}),
     attachTerminal: input => forward('attachTerminal', input),
+    takeTerminalControl: input => forward('takeTerminalControl', input),
     writeTerminal: input => forward('writeTerminal', input),
     resizeTerminal: input => forward('resizeTerminal', input),
     closeTab: input => forward('closeTab', input),

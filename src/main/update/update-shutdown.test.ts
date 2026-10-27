@@ -93,7 +93,8 @@ describe('real embedded-service recovery', () => {
     const resume = await service.closeForUpdate();
     // Shutdown must finish while validation is still blocked. Ordinary create
     // preserves session error metadata, but removes the aborted tab/operation.
-    expect(await creating).toMatchObject({ ok: true, value: { tabs: [], error: { code: 'LAUNCH_FAILED' } } });
+    expect(await creating).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
+    expect(repo.sessions()[0]).toMatchObject({ error: { code: 'LAUNCH_FAILED' } });
     expect(repo.tabs()).toEqual([]); expect(repo.operationMap.size).toBe(0);
     expect(service.ownedTerminalCount()).toBe(0); expect(f.factory).not.toHaveBeenCalled(); expect(f.processes).toHaveLength(0);
     validate(); await Promise.resolve(); await Promise.resolve();
@@ -113,7 +114,9 @@ describe('real embedded-service recovery', () => {
     await expect.poll(() => whenReady.mock.calls.length).toBe(1);
     expect(f.processes).toHaveLength(1); expect(service.ownedTerminalCount()).toBe(1);
     const resume = await service.closeForUpdate();
-    expect(await creating).toMatchObject({ ok: true, value: { tabs: [], error: { code: 'NATIVE_UNAVAILABLE' } } });
+    expect(await creating).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
+    expect(repo.sessions()[0]).toMatchObject({ error: { code: 'NATIVE_UNAVAILABLE' } });
+    expect(repo.tabs()).toEqual([]);
     expect(f.processes[0]!.kill).toHaveBeenCalledOnce(); expect(backend.live()).toHaveLength(0);
     ready(); await Promise.resolve(); await Promise.resolve();
     expect(f.processes).toHaveLength(1); expect(service.ownedTerminalCount()).toBe(0);

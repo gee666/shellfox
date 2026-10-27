@@ -73,6 +73,7 @@ export class HostClient {
       setKeepAwake: input => this.request('setKeepAwake', input),
       getTerminalProfiles: () => this.request('getTerminalProfiles'),
       attachTerminal: input => this.request('attachTerminal', input),
+      takeTerminalControl: input => this.request('takeTerminalControl', input),
       writeTerminal: input => this.request('writeTerminal', input),
       resizeTerminal: input => this.request('resizeTerminal', input),
       closeTab: input => this.request('closeTab', input),
@@ -105,6 +106,12 @@ export class HostClient {
     const client = new HostClient(endpoint, opened.clientId);
     try { await client.status(); return client; }
     catch (error) { await client.close(); throw error; }
+  }
+  /** Independent authenticated view lifetime, used for one renderer document. */
+  async fork(): Promise<HostClient> {
+    if (this.closed || this.disconnectError) throw this.disconnectError ?? new Error('Host client is closed.');
+    const opened = await hostRequest(this.endpoint, undefined, 'host.open', {});
+    return new HostClient(this.endpoint, opened.clientId);
   }
   request<M extends HostMethod>(method: M, payload?: HostRequest<M>): Promise<HostResponse<M>> {
     if (this.closed) return Promise.reject(new Error('Host client is closed.'));

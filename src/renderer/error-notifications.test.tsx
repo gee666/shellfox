@@ -97,7 +97,7 @@ describe('error notification routing', () => {
   it('does not toast transient delivery errors that recover successfully', async () => {
     const fixture = viewport(); await act(async () => {});
     const tab = session().tabs[0]!;
-    act(() => fixture.emitTerminal({ type: 'error', tabId: tab.id, generation: tab.generation, error: { code: 'INTERNAL', message: 'Display credit expired', retryable: true } }));
+    act(() => fixture.emitTerminal({ type: 'error', controlEpoch: 1, tabId: tab.id, generation: tab.generation, error: { code: 'INTERNAL', message: 'Display credit expired', retryable: true } }));
     await waitFor(() => expect(fixture.api.attachTerminal).toHaveBeenCalledTimes(2));
     await act(async () => {});
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

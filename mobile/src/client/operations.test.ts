@@ -16,7 +16,7 @@ afterEach(() => { client.stop(); vi.useRealTimers(); });
 it('validates payloads before native IO and checks method-specific responses', async () => {
   const before = transport.calls('/v1/request').length;
   expect(await client.createSession({ cwd: 'relative', requestId: ids.session })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
-  expect(await client.resizeTerminal({ tabId: ids.tab, generation: ids.generation, cols: 1, rows: 24 })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(await client.resizeTerminal({ tabId: ids.tab, generation: ids.generation, controlEpoch: 1, cols: 1, rows: 24 })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(transport.calls('/v1/request')).toHaveLength(before);
   expect(await client.getHomeDirectory()).toEqual(success({ cwd: '/home/work' }));
   transport.operation = async () => JSON.stringify(success({ wrong: true }));
@@ -51,7 +51,7 @@ it('enforces the encoded request byte limit, including JSON expansion', async ()
   expect(client.getState().status).toBe('connected');
 });
 
-it.each(['FOCUS_DENIED', 'TARGET_LOST', 'NOT_FOUND', 'NATIVE_UNAVAILABLE', 'VALIDATION'] as const)('does not re-pair for operation-level %s', async code => {
+it.each(['FOCUS_DENIED', 'TERMINAL_CONTROL_REQUIRED', 'TARGET_LOST', 'NOT_FOUND', 'NATIVE_UNAVAILABLE', 'VALIDATION'] as const)('does not re-pair for operation-level %s', async code => {
   transport.operation = async () => JSON.stringify(failure(code, 'Operation failed.', true));
   expect(await client.getHomeDirectory()).toMatchObject({ ok: false, error: { code } });
   expect(client.getState().status).toBe('connected');
@@ -65,7 +65,7 @@ it('publishes request transport failure before invalidating terminal observers',
   const states: string[] = [];
   client.subscribeTerminal(event => { if (event.type === 'error') states.push(client.getState().status); });
   transport.operation = async () => { throw new Error('lost response'); };
-  expect(await client.writeTerminal({ tabId: ids.tab, generation: ids.generation, data: '\x03' })).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
+  expect(await client.writeTerminal({ tabId: ids.tab, generation: ids.generation, controlEpoch: 1, data: '\x03' })).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
   expect(client.getState().status).toBe('reconnecting');
   expect(states).toEqual(['reconnecting']);
   expect(transport.calls('/v1/request')).toHaveLength(2);
@@ -75,6 +75,7 @@ it.each([true, false])('re-pairs expired host views even with AUTH_FAILED retrya
   transport.operation = async () => JSON.stringify(failure('AUTH_FAILED', 'Reconnect this view.', retryable));
   expect(await client.getHomeDirectory()).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
   expect(client.getState().status).toBe('reconnecting');
+  transport.events([]); // Native long polls drain even after their JS wait is interrupted.
   await vi.advanceTimersByTimeAsync(1000);
   expect(client.getState().status).toBe('connected');
   expect(transport.calls('/v1/pair')).toHaveLength(2);
@@ -88,6 +89,32 @@ it('caps outstanding requests at eight, without counting the long poll', async (
   expect(transport.calls('/v1/request')).toHaveLength(8);
   pending.resolve(JSON.stringify(success({ cwd: '/home/work' })));
   expect((await Promise.all(requests)).every(result => result.ok)).toBe(true);
+});
+
+it('serializes visibility changes and sends only the latest pending interest', async () => {
+  const pending = deferred<string>();
+  transport.operation = body => JSON.parse(body).method === 'setVisibleSessions' ? pending.promise : Promise.resolve(JSON.stringify(success({ cwd: '/home/work' })));
+  const requests = [client.setVisibleSessions({ sessionIds: [ids.session] })];
+  await flush();
+  for (let i = 0; i < 30; i++) requests.push(client.setVisibleSessions({ sessionIds: i % 2 ? [ids.session] : [] }));
+  requests.push(client.setVisibleSessions({ sessionIds: [] }));
+  expect(transport.calls('/v1/request')).toHaveLength(1);
+  expect(await client.getHomeDirectory()).toEqual(success({ cwd: '/home/work' }));
+  pending.resolve(JSON.stringify(success({ configured: true })));
+  expect((await Promise.all(requests)).every(result => result.ok)).toBe(true);
+  const visibility = transport.calls('/v1/request').map(body => JSON.parse(body)).filter(input => input.method === 'setVisibleSessions');
+  expect(visibility.map(input => input.payload)).toEqual([{ sessionIds: [ids.session] }, { sessionIds: [] }]);
+});
+
+it('does not send queued visibility from a retired connection into its replacement', async () => {
+  const pending = deferred<string>(); transport.operation = () => pending.promise;
+  const first = client.setVisibleSessions({ sessionIds: [ids.session] });
+  const queued = client.setVisibleSessions({ sessionIds: [] });
+  await flush(); client.reconnect(); await flush();
+  pending.resolve(JSON.stringify(success({ configured: true })));
+  expect(await first).toMatchObject({ ok: false }); expect(await queued).toMatchObject({ ok: false });
+  expect(transport.calls('/v1/request')).toHaveLength(1);
+  expect(client.getState().status).toBe('connected');
 });
 
 it('discards stale in-flight results after stop', async () => {
@@ -109,8 +136,8 @@ it('exposes a bound terminal API, forwards events, and only ACKs when the UI req
   const unsubscribe = client.subscribeTerminal(terminal);
   expect(await attachTerminal({ tabId: ids.tab })).toEqual(success(attachment));
   expect(transport.calls('/v1/request')).toHaveLength(1);
-  expect(await acknowledgeTerminal({ tabId: ids.tab, generation: ids.generation, sequence: attachment.lastSequence })).toEqual(success({ acknowledged: true }));
-  const event: TerminalEvent = { type: 'data', tabId: ids.tab, generation: ids.generation, sequence: 2, data: 'next' };
+  expect(await acknowledgeTerminal({ tabId: ids.tab, generation: ids.generation, controlEpoch: 1, sequence: attachment.lastSequence })).toEqual(success({ acknowledged: true }));
+  const event: TerminalEvent = { type: 'data', tabId: ids.tab, generation: ids.generation, controlEpoch: 1, sequence: 2, data: 'next' };
   transport.events([{ type: 'terminal', event }]); await flush();
   expect(terminal).toHaveBeenCalledWith(event);
   expect(transport.calls('/v1/request')).toHaveLength(2);
@@ -118,12 +145,18 @@ it('exposes a bound terminal API, forwards events, and only ACKs when the UI req
   expect(terminal).toHaveBeenCalledTimes(1);
 });
 
-it('preserves control-lease denial and does not retry write, resize or close', async () => {
-  const denied = failure('FOCUS_DENIED', 'Another remote client owns the 30 second lease.', true);
+it('forwards an explicit Take it with identity only and never invents an ownership epoch', async () => {
+  transport.operation = async () => JSON.stringify(success({ taken: true }));
+  const take = client.terminalApi.takeTerminalControl;
+  expect(await take({ tabId: ids.tab, generation: ids.generation })).toEqual(success({ taken: true }));
+  expect(JSON.parse(transport.calls('/v1/request')[0])).toMatchObject({ method: 'takeTerminalControl', payload: { tabId: ids.tab, generation: ids.generation } });
+});
+it('preserves ownership denial and does not retry write, resize or close', async () => {
+  const denied = failure('TERMINAL_CONTROL_REQUIRED', 'Another client is controlling this terminal.', true);
   transport.operation = async () => JSON.stringify(denied);
   const identity = { tabId: ids.tab, generation: ids.generation };
-  expect(await client.terminalApi.writeTerminal({ ...identity, data: 'ls\r' })).toEqual(denied);
-  expect(await client.terminalApi.resizeTerminal({ ...identity, cols: 120, rows: 40 })).toEqual(denied);
+  expect(await client.terminalApi.writeTerminal({ ...identity, controlEpoch: 1, data: 'ls\r' })).toEqual(denied);
+  expect(await client.terminalApi.resizeTerminal({ ...identity, controlEpoch: 1, cols: 120, rows: 40 })).toEqual(denied);
   expect(await client.closeTab(identity)).toEqual(denied);
   await flush();
   expect(client.getState().status).toBe('connected');

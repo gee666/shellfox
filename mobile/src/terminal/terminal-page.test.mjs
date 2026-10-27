@@ -142,6 +142,49 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     if (await link.count()) await link.click();
     assert.equal(page.url(), 'about:blank');
   });
+  await t.test('swipes scroll restored history and stay there during live output without sending input', async () => {
+    epoch = 'history';
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await send({ type: 'focus', focused: false });
+    await output(Array.from({ length: 150 }, (_, i) => `HISTORY_${String(i).padStart(3, '0')}\r\n`).join(''), true, true);
+    await expect(page.locator('.xterm-rows')).toContainText('HISTORY_149');
+    const before = receivedInput().length;
+    const swipe = async (distance, cancel = false) => page.evaluate(({ distance, cancel }) => {
+      const screen = document.querySelector('.xterm-screen'), rect = screen.getBoundingClientRect();
+      const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+      for (const [type, offset] of [['touchstart', 0], ['touchmove', distance], [cancel ? 'touchcancel' : 'touchend', distance]]) {
+        const touch = new Touch({ identifier: 1, target: screen, clientX: x, clientY: y + offset });
+        screen.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchstart' || type === 'touchmove' ? [touch] : [], changedTouches: [touch] }));
+      }
+    }, { distance, cancel });
+    await swipe(180);
+    await expect(page.locator('.xterm-rows')).not.toContainText('HISTORY_149');
+    const scrolled = await page.locator('.xterm-rows').textContent();
+    await output('LIVE_WHILE_READING\r\n');
+    assert.equal(await page.locator('.xterm-rows').textContent(), scrolled);
+    await swipe(-240);
+    await expect(page.locator('.xterm-rows')).toContainText('LIVE_WHILE_READING');
+    await swipe(100, true);
+    await swipe(-200);
+    await expect(page.locator('.xterm-rows')).toContainText('LIVE_WHILE_READING');
+    assert.equal(receivedInput().length, before, 'scrolling must never write terminal input');
+    await expect(page.locator('.xterm-helper-textarea')).not.toBeFocused();
+  });
+  await t.test('alternate-screen swipes do not invent remote input', async () => {
+    await output('\x1b[?1049hALT_SCREEN');
+    const before = receivedInput().length;
+    await page.evaluate(() => {
+      const screen = document.querySelector('.xterm-screen');
+      for (const [type, y] of [['touchstart', 100], ['touchmove', 200], ['touchend', 200]]) {
+        const touch = new Touch({ identifier: 1, target: screen, clientX: 100, clientY: y });
+        screen.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchend' ? [] : [touch], changedTouches: [touch] }));
+      }
+    });
+    assert.equal(receivedInput().length, before);
+    await output('\x1b[?1049l');
+  });
   await t.test('touch selection emits text for the native copy dialog', async () => {
     epoch = 'selection';
     await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
@@ -164,6 +207,26 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
       { type: 'output', viewId, epoch, ticket: current, data: '\r\nONCE', historical: false, fit: false });
     await expect.poll(() => messages.filter(m => m.type === 'rendered' && m.ticket === current).length).toBe(1);
     await expect(page.locator('.xterm-rows')).toContainText('ONCE');
+  });
+  await t.test('ownership loss removes old contents and textarea without fitting or sending input', async () => {
+    epoch = 'owner-before-loss';
+    await send({ type: 'reset', cols: 115, rows: 32, fontSize: 14 });
+    await output('PRIVATE_OWNER_CONTENTS', true, true);
+    await expect(page.locator('.xterm-rows')).toContainText('PRIVATE_OWNER_CONTENTS');
+    epoch = 'blocked-view'; await send({ type: 'clear' });
+    assert.equal(await page.locator('.xterm-rows, .xterm-helper-textarea').count(), 0);
+    const inputs = receivedInput().length, sizes = messages.filter(message => message.type === 'resize').length;
+    await page.setViewportSize({ width: 420, height: 500 });
+    await send({ type: 'output', epoch: 'owner-before-loss', ticket: 800, data: 'STALE_PRIVATE_CONTENTS', historical: false, fit: true });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(messages.filter(message => message.type === 'resize').length, sizes);
+    assert.equal(receivedInput().length, inputs);
+    assert.ok(!messages.some(message => message.type === 'rendered' && message.ticket === 800));
+    epoch = 'owner-after-take';
+    await send({ type: 'reset', cols: 115, rows: 32, fontSize: 14 });
+    await output('FRESH_OWNER_SNAPSHOT', true, true);
+    await expect(page.locator('.xterm-rows')).toContainText('FRESH_OWNER_SNAPSHOT');
+    await expect(page.locator('.xterm-rows')).not.toContainText('PRIVATE_OWNER_CONTENTS');
   });
   await t.test('generation reset retires old callbacks and rejects stale messages', async () => {
     epoch = 'browser-2';

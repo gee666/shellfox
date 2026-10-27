@@ -1,4 +1,5 @@
-// Pins are copied from https://nodejs.org/dist/v24.15.0/SHASUMS256.txt.
+// Runtime pins are copied from https://nodejs.org/dist/v24.22.1/SHASUMS256.txt.
+// LICENSE is hashed from the same release tag.
 // Never fetch a checksum at build time. Verify archives before extracting them.
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -8,20 +9,20 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execute = promisify(execFile);
 export const runtimeTar = () => process.platform === 'win32' ? path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar';
-export const nodeVersion = '24.15.0';
+export const nodeVersion = '24.22.1';
 export const nodeHashes = Object.freeze({
-  'node-v24.15.0-win-x64.zip': 'cc5149eabd53779ce1e7bdc5401643622d0c7e6800ade18928a767e940bb0e62',
-  'node-v24.15.0-win-arm64.zip': 'c9eb7402eda26e2ba7e44b6727fc85a8de56c5095b1f71ebd3062892211aa116',
-  'node-v24.15.0-linux-x64.tar.gz': '44836872d9aec49f1e6b52a9a922872db9a2b02d235a616a5681b6a85fec8d89',
-  'node-v24.15.0-linux-arm64.tar.gz': '73afc234d558c24919875f51c2d1ea002a2ada4ea6f83601a383869fefa64eed',
-  'node-v24.15.0-darwin-x64.tar.gz': 'ffd5ee293467927f3ee731a553eb88fd1f48cf74eebc2d74a6babe4af228673b',
-  'node-v24.15.0-darwin-arm64.tar.gz': '372331b969779ab5d15b949884fc6eaf88d5afe87bde8ba881d6400b9100ffc4',
-  'node-v24.15.0-headers.tar.gz': '9a9250039fef572d0bcc110ac5e78055faf5604421211d2d5f578ebc5a34e703',
-  'win-x64/node.exe': '3331e1ffe19874215472217c5e94f5a0c6d8e18c4ac7111d3937aa0ad5e9b4a5',
-  'win-arm64/node.exe': '49a54c103f4919ce64199a043ef5cd309507de491d718085edee089cd8e87543',
-  'win-x64/node.lib': '2dad98cd40967a4fd4a97195979e0e237e09ec292483700a51d2c20fe5a97c87',
-  'win-arm64/node.lib': '5eefacb0514b137a1dfcf7b2d4d83418aca7eea4895d086e6ca9254d29f83ba8',
-  LICENSE: '4573185d56580da2b890ba34a85a409257640f1c5632eade4300137266194d18',
+  'node-v24.22.1-win-x64.zip': 'd2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5',
+  'node-v24.22.1-win-arm64.zip': 'a0c807319fede24c4a0d8f84564c82a619bd313b16b10c007c383c2609e99171',
+  'node-v24.22.1-linux-x64.tar.gz': 'eb6728e77c576a35162c122c45ccadf224d89ff00abc8dae46cc2897c6002d7c',
+  'node-v24.22.1-linux-arm64.tar.gz': '33c37be234ba8bee041961047b19160f4d7d0f164e8e246f78bdd10feff148b3',
+  'node-v24.22.1-darwin-x64.tar.gz': 'd132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035',
+  'node-v24.22.1-darwin-arm64.tar.gz': '89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7',
+  'node-v24.22.1-headers.tar.gz': '322e0a27db9088093ab8347bdc8c7e0aaa21dc9ed548390bf06b394494c09267',
+  'win-x64/node.exe': 'd702daa815eabbff763c7d3808e235cf031cf2ca70211b56847bc72f51e240e5',
+  'win-arm64/node.exe': '8bea91dc437fe01e7d92ef0efc6c9eaf654369aaba9b2d3e9841552ea7b95a00',
+  'win-x64/node.lib': 'a0a84aa03917b578d286010b7521837e9ff1136ffb2e4a406c14316c33fd06f7',
+  'win-arm64/node.lib': '2c0c3215d59c09d7c136da4949696dae121a299e9bdfc64cd9130a58610af63d',
+  LICENSE: '5888dbb9a1d2b18f2c3e6c5f6af1b39de658372b402a0577b002777f14c62ace',
 });
 export async function fileSha256(file) {
   const hash = createHash('sha256');

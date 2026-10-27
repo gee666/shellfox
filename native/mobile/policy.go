@@ -2,9 +2,9 @@ package mobile
 
 import (
 	"net/netip"
-	"net/url"
 	"sort"
 
+	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/ipn/ipnstate"
 )
 
@@ -56,31 +56,8 @@ func ownPeers(st *ipnstate.Status) []peer {
 	return result
 }
 
-type networkStatus struct {
-	Status   string  `json:"status"`
-	LoginURL *string `json:"loginUrl"`
-	Error    *string `json:"error"`
-}
-
-func safeLoginURL(raw string) bool {
-	u, err := url.Parse(raw)
-	return err == nil && u.Scheme == "https" && u.Hostname() == "login.tailscale.com" && u.User == nil && u.Port() == ""
-}
+type networkStatus = nethealth.Status
 
 func statusFor(st *ipnstate.Status) networkStatus {
-	result := networkStatus{Status: "starting"}
-	switch st.BackendState {
-	case "Running":
-		result.Status = "online"
-	case "NeedsLogin", "NeedsMachineAuth", "Stopped":
-		result.Status = "login-required"
-	case "NoState", "Starting":
-	default:
-		message := "Network unavailable"
-		result.Status, result.Error = "error", &message
-	}
-	if result.Status == "login-required" && safeLoginURL(st.AuthURL) {
-		result.LoginURL = &st.AuthURL
-	}
-	return result
+	return nethealth.Inspect(st, nil, nethealth.LinkUnknown).Status
 }

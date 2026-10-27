@@ -7,7 +7,7 @@ import { useTheme } from './theme';
 export function ConnectionStatus({ model, peerId, terminalState }: {
   model: Pick<ShellfoxModel, 'machines' | 'network'>;
   peerId?: string;
-  terminalState?: 'attaching' | 'attached' | 'closed' | 'reconnecting';
+  terminalState?: 'attaching' | 'attached' | 'closed' | 'reconnecting' | 'blocked';
 }) {
   const { colors } = useTheme();
   const machine = model.machines.find(item => item.peer.id === peerId);
@@ -15,6 +15,8 @@ export function ConnectionStatus({ model, peerId, terminalState }: {
     : connectionSummary(model.machines.map(item => item.state.status), model.network.status === 'starting');
   if (machine?.state.status === 'connected' && terminalState === 'attaching') text = 'connecting...';
   if (machine?.state.status === 'connected' && terminalState === 'reconnecting') text = 'reconnecting...';
+  if (machine?.state.status === 'connected' && terminalState === 'blocked') text = 'controlled elsewhere';
+  if (machine?.state.lastError?.code === 'UNSUPPORTED') text = 'upgrade host';
   return <Text testID="connection-status" accessibilityLiveRegion="polite" accessibilityLabel={`Connection ${text}`}
     numberOfLines={1} style={{ color: text === 'connected' ? colors.green : colors.muted, fontSize: 11, flexShrink: 1, maxWidth: 140 }}>{text}</Text>;
 }

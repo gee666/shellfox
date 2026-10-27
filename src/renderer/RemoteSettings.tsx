@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { ManagerApi } from '../shared/contracts';
-import type { RemoteController } from './remote-controller';
+import type { RemoteController, RemotePeerAction } from './remote-controller';
 import type { RemotePeer } from '../shared/remote-contracts';
 import { Icon } from './components';
 import { useSettingsLogin } from './settings-login';
@@ -13,27 +13,32 @@ export function RemoteSettings({ controller, local }: { controller: RemoteContro
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<{ context: 'access' | 'machines' | 'clients'; message: string } | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
-  const locked = useRef(false);
+  const locked = useRef<{ peerAction?: RemotePeerAction } | null>(null);
   const login = useSettingsLogin(controller, local, state);
   useEffect(() => { if (state) setHostname(state.hostname); }, [state?.hostname]);
   const api = controller.api;
   if (!api || !supported) return null;
-  async function run(operation: Parameters<RemoteController['run']>[0], context: 'access' | 'machines' | 'clients' = 'access') {
-    if (locked.current) return;
-    locked.current = true; setPending(true); setError(null);
-    try { const result = await controller.run(operation, { reportError: false }); if (!result.ok) setError({ context, message: result.error.message.split('\n')[0]?.slice(0, 200) ?? 'Request failed.' }); }
-    finally { locked.current = false; setPending(false); }
+  async function run(operation: Parameters<RemoteController['run']>[0], context: 'access' | 'machines' | 'clients' = 'access', peerAction?: RemotePeerAction) {
+    const previous = locked.current?.peerAction;
+    const cancelConnect = peerAction?.kind === 'disconnect' && previous?.kind === 'connect' && peerAction.peerId === previous.peerId;
+    if (locked.current && !cancelConnect) return;
+    const attempt = { peerAction }; locked.current = attempt; setPending(true); setError(null);
+    try {
+      const result = await controller.run(operation, { reportError: false, peerAction });
+      if (locked.current === attempt && !result.ok) setError({ context, message: result.error.message.split('\n')[0]?.slice(0, 200) ?? 'Request failed.' });
+    } finally { if (locked.current === attempt) { locked.current = null; setPending(false); } }
   }
   function connection(peer: RemotePeer) {
-    if (!peer.online) return 'Offline';
+    if (!peer.online && peer.connection === 'disconnected') return 'Offline';
     return { 'awaiting-approval': 'Waiting for approval', rejected: 'Request declined', connected: 'Connected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', disconnected: 'Disconnected' }[peer.connection];
   }
   function requestControl(peer: RemotePeer) {
-    if (peer.connection === 'awaiting-approval') return <button disabled={pending} aria-label={`Cancel request to ${peer.hostname}`} onClick={() => void run(() => api!.disconnect({ peerId: peer.id }), 'machines')}>Cancel request</button>;
-    if (peer.connection === 'rejected') return <button disabled={pending || !peer.online} aria-label={`Request access to ${peer.hostname} again`} onClick={() => void run(() => api!.connect({ peerId: peer.id }), 'machines')}>Request again</button>;
+    if (peer.connection === 'awaiting-approval') return <button disabled={pending && !(locked.current?.peerAction?.kind === 'connect' && locked.current.peerAction.peerId === peer.id)} aria-label={`Cancel request to ${peer.hostname}`} onClick={() => void run(() => api!.disconnect({ peerId: peer.id }), 'machines', { peerId: peer.id, kind: 'disconnect' })}>Cancel request</button>;
+    if (peer.connection === 'rejected') return <button disabled={pending || !peer.online} aria-label={`Request access to ${peer.hostname} again`} onClick={() => void run(() => api!.connect({ peerId: peer.id }), 'machines', { peerId: peer.id, kind: 'connect' })}>Request again</button>;
     return null;
   }
   function operationError(context: 'access' | 'machines' | 'clients') { return error?.context === context ? <p className="field-error" role="alert">{error.message}</p> : null; }
+  const available = state?.peers.filter(peer => !peer.remembered && (peer.hostConfirmed === true || peer.connection !== 'disconnected')) ?? [];
   const online = state?.status === 'online';
   const status = !state?.enabled ? 'Disabled' : login.busy ? 'Signing in' : online ? 'Connected' : state.status === 'starting' ? 'Starting' : state.status === 'error' ? 'Connection error' : 'Not connected';
   return <div className="remote-settings">
@@ -44,7 +49,7 @@ export function RemoteSettings({ controller, local }: { controller: RemoteContro
           <label htmlFor="remote-hostname">Machine name</label><input id="remote-hostname" aria-label="Remote machine name" value={hostname} maxLength={63} onChange={event => setHostname(event.target.value)} /><button disabled={pending || !hostname.trim() || hostname === state.hostname}>Save</button>
         </form>
         <div className="remote-account"><div className="remote-account-title"><span>Tailscale</span><span className={`connection-badge${online ? ' connected' : ''}`} role="status">{status}</span></div>
-          {online ? <p className="settings-hint">This device is connected to your tailnet.</p> : <p className="settings-hint">{!state.enabled ? 'Enable remote access to connect this device.' : login.message || state.error || 'Sign in to find your other machines.'}</p>}
+          {online ? <p className="settings-hint" role={state.error ? 'note' : undefined}>{state.error || 'This device is connected to your tailnet.'}</p> : <p className="settings-hint">{!state.enabled ? 'Enable remote access to connect this device.' : login.message || state.error || 'Sign in to find your other machines.'}</p>}
           {!online && state.enabled && <div className="remote-login-actions">
             {login.busy ? <><span className="connection-progress" aria-hidden="true" /><button onClick={login.cancel}>Cancel sign-in</button></> : <button className="settings-primary" onClick={() => login.phase === 'error' ? login.retry() : void login.start()}>{login.phase === 'error' || state.status === 'error' ? 'Retry sign-in' : 'Sign in to Tailscale'}</button>}
             {(login.url || state.status === 'login-required' && state.loginUrl) && <button onClick={login.continueLogin}>Continue in browser</button>}
@@ -63,8 +68,8 @@ export function RemoteSettings({ controller, local }: { controller: RemoteContro
     {state && <>
       <section><div className="settings-section-heading"><h3>Machines</h3><small>{state.peers.filter(peer => peer.remembered).length} saved</small></div>
         <p className="settings-hint">Connect to Shellfox on another device. Sessions run there, not here.</p>
-        <div className="remote-peer-list">{state.peers.filter(peer => peer.remembered).map(peer => <div className="remote-peer-row" key={peer.id}><span>{peer.hostname}<small>{connection(peer)}{peer.lastError ? ` · ${peer.lastError.message}` : ''}</small></span>{requestControl(peer)}<button className="icon-button" disabled={pending} aria-label={`Forget ${peer.hostname}`} title="Forget machine" onClick={() => void run(() => api.forget({ peerId: peer.id }), 'machines')}><Icon name="close" /></button></div>)}{!state.peers.some(peer => peer.remembered) && <p className="settings-empty">No saved machines</p>}</div>
-        <h4>Available on your tailnet</h4><div className="remote-peer-list">{state.peers.filter(peer => !peer.remembered).map(peer => <div className="remote-peer-row" key={peer.id}><span>{peer.hostname}<small>{peer.connection === 'awaiting-approval' || peer.connection === 'rejected' ? connection(peer) : peer.addresses.join(', ')}</small></span>{requestControl(peer) ?? <button disabled={pending || !peer.online || peer.connection === 'connecting'} aria-label={`Connect ${peer.hostname}`} onClick={() => void run(() => api.connect({ peerId: peer.id }), 'machines')}>{peer.connection === 'connecting' ? 'Connecting…' : 'Connect'}</button>}</div>)}{!state.peers.some(peer => !peer.remembered) && <p className="settings-empty">No other machines found</p>}</div>
+        <div className="remote-peer-list">{state.peers.filter(peer => peer.remembered).map(peer => <div className="remote-peer-row" key={peer.id}><span>{peer.hostname}<small>{connection(peer)}{peer.lastError ? ` · ${peer.lastError.message}` : ''}</small></span>{requestControl(peer)}<button className="icon-button" disabled={pending} aria-label={`Forget ${peer.hostname}`} title="Forget machine" onClick={() => void run(() => api.forget({ peerId: peer.id }), 'machines', { peerId: peer.id, kind: 'forget' })}><Icon name="close" /></button></div>)}{!state.peers.some(peer => peer.remembered) && <p className="settings-empty">No saved machines</p>}</div>
+        <h4>Available on your tailnet</h4><div className="remote-peer-list">{available.map(peer => <div className="remote-peer-row" key={peer.id}><span>{peer.hostname}<small>{peer.connection !== 'disconnected' ? connection(peer) : peer.addresses.join(', ')}</small></span>{requestControl(peer) ?? <button disabled={pending || !peer.online || peer.connection !== 'disconnected'} aria-label={`Connect ${peer.hostname}`} onClick={() => void run(() => api.connect({ peerId: peer.id }), 'machines', { peerId: peer.id, kind: 'connect' })}>{peer.connection === 'disconnected' ? 'Connect' : connection(peer)}</button>}</div>)}{!available.length && <p className="settings-empty">No other machines found</p>}</div>
         {operationError('machines')}
       </section>
       <section id="client-access-settings" tabIndex={-1} aria-label="Client access"><div className="settings-section-heading"><h3>Client access</h3>{state.pending.length > 0 && <span className="connection-badge">{state.pending.length} pending</span>}</div>

@@ -18,7 +18,7 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
       'chooseDirectory', 'getHomeDirectory', 'resolveDirectory', 'completeDirectory', 'createDirectory', 'getSessionStats',
       'clearSessionError', 'createSession', 'focusSession', 'getSnapshot',
       'renameSession', 'retryTab', 'saveSettings', 'setExplorerIntegration', 'settleSession',
-      'subscribe', 'unsettleSession', 'getTerminalProfiles', 'attachTerminal', 'writeTerminal',
+      'subscribe', 'unsettleSession', 'getTerminalProfiles', 'attachTerminal', 'takeTerminalControl', 'writeTerminal',
       'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'subscribeTerminal',
       'copyText', 'readClipboardText', 'openSessionFolder', 'setSessionEnv', 'setCliIntegration',
       'setSessionPinned', 'getUpdateStatus', 'deleteSession', 'renameTab', 'reorderTabs',
@@ -54,6 +54,10 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
         [trusted, { version: 1, method: 'setVisibleSessions', payload: { sessionIds: ['bad'] } }],
         [trusted, { version: 1, method: 'openExternal', payload: { url: 'file:///etc/passwd' } }],
         [trusted, { version: 1, method: 'saveSshProfile', payload: { id: 'bad' } }],
+        [{ sender: {}, senderFrame: wc.mainFrame }, { version: 1, method: 'takeTerminalControl', payload: { tabId: '11111111-1111-4111-8111-111111111111', generation: '22222222-2222-4222-8222-222222222222' } }],
+        [trusted, { version: 1, method: 'takeTerminalControl', payload: {} }],
+        [trusted, { version: 1, method: 'takeTerminalControl', payload: { tabId: 'bad', generation: 'bad' } }],
+        [trusted, { version: 1, method: 'takeTerminalControl', payload: { tabId: '11111111-1111-4111-8111-111111111111', generation: '22222222-2222-4222-8222-222222222222', controlEpoch: 1 } }],
       ];
       return Promise.all(cases.map(async ([event, raw]) => { const r = await handler(event, raw); return r.ok ? 'unexpected success' : r.error.code; }));
     });
@@ -61,7 +65,10 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
       'AUTH_FAILED', 'AUTH_FAILED', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION',
       'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION', 'AUTH_FAILED', 'VALIDATION',
       'VALIDATION', 'VALIDATION', 'VALIDATION', 'VALIDATION',
+      'AUTH_FAILED', 'VALIDATION', 'VALIDATION', 'VALIDATION',
     ]);
+    const invalidTake = await page.evaluate(() => window.shellfox.takeTerminalControl!({ tabId: 'bad', generation: 'bad' }));
+    expect(invalidTake.ok ? 'unexpected success' : invalidTake.error.code).toBe('VALIDATION');
     const title = '<img src=x onerror="window.pwned=1">';
     value(await page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID(), title }));
     await expect(page.getByRole('complementary', { name: 'Session navigation' })).toContainText(title);

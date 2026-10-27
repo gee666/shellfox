@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/client/local"
 	"tailscale.com/tsnet"
 )
@@ -34,6 +35,8 @@ type node struct {
 	hostname   string
 	discovery  *hostDiscovery
 	transports transportPool
+	health     *nethealth.Monitor
+	healthDone chan struct{}
 }
 
 // Start opens the persistent node in an absolute, app-private directory.
@@ -76,11 +79,20 @@ func Start(stateDirectory, hostname string) error {
 		return errors.New("Cannot initialize network API")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	singleton.node = &node{
+	monitor, err := nethealth.New(nethealth.ServerSource(s, client), nethealth.DefaultConfig(), nil)
+	if err != nil {
+		cancel()
+		_ = s.Close()
+		return errors.New("Cannot initialize network health")
+	}
+	n := &node{
 		server: s, client: client, ctx: ctx, cancel: cancel,
 		requests: make(chan struct{}, 12), polls: make(chan struct{}, 64),
 		directory: filepath.Clean(stateDirectory), hostname: hostname, discovery: newHostDiscovery(store),
+		health: monitor, healthDone: make(chan struct{}),
 	}
+	singleton.node = n
+	go func() { defer close(n.healthDone); monitor.Run(ctx) }()
 	return nil
 }
 
@@ -101,11 +113,10 @@ func Status() (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(n.ctx, 5*time.Second)
 	defer cancel()
-	st, err := n.client.StatusWithoutPeers(ctx)
-	if err != nil || st == nil {
-		return "", errors.New("Cannot read network status")
+	if n.health == nil {
+		return marshal(statusFor(nil))
 	}
-	return marshal(statusFor(st))
+	return marshal(n.health.Status(ctx))
 }
 
 // Peers returns only untagged nodes owned by the signed-in user.
@@ -140,6 +151,9 @@ func stopLocked() error {
 	singleton.node = nil
 	n.cancel()
 	n.transports.close()
+	if n.healthDone != nil {
+		<-n.healthDone
+	}
 	if err := n.server.Close(); err != nil {
 		return errors.New("Cannot stop network")
 	}
@@ -156,9 +170,12 @@ func Logout() error {
 		return nil
 	}
 	n.cancel()
+	if n.healthDone != nil {
+		<-n.healthDone
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
-	err := n.client.Logout(ctx)
+	err := n.health.Exclusive(func() error { return n.client.Logout(ctx) })
 	if err == nil {
 		err = n.discovery.clear()
 	}

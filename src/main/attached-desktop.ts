@@ -47,11 +47,11 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
     if (window.isMinimized()) window.restore(); window.show(); window.focus();
   } });
   let quitting = false, closing = false;
-  let uninstall = () => {};
+  let uninstall: () => Promise<void> = async () => {};
   let updates: UpdateSource | undefined;
   async function finish(): Promise<void> {
     quitting = true;
-    uninstall(); confirmation.dispose(); tracker.dispose();
+    await uninstall(); confirmation.dispose(); tracker.dispose();
     await client.close();
     if (updates instanceof SelfUpdater) await updates.dispose(true);
     app.quit();
@@ -77,7 +77,7 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
   }), updates);
   try { await window.loadFile(rendererFile); }
-  catch (error) { uninstall(); confirmation.dispose(); tracker.dispose(); await client.close(); if (updates instanceof SelfUpdater) await updates.dispose(); throw error; }
+  catch (error) { await uninstall(); confirmation.dispose(); tracker.dispose(); await client.close(); if (updates instanceof SelfUpdater) await updates.dispose(); throw error; }
   if (updates instanceof SelfUpdater && app.isPackaged) updates.start();
   window.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
   app.on('before-quit', event => {

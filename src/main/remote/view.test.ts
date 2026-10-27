@@ -2,10 +2,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { RemoteEvent } from '../../shared/remote-contracts';
 import { responseSchemas } from '../../shared/schemas';
 import { FakeRemoteHelper, remoteFixture } from './test-fixtures';
-
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
-it('isolates outgoing terminal delivery and leases for local clients sharing one helper', async () => {
+it('isolates owner output across local clients sharing one helper and promotes a waiting view on disconnect', async () => {
   const network = new Map<string, FakeRemoteHelper>();
   const host = await remoteFixture(network, 'host'), local = await remoteFixture(network, 'local');
   cleanups.push(host.dispose, local.dispose); await host.create();
@@ -20,17 +19,23 @@ it('isolates outgoing terminal delivery and leases for local clients sharing one
   const a = local.remote.createView('cli-a'), b = local.remote.createView('cli-b'); cleanups.push(() => a.dispose(), () => b.dispose());
   const eventsA: RemoteEvent[] = [], eventsB: RemoteEvent[] = [], desktop: RemoteEvent[] = [];
   a.subscribe(event => eventsA.push(event)); b.subscribe(event => eventsB.push(event)); local.remote.subscribe(event => desktop.push(event));
-  for (const remote of [local.remote, a, b]) expect(await remote.request({ peerId: 'host', method: 'attachTerminal', payload: { tabId: tab.id } })).toMatchObject({ ok: true });
+  const owner = responseSchemas.attachTerminal.parse(await a.request({ peerId: 'host', method: 'attachTerminal', payload: identity }));
+  if (!owner.ok || owner.value.control !== 'owned') throw new Error('No owner');
+  expect(await b.request({ peerId: 'host', method: 'attachTerminal', payload: identity })).toMatchObject({ ok: true, value: { control: 'blocked' } });
   host.processes[0].output('independent output');
   const hasOutput = (events: RemoteEvent[]) => events.some(e => e.type === 'terminal' && e.event.type === 'data' && e.event.data.includes('independent output'));
-  await vi.waitFor(() => { expect(hasOutput(eventsA)).toBe(true); expect(hasOutput(eventsB)).toBe(true); expect(hasOutput(desktop)).toBe(true); });
+  await vi.waitFor(() => expect(hasOutput(eventsA)).toBe(true)); expect(hasOutput(eventsB)).toBe(false); expect(hasOutput(desktop)).toBe(false);
   const output = eventsA.find(e => e.type === 'terminal' && e.event.type === 'data');
   if (output?.type !== 'terminal' || output.event.type !== 'data') throw new Error('Missing output');
-  expect(await a.request({ peerId: 'host', method: 'acknowledgeTerminal', payload: { ...identity, sequence: output.event.sequence } })).toMatchObject({ ok: true });
-  expect(await a.request({ peerId: 'host', method: 'writeTerminal', payload: { ...identity, data: 'owner a' } })).toMatchObject({ ok: true });
-  expect(await b.request({ peerId: 'host', method: 'writeTerminal', payload: { ...identity, data: 'owner b' } })).toMatchObject({ ok: false, error: { code: 'FOCUS_DENIED' } });
+  const controlled = { ...identity, controlEpoch: owner.value.controlEpoch };
+  expect(await a.request({ peerId: 'host', method: 'acknowledgeTerminal', payload: { ...controlled, sequence: output.event.sequence } })).toMatchObject({ ok: true });
+  expect(await a.request({ peerId: 'host', method: 'writeTerminal', payload: { ...controlled, data: 'owner a' } })).toMatchObject({ ok: true });
+  expect(await b.request({ peerId: 'host', method: 'writeTerminal', payload: { ...controlled, data: 'owner b' } })).toMatchObject({ ok: false, error: { code: 'TERMINAL_CONTROL_REQUIRED' } });
   await a.dispose();
-  expect(await b.request({ peerId: 'host', method: 'writeTerminal', payload: { ...identity, data: 'after a disconnect' } })).toMatchObject({ ok: true });
+  await vi.waitFor(() => expect(eventsB).toContainEqual(expect.objectContaining({ type: 'terminal', event: expect.objectContaining({ type: 'control', control: 'owned' }) })));
+  const promoted = responseSchemas.attachTerminal.parse(await b.request({ peerId: 'host', method: 'attachTerminal', payload: identity }));
+  if (!promoted.ok || promoted.value.control !== 'owned') throw new Error('No promoted owner');
+  expect(await b.request({ peerId: 'host', method: 'writeTerminal', payload: { ...identity, controlEpoch: promoted.value.controlEpoch, data: 'after a disconnect' } })).toMatchObject({ ok: true });
   expect(host.processes[0].kill).not.toHaveBeenCalled();
   expect(local.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } });
 });

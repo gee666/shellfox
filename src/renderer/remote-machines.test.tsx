@@ -55,14 +55,14 @@ describe('remote machines', () => {
     const item = remote.remoteSnapshot.sessions[0]!, tab = item.tabs[0]!;
     if (!tab.generation) throw new Error('Missing fixture generation');
     remote.request.mockResolvedValueOnce(responseSchemas.attachTerminal.parse(success({ tabId: tab.id, sessionId: item.id,
-      generation: tab.generation, firstSequence: 1, lastSequence: 0, chunks: [], truncated: false, state: 'open', exitCode: null, cols: 80, rows: 24, lifetime: 'app-owned' })));
+      generation: tab.generation, control: 'owned', controlEpoch: 1, firstSequence: 1, lastSequence: 0, chunks: [], truncated: false, state: 'open', exitCode: null, cols: 80, rows: 24, lifetime: 'app-owned' })));
     await user.click(screen.getByRole('button', { name: /Workstation · 1/ }));
     await waitFor(() => expect(remote.request).toHaveBeenCalledWith(expect.objectContaining({ method: 'resizeTerminal' })));
     remote.request.mockResolvedValueOnce(success({ acknowledged: true as const }));
     await act(async () => {
-      local.emitTerminal({ type: 'data', tabId: tab.id, generation: tab.generation!, sequence: 1, data: 'local-only' });
-      remote.emit({ type: 'terminal', peerId: 'server', event: { type: 'data', tabId: tab.id, generation: tab.generation!, sequence: 1, data: 'wrong-machine' } });
-      remote.emit({ type: 'terminal', peerId: 'workstation', event: { type: 'data', tabId: tab.id, generation: tab.generation!, sequence: 1, data: 'remote-only' } });
+      local.emitTerminal({ type: 'data', controlEpoch: 1, tabId: tab.id, generation: tab.generation!, sequence: 1, data: 'local-only' });
+      remote.emit({ type: 'terminal', peerId: 'server', event: { type: 'data', controlEpoch: 1, tabId: tab.id, generation: tab.generation!, sequence: 1, data: 'wrong-machine' } });
+      remote.emit({ type: 'terminal', peerId: 'workstation', event: { type: 'data', controlEpoch: 1, tabId: tab.id, generation: tab.generation!, sequence: 1, data: 'remote-only' } });
     });
     expect(await screen.findByText('remote-only')).toBeVisible();
     expect(screen.queryByText('local-only')).not.toBeInTheDocument(); expect(screen.queryByText('wrong-machine')).not.toBeInTheDocument();

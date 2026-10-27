@@ -1,9 +1,8 @@
-import { ipcMain, BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { failure, success } from '../shared/contracts';
 import { requestEnvelopeSchema, requestSchemas, responseSchemas } from '../shared/schemas';
 import type { SessionService } from './service';
 import type { EmbeddedSessionService } from './terminal/service';
-import { TerminalDelivery } from './terminal/delivery';
 import { desktopRequest } from './desktop-requests';
 import { getHomeDirectory, resolveDirectory, createDirectory, completeDirectory } from './directory-prompt';
 import { SshProfileStore } from './ssh/storage';
@@ -18,16 +17,11 @@ export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow
 export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource, ssh?: SshProfileStore, keepAwake?: KeepAwake, assertOwnership?: () => void): () => void {
   let announcedReady = false;
   const embedded = 'attachTerminal' in service ? service : null;
-  const delivery = embedded ? new TerminalDelivery(input => embedded.attachTerminal(input), event => {
+  const sendTerminal = (event: import('../shared/contracts').TerminalEvent) => {
     if (!window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send('manager:terminal', event);
-  }) : null;
-  const unsubscribeTerminal = embedded?.subscribeTerminal(event => {
-    if (event.type !== 'activity') { delivery?.event(event); return; }
-    // Activity is global metadata, not an attached/credited output stream.
-    for (const view of BrowserWindow.getAllWindows()) {
-      if (!view.isDestroyed() && view.webContents.mainFrame.url === rendererUrl) view.webContents.send('manager:terminal', event);
-    }
-  });
+  };
+  let stopped = false;
+  let delivery = embedded?.createTerminalView(sendTerminal) ?? null;
   ipcMain.handle('manager:request', async (event, raw: unknown) => {
     if (!isTrustedSender(event, window, rendererUrl)) return failure('AUTH_FAILED', 'Request did not come from the application renderer');
     try { assertOwnership?.(); } catch { return failure('NATIVE_UNAVAILABLE', 'Host ownership was lost. Shellfox is shutting down.'); }
@@ -64,16 +58,17 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'getSessionStats': result = embedded ? await embedded.getSessionStats(requestSchemas.getSessionStats.parse(payload)) : failure('UNSUPPORTED', 'Process stats require embedded terminals.'); break;
         case 'setVisibleSessions': result = embedded ? embedded.setVisibleSessions(requestSchemas.setVisibleSessions.parse(payload)) : success({ configured: true }); break;
         case 'getTerminalProfiles': result = embedded ? embedded.getTerminalProfiles() : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
-        case 'attachTerminal': {
-          const attachment = embedded ? embedded.attachTerminal(requestSchemas.attachTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.');
-          const accepted = attachment.ok ? delivery?.attached(attachment.value) : null;
-          result = accepted && !accepted.ok ? accepted : attachment; break;
-        }
-        case 'writeTerminal': result = embedded ? embedded.writeTerminal(requestSchemas.writeTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
-        case 'resizeTerminal': result = embedded ? embedded.resizeTerminal(requestSchemas.resizeTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
+        case 'attachTerminal': result = delivery ? delivery.attach(requestSchemas.attachTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
+        case 'takeTerminalControl': result = delivery ? delivery.take(requestSchemas.takeTerminalControl.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
+        case 'writeTerminal': result = delivery ? delivery.write(requestSchemas.writeTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
+        case 'resizeTerminal': result = delivery ? delivery.resize(requestSchemas.resizeTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
         case 'closeTab': result = embedded ? await embedded.closeTab(requestSchemas.closeTab.parse(payload)) : failure('UNSUPPORTED', 'External processes cannot be closed by embedded terminal controls.'); break;
         case 'acknowledgeTerminal': result = delivery ? delivery.acknowledge(requestSchemas.acknowledgeTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
-        case 'detachTerminal': result = delivery ? delivery.detach(requestSchemas.detachTerminal.parse(payload)) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.'); break;
+        case 'detachTerminal': {
+          const input = requestSchemas.detachTerminal.parse(payload);
+          result = delivery ? delivery.detach(input) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.');
+          break;
+        }
         case 'activateSession': result = await service.activateSession(requestSchemas.activateSession.parse(payload)); break;
         case 'refreshSessionMembership': result = await service.refreshSessionMembership(requestSchemas.refreshSessionMembership.parse(payload)); break;
         case 'prepareSessionRegistration': result = await service.prepareSessionRegistration(requestSchemas.prepareSessionRegistration.parse(payload)); break;
@@ -110,14 +105,15 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
   const unsubscribeKeepAwake = keepAwake?.subscribe(state => {
     if (!window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send('manager:keep-awake', state);
   });
-  const resetDelivery = () => delivery?.dispose();
+  const resetDelivery = () => { delivery?.dispose(); delivery = stopped ? null : embedded?.createTerminalView(sendTerminal) ?? null; };
   const resetViews = () => {
     resetDelivery();
     try { embedded?.setVisibleSessions({ sessionIds: [] }); } catch { /* Renderer teardown must still finish. */ }
   };
   window.webContents.on?.('render-process-gone', resetViews);
+  window.webContents.on?.('destroyed', resetViews);
   // did-navigate excludes same-document/subframe and aborted navigation.
   window.webContents.on?.('did-navigate', resetViews);
   window.webContents.on?.('did-start-navigation', resetDelivery);
-  return () => { unsubscribe(); unsubscribeTerminal?.(); unsubscribeKeepAwake?.(); resetViews(); window.webContents.removeListener?.('render-process-gone', resetViews); window.webContents.removeListener?.('did-navigate', resetViews); window.webContents.removeListener?.('did-start-navigation', resetDelivery); ipcMain.removeHandler('manager:request'); };
+  return () => { stopped = true; unsubscribe(); unsubscribeKeepAwake?.(); resetViews(); window.webContents.removeListener?.('destroyed', resetViews); window.webContents.removeListener?.('render-process-gone', resetViews); window.webContents.removeListener?.('did-navigate', resetViews); window.webContents.removeListener?.('did-start-navigation', resetDelivery); ipcMain.removeHandler('manager:request'); };
 }

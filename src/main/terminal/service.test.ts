@@ -160,6 +160,17 @@ describe('embedded saved-task lifecycle', () => {
     const restarted = await fixture(repo); expect(restarted.factory).not.toHaveBeenCalled();
     expect(repo.tab(legacy.tab.id)).toBeUndefined(); await restarted.service.dispose();
   });
+  it.each(['embedded-pty', 'windows-terminal'] as const)('preserves recent unsettled %s sessions across startup', async adapterId => {
+    const repo = new MemoryRepository(), legacy = seedLegacy(repo);
+    const recent = { ...legacy.session, adapterId, updatedAt: new Date().toISOString(), settledAt: null };
+    repo.saveSession(recent);
+    const f = await fixture(repo);
+    try {
+      expect(value(f.service.getSnapshot()).sessions.find(s => s.id === recent.id)).toMatchObject({ settledAt: null, updatedAt: recent.updatedAt, tabs: [] });
+      expect(repo.session(recent.id)?.settledAt).toBeNull();
+      expect(f.factory).not.toHaveBeenCalled();
+    } finally { await f.service.dispose(); }
+  });
   it('never persists output or exposes it in snapshots', async () => {
     const f = await fixture(), s = await f.create(); f.processes[0].output('secret-terminal-output');
     expect(JSON.stringify(value(f.service.getSnapshot()))).not.toContain('secret-terminal-output'); expect(JSON.stringify([...f.repository.tabMap.values()])).not.toContain('secret-terminal-output');
@@ -177,8 +188,39 @@ describe('embedded saved-task lifecycle', () => {
     expect(await f.service.saveSettings({ ...settings, shellExecutable: '/bin/arbitrary' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
     value(await f.service.saveSettings({ ...settings, processRules: [] })); expect(value(f.service.getSnapshot()).sessions[0].status).toBe('unknown'); await f.service.dispose();
   });
+  it('reports failed addTab launches without changing the existing shell or saved session metadata', async () => {
+    const f = await fixture(), session = await f.create();
+    try {
+      vi.mocked(f.factory).mockImplementationOnce(() => { throw new Error('spawn'); });
+      expect(await f.service.addTab({ sessionId: session.id })).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
+      expect(f.repository.session(session.id)).toMatchObject({ title: session.title, cwd: session.cwd, error: { code: 'LAUNCH_FAILED' } });
+      expect(f.repository.tabs(session.id).map(tab => tab.id)).toEqual([session.tabs[0].id]);
+      expect(f.backend.live().map(tab => tab.tabId)).toEqual([session.tabs[0].id]);
+      expect(f.processes[0].kill).not.toHaveBeenCalled();
+    } finally { await f.service.dispose(); }
+  });
+  it('reports uncertain startup failure while retaining the new owned handle and its diagnostics', async () => {
+    const f = await fixture(), session = await f.create();
+    const spawn = vi.mocked(f.factory).getMockImplementation();
+    if (!spawn) throw new Error('Missing fixture factory');
+    vi.mocked(f.factory).mockImplementationOnce((...args) => Object.assign(spawn(...args), { whenReady: async () => { throw new Error('input channel not ready'); } }));
+    try {
+      expect(await f.service.addTab({ sessionId: session.id })).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE', retryable: true } });
+      const saved = value(f.service.getSnapshot()).sessions.find(candidate => candidate.id === session.id);
+      expect(saved?.tabs).toHaveLength(2);
+      expect(saved?.tabs[1]).toMatchObject({ lifecycle: 'launch-uncertain', error: { code: 'NATIVE_UNAVAILABLE' } });
+      expect(saved?.error).toMatchObject({ code: 'NATIVE_UNAVAILABLE' });
+      expect(f.backend.live()).toHaveLength(2);
+      expect(f.processes.every(pty => pty.kill.mock.calls.length === 0)).toBe(true);
+    } finally { await f.service.dispose(); }
+  });
   it('validates requests and reports spawn failures as durable errors', async () => {
     const f = await fixture(); expect(await f.service.createSession({ cwd: 'relative', requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
-    vi.mocked(f.factory).mockImplementation(() => { throw new Error('spawn'); }); const failed = await f.create(); expect(failed.tabs).toEqual([]); expect(failed.error).toMatchObject({ code: 'LAUNCH_FAILED' }); await f.service.dispose();
+    vi.mocked(f.factory).mockImplementation(() => { throw new Error('spawn'); });
+    // Failure is the action result; the saved task and its diagnostic remain inspectable.
+    expect(await f.service.createSession({ cwd: '/work', requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
+    const saved = value(f.service.getSnapshot()).sessions[0];
+    expect(saved.tabs).toEqual([]); expect(saved.error).toMatchObject({ code: 'LAUNCH_FAILED' });
+    expect(f.repository.session(saved.id)).toBeDefined(); await f.service.dispose();
   });
 });

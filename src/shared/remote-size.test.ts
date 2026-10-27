@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { REMOTE_REQUEST_BYTES, remoteForwardRequestSchema } from './remote-schemas';
 
 it('accepts a full terminal input frame even when JSON escaping expands it sixfold', () => {
-  const request = { peerId: 'node', method: 'writeTerminal', payload: { tabId: crypto.randomUUID(), generation: crypto.randomUUID(), data: '\x1b'.repeat(65536) } };
+  const request = { peerId: 'node', method: 'writeTerminal', payload: { tabId: crypto.randomUUID(), generation: crypto.randomUUID(), controlEpoch: 1, data: '\x1b'.repeat(65536) } };
   expect(new TextEncoder().encode(JSON.stringify(request)).byteLength).toBeGreaterThan(256 * 1024);
   expect(remoteForwardRequestSchema.safeParse(request).success).toBe(true);
 });

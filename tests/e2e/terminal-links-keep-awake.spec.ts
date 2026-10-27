@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { launch, scratch, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, value } from '../fixtures/electron';
 
 test('clicking a terminal URL opens it in the system browser', async () => {
   test.skip(process.platform === 'win32', 'POSIX shell command');
@@ -16,7 +16,7 @@ test('clicking a terminal URL opens it in the system browser', async () => {
     const tab = session.tabs[0]!;
     await page.getByRole('button', { name: 'Select session links', exact: true }).click();
     await expect(page.locator('.xterm-helper-textarea')).toBeEditable();
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: "clear; printf 'https://example.com/%s\\n' shellfox-link\r" }));
+    value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: "clear; printf 'https://example.com/%s\\n' shellfox-link\r" }));
     await expect(page.locator('.xterm-rows')).toContainText('https://example.com/shellfox-link', { timeout: 15000 });
     const row = page.locator('.xterm-rows > div', { hasText: 'https://example.com/shellfox-link' }).last();
     const box = (await row.boundingBox())!;
@@ -50,7 +50,7 @@ test('URLs broken inside a table column and OSC 8 labels open from every row', a
     // followed by the hyperlink opt-ins the shell received.
     const command = "clear; printf '\\342\\224\\202 (https://example.com/col \\342\\224\\202\\n\\342\\224\\202 umn/end)                 \\342\\224\\202\\n'; "
       + "printf '\\033]8;;https://example.com/osc8\\033\\\\osc8label\\033]8;;\\033\\\\ env=%s%s\\n' \"$FORCE_HYPERLINK\" \"$PI_HYPERLINKS\"\r";
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: command }));
+    value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: command }));
     await expect(page.locator('.xterm-rows')).toContainText('osc8label env=11', { timeout: 15000 });
     const click = async (text: string, offset: number) => {
       const box = (await page.locator('.xterm-rows > div', { hasText: text }).last().boundingBox())!;

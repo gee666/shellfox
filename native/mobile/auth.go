@@ -26,7 +26,7 @@ func Login(authKey string) error {
 	}
 	ctx, cancel := context.WithTimeout(n.ctx, requestTimeout)
 	defer cancel()
-	return enroll(ctx, n.client, authKey)
+	return n.health.Exclusive(func() error { return enroll(ctx, n.client, authKey) })
 }
 
 func enroll(ctx context.Context, client loginClient, key string) error {

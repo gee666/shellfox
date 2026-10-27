@@ -41,9 +41,10 @@ export const TerminalViewport = memo(function TerminalViewport({ registry, tabId
   }, [registry, tabId, visible]);
   return <section className="terminal-viewport" aria-label="Terminal viewport">
     {visible && state.phase === 'unavailable' && <button className="text-button terminal-reconnect" onClick={() => registry.refresh(tabId)}>Reconnect terminal</button>}
+    {visible && state.phase === 'blocked' && <div className="terminal-control-blocked" role="status"><span>Another client is controlling this terminal</span><button disabled={state.taking} onClick={() => void registry.take(tabId)}>Take it</button></div>}
     {visible && state.phase === 'connecting' && <div className="terminal-loading-overlay"><TerminalLoading /></div>}
     {visible && state.phase === 'unavailable' && state.error && <span className="terminal-buffer-note" role="alert">{state.error.message}</span>}
     {!state.error && state.warning && <span className="terminal-buffer-note" title={state.warning}>Earlier output unavailable</span>}
-    <div className="terminal-host" ref={host} aria-label="Interactive terminal" />
+    <div className="terminal-host" ref={host} hidden={state.phase === 'blocked'} aria-label="Interactive terminal" />
   </section>;
 });

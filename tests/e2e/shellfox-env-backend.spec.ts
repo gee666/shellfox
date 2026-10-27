@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 import type { TabDto } from '../../src/shared/contracts';
 
 test('session env survives SQLite restart and applies to new shells, not already running shells', async () => {
@@ -31,10 +31,10 @@ test('session env survives SQLite restart and applies to new shells, not already
     value(await current.page.evaluate(settings => window.shellfox.saveSettings({ ...settings, terminalProfileId: 'pwsh' }), initial.settings));
     const session = value(await current.page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID() })), old = session.tabs[0];
     value(await current.page.evaluate(input => window.shellfox.setSessionEnv(input), { sessionId: session.id, env: [{ name: ' ' + name + ' ', value: 'round3 stored=with spaces' }] }));
-    value(await current.page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: old.id, generation: old.generation!, data: `[Console]::WriteLine('SHELLFOX_BEFORE=' + [Environment]::GetEnvironmentVariable('${name}'))\r` }));
+    value(await seedTerminal(current.app, { tabId: old.id, generation: old.generation!, data: `[Console]::WriteLine('SHELLFOX_BEFORE=' + [Environment]::GetEnvironmentVariable('${name}'))\r` }));
     await expect.poll(() => output(old.id), { timeout: 15000 }).toContain('SHELLFOX_BEFORE=\r\n');
     const added = value(await current.page.evaluate(id => window.shellfox.addTab({ sessionId: id }), session.id)), next = added.tabs.at(-1)!;
-    value(await current.page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: next.id, generation: next.generation!, data: `[Console]::WriteLine('SHELLFOX_AFTER=' + [Environment]::GetEnvironmentVariable('${name}'))\r` }));
+    value(await seedTerminal(current.app, { tabId: next.id, generation: next.generation!, data: `[Console]::WriteLine('SHELLFOX_AFTER=' + [Environment]::GetEnvironmentVariable('${name}'))\r` }));
     await expect.poll(() => output(next.id), { timeout: 15000 }).toContain('SHELLFOX_AFTER=round3 stored=with spaces');
     await closeTabs(); await current.app.close(); current = await launch(data, 'real');
     expect((await snapshot(current.page)).sessions[0].env).toEqual([{ name, value: 'round3 stored=with spaces' }]);
@@ -58,7 +58,7 @@ for (const profileId of ['pwsh', 'windows-powershell']) test(`${profileId} sessi
     const attached = (globalThis as any).__shellfoxTest.service.attachTerminal({ tabId: id });
     return attached.ok ? attached.value.chunks.map((chunk: any) => chunk.data).join('') : '';
   }, tab!.id);
-  const write = async (data: string) => value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab!.id, generation: tab!.generation!, data }));
+  const write = async (data: string) => value(await seedTerminal(app, { tabId: tab!.id, generation: tab!.generation!, data }));
   try {
     const profiles = value(await page.evaluate(() => window.shellfox.getTerminalProfiles!()));
     test.skip(!profiles.profiles.some(p => p.id === profileId && p.available), 'PowerShell profile unavailable.');

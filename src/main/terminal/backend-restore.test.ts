@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { Terminal } from '@xterm/headless';
-import type { Result, TerminalAttachmentDto } from '../../shared/contracts';
-import { terminalAttachmentSchema } from '../../shared/schemas';
+import type { Result, TerminalSnapshotDto } from '../../shared/contracts';
+import { terminalSnapshotSchema } from '../../shared/schemas';
 import { PtyBackend, REPLAY_BYTES } from './backend';
 import { factoryFixture, launchInput } from './test-fixtures';
 import { tuiStream, tuiUpdate } from './tui-fixture';
@@ -10,7 +10,7 @@ import { tuiStream, tuiUpdate } from './tui-fixture';
 const value = <T>(r: Result<T>): T => { if (!r.ok) throw new Error(r.error.code); return r.value; };
 async function fixture() { const f = factoryFixture(), backend = new PtyBackend(f.options); value(await backend.initialize()); const input = launchInput(); value(await backend.launch(input)); return { ...f, backend, input, pty: f.processes[0]! }; }
 const rowsOf = (term: Terminal) => { const b = term.buffer.active; return Array.from({ length: term.rows }, (_, y) => b.getLine(b.viewportY + y)?.translateToString(true) ?? ''); };
-async function render(attachment: TerminalAttachmentDto) {
+async function render(attachment: TerminalSnapshotDto) {
   const term = new Terminal({ cols: attachment.cols, rows: attachment.rows, scrollback: 3000, allowProposedApi: true });
   await new Promise<void>(resolve => term.write(attachment.chunks.map(c => c.data).join(''), resolve)); return term;
 }
@@ -25,7 +25,7 @@ describe('replay restoration from the screen mirror', () => {
     await new Promise<void>(resolve => reference.write(chunks.join(''), resolve));
     const raw = value(f.backend.attach({ tabId: id.tabId, afterSequence: 1, generation: id.generation }));
     expect(raw).toMatchObject({ truncated: true, snapshot: true, cols: VIEW.cols, rows: VIEW.rows });
-    expect(terminalAttachmentSchema.safeParse(raw).success).toBe(true);
+    expect(terminalSnapshotSchema.safeParse(raw).success).toBe(true);
     expect(raw.chunks.reduce((n, c) => n + Buffer.byteLength(c.data), 0)).toBeLessThanOrEqual(262144);
     expect(raw.chunks.every((c, i) => c.sequence === raw.firstSequence + i)).toBe(true);
     expect(raw.chunks.at(-1)!.sequence).toBe(raw.lastSequence);
@@ -69,7 +69,7 @@ describe('replay restoration from the screen mirror', () => {
     const f = await fixture(); const id = { tabId: f.input.tabId, generation: f.input.generation };
     for (let i = 0; i < 400; i++) f.pty.output(tuiUpdate({ cols: 80, rows: 24 }, i) + '😀'.repeat(900));
     const a = value(f.backend.attach({ ...id, afterSequence: 3 }));
-    expect(a.snapshot).toBe(true); expect(terminalAttachmentSchema.safeParse(a).success).toBe(true);
+    expect(a.snapshot).toBe(true); expect(terminalSnapshotSchema.safeParse(a).success).toBe(true);
     for (const c of a.chunks) expect(/[\uD800-\uDBFF]$/.test(c.data)).toBe(false);
     await f.backend.dispose();
   });

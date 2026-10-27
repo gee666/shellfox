@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 
 // A diff-rendering full-screen TUI (like the pi agent): one full paint, then only tiny
 // cursor-addressed updates inside DEC 2026 synchronized output. Writes `TUI_DONE` when finished.
@@ -40,7 +40,7 @@ test('a full-screen TUI keeps every row when its tab is left, flooded in the bac
     await page.getByRole('button', { name: 'Select session TUI host', exact: true }).click();
     await expect(page.getByLabel('Interactive terminal')).toBeVisible();
     await expect.poll(async () => (await snapshot(page)).sessions.find(s => s.id === one.id)!.tabs[0]!.status, { timeout: 20000 }).not.toBe('opening');
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!, data: `clear; "${process.execPath}" "${script}" "${go}"\r` }));
+    value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: `clear; "${process.execPath}" "${script}" "${go}"\r` }));
     await expect.poll(async () => (await rowsText(page)).some(row => /Working \d+/.test(row)), { timeout: 20000 }).toBe(true);
 
     await page.screenshot({ path: path.join(shots, 'tui-1-running-before-switch.png') });

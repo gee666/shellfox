@@ -9,7 +9,8 @@ export type Command =
   | { kind: 'view'; view: 'terminals' | 'settings'; id?: string }
   | { kind: 'settings-update'; patch: unknown }
   | { kind: 'create-session'; cwd: string; requestId: string; title?: string }
-  | { kind: 'terminal'; operation: 'attach' | 'write' | 'close'; tabId: string; data?: string; stdin?: boolean }
+  | { kind: 'terminal'; operation: 'attach'; tabId: string }
+  | { kind: 'terminal'; operation: 'write' | 'close'; tabId: string; data?: string; stdin?: boolean; take?: boolean }
   | { kind: 'terminal-session'; operation: 'create' | 'rename' | 'list' | 'reorder'; sessionId?: string; payload: Record<string, unknown> }
   | { kind: 'host'; operation: 'run' | 'status' | 'stop' }
   | { kind: 'remote'; operation: string; peerId?: string; hostname?: string; authKeyStdin?: boolean; authKeyFile?: string }
@@ -90,7 +91,7 @@ export function parseCommand(argv: string[], remote = false): Command | null {
     return parseSessionAction(operation, rest);
   }
   if (namespace === 'terminals' || namespace === 'tm') {
-    const args = new CommandArguments(rest, operation === 'create' ? ['--title', '--profile', '--cwd', '--id'] : ['rename', 'list', 'reorder'].includes(operation) ? ['--id'] : [], operation === 'write' ? ['--stdin'] : ['create', 'rename', 'list', 'reorder'].includes(operation) ? ['--current'] : []);
+    const args = new CommandArguments(rest, operation === 'create' ? ['--title', '--profile', '--cwd', '--id'] : ['rename', 'list', 'reorder'].includes(operation) ? ['--id'] : [], operation === 'write' ? ['--stdin', '--take'] : ['create', 'rename', 'list', 'reorder'].includes(operation) ? ['--current'] : []);
     const [id, value, ...remaining] = args.positionals;
     if (id !== undefined && !idSchema.safeParse(id).success) throw new CliUsageError('Expected a full session or terminal UUID.');
     switch (operation) {
@@ -113,7 +114,7 @@ export function parseCommand(argv: string[], remote = false): Command | null {
       case 'attach': case 'close': args.arity(1); return { kind: 'terminal', operation, tabId: id };
       case 'write':
         args.arity(args.has('--stdin') ? 1 : 2);
-        return { kind: 'terminal', operation: 'write', tabId: id, data: value, stdin: args.has('--stdin') };
+        return { kind: 'terminal', operation: 'write', tabId: id, data: value, stdin: args.has('--stdin'), ...(args.has('--take') ? { take: true } : {}) };
       default: throw new CliUsageError('Unknown terminals operation.');
     }
   }

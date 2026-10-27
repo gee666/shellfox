@@ -153,12 +153,12 @@ func (h *helper) call(ctx context.Context, method string, payload json.RawMessag
 		if len(payload) != 0 && string(payload) != "null" && decode(payload, &p) != nil {
 			return nil, errors.New("Invalid login payload")
 		}
-		if err := enroll(ctx, h.client, p.AuthKey); err != nil {
+		if err := h.health.Exclusive(func() error { return enroll(ctx, h.client, p.AuthKey) }); err != nil {
 			return nil, err
 		}
 		return h.status(ctx), nil
 	case "logout":
-		if err := h.client.Logout(ctx); err != nil {
+		if err := h.health.Exclusive(func() error { return h.client.Logout(ctx) }); err != nil {
 			return nil, errors.New("Cannot log out")
 		}
 		return h.status(ctx), nil

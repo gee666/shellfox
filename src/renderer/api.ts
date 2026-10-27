@@ -5,7 +5,7 @@ export function getManagerApi(): ManagerApi | undefined {
 }
 
 export function getTerminalApi(api: ManagerApi): TerminalApi | null {
-  const methods: (keyof TerminalApi)[] = ['getTerminalProfiles', 'attachTerminal', 'writeTerminal', 'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'subscribeTerminal'];
+  const methods: (keyof TerminalApi)[] = ['getTerminalProfiles', 'attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'subscribeTerminal'];
   return methods.every(method => typeof api[method] === 'function') ? api as ManagerApi & TerminalApi : null;
 }
 

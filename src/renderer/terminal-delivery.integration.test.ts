@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Result, TerminalApi, TerminalEvent } from '../shared/contracts';
 import { failure, success } from '../shared/contracts';
 import { PtyBackend } from '../main/terminal/backend';
-import { TerminalDelivery } from '../main/terminal/delivery';
+import { TerminalControlBroker } from '../main/terminal/control';
 import { factoryFixture, launchInput } from '../main/terminal/test-fixtures';
 import { TerminalRegistry, type SurfaceFactory } from './terminal-client';
 import { deferred } from './test-fixtures';
@@ -23,10 +23,11 @@ async function fixture() {
   value(await backend.initialize()); const input = launchInput(); value(await backend.launch(input));
   const listeners = new Set<(event: TerminalEvent) => void>();
   const delivered: TerminalEvent[] = []; const trace: string[] = [];
-  const delivery = new TerminalDelivery(args => backend.attach(args), event => {
+  const broker = new TerminalControlBroker({ identity: id => backend.get(id), snapshot: args => backend.attach(args), write: args => backend.write(args), resize: args => backend.resize(args) });
+  const delivery = broker.createView(event => {
     delivered.push(event); for (const listener of listeners) listener(event);
   });
-  const off = backend.subscribe(event => delivery.event(event));
+  const off = backend.subscribe(event => broker.event(event));
   const screens: Screen[] = [];
   const factory: SurfaceFactory = input => {
     const screen: Screen = { output: '', callbacks: [], disposed: false, input }; screens.push(screen);
@@ -43,9 +44,7 @@ async function fixture() {
     subscribeTerminal(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     attachTerminal: vi.fn(async args => {
       trace.push('attach');
-      const replay = backend.attach(args); if (!replay.ok) return replay;
-      const registered = delivery.attached(replay.value);
-      return registered.ok ? replay : registered;
+      return delivery.attach(args);
     }),
     acknowledgeTerminal: vi.fn(async args => {
       trace.push(`ack:${args.sequence}`);
@@ -55,14 +54,15 @@ async function fixture() {
       return result;
     }),
     detachTerminal: vi.fn(async args => { trace.push('detach'); return delivery.detach(args); }),
-    writeTerminal: vi.fn(async args => backend.write(args)),
-    resizeTerminal: async args => backend.resize(args),
+    takeTerminalControl: async args => delivery.take(args),
+    writeTerminal: vi.fn(async args => delivery.write(args)),
+    resizeTerminal: async args => delivery.resize(args),
     closeTab: vi.fn(async () => failure('UNSUPPORTED', 'Test must not close a shell to recover output')),
   };
   const registry = new TerminalRegistry(api, factory);
   const host = document.createElement('div'); document.body.append(host);
   registry.start();
-  cleanups.push(async () => { registry.dispose(); await settle(); off(); delivery.dispose(); await backend.dispose(); });
+  cleanups.push(async () => { registry.dispose(); await settle(); off(); broker.dispose(); await backend.dispose(); });
   const latest = () => screens.at(-1)!;
   async function parseAll() {
     // The real registry batches tiny chunks, rather than requiring one callback
@@ -89,8 +89,8 @@ describe('TerminalRegistry + production TerminalDelivery credit/replay integrati
     expect(f.delivered.filter(event => event.type === 'data')).toHaveLength(0);
     await f.parseAll();
     expect(f.latest().output).toBe('x'.repeat(count) + 'LIVE');
-    expect(f.api.acknowledgeTerminal).toHaveBeenCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: count });
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: count + 1 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenCalledWith({ tabId: f.input.tabId, generation: f.input.generation, controlEpoch: f.registry.getState(f.input.tabId).controlEpoch, sequence: count });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, controlEpoch: f.registry.getState(f.input.tabId).controlEpoch, sequence: count + 1 });
     expect(f.api.attachTerminal).toHaveBeenCalledTimes(1); expect(f.api.detachTerminal).not.toHaveBeenCalled();
     expect(f.registry.getState(f.input.tabId)).toMatchObject({ phase: 'open', error: null });
     expect(f.factory).toHaveBeenCalledTimes(1); expect(f.processes[0]!.kill).not.toHaveBeenCalled();
@@ -103,7 +103,7 @@ describe('TerminalRegistry + production TerminalDelivery credit/replay integrati
     expect(replay.chunks).toHaveLength(8192); expect(replay.truncated).toBe(false);
     f.registry.mount(f.input.tabId, f.host, true); await settle(); await f.parseAll();
     expect(f.latest().output).toBe(part.repeat(8192));
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: 8192 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, controlEpoch: f.registry.getState(f.input.tabId).controlEpoch, sequence: 8192 });
     expect(f.api.attachTerminal).toHaveBeenCalledTimes(1); expect(f.api.detachTerminal).not.toHaveBeenCalled();
     f.processes[0]!.output('LIVE'); await f.parseAll(); expect(f.latest().output.endsWith('LIVE')).toBe(true);
   });
@@ -119,28 +119,28 @@ describe('TerminalRegistry + production TerminalDelivery credit/replay integrati
     expect(f.registry.getState(f.input.tabId)).toMatchObject({ phase: 'open', error: null });
   });
 
-  it('automatically recovers a 1 MiB live burst through detach/full replay, without manual refresh', async () => {
+  it('automatically recovers a 1 MiB live burst through owned full replay, without manual refresh', async () => {
     const f = await fixture(); f.registry.mount(f.input.tabId, f.host, true); await settle(); const old = f.latest();
     f.processes[0]!.output('x'.repeat(1024 * 1024)); await settle();
     expect(f.delivered.some(event => event.type === 'error')).toBe(true);
     expect(old.disposed).toBe(true);
     old.callbacks.forEach(done => done()); old.input('stale parser reply'); await settle();
     expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled(); expect(f.api.writeTerminal).not.toHaveBeenCalled();
-    expect(f.trace.slice(0, 3)).toEqual(['attach', 'detach', 'attach']);
+    expect(f.trace.slice(0, 3)).toEqual(['attach', 'attach']);
     await f.parseAll();
     // The ring only holds the last 256 KiB; the view is rebuilt from the backend's parsed screen
     // (3000 scrollback rows + 23 full and one partial visible row at 80 columns) instead of a raw tail.
     expect(f.latest().output.replace(/[^x]/g, '')).toHaveLength(3023 * 80 + (1024 * 1024) % 80); expect(f.latest().output.length).toBeLessThan(300 * 1024);
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: 256 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, controlEpoch: f.registry.getState(f.input.tabId).controlEpoch, sequence: 256 });
     f.processes[0]!.output('AFTER-RECOVERY'); await f.parseAll();
     expect(f.latest().output.endsWith('AFTER-RECOVERY')).toBe(true);
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: 257 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, controlEpoch: f.registry.getState(f.input.tabId).controlEpoch, sequence: 257 });
     expect(f.registry.getState(f.input.tabId)).toMatchObject({ phase: 'open', error: null });
     expect(f.registry.getState(f.input.tabId).warning).toBeNull(); // restored from a screen snapshot, nothing is missing
     expect(f.api.attachTerminal).toHaveBeenCalledTimes(2); expect(f.api.closeTab).not.toHaveBeenCalled();
   });
 
-  it('serializes an in-flight old-view ACK before detach and fences its late failure and parser callbacks', async () => {
+  it('serializes an in-flight old-view ACK before replacing credit and fences its late failure and parser callbacks', async () => {
     const f = await fixture(); f.registry.mount(f.input.tabId, f.host, true); await settle();
     const pending = deferred<void>(); f.delayNextAck(() => pending.promise);
     f.processes[0]!.output('prefix'); const old = f.latest(); old.callbacks.shift()!(); await settle();
@@ -151,19 +151,19 @@ describe('TerminalRegistry + production TerminalDelivery credit/replay integrati
     old.callbacks.forEach(done => done()); old.input('old parser reply'); await settle();
     expect(f.api.acknowledgeTerminal).toHaveBeenCalledTimes(1); expect(f.api.writeTerminal).not.toHaveBeenCalled();
     pending.resolve(); await settle();
-    expect(f.trace.slice(0, 5)).toEqual(['attach', 'ack:1', 'old-ack-complete', 'detach', 'attach']);
+    expect(f.trace.slice(0, 5)).toEqual(['attach', 'ack:1', 'old-ack-complete', 'attach']);
     await f.parseAll(); f.processes[0]!.output('LIVE-AGAIN'); await f.parseAll();
     expect(f.latest().output.endsWith('LIVE-AGAIN')).toBe(true);
     expect(f.registry.getState(f.input.tabId)).toMatchObject({ phase: 'open', error: null });
-    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, sequence: 258 });
+    expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId: f.input.tabId, generation: f.input.generation, controlEpoch: f.registry.getState(f.input.tabId).controlEpoch, sequence: 258 });
     expect(f.api.attachTerminal).toHaveBeenCalledTimes(2);
   });
 
-  it('manual refresh with outstanding replay detaches before attaching and invalidates the discarded parser', async () => {
+  it('manual refresh with outstanding replay retains ownership and invalidates the discarded parser', async () => {
     const f = await fixture(); for (let i = 0; i < 3000; i++) f.processes[0]!.output('x');
     f.registry.mount(f.input.tabId, f.host, true); await settle(); const old = f.latest();
     f.registry.refresh(f.input.tabId); await settle();
-    expect(f.trace).toEqual(['attach', 'detach', 'attach']);
+    expect(f.trace).toEqual(['attach', 'attach']);
     old.callbacks.forEach(done => done()); await settle(); expect(f.api.acknowledgeTerminal).not.toHaveBeenCalled();
     await f.parseAll(); expect(f.latest().output).toBe('x'.repeat(3000));
     f.processes[0]!.output('LIVE'); await f.parseAll(); expect(f.latest().output.endsWith('LIVE')).toBe(true);

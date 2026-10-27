@@ -57,7 +57,7 @@ for (const settled of [false, true]) test(`UI confirms deletion of a ${settled ?
     expect((await snapshot(page)).sessions.map(s => s.id)).toEqual([keep.id]);
     for (const tab of withTabs.tabs) {
       const attachment = await page.evaluate(id => window.shellfox.attachTerminal!({ tabId: id }), tab.id);
-      expect(attachment.ok ? attachment.value.state : 'gone').not.toBe('open');
+      expect(attachment.ok).toBe(false);
     }
     const gone = await page.evaluate(id => window.shellfox.deleteSession({ sessionId: id }), doomed.id);
     expect(gone.ok ? null : gone.error.code).toBe('NOT_FOUND');

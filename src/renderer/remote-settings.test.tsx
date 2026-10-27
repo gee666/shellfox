@@ -16,7 +16,7 @@ afterEach(() => { cleanup(); controllers.splice(0).forEach(controller => control
 async function setup(status: RemoteState['status'] = 'online') {
   const local = mockApi(), remote = remoteFixture();
   remote.state.status = status;
-  remote.state.peers.push({ id: 'other', hostname: 'Other device', addresses: ['100.64.0.3'], online: true, connection: 'disconnected', approved: false, remembered: false });
+  remote.state.peers.push({ id: 'other', hostname: 'Other device', addresses: ['100.64.0.3'], online: true, connection: 'disconnected', approved: false, remembered: false, hostConfirmed: true });
   remote.state.pending.push({ id: 'pending', hostname: 'Pending laptop', addresses: ['100.64.0.4'], online: true });
   remote.state.approvals.push({ peerId: 'approved', hostname: 'Approved laptop', approvedAt: '2026-10-04T10:00:00.000Z' });
   const openExternal = vi.fn(async () => success({ opened: true as const }));
@@ -37,6 +37,32 @@ it('shows an already connected account without a pointless login action or brows
   expect(screen.queryByRole('alert')).not.toBeInTheDocument(); expect(f.openExternal).not.toHaveBeenCalled();
   await f.emit({ loginUrl: 'https://login.tailscale.com/stale' });
   expect(f.openExternal).not.toHaveBeenCalled();
+});
+
+it('shows an online degraded-network note without disconnecting healthy fallback clients', async () => {
+  const f = await setup(), runtime = f.controller.store.getState().runtimes.workstation;
+  const warning = 'Relay connectivity is degraded. Existing connections may still work.';
+  await f.emit({ status: 'online', error: warning });
+  expect(screen.getByRole('note')).toHaveTextContent(warning);
+  expect(screen.getByRole('status')).toHaveTextContent('Connected');
+  expect(f.controller.store.getState().runtimes.workstation).toBe(runtime);
+  expect(f.remote.api.disconnect).not.toHaveBeenCalled();
+  expect(f.remote.request.mock.calls.some(([input]) => input.method === 'detachTerminal')).toBe(false);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /sign.in/i })).not.toBeInTheDocument();
+});
+
+it('clears the degraded-network note on recovery and does not duplicate it across status updates', async () => {
+  const f = await setup(), runtime = f.controller.store.getState().runtimes.workstation;
+  for (let i = 0; i < 10; i++) await f.emit({ status: 'online', error: 'UDP connectivity is degraded.' });
+  expect(screen.getAllByRole('note')).toHaveLength(1);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  await f.emit({ status: 'online', error: null });
+  expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  expect(screen.getByText('This device is connected to your tailnet.')).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('Connected');
+  expect(f.controller.store.getState().runtimes.workstation).toBe(runtime);
+  expect(f.remote.api.disconnect).not.toHaveBeenCalled();
 });
 
 it('connects discovery machines, forgets saved machines, and keeps failures inline', async () => {
@@ -227,6 +253,69 @@ it('distinguishes same-name clients by full authenticated IDs for approval and r
   const confirm = screen.getByRole('button', { name: 'Confirm revoke Shared machine' });
   expect(confirm).toHaveAccessibleDescription('Device ID: node-approved-2');
   await f.user.click(confirm); expect(f.remote.api.revoke).toHaveBeenCalledWith({ peerId: 'node-approved-2' });
+});
+
+it('lists only confirmed available hosts but retains saved and active unconfirmed devices', async () => {
+  const f = await setup();
+  await f.emit({ peers: [
+    ...f.remote.state.peers,
+    { id: 'unknown', hostname: 'Unknown device', addresses: [], online: true, connection: 'disconnected', approved: false, remembered: false },
+    { id: 'unconfirmed', hostname: 'Not a host', addresses: [], online: true, hostConfirmed: false, connection: 'disconnected', approved: false, remembered: false },
+    { id: 'active', hostname: 'Active request', addresses: [], online: false, hostConfirmed: false, connection: 'awaiting-approval', approved: false, remembered: false },
+    { id: 'connected', hostname: 'Connected unknown device', addresses: [], online: true, connection: 'connected', approved: true, remembered: false },
+    { id: 'saved', hostname: 'Saved unknown device', addresses: [], online: false, connection: 'disconnected', approved: false, remembered: true },
+  ] });
+  expect(screen.queryByText('Unknown device')).not.toBeInTheDocument();
+  expect(screen.queryByText('Not a host')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Connect Other device' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Cancel request to Active request' })).toBeVisible();
+  expect(screen.getByText('Waiting for approval', { selector: 'small' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Connect Connected unknown device' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Connect Connected unknown device' })).toHaveTextContent('Connected');
+  expect(screen.getByRole('button', { name: 'Forget Saved unknown device' })).toBeVisible();
+});
+
+it('keeps an in-flight discovery row visible until a fresh saved/request state replaces it', async () => {
+  const f = await setup();
+  const pending = deferred<Awaited<ReturnType<typeof f.remote.api.connect>>>();
+  const fresh = deferred<Awaited<ReturnType<typeof f.remote.api.getState>>>();
+  vi.mocked(f.remote.api.connect).mockReturnValueOnce(pending.promise);
+  vi.mocked(f.remote.api.getState).mockReturnValueOnce(fresh.promise);
+  await f.user.click(screen.getByRole('button', { name: 'Connect Other device' }));
+  expect(screen.getByRole('button', { name: 'Connect Other device' })).toHaveTextContent('Connecting…');
+  expect(screen.getAllByText('Other device')).toHaveLength(1);
+  await f.emit({ peers: f.remote.state.peers.filter(peer => peer.id !== 'other') });
+  expect(screen.getAllByText('Other device')).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Connect Other device' })).toBeDisabled();
+  const saved: RemoteState = { ...f.remote.state, peers: f.remote.state.peers.map(peer => peer.id === 'other' ? { ...peer, remembered: true, connection: 'awaiting-approval' } : peer) };
+  await act(async () => { pending.resolve(success(saved)); });
+  expect(f.remote.api.getState).toHaveBeenCalledTimes(2);
+  expect(screen.getAllByText('Other device')).toHaveLength(1);
+  await act(async () => { fresh.resolve(success(saved)); });
+  expect(screen.getAllByText('Other device')).toHaveLength(1);
+  expect(screen.getByText('Waiting for approval', { selector: 'small' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Forget Other device' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Connect Other device' })).not.toBeInTheDocument();
+});
+
+it('shows and cancels pushed approval state before a delayed connect response without reviving it later', async () => {
+  const f = await setup();
+  const pending = deferred<Awaited<ReturnType<typeof f.remote.api.connect>>>();
+  vi.mocked(f.remote.api.connect).mockReturnValueOnce(pending.promise);
+  await f.user.click(screen.getByRole('button', { name: 'Connect Other device' }));
+  const peers: RemoteState['peers'] = f.remote.state.peers.map(peer => peer.id === 'other' ? { ...peer, remembered: true, connection: 'awaiting-approval' } : peer);
+  await f.emit({ peers });
+  expect(screen.getAllByText('Other device')).toHaveLength(1);
+  const cancel = screen.getByRole('button', { name: 'Cancel request to Other device' });
+  expect(cancel).toBeEnabled();
+  const disconnected: RemoteState = { ...f.remote.state, peers: peers.map(peer => peer.id === 'other' ? { ...peer, connection: 'disconnected' } : peer) };
+  vi.mocked(f.remote.api.disconnect).mockResolvedValueOnce(success(disconnected));
+  await f.user.click(cancel);
+  expect(f.remote.api.disconnect).toHaveBeenCalledWith({ peerId: 'other' });
+  await act(async () => { pending.resolve(failure('NATIVE_UNAVAILABLE', 'Old connection failed.')); });
+  expect(screen.queryByRole('button', { name: 'Cancel request to Other device' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Forget Other device' })).toBeEnabled();
 });
 
 it('shows requester approval and declined states with cancellation and a fresh access request', async () => {

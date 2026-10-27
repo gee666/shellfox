@@ -69,6 +69,12 @@ function receive(event: MessageEvent) {
     const parsed = hostMessageSchema.safeParse(JSON.parse(event.data));
     if (!parsed.success || parsed.data.viewId !== viewId) return;
     const message = parsed.data;
+    if (message.type === 'clear') {
+      epoch = message.epoch; clearLongPress(); anchor = null; start = null;
+      terminal?.blur(); terminal?.dispose(); terminal = null; fit = null; keyboard = null;
+      historical = true; writing = true; selecting = false; fitPending = false;
+      cancelAnimationFrame(fitFrame); container.replaceChildren(); return;
+    }
     if (message.type === 'reset') {
       epoch = message.epoch; createTerminal(message.cols, message.rows, message.fontSize); return;
     }
@@ -119,6 +125,7 @@ window.visualViewport?.addEventListener('resize', fitTerminal);
 
 let anchor: { col: number; row: number } | null = null;
 let start: { x: number; y: number } | null = null;
+let scrollY = 0, scrollRemainder = 0;
 let longPress: ReturnType<typeof setTimeout> | null = null;
 let moved = false;
 const clearLongPress = () => { if (longPress) clearTimeout(longPress); longPress = null; };
@@ -130,16 +137,32 @@ function cell(touch: Touch) {
 }
 container.addEventListener('touchstart', event => {
   clearLongPress(); anchor = null;
+  start = null; scrollRemainder = 0;
   const touch = event.touches[0]; if (!touch || event.touches.length !== 1) return;
-  start = { x: touch.clientX, y: touch.clientY }; moved = false;
+  start = { x: touch.clientX, y: touch.clientY }; scrollY = touch.clientY; moved = false;
   const origin = cell(touch);
   const begin = () => { if (origin && terminal) { anchor = origin; terminal.blur(); terminal.select(origin.col, origin.row, 1); } };
   if (selecting) { begin(); event.preventDefault(); } else longPress = setTimeout(begin, 450);
 }, { passive: false });
 container.addEventListener('touchmove', event => {
-  const touch = event.touches[0]; if (!touch) return;
+  const touch = event.touches[0];
+  if (!touch || event.touches.length !== 1) { clearLongPress(); anchor = null; start = null; return; }
   if (start && Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > 8) { moved = true; clearLongPress(); }
-  if (!anchor || !terminal) return;
+  if (!terminal) return;
+  if (!anchor) {
+    // xterm 6 uses a custom viewport, so native WebView scrolling cannot move its history.
+    if (!start || !moved || selecting || terminal.buffer.active.type !== 'normal'
+      || Math.abs(touch.clientY - start.y) <= Math.abs(touch.clientX - start.x)) return;
+    const height = container.querySelector('.xterm-screen')?.getBoundingClientRect().height;
+    if (!height) return;
+    event.preventDefault();
+    scrollRemainder += (scrollY - touch.clientY) / (height / terminal.rows);
+    scrollY = touch.clientY;
+    const lines = Math.trunc(scrollRemainder);
+    scrollRemainder -= lines;
+    if (lines) terminal.scrollLines(lines);
+    return;
+  }
   const end = cell(touch); if (!end) return;
   event.preventDefault();
   const a = anchor.row * terminal.cols + anchor.col, b = end.row * terminal.cols + end.col;
@@ -149,7 +172,7 @@ container.addEventListener('touchmove', event => {
 container.addEventListener('touchend', event => {
   clearLongPress();
   if (anchor) { event.preventDefault(); anchor = null; }
-  else if (!moved && !selecting) terminal?.focus();
+  else if (start && !moved && !selecting) terminal?.focus();
   start = null;
 }, { passive: false });
 container.addEventListener('touchcancel', () => { clearLongPress(); anchor = null; start = null; });

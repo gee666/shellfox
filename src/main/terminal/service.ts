@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { SessionStatsDto, AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalAttachmentDto, TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
+import type { SessionStatsDto, AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { parseWslUnc } from '../../shared/wsl-path';
 import { requestSchemas } from '../../shared/schemas';
@@ -11,6 +11,7 @@ import { unavailableProbe, defaultSettings } from '../defaults';
 import { DesktopIntegrations } from '../integrations';
 import { resolvePython } from './python';
 import { PtyBackend } from './backend';
+import { TerminalControlBroker, type TerminalControlView } from './control';
 import { ProcessTracker, getProcessTrackingCapability, createSystemSnapshotProvider, type TrackingHelperOptions } from './tracking';
 import { closeGuest } from './guest-close';
 import { createSessionStatsCollector } from '../control-stats';
@@ -26,6 +27,8 @@ const shellId = (p: TerminalProfileDto): ShellId => p.environment === 'wsl' ? 'w
 export interface TrackerPort { setVisibleSessions?: ProcessTracker['setVisibleSessions']; setWatch: ProcessTracker['setWatch']; dispose(): void; poll?: ProcessTracker['poll']; resolveIdentity?: ProcessTracker['resolveIdentity']; resolveDescendants?: ProcessTracker['resolveDescendants'] }
 export class EmbeddedSessionService {
   revision = 0;
+  private readonly terminalControl: TerminalControlBroker;
+  createTerminalView(send: Parameters<TerminalControlBroker['createView']>[0], purge?: (tabId: string) => void): TerminalControlView { return this.terminalControl.createView(send, purge); }
   probe: NativeProbe = { ...unavailableProbe('Embedded backend has not initialized.'), adapterId: 'embedded-pty' };
   private readonly integrations: DesktopIntegrations;
   get cli() { return this.integrations.cli; }
@@ -59,6 +62,15 @@ export class EmbeddedSessionService {
   private disposed = false;
   private updateClosing = false;
   constructor(readonly repository: RepositoryPort, readonly backend = new PtyBackend(), trackerFactory: (emit: (items: TabObservation[]) => void) => TrackerPort = emit => new ProcessTracker(emit), explorerIntegration?: ExplorerPort, private readonly cliIntegration?: CliPort, private readonly helperOptions: TrackingHelperOptions = {}) {
+    this.terminalControl = new TerminalControlBroker({
+      identity: id => {
+        const tab = this.repository.tab(id), owned = this.backend.get(id);
+        return tab?.terminal && owned?.generation === tab.operationId ? owned : undefined;
+      },
+      // Existing delivery may drain a confirmed exit after retention removes
+      // its tab. That does not authorize a new attachment to deleted metadata.
+      snapshot: input => this.backend.attach(input), write: input => this.writeTerminal(input), resize: input => this.backend.resize(input),
+    });
     this.integrations = new DesktopIntegrations(explorerIntegration, cliIntegration, () => !this.disposed && !this.updateClosing, () => this.changed('settings'));
     let expiryPollAt = -Infinity;
     this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), session => this.removeSession(session), () => this.changed(), async () => {
@@ -70,10 +82,20 @@ export class EmbeddedSessionService {
     }));
     this.tracker = trackerFactory(items => {
       if (this.disposed) return;
+      let publicChanged = false;
+      const reason = (observation?: TabObservation) => observation
+        ? observation.reason ?? (observation.agents > 0 ? 'A matched agent process is running in this shell.' : 'The shell is alive; no matched agent process is running.')
+        : 'Awaiting owned shell process evidence.';
       for (const owned of backend.live()) backend.rememberOwnership(owned.tabId, owned.generation, this.tracker.resolveIdentity?.(owned.root) ?? null, this.tracker.resolveDescendants?.(owned.root) ?? []);
       for (const item of items) {
         const tab = repository.tab(item.tabId), owned = backend.get(item.tabId);
         if (tab?.terminal && owned?.state === 'open' && owned.generation === tab.operationId && tab.sessionId === item.sessionId) {
+          const previous = this.observations.get(tab.id);
+          const current = previous?.generation === owned.generation ? previous : undefined;
+          // Compare public fields, not poll timestamps or a serialized session/snapshot.
+          publicChanged ||= !current || tabStatus(tab.lifecycle, tab.error, current) !== tabStatus(tab.lifecycle, tab.error, item)
+            || (current.root === 'alive' ? current.agents : 0) !== (item.root === 'alive' ? item.agents : 0)
+            || tab.lifecycle !== 'closed' && reason(current) !== reason(item);
           const descendants = this.tracker.resolveDescendants?.(owned.root) ?? [];
           const key = owned.generation + '/' + processActivityKey(item) + '/' + descendants.map(p => p.domain + ':' + p.pid + ':' + p.birth).sort().join(',');
           if (this.processKeys.get(tab.id) !== key) this.lifecycle.touch(tab.sessionId);
@@ -81,7 +103,7 @@ export class EmbeddedSessionService {
           this.observations.set(tab.id, { ...item, generation: owned.generation });
         }
       }
-      this.changed('native');
+      if (publicChanged) this.changed('native');
     });
     this.visibility.setLocal([]);
     backend.configureGuestTermination(async (root, captured, known) => {
@@ -104,7 +126,7 @@ export class EmbeddedSessionService {
     return next;
   }
   async initialize(_input?: NativeInit): Promise<void> {
-    this.unsubscribe = this.backend.subscribe(event => this.terminalEvent(event));
+    this.unsubscribe = this.backend.subscribe(event => { this.terminalControl.event(event); this.terminalEvent(event); });
     this.unsubscribeTitle = this.backend.subscribeTitle(event => {
       if (this.disposed) return;
       const owned = this.backend.get(event.tabId), tab = this.repository.tab(event.tabId);
@@ -127,13 +149,8 @@ export class EmbeddedSessionService {
       // Saved PIDs cannot restore app-owned handles. Retired external roots are
       // metadata only, so discard their obsolete tab records without touching processes.
       for (const tab of this.repository.tabs()) this.repository.deleteTab(tab.id);
-      // Retired external windows are metadata only. Never adopt or terminate their processes.
-      for (const session of this.repository.sessions()) {
-        if (session.adapterId !== 'embedded-pty') {
-          session.settledAt ??= session.updatedAt;
-          this.repository.saveSession(session);
-        }
-      }
+      // Removing obsolete terminal handles is not session inactivity. Preserve
+      // settlement and last activity; the lifecycle policy owns automatic expiry.
       const settings = this.repository.settings();
       if (settings.adapterId !== 'embedded-pty') {
         const selected = profiles.profiles.find(p => p.id === settings.shellId && p.available) ?? profiles.profiles.find(p => p.id === profiles.defaultProfileId && p.available);
@@ -333,9 +350,13 @@ export class EmbeddedSessionService {
       throw new Error('Ownership persistence failed.');
     }
     this.refreshWatch(); this.changed();
-    // Approval denial and helper errors must reach the explicit user action;
-    // saving a closed tab is not a successful administrator-tab launch.
-    if (profile.elevation && !launched.ok) return launched;
+    // Persist the session/error and any uncertain owned handle, but report
+    // every failed launch to the caller instead of claiming a shell was opened.
+    if (!launched.ok) return launched;
+    const opened = this.repository.tab(tab.id), owned = this.backend.get(tab.id);
+    if (!opened || opened.operationId !== tab.operationId || opened.lifecycle !== 'open' || owned?.generation !== tab.operationId || owned.state !== 'open') {
+      return failure('TARGET_LOST', 'The new shell exited before it could be opened.');
+    }
     return success(this.toDto(this.repository.session(session.id)!));
   }
   closeTab(input: { tabId: string; generation: string }): Promise<Result<SessionDto>> {
@@ -603,7 +624,7 @@ export class EmbeddedSessionService {
       if (!options.fatal) { this.disposed = false; this.lifecycle.start(); this.refreshWatch(); throw error; }
       fatalError = error;
     }
-    this.tracker.dispose();
+    this.terminalControl.dispose(); this.tracker.dispose();
     if (this.exitRetryTimer) clearInterval(this.exitRetryTimer);
     this.unsubscribe?.(); this.unsubscribeTitle?.(); this.listeners.clear(); this.streams.clear();
     if (fatalError !== undefined) throw fatalError;

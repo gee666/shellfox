@@ -51,7 +51,7 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
   const createView = options.remote?.createView?.bind(options.remote);
   const clients = new RpcClients(options.service, createView);
   const startedAt = options.startedAt ?? new Date().toISOString();
-  const unsubscribes = [options.service.subscribe(event => clients.broadcast({ type: 'changed', event: { revision: event.revision, reason: event.reason } })), options.service.subscribeTerminal(event => clients.terminal(event)), options.remote?.subscribe(event => { if (!options.remote?.createView || event.type === 'state') clients.broadcast({ type: 'remote', event }); }), options.keepAwake?.subscribe(event => clients.broadcast({ type: 'keepAwake', event }))];
+  const unsubscribes = [options.service.subscribe(event => clients.broadcast({ type: 'changed', event: { revision: event.revision, reason: event.reason } })), options.remote?.subscribe(event => { if (!options.remote?.createView || event.type === 'state') clients.broadcast({ type: 'remote', event }); }), options.keepAwake?.subscribe(event => clients.broadcast({ type: 'keepAwake', event }))];
   let closing = false, operations = 0, stopTask: Promise<void> | undefined;
   const sockets = new Set<IncomingMessage['socket']>();
   const stopResponses = new Set<IncomingMessage['socket']>();

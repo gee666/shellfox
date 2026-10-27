@@ -79,16 +79,18 @@ it.each([false, true])('returns runtime snapshots and drains cold-start requests
   }
 });
 it('routes discovered profiles and validated terminal methods without exposing arbitrary commands', async () => {
-  const f = await fixture(), tab = f.session.tabs[0], id = { tabId: tab.id, generation: tab.generation! };
+  const f = await fixture(), tab = f.session.tabs[0];
+  const attachment = await f.request('attachTerminal', { tabId: tab.id });
+  const id = { tabId: tab.id, generation: tab.generation!, controlEpoch: attachment.value.controlEpoch };
   expect(await f.request('getTerminalProfiles', {})).toMatchObject({ ok: true, value: { lifetime: 'app-owned', shellSurvival: false } });
-  expect(await f.request('attachTerminal', { tabId: tab.id })).toMatchObject({ ok: true, value: { generation: tab.generation } });
+  expect(attachment).toMatchObject({ ok: true, value: { generation: tab.generation, control: 'owned' } });
   expect(await f.request('writeTerminal', { ...id, data: '\x03' })).toEqual({ ok: true, value: { written: true } }); expect(f.processes[0].write).toHaveBeenCalledWith('\x03');
   expect(await f.request('resizeTerminal', { ...id, cols: 100, rows: 40 })).toEqual({ ok: true, value: { resized: true } });
   expect(await f.request('writeTerminal', { ...id, data: 'x', command: 'arbitrary' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   f.stop(); await f.service.dispose();
 });
 it('rejects foreign senders, subframes and stale generations before PTY access', async () => {
-  const f = await fixture(), tab = f.session.tabs[0], payload = { tabId: tab.id, generation: tab.generation, data: 'x' };
+  const f = await fixture(), tab = f.session.tabs[0], payload = { tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: 'x' };
   expect(await f.request('writeTerminal', payload, { ...f.event, sender: {} } as IpcMainInvokeEvent)).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
   expect(await f.request('writeTerminal', payload, { ...f.event, senderFrame: { url } } as IpcMainInvokeEvent)).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
   expect(await f.request('writeTerminal', { ...payload, generation: randomUUID() })).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } }); expect(f.processes[0].write).not.toHaveBeenCalled();
@@ -98,12 +100,12 @@ it('streams only attached terminal views, validates acknowledgements and removes
   const f = await fixture(), tab = f.session.tabs[0], id = { tabId: tab.id, generation: tab.generation! };
   f.processes[0].output('hidden'); expect(f.contents.send).not.toHaveBeenCalledWith('manager:terminal', expect.objectContaining({ type: 'data' }));
   expect(f.contents.send).toHaveBeenCalledWith('manager:terminal', { type: 'activity', tabId: tab.id, busy: true });
-  const replay = await f.request('attachTerminal', { tabId: tab.id }); await f.request('acknowledgeTerminal', { ...id, sequence: replay.value.lastSequence }); f.processes[0].output('\x1b[32mlive'); expect(f.contents.send).toHaveBeenCalledWith('manager:terminal', expect.objectContaining({ type: 'data', data: '\x1b[32mlive' }));
-  expect(await f.request('acknowledgeTerminal', { ...id, sequence: 999 })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  const replay = await f.request('attachTerminal', { tabId: tab.id }); await f.request('acknowledgeTerminal', { ...id, controlEpoch: replay.value.controlEpoch, sequence: replay.value.lastSequence }); f.processes[0].output('\x1b[32mlive'); expect(f.contents.send).toHaveBeenCalledWith('manager:terminal', expect.objectContaining({ type: 'data', data: '\x1b[32mlive' }));
+  expect(await f.request('acknowledgeTerminal', { ...id, controlEpoch: replay.value.controlEpoch, sequence: 999 })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(await f.request('detachTerminal', id)).toEqual({ ok: true, value: { detached: true } }); const count = f.contents.send.mock.calls.length; f.processes[0].output('detached'); expect(f.contents.send).toHaveBeenCalledTimes(count); expect(f.processes[0].kill).not.toHaveBeenCalled();
   f.stop(); await f.service.dispose(); expect(ipc.remove).toHaveBeenCalledWith('manager:request');
 });
-it('broadcasts unattached activity to all renderer windows, but never foreign frames', async () => {
+it('keeps unattached activity as metadata on the registered view and never foreign frames', async () => {
   const f = await fixture(), tab = f.session.tabs[0];
   const other = { isDestroyed: () => false, webContents: { mainFrame: { url }, send: vi.fn() } };
   const foreign = { isDestroyed: () => false, webContents: { mainFrame: { url: 'https://untrusted.invalid' }, send: vi.fn() } };
@@ -111,12 +113,29 @@ it('broadcasts unattached activity to all renderer windows, but never foreign fr
   f.processes[0].output('working');
   const activity = { type: 'activity', tabId: tab.id, busy: true };
   expect(f.contents.send).toHaveBeenCalledWith('manager:terminal', activity);
-  expect(other.webContents.send).toHaveBeenCalledWith('manager:terminal', activity);
+  expect(other.webContents.send).not.toHaveBeenCalled();
   expect(foreign.webContents.send).not.toHaveBeenCalled();
   expect(other.webContents.send).not.toHaveBeenCalledWith('manager:terminal', expect.objectContaining({ type: 'data' }));
   f.processes[0].exit(0);
-  expect(other.webContents.send).toHaveBeenCalledWith('manager:terminal', { ...activity, busy: false });
+  expect(f.contents.send).toHaveBeenCalledWith('manager:terminal', { ...activity, busy: false });
   f.stop(); await f.service.dispose();
+});
+it('releases exclusive ownership on renderer destruction and promotes the next waiting client', async () => {
+  const f = await fixture(), tab = f.session.tabs[0];
+  if (!tab.generation) throw new Error('Missing generation');
+  const id = { tabId: tab.id, generation: tab.generation };
+  const attached = await f.request('attachTerminal', id);
+  const events: unknown[] = [], waiter = f.service.createTerminalView(event => events.push(event));
+  expect(waiter.attach(id)).toMatchObject({ ok: true, value: { control: 'blocked' } });
+  expect(await f.request('takeTerminalControl', id, { ...f.event, sender: {} } as IpcMainInvokeEvent)).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
+  expect(await f.request('resizeTerminal', { ...id, controlEpoch: attached.value.controlEpoch, cols: 115, rows: 45 })).toMatchObject({ ok: true });
+  const destroyed = f.contents.on.mock.calls.find(([event]) => event === 'destroyed')?.[1];
+  if (typeof destroyed !== 'function') throw new Error('Missing teardown');
+  destroyed();
+  expect(events).toContainEqual(expect.objectContaining({ type: 'control', control: 'owned' }));
+  expect(waiter.attach(id)).toMatchObject({ ok: true, value: { control: 'owned' } });
+  expect(f.processes[0].kill).not.toHaveBeenCalled();
+  waiter.dispose(); f.stop(); await f.service.dispose();
 });
 it('does not forward terminal data after the trusted frame navigates away', async () => {
   const f = await fixture(), tab = f.session.tabs[0]; await f.request('attachTerminal', { tabId: tab.id }); f.frame.url = 'https://untrusted.invalid'; f.processes[0].output('secret');

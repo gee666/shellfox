@@ -13,7 +13,7 @@ const native = vi.hoisted(() => ({
   listeners: new Map<string, (event: { endCoordinates: { screenY: number } }) => void>(),
   dismiss: vi.fn(), show: vi.fn(async () => {}),
   bridge: { start: vi.fn(), dispose: vi.fn(), focus: vi.fn(), setModifiers: vi.fn(), key: vi.fn(),
-    receive: vi.fn(), paste: vi.fn(), select: vi.fn(), setFontSize: vi.fn(), setTheme: vi.fn() },
+    receive: vi.fn(), paste: vi.fn(), select: vi.fn(), setFontSize: vi.fn(), setTheme: vi.fn(), takeControl: vi.fn(async () => {}) },
   options: null as BridgeOptions | null,
 }));
 type NativeProps = {
@@ -59,7 +59,7 @@ vi.mock('./bridge', () => ({
   },
 }));
 const props: TerminalViewProps = {
-  api: { attachTerminal: vi.fn(), writeTerminal: vi.fn(), resizeTerminal: vi.fn(), acknowledgeTerminal: vi.fn(), detachTerminal: vi.fn() },
+  api: { attachTerminal: vi.fn(), writeTerminal: vi.fn(), resizeTerminal: vi.fn(), acknowledgeTerminal: vi.fn(), detachTerminal: vi.fn(), takeTerminalControl: vi.fn() },
   subscribeTerminal: () => () => {}, tabId: 'tab', fontSize: 14, connectionEpoch: 'connection',
 };
 function keyboard(visible: boolean) {
@@ -123,6 +123,20 @@ describe('mobile keyboard controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
     expect(native.bridge.setModifiers).toHaveBeenLastCalledWith({ ...modifiers, ctrl: false });
     expect(emptyModifiers.ctrl).toBe(false);
+  });
+  it('hides terminal controls and offers explicit Take it while another client owns the view', async () => {
+    setup(); fireEvent.click(screen.getByRole('button', { name: 'Special keys' }));
+    act(() => native.options?.onState?.('blocked'));
+    expect(screen.getByText('Another client is controlling this terminal')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Keyboard' })).toBeNull();
+    expect(screen.queryByLabelText('Special keys keyboard')).toBeNull();
+    expect(native.dismiss).toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Take it' })); });
+    expect(native.bridge.takeControl).toHaveBeenCalledOnce();
+    act(() => native.options?.onState?.('attached'));
+    expect(screen.queryByText('Another client is controlling this terminal')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Keyboard' })).toBeInTheDocument();
+    expect(native.bridge.start).toHaveBeenCalledOnce();
   });
   it('forwards current state/error callbacks without recreating the bridge', () => {
     const first = vi.fn(), next = vi.fn(), error = vi.fn();

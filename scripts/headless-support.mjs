@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { nodeVersion } from './node-runtime.mjs';
 
 export function writeHeadlessSupport(output, runtime = { version: 1, node: process.platform === 'win32' ? 'bin/node.exe' : 'bin/node', entry: 'app/main.cjs', resources: 'resources', runAsNode: false, headless: true }) {
   writeFileSync(path.join(output, 'runtime.json'), JSON.stringify(runtime, null, 2) + '\n');
@@ -75,7 +76,7 @@ WantedBy=multi-user.target
   writeFileSync(path.join(output, 'README.txt'), `Shellfox headless
 
 This directory is self-contained. Keep bin, app and resources together.
-It includes Node 24.15.0, native terminal addons, the embedded Tailscale
+It includes Node ${nodeVersion}, native terminal addons, the embedded Tailscale
 helper and platform terminal helpers. No Electron, Chromium or renderer.
 Linux needs glibc and C/C++ runtimes compatible with the build host.
 CI packages target Ubuntu 24.04, without a display. Alpine/musl is unsupported.

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { TrackingProcess, TrackingRoot, TrackingSnapshot } from '../../src/main/terminal/tracking';
-import { launch, scratch, snapshot, value } from '../fixtures/electron';
+import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 
 const run = promisify(execFile);
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
@@ -36,7 +36,7 @@ test('second WSL tab trusts Node named pi and shows isolated real guest Pi as gr
     await page.locator(`#terminal-tab-${tab.id}`).click();
     const tabState = async () => (await snapshot(page)).sessions.find(s => s.id === session.id)!.tabs.find(t => t.id === tab.id)!;
     const bin = quote(path.posix.dirname(nativeNode));
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!,
+    value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!,
       data: `PATH=${bin}:"$PATH" command node -e "process.title='pi';console.log('NAMED_'+'READY');setTimeout(()=>console.log('NAMED_'+'DONE'),12000)"\r` }));
     const hasOutput = (marker: string) => app.evaluate((_electron, input) => {
       const replay = (globalThis as any).__shellfoxTest.backend.attach({ tabId: input.id });
@@ -63,7 +63,7 @@ test('second WSL tab trusts Node named pi and shows isolated real guest Pi as gr
       'PI_CODING_AGENT_DIR=' + guestDir + '/agent', 'PI_OFFLINE=1', 'PI_SKIP_VERSION_CHECK=1', 'PI_TELEMETRY=0',
       'PATH=' + path.posix.dirname(nativeNode) + ':/usr/bin:/bin', 'TERM=xterm-256color', 'COLORTERM=truecolor', 'npm_config_cache=' + guestDir + '/cache'];
     const flags = ['--offline', '--no-session', '--no-tools', '--no-extensions', '--no-mcp', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve'];
-    value(await page.evaluate(input => window.shellfox.writeTerminal!(input), { tabId: tab.id, generation: tab.generation!,
+    value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!,
       data: `cd ${quote(guestDir + '/work')} && /usr/bin/env -i ${isolatedEnv.map(quote).join(' ')} SHELLFOX_TERMINAL_MARKER="$SHELLFOX_TERMINAL_MARKER" ${quote(piLauncher)} ${flags.join(' ')}\r` }));
     await expect.poll(async () => (await tabState()).status, { timeout: 15000 }).toBe('running');
     expect((await tabState()).agents).toBe(1);

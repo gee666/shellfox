@@ -108,7 +108,10 @@ export async function runShellfoxCli(argv: string[]): Promise<number> {
       client = await connect(userData); options.host = await resolveTarget(client, options.host);
       return await runControlCli(command.args, userData, __SHELLFOX_VERSION__, { json, yes: options.yes, color: colorEnabled(), request: managerControlRequest(client, options) });
     }
-    if (command?.kind === 'terminal' && command.operation === 'attach' && json) throw new CliUsageError('Interactive attach does not support --json.');
+    if (command?.kind === 'terminal' && command.operation === 'attach') {
+      if (json) throw new CliUsageError('Interactive attach does not support --json.');
+      if (!process.stdin.isTTY || !process.stdout.isTTY) throw new CliUsageError('Interactive attach requires a TTY on stdin and stdout.');
+    }
     if (command?.kind === 'create-session' && (!options.host || options.host === 'local')) command.cwd = await resolveStartDirectory(command.cwd);
     if (command) {
       try { client = await connect(userData); }

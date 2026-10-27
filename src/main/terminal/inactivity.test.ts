@@ -150,6 +150,20 @@ describe('session inactivity', () => {
       await f.jump(MINUTE); expect(f.current()).toBeUndefined();
     } finally { f.processes[0].kill.mockImplementation(() => f.processes[0].exit(0)); await f.service.dispose(); }
   });
+  it('does not settle recently used sessions after a short restart', async () => {
+    const f = await fixture();
+    vi.setSystemTime(Date.now() + HOUR / 2);
+    f.processes[0].output('recent work');
+    await f.service.dispose();
+    const lastActivity = f.repository.session(f.session.id)?.updatedAt;
+    vi.setSystemTime(Date.now() + 5 * MINUTE);
+    const next = new EmbeddedSessionService(f.repository, new PtyBackend(f.options), () => ({ setWatch() {}, dispose() {} }));
+    try {
+      await next.initialize();
+      await vi.advanceTimersByTimeAsync(MINUTE);
+      expect(value(next.getSnapshot()).sessions[0]).toMatchObject({ id: f.session.id, settledAt: null, updatedAt: lastActivity, tabs: [] });
+    } finally { await next.dispose(); }
+  });
   it('persists the last activity on shutdown and grants newly settled old sessions a full delete window', async () => {
     const f = await fixture();
     vi.setSystemTime(Date.now() + HOUR / 2); f.processes[0].output('work');

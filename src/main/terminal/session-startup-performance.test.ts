@@ -48,12 +48,8 @@ it('cancels all independent create queues on shutdown without launching late she
     expect(validateCwd).toHaveBeenCalledTimes(2);
     await service.dispose();
     const results = await Promise.all(requests);
-    for (const result of results.slice(0, 2)) {
-      // Creation can return the saved task with its launch error. It must not
-      // claim a live shell, regardless of how closed tabs are retained.
-      if (result.ok) { expect(result.value.canFocus).toBe(false); expect(result.value.tabs.some(t => t.lifecycle === 'open')).toBe(false); }
-      else expect(result.error.code).toBe('LAUNCH_FAILED');
-    }
+    // Cancellation reports launch failure even though the saved task remains.
+    for (const result of results.slice(0, 2)) expect(result).toMatchObject({ ok: false, error: { code: 'LAUNCH_FAILED' } });
     expect(results[2]).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
     expect(backend.live()).toHaveLength(0);
   } finally {

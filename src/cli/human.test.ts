@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import { colorEnabled, renderHuman } from './human';
+import { colorEnabled, humanTable, renderHuman } from './human';
+import { textWidth, wrapText } from './terminal-text';
 import { printValue } from './output';
 import { cliHelp } from './help';
 it('renders human-readable key values and tables by default, never a JSON dump', () => {
@@ -34,4 +35,8 @@ it('has one canonical Session section and no top-level session or tab commands',
   for (const name of ['start', 'add', 'new', 'create', 'ls', 'stats', 'processes', 'settle', 'delete', 'tab']) expect(text).not.toMatch(new RegExp('^  ' + name + '(?: |$)', 'm'));
   expect(text).toContain('session delete'); expect(text).toContain('terminals close'); expect(text).not.toContain('Host and automation');
   expect(cliHelp('test', 'ss')).toContain('Explicit'.toLowerCase());
+  for (const alias of ['ss', 'sessions', 'tm', 'cmd', '--run', '--ls', '--rm', '--unregister', '--version', '-v', '--help', '-h']) expect(text).toContain(alias);
+  expect(cliHelp('test', 'cmd')).toBe(cliHelp('test', 'commands'));
+  expect(cliHelp('test', 'terminals')).toContain('terminals attach <tab-id>');
+  expect(cliHelp('test', 'terminals')).not.toContain('--session-id');
 });

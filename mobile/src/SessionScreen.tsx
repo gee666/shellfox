@@ -48,7 +48,7 @@ export function SessionScreen({
   const onTerminalState = useCallback((state: TerminalBridgeState) => {
     if (currentTerminalKey.current !== terminalKey) return;
     setTerminalPhase(previous => previous?.key === terminalKey && previous.state === state ? previous : { key: terminalKey, state });
-    if (state === 'attached' || state === 'closed') setTerminalError(previous => previous?.key === terminalKey ? null : previous);
+    if (state === 'attached' || state === 'closed' || state === 'blocked') setTerminalError(previous => previous?.key === terminalKey ? null : previous);
   }, [terminalKey]);
   const onTerminalError = useCallback((error: Error) => {
     if (currentTerminalKey.current !== terminalKey) return;
@@ -185,7 +185,9 @@ export function SessionScreen({
         <View style={styles.content}>
           {machine.state.status === 'awaiting-approval' && <Note>Approve this device on the host.</Note>}
           {machine.state.status === 'connecting' || machine.state.status === 'reconnecting' ? <StatusIndicator loading label="Connecting" /> : null}
-          <Button title="Reconnect" onPress={() => client.reconnect()} />
+          {machine.state.status === 'awaiting-approval'
+            ? <Button title="Cancel request" onPress={() => run(() => model.disconnect(machine.peer.id))} />
+            : <Button title="Reconnect" onPress={() => client.reconnect()} />}
         </View>
       ) : !session ? (
         <View style={styles.content}>
@@ -232,7 +234,7 @@ export function SessionScreen({
           {canAttach && terminalError?.key === terminalKey && <View style={[styles.row, { paddingHorizontal: 12, paddingVertical: 6 }]}><View style={styles.grow}><Note error>{terminalError.message}</Note></View><Button title="Dismiss" subtle onPress={() => setTerminalError(null)} /></View>}
           {canAttach && active ? (
             <TerminalView
-              key={active.id}
+              key={`${active.id}/${active.generation ?? ''}`}
               api={terminalApi}
               subscribeTerminal={subscribeTerminal}
               tabId={active.id}
