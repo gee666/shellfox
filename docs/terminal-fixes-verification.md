@@ -47,10 +47,25 @@ The existing `service.ts`, `backend.ts` and `terminal-client.ts` state machines 
 
 Mobile scrollback is bounded at 3,000 rows. The host's 256 KiB attachment budget can reduce restored history further. Alternate-screen applications control their own history.
 
-Slow-host load tests mock the native network boundary. A separate authenticated HTTP integration exercises two mobile clients against the real host and broker. These are not two-device Tailscale load tests. Chromium tests exercise the bundled terminal page, not Android WebView or iOS device gestures. No mobile emulator was attached during this verification. Native macOS execution and iOS compilation were not available. The Go race detector was attempted but could not run without a Windows C compiler.
+Slow-host load tests mock the native network boundary. A separate authenticated HTTP integration exercises two mobile clients against the real host and broker. These are not two-device Tailscale load tests. Chromium tests exercise the bundled terminal page, not Android WebView or iOS device gestures. No mobile emulator was attached during local verification. The release workflow subsequently passed Android emulator UI/terminal tests and native macOS packaging, smoke and supervisor checks on both architectures. iOS compilation and physical-device testing remain unavailable. The Go race detector was attempted but could not run without a Windows C compiler.
 
 Network recovery was verified against a real isolated tsnet control server, DERP and STUN fixture, not by disrupting the user's Wi-Fi. It recovered the same node identity, public key, IPs, preferences, listener and proxy URL without restarting the host or PTYs. Detection waits for SDK connectivity evidence before the recovery grace and backoff; it is not instantaneous. A real data-path failure can still reconnect a view or require Take after ownership moves.
 
 Delivered approval requests last for one hour without a heartbeat. OS process death or lost connectivity can prevent a request from being delivered. Attempt UUIDs are ephemeral; a new process cannot safely cancel an unknown older attempt, which remains until host resolution or expiry.
 
-The installed host and phone were not updated. Live checks were read-only; only isolated test applications and their terminals were stopped. Android test signing is not production release signing.
+The installed host and phone were not updated. Live checks were read-only; only isolated test applications and their terminals were stopped. Local Android test signing is not production release signing.
+
+## Published release 0.9.5
+
+Release commit `35232b82bb57d3bad53a5285daa987977030e883` was tagged `v0.9.5` and pushed. [Release workflow 40447728249](https://github.com/gee666/shellfox/actions/runs/40447728249) completed successfully across all 13 jobs. No pipeline corrections or reruns were needed for this tag.
+
+The [public release](https://github.com/gee666/shellfox/releases/tag/v0.9.5) was published at `2026-10-27T04:23:32Z`, is neither a draft nor a prerelease, and is returned by the unauthenticated latest-release API. All 23 expected assets are present: desktop packages for five targets, headless archives/checksums for six targets, and the signed Android APK/checksum.
+
+All seven published checksum sidecars were downloaded and matched their corresponding GitHub asset digests. The actual public APK was downloaded and independently verified:
+
+- Package `com.shellfox.mobile`, version `0.9.5`, version code `9005`.
+- Architectures `arm64-v8a` and `x86_64`.
+- SHA-256 `168238c2dc2cc9be8d4d007cb0ed75baab2ea610d4307b35dd5d0fcc3726758d`.
+- APK signature verification passed with one v2 signer. Certificate SHA-256 `157a8c2dbafae0b28a09daf3e7700d582f3774f3aba71e2fad140094eea6f47f`.
+
+Local publication evidence is in `tmp/release-095-watch.log`, `release-095-published.json`, `release-095-public-verification.json`, and `release-095-apk-verification.log`. Release notes explain the matched host/client upgrade requirement and warn that restarting an owning host for installation ends its current app-owned shells. Publication did not deploy or restart any live installation.
