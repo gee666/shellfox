@@ -14,7 +14,7 @@
 
 ## Verified runs
 
-Windows x64 verification used Node 24.22.1 and Electron 44.5.1. Desktop and headless build stamps both match source digest `4cda55ae5f6be6f303eaecda7767552cea32e1a7252ae38a2d55e352a7b3a1c7`.
+The pre-release checks below cover fix commit `be0aa03`, before the 0.9.5 version-only update. Windows x64 verification used Node 24.22.1 and Electron 44.5.1. Desktop and headless build stamps both match source digest `4cda55ae5f6be6f303eaecda7767552cea32e1a7252ae38a2d55e352a7b3a1c7`.
 
 | Check | Result |
 | --- | --- |
