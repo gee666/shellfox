@@ -8,7 +8,7 @@ import { Notifications, useNotify } from './components';
 import { TerminalViewport } from './TerminalViewport';
 import { TerminalRegistry } from './terminal-client';
 import { terminalMocks } from './terminal-test-mocks';
-import { failure } from '../shared/contracts';
+import { failure, success } from '../shared/contracts';
 import { deferred, mockApi, session, snapshot } from './test-fixtures';
 
 const registries: TerminalRegistry[] = [];
@@ -101,6 +101,30 @@ describe('error notification routing', () => {
     await waitFor(() => expect(fixture.api.attachTerminal).toHaveBeenCalledTimes(2));
     await act(async () => {});
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows ownership changes only inside the terminal without a lingering toast', async () => {
+    const fixture = viewport(); await act(async () => {});
+    const tab = session().tabs[0]!;
+    fixture.api.writeTerminal.mockResolvedValueOnce(failure('TERMINAL_CONTROL_REQUIRED', 'This terminal is in use by another view. Take it to view or control it.'));
+    act(() => terminalMocks.terminals.at(-1).input('typed during takeover'));
+    await waitFor(() => expect(fixture.api.writeTerminal).toHaveBeenCalled());
+    await act(async () => {});
+    expect(fixture.registry.getState(tab.id).operationError).toBeNull();
+    expect(document.querySelector('.toasts .toast')).toBeNull();
+
+    act(() => fixture.emitTerminal({ type: 'control', tabId: tab.id, generation: tab.generation, controlEpoch: 2, control: 'blocked' }));
+    expect(screen.getByText('Another client is controlling this terminal')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Take it' })).toBeEnabled();
+    expect(document.querySelector('.toasts .toast')).toBeNull();
+
+    const attachment = await fixture.api.attachTerminal({ tabId: tab.id });
+    if (!attachment.ok) throw new Error('Expected an owned attachment');
+    fixture.api.attachTerminal.mockResolvedValue(success({ ...attachment.value, controlEpoch: 3 }));
+    act(() => fixture.emitTerminal({ type: 'control', tabId: tab.id, generation: tab.generation, controlEpoch: 3, control: 'owned' }));
+    await waitFor(() => expect(fixture.registry.getState(tab.id).phase).toBe('open'));
+    expect(screen.queryByText('Another client is controlling this terminal')).not.toBeInTheDocument();
+    expect(document.querySelector('.toasts .toast')).toBeNull();
   });
 
   it('keeps clipboard failures visible for the active terminal', async () => {

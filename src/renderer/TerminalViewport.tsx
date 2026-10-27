@@ -12,7 +12,8 @@ export const TerminalViewport = memo(function TerminalViewport({ registry, tabId
   );
   useEffect(() => {
     if (visible && state.operationError) {
-      notify(state.operationError);
+      // Ownership is shown by the terminal's blocked overlay, not a stale toast.
+      if (state.operationError.code !== 'TERMINAL_CONTROL_REQUIRED') notify(state.operationError);
       registry.clearOperationError(tabId, state.operationError);
     }
   }, [state.operationError, visible, notify, registry, tabId]);
