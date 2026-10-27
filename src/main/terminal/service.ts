@@ -284,7 +284,7 @@ export class EmbeddedSessionService {
     const id = existing ?? settings.terminalProfileId ?? profiles.defaultProfileId;
     return profiles.profiles.find(p => p.id === id && p.available && !p.elevation);
   }
-  createSession(input: { cwd: string; requestId: string; title?: string }): Promise<Result<SessionDto>> {
+  createSession(input: { cwd: string; requestId: string; title?: string }, creator?: TerminalControlView): Promise<Result<SessionDto>> {
     if (!requestSchemas.createSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session request.'));
     // Only duplicate requests share a queue. A slow guest startup must not
     // hold unrelated new sessions behind its directory/preflight waits.
@@ -294,10 +294,10 @@ export class EmbeddedSessionService {
       if (this.repository.sessions().length >= 10000) return failure('VALIDATION', 'The saved session limit is reached.');
       const now = new Date().toISOString();
       const session: SessionRecord = { id: randomUUID(), title: input.title ?? (path.basename(input.cwd).slice(0, 200) || input.cwd.slice(0, 200)), cwd: input.cwd, adapterId: 'embedded-pty', shellId: shellId(profile), shellExecutable: profile.executable, createdAt: now, updatedAt: now, settledAt: null, error: null, target: null, binding: null, windowState: 'unknown' };
-      return this.open(session, profile, 'create', input.requestId);
+      return this.open(session, profile, 'create', input.requestId, undefined, undefined, creator);
     });
   }
-  activateSession(input: { sessionId: string }): Promise<Result<SessionDto>> {
+  activateSession(input: { sessionId: string }, creator?: TerminalControlView): Promise<Result<SessionDto>> {
     if (!requestSchemas.activateSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
@@ -305,59 +305,70 @@ export class EmbeddedSessionService {
       if (this.backend.live().some(e => e.sessionId === session.id && e.state === 'open') || this.repository.tabs(session.id).some(t => t.terminal && t.lifecycle === 'launching')) return success(this.toDto(session));
       const cleanup = await this.backend.awaitCleanup(session.id); if (!cleanup.ok) return cleanup;
       const profile = this.profile(session.cwd, session); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
-      return this.open(session, profile, 'reopen');
+      return this.open(session, profile, 'reopen', null, undefined, undefined, creator);
     });
   }
-  addTab(input: { sessionId: string; title?: string; profileId?: string; cwd?: string }): Promise<Result<SessionDto>> {
+  addTab(input: { sessionId: string; title?: string; profileId?: string; cwd?: string }, creator?: TerminalControlView): Promise<Result<SessionDto>> {
     if (!requestSchemas.addTab.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid new tab request.'));
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
       const profile = this.profile(input.cwd ?? session.cwd, session, input.profileId); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The selected terminal profile is unavailable.');
-      return this.open(session, profile, 'add', null, input.title, input.cwd);
+      return this.open(session, profile, 'add', null, input.title, input.cwd, creator);
     });
   }
-  private async open(session: SessionRecord, profile: TerminalProfileDto, kind: OperationRecord['kind'], requestId: string | null = null, title?: string, cwd?: string): Promise<Result<SessionDto>> {
+  private async open(session: SessionRecord, profile: TerminalProfileDto, kind: OperationRecord['kind'], requestId: string | null = null, title?: string, cwd?: string, creator?: TerminalControlView): Promise<Result<SessionDto>> {
     const tabs = this.repository.tabs(session.id);
     if (tabs.length >= 1000 || this.backend.live().length >= 64) return failure('VALIDATION', 'The embedded terminal limit is reached.');
     const ordinal = tabs.reduce((n, t) => Math.max(n, t.ordinal), -1) + 1, now = new Date().toISOString();
     const tab: TabRecord = { id: randomUUID(), sessionId: session.id, title: title ?? (profile.elevation ? profile.label : `Shell ${ordinal + 1}`), cwd: cwd ?? session.cwd, ordinal, createdAt: now, lifecycle: 'launching', operationId: randomUUID(), registration: null, error: null, terminal: { kind: 'embedded', profileId: profile.id, exitCode: null, userTitle: title ?? null } };
     const operation: OperationRecord = { id: tab.operationId, sessionId: session.id, tabId: tab.id, requestId, kind, state: 'intent', createdAt: now, updatedAt: now, error: null };
-    this.repository.transaction(() => { this.repository.saveSession(session); this.repository.saveTab(tab); this.repository.saveOperation(operation); }); this.changed();
-    const launched = await this.backend.launch({ tabId: tab.id, sessionId: session.id, generation: tab.operationId, profileId: profile.id, cwd: tab.cwd, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
+    // Reserve before publishing intent or starting the PTY. Eager viewers may
+    // attach during launch, before the creator receives its response.
+    const identity = { tabId: tab.id, sessionId: session.id, generation: tab.operationId };
+    if (creator) { const reserved = this.terminalControl.reserve(creator, identity); if (!reserved.ok) return reserved; }
+    let openedForCreator = false;
     try {
-      this.repository.transaction(() => {
-        // An immediate PTY exit may already have removed this tab.
-        const current = this.repository.tab(tab.id);
-        const latest = this.repository.session(session.id)!;
-        if (!launched.ok) {
-          const uncertain = this.backend.get(tab.id)?.state === 'open';
-          if (current) { current.lifecycle = uncertain ? 'launch-uncertain' : 'closed'; current.error = launched.error; }
-          operation.state = uncertain ? 'uncertain' : 'failed'; operation.error = launched.error;
-          latest.error = launched.error;
-        } else {
-          if (current) { current.cwd = process.platform === 'win32' && parseWslUnc(tab.cwd) ? tab.cwd : launched.value.cwd; current.lifecycle = launched.value.state === 'open' ? 'open' : 'closed'; current.terminal!.exitCode = launched.value.exitCode; }
-          operation.state = 'registered';
-          latest.error = null;
-          latest.adapterId = 'embedded-pty'; latest.shellId = shellId(profile); latest.shellExecutable = profile.executable; latest.target = null; latest.binding = null;
-        }
-        latest.updatedAt = new Date().toISOString(); operation.updatedAt = latest.updatedAt;
-        if (current && current.lifecycle !== 'closed') { this.repository.saveTab(current); this.repository.saveOperation(operation); }
-        else this.repository.deleteTab(tab.id);
-        this.repository.saveSession(latest);
-      });
-    } catch {
-      if (launched.ok) await this.backend.close({ tabId: tab.id, generation: tab.operationId });
-      throw new Error('Ownership persistence failed.');
+      this.repository.transaction(() => { this.repository.saveSession(session); this.repository.saveTab(tab); this.repository.saveOperation(operation); }); this.changed();
+      const launched = await this.backend.launch({ tabId: tab.id, sessionId: session.id, generation: tab.operationId, profileId: profile.id, cwd: tab.cwd, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
+      try {
+        this.repository.transaction(() => {
+          // An immediate PTY exit may already have removed this tab.
+          const current = this.repository.tab(tab.id);
+          const latest = this.repository.session(session.id)!;
+          if (!launched.ok) {
+            const uncertain = this.backend.get(tab.id)?.state === 'open';
+            if (current) { current.lifecycle = uncertain ? 'launch-uncertain' : 'closed'; current.error = launched.error; }
+            operation.state = uncertain ? 'uncertain' : 'failed'; operation.error = launched.error;
+            latest.error = launched.error;
+          } else {
+            if (current) { current.cwd = process.platform === 'win32' && parseWslUnc(tab.cwd) ? tab.cwd : launched.value.cwd; current.lifecycle = launched.value.state === 'open' ? 'open' : 'closed'; current.terminal!.exitCode = launched.value.exitCode; }
+            operation.state = 'registered';
+            latest.error = null;
+            latest.adapterId = 'embedded-pty'; latest.shellId = shellId(profile); latest.shellExecutable = profile.executable; latest.target = null; latest.binding = null;
+          }
+          latest.updatedAt = new Date().toISOString(); operation.updatedAt = latest.updatedAt;
+          if (current && current.lifecycle !== 'closed') { this.repository.saveTab(current); this.repository.saveOperation(operation); }
+          else this.repository.deleteTab(tab.id);
+          this.repository.saveSession(latest);
+        });
+      } catch {
+        if (launched.ok) await this.backend.close({ tabId: tab.id, generation: tab.operationId });
+        throw new Error('Ownership persistence failed.');
+      }
+      this.refreshWatch(); this.changed();
+      // Persist the session/error and any uncertain owned handle, but report
+      // every failed launch to the caller instead of claiming a shell was opened.
+      if (!launched.ok) return launched;
+      const opened = this.repository.tab(tab.id), owned = this.backend.get(tab.id);
+      if (!opened || opened.operationId !== tab.operationId || opened.lifecycle !== 'open' || owned?.generation !== tab.operationId || owned.state !== 'open') {
+        return failure('TARGET_LOST', 'The new shell exited before it could be opened.');
+      }
+      const result = success(this.toDto(this.repository.session(session.id)!));
+      openedForCreator = true;
+      return result;
+    } finally {
+      if (creator && !openedForCreator) creator.detach({ tabId: tab.id, generation: tab.operationId });
     }
-    this.refreshWatch(); this.changed();
-    // Persist the session/error and any uncertain owned handle, but report
-    // every failed launch to the caller instead of claiming a shell was opened.
-    if (!launched.ok) return launched;
-    const opened = this.repository.tab(tab.id), owned = this.backend.get(tab.id);
-    if (!opened || opened.operationId !== tab.operationId || opened.lifecycle !== 'open' || owned?.generation !== tab.operationId || owned.state !== 'open') {
-      return failure('TARGET_LOST', 'The new shell exited before it could be opened.');
-    }
-    return success(this.toDto(this.repository.session(session.id)!));
   }
   closeTab(input: { tabId: string; generation: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.closeTab.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid close request.'));

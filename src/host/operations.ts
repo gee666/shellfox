@@ -38,9 +38,9 @@ export async function managerOperation(ctx: ManagerContext, method: ManagerMetho
     case 'writeTerminal': return delivery.write(requestSchemas.writeTerminal.parse(payload));
     case 'resizeTerminal': return delivery.resize(requestSchemas.resizeTerminal.parse(payload));
     case 'closeTab': return service.closeTab(requestSchemas.closeTab.parse(payload));
-    case 'createSession': return service.createSession(requestSchemas.createSession.parse(payload));
-    case 'addTab': return service.addTab(requestSchemas.addTab.parse(payload));
-    case 'activateSession': return service.activateSession(requestSchemas.activateSession.parse(payload));
+    case 'createSession': return service.createSession(requestSchemas.createSession.parse(payload), delivery);
+    case 'addTab': return service.addTab(requestSchemas.addTab.parse(payload), delivery);
+    case 'activateSession': return service.activateSession(requestSchemas.activateSession.parse(payload), delivery);
     case 'focusSession': return service.focusSession(requestSchemas.focusSession.parse(payload));
     case 'refreshSessionMembership': return service.refreshSessionMembership(requestSchemas.refreshSessionMembership.parse(payload));
     case 'prepareSessionRegistration': return service.prepareSessionRegistration(requestSchemas.prepareSessionRegistration.parse(payload));

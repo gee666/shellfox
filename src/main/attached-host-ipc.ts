@@ -50,7 +50,7 @@ export function installAttachedHostIpc(window: BrowserWindow, rendererUrl: strin
     if (!input.success) return failure('VALIDATION', 'Invalid request payload.');
     const current = epoch;
     try {
-      const scoped = ['attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'acknowledgeTerminal', 'detachTerminal', 'setVisibleSessions'].includes(method);
+      const scoped = ['createSession', 'addTab', 'activateSession', 'attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'acknowledgeTerminal', 'detachTerminal', 'setVisibleSessions'].includes(method);
       const target = scoped ? await view() : client;
       if (scoped && current !== epoch) return failure('TARGET_LOST', 'Renderer view changed.');
       let result = await desktopRequest(method, payload, { window, updates, sessionDirectory: async id => {

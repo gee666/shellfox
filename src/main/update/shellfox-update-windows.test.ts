@@ -50,7 +50,7 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
     root = await mkdtemp(path.resolve('tmp/cli updater-'));
     installer = path.join(root, 'ShellfoxSetup.exe');
     helper = path.join(root, 'cli', 'main', 'cli.cjs');
-    await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
+    await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', loader: { '.sh': 'text' }, define: { __SHELLFOX_VERSION__: '"test"' } });
     const runtime = path.join(root, 'cli', 'cli-runtime', 'node.exe');
     await mkdir(path.dirname(runtime), { recursive: true }); await copyFile(process.execPath, runtime);
     // Keep compiler scratch files inside the project's tmp directory too.
@@ -123,7 +123,9 @@ describe.skipIf(process.platform !== 'win32')('Windows CLI updater process lifet
       const result = await run('cmd', 0, false, flag);
       expect(result.code, result.err).toBe(0);
       expect(result.out).toContain('update [--check]');
-      expect(result.out).toContain('Application');
+      expect(result.out).toContain('Update');
+      expect(result.out).toContain('installed platform launcher');
+      expect(result.out).toContain('installs a verified version');
     }
   }, 15000);
   it('invalid update arguments return usage code 2 without starting an installer', async () => {

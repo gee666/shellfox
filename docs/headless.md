@@ -46,6 +46,34 @@ A desktop-installed CLI can also start a foreground host with `shellfox host run
 
 `shellfox session create [path]` can launch the desktop distribution when used interactively without an existing host. JSON automation and the headless package never silently launch a desktop. Start a host explicitly before automation. Old top-level `start`, `ls`, `stats`, `settle`, and `tab` commands are no longer accepted.
 
+## Updates
+
+From an extracted headless release package:
+
+```sh
+shellfox update --check
+shellfox update --json
+```
+
+`--check` queries the latest stable GitHub release without downloading or writing package files. `update` downloads the matching Windows, macOS, or Linux x64/ARM64 headless archive, verifies its API-provided size and SHA-256 digest, and validates its manifests, native addons and platform helpers. It then installs the version beside the current package and atomically selects it for future launches. A missing matching asset or digest is an error, not permission to use a desktop installer or another architecture.
+
+Keep using the original launcher and service paths. The original CLI entry forwards future invocations to the selected version's bundled Node runtime. Existing systemd, launchd and Windows Scheduled Task definitions continue to work without changing their account, login-versus-S4U policy or startup settings. Repeated updates use the same stable pointer, not a chain of forwarding processes. The command needs write access to the original installation and its parent directory, plus the OS `tar` executable. Windows uses the system `tar.exe` for ZIP releases. It never requests elevation.
+
+Run the updater as the same OS user that runs the host and future CLI/service starts. On Unix, version directories use mode `0700` and the selection pointer uses `0600`. Windows relies on the account-private parent directory's inherited ACLs. This activation layout does not support updating as root or Administrator for a different service account, or sharing one updated installation across users. Keep the package parent private to that user too.
+
+The active host and its terminals keep their existing code, runtime and helper paths until you restart explicitly. Restart through the existing startup manager when ready. For a foreground host:
+
+```sh
+shellfox --user-data /absolute/existing-data host stop --yes
+shellfox --user-data /absolute/existing-data host run
+```
+
+Use OS-appropriate paths and the same existing data directory. Stopping the host ends its terminals and running commands. A managed host should be restarted through its manager, not stopped behind a restart-on-failure policy. `shellfox version` reports the selected CLI version immediately; `shellfox host status` still describes the running host until it restarts. No PATH or service-path switch is required.
+
+JSON returns `phase: "installed"`, `installation`, and `restartRequired: true`; `current` names the CLI that performed the update. Checks return `phase: "available"` or `"current"`. Offline, malformed, unverified and failed downloads return nonzero. Activation happens only after verification, so earlier failures leave the active pointer unchanged and remove incomplete files. Updates serialize through `headless-update.lock` in the original directory. Remove a leftover lock only after confirming no update is running. No host connection is required, and remote `--host` targets are rejected.
+
+Keep the original installation and its version directories together. Do not delete old versions while a host might still use their runtime or helpers. The stable selection is `headless-update.json` in the original installation. If the selected version cannot launch, stop the host through its startup manager and remove that pointer to return future original-launcher starts to the original version. Private user data is never removed or rolled back; do not downgrade data across incompatible schema changes. Invalid pointers fail closed instead of silently starting the wrong host. Source checkouts and desktop packages cannot use this headless update flow; desktop installs retain their platform/in-app updater.
+
 ## Ownership and closing
 
 Exactly one process may own a data directory. An OS-held file lock is acquired before opening the database or initializing sessions. It is not a PID file, and its stable lock file is not deleted on normal shutdown. The ownership helper releases the kernel lock on EOF or process death. A host that loses its helper stops serving requests and shuts down rather than continuing unlocked.

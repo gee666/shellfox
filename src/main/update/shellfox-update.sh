@@ -83,13 +83,17 @@ OS=$(uname -s 2>/dev/null || echo unknown)
 case $OS in
   Linux)
     command -v dpkg-query >/dev/null 2>&1 || die "this Shellfox is not installed from the .deb package. Download the latest release from $RELEASES_URL"
+    EXE=${SHELLFOX_APP_EXECUTABLE:-/usr/lib/shellfox/shellfox}
+    EXE=$(readlink -f -- "$EXE" 2>/dev/null) || die "could not resolve this Shellfox executable. See $RELEASES_URL"
+    OWNERS=$(dpkg-query -S "$EXE" 2>/dev/null) || OWNERS=
+    printf '%s\n' "$OWNERS" | grep -Fqx "shellfox: $EXE" || die "this Shellfox executable is not installed from the .deb package. Portable and source copies require manual updates. See $RELEASES_URL"
     CURRENT=$(dpkg-query -W -f='${Version}' shellfox 2>/dev/null) || CURRENT=
     [ -n "$CURRENT" ] || die "this Shellfox is not installed from the .deb package, so it cannot update itself. Download the latest release from $RELEASES_URL"
     ;;
   Darwin)
     if [ -n "${SHELLFOX_APP_EXECUTABLE:-}" ]; then
       EXE=$SHELLFOX_APP_EXECUTABLE
-      case $EXE in */Contents/MacOS/*) BUNDLE=${EXE%/Contents/MacOS/*} ;; *) BUNDLE=/Applications/Shellfox.app ;; esac
+      case $EXE in */Contents/MacOS/*) BUNDLE=${EXE%/Contents/MacOS/*} ;; *) die "this executable is not in a Shellfox.app bundle. See $RELEASES_URL" ;; esac
     else
       BUNDLE=/Applications/Shellfox.app
       EXE=$BUNDLE/Contents/MacOS/Shellfox

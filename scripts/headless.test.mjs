@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { build } from 'esbuild';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -199,6 +200,20 @@ test('headless workflows retain six native targets without requiring display or 
   assert.ok(release.includes('needs: [package, headless, mobile]'));
   assert.ok(release.includes('dist/**/*.tar.gz'));
   assert.ok(release.includes("if: startsWith(github.ref, 'refs/tags/v')"));
+});
+test('the updater bundles in the headless Node graph without Electron, UI code or a download', async () => {
+  const result = await build({ bundle: true, platform: 'node', format: 'cjs', target: 'node24', metafile: true, write: false,
+    external: ['better-sqlite3', 'node-pty', 'cpu-features', '*.node'], loader: { '.sh': 'text', '.ps1': 'text' },
+    entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: path.resolve('tmp/headless-graph-check.cjs'),
+    define: { __SHELLFOX_VERSION__: '"0.9.5"' },
+    plugins: [{ name: 'no-headless-ui-test', setup(builder) {
+      builder.onResolve({ filter: /^(electron|react|react-dom|@xterm\/xterm|@xterm\/addon-fit)(\/|$)/ }, args => ({ errors: [{ text: 'Unexpected UI dependency: ' + args.path }] }));
+    } }],
+  });
+  const inputs = Object.keys(result.metafile.inputs);
+  for (const file of ['src/cli/update.ts', 'src/cli/update-activation.ts', 'src/main/update/shellfox-update.sh']) assert.ok(inputs.includes(file), 'Missing updater input: ' + file);
+  assert.ok(!inputs.some(file => /(^|\/)src\/(renderer|preload)\//.test(file)));
+  assert.match(result.outputFiles[0].text, /installed for future launches/);
 });
 test('headless build uses one universal entry, isolates native artifacts and forbids UI import graphs', async () => {
   const build = await readFile('scripts/headless-build.mjs', 'utf8');

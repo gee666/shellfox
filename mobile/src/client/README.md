@@ -77,6 +77,12 @@ All allowed remote methods have convenience wrappers in `operations.ts`. `reques
 
 No mutation is automatically retried, including input, resize, tab creation and deletion. After a lost response the host may already have applied the operation. Refresh before deciding what to retry. Preserve `createSession.requestId` if deliberately retrying that creation.
 
+## Activity status
+
+Session and tab dots use desktop activity semantics. A matched agent is green, and its dot pulses while host output is active. Input echo is ignored for 250 ms; 2500 ms without other output returns the dot to steady green. Ordinary shells do not pulse.
+
+Activity travels over the client's single event stream, independently of terminal attachments and ownership. On every successful pair, including a reconnect to a surviving host view, the host queues current activity for its live non-elevated tabs, at most 64. Queued activity coalesces per tab and survives terminal frame cleanup. Pairing also retires any older host event poll without letting it drain the replacement stream's activity. Mobile clears busy flags on disconnect, then rebuilds them from these events. No extra status requests or per-tab polling are needed. Hosts without this recovery fix only send transitions, so a reconnect during continuous output can miss the earlier busy event.
+
 ## Terminal WebView
 
 ```tsx
@@ -107,7 +113,7 @@ Terminal consumer responsibilities:
 
 Pi clears its editor on the first Ctrl+C and exits on a second within 500 milliseconds. Repeating Ctrl+C more slowly keeps clearing even an empty editor. Serialized request latency can exceed that window on a slow link; connection reuse and queued-write coalescing reduce avoidable delays, but do not guarantee Pi's timing over a high-latency network. No interrupt is injected or automatically repeated.
 
-The first attached viewer owns an uncontrolled terminal. Other viewers remain registered but receive no terminal contents. `takeTerminalControl({ tabId, generation })` explicitly transfers ownership. Owner detach or disconnect promotes the next waiting viewer in arrival order. Ownership has no timeout, heartbeat or automatic resize renewal. `TERMINAL_CONTROL_REQUIRED` is returned unchanged and never automatically retried. Captured `controlEpoch` values prevent queued operations from a previous ownership period running after a later grant. The mobile UI clears the old WebView contents on loss and offers Take it on the blank blocked view. Hosts must advertise `terminalControl: 'exclusive-v1'` when pairing; older hosts require an upgrade.
+The creating view reserves each new terminal before the host announces it, including a new tab or a reopened shell. It still needs to attach before receiving contents or sending input. Duplicate creation requests and activation of an already-running session do not reclaim ownership. Without a creator reservation, the first attached viewer owns an uncontrolled terminal. Other viewers remain registered but receive no terminal contents. `takeTerminalControl({ tabId, generation })` explicitly transfers ownership. Owner detach or disconnect promotes the next waiting viewer in arrival order. Ownership has no timeout, heartbeat or automatic resize renewal. `TERMINAL_CONTROL_REQUIRED` is returned unchanged and never automatically retried. Captured `controlEpoch` values prevent queued operations from a previous ownership period running after a later grant. The mobile UI clears the old WebView contents on loss and offers Take it on the blank blocked view. Hosts must advertise `terminalControl: 'exclusive-v1'` when pairing; older hosts require an upgrade.
 
 ## Checks
 

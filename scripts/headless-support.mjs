@@ -164,9 +164,25 @@ Use an elevated shell to remove a boot task. No real machine installation
 or reboot test is implied by package contract tests.
 
 Updates and removal
-Stop the host, unpack a new matching OS/architecture archive into a new
-directory, update your PATH/service paths and restart. Keep the private
-data directory. To remove, unload/disable the service first and remove
-the package directory. Removing user data is a separate, destructive step.
+Run shellfox update --check to check the latest stable release.
+Run shellfox update to download, verify, install and select a matching
+headless version for future launches. Both accept --json. This needs write
+access to the original installation and its parent, and the OS tar executable,
+including Windows tar.exe. Keep using the original launcher/service paths.
+Update as the same OS user that runs the host and future CLI/service starts.
+Version directories and pointers are private to that user. Cross-account or
+shared multi-user update activation is unsupported; do not update as root or
+Administrator for a different service account. Keep the package parent private.
+The command atomically selects a versioned copy; the active host keeps its
+existing runtime and helpers. It never stops hosts or changes PATH/services.
+Restart explicitly through the existing startup manager when ready, keeping
+the same private data directory. For a foreground host, use host stop --yes
+and then host run with the same --user-data. Stopping the host ends its
+terminals and running commands. Keep the original and version directories.
+If the selected runtime cannot launch, stop the host through its manager and
+remove headless-update.json from the original copy to select its original
+version again. User data is never rolled back; do not downgrade incompatible
+schemas. To remove, unload/disable startup before removing package/version
+directories. Removing user data is a separate, destructive step.
 `);
 }

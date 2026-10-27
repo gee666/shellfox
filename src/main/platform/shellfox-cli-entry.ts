@@ -2,7 +2,7 @@ import path from 'node:path';
 import { lstat } from 'node:fs/promises';
 import { defaultUserData, runCli as runBuiltinCli } from '../ssh/cli';
 import { dispatchCustomCli } from './shellfox-cli-dispatch';
-import { dispatchWindowsLaunch } from './shellfox-cli-launch';
+import { dispatchDesktopLaunch } from './shellfox-cli-launch';
 import { COMPLETION_HELP, completionScript, dispatchCompletion } from './shellfox-completion';
 import { parseControlArgs, runControlCli } from '../control-cli';
 import { connectHostClient, type HostClient } from '../../host/client';
@@ -19,6 +19,8 @@ import { applyRuntimeContext, resolveRuntimeContext } from '../../cli/runtime-co
 import { managerControlRequest } from '../../cli/control';
 import { sessionNamespaces } from '../../cli/session';
 import { trailingHelpRequested } from '../../cli/global-values';
+import { parseUpdateArgs, runHeadlessUpdate } from '../../cli/update';
+import { forwardHeadlessUpdate, watchUpdateParent } from '../../cli/update-activation';
 declare const __SHELLFOX_VERSION__: string;
 let foregroundHostSettled = false;
 function decodeArguments(argv: string[]): string[] {
@@ -45,6 +47,8 @@ export async function runShellfoxCli(argv: string[]): Promise<number> {
   let restoreContext = () => {};
   try {
     argv = decodeArguments(argv); json = argv.includes('--json');
+    const forwarded = await forwardHeadlessUpdate(argv, __filename);
+    if (forwarded !== null) return forwarded;
     let defaultData: string | undefined;
     if (argv[0] === '--shellfox-default-user-data') {
       if (!argv[1] || /[\0\r\n]/.test(argv[1])) throw new CliUsageError('Invalid launcher user data directory.');
@@ -82,7 +86,18 @@ export async function runShellfoxCli(argv: string[]): Promise<number> {
       if (json || (options.host && options.host !== 'local')) throw new CliUsageError('SSH is interactive and local. It does not support --json or a remote --host.');
       return runBuiltinCli(['--user-data', userData, ...args]);
     }
-    restoreContext = applyRuntimeContext(await resolveRuntimeContext(__filename));
+    const runtimeContext = await resolveRuntimeContext(__filename);
+    restoreContext = applyRuntimeContext(runtimeContext);
+    if (args[0] === 'update') {
+      const update = parseUpdateArgs(args.slice(1), options.host);
+      if (runtimeContext.headless) {
+        const result = await runHeadlessUpdate({ entry: __filename, current: __SHELLFOX_VERSION__, ...update });
+        printValue(json ? result : result.message, json, process.stdout); return 0;
+      }
+      if (json) throw new CliUsageError('Desktop updates use api getUpdateStatus or api downloadUpdate for JSON automation.');
+      const code = await dispatchDesktopLaunch(args); if (code !== null) return code;
+      throw new CliFailure('UNSUPPORTED', 'This desktop CLI cannot install updates directly. Use the installed desktop launcher or the in-app updater. Headless deployments need the separate headless release package.');
+    }
     if (args[0] === 'host' && args[1] === 'service') {
       const result = await runHostService(args.slice(2), userData, options);
       if (json) printValue(result, true, process.stdout); return 0;
@@ -119,7 +134,7 @@ export async function runShellfoxCli(argv: string[]): Promise<number> {
         if (command.kind !== 'create-session' || process.env.SHELLFOX_HEADLESS === '1' || json || (options.host && options.host !== 'local')) throw error;
         try { await lstat(path.join(userData, 'host', 'endpoint.json')); throw error; }
         catch (missing) { if (!(missing instanceof Error) || !('code' in missing) || missing.code !== 'ENOENT') throw missing; }
-        const code = await dispatchWindowsLaunch(['start', command.cwd]); if (code !== null) return code;
+        const code = await dispatchDesktopLaunch(['start', command.cwd]); if (code !== null) return code;
         throw error;
       }
       options.host = await resolveTarget(client, options.host);
@@ -127,15 +142,13 @@ export async function runShellfoxCli(argv: string[]): Promise<number> {
       if (!(command.kind === 'terminal' && command.operation === 'attach')) printValue(result, json, process.stdout);
       return 0;
     }
-    if (args[0] === 'update') {
-      if (json) throw new CliUsageError('Use api getUpdateStatus or api downloadUpdate for JSON automation.');
-      const code = await dispatchWindowsLaunch(args); if (code !== null) return code;
-    }
     throw new CliUsageError('Unknown command. Run shellfox help. Session operations belong under shellfox session; terminals use shellfox terminals.');
   } catch (error) { return printError(error, json, process.stdout, process.stderr); }
   finally { try { await client?.close(); } finally { restoreContext(); } }
 }
-if (require.main === module) void runShellfoxCli(process.argv.slice(2)).then(async code => {
+if (require.main === module) {
+  watchUpdateParent();
+  void runShellfoxCli(process.argv.slice(2)).then(async code => {
   process.exitCode = code;
   if (foregroundHostSettled) {
     await Promise.all([process.stdout, process.stderr].map(stream => new Promise<void>(resolve => {
@@ -144,3 +157,4 @@ if (require.main === module) void runShellfoxCli(process.argv.slice(2)).then(asy
     process.exit(code);
   }
 }).catch(error => { process.stderr.write('Shellfox: ' + (error instanceof Error ? error.message : 'Command failed.') + '\n'); process.exitCode = 1; });
+}

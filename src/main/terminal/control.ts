@@ -21,6 +21,15 @@ export class TerminalControlBroker {
   createView(send: (event: TerminalEvent) => void, purge: (tabId: string) => void = () => {}): TerminalControlView {
     const view = new TerminalControlView(this, send, purge); this.views.add(view); return view;
   }
+  reserve(view: TerminalControlView, identity: Identity): Result<{ reserved: true }> {
+    // A disconnected creator must not leave a claim for a dead view.
+    if (!this.views.has(view)) return success({ reserved: true });
+    if (view.tabIds.size >= 16) return failure('VALIDATION', 'At most 16 terminal views may be attached.');
+    if (this.slots.has(identity.tabId)) return failure('VALIDATION', 'Terminal already has a control slot.');
+    this.slots.set(identity.tabId, { ...identity, epoch: ++this.nextEpoch, owner: view, viewers: new Map([[view, { ready: false }]]) });
+    view.tabIds.add(identity.tabId);
+    return success({ reserved: true });
+  }
   snapshot(view: TerminalControlView, input: { tabId: string; generation?: string; afterSequence?: number }): Result<TerminalSnapshotDto> {
     const slot = this.slots.get(input.tabId);
     if (!slot || slot.owner !== view || !slot.viewers.get(view)?.ready) return denied();

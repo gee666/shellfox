@@ -23,7 +23,7 @@ export async function resolveRuntimeContext(entry: string, env: NodeJS.ProcessEn
   const expectedResources = value.headless ? 'resources' : '..';
   const normalize = (file: string) => process.platform === 'win32' ? path.resolve(file).toLowerCase() : path.resolve(file);
   if (value.entry !== expectedEntry || value.resources !== expectedResources || normalize(path.join(root, expectedEntry)) !== normalize(entry)) throw new CliFailure('VALIDATION', 'Runtime manifest does not match this CLI entry.');
-  return { resourcesPath: path.resolve(root, value.resources), runtimePath: value.headless ? root : undefined, headless: value.headless || fallback.headless };
+  return { resourcesPath: path.resolve(root, value.resources), runtimePath: value.headless ? root : undefined, headless: value.headless };
 }
 export function applyRuntimeContext(context: RuntimeContext): () => void {
   const updates = { SHELLFOX_RESOURCES_PATH: context.resourcesPath, SHELLFOX_PROJECT_ROOT: context.projectRoot, SHELLFOX_RUNTIME_PATH: context.runtimePath,

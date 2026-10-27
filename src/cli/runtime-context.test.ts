@@ -8,12 +8,12 @@ async function fixture() { await mkdir('tmp', { recursive: true }); const root =
 it.each(['win32', 'linux', 'darwin'])('infers %s desktop resources from its own manifest rather than cwd or foreign environment', async platform => {
   const root = await fixture(), cli = path.join(root, 'resources', 'cli'); await mkdir(cli, { recursive: true });
   await writeFile(path.join(cli, 'runtime.json'), JSON.stringify({ version: 1, node: platform === 'win32' ? 'cli-runtime/node.exe' : platform === 'darwin' ? '../../MacOS/Shellfox' : '../../shellfox', entry: 'main/cli.cjs', resources: '..', runAsNode: platform !== 'win32', headless: false }));
-  expect(await resolveRuntimeContext(path.join(cli, 'main', 'cli.cjs'), { SHELLFOX_RESOURCES_PATH: '/foreign/resources', SHELLFOX_RUNTIME_PATH: '/foreign/runtime', SHELLFOX_PROJECT_ROOT: '/foreign/project' })).toEqual({ resourcesPath: path.join(root, 'resources'), runtimePath: undefined, headless: false });
+  expect(await resolveRuntimeContext(path.join(cli, 'main', 'cli.cjs'), { SHELLFOX_RESOURCES_PATH: '/foreign/resources', SHELLFOX_RUNTIME_PATH: '/foreign/runtime', SHELLFOX_PROJECT_ROOT: '/foreign/project', SHELLFOX_HEADLESS: '1' })).toEqual({ resourcesPath: path.join(root, 'resources'), runtimePath: undefined, headless: false });
 });
 it('infers headless resources and runtime root, including no-GUI behavior', async () => {
   const root = await fixture();
   await writeFile(path.join(root, 'runtime.json'), JSON.stringify({ version: 1, node: 'bin/node', entry: 'app/main.cjs', resources: 'resources', runAsNode: false, headless: true }));
-  expect(await resolveRuntimeContext(path.join(root, 'app', 'main.cjs'), {})).toEqual({ resourcesPath: path.join(root, 'resources'), runtimePath: root, headless: true });
+  expect(await resolveRuntimeContext(path.join(root, 'app', 'main.cjs'), { SHELLFOX_HEADLESS: '0' })).toEqual({ resourcesPath: path.join(root, 'resources'), runtimePath: root, headless: true });
 });
 it('retains explicit development project context when no packaged manifest exists', async () => {
   const root = await fixture();

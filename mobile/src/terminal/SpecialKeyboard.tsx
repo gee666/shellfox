@@ -14,7 +14,7 @@ const navigation = [
   ['Home', 'Home'], ['End', 'End'], ['PgUp', 'PageUp'], ['PgDn', 'PageDown'],
   ['Insert', 'Insert'], ['Delete', 'Delete'],
 ] as const;
-const shortcuts = ['c', 'd', 'z', 'l', '[', ']', '\\', '/', '|', '~'];
+const shortcuts = ['c', 'd', 'j', 'z', 'l', '[', ']', '\\', '/', '|', '~'];
 
 export function SpecialKeyboard({ modifiers, onModifier, onKey, bottomInset }: Props) {
   return <View accessibilityLabel="Special keys keyboard">

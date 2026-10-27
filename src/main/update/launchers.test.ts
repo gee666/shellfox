@@ -39,7 +39,8 @@ printf launched > "$SHELLFOX_TEST_GUI"
       await writeFile(launcher, linuxLauncher({ executable: posix(exe), cliHelper: posix(helper), userData: path.join(root, 'private data') }));
       for (const args of [['update', '--help'], ['update', '-h'], ['update', 'help'], ['update', '--check', '--help']]) {
         const { stdout } = await exec(shell, [posix(launcher), ...args], { cwd: root, env, timeout: 10000 });
-        expect(stdout).toContain('update [--check]'); expect(stdout).toContain('Application');
+        expect(stdout).toContain('update [--check]'); expect(stdout).toContain('Update');
+        expect(stdout).toContain('installs a verified version'); expect(stdout).toContain('never stop hosts');
       }
       for (const args of [['update', '--json'], ['--json', 'update'], ['update', '--check', '--json'], ['update', '--json', '--check'], ['--yes', 'update', '--json']]) {
         const result = await exec(shell, [posix(launcher), ...args], { cwd: root, env, timeout: 10000 }).catch((error: unknown) => {
@@ -53,6 +54,41 @@ printf launched > "$SHELLFOX_TEST_GUI"
       await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
     } finally { await rm(root, { recursive: true, force: true }); }
   }, 30000);
+  it.skipIf(process.platform === 'win32')('runs POSIX desktop checks with global flags without contacting a host or installing', async () => {
+    await mkdir('tmp', { recursive: true }); const root = await mkdtemp(path.resolve('tmp/posix-update-globals-'));
+    const exec = promisify(execFile);
+    try {
+      const bin = path.join(root, 'bin'), log = path.join(root, 'requests'), api = path.join(root, 'release.json');
+      const exe = path.join(root, 'Shellfox.app/Contents/MacOS/Shellfox'), helper = path.join(root, 'cli.cjs'), launcher = path.join(root, 'shellfox');
+      await mkdir(bin); await mkdir(path.dirname(exe), { recursive: true });
+      const fake = async (name: string, body: string) => {
+        await writeFile(path.join(bin, name), '#!/bin/sh\n' + body + '\n'); await chmod(path.join(bin, name), 0o755);
+      };
+      await fake('dpkg-query', `if [ "$1" = -S ]; then printf 'shellfox: %s\\n' "$2"; else printf '0.9.5'; fi`);
+      await fake('PlistBuddy', `case "$2" in *Identifier) echo local.shellfox;; *ShortVersion*) echo 0.9.5;; esac`);
+      await fake('curl', `out=
+while [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then out=$2; shift; fi; shift; done
+cp "$SHELLFOX_TEST_API" "$out" || exit 1
+printf request >> "$SHELLFOX_TEST_REQUESTS"
+printf 200`);
+      await writeFile(path.join(root, 'Shellfox.app/Contents/Info.plist'), 'local fixture');
+      await writeFile(api, JSON.stringify({ tag_name: 'v0.9.6', assets: [] }));
+      await writeFile(exe, '#!/bin/sh\nhelper=$1; shift\nexec "$SHELLFOX_TEST_NODE" "$helper" "$@"\n'); await chmod(exe, 0o755);
+      await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs',
+        packages: 'external', loader: { '.sh': 'text' }, define: { __SHELLFOX_VERSION__: '"0.9.5"' } });
+      await writeFile(launcher, linuxLauncher({ executable: exe, cliHelper: helper }));
+      const env = { ...process.env, PATH: bin + ':' + process.env.PATH, TMPDIR: root, SHELLFOX_TEST_NODE: process.execPath,
+        SHELLFOX_TEST_API: api, SHELLFOX_TEST_REQUESTS: log, SHELLFOX_PLISTBUDDY: path.join(bin, 'PlistBuddy') };
+      for (const args of [
+        ['update', '--check'], ['--host', 'local', 'update', '--check'], ['update', '--check', '--host=local'],
+        ['--yes', 'update', '--check'], ['--user-data', path.join(root, 'private data'), 'update', '--check'],
+      ]) {
+        const result = await exec('/bin/sh', [launcher, ...args], { cwd: root, env, timeout: 10_000 });
+        expect(result.stdout).toContain('Shellfox 0.9.6 is available'); expect(result.stderr).toBe('');
+      }
+      expect(await readFile(log, 'utf8')).toBe('request'.repeat(5));
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }, 30_000);
   it('routes `update` in the Windows cmd and POSIX shims to the PowerShell updater', () => {
     const shims = shellfoxShims({ executable: 'C:\\Users\\me\\AppData\\Local\\shellfox\\app-0.1.1\\Shellfox.exe', updateScript: updatePs1 });
     // cmd forwards argv to the bundled helper, which spawns the updater without cmd /c.

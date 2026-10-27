@@ -83,7 +83,7 @@ export function TerminalView({
       onState: state => {
         setBlocked(state === 'blocked');
         if (state === 'blocked') {
-          keyboardModeRef.current = 'closed'; setKeyboardMode('closed'); setSelecting(false); Keyboard.dismiss();
+          keyboardModeRef.current = 'closed'; setKeyboardMode('closed'); setSelecting(false); setSelection(''); Keyboard.dismiss();
         }
         callbacks.current.onState?.(state);
       },

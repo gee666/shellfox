@@ -6,7 +6,7 @@ const subcommands: Record<string, string[]> = {
   machines: ['list', 'connect', 'disconnect', 'forget'], approvals: ['list', 'approve', 'revoke', 'reject'],
   session: sessionOperations, ss: sessionOperations, sessions: sessionOperations,
   terminals: terminalOperations, tm: terminalOperations,
-  settings: ['read', 'update'], profiles: ['list'], path: ['home', 'resolve', 'complete', 'create'], remote: ['api'],
+  update: ['--check'], settings: ['read', 'update'], profiles: ['list'], path: ['home', 'resolve', 'complete', 'create'], remote: ['api'],
 };
 const commands = [
   ['host', 'Run or manage the host'], ['session', 'Manage sessions'],

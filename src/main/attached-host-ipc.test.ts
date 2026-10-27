@@ -30,7 +30,9 @@ async function fixture() {
   return { ...service, client, window, rpc, ready, stopped, uninstall, invoke };
 }
 it('validates renderer identity and only forwards manager contracts, never host lifecycle methods', async () => {
-  const f = await fixture();
+  const f = await fixture(), fork = vi.spyOn(f.client, 'fork'), create = vi.spyOn(f.service, 'createSession');
+  expect(await f.invoke('createSession', { cwd: '/work', requestId: randomUUID() }, { sender: {}, senderFrame: f.window.webContents.mainFrame })).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
+  expect(fork).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled();
   expect(await f.invoke('getSnapshot', {}, { sender: {}, senderFrame: f.window.webContents.mainFrame })).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
   expect(await f.invoke('host.stop')).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(await f.invoke('createSession', { cwd: '/work', requestId: 'invalid' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
@@ -43,6 +45,8 @@ it('uses the shared host but keeps clipboard and dialogs in Electron', async () 
   const snapshot = responseSchemas.getSnapshot.parse(await f.invoke('getSnapshot'));
   expect(snapshot.ok).toBe(true); expect(f.ready).toHaveBeenCalledTimes(1);
   const tab = created.value.tabs[0];
+  // Creation must use the renderer document, not the desktop metadata client.
+  expect(await f.client.service.attachTerminal({ tabId: tab.id })).toMatchObject({ ok: true, value: { control: 'blocked' } });
   const attachment = responseSchemas.attachTerminal.parse(await f.invoke('attachTerminal', { tabId: tab.id }));
   if (!attachment.ok || attachment.value.control !== 'owned') throw new Error('No owner');
   await f.invoke('acknowledgeTerminal', { tabId: tab.id, generation: tab.generation, controlEpoch: attachment.value.controlEpoch, sequence: attachment.value.lastSequence });
@@ -67,14 +71,14 @@ for (const lifecycle of ['destroyed', 'did-start-navigation', 'render-process-go
   expect(await f.client.service.attachTerminal(id)).toMatchObject({ ok: true, value: { control: 'owned' } });
   expect(f.processes[0].kill).not.toHaveBeenCalled();
 });
-it('does not let an old pending renderer document claim or detach the next document view', async () => {
+it.each(['attachTerminal', 'createSession'] as const)('does not let an old pending renderer document %s claim the next document view', async method => {
   const f = await fixture(), created = await f.service.createSession({ cwd: '/work', requestId: randomUUID() });
   if (!created.ok) throw new Error('No session');
   const id = { tabId: created.value.tabs[0].id, generation: created.value.tabs[0].generation! };
   const old = await f.client.fork(); let finish: (client: HostClient) => void = () => {};
   const pending = new Promise<HostClient>(resolve => { finish = resolve; });
   const fork = vi.spyOn(f.client, 'fork').mockReturnValueOnce(pending);
-  const stale = f.invoke('attachTerminal', id);
+  const stale = f.invoke(method, method === 'attachTerminal' ? id : { cwd: '/new', requestId: randomUUID() });
   await vi.waitFor(() => expect(fork).toHaveBeenCalledOnce());
   electron.lifecycle.get('did-start-navigation')?.();
   expect(await f.invoke('attachTerminal', id)).toMatchObject({ ok: true, value: { control: 'owned' } });
@@ -82,4 +86,5 @@ it('does not let an old pending renderer document claim or detach the next docum
   await vi.waitFor(() => expect(old.request('getSnapshot')).rejects.toThrow('closed'));
   expect(await f.client.service.attachTerminal(id)).toMatchObject({ ok: true, value: { control: 'blocked' } });
   expect(f.processes[0].kill).not.toHaveBeenCalled();
+  expect(f.service.ownedTerminalCount()).toBe(1);
 });

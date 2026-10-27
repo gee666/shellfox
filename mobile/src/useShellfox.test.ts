@@ -5,7 +5,8 @@ import type { NetworkPeer, NetworkStatus } from './network';
 import type { Preferences } from './preferences';
 import { snapshotSchema } from '../../src/shared/schemas';
 import type { RemoteResponse } from '../../src/shared/remote-contracts';
-import { deferred, flush, TestTransport } from './client/test-fixtures';
+import { deferred, flush, ids, session as testSession, TestTransport } from './client/test-fixtures';
+import { sessionDot, tabDot } from '../../src/shared/terminal-status';
 
 const mocks = vi.hoisted(() => ({
   appState: { currentState: 'active', addEventListener: vi.fn() }, discovering: false,
@@ -98,6 +99,32 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     await act(async () => { transport.events([{ type: 'terminal', event: { type: 'activity', tabId, busy: true } }]); await flush(); });
     expect(result.current.machines[0].busyTabIds[tabId]).toBe(true);
     await foreground('background'); expect(result.current.machines[0].busyTabIds).toEqual({});
+  });
+  it('recovers session and tab busy dots from the replacement event stream after background reconnect', async () => {
+    const activeSnapshot = snapshotSchema.parse({ ...snapshot, sessions: [{ ...testSession, status: 'running', tabs: [{
+      id: ids.tab, sessionId: ids.session, title: 'agent', cwd: '/work', ordinal: 0, createdAt: testSession.createdAt,
+      lifecycle: 'open', status: 'running', agents: 1, monitoringReason: null, error: null,
+    }] }] });
+    transport.operation = async () => JSON.stringify({ ok: true, value: activeSnapshot });
+    mocks.load.mockResolvedValue({ ...defaults, remembered: [host.id] }); mocks.status.mockResolvedValue(online);
+    const { result } = renderHook(useShellfox); await settle();
+    const activity = async (busy: boolean) => {
+      await act(async () => { transport.events([{ type: 'terminal', event: { type: 'activity', tabId: ids.tab, busy } }]); await flush(); });
+    };
+    const dotKinds = () => {
+      const machine = result.current.machines[0], session = machine.snapshot?.sessions[0];
+      if (!session) throw new Error('Missing session');
+      return [sessionDot(session, machine.busyTabIds).kind, tabDot(session.tabs[0], machine.busyTabIds[ids.tab]).kind];
+    };
+    await activity(true); expect(dotKinds()).toEqual(['busy', 'busy']);
+    await foreground('background'); expect(result.current.machines[0].busyTabIds).toEqual({});
+    transport.events([]); await settle(); await foreground('active');
+    expect(transport.calls('/v1/pair')).toHaveLength(2);
+    const requests = transport.calls('/v1/request').length;
+    await activity(true); expect(dotKinds()).toEqual(['busy', 'busy']);
+    await activity(false); expect(dotKinds()).toEqual(['running', 'running']);
+    await activity(true); expect(dotKinds()).toEqual(['busy', 'busy']);
+    expect(transport.calls('/v1/request')).toHaveLength(requests);
   });
   it('does not start native networking if unmounted while loading preferences', async () => {
     const loading = deferred<Preferences>(); mocks.load.mockReturnValue(loading.promise);

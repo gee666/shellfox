@@ -275,6 +275,9 @@ importers:
       '@react-native-async-storage/async-storage':
         specifier: 2.2.0
         version: 2.2.0(react-native@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(@react-native-community/cli@20.2.0(supports-color@7.2.0)(typescript@5.9.3))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(supports-color@7.2.0))(@types/react@19.2.14)(react@19.3.0)(supports-color@7.2.0))
+      '@react-native-clipboard/clipboard':
+        specifier: 1.16.3
+        version: 1.16.3(react-native@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(@react-native-community/cli@20.2.0(supports-color@7.2.0)(typescript@5.9.3))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(supports-color@7.2.0))(@types/react@19.2.14)(react@19.3.0)(supports-color@7.2.0))(react@19.3.0)
       '@xterm/addon-fit':
         specifier: 0.11.0
         version: 0.11.0
@@ -1079,6 +1082,19 @@ packages:
     resolution: {integrity: sha512-gvRvjR5JAaUZF8tv2Kcq/Gbt3JHwbKFYfmb445rhOj6NUMx3qPLixmDx5pZAyb9at1bYvJ4/eTUipU5aki45xw==}
     peerDependencies:
       react-native: ^0.0.0-0 || >=0.65 <1.0
+
+  '@react-native-clipboard/clipboard@1.16.3':
+    resolution: {integrity: sha512-cMIcvoZKIrShzJHEaHbTAp458R9WOv0fB6UyC7Ek4Qk561Ow/DrzmmJmH/rAZg21Z6ixJ4YSdFDC14crqIBmCQ==}
+    peerDependencies:
+      react: '>= 16.9.0'
+      react-native: '>= 0.61.5'
+      react-native-macos: '>= 0.61.0'
+      react-native-windows: '>= 0.61.0'
+    peerDependenciesMeta:
+      react-native-macos:
+        optional: true
+      react-native-windows:
+        optional: true
 
   '@react-native-community/cli-clean@20.2.0':
     resolution: {integrity: sha512-krqbhFiwHN8l5wZ2XTcrNq9N+DqDWHxW8RK0bIcrK0O+fMvjYi9e/1Pnx2W0CTotOVcZpHzUbgZ4TQVF231Skw==}
@@ -4839,6 +4855,11 @@ snapshots:
   '@react-native-async-storage/async-storage@2.2.0(react-native@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(@react-native-community/cli@20.2.0(supports-color@7.2.0)(typescript@5.9.3))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(supports-color@7.2.0))(@types/react@19.2.14)(react@19.3.0)(supports-color@7.2.0))':
     dependencies:
       merge-options: 3.0.4
+      react-native: 0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(@react-native-community/cli@20.2.0(supports-color@7.2.0)(typescript@5.9.3))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(supports-color@7.2.0))(@types/react@19.2.14)(react@19.3.0)(supports-color@7.2.0)
+
+  '@react-native-clipboard/clipboard@1.16.3(react-native@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(@react-native-community/cli@20.2.0(supports-color@7.2.0)(typescript@5.9.3))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(supports-color@7.2.0))(@types/react@19.2.14)(react@19.3.0)(supports-color@7.2.0))(react@19.3.0)':
+    dependencies:
+      react: 19.3.0
       react-native: 0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(@react-native-community/cli@20.2.0(supports-color@7.2.0)(typescript@5.9.3))(@react-native/metro-config@0.88.0(@babel/core@7.29.7(supports-color@7.2.0))(supports-color@7.2.0))(@types/react@19.2.14)(react@19.3.0)(supports-color@7.2.0)
 
   '@react-native-community/cli-clean@20.2.0':

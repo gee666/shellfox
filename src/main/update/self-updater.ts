@@ -24,7 +24,7 @@ export interface UpdateSource {
 export type QuitInstallResult = 'not-ready' | 'cancelled' | 'installed';
 export type UpdateFetch = (url: string, init: RequestInit) => Promise<Response>;
 
-async function readReleaseBody(response: Response): Promise<unknown> {
+export async function readReleaseBody(response: Response): Promise<unknown> {
   if (!response.body) throw new Error('Missing release metadata.');
   const reader = response.body.getReader(), chunks: Uint8Array[] = [];
   let size = 0;

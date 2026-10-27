@@ -8,6 +8,7 @@ export class TerminalActivity {
   private inputAt = -Infinity;
   private timer?: ReturnType<typeof setTimeout>;
   constructor(private readonly tabId: string, private readonly emit: (event: Extract<TerminalEvent, { type: 'activity' }>) => void) {}
+  get isBusy(): boolean { return this.busy; }
   input(): void { this.inputAt = Date.now(); }
   output(): void {
     if (Date.now() - this.inputAt < TERMINAL_ECHO_MS) return;

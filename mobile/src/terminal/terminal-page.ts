@@ -39,7 +39,7 @@ const fitTerminal = () => {
 };
 function createTerminal(cols: number, rows: number, fontSize: number) {
   const focused = !!terminal?.textarea && document.activeElement === terminal.textarea;
-  terminal?.dispose(); container.replaceChildren();
+  keyboard?.dispose(); terminal?.dispose(); container.replaceChildren();
   // Hold the replay grid until the first output command has painted.
   fitted = ''; historical = true; writing = true; selecting = false; fitPending = false;
   const term = new Terminal({ cols, rows, fontSize, fontFamily: 'Menlo, Consolas, monospace',
@@ -55,8 +55,11 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
     textarea.spellcheck = false;
   }
   if (focused) term.focus();
+  const keyboardEpoch = epoch;
   keyboard = new PageKeyboard(term, data => {
-    if (!historical && data && !data.includes('\0')) send({ type: 'input', ...identity(), data });
+    if (terminal === term && epoch === keyboardEpoch && !historical && data && !data.includes('\0')) {
+      send({ type: 'input', ...identity(), data });
+    }
   });
   term.onSelectionChange(() => send({ type: 'selection', ...identity(), text: term.getSelection().slice(0, 65536) }));
 }
@@ -71,7 +74,7 @@ function receive(event: MessageEvent) {
     const message = parsed.data;
     if (message.type === 'clear') {
       epoch = message.epoch; clearLongPress(); anchor = null; start = null;
-      terminal?.blur(); terminal?.dispose(); terminal = null; fit = null; keyboard = null;
+      keyboard?.dispose(); terminal?.blur(); terminal?.dispose(); terminal = null; fit = null; keyboard = null;
       historical = true; writing = true; selecting = false; fitPending = false;
       cancelAnimationFrame(fitFrame); container.replaceChildren(); return;
     }
@@ -151,8 +154,11 @@ container.addEventListener('touchmove', event => {
   if (!terminal) return;
   if (!anchor) {
     // xterm 6 uses a custom viewport, so native WebView scrolling cannot move its history.
-    if (!start || !moved || selecting || terminal.buffer.active.type !== 'normal'
+    if (!start || !moved || selecting || historical
       || Math.abs(touch.clientY - start.y) <= Math.abs(touch.clientX - start.x)) return;
+    const mouseMode = terminal.modes.mouseTrackingMode;
+    const remoteScroll = mouseMode === 'vt200' || mouseMode === 'drag' || mouseMode === 'any';
+    if (!remoteScroll && terminal.buffer.active.type !== 'normal') return;
     const height = container.querySelector('.xterm-screen')?.getBoundingClientRect().height;
     if (!height) return;
     event.preventDefault();
@@ -160,7 +166,14 @@ container.addEventListener('touchmove', event => {
     scrollY = touch.clientY;
     const lines = Math.trunc(scrollRemainder);
     scrollRemainder -= lines;
-    if (lines) terminal.scrollLines(lines);
+    if (remoteScroll) {
+      // Let xterm encode the application's requested mouse protocol, including after replay.
+      // Keep the initial cell so a swipe does not drift into another application panel.
+      for (let i = 0; i < Math.min(Math.abs(lines), terminal.rows); i++) {
+        terminal.element?.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true,
+          clientX: start.x, clientY: start.y, deltaY: Math.sign(lines), deltaMode: WheelEvent.DOM_DELTA_LINE }));
+      }
+    } else if (lines) terminal.scrollLines(lines);
     return;
   }
   const end = cell(touch); if (!end) return;

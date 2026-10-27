@@ -60,7 +60,7 @@ it.skipIf(process.platform !== 'win32')('runs session create namespace aliases t
   const folder=path.join(root,'project space'); await mkdir(folder);
   await writeFile(gui,'require("node:fs").writeFileSync(process.env.SHELLFOX_TEST_ARGS,JSON.stringify(process.argv.slice(2)));');
   const helper = path.join(root, 'main', 'cli.cjs');
-  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
+  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', loader: { '.sh': 'text' }, define: { __SHELLFOX_VERSION__: '"test"' } });
   const runtime = path.win32.join(path.dirname(helper), '../cli-runtime/node.exe');
   await writeFile(shim,shellfoxShims({executable:process.execPath,appPath:gui,cliHelper:helper,userData:path.join(root,'data')}).cmd.replaceAll(runtime,process.execPath));
   for(const alias of ['session','ss','sessions']) {

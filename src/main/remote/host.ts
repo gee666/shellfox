@@ -11,7 +11,7 @@ const identity = z.object({ clientId: z.uuid() }).strict();
 const operation = identity.extend({ method: z.string().max(100), payload: z.unknown() });
 interface Client {
   peerId: string; delivery: TerminalControlView; events: RemoteHostEvent[]; bytes: number; touched: number;
-  notify?: () => void; pendingPoll: boolean; requests: number;
+  notify?: () => void; eventEpoch: number; pendingPoll: number | null; requests: number;
 }
 export class RemoteHost {
   private readonly server = createServer((request, response) => { void this.handle(request, response); });
@@ -48,7 +48,8 @@ export class RemoteHost {
   private drop(id: string): void { const client = this.clients.get(id); if (!client) return; this.clients.delete(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.(); }
   private purge(id: string, tabId: string): void {
     const client = this.clients.get(id); if (!client) return;
-    client.events = client.events.filter(event => event.type !== 'terminal' || event.event.tabId !== tabId);
+    // Activity is global status metadata, not an owned terminal frame.
+    client.events = client.events.filter(event => event.type !== 'terminal' || event.event.type === 'activity' || event.event.tabId !== tabId);
     client.bytes = client.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event)), 0);
   }
   private enqueue(id: string, event: RemoteHostEvent): void {
@@ -58,9 +59,29 @@ export class RemoteHost {
       for (const previous of client.events) if (previous.type === 'changed') client.bytes -= Buffer.byteLength(JSON.stringify(previous));
       client.events = client.events.filter(e => e.type !== 'changed');
     }
+    if (event.type === 'terminal' && event.event.type === 'activity') {
+      const tabId = event.event.tabId;
+      client.events = client.events.filter(previous => {
+        if (previous.type !== 'terminal' || previous.event.type !== 'activity' || previous.event.tabId !== tabId) return true;
+        client.bytes -= Buffer.byteLength(JSON.stringify(previous));
+        return false;
+      });
+    }
     const bytes = Buffer.byteLength(JSON.stringify(event));
     if (client.events.length >= 1024 || client.bytes + bytes > 2 * 1024 * 1024) { this.drop(id); return; }
     client.events.push(event); client.bytes += bytes; client.notify?.();
+  }
+  private publishActivity(id: string): void {
+    const profiles = this.service.getTerminalProfiles();
+    if (!profiles.ok) return;
+    const elevated = new Set(profiles.value.profiles.filter(profile => profile.elevation).map(profile => profile.id));
+    // Pairing starts a new client activity epoch, even when the host view survived.
+    // Seed all live tabs, at most 64, without attaching to their output or polling them.
+    for (const owned of this.service.backend.live()) {
+      const tab = this.service.repository.tab(owned.tabId);
+      if (owned.state !== 'open' || !tab?.terminal || tab.operationId !== owned.generation || elevated.has(tab.terminal.profileId)) continue;
+      this.enqueue(id, { type: 'terminal', event: { type: 'activity', tabId: owned.tabId, busy: this.service.backend.isBusy(owned.tabId) } });
+    }
   }
   private reply(response: ServerResponse, value: unknown): void {
     if (!response.destroyed && !response.writableEnded) { response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); response.end(JSON.stringify(value)); }
@@ -95,24 +116,28 @@ export class RemoteHost {
       if (!this.approved(peer.id)) { this.pending(peer, input.clientId); this.reply(response, failure('APPROVAL_REQUIRED', 'Approve this device in Shellfox on the host first.', true)); return; }
       if (url === '/v1/pair') {
         const existing = this.clients.get(id);
-        if (existing) { existing.touched = Date.now(); existing.notify?.(); }
+        if (existing) { existing.touched = Date.now(); existing.eventEpoch++; existing.pendingPoll = null; existing.notify?.(); }
         if (!existing) {
           if (this.clients.size >= 32) { this.reply(response, failure('VALIDATION', 'Too many remote clients.')); return; }
-          this.clients.set(id, { peerId: peer.id, delivery: this.service.createTerminalView(event => this.enqueue(id, { type: 'terminal', event }), tabId => this.purge(id, tabId)), events: [], bytes: 0, touched: Date.now(), pendingPoll: false, requests: 0 });
+          this.clients.set(id, { peerId: peer.id, delivery: this.service.createTerminalView(event => this.enqueue(id, { type: 'terminal', event }), tabId => this.purge(id, tabId)), events: [], bytes: 0, touched: Date.now(), eventEpoch: 1, pendingPoll: null, requests: 0 });
         }
+        this.publishActivity(id);
         this.reply(response, success({ paired: true, terminalControl: 'exclusive-v1' })); return;
       }
       const client = this.clients.get(id);
       if (!client) { this.reply(response, failure('AUTH_FAILED', 'Reconnect this remote view.', true)); return; }
       client.touched = Date.now();
       if (url === '/v1/events') {
-        if (client.pendingPoll) { this.reply(response, failure('VALIDATION', 'A poll is already pending.')); return; }
-        client.pendingPoll = true;
+        if (client.pendingPoll !== null) { this.reply(response, failure('VALIDATION', 'A poll is already pending.')); return; }
+        const eventEpoch = client.eventEpoch;
+        client.pendingPoll = eventEpoch;
         if (!client.events.length) await new Promise<void>(resolve => {
-          const done = () => { clearTimeout(timer); response.removeListener('close', done); client.notify = undefined; resolve(); };
+          const done = () => { clearTimeout(timer); response.removeListener('close', done); if (client.notify === done) client.notify = undefined; resolve(); };
           const timer = setTimeout(done, 20_000); client.notify = done; response.once('close', done);
         });
-        client.pendingPoll = false;
+        if (client.pendingPoll === eventEpoch) client.pendingPoll = null;
+        // A surviving poll from before re-pairing must not drain the recovery events.
+        if (client.eventEpoch !== eventEpoch) { this.reply(response, failure('AUTH_FAILED', 'Remote event subscription replaced. Poll after pairing.', true)); return; }
         if (!this.approved(peer.id) || this.isDenied(id)) { this.reply(response, failure('ACCESS_DENIED', 'The host revoked this connection. Request access again.', false)); return; }
         if (this.clients.get(id) !== client) { this.reply(response, failure('AUTH_FAILED', 'Remote view disconnected.', true)); return; }
         const events = client.events; client.events = []; client.bytes = 0;

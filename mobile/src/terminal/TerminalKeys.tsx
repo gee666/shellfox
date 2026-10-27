@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -39,8 +40,19 @@ const keys = [
 export function TerminalKeys(props: Props) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [dialog, setDialog] = useState<'copy' | 'paste' | null>(null);
+  const [pasting, setPasting] = useState(false);
   const [paste, setPaste] = useState('');
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setCopied(false), [props.selection]);
+  const copy = () => {
+    if (!props.selection) return;
+    try {
+      Clipboard.setString(props.selection);
+      setCopied(true);
+    } catch {
+      Alert.alert('Could not copy', 'The clipboard is unavailable. Try again.');
+    }
+  };
   const button = (label: string, onPress: () => void, active = false, disabled = false) => (
     <AccessoryButton key={label} label={label} onPress={onPress} active={active} disabled={disabled} />
   );
@@ -51,12 +63,12 @@ export function TerminalKeys(props: Props) {
           {button('Ctrl', props.onControl, props.control)}
           {keys.map(([label, data]) => button(label, () => props.onKey(data)))}
           {button('Select', props.onSelect, props.selecting)}
-          {button('Copy', () => setDialog('copy'), false, !props.selection)}
           {button('Paste', () => {
             setPaste('');
-            setDialog('paste');
+            setPasting(true);
           })}
         </KeyboardAccessoryScroll>
+        {!!props.selection && button(copied ? 'Copied' : 'Copy', copy)}
         <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
           <KeyboardIcon active={props.systemKeyboard} />
         </AccessoryButton>
@@ -65,48 +77,33 @@ export function TerminalKeys(props: Props) {
         </AccessoryButton>
       </KeyboardAccessory>
       <Modal
-        visible={dialog !== null}
+        visible={pasting}
         transparent
         animationType="none"
-        onRequestClose={() => setDialog(null)}
+        onRequestClose={() => setPasting(false)}
       >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.overlay}>
           <View style={styles.dialog} accessibilityViewIsModal>
-            <Text style={styles.heading}>{dialog === 'copy' ? 'Select text to copy' : 'Paste text'}</Text>
-            {dialog === 'copy' ? (
-              <ScrollView style={styles.editor}>
-                <Text selectable style={styles.copy}>
-                  {props.selection}
-                </Text>
-              </ScrollView>
-            ) : (
-              <TextInput
-                autoFocus
-                multiline
-                value={paste}
-                onChangeText={setPaste}
-                maxLength={65000}
-                style={styles.editor}
-                autoCorrect={false}
-                autoCapitalize="none"
-                placeholder="Touch and hold to paste"
-                placeholderTextColor={colors.muted}
-                accessibilityLabel="Text to paste into terminal"
-              />
-            )}
+            <Text style={styles.heading}>Paste text</Text>
+            <TextInput
+              autoFocus
+              multiline
+              value={paste}
+              onChangeText={setPaste}
+              maxLength={65000}
+              style={styles.editor}
+              autoCorrect={false}
+              autoCapitalize="none"
+              placeholder="Touch and hold to paste"
+              placeholderTextColor={colors.muted}
+              accessibilityLabel="Text to paste into terminal"
+            />
             <View style={styles.actions}>
-              {dialog === 'paste' && button('Cancel', () => setDialog(null))}
-              {dialog === 'paste' &&
-                button(
-                  'Send',
-                  () => {
-                    props.onPaste(paste);
-                    setDialog(null);
-                  },
-                  false,
-                  !paste,
-                )}
-              {dialog === 'copy' && button('Done', () => setDialog(null))}
+              {button('Cancel', () => setPasting(false))}
+              {button('Send', () => {
+                props.onPaste(paste);
+                setPasting(false);
+              }, false, !paste)}
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -134,6 +131,5 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: 8,
     textAlignVertical: 'top',
   },
-  copy: { color: colors.text, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13 },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 10 },
 });

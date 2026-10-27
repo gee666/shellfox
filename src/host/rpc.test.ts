@@ -76,7 +76,7 @@ describe('local host RPC', () => {
     if (!tab.generation) throw new Error('Missing generation');
     const id = { tabId: tab.id, generation: tab.generation };
     const changes = await b.poll(); expect(changes.events.every(e => e.type !== 'changed' || !e.event.selectSessionId)).toBe(true);
-    const owned = await a.service.attachTerminal(id), blocked = await b.service.attachTerminal(id);
+    const blocked = await b.service.attachTerminal(id), owned = await a.service.attachTerminal(id);
     if (!owned.ok || owned.value.control !== 'owned') throw new Error('Missing owner');
     expect(blocked).toMatchObject({ ok: true, value: { control: 'blocked' } });
     expect(blocked.ok && 'chunks' in blocked.value).toBe(false);
@@ -111,6 +111,8 @@ describe('local host RPC', () => {
     if (!tab.generation) throw new Error('Missing generation');
     const id = { tabId: tab.id, generation: tab.generation };
     const events: unknown[] = [], local = f.service.createTerminalView(event => events.push(event));
+    expect(local.attach(id)).toMatchObject({ ok: true, value: { control: 'blocked' } });
+    local.take(id);
     const localAttachment = local.attach(id);
     if (!localAttachment.ok || localAttachment.value.control !== 'owned') throw new Error('No local owner');
     expect(await a.service.attachTerminal(id)).toMatchObject({ ok: true, value: { control: 'blocked' } });

@@ -137,6 +137,7 @@ export class PtyBackend {
     return e && { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, profileId: e.profileId, cwd: e.cwd, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, root: { ...e.root }, cleanupPending: e.cleanupPending, processTitle: e.mirror.title };
   }
   live(): OwnedTerminal[] { return [...this.entries.keys()].map(id => this.get(id)!).filter(e => e.state === 'open' || e.cleanupPending); }
+  isBusy(tabId: string): boolean { return this.entries.get(tabId)?.activity.isBusy ?? false; }
   async awaitCleanup(sessionId: string): Promise<Result<{ confirmed: true }>> {
     const pending = [...this.entries.values()].filter(e => e.sessionId === sessionId && e.state === 'closed' && e.cleanupPending);
     for (const e of pending) { if (!e.closing) return failure('RETRY_CONFIRM_REQUIRED', 'Owned descendant cleanup is unconfirmed; no replacement shell was launched.'); const result = await e.closing; if (!result.ok) return result; }

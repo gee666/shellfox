@@ -1,10 +1,14 @@
 # In-app updates
 
+For terminal-only deployments, see [headless updates](headless.md#updates). The headless CLI installs a verified matching version beside the current installation and atomically selects it for future original-launcher and service starts. The running host stays unchanged until an explicit restart. It does not invoke a desktop installer or the graphical confirmation flow below.
+
 Installed builds check the latest stable GitHub release at startup and once an hour while running. The renderer refreshes the notice once a minute and polls download progress twice a second. The compact sidebar control shows only a download button, a progress bar with estimated time remaining, or an install button.
 
 Click **download vX.Y.Z** to fetch and verify an installer without interrupting any terminal. Once the download is ready, click **install and restart**. A themed in-app confirmation defaults to Cancel and explicitly warns that all embedded terminals and their running commands will stop. Cancellation leaves the download ready and terminals running. Legacy external terminals are never closed.
 
 After confirmation, the main process starts an installer helper and waits for a readiness acknowledgement before closing any terminal. Terminal closure is reversible at the service level. It pauses new launches and closes owned shells without disposing the backend or subscriptions. Once exit metadata has been saved, the main process sends commit and waits for a second helper acknowledgement. Only then does it finalize the service and quit. The helper requires both explicit commit and manager-process exit before replacing files. Restarting creates fresh shells; running commands do not survive an update.
+
+The [desktop CLI update command](cli.md#updates) uses separate platform installer scripts, not this in-app confirmation and verification flow. It rejects `--json` and remote `--host` targets. Portable/source limitations still apply even when the CLI can control an installed host.
 
 ## Supported installations
 

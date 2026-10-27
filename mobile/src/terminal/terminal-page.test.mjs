@@ -7,7 +7,8 @@ import { chromium, expect } from '@playwright/test';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const generator = fileURLToPath(new URL('../../../scripts/mobile-terminal.mjs', import.meta.url));
-// This suite deliberately uses a real browser. xterm rendering and IME do not work in jsdom.
+// xterm rendering and IME need a real browser. Subtests share one terminal's modes,
+// history and attachment epochs, so the lifecycle scenarios stay in one fixture.
 test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => {
   execFileSync(process.execPath, [generator], { cwd: root, timeout: 30000 });
   const module = await readFile(new URL('./terminal-html.ts', import.meta.url), 'utf8');
@@ -104,6 +105,145 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     await page.keyboard.type('after');
     await expect.poll(() => receivedInput().slice(plain).join('')).toBe('after');
   });
+  await t.test('Ctrl+J IME input never replays composing text as literal letters', async () => {
+    await send({ type: 'modifiers', modifiers: { ...noModifiers, ctrl: true } });
+    const before = receivedInput().length;
+    await page.evaluate(async () => {
+      const textarea = document.querySelector('.xterm-helper-textarea');
+      textarea.value = '';
+      textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      textarea.value = 'j';
+      textarea.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: 'j' }));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'j' }));
+      textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'j' }));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    assert.deepEqual(receivedInput().slice(before), ['\n']);
+    await send({ type: 'modifiers', modifiers: noModifiers });
+  });
+  const compositionSequence = async steps => page.evaluate(async ({ steps, viewId, epoch, noModifiers }) => {
+    const textarea = document.querySelector('.xterm-helper-textarea');
+    textarea.value = '';
+    const send = message => window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ viewId, epoch, ...message }) }));
+    for (const [type, value, data] of steps) {
+      if (type === 'start') textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+      if (type === 'update') {
+        textarea.value = value;
+        textarea.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: data ?? value }));
+      }
+      if (type === 'input') textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: data ?? 'insertText', data: value }));
+      if (type === 'end') textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value ?? '' }));
+      if (type === 'wait') await new Promise(resolve => setTimeout(resolve, 0));
+      if (type === 'modifiers') send({ type, modifiers: { ...noModifiers, ...value } });
+      if (type === 'key') send({ type, event: { key: value, modifiers: noModifiers } });
+      if (type === 'paste') send({ type, data: value });
+      if (type === 'reset') send({ type, epoch: value, cols: 80, rows: 24, fontSize: 14 });
+    }
+    await new Promise(resolve => setTimeout(resolve, 30));
+  }, { steps, viewId, epoch, noModifiers });
+  await t.test('compositions retain their modifiers and order accessory keys after committed text', async () => {
+    const before = receivedInput().length;
+    await compositionSequence([
+      ['modifiers', { ctrl: true }], ['start'], ['update', 'j'], ['wait'], ['input', 'j'],
+      ['key', 'Escape'], ['paste', 'unchanged'], ['modifiers', {}], ['end'],
+    ]);
+    assert.deepEqual(receivedInput().slice(before), ['\n', '\x1b', 'unchanged']);
+    const plain = receivedInput().length;
+    await compositionSequence([
+      ['start'], ['update', 'j'], ['wait'], ['modifiers', { ctrl: true }], ['input', 'j'], ['end'], ['modifiers', {}],
+    ]);
+    assert.deepEqual(receivedInput().slice(plain), ['j'], 'modifier changes apply to the next composition');
+  });
+  await t.test('a previous commit is retained while the next composition is still active', async () => {
+    const before = receivedInput().length;
+    await compositionSequence([
+      ['modifiers', { ctrl: true }], ['start'], ['update', 'j'], ['wait'], ['end'],
+      ['modifiers', {}], ['start'], ['update', 'jk', 'k'], ['wait'], ['end'],
+    ]);
+    assert.deepEqual(receivedInput().slice(before), ['\n', 'k']);
+  });
+  await t.test('same-turn composition commits keep their separate modifier snapshots', async () => {
+    const before = receivedInput().length;
+    await compositionSequence([
+      ['modifiers', { ctrl: true }], ['start'], ['update', 'j'], ['end'],
+      ['modifiers', {}], ['start'], ['update', 'jk', 'k'], ['end'],
+    ]);
+    assert.deepEqual(receivedInput().slice(before), ['\n', 'k']);
+  });
+  await t.test('compositionend before final insertText still produces one Ctrl+J', async () => {
+    const before = receivedInput().length;
+    await compositionSequence([
+      ['modifiers', { ctrl: true }], ['start'], ['update', 'j'], ['wait'], ['end'], ['input', 'j'], ['modifiers', {}],
+    ]);
+    assert.deepEqual(receivedInput().slice(before), ['\n']);
+  });
+  await t.test('accessory Enter, Escape and paste finalize Unicode without waiting for native compositionend', async () => {
+    for (const [type, value, expected] of [['key', 'Enter', '\r'], ['key', 'Escape', '\x1b'], ['paste', 'pasted', 'pasted']]) {
+      const before = receivedInput().length;
+      await compositionSequence([['modifiers', {}], ['start'], ['update', '日本語'], ['wait'], [type, value]]);
+      assert.deepEqual(receivedInput().slice(before), ['日本語', expected], 'accessory must not wait for IME completion');
+      await page.evaluate(() => {
+        const textarea = document.querySelector('.xterm-helper-textarea');
+        textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+        textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '日本語' }));
+      });
+      await page.waitForTimeout(30);
+      assert.deepEqual(receivedInput().slice(before), ['日本語', expected], 'late end plus final input must not duplicate text');
+      await page.keyboard.insertText('日本語');
+      await page.keyboard.insertText('after');
+      await expect.poll(() => receivedInput().slice(before)).toEqual(['日本語', expected, '日本語', 'after']);
+    }
+  });
+  await t.test('hardware Enter, Escape and Backspace keep finalized Unicode before the encoded key', async () => {
+    for (const [name, encoded] of [['Enter', '\r'], ['Escape', '\x1b'], ['Backspace', '\x7f']]) {
+      const before = receivedInput().length;
+      await compositionSequence([['modifiers', {}], ['start'], ['update', '日本語'], ['wait']]);
+      await page.keyboard.press(name);
+      await expect.poll(() => receivedInput().slice(before)).toEqual(['日本語', encoded]);
+      await page.evaluate(() => {
+        const textarea = document.querySelector('.xterm-helper-textarea');
+        textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+        textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '日本語' }));
+      });
+      await page.waitForTimeout(30);
+      assert.deepEqual(receivedInput().slice(before), ['日本語', encoded]);
+    }
+  });
+  await t.test('sticky Ctrl hardware Enter completes modified ASCII without leaking its literal letter', async () => {
+    const before = receivedInput().length;
+    await compositionSequence([['modifiers', { ctrl: true }], ['start'], ['update', 'j'], ['wait']]);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['\n', '\r']);
+    await page.evaluate(() => document.querySelector('.xterm-helper-textarea')
+      .dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: 'j' })));
+    await page.waitForTimeout(30);
+    assert.deepEqual(receivedInput().slice(before), ['\n', '\r']);
+    await send({ type: 'modifiers', modifiers: noModifiers });
+  });
+  await t.test('Unicode composition and cancellation remain literal with or without sticky Ctrl', async () => {
+    for (const modifiers of [{}, { ctrl: true }]) {
+      const before = receivedInput().length;
+      await compositionSequence([
+        ['modifiers', modifiers], ['start'], ['update', '日本語'], ['input', '日本語'],
+        ['end', 'incorrect event data'], ['wait'], ['start'], ['update', 'cancelled'], ['update', ''], ['end'], ['modifiers', {}],
+      ]);
+      assert.deepEqual(receivedInput().slice(before), ['日本語']);
+    }
+  });
+  await t.test('reset cancels pending modified IME input instead of sending it to a new epoch', async () => {
+    const before = receivedInput().length;
+    const replacement = 'keyboard-reset';
+    await compositionSequence([
+      ['modifiers', { ctrl: true }], ['start'], ['update', 'j'], ['end'], ['key', 'Escape'], ['reset', replacement],
+    ]);
+    epoch = replacement;
+    assert.deepEqual(receivedInput().slice(before), []);
+    await output('REPLAY_SCREEN', true);
+    await send({ type: 'modifiers', modifiers: noModifiers });
+    await page.keyboard.insertText('after');
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['after']);
+  });
   await t.test('Super follows xterm semantics without inventing global shortcuts', async () => {
     const before = receivedInput().length;
     await key('c', { meta: true }); // No legacy terminal encoding for Super+C.
@@ -149,15 +289,6 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     await output(Array.from({ length: 150 }, (_, i) => `HISTORY_${String(i).padStart(3, '0')}\r\n`).join(''), true, true);
     await expect(page.locator('.xterm-rows')).toContainText('HISTORY_149');
     const before = receivedInput().length;
-    const swipe = async (distance, cancel = false) => page.evaluate(({ distance, cancel }) => {
-      const screen = document.querySelector('.xterm-screen'), rect = screen.getBoundingClientRect();
-      const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
-      for (const [type, offset] of [['touchstart', 0], ['touchmove', distance], [cancel ? 'touchcancel' : 'touchend', distance]]) {
-        const touch = new Touch({ identifier: 1, target: screen, clientX: x, clientY: y + offset });
-        screen.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
-          touches: type === 'touchstart' || type === 'touchmove' ? [touch] : [], changedTouches: [touch] }));
-      }
-    }, { distance, cancel });
     await swipe(180);
     await expect(page.locator('.xterm-rows')).not.toContainText('HISTORY_149');
     const scrolled = await page.locator('.xterm-rows').textContent();
@@ -171,6 +302,40 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     assert.equal(receivedInput().length, before, 'scrolling must never write terminal input');
     await expect(page.locator('.xterm-helper-textarea')).not.toBeFocused();
   });
+  async function swipe(distance, cancel = false) {
+    return page.evaluate(({ distance, cancel }) => {
+      const screen = document.querySelector('.xterm-screen'), rect = screen.getBoundingClientRect();
+      const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+      for (const [type, offset] of [['touchstart', 0], ['touchmove', distance], [cancel ? 'touchcancel' : 'touchend', distance]]) {
+        const touch = new Touch({ identifier: 1, target: screen, clientX: x, clientY: y + offset });
+        screen.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true,
+          touches: type === 'touchstart' || type === 'touchmove' ? [touch] : [], changedTouches: [touch] }));
+      }
+    }, { distance, cancel });
+  }
+  await t.test('mouse-enabled agent views receive swipe wheel events in both directions after attach', async () => {
+    for (const mode of [1000, 1002, 1003]) {
+      epoch = `agent-${mode}`;
+      await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+      // A restored Pi-style screen includes both alternate-buffer and mouse modes.
+      await output(`\x1b[?1049h\x1b[?${mode}h\x1b[?1006hAGENT_VIEW`, true, true);
+      const before = receivedInput().length;
+      await swipe(100);
+      await expect.poll(() => receivedInput().slice(before).length).toBeGreaterThan(0);
+      assert.ok(receivedInput().slice(before).every(data => /^\x1b\[<64;\d+;\d+M$/.test(data)));
+      const down = receivedInput().length;
+      await swipe(-100);
+      await expect.poll(() => receivedInput().slice(down).length).toBeGreaterThan(0);
+      assert.ok(receivedInput().slice(down).every(data => /^\x1b\[<65;\d+;\d+M$/.test(data)));
+      await expect(page.locator('.xterm-helper-textarea')).not.toBeFocused();
+      const selected = receivedInput().length;
+      await send({ type: 'select', enabled: true });
+      await swipe(100);
+      assert.equal(receivedInput().length, selected, 'selection must not send mouse reports');
+      await send({ type: 'select', enabled: false });
+      await output(`\x1b[?${mode}l\x1b[?1006l\x1b[?1049l`);
+    }
+  });
   await t.test('alternate-screen swipes do not invent remote input', async () => {
     await output('\x1b[?1049hALT_SCREEN');
     const before = receivedInput().length;
@@ -183,9 +348,12 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
       }
     });
     assert.equal(receivedInput().length, before);
-    await output('\x1b[?1049l');
+    await output('\x1b[?9h\x1b[?1006h');
+    await swipe(100);
+    assert.equal(receivedInput().length, before, 'X10 tracking does not support wheel reports');
+    await output('\x1b[?9l\x1b[?1006l\x1b[?1049l');
   });
-  await t.test('touch selection emits text for the native copy dialog', async () => {
+  await t.test('touch selection emits text for the clipboard action', async () => {
     epoch = 'selection';
     await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
     await output('SELECT_COPY', true, true);

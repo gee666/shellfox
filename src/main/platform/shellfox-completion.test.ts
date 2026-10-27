@@ -146,7 +146,7 @@ words=(shellfox cmd --run Deploy argument); CURRENT=5; PREFIX=argument; _shellfo
 
 it('routes completion generation through the bundled helper without reading or creating user data', async () => {
   const root = await fixture(), helper = path.join(root, 'main/cli.cjs'), userData = path.join(root, 'absent-data');
-  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
+  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', loader: { '.sh': 'text' }, define: { __SHELLFOX_VERSION__: '"test"' } });
   for (const shell of ['powershell', 'bash', 'zsh']) {
     const { stdout, stderr } = await exec(process.execPath, [helper, '--user-data', userData, 'completion', shell], { timeout: 10000 });
     expect(stdout).toBe(completionScript(shell)); expect(stderr).toBe('');

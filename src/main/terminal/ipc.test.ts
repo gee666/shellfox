@@ -4,6 +4,7 @@ const ipc = vi.hoisted(() => ({ handler: undefined as undefined | ((e: IpcMainIn
 vi.mock('../directory', () => ({ validateDirectory: async (cwd: string) => { if (cwd === '/missing') throw new Error('missing'); return cwd; } }));
 vi.mock('electron', () => ({ clipboard: { writeText: ipc.copy, readText: ipc.read }, shell: { openPath: ipc.open }, BrowserWindow: { getAllWindows: () => ipc.windows }, ipcMain: { handle: (_channel: string, handler: typeof ipc.handler) => { ipc.handler = handler; }, removeHandler: ipc.remove }, dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) } }));
 import { randomUUID } from 'node:crypto';
+import { responseSchemas } from '../../shared/schemas';
 import { installIpc } from '../ipc';
 import { EmbeddedSessionService } from './service';
 import { PtyBackend } from './backend';
@@ -19,6 +20,17 @@ async function fixture(rendererReady?: () => void) {
   const stop = installIpc(window, url, service, rendererReady), request = (method: string, payload: unknown, e = event) => ipc.handler!(e, { version: 1, method, payload });
   return { ...f, service, session: created.value, frame, contents, window, event, stop, request };
 }
+it.each(['createSession', 'addTab', 'activateSession'] as const)('reserves %s for the creating embedded renderer before another view attaches', async method => {
+  const f = await fixture(), other = f.service.createTerminalView(() => {});
+  if (method === 'activateSession') f.processes[0].exit(0);
+  const result = await f.request(method, method === 'createSession' ? { cwd: '/work', requestId: randomUUID() } : { sessionId: f.session.id });
+  const session = responseSchemas[method].parse(result);
+  if (!session.ok) throw new Error(session.error.message);
+  const tab = session.value.tabs.at(-1)!;
+  expect(other.attach({ tabId: tab.id })).toMatchObject({ ok: true, value: { control: 'blocked' } });
+  expect(await f.request('attachTerminal', { tabId: tab.id })).toMatchObject({ ok: true, value: { control: 'owned' } });
+  other.dispose(); f.stop(); await f.service.dispose();
+});
 it('routes validated tab rename/order requests and rejects untrusted senders', async () => {
   const f = await fixture(), first = f.session.tabs[0];
   const added = await f.request('addTab', { sessionId: f.session.id }), second = added.value.tabs[1];

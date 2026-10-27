@@ -1,6 +1,6 @@
 # Terminal commands
 
-The same CLI controls desktop-owned and headless-owned hosts on Windows, macOS and Linux. Session operations belong under `shellfox session`; terminal operations belong under `shellfox terminals`. The namespace shortcuts are `ss` and `tm`. `sessions` is also an alias for `session`, and `cmd` is an alias for `commands`. Root and group help list the aliases alongside the canonical commands.
+The same CLI controls desktop-owned and headless-owned hosts on Windows, macOS and Linux. In a headless release package, `shellfox update --check` checks for a stable release and `shellfox update` installs and selects a verified matching package for future launches. Keep the original launcher and service paths, then restart the host explicitly when ready. The updater does not stop the host. Both accept `--json`; see [headless updates](headless.md#updates). Session operations belong under `shellfox session`; terminal operations belong under `shellfox terminals`. The namespace shortcuts are `ss` and `tm`. `sessions` is also an alias for `session`, and `cmd` is an alias for `commands`. Root and group help list the aliases alongside the canonical commands.
 
 Run `shellfox` or `shellfox help` for grouped help. There are no top-level session verbs or `tab` namespace. A desktop icon still opens the desktop application separately.
 
@@ -37,6 +37,22 @@ JSON is opt-in. Each ordinary command writes exactly one compact record to stdou
 Exit status is `0` for success or help, `2` for invalid arguments or missing context, and `1` for failed operations or cancellation. SSH retains the remote exit code, `130` for cancellation, and `255` for connection failure. A failed manager result is never wrapped as a successful value.
 
 `--input` accepts inline JSON, `@file.json`, or `-` to read stdin. JSON files and stdin are limited to 1 MiB. Terminal writes from stdin have a 64 KiB limit. Interactive attach, SSH, and custom script execution reject `--json`; registry management and completion generation support it.
+
+## Updates
+
+`update` always targets the local CLI installation, not the host that handles session commands. `--host local` is accepted; any remote `--host` is rejected before lookup, download or installer dispatch. To update another machine, run its own installed CLI there. `--user-data` does not select a different installation or restart a host.
+
+| Installation | CLI update support |
+| --- | --- |
+| Headless Windows, macOS, Linux, x64/ARM64 | Verified matching archive, selected for future launches; supports `--json`. |
+| Desktop Windows x64 Squirrel | `ShellfoxSetup.exe` installer; requires the installed `Update.exe`. |
+| Desktop Linux x64/ARM64 `.deb` | Package installer; the bound executable must belong to the `shellfox` package. May request sudo. |
+| Desktop macOS x64/ARM64 `Shellfox.app` | Replaces the bound bundle; may request sudo if its parent is not writable. |
+| Desktop Windows ZIP/ARM64, Linux portable ZIP, source checkout | Manual update. No fallback to an unrelated installed copy. |
+
+Desktop `update` and `update --check` use the installed platform launcher and reject `--json`. Use `api getUpdateStatus` and `api downloadUpdate` against a running local desktop host for JSON automation, or use the in-app updater. A directly invoked desktop CLI without a launcher binding reports an unsupported operation. Valid global options work before or after `update`; `shellfox help update` describes both product families without starting an updater. Headless updates leave running hosts untouched; desktop installers have their existing restart/elevation behavior and do not provide that guarantee.
+
+See [headless updates](headless.md#updates) for stable launcher paths, explicit host restart, rollback and account restrictions, and [in-app updates](self-update.md) for the desktop confirmation and verification flow. These are different update mechanisms.
 
 ## Session
 

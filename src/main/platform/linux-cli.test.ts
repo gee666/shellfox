@@ -11,7 +11,7 @@ it.skipIf(process.platform!=='linux')('real sh launcher handles cold spawn, spac
  try{
   const output=path.join(root,'argv.txt'),fake=path.join(root,'fake'),shim=path.join(root,'shellfox'),folder=path.join(root,"space 'quote' & %");await mkdir(folder);await mkdir(path.join(root,'--leading'));await mkdir(path.join(root,'-'));await symlink(folder,path.join(root,'link'));const physical=path.join(root,'physical','child');await mkdir(physical,{recursive:true});await symlink(physical,path.join(root,'deep-link'));
   const helper = path.join(root, 'cli.cjs');
-  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
+  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', loader: { '.sh': 'text' }, define: { __SHELLFOX_VERSION__: '"test"' } });
   const runtime = `#!/bin/sh\nif [ "\${ELECTRON_RUN_AS_NODE:-}" = 1 ]; then exec ${shQuote(process.execPath)} "$@"; fi\n`;
   await writeFile(fake,runtime+'printf "%s\\n" "$@" > "$SHELLFOX_LAUNCH_TEST"\n');await chmod(fake,0o755);await writeFile(shim,linuxLauncher({executable:fake,cliHelper:helper,userData:path.join(root,'data')}));await chmod(shim,0o755);
   for(const [alias, target] of ['.',"space 'quote' & %",'link','--leading','-','deep-link/..'].map(target=>['session',target]).concat(['ss','sessions'].map(alias=>[alias,'.']))){

@@ -14,7 +14,7 @@ async function fixture() {
   await mkdir(path.resolve('tmp'), { recursive: true });
   const root = await mkdtemp(path.resolve('tmp/cli-execution-')); roots.push(root);
   const helper = path.join(root, 'main', 'cli.cjs'), data = path.join(root, 'user data');
-  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', define: { __SHELLFOX_VERSION__: '"test"' } });
+  await build({ entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, bundle: true, platform: 'node', format: 'cjs', packages: 'external', loader: { '.sh': 'text' }, define: { __SHELLFOX_VERSION__: '"test"' } });
   const run = async (args: string[]) => {
     try { return { ...(await exec(process.execPath, [helper, '--user-data', data, ...args], { cwd: root, timeout: 10000 })), code: 0 }; }
     catch (error) { const result = error as Error & { stdout: string; stderr: string; code: number }; return result; }

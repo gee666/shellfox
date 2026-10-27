@@ -65,9 +65,9 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
     case 'closeTab': result = await service.closeTab(requestSchemas.closeTab.parse(payload)); break;
     case 'acknowledgeTerminal': result = delivery.acknowledge(requestSchemas.acknowledgeTerminal.parse(payload)); break;
     case 'detachTerminal': result = delivery.detach(requestSchemas.detachTerminal.parse(payload)); break;
-    case 'createSession': result = await service.createSession(requestSchemas.createSession.parse(payload)); break;
-    case 'addTab': result = await service.addTab(requestSchemas.addTab.parse(payload)); break;
-    case 'activateSession': result = await service.activateSession(requestSchemas.activateSession.parse(payload)); break;
+    case 'createSession': result = await service.createSession(requestSchemas.createSession.parse(payload), delivery); break;
+    case 'addTab': result = await service.addTab(requestSchemas.addTab.parse(payload), delivery); break;
+    case 'activateSession': result = await service.activateSession(requestSchemas.activateSession.parse(payload), delivery); break;
     case 'renameSession': result = await service.renameSession(requestSchemas.renameSession.parse(payload)); break;
     case 'renameTab': result = await service.renameTab(requestSchemas.renameTab.parse(payload)); break;
     case 'reorderTabs': result = await service.reorderTabs(requestSchemas.reorderTabs.parse(payload)); break;

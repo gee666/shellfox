@@ -8,6 +8,42 @@ import type { HostMessage } from '../terminal/protocol';
 import { RemoteClient } from './client';
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+it('gives a mobile-created terminal priority over an eager host desktop view', async () => {
+  const host = await remoteFixture(new Map<string, FakeRemoteHelper>(), 'host'); cleanups.push(host.dispose);
+  const desktop = host.service.createTerminalView(() => {});
+  const attempts: unknown[] = [];
+  const unsubscribe = host.service.subscribe(() => {
+    const snapshot = host.service.getSnapshot();
+    if (snapshot.ok) for (const session of snapshot.value.sessions) for (const tab of session.tabs) {
+      if (tab.lifecycle === 'open') attempts.push(desktop.attach({ tabId: tab.id }));
+    }
+  });
+  cleanups.push(() => { unsubscribe(); desktop.dispose(); });
+  const client = new RemoteClient('host', { request: async (_peer, route, body) => {
+    const response = await fetch(host.helper.backendUrl + route, { method: 'POST', body,
+      headers: signedHeaders(host.helper.secret, { id: 'mobile-creator', hostname: 'mobile' }, route, body) });
+    return response.text();
+  } }, { createClientId: randomUUID });
+  cleanups.push(() => client.stop());
+  client.connect();
+  await vi.waitFor(() => expect(host.remote.getState()).toMatchObject({ ok: true, value: { pending: [expect.objectContaining({ id: 'mobile-creator' })] } }));
+  await host.remote.approve({ peerId: 'mobile-creator' });
+  await vi.waitFor(() => expect(client.getState().status).toBe('connected'), { timeout: 3000 });
+  const created = await client.createSession({ cwd: '/work', requestId: randomUUID() });
+  if (!created.ok) throw new Error(created.error.message);
+  expect(attempts).not.toHaveLength(0);
+  for (const attempt of attempts) expect(attempt).toMatchObject({ ok: true, value: { control: 'blocked' } });
+  const tab = created.value.tabs[0], states = vi.fn();
+  const bridge = new TerminalBridge({ api: client.terminalApi, subscribeTerminal: client.subscribeTerminal,
+    tabId: tab.id, viewId: 'created', fontSize: 14, onState: states, onError: vi.fn(), send: () => {} });
+  cleanups.push(() => bridge.dispose());
+  bridge.start();
+  await vi.waitFor(() => expect(states).toHaveBeenLastCalledWith('attached'));
+  bridge.input('creator input');
+  await vi.waitFor(() => expect(host.processes[0].write).toHaveBeenCalledWith('creator input'));
+  expect(desktop.take({ tabId: tab.id, generation: tab.generation! })).toEqual({ ok: true, value: { taken: true } });
+  await vi.waitFor(() => expect(states).toHaveBeenLastCalledWith('blocked'));
+});
 it('keeps a second mobile viewer blank, transfers with Take it, and promotes the remaining viewer when the owner backgrounds', async () => {
   const host = await remoteFixture(new Map<string, FakeRemoteHelper>(), 'host'); cleanups.push(host.dispose);
   const created = await host.create(); if (!created.ok) throw new Error('Create failed');

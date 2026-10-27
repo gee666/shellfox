@@ -11,15 +11,15 @@ const enabled = process.platform === 'linux' && spawnSync('curl', ['--version'])
 let root = '', bin = '', log = '', server: Server, notFoundUrl = '';
 const fake = (name: string, body: string) => writeFile(path.join(bin, name), '#!/bin/sh\n' + body + '\n').then(() => chmod(path.join(bin, name), 0o755));
 interface Run { code: number; out: string; err: string; calls: string[]; leftover: string[] }
-async function run(args: string[], options: { installed?: string | null; api?: string; arch?: string; uid?: string } = {}): Promise<Run> {
+async function run(args: string[], options: { installed?: string | null; api?: string; arch?: string; uid?: string; owned?: boolean } = {}): Promise<Run> {
   const scratch = await mkdtemp(path.join(root, 'run-')), tmp = path.join(scratch, 'tmp');
   await mkdir(tmp); await writeFile(log, '');
-  await fake('dpkg-query', options.installed === null ? 'exit 1' : `printf '%s' '${options.installed ?? '0.1.1'}'`);
+  await fake('dpkg-query', options.installed === null ? 'exit 1' : `if [ "$1" = -S ]; then ${options.owned === false ? 'exit 1' : 'printf "shellfox: %s\\n" "$2"'}; else printf '%s' '${options.installed ?? '0.1.1'}'; fi`);
   await fake('dpkg', `echo "dpkg $*" >> "$LOG"; [ "$1" = --print-architecture ] && echo ${options.arch ?? 'amd64'}; exit 0`);
   await fake('id', `echo ${options.uid ?? '1000'}`);
   await fake('sudo', 'echo "sudo $*" >> "$LOG"; exec "$@"');
   await fake('apt-get', 'echo "apt-get $*" >> "$LOG"; for f; do case $f in /*) [ -r "$f" ] && echo "readable $(basename "$f") $(stat -c %a "$f") dir $(stat -c %a "$(dirname "$f")")" >> "$LOG";; esac; done; exit 0');
-  const env = { ...process.env, PATH: bin + ':' + process.env.PATH, LOG: log, TMPDIR: tmp, SHELLFOX_UPDATE_API: options.api ?? '' };
+  const env = { ...process.env, PATH: bin + ':' + process.env.PATH, LOG: log, TMPDIR: tmp, SHELLFOX_APP_EXECUTABLE: path.join(root, 'shellfox'), SHELLFOX_UPDATE_API: options.api ?? '' };
   const result = await new Promise<Run>(resolve => execFile('/bin/sh', [script, ...args], { env, timeout: 20000 }, async (error, out, err) => {
     resolve({ code: error ? (error as NodeJS.ErrnoException & { code: number }).code : 0, out, err, calls: (await readFile(log, 'utf8')).split('\n').filter(Boolean), leftover: await readdir(tmp) });
   }));
@@ -37,6 +37,7 @@ beforeAll(async () => {
   if (!enabled) return;
   await mkdir(path.resolve('tmp'), { recursive: true });
   root = await mkdtemp(path.resolve('tmp/shellfox-update-')); bin = path.join(root, 'bin'); log = path.join(root, 'calls.log'); await mkdir(bin);
+  await writeFile(path.join(root, 'shellfox'), 'local fixture, never executed');
   server = createServer((_request, response) => { response.statusCode = 404; response.end('{"message":"Not Found"}'); });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); notFoundUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/latest`;
 });
@@ -81,6 +82,11 @@ describe.skipIf(!enabled)('shellfox-update.sh (Linux .deb)', () => {
     expect(result.code).toBe(1); expect(result.err).toContain('not installed from the .deb'); expect(result.err).toContain('https://github.com/gee666/shellfox/releases');
     expect(result.calls).toEqual([]);
   });
+  it('refuses a portable/source executable even when a separate .deb installation exists', async () => {
+    const result = await run(['--check'], { owned: false });
+    expect(result.code).toBe(1); expect(result.err).toContain('Portable and source copies require manual updates');
+    expect(result.calls).toEqual([]); expect(result.leftover).toEqual([]);
+  });
   it('fails clearly when the release lacks the package for this architecture', async () => {
     const result = await run([], { api: await release('noasset', 'v0.2.0', ['shellfox_0.2.0_arm64.deb']) });
     expect(result.code).toBe(1); expect(result.err).toContain('no file named shellfox_0.2.0_amd64.deb'); expect(result.calls.filter(call => /apt-get|sudo|dpkg -i/.test(call))).toEqual([]); expect(result.leftover).toEqual([]);
@@ -89,7 +95,7 @@ describe.skipIf(!enabled)('shellfox-update.sh (Linux .deb)', () => {
     const api = await release('aptfail', 'v0.2.0', assets);
     await fake('apt-get', 'exit 100');
     const scratch = await mkdtemp(path.join(root, 'fail-')); await mkdir(path.join(scratch, 'tmp'));
-    const env = { ...process.env, PATH: bin + ':' + process.env.PATH, LOG: log, TMPDIR: path.join(scratch, 'tmp'), SHELLFOX_UPDATE_API: api };
+    const env = { ...process.env, PATH: bin + ':' + process.env.PATH, LOG: log, TMPDIR: path.join(scratch, 'tmp'), SHELLFOX_APP_EXECUTABLE: path.join(root, 'shellfox'), SHELLFOX_UPDATE_API: api };
     const code = await new Promise<number>(resolve => execFile('/bin/sh', [script], { env }, error => resolve(error ? (error as unknown as { code: number }).code : 0)));
     expect(code).toBe(1); expect(await readdir(path.join(scratch, 'tmp'))).toEqual([]);
   });
@@ -111,7 +117,7 @@ describe.skipIf(!enabled)('shellfox-update.sh (macOS bundle)', () => {
     await writeFile(path.join(app, 'Contents/Info.plist'), `id=local.shellfox\nversion=${version}\n`);
     await writeFile(path.join(app, 'Contents/MacOS/Shellfox'), 'binary ' + version); return app;
   }
-  async function macRun(args: string[], options: { installed?: string; newVersion?: string; tag?: string; dittoFails?: boolean; bundleId?: string } = {}) {
+  async function macRun(args: string[], options: { installed?: string; newVersion?: string; tag?: string; dittoFails?: boolean; bundleId?: string; executable?: string } = {}) {
     const scratch = await mkdtemp(path.join(root, 'mac-')), macBin = path.join(scratch, 'bin'), apps = path.join(scratch, 'Applications'), tmp = path.join(scratch, 'tmp'), callLog = path.join(scratch, 'calls.log');
     await mkdir(macBin); await mkdir(apps); await mkdir(tmp); await writeFile(callLog, '');
     const app = await bundle(apps, options.installed ?? '0.1.1');
@@ -128,7 +134,7 @@ describe.skipIf(!enabled)('shellfox-update.sh (macOS bundle)', () => {
     await put('xattr', 'echo "xattr $*" >> "$LOG"');
     await put('sudo', 'echo "sudo $*" >> "$LOG"; exec "$@"');
     await put('ditto', options.dittoFails ? 'case "$1" in -x) tar -xf "$3" -C "$4";; *) exit 1;; esac' : 'case "$1" in -x) tar -xf "$3" -C "$4";; *) cp -R "$1" "$2";; esac');
-    const env = { ...process.env, PATH: macBin + ':' + process.env.PATH, LOG: callLog, TMPDIR: tmp, SHELLFOX_UPDATE_API: pathToFileURL(api).href, SHELLFOX_PLISTBUDDY: path.join(macBin, 'PlistBuddy'), SHELLFOX_APP_EXECUTABLE: path.join(app, 'Contents/MacOS/Shellfox') };
+    const env = { ...process.env, PATH: macBin + ':' + process.env.PATH, LOG: callLog, TMPDIR: tmp, SHELLFOX_UPDATE_API: pathToFileURL(api).href, SHELLFOX_PLISTBUDDY: path.join(macBin, 'PlistBuddy'), SHELLFOX_APP_EXECUTABLE: options.executable ?? path.join(app, 'Contents/MacOS/Shellfox') };
     const result = await new Promise<{ code: number; out: string; err: string }>(resolve => execFile('/bin/sh', [script, ...args], { env, timeout: 20000 }, (error, out, err) => resolve({ code: error ? (error as unknown as { code: number }).code : 0, out, err })));
     return { ...result, installed: await readFile(path.join(app, 'Contents/MacOS/Shellfox'), 'utf8'), apps: await readdir(apps), calls: (await readFile(callLog, 'utf8')).split('\n').filter(Boolean), leftover: await readdir(tmp) };
   }
@@ -145,6 +151,11 @@ describe.skipIf(!enabled)('shellfox-update.sh (macOS bundle)', () => {
   it('keeps the previous version when installing the new one fails', async () => {
     const result = await macRun([], { dittoFails: true });
     expect(result.code).toBe(1); expect(result.installed).toBe('binary 0.1.1'); expect(result.apps).toEqual(['Shellfox.app']); expect(result.leftover).toEqual([]);
+  });
+  it('does not update another installed app when the bound executable is outside a bundle', async () => {
+    const result = await macRun(['--check'], { executable: '/source/electron' });
+    expect(result.code).toBe(1); expect(result.err).toContain('not in a Shellfox.app bundle');
+    expect(result.installed).toBe('binary 0.1.1'); expect(result.calls).toEqual([]);
   });
   it('refuses a bundle that is not Shellfox', async () => {
     const result = await macRun([], { bundleId: 'com.github.Electron' });

@@ -131,7 +131,7 @@ printf '%s\\n' gui "\${ELECTRON_RUN_AS_NODE-unset}" "$@" > "$SHELLFOX_TEST_LOG"
       const result = await invoke(args, true); assert.equal(result.code, 2, JSON.stringify(args)); assert.equal(result.stderr, '');
       assert.equal(JSON.parse(result.stdout).error.code, 'VALIDATION'); await assert.rejects(access(log), { code: 'ENOENT' });
     }
-    for (const help of ['--help', '-h', 'help']) { const result = await invoke(['update', help], true); assert.equal(result.code, 0); assert.match(result.stdout, /^Application$/m); }
+    for (const help of ['--help', '-h', 'help']) { const result = await invoke(['update', help], true); assert.equal(result.code, 0); assert.match(result.stdout, /^Update$/m); assert.match(result.stdout, /future launches/); }
     const folder = path.join(root, "project 'quotes' & % !"); await mkdir(folder); await mkdir(path.join(root, '--leading')); await mkdir(path.join(root, '-'));
     const canonicalRoot = await realpath(root);
     for (const namespace of ['session', 'ss', 'sessions']) for (const target of [undefined, path.basename(folder), '--leading', '-']) {

@@ -33,7 +33,7 @@ it.skipIf(process.platform !== 'win32' || process.env.SHELLFOX_CLI_TEST_WSL !== 
   const control = await startControlServer(data, service, { active: false, set: active => active });
   try {
     const helper = path.join(root, 'cli', 'main', 'cli.cjs'), runtime = path.join(root, 'cli', 'cli-runtime', 'node.exe');
-    await build({ bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['cpu-features', '*.node'],
+    await build({ bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['cpu-features', '*.node'], loader: { '.sh': 'text' },
       entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: helper, define: { __SHELLFOX_VERSION__: JSON.stringify('wsl-fixture') } });
     await mkdir(path.dirname(runtime), { recursive: true }); await copyFile(process.execPath, runtime);
     const cli = new WindowsCliIntegration({ executable: process.execPath, cliHelper: helper, userData: data, binDir: bin,

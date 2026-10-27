@@ -69,11 +69,11 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
           result = delivery ? delivery.detach(input) : failure('UNSUPPORTED', 'Embedded terminals are unavailable in this backend.');
           break;
         }
-        case 'activateSession': result = await service.activateSession(requestSchemas.activateSession.parse(payload)); break;
+        case 'activateSession': result = embedded ? await embedded.activateSession(requestSchemas.activateSession.parse(payload), delivery ?? undefined) : await service.activateSession(requestSchemas.activateSession.parse(payload)); break;
         case 'refreshSessionMembership': result = await service.refreshSessionMembership(requestSchemas.refreshSessionMembership.parse(payload)); break;
         case 'prepareSessionRegistration': result = await service.prepareSessionRegistration(requestSchemas.prepareSessionRegistration.parse(payload)); break;
-        case 'createSession': result = await service.createSession(requestSchemas.createSession.parse(payload)); break;
-        case 'addTab': result = await service.addTab(requestSchemas.addTab.parse(payload)); break;
+        case 'createSession': result = embedded ? await embedded.createSession(requestSchemas.createSession.parse(payload), delivery ?? undefined) : await service.createSession(requestSchemas.createSession.parse(payload)); break;
+        case 'addTab': result = embedded ? await embedded.addTab(requestSchemas.addTab.parse(payload), delivery ?? undefined) : await service.addTab(requestSchemas.addTab.parse(payload)); break;
         case 'renameTab': result = embedded ? await embedded.renameTab(requestSchemas.renameTab.parse(payload)) : failure('UNSUPPORTED', 'External tabs are read-only.'); break;
         case 'reorderTabs': result = embedded ? await embedded.reorderTabs(requestSchemas.reorderTabs.parse(payload)) : failure('UNSUPPORTED', 'External tabs are read-only.'); break;
         case 'focusSession': result = await service.focusSession(requestSchemas.focusSession.parse(payload)); break;

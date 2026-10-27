@@ -11,7 +11,7 @@ type BridgeOptions = ConstructorParameters<typeof TerminalBridge>[0];
 const native = vi.hoisted(() => ({
   visible: false,
   listeners: new Map<string, (event: { endCoordinates: { screenY: number } }) => void>(),
-  dismiss: vi.fn(), show: vi.fn(async () => {}),
+  dismiss: vi.fn(), show: vi.fn(async () => {}), copy: vi.fn(), alert: vi.fn(),
   bridge: { start: vi.fn(), dispose: vi.fn(), focus: vi.fn(), setModifiers: vi.fn(), key: vi.fn(),
     receive: vi.fn(), paste: vi.fn(), select: vi.fn(), setFontSize: vi.fn(), setTheme: vi.fn(), takeControl: vi.fn(async () => {}) },
   options: null as BridgeOptions | null,
@@ -26,6 +26,7 @@ type NativeProps = {
 };
 vi.mock('react-native', () => ({
   Platform: { OS: 'android' },
+  Alert: { alert: (...args: unknown[]) => native.alert(...args) },
   StyleSheet: { create: <T,>(styles: T) => styles },
   Keyboard: {
     isVisible: () => native.visible,
@@ -51,6 +52,7 @@ vi.mock('react-native-webview', () => ({
   WebView: ({ onMessage }: { onMessage: (event: { nativeEvent: { data: string } }) => void }) =>
     <button aria-label="Page ready" onClick={() => onMessage({ nativeEvent: { data: JSON.stringify({ type: 'ready', viewId: 'view' }) } })} />,
 }));
+vi.mock('@react-native-clipboard/clipboard', () => ({ default: { setString: (text: string) => native.copy(text) } }));
 vi.mock('./native-keyboard', () => ({ showTerminalKeyboard: () => native.show() }));
 vi.mock('./terminal-html', () => ({ TERMINAL_HTML: '' }));
 vi.mock('./bridge', () => ({
@@ -77,6 +79,32 @@ beforeEach(() => { vi.clearAllMocks(); native.visible = false; native.options = 
 afterEach(cleanup);
 
 describe('mobile keyboard controls', () => {
+  it('copies the exact selection directly and shows confirmation without a second dialog', () => {
+    setup();
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();
+    const selection = '日本語\n  indented output\n';
+    act(() => native.options?.onSelection?.(selection));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(native.copy).toHaveBeenCalledExactlyOnceWith(selection);
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(screen.queryByText('Select text to copy')).toBeNull();
+    expect(native.bridge.key).not.toHaveBeenCalled();
+    expect(native.bridge.paste).not.toHaveBeenCalled();
+    act(() => native.options?.onSelection?.('new selection'));
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    act(() => native.options?.onSelection?.(''));
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();
+  });
+  it('reports clipboard failures without claiming the text was copied', () => {
+    setup();
+    act(() => native.options?.onSelection?.('output'));
+    native.copy.mockImplementationOnce(() => { throw new Error('unavailable'); });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(native.alert).toHaveBeenCalledWith('Could not copy', 'The clipboard is unavailable. Try again.');
+    expect(screen.queryByRole('button', { name: 'Copied' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+  });
   it('uses icon buttons and toggles mutually exclusive keyboards, including native back dismissal', () => {
     setup();
     const system = screen.getByRole('button', { name: 'Keyboard' });
@@ -107,6 +135,8 @@ describe('mobile keyboard controls', () => {
     setup();
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
     fireEvent.click(screen.getByRole('button', { name: 'Special keys' }));
+    fireEvent.click(screen.getByRole('button', { name: 'j' }));
+    expect(native.bridge.key).toHaveBeenLastCalledWith({ key: 'j', modifiers: { ...emptyModifiers, ctrl: true } });
     fireEvent.click(screen.getByRole('button', { name: 'Alt' }));
     fireEvent.click(screen.getByRole('button', { name: 'Shift' }));
     fireEvent.click(screen.getByRole('button', { name: 'Super' }));
@@ -126,6 +156,8 @@ describe('mobile keyboard controls', () => {
   });
   it('hides terminal controls and offers explicit Take it while another client owns the view', async () => {
     setup(); fireEvent.click(screen.getByRole('button', { name: 'Special keys' }));
+    act(() => native.options?.onSelection?.('private output'));
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
     act(() => native.options?.onState?.('blocked'));
     expect(screen.getByText('Another client is controlling this terminal')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Keyboard' })).toBeNull();
@@ -136,6 +168,7 @@ describe('mobile keyboard controls', () => {
     act(() => native.options?.onState?.('attached'));
     expect(screen.queryByText('Another client is controlling this terminal')).toBeNull();
     expect(screen.getByRole('button', { name: 'Keyboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();
     expect(native.bridge.start).toHaveBeenCalledOnce();
   });
   it('forwards current state/error callbacks without recreating the bridge', () => {

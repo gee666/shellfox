@@ -71,8 +71,14 @@ it('interrupts a long event poll when a secondary view reports approval is requi
   await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'connected' })] } }), approvalWait);
   const states: string[] = []; client.remote.subscribe(event => { if (event.type === 'state') states.push(event.state.peers.find(peer => peer.id === 'host')?.connection ?? 'missing'); });
   const view = client.remote.createView('approval-view'); cleanups.push(() => view.dispose());
+  // Pair this view before injecting the operation failure. Pairing also reads
+  // profiles to publish activity, which must not consume the one-shot denial.
+  expect(await view.request({ peerId: 'host', method: 'getSnapshot', payload: {} })).toMatchObject({ ok: true });
   const profiles = vi.spyOn(host.service, 'getTerminalProfiles').mockReturnValueOnce(failure('APPROVAL_REQUIRED', 'Host approval is pending.', true));
-  expect(await view.request({ peerId: 'host', method: 'getTerminalProfiles', payload: {} })).toMatchObject({ ok: false, error: { code: 'APPROVAL_REQUIRED' } }); profiles.mockRestore();
+  try {
+    expect(await view.request({ peerId: 'host', method: 'getTerminalProfiles', payload: {} })).toMatchObject({ ok: false, error: { code: 'APPROVAL_REQUIRED' } });
+    expect(profiles).toHaveBeenCalledOnce();
+  } finally { profiles.mockRestore(); }
   expect(states).toContain('awaiting-approval');
   await vi.waitFor(() => expect(states.at(-1)).toBe('connected'), approvalWait);
 });

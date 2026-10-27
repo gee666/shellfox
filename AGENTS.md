@@ -1,6 +1,7 @@
 Keep the app design minimal and slightly old-school, with compact controls and no unnecessary text.
 
 Every feature you build or work on - make sure it is fully supported across all the supported OS: Mac, Windows, Linux, Android, iOS, headless clients, unless it is eplicitely agreed with the user.
+For example if the user tells you they have a issue in linux cli headless client - make to check and fix all the clients for this issue: the headless for all OS, and the desltop for all OS, so they all behave correctly. Ig the user has a UI/UX issue in a mobile app - make sure to check similar issue is not applying to the desktop apps. Fix if it is relevant. Your responsibility is to always keep all the related apps synchonixed on all systems.
 
 
 # Code quality bar
