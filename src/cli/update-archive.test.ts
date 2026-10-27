@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -44,8 +43,8 @@ it.each(['win32', 'darwin', 'linux'])('validates listings before calling the %s 
   expect(execute.mock.calls[0][0]).toBe(platform === 'win32' ? path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/tar.exe') : '/usr/bin/tar');
   expect(execute.mock.calls[2][1]).toEqual(['-xf', 'archive with spaces', '--no-same-owner', '--no-same-permissions', '-C', directory]);
 });
-for (const format of ['tar.gz', 'zip']) {
-  it.skipIf(format === 'zip' && process.platform !== 'win32' && !existsSync('/usr/bin/zip'))(`extracts a real local ${format} fixture with the native system tools`, async () => {
+for (const format of [process.platform === 'win32' ? 'zip' : 'tar.gz']) {
+  it(`extracts a real local ${format} fixture with the native system tools`, async () => {
   await mkdir('tmp', { recursive: true });
   const directory = await mkdtemp(path.resolve('tmp/native archive update ')); cleanup.push(directory);
   const source = path.join(directory, 'source'), destination = path.join(directory, 'destination');
@@ -56,12 +55,12 @@ for (const format of ['tar.gz', 'zip']) {
   if (format === 'tar.gz') {
     const tar = process.platform === 'win32' ? path.win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/tar.exe') : '/usr/bin/tar';
     await exec(tar, ['-czf', archive, '-C', source, packageRoot], { timeout: 10_000 });
-  } else if (process.platform === 'win32') {
+  } else {
     const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
     await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
       `$ErrorActionPreference='Stop'; Compress-Archive -LiteralPath ${quote(path.join(source, packageRoot))} -DestinationPath ${quote(archive)}`,
     ], { timeout: 15_000 });
-  } else await exec('/usr/bin/zip', ['-qr', archive, packageRoot], { cwd: source, timeout: 10_000 });
+  }
   const installed = await extractHeadlessArchive(archive, destination, packageRoot, process.platform);
   expect(await readFile(path.join(installed, 'app/main.cjs'), 'utf8')).toBe('local fixture, never executed');
   }, 20_000);
