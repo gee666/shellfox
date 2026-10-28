@@ -2,10 +2,11 @@
 import { app } from 'electron';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, readlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { stripVTControlCharacters } from 'node:util';
 import { PtyBackend } from './backend';
+import { probeTerminalScope, TERMINAL_OOM_SCORE_ADJ } from './linux-scope';
 import type { Result, TerminalBackendEvent } from '../../shared/contracts';
 declare const __PROJECT_ROOT__: string;
 const value = <T>(r: Result<T>): T => { if (!r.ok) throw new Error(r.error.code + ': ' + r.error.message); return r.value; };
@@ -21,6 +22,13 @@ async function run() {
     const events: TerminalBackendEvent[] = []; let output = '';
     backend.subscribe(event => { events.push(event); if (event.type === 'data' && event.tabId === identity.tabId) output = (output + event.data).slice(-1024 * 1024); });
     value(await backend.launch({ ...identity, sessionId, profileId: profile.id, cwd }));
+    if (process.platform === 'linux') {
+      // A runaway command must not take down the manager: own scope, higher OOM score, shell already exec'd.
+      const pid = backend.get(identity.tabId)!.root.pid;
+      assert.equal(Number(await readFile(`/proc/${pid}/oom_score_adj`, 'utf8')), Math.max(TERMINAL_OOM_SCORE_ADJ, Number(await readFile('/proc/self/oom_score_adj', 'utf8'))));
+      assert.equal(path.basename(await readlink(`/proc/${pid}/exe`)), path.basename(profile.executable));
+      if (await probeTerminalScope()) assert.match(await readFile(`/proc/${pid}/cgroup`, 'utf8'), /\/shellfox-terminal-[0-9a-f-]{36}\.scope$/m);
+    }
     value(backend.resize({ ...identity, cols: 100, rows: 40 }));
     const marker = 'PTY_SMOKE_' + randomUUID().replaceAll('-', '');
     value(backend.write({ ...identity, data: process.platform === 'win32' ? `Write-Output '${marker}'; Write-Output ('SIZE:{0}:{1}' -f $Host.UI.RawUI.WindowSize.Width,$Host.UI.RawUI.WindowSize.Height)\r` : `printf '%s\\n' '${marker}'; stty size\r` }));
@@ -30,7 +38,7 @@ async function run() {
     value(backend.write({ ...identity, data: 'exit 7\r' })); await waitFor(() => backend.get(identity.tabId)?.state === 'closed'); assert.equal(backend.get(identity.tabId)?.exitCode, 7);
     const second = { tabId: randomUUID(), generation: randomUUID() }; value(await backend.launch({ ...second, sessionId, profileId: profile.id, cwd })); value(await backend.close(second)); assert.equal(backend.get(second.tabId)?.state, 'closed');
     assert.ok(events.some(e => e.type === 'exit' && e.tabId === identity.tabId));
-    console.log('Real Electron PTY smoke passed: spawn, VT output, resize, replay, shell exit code, explicit close.');
+    console.log('Real Electron PTY smoke passed: spawn, Linux scope isolation, VT output, resize, replay, shell exit code, explicit close.');
   } finally { await backend.dispose(); }
   app.exit(0);
 }

@@ -59,6 +59,8 @@ export class CloseConfirmationCoordinator {
     pending?.resolve(approved);
     this.publish();
   }
+  /** The OS is ending the app: a pending quit prompt is moot, any other prompt is declined. */
+  settleForSystemQuit() { if (this.pending) this.finish(this.pending.confirmation.kind === 'quit'); }
   private cancel = () => { this.rendererReady = false; this.finish(false); };
   dispose() {
     if (this.disposed) return;

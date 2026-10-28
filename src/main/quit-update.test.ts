@@ -27,7 +27,7 @@ const state = vi.hoisted(() => ({
   host: { acquire: vi.fn(), release: vi.fn(), start: vi.fn<(options: HostRpcOptions) => Promise<HostRpc>>(), close: vi.fn(), waitForStopReplies: vi.fn(), onLost: vi.fn<(listener: (error: Error) => void) => () => void>(), assertOwned: vi.fn() },
   repository: { windowState: () => null, settings: () => ({}), close: vi.fn() },
   fetch: vi.fn(), prepare: vi.fn(), start: vi.fn(), commit: vi.fn(), cancel: vi.fn(), resume: vi.fn(),
-  uninstallIpc: vi.fn(), trackerDispose: vi.fn(),
+  uninstallIpc: vi.fn(), trackerDispose: vi.fn(), systemQuit: undefined as (() => void) | undefined,
 }));
 vi.mock('electron', () => ({
   app: state.app, BrowserWindow: class { constructor() { return state.window; } },
@@ -36,7 +36,8 @@ vi.mock('electron', () => ({
   session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() }, setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } },
 }));
 vi.mock('./cli', async importOriginal => ({ ...await importOriginal<typeof import('./cli')>(), productArguments: () => [] }));
-vi.mock('./close-confirmation', () => ({ bypassCloseConfirmation: () => false, CloseConfirmationCoordinator: class { request = state.confirmation.request; dispose = state.confirmation.dispose; } }));
+vi.mock('./close-confirmation', () => ({ bypassCloseConfirmation: () => false, CloseConfirmationCoordinator: class { request = state.confirmation.request; dispose = state.confirmation.dispose; settleForSystemQuit = vi.fn(); } }));
+vi.mock('./system-quit', () => ({ onSystemQuit: (_window: unknown, quit: () => void) => { state.systemQuit = quit; return () => {}; } }));
 vi.mock('./user-data-upgrade', () => ({ migrateUserData: async () => {} }));
 vi.mock('./repository', () => ({ Repository: class { constructor() { return state.repository; } } }));
 vi.mock('./service', () => ({ SessionService: class {} }));
@@ -128,6 +129,13 @@ describe('main automatic update on close/quit', () => {
     expect(state.confirmation.request).not.toHaveBeenCalled(); expect(state.start).not.toHaveBeenCalled();
     expect(state.host.close).toHaveBeenCalledTimes(1); expect(state.host.release).toHaveBeenCalledTimes(1);
     expect(state.repository.close).toHaveBeenCalledTimes(1);
+  });
+  it('closes shells without a prompt or update handoff when the OS terminates the app', async () => {
+    await stage(); state.owned = 2; state.confirmation.request.mockResolvedValue(false);
+    state.systemQuit!();
+    await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
+    expect(state.service.dispose).toHaveBeenCalledTimes(1);
+    expect(state.confirmation.request).not.toHaveBeenCalled(); expect(state.start).not.toHaveBeenCalled();
   });
   it('returns failed CLI shutdown to the caller and restores normal UI confirmation', async () => {
     state.owned = 2; state.service.dispose.mockRejectedValueOnce(new Error('Close unconfirmed.'));

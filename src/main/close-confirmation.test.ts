@@ -108,3 +108,12 @@ it('validates reads and terminal counts and cancels if window presentation fails
   f.present.mockImplementation(() => { throw new Error('Window closed'); });
   expect(await f.coordinator.request('quit', 1)).toBe(false);
 });
+it('settles an open prompt when the OS ends the app: quit is approved, update is declined', async () => {
+  const f = fixture(); f.ready();
+  const quit = f.coordinator.request('quit', 2);
+  f.coordinator.settleForSystemQuit();
+  expect(await quit).toBe(true); expect(f.current()).toBeNull();
+  const update = f.coordinator.request('update', 2);
+  f.coordinator.settleForSystemQuit();
+  expect(await update).toBe(false);
+});

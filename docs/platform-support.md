@@ -34,6 +34,12 @@ A shell exit cannot erase pending descendant cleanup. Failed cleanup retains own
 
 The Darwin lifecycle supervisor is separate from read-only snapshots. It retains the owned session leader and uses same-session group guardians and private same-user control; main does not signal a target by numeric PID. The backend authenticates and tracks the real foreground shell child. Confirmed CLOSE waits for native wrapper exit; timeout never kills that wrapper. Crashes/SIGKILL retain uncertain cleanup ownership. Detached new sessions are outside the protocol and are not swept. Real job-control and shutdown behavior must still be verified on Darwin before release.
 
+## Memory exhaustion and OS shutdown
+
+On Linux every local shell, in desktop and headless hosts, starts in its own transient systemd user scope (`shellfox-terminal-<id>.scope`, `OOMPolicy=continue`) and gets `oom_score_adj` 300. A runaway command is the kernel's preferred OOM victim, and killing it no longer makes systemd stop the manager's scope with every other terminal. Without a reachable systemd user manager, or on systemd releases that cannot set `OOMPolicy` on scopes, shells launch directly and keep only the higher OOM score. macOS and Windows have no equivalent per-process OOM killer; WSL shells follow the guest distribution.
+
+SIGTERM, SIGHUP, logind/macOS shutdown and Windows session end close owned shells and quit without a confirmation prompt or update installation, because the OS will not honour Cancel. SIGINT and normal quit still ask. Headless hosts already stop on these signals.
+
 ## Agent detection
 
 Pi, Claude, Codex and OpenCode each have one switch for native executables and Node/Bun launches. Detection trusts an exact executable basename, OS process name or rewritten argv0 first. Custom name rules use the same matching. Exact executable-path rules match only that path, never a name or title. Names and paths are case-insensitive on Windows and case-sensitive on Unix.
@@ -49,7 +55,7 @@ Stored bundled launcher rules migrate to the unified switches. An existing per-a
 - Activation selects a live tab or opens one fresh shell only when no live/launching shell or unresolved cleanup remains.
 - Add tab owns another independent PTY, not an HWND-routed append.
 - Session/Settings switches retain shells while the app runs. Closed/stale generations cannot receive input.
-- Native quit confirmation is independent of renderer confirmation. Cancel keeps shells running; failed cleanup keeps the manager open.
+- Native quit confirmation is independent of renderer confirmation. Cancel keeps shells running; failed cleanup keeps the manager open. OS-initiated termination skips the prompt (see above).
 - Settling only changes session status. It keeps terminals, tabs and agents running. Unsettling clears that status without relaunching anything. Deletion requires confirmation and closes owned terminals before removing the session.
 - Legacy external sessions remain read-only saved sessions without tab/root records; the runtime does not adopt, watch or kill their processes. See [database retention](database-retention.md).
 - Interactive shell exit status is not arbitrary command-status detection.

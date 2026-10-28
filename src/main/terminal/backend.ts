@@ -15,6 +15,7 @@ import { TerminalActivity } from './activity';
 import { nativeQueuedInputBytes, MAX_NATIVE_INPUT_BYTES } from './native-input';
 import { prepareDarwinSupervisor, type SupervisorLaunch, type SupervisorControl } from './darwin-supervisor';
 import { ScreenMirror } from './screen-mirror';
+import { probeTerminalScope, raiseOomScore, scopedCommand, waitForScopedExec } from './linux-scope';
 import { ADMIN_POWERSHELL_PROFILE, launchElevatedPty, elevatedHelperPath, elevatedCapability, type ElevatedLaunch, type ElevatedPty } from './windows-elevated';
 
 export const REPLAY_BYTES = 256 * 1024;
@@ -78,6 +79,8 @@ export interface BackendOptions {
   elevatedFactory?: (launch: ElevatedLaunch) => ElevatedPty;
   /** How long a failed Darwin CLOSE waits for the supervisor's own trusted exit (it may exit before replying). */
   supervisorExitGraceMs?: number;
+  /** Finds the Linux systemd-run used for per-terminal scopes; null launches shells directly. */
+  terminalScope?: () => Promise<string | null>;
 }
 export type TreeTerminator = (root: TrackingRoot, identity: UnixIdentity | null, known: UnixIdentity[]) => Promise<void>;
 export class PtyBackend {
@@ -96,6 +99,7 @@ export class PtyBackend {
   private order = 0;
   private replayBytes = 0;
   private pythonPath: string | null = null;
+  private scopeRunner: string | null = null;
   private python: PythonProbe = { detected: null, usable: false, reason: null };
   constructor(private readonly options: BackendOptions = {}) { this.factory = options.factory; this.terminateGuest = options.terminateGuest; this.terminateUnix = options.terminateUnix ?? ((root, identity, known) => {
     if (this.platform === 'linux' && !this.python.usable) throw new Error(this.python.reason ?? 'Python pidfd support unavailable.');
@@ -111,8 +115,9 @@ export class PtyBackend {
     if (this.disposed) return failure('NATIVE_UNAVAILABLE', 'Terminal backend disposed.');
     if (this.initialized) return success(this.getProfiles());
     try {
+      const scope = this.options.terminalScope ?? (this.platform === 'linux' && !this.options.factory ? () => probeTerminalScope() : async () => null);
       this.factory ??= defaultFactory();
-      await this.refreshProfiles();
+      [this.scopeRunner] = await Promise.all([scope().catch(() => null), this.refreshProfiles()]);
       this.initialized = true;
       return success(this.getProfiles());
     } catch { return failure('DEPENDENCY_MISSING', 'The embedded terminal addon or discovered shell is unavailable. Rebuild node-pty for the current Node or Electron runtime.'); }
@@ -223,9 +228,12 @@ export class PtyBackend {
     // node-pty treats an empty name as missing and rewrites Unix env.TERM to its
     // default. Restore an explicit empty TERM after that step; env exec keeps the
     // same owned PID, including the macOS supervisor transport.
-    const spawn = this.platform !== 'win32' && env.TERM === ''
+    const unwrapped = this.platform !== 'win32' && env.TERM === ''
       ? { ...command, file: '/usr/bin/env', args: ['TERM=', command.file, ...command.args] }
       : command;
+    const linuxLocal = this.platform === 'linux' && profile.environment === 'local';
+    const scopeRunner = linuxLocal ? this.scopeRunner : null;
+    const spawn = scopeRunner ? scopedCommand(scopeRunner, unwrapped) : unwrapped;
     let pty: PtyProcess;
     let elevated: ElevatedPty | undefined;
     const bornBefore = (BigInt(Date.now()) + 11644473600000n) * 10000n;
@@ -258,7 +266,11 @@ export class PtyBackend {
         e.identity = { pid: status.shellPid, birth: status.shellBirth };
       } catch { return failure('LAUNCH_FAILED', 'Darwin shell startup could not be authenticated. Its supervisor remains owned for explicit close/retry.'); }
     }
-    if (!this.options.factory && this.platform === 'linux' && profile.environment === 'local') e.identity = await captureLinuxRoot(e.root);
+    if (!this.options.factory && linuxLocal) {
+      await raiseOomScore(pty.pid);
+      if (scopeRunner) await waitForScopedExec(pty.pid, scopeRunner);
+      e.identity = await captureLinuxRoot(e.root);
+    }
     try {
       await this.startupWait(signal, pty.whenReady?.() ?? Promise.resolve());
       if (elevated) {

@@ -21,6 +21,7 @@ import { installIpc } from './ipc';
 import { desktopRequest } from './desktop-requests';
 import { installDesktopPolicy, secureDesktopWindow } from './desktop-security';
 import { runAttachedDesktop } from './attached-desktop';
+import { onSystemQuit } from './system-quit';
 import { acquireHostOwnership } from '../host/ownership';
 import { connectHostClient } from '../host/client';
 import { startHostRpc, type HostRpc } from '../host/rpc';
@@ -211,7 +212,7 @@ async function run(): Promise<void> {
   let quitting = false;
   let closingForUpdate = false;
   let closingForQuit = false;
-  let cliQuitApproved = false;
+  let quitApproved = false;
   let cliStop: { resolve(): void; reject(error: Error): void } | undefined;
   const updateShutdown = new UpdateShutdown({
     confirm: onQuit => {
@@ -260,7 +261,10 @@ async function run(): Promise<void> {
   const uninstallRemoteIpc = installRemoteIpc(window, rendererUrl, remote);
   const uninstallIpc = () => { closeConfirmation.dispose(); uninstallRemoteIpc(); uninstallManagerIpc(); };
   startupCleanups.push(uninstallIpc);
-  const quitGuard = new TerminalQuitGuard({ ownedTerminalCount, dispose: () => service.dispose() }, count => cliQuitApproved || closeConfirmation.request('quit', count));
+  const quitGuard = new TerminalQuitGuard({ ownedTerminalCount, dispose: () => service.dispose() }, count => quitApproved || closeConfirmation.request('quit', count));
+  // The CLI stop command and the OS approve quitting themselves; never prompt or install an update then.
+  const uninstallSystemQuit = onSystemQuit(window, () => { quitApproved = true; closeConfirmation.settleForSystemQuit(); setImmediate(() => app.quit()); });
+  startupCleanups.push(uninstallSystemQuit);
   window.on('close', event => {
     if (quitting) return;
     event.preventDefault(); app.quit();
@@ -273,7 +277,7 @@ async function run(): Promise<void> {
     void updateShutdown.cancelPending().then(async () => {
       // Use the verified handoff before normal quit disposes the service and
       // deletes staged files. Cancellation or failure must not fall through.
-      if (!cliQuitApproved && updates instanceof SelfUpdater && await updates.installOnQuit() !== 'not-ready') return false;
+      if (!quitApproved && updates instanceof SelfUpdater && await updates.installOnQuit() !== 'not-ready') return false;
       return quitGuard.request();
     }).then(async approved => {
       if (!approved || quitting) { closingForQuit = false; return; }
@@ -287,11 +291,11 @@ async function run(): Promise<void> {
         if (updates instanceof SelfUpdater) await updates.dispose();
         uninstallIpc(); windowTracker.dispose(); repository.close(); await ownership.release();
       } catch (error) { console.error('Quit cleanup failed:', error); }
-      cliStop?.resolve(); cliStop = undefined; cliQuitApproved = false;
+      cliStop?.resolve(); cliStop = undefined; quitApproved = false;
       await hostRpc?.waitForStopReplies();
       app.quit();
     }).catch(() => {
-      closingForQuit = false; quitting = false; cliQuitApproved = false;
+      closingForQuit = false; quitting = false; quitApproved = false;
       cliStop?.reject(new Error('Owned terminal shutdown failed.')); cliStop = undefined;
       dialog.showErrorBox('Shutdown failed', 'The update or owned terminal shutdown could not finish safely. Shellfox is still open. Closed terminals must be reopened as fresh shells.');
     });
@@ -301,7 +305,7 @@ async function run(): Promise<void> {
     const hostWindow = window;
     hostRpc = await startHostRpc({ userData: app.getPath('userData'), service, remote, keepAwake, ssh: sshProfiles, mode: 'desktop', guard: () => ownership.assertOwned(),
       desktop: (method, payload) => desktopRequest(method, payload, { window: hostWindow, updates, sessionDirectory: id => service.repository.session(id)?.cwd ?? null }),
-      shutdown: () => new Promise<void>((resolve, reject) => { cliStop = { resolve, reject }; cliQuitApproved = true; app.quit(); }),
+      shutdown: () => new Promise<void>((resolve, reject) => { cliStop = { resolve, reject }; quitApproved = true; app.quit(); }),
     });
     startupCleanups.push(() => hostRpc?.close());
   }
