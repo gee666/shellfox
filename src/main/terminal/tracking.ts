@@ -200,6 +200,7 @@ export class ProcessTracker {
   private visibleSessionIds: Set<string> | undefined;
   private rules: ProcessRule[] = [];
   private revision = 0;
+  private watchSignature = '';
   private disposed = false;
   private timer: ReturnType<typeof setInterval> | undefined;
   private pending: Promise<void> | undefined;
@@ -228,8 +229,16 @@ export class ProcessTracker {
           BigInt(r.birthOrderBounds.min) > BigInt(r.birthOrderBounds.max)))) {
       throw new Error('Invalid tracking watch.');
     }
+    const signature = JSON.stringify([roots.map(watchKey), rules.map(r => [
+      r.id, r.label, r.enabled, r.executablePaths, r.executableBasenames, r.scriptPathSuffixes, r.processNames,
+    ])]);
+    // Repository refreshes may rebuild unchanged objects while a slow scan runs.
+    // Invalidating those scans can prevent any observation from being published.
+    if (signature === this.watchSignature) return;
+    this.watchSignature = signature;
     this.roots = roots.map(r => ({ ...r, birthOrderBounds: r.birthOrderBounds ? { ...r.birthOrderBounds } : undefined }));
-    this.rules = rules.map(r => ({ ...r, executablePaths: [...r.executablePaths], executableBasenames: [...r.executableBasenames], scriptPathSuffixes: [...r.scriptPathSuffixes] }));
+    this.rules = rules.map(r => ({ ...r, executablePaths: [...r.executablePaths], executableBasenames: [...r.executableBasenames],
+      scriptPathSuffixes: [...r.scriptPathSuffixes], processNames: r.processNames && [...r.processNames] }));
     const retained = new Set(this.roots.map(watchKey));
     for (const id of this.identities.keys()) if (!retained.has(id)) { this.identities.delete(id); this.rootExecutables.delete(id); }
     for (const [id, owner] of this.owners) if (!retained.has(owner)) this.owners.delete(id);
@@ -326,9 +335,17 @@ export class ProcessTracker {
       const roots = this.pendingAll ? this.roots : this.visibleRoots();
       if (!roots.length) return;
       let snapshots: TrackingSnapshot[] = [];
+      const signal = this.abort.signal;
+      let stop: () => void = () => {};
       try {
-        if (roots.length) snapshots = await this.snapshotProvider(roots, this.abort.signal);
+        snapshots = await new Promise<TrackingSnapshot[]>((resolve, reject) => {
+          stop = () => resolve([]);
+          signal.addEventListener('abort', stop, { once: true });
+          // Settle waiting callers on disposal even if a provider cannot cancel I/O.
+          this.snapshotProvider(roots, signal).then(resolve, reject);
+        });
       } catch { /* Provider failures cannot establish waiting or exit. */ }
+      finally { signal.removeEventListener('abort', stop); }
       if (this.disposed) return;
       if (revision !== this.revision) continue;
       const observedAt = new Date().toISOString();
@@ -548,10 +565,14 @@ export class ProcessTracker {
   }
 }
 
-function command(executable: string, args: string[], signal?: AbortSignal, env?: NodeJS.ProcessEnv, wslList = false): Promise<string> {
+function command(executable: string, args: string[], signal?: AbortSignal, wslList = false, input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(executable, args, { timeout: SNAPSHOT_TIMEOUT, maxBuffer: MAX_OUTPUT, encoding: wslList ? 'buffer' : 'utf8', windowsHide: true, signal, env },
+    const child = execFile(executable, args, { timeout: SNAPSHOT_TIMEOUT, maxBuffer: MAX_OUTPUT, encoding: wslList ? 'buffer' : 'utf8', windowsHide: true, signal },
       (error, stdout) => error ? reject(error) : resolve(Buffer.isBuffer(stdout) ? stdout.toString(stdout.includes(0) ? 'utf16le' : 'utf8') : stdout));
+    if (input !== undefined) {
+      child.stdin?.on('error', reject);
+      child.stdin?.end(input);
+    }
   });
 }
 async function windowsExecutable(name: 'powershell' | 'wsl'): Promise<string> {
@@ -591,7 +612,7 @@ public static class ShellfoxProcessOwner {
 '@
 $first = @(Get-CimInstance Win32_Process -OperationTimeoutSec 5)
 if ($first.Count -gt 20000) { throw 'Process limit' }
-$watch = ConvertFrom-Json $env:SHELLFOX_TRACKING_SNAPSHOT
+$watch = ConvertFrom-Json ([Console]::In.ReadToEnd())
 $byPid = @{}; $children = @{}
 foreach ($p in $first) {
   $byPid[[int]$p.ProcessId] = $p
@@ -660,9 +681,10 @@ function windowsArgs(line: string): string[] | null {
 }
 async function windowsSnapshot(roots: readonly TrackingRoot[], known: Map<number, string>, signal?: AbortSignal): Promise<TrackingProcess[]> {
   const scope = JSON.stringify({ roots: roots.map(r => r.pid), known: [...known].map(([pid, birth]) => ({ pid, birth })) });
-  if (scope.length > 30_000) throw new Error('Windows snapshot scope exceeds environment bounds.');
-  const output = await command(await windowsExecutable('powershell'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', WINDOWS_SNAPSHOT], signal,
-    { ...process.env, SHELLFOX_TRACKING_SNAPSHOT: scope });
+  // The birth cache can exceed Windows' per-environment-variable limit. stdin
+  // preserves detached-owner evidence without permanently blocking cache pruning.
+  const output = await command(await windowsExecutable('powershell'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', WINDOWS_SNAPSHOT],
+    signal, false, scope);
   const data: unknown = JSON.parse(output.replace(/^\uFEFF/, ''));
   if (!Array.isArray(data) || data.length > MAX_ROWS) throw new Error('Invalid CIM snapshot.');
   const processes = data.map(p => {
@@ -1103,7 +1125,7 @@ export function createSystemSnapshotProvider(helperOptions: TrackingHelperOption
       // four workers and at most 32 running distros. Listing never boots a distro.
       const optionalSignal = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(3000)]);
       try {
-        const output = await command(await windowsExecutable('wsl'), ['--list', '--running', '--quiet'], optionalSignal, undefined, true);
+        const output = await command(await windowsExecutable('wsl'), ['--list', '--running', '--quiet'], optionalSignal, true);
         const running = [...new Set(output.replace(/^\uFEFF/, '').split(/\r?\n/).map(s => s.trim()).filter(Boolean))];
         if (running.length > 32 || running.some(d => d.length > 256 || /[\x00-\x1f\x7f]/.test(d))) throw new Error('Invalid running distro list.');
         const pending = running.filter(d => !snapshots.some(s => s.environment === 'wsl' && s.distro === d));

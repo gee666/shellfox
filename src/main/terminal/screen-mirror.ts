@@ -23,8 +23,10 @@ export interface ScreenSnapshot {
  * be rebuilt from the ring can be restored from a serialized screen instead.
  */
 export class ScreenMirror {
-  private readonly term: Terminal;
-  private readonly serializer = new SerializeAddon();
+  private term: Terminal | null;
+  private serializer: SerializeAddon | null = new SerializeAddon();
+  private finished = false;
+  private finalSnapshot: ScreenSnapshot | null = null;
   private parsed = 0;
   private disposed = false;
   private broken = false;
@@ -35,7 +37,7 @@ export class ScreenMirror {
    * calls; using it directly keeps the mirror in lockstep with the PTY. Missing in some future
    * xterm version: fall back to the queue (the snapshot is then skipped while it lags).
    */
-  private readonly parseNow: ((data: string) => unknown) | null;
+  private parseNow: ((data: string) => unknown) | null;
   constructor(cols: number, rows: number, onTitle?: (title: string | null) => void, onReply?: (data: string) => void) {
     this.term = new Terminal({ cols, rows, scrollback: MIRROR_SCROLLBACK, allowProposedApi: true, convertEol: false, logLevel: 'off', windowOptions: { getWinSizeChars: true } });
     // One persistent parser answers live VT queries even before a view mounts.
@@ -64,7 +66,7 @@ export class ScreenMirror {
   get title(): string | null { return this.processTitle; }
   /** `sequence` advances once the chunk has been parsed into the mirror. */
   write(sequence: number, data: string): void {
-    if (this.disposed || this.broken) return;
+    if (this.disposed || this.broken || this.finished || !this.term) return;
     if (this.parseNow) {
       // A parser failure leaves the state undefined; refuse snapshots rather than serve a wrong screen.
       try { this.parseNow(data); this.parsed = sequence; } catch { this.broken = true; }
@@ -74,18 +76,36 @@ export class ScreenMirror {
   }
   /** Ordered with output: output written before the resize is parsed at the old size. */
   resize(cols: number, rows: number): void {
-    if (this.disposed || this.broken) return;
-    if (this.parseNow) { if (this.term.cols !== cols || this.term.rows !== rows) this.term.resize(cols, rows); return; }
-    this.term.write('', () => { if (!this.disposed && (this.term.cols !== cols || this.term.rows !== rows)) this.term.resize(cols, rows); });
+    const term = this.term;
+    if (this.disposed || this.broken || this.finished || !term) return;
+    if (this.parseNow) { if (term.cols !== cols || term.rows !== rows) term.resize(cols, rows); return; }
+    term.write('', () => { if (!this.disposed && (term.cols !== cols || term.rows !== rows)) term.resize(cols, rows); });
   }
   /** `maxBytes` bounds the UTF-8 size; history is shortened before the visible screen is. */
   snapshot(maxBytes: number): ScreenSnapshot | null {
     if (this.disposed || this.broken) return null;
+    if (!this.term || !this.serializer) {
+      return this.finalSnapshot && Buffer.byteLength(this.finalSnapshot.data) <= maxBytes ? { ...this.finalSnapshot } : null;
+    }
     for (const scrollback of SCROLLBACK_STEPS) {
       const data = this.serializer.serialize({ scrollback }) + this.tail();
       if (Buffer.byteLength(data) <= maxBytes) return { sequence: this.parsed, cols: this.term.cols, rows: this.term.rows, data };
     }
     return null;
+  }
+  /** Closed terminals need a bounded final screen, not a live parser and cell buffers. */
+  finish(maxBytes: number): void {
+    if (this.disposed || this.finished || !this.term) return;
+    this.finished = true;
+    const freeze = () => {
+      if (this.disposed) return;
+      try { this.finalSnapshot = this.snapshot(maxBytes); }
+      catch { this.broken = true; }
+      finally { this.releaseParser(); }
+    };
+    // Preserve queued output and resize ordering in the public-write fallback.
+    if (this.parseNow || this.broken) freeze();
+    else this.term.write('', freeze);
   }
   /**
    * State the serializer omits or restores imprecisely: scroll region, SGR mouse encoding, cursor
@@ -94,6 +114,7 @@ export class ScreenMirror {
    */
   private tail(): string {
     let out = '';
+    if (!this.term) return out;
     const buffer = this.term.buffer.active;
     try {
       const core = (this.term as unknown as { _core: { buffer: { scrollTop: number; scrollBottom: number }; coreMouseService?: { activeProtocol?: string; activeEncoding?: string }; coreService?: { isCursorHidden?: boolean } } })._core;
@@ -111,6 +132,14 @@ export class ScreenMirror {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    try { this.serializer.dispose(); this.term.dispose(); } catch { /* A mirror must never affect PTY ownership. */ }
+    this.finalSnapshot = null;
+    this.releaseParser();
+  }
+  private releaseParser(): void {
+    const term = this.term, serializer = this.serializer;
+    // dispose alone does not drop xterm's buffers or the bound parser closure.
+    this.term = null; this.serializer = null; this.parseNow = null;
+    try { serializer?.dispose(); } catch { /* A mirror must never affect PTY ownership. */ }
+    try { term?.dispose(); } catch { /* Still release all references if an addon fails. */ }
   }
 }

@@ -42,7 +42,7 @@ export interface OwnedTerminal {
 }
 interface Entry extends Omit<OwnedTerminal, 'processTitle'> {
   activity: TerminalActivity;
-  pty: PtyProcess; chunks: { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number; order: number }[];
+  pty: PtyProcess | null; chunks: { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number; order: number }[];
   bytes: number; sequence: number; inputBytes: number; inputWindow: number;
   handles: { dispose(): void }[]; closing?: Promise<Result<{ closed: true }>>;
   identity: UnixIdentity | null; known: UnixIdentity[]; ready: boolean;
@@ -300,17 +300,26 @@ export class PtyBackend {
     if (this.entries.get(e.tabId) !== e || e.state === 'closed') return;
     e.state = 'closed'; e.exitCode = exitCode;
     e.activity.stop();
+    e.mirror.finish(ATTACHMENT_BYTES);
     // Trusted native supervisor normal exit occurs only after verified cleanup or before any child launch.
     // External SIGKILL/crash is not that contract and keeps cleanup ownership unconfirmed.
     if (e.elevated && (signal === null || signal === 0)) e.cleanupPending = false;
     if (e.supervisor && (signal === null || signal === 0)) { e.cleanupPending = false; void e.supervisor.disposeConfirmed(); }
     this.emit({ type: 'exit', tabId: e.tabId, generation: e.generation, exitCode, signal, lastSequence: e.sequence });
     if (e.cleanupPending && !e.closing) void this.close({ tabId: e.tabId, generation: e.generation }).then(result => { if (!result.ok) this.emit({ type: 'error', tabId: e.tabId, generation: e.generation, error: result.error }); });
-    const closed = [...this.entries.values()].filter(p => p.state === 'closed' && !p.cleanupPending);
+    this.releaseClosed(e);
+  }
+  private releaseClosed(e: Entry): void {
+    // Exit is not descendant-cleanup evidence on Unix/WSL or a crashed helper.
+    // Keep the PTY and its exit subscription until cleanup and any close waiter finish.
+    if (e.state !== 'closed' || e.cleanupPending || e.closing) return;
+    for (const handle of e.handles.splice(0)) handle.dispose();
+    e.pty = null; e.elevated = undefined; e.supervisor = undefined;
+    e.identity = null; e.known = [];
+    const closed = [...this.entries.values()].filter(p => p.state === 'closed' && !p.cleanupPending && !p.closing);
     while (closed.length > 256) {
       const retired = closed.shift()!;
-      if (retired === e) continue;
-      retired.handles.forEach(h => h.dispose()); retired.mirror.dispose(); this.replayBytes -= retired.bytes; this.entries.delete(retired.tabId);
+      retired.mirror.dispose(); this.replayBytes -= retired.bytes; this.entries.delete(retired.tabId);
     }
   }
   attach(input: { tabId: string; afterSequence?: number; generation?: string }): Result<TerminalAttachmentDto> {
@@ -365,7 +374,7 @@ export class PtyBackend {
     return this.writeInput(owned.value, input.data, true);
   }
   private writeInput(e: Entry, data: string, userInitiated: boolean): Result<{ written: true }> {
-    if (this.entries.get(e.tabId) !== e || e.state !== 'open') return failure('TARGET_LOST', 'This shell has exited.');
+    if (this.entries.get(e.tabId) !== e || e.state !== 'open' || !e.pty) return failure('TARGET_LOST', 'This shell has exited.');
     if (e.closing) return failure('TARGET_LOST', 'Owned terminal cleanup is in progress; no input was enqueued.');
     if (userInitiated && !e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal input channel is still being prepared.');
     const queued = e.pty.queuedInputBytes?.();
@@ -381,7 +390,7 @@ export class PtyBackend {
     if (!requestSchemas.resizeTerminal.partial({ controlEpoch: true }).safeParse(input).success) return failure('VALIDATION', 'Invalid terminal dimensions.');
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
     const e = owned.value;
-    if (e.state !== 'open') return failure('TARGET_LOST', 'This shell has exited.');
+    if (e.state !== 'open' || !e.pty) return failure('TARGET_LOST', 'This shell has exited.');
     if (e.closing) return failure('TARGET_LOST', 'Owned terminal cleanup is in progress; no resize was enqueued.');
     if (!e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal channel is still being prepared.');
     if (e.cols === input.cols && e.rows === input.rows) return success({ resized: true });
@@ -393,7 +402,7 @@ export class PtyBackend {
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
     const e = owned.value; if (e.state === 'closed' && !e.cleanupPending) return success({ closed: true });
     if (e.closing) return e.closing;
-    e.closing = Promise.resolve().then(() => this.closeOwned(e)).finally(() => { e.closing = undefined; });
+    e.closing = Promise.resolve().then(() => this.closeOwned(e)).finally(() => { e.closing = undefined; this.releaseClosed(e); });
     return e.closing;
   }
   private async closeOwned(e: Entry): Promise<Result<{ closed: true }>> {
@@ -424,6 +433,8 @@ export class PtyBackend {
       catch { return failure('MONITOR_UNAVAILABLE', 'Owned Unix descendant termination could not be confirmed. No numeric PID-only kill was attempted; ownership remains pending for retry.', true); }
     }
     if (e.state === 'closed') return success({ closed: true });
+    const pty = e.pty;
+    if (!pty) return failure('NATIVE_UNAVAILABLE', 'The owned PTY handle is unavailable.', true);
     return new Promise(resolve => {
       let handle: { dispose(): void } | undefined, done = false;
       const finish = (result: Result<{ closed: true }>) => { if (done) return; done = true; clearTimeout(timer); handle?.dispose(); resolve(result); };
@@ -431,7 +442,7 @@ export class PtyBackend {
       // exits. Its output pipe, and node-pty's authoritative onExit, close later.
       const timeoutMs = this.options.closeTimeoutMs ?? (this.platform === 'win32' ? 10000 : 5000);
       const timer = setTimeout(() => finish(failure('NATIVE_UNAVAILABLE', 'The owned PTY did not confirm exit. Its handle remains owned; no shell survival or closure is claimed.', true)), timeoutMs);
-      try { handle = e.pty.onExit(() => finish(success({ closed: true }))); if (this.platform === 'win32') e.pty.kill(); }
+      try { handle = pty.onExit(() => finish(success({ closed: true }))); if (this.platform === 'win32') pty.kill(); }
       catch { finish(failure('NATIVE_UNAVAILABLE', 'The owned PTY could not be terminated. Its handle was retained for a retry.', true)); }
     });
   }

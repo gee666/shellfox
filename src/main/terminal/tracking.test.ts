@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { execFile } from 'node:child_process';
+import { ChildProcess, execFile } from 'node:child_process';
 import { access, open, readdir, readlink, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-vi.mock('node:child_process', () => ({ execFile: vi.fn() }));
+import { PassThrough } from 'node:stream';
+vi.mock('node:child_process', async importOriginal => ({
+  ...await importOriginal<typeof import('node:child_process')>(), execFile: vi.fn(),
+}));
 vi.mock('node:fs/promises', async importOriginal => ({
   ...await importOriginal<typeof import('node:fs/promises')>(), access: vi.fn(async () => {}),
   open: vi.fn(), readdir: vi.fn(), readlink: vi.fn(), realpath: vi.fn(), stat: vi.fn(),
@@ -804,7 +807,7 @@ describe('visibility polling scope', () => {
 });
 
 describe('bounded system snapshot commands', () => {
-  type Invocation = { file: string; args: string[]; options: Record<string, unknown> };
+  type Invocation = { file: string; args: string[]; options: Record<string, unknown>; input?: string };
   function mockCommands(responses: Array<string | (Error & { killed?: boolean })>) {
     const calls: Invocation[] = [];
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
@@ -812,11 +815,16 @@ describe('bounded system snapshot commands', () => {
     vi.mocked(execFile).mockImplementation(((file: string, args: string[], options: Record<string, unknown>, callback: (error: Error | null, stdout: string, stderr: string) => void) => {
       // Existing collector tests have no optional running guests; dedicated tests cover that scan.
       if (args[0] === '--list') { callback(null, '', ''); return; }
-      calls.push({ file, args, options });
+      const call: Invocation = { file, args, options };
+      calls.push(call);
+      const stdin = new PassThrough();
+      stdin.on('data', (chunk: Buffer) => { call.input = (call.input ?? '') + chunk.toString('utf8'); });
       const response = responses.shift();
       if (response instanceof Error) callback(response, '', 'private error text');
       else callback(null, response ?? '', '');
-      return {} as ReturnType<typeof execFile>;
+      const child = new ChildProcess();
+      child.stdin = stdin;
+      return child;
     }) as typeof execFile);
     return calls;
   }
@@ -848,7 +856,8 @@ describe('bounded system snapshot commands', () => {
     expect(code).toContain('-ne $r.birth -or [int]$p.ParentProcessId -ne $r.parentPid');
     expect(calls[0]!.args.at(-1)).not.toContain('secret-a');
     expect(calls[0]!.options).toMatchObject({ timeout: 8000, maxBuffer: 8388608, windowsHide: true });
-    expect(JSON.parse((calls[0]!.options.env as NodeJS.ProcessEnv).SHELLFOX_TRACKING_SNAPSHOT!)).toEqual({ roots: [10], known: [] });
+    expect(JSON.parse(calls[0]!.input!)).toEqual({ roots: [10], known: [] });
+    expect(calls[0]!.args.at(-1)).toContain('[Console]::In.ReadToEnd()');
   });
 
   it.each([
@@ -943,8 +952,24 @@ describe('bounded system snapshot commands', () => {
     const provider = createSystemSnapshotProvider();
     await provider([root()]);
     await provider([root()]);
-    const scope = JSON.parse((calls[1]!.options.env as NodeJS.ProcessEnv).SHELLFOX_TRACKING_SNAPSHOT!);
+    const scope = JSON.parse(calls[1]!.input!);
     expect(scope.known).toEqual([{ pid: 10, birth: 'boot:10' }, { pid: 11, birth: 'boot:11' }]);
+  });
+
+  it('can prune a Windows birth cache larger than one environment variable', async () => {
+    const rows = Array.from({ length: 1000 }, (_, i) => ({ ...proc(i + 10, 1), commandLine: 'node', birth: '134000000000000000' }));
+    const calls = mockCommands([JSON.stringify(rows), '[]', '[]']);
+    const provider = createSystemSnapshotProvider();
+    await provider([root()]);
+    const second = await provider([root()]);
+    expect(second[0]).toMatchObject({ complete: true, processes: [] });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.input!.length).toBeGreaterThan(30_000);
+    expect(JSON.parse(calls[1]!.input!).known).toHaveLength(1000);
+    const third = await provider([root()]);
+    expect(third[0]).toMatchObject({ complete: true, processes: [] });
+    expect(calls).toHaveLength(3);
+    expect(JSON.parse(calls[2]!.input!).known).toEqual([]);
   });
 
   it('bounds the number of namespaces before launching snapshot commands', async () => {
