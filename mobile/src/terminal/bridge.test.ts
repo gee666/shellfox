@@ -199,6 +199,22 @@ describe('mobile terminal delivery', () => {
     expect(f.api.attachTerminal).toHaveBeenCalledTimes(2); expect(f.onError).not.toHaveBeenCalled();
     f.bridge.dispose();
   });
+  it('drops queued old-epoch input during same-generation reconnect without replaying uncertain writes', async () => {
+    vi.useFakeTimers(); const f = setup(); await flush();
+    const oldEpoch = f.latest().epoch;
+    const pending = deferred<Awaited<ReturnType<MobileTerminalApi['writeTerminal']>>>();
+    f.api.writeTerminal.mockReturnValueOnce(pending.promise);
+    f.bridge.input('uncertain phrase'); await flush();
+    f.bridge.input('queued old phrase');
+    f.emit(event(3, 'gap')); await vi.advanceTimersByTimeAsync(250); await flush();
+    expect(f.latest().epoch).not.toBe(oldEpoch);
+    f.bridge.receive({ type: 'input', viewId: 'page-1', epoch: oldEpoch, data: 'stale textarea' });
+    f.bridge.input('intentional repeat'); f.bridge.input('intentional repeat');
+    pending.resolve(failure('NATIVE_UNAVAILABLE', 'Delivery is uncertain.')); await flush();
+    expect(f.api.writeTerminal.mock.calls.map(([input]) => input.data)).toEqual(['uncertain phrase', 'intentional repeatintentional repeat']);
+    expect(f.onError).not.toHaveBeenCalled();
+    f.bridge.dispose();
+  });
   it('rejects an internally gapped replay without releasing credit', async () => {
     const f = setup(snapshot([event(1), event(3)])); await flush();
     expect(f.onError).toHaveBeenCalled(); expect(f.messages).toEqual([expect.objectContaining({ type: 'clear' })]);

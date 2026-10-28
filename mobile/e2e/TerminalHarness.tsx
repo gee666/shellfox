@@ -6,6 +6,7 @@ import { success, type TerminalEvent } from '../../src/shared/contracts';
 import { TerminalView } from '../src/terminal/TerminalView';
 import type { MobileTerminalApi, SubscribeTerminal } from '../src/terminal/bridge';
 import { DirectoryHarness } from './DirectoryHarness';
+import { fixtureUploads } from './UploadHarness';
 
 const tabId = '12345678-1234-4234-8234-123456789abc';
 const generation = '12345678-1234-4234-8234-123456789abd';
@@ -15,6 +16,8 @@ export default function TerminalHarness() {
   const [directory, setDirectory] = useState(false);
   const [status, setStatus] = useState('Waiting');
   const [delivery, setDelivery] = useState('Delivery 0/1');
+  const [uploadStatus, setUploadStatus] = useState('No attachment');
+  const [uploadApi] = useState(() => fixtureUploads(setUploadStatus));
   const [fixture] = useState(() => {
     let emit: (event: TerminalEvent) => void = () => {};
     let sequence = 1, input = '', grid = '', rendered = 0;
@@ -52,7 +55,8 @@ export default function TerminalHarness() {
     {directory && <DirectoryHarness />}
     <Text style={{ color: '#ffffff', fontSize: 10 }}>{status}</Text>
     <Text style={{ color: '#ffffff', fontSize: 10 }}>{delivery}</Text>
-    {mounted && <TerminalView {...fixture} tabId={tabId} fontSize={14} connectionEpoch="fixture"
+    <Text accessibilityLabel={uploadStatus} style={{ color: '#ffffff', fontSize: 10 }}>{uploadStatus}</Text>
+    {mounted && <TerminalView {...fixture} uploadApi={uploadApi} tabId={tabId} fontSize={14} connectionEpoch="fixture"
       onError={error => setStatus(`ERROR ${error.message}`)} />}
   </View></SafeAreaProvider>;
 }

@@ -2,7 +2,7 @@ import { ipcMain, type BrowserWindow } from 'electron';
 import type { HostClient } from '../host/client';
 import { failure, type TerminalEvent } from '../shared/contracts';
 import { requestEnvelopeSchema, requestSchemas, responseSchemas } from '../shared/schemas';
-import { remoteEnvelopeSchema, remoteRequestSchemas, remoteResponseSchemas } from '../shared/remote-schemas';
+import { remoteEnvelopeSchema, remoteRequestSchemas, remoteResponseSchemas, responseSchemas as forwardedResponseSchemas } from '../shared/remote-schemas';
 import { desktopRequest } from './desktop-requests';
 import { isTrustedSender } from './ipc';
 import type { UpdateSource } from './update/self-updater';
@@ -93,7 +93,7 @@ export function installAttachedHostIpc(window: BrowserWindow, rendererUrl: strin
           const current = epoch, target = await view();
           if (current !== epoch) return failure('TARGET_LOST', 'Renderer view changed.');
           const input = remoteRequestSchemas.request.parse(payload);
-          return responseSchemas[input.method].parse(await target.request('remote.request', input));
+          return forwardedResponseSchemas[input.method].parse(await target.request('remote.request', input));
         }
       }
       const response = remoteResponseSchemas[method].safeParse(result);

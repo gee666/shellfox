@@ -1,6 +1,7 @@
 import type { ManagerApi } from '../shared/contracts';
 import { requestSchemas, responseSchemas, type ManagerMethod } from '../shared/schemas';
-import { remoteForwardRequestSchema, remoteMethodSchema, remotePayloadSchemas, remoteRequestSchemas } from '../shared/remote-schemas';
+import { remoteForwardRequestSchema, remoteMethodSchema, remotePayloadSchemas, remoteRequestSchemas, responseSchemas as forwardedResponseSchemas } from '../shared/remote-schemas';
+import { isTerminalUploadMethod } from '../shared/terminal-upload-schemas';
 import { hostRequestSchemas, hostResponseSchemas } from '../shared/host-schemas';
 import type { HostMethod } from '../shared/host-contracts';
 import type { HostClient } from '../host/client';
@@ -162,12 +163,12 @@ export async function executeCommand(command: Command, host: CliHost, options: G
       if (['forget', 'revoke', 'reject'].includes(command.method) || (command.method === 'configure' && !remoteRequestSchemas.configure.parse(command.payload).enabled)) await requireConfirmation(options, 'remote ' + command.method);
       if (command.method === 'request') {
         const input = remoteForwardRequestSchema.parse(command.payload);
-        if (isDestructive(input.method, input.payload)) await requireConfirmation(options, input.method);
+        if (!isTerminalUploadMethod(input.method) && isDestructive(input.method, input.payload)) await requireConfirmation(options, input.method);
       }
       const value = await rawRequest(host, `remote.${command.method}`, command.payload);
       if (command.method === 'request') {
         const input = remoteForwardRequestSchema.parse(command.payload);
-        const result = responseSchemas[input.method].parse(value);
+        const result = forwardedResponseSchemas[input.method].parse(value);
         if (!result.ok) throw new CliFailure(result.error.code, result.error.message, result.error.retryable);
         return result.value;
       }

@@ -8,6 +8,28 @@ The terminal row has separate system-keyboard and special-key icons. They toggle
 
 Both clients show live directory matches. Desktop arrows choose a candidate, the first Enter accepts it, and the next submits the chosen directory. Tab completion remains available. A sole exact match is hidden; ambiguous siblings stay visible. Mobile suggestions select the path without creating a session.
 
+## Terminal attachments
+
+Tap **Attach** beside the terminal keyboard controls. Android opens the system document picker, including its Images providers. iOS offers Files and Photos. Pick one file or image up to 64 MiB. The app reads it in bounded native chunks and uploads it over the existing approved Tailscale connection. It does not request whole-storage access.
+
+After uploading, **Copy path** copies the host path and **Insert path** pastes it into the current terminal. Neither action presses Enter or runs a command. Uploading requires control of that terminal. Switching terminals, losing control or disconnecting cancels the transfer and suppresses stale results. Older hosts show an upgrade message. Both mobile and host builds need attachment support.
+
+Desktop and headless hosts store uploads in their private user-data `uploads` directory. Filenames are sanitized, storage directories are randomized, and uploads cannot choose arbitrary destination paths or overwrite files. Windows hosts return a guest path for WSL terminals. Completed attachments are temporary and expire after 24 hours; abandoned partial uploads expire after five minutes. The default storage budget is 512 MiB, with two active uploads per client and eight globally. Host administrators can set `SHELLFOX_UPLOAD_ROOT` and `SHELLFOX_UPLOAD_MAX_BYTES`; the mobile picker still has its own 64 MiB limit.
+
+The host validates approval, client identity, terminal generation and control epoch on every upload operation. Uploads are not executed. Revocation, cancellation, expiry and failed publication remove partial files.
+
+## Native text input
+
+Mobile and desktop share one DOM edit handler for IME text. It consumes `beforeinput`/`input` edits once instead of also letting xterm schedule textarea-diff timers for key code 229. Composition, autocorrect and paste preserve their edit semantics; intentionally repeated text is not deduplicated.
+
+The Android terminal fixture can exercise real Gboard taps with `--gboard`:
+
+```sh
+node scripts/mobile-terminal-native-e2e.mjs --serial emulator-5554 --apk mobile/android/app/build/outputs/apk/terminalTest/app-terminalTest.apk --gboard
+```
+
+That optional check requires the documented portrait 1080x2400 API 35 AVD and Gboard. It captures native DOM edits and terminal input through CDP, enabled only by the isolated `terminalTest` Android source set. Preview and release apps do not include that diagnostic provider. The fixture also selects a real document, validates its bytes across multiple chunks, inserts the returned path without submitting a command, and cancels a second picker. Its upload endpoint is a deterministic test fixture, not a live Tailscale host. Authenticated host HTTP tests cover the storage and permission path separately. Two-device Tailscale transfer, real cloud-provider cancellation and native iOS behavior still need device acceptance.
+
 ## Local Android build
 
 From the repository root:

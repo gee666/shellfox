@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import type { Result } from './contracts';
-import type { requestSchemas, responseSchemas } from './schemas';
+import type { requestSchemas, responseSchemas } from './remote-schemas';
+export type { BeginTerminalUpload, WriteTerminalUpload, TerminalUploadIdentity, TerminalUploadMethod } from './terminal-upload-schemas';
 import type { remoteMethodSchema, remoteStateSchema, remotePeerSchema, remoteApprovalSchema, remoteEventSchema, remoteHostEventSchema } from './remote-schemas';
 export type RemoteMethod = z.infer<typeof remoteMethodSchema>;
 export type RemoteRequestPayload<M extends RemoteMethod> = z.input<(typeof requestSchemas)[M]>;

@@ -5,6 +5,7 @@
 ```tsx
 <TerminalView
   api={client.terminalApi}
+  uploadApi={client}
   subscribeTerminal={client.subscribeTerminal}
   tabId={tab.id}
   fontSize={14}
@@ -26,6 +27,12 @@ Keys use xterm's encoder, including the application's cursor-key mode and modifi
 Use Select and drag over terminal cells, or touch and hold. Copy appears beside the fixed keyboard controls whenever text is selected. Tap it to copy directly to the device clipboard; Copied confirms the action. No second selection dialog is needed. Paste opens a native text field with the OS paste menu; Send routes text through xterm's bracketed-paste handling without applying sticky modifiers. Vertical swipes move the normal buffer's scrollback through xterm's public `scrollLines` API. The xterm 6 viewport does not provide native touch scrolling. When an application enables mouse wheel tracking, vertical swipes send wheel events through xterm's encoder instead. This lets full-screen agent views such as Pi scroll their own history, including after attaching to an existing remote session. Remote wheel input requires SGR mouse encoding, as used by Pi. Legacy binary mouse reports are not supported by the text-only input bridge. Select mode and touch-and-hold still select text locally. Alternate-screen applications without wheel tracking have no normal scrollback to browse, and swipes do not send arrow keys as a fallback.
 
 `KeyboardAccessory`, `KeyboardAccessoryScroll` and `AccessoryButton` share the compact row and 44px touch targets with directory suggestions. `useKeyboardOverlap(ref)` measures the remaining Android IME overlap and the iOS vertical offset. Use its `keyboardInset` for bottom padding and `keyboardOffset` with an iOS padding-mode `KeyboardAvoidingView`; call `measureKeyboardInset()` when the outer container lays out.
+
+## Attachments
+
+Pass `uploadApi={client}` to enable Attach. Android uses the system document picker, including its Images provider. iOS offers Files and Photos without whole-library permission. Native code streams the selected provider file into an app-private cache, measures its actual size, and exposes only a scoped handle and bounded base64 reads. Mobile files are limited to 64 MiB. Cache handles and provider access are released after completion, failure, cancellation or view teardown.
+
+Uploads use the existing approved connection with sequential, acknowledged chunks and captured terminal generation and control epoch. They never retry uncertain writes. Switching terminals, disconnecting or losing control cancels the transfer and suppresses late results. Older hosts show an upgrade error. The returned path has Copy and Insert actions. Insert pastes the raw path for an agent prompt, without shell quoting, a newline or command submission.
 
 ## Build and tests
 

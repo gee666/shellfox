@@ -5,6 +5,7 @@ export { terminalMocks };
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     options: any; cols = 80; rows = 24; disposed = false; output = ''; element?: HTMLElement;
+    textarea?: HTMLTextAreaElement;
     input?: (value: string) => void; osc = new Map<number, (value: string) => boolean>();
     parser = {
       registerOscHandler: (id: number, handler: (value: string) => boolean) => { this.osc.set(id, handler); return { dispose() {} }; },
@@ -22,8 +23,18 @@ vi.mock('@xterm/xterm', () => ({
     constructor(options: any) { this.options = options; terminalMocks.terminals.push(this); }
     loadAddon(addon: any) { addon.activate(this); }
     onData(listener: (value: string) => void) { this.input = listener; return { dispose() {} }; }
-    open(host: HTMLElement) { this.element = document.createElement('pre'); this.element.setAttribute('aria-label', 'Terminal output'); host.append(this.element); this.element.textContent = this.output; }
-    write(data: string, done?: () => void) { this.output += data; if (this.element) this.element.textContent = this.output; done?.(); }
+    onKey(_listener: (event: { key: string; domEvent: KeyboardEvent }) => void) { return { dispose() {} }; }
+    open(host: HTMLElement) {
+      this.element = document.createElement('pre'); this.element.setAttribute('aria-label', 'Terminal output');
+      host.append(this.element); this.element.textContent = this.output;
+      this.textarea = document.createElement('textarea'); this.textarea.setAttribute('aria-label', 'Terminal input');
+      this.element.append(this.textarea);
+    }
+    write(data: string, done?: () => void) {
+      this.output += data;
+      if (this.element) { this.element.textContent = this.output; if (this.textarea) this.element.append(this.textarea); }
+      done?.();
+    }
     resize(cols: number, rows: number) { this.cols = cols; this.rows = rows; }
     refresh = vi.fn();
     dispose() { this.disposed = true; this.element?.remove(); }

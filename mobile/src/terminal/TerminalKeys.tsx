@@ -16,6 +16,7 @@ import { KeyboardIcon } from './KeyboardIcon';
 import type { TerminalKey } from './protocol';
 
 interface Props {
+  attach?: React.ReactNode;
   bottomInset: number;
   control: boolean;
   selecting: boolean;
@@ -69,6 +70,7 @@ export function TerminalKeys(props: Props) {
           })}
         </KeyboardAccessoryScroll>
         {!!props.selection && button(copied ? 'Copied' : 'Copy', copy)}
+        {props.attach}
         <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
           <KeyboardIcon active={props.systemKeyboard} />
         </AccessoryButton>

@@ -14,6 +14,7 @@
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		761780EF2CA45674006654EF /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EE2CA45674006654EF /* SceneDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		E07142FC40CC4B0DAFA00005 /* ShellfoxFiles.mm in Sources */ = {isa = PBXBuildFile; fileRef = E07142FC40CC4B0DAFA00006 /* ShellfoxFiles.mm */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 		761780EE2CA45674006654EF /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SceneDelegate.swift; path = ShellfoxMobile/SceneDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = ShellfoxMobile/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		E07142FC40CC4B0DAFA00006 /* ShellfoxFiles.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ShellfoxMobile/ShellfoxFiles.mm; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,6 +54,7 @@
 				761780EE2CA45674006654EF /* SceneDelegate.swift */,
 				E07142FC40CC4B0DAFA00003 /* ShellfoxNetwork.mm */,
 				E07142FC40CC4B0DAFA00004 /* ShellfoxUpdates.mm */,
+				E07142FC40CC4B0DAFA00006 /* ShellfoxFiles.mm */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -257,6 +260,7 @@
 				761780EF2CA45674006654EF /* SceneDelegate.swift in Sources */,
 				E07142FC40CC4B0DAFA00001 /* ShellfoxNetwork.mm in Sources */,
 				E07142FC40CC4B0DAFA00002 /* ShellfoxUpdates.mm in Sources */,
+				E07142FC40CC4B0DAFA00005 /* ShellfoxFiles.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

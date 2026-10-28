@@ -8,12 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DOMParser } from '@xmldom/xmldom';
 import { parseHierarchy } from './mobile-e2e-controls.mjs';
+import { checkGboardInput } from './mobile-terminal-ime.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = name => args[args.indexOf(name) + 1];
 if (args.includes('--help')) {
-  console.log('node scripts/mobile-terminal-native-e2e.mjs --serial emulator-5554 --apk terminal-harness.apk');
+  console.log('node scripts/mobile-terminal-native-e2e.mjs --serial emulator-5554 --apk terminal-harness.apk [--gboard]');
   process.exit(0);
 }
 for (const key of ['--serial', '--apk']) assert(args.includes(key) && option(key) && !option(key).startsWith('--'), `Required ${key}`);
@@ -51,7 +52,7 @@ function dump() {
   }
   const dom = new DOMParser({ onError: () => {} }).parseFromString(xml, 'text/xml');
   return Array.from(dom.getElementsByTagName('node')).map(node => ({
-    text: node.getAttribute('text') ?? '', label: node.getAttribute('content-desc') ?? '', bounds: node.getAttribute('bounds') ?? '', type: node.getAttribute('class') ?? '',
+    text: node.getAttribute('text') ?? '', label: node.getAttribute('content-desc') ?? '', bounds: node.getAttribute('bounds') ?? '', type: node.getAttribute('class') ?? '', resource: node.getAttribute('resource-id') ?? '',
   }));
 }
 async function waitFor(check, description) {
@@ -140,6 +141,27 @@ try {
   await waitFor(tree => !imeTop() && !control(tree, 'Alt'), 'special keys toggle closed without opening IME');
   await tap('Toggle terminal fixture'); await tap('Toggle terminal fixture');
   await waitFor(tree => status(tree) && control(tree, 'Ctrl'), 'terminal remount');
+  const attachment = path.join(output, 'shellfox-attachment.txt');
+  writeFileSync(attachment, 'Shellfox attachment fixture 0123456789\n'.repeat(6000));
+  adb(['push', attachment, '/sdcard/Download/shellfox-attachment.txt']);
+  await tap('Attach');
+  await waitFor(tree => control(tree, 'Show roots'), 'system document picker');
+  screenshot('attachment-picker');
+  await tap('Show roots');
+  tapNode(await waitFor(tree => tree.find(node => node.text === 'Downloads' && node.resource === 'android:id/title'), 'Downloads navigation item'));
+  tapNode(await waitFor(tree => tree.find(node => node.text === 'shellfox-attachment.txt'), 'test-owned document'));
+  await waitFor(tree => tree.some(node => /^Uploaded shellfox-attachment\.txt; bytes \d+; chunks 2; exact$/.test(node.text)), 'exact multi-chunk native attachment upload');
+  await waitFor(tree => control(tree, 'Copy path') && control(tree, 'Insert path'), 'uploaded path actions');
+  screenshot('attachment-uploaded');
+  await tap('Insert path');
+  await waitFor(tree => (status(tree) ?? '').endsWith('/home/mobile/uploads/mobile attachment.txt') && delivered(tree), 'inserted path without a submitted command');
+  await tap('Dismiss attachment');
+  await tap('Attach');
+  await waitFor(tree => control(tree, 'Show roots'), 'second system picker');
+  shell('input', 'keyevent', 'KEYCODE_BACK');
+  await waitFor(tree => control(tree, 'Attach') && !control(tree, 'Cancel attachment'), 'native picker cancellation returns to terminal');
+  screenshot('attachment-cancelled');
+  if (args.includes('--gboard')) await checkGboardInput({ adb, shell, tap, waitFor, output });
   await tap('Directory fixture');
   await waitFor(tree => control(tree, 'Host directory'), 'native directory modal');
   await fillDirectory('~/wo');
@@ -176,6 +198,7 @@ finally {
     writeFileSync(path.join(output, 'errors.log'), logs);
     if (/FATAL EXCEPTION|Fatal signal|ReactNativeJS:.*(?:Error|Exception)/.test(logs)) failure ??= new Error('Native crash or JS error. See errors.log.');
   } catch (error) { failure ??= error; }
+  try { shell('rm', '-f', '/sdcard/Download/shellfox-attachment.txt'); } catch (error) { failure ??= error; }
   if (installed) {
     try { shell('am', 'force-stop', app); }
     catch (error) { failure ??= error; }
@@ -187,4 +210,4 @@ finally {
 }
 console.log(`Artifacts: ${path.relative(root, output)}`);
 if (failure) { console.error(failure.message); process.exitCode = 1; }
-else console.log('PASS native terminal replay/input, system and special keyboards, Ctrl+C bytes, IME layout, and directory suggestions/creation. Isolated test app stopped. No authentication changed.');
+else console.log('PASS native terminal replay/input, system and special keyboards, Ctrl+C bytes, attachment picker/upload/insert/cancel, IME layout, and directory suggestions/creation. Isolated test app stopped. No authentication changed.');

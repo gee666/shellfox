@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { chromium, expect } from '@playwright/test';
+import { terminalInputCases } from './terminal-input-cases.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const generator = fileURLToPath(new URL('../../../scripts/mobile-terminal.mjs', import.meta.url));
@@ -413,5 +414,6 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     await output('', true, true);
     await expect(page.locator('.xterm-helper-textarea')).toBeFocused();
   });
+  await terminalInputCases(t, { page, send, output, receivedInput });
   assert.deepEqual(errors, []);
 });

@@ -54,6 +54,10 @@ export class TerminalBridge {
   private unsubscribe: (() => void) | null = null;
 
   constructor(private readonly options: Options) { this.fontSize = terminalFontSize(options.fontSize); }
+  getUploadIdentity(): { tabId: string; generation: string; controlEpoch: number } | null {
+    return this.alive && this.attached && this.open && this.generation
+      ? { tabId: this.options.tabId, generation: this.generation, controlEpoch: this.controlEpoch } : null;
+  }
   start(): void {
     this.unsubscribe = this.options.subscribeTerminal(event => this.event(event));
     void this.attach();

@@ -4,6 +4,11 @@ import type { RemoteMethod, RemoteRequestPayload, RemoteResponse } from '../../.
 export abstract class RemoteOperations {
   abstract request<M extends RemoteMethod>(method: M, payload: RemoteRequestPayload<M>): Promise<RemoteResponse<M>>;
 
+  beginTerminalUpload(input: RemoteRequestPayload<'beginTerminalUpload'>) { return this.request('beginTerminalUpload', input); }
+  writeTerminalUpload(input: RemoteRequestPayload<'writeTerminalUpload'>) { return this.request('writeTerminalUpload', input); }
+  finishTerminalUpload(input: RemoteRequestPayload<'finishTerminalUpload'>) { return this.request('finishTerminalUpload', input); }
+  cancelTerminalUpload(input: RemoteRequestPayload<'cancelTerminalUpload'>) { return this.request('cancelTerminalUpload', input); }
+
   getSnapshot() { return this.request('getSnapshot', {}); }
   getTerminalProfiles() { return this.request('getTerminalProfiles', {}); }
   getHomeDirectory() { return this.request('getHomeDirectory', {}); }

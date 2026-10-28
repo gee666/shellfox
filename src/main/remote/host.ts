@@ -7,6 +7,9 @@ import type { EmbeddedSessionService } from '../terminal/service';
 import type { TerminalControlView } from '../terminal/control';
 import { verifyPeer, type peerIdentitySchema } from './auth';
 import { remoteOperation } from './operations';
+import { isTerminalUploadMethod } from '../../shared/terminal-upload-schemas';
+import { TerminalUploads } from './uploads';
+import type { UploadStorageOptions } from './upload-storage';
 const identity = z.object({ clientId: z.uuid() }).strict();
 const operation = identity.extend({ method: z.string().max(100), payload: z.unknown() });
 interface Client {
@@ -20,7 +23,9 @@ export class RemoteHost {
   private readonly denied = new Map<string, number>();
   private readonly unsubscribe: () => void;
   private readonly sweep: ReturnType<typeof setInterval>;
-  constructor(private readonly service: EmbeddedSessionService, private readonly secret: string, private readonly approved: (peerId: string) => boolean, private readonly pending: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => void, private readonly authorize?: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => AppError | null, private readonly withdraw?: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => void) {
+  private readonly uploads: TerminalUploads;
+  constructor(private readonly service: EmbeddedSessionService, private readonly secret: string, private readonly approved: (peerId: string) => boolean, private readonly pending: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => void, private readonly authorize?: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => AppError | null, private readonly withdraw?: (peer: z.infer<typeof peerIdentitySchema>, clientId: string) => void, uploadOptions: UploadStorageOptions = {}) {
+    this.uploads = new TerminalUploads(service, uploadOptions);
     this.server.requestTimeout = 30_000; this.server.headersTimeout = 10_000; this.server.maxConnections = 64;
     // Host-local CLI focus requests must never redirect a remote client's input.
     this.unsubscribe = service.subscribe(({ revision, reason }) => { for (const [id] of this.clients) this.enqueue(id, { type: 'changed', event: { revision, reason } }); });
@@ -28,6 +33,7 @@ export class RemoteHost {
       for (const [id, client] of this.clients) if (Date.now() - client.touched > 60_000 || !this.approved(client.peerId)) this.drop(id);
       for (const [id, rate] of this.rates) if (Date.now() - rate.since > 60_000) this.rates.delete(id);
       for (const [id, until] of this.denied) if (until <= Date.now()) this.denied.delete(id);
+      void this.uploads.sweep().catch(() => {});
     }, 10_000); this.sweep.unref();
   }
   async listen(): Promise<string> {
@@ -45,8 +51,9 @@ export class RemoteHost {
     this.denied.delete(id); return false;
   }
   revoke(peerId: string): void { for (const [id, client] of this.clients) if (client.peerId === peerId) { this.block(id); this.drop(id); } }
-  private drop(id: string): void { const client = this.clients.get(id); if (!client) return; this.clients.delete(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.(); }
+  private drop(id: string): void { const client = this.clients.get(id); if (!client) return; this.clients.delete(id); this.uploads.cancelActor(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.(); }
   private purge(id: string, tabId: string): void {
+    this.uploads.cancelActor(id, tabId);
     const client = this.clients.get(id); if (!client) return;
     // Activity is global status metadata, not an owned terminal frame.
     client.events = client.events.filter(event => event.type !== 'terminal' || event.event.type === 'activity' || event.event.tabId !== tabId);
@@ -146,7 +153,9 @@ export class RemoteHost {
       if (client.requests >= 8) { this.reply(response, failure('VALIDATION', 'Too many pending operations.', true)); return; }
       const command = operation.parse(raw); client.requests++;
       try {
-        const result = await remoteOperation(this.service, client.delivery, id, command.method, command.payload);
+        const result = isTerminalUploadMethod(command.method)
+          ? await this.uploads.request({ id, delivery: client.delivery, valid: () => this.clients.get(id) === client && this.approved(peer.id) && !this.isDenied(id) && !this.authorize?.(peer, input.clientId) }, command.method, command.payload)
+          : await remoteOperation(this.service, client.delivery, id, command.method, command.payload);
         const permission = this.authorize?.(peer, input.clientId);
         if (!this.approved(peer.id) || this.isDenied(id) || permission?.code === 'ACCESS_DENIED') this.reply(response, failure('ACCESS_DENIED', 'The host revoked this connection.', false));
         else this.reply(response, result);
@@ -157,5 +166,6 @@ export class RemoteHost {
   async dispose(): Promise<void> {
     clearInterval(this.sweep); this.unsubscribe(); for (const id of this.clients.keys()) this.drop(id);
     this.server.closeAllConnections(); await new Promise<void>(resolve => this.server.close(() => resolve()));
+    await this.uploads.dispose();
   }
 }

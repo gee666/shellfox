@@ -4,11 +4,13 @@ import { requestSchemas, responseSchemas, remoteMethodSchema } from '../../share
 import type { EmbeddedSessionService } from '../terminal/service';
 import { getHomeDirectory, resolveDirectory, createDirectory, completeDirectory } from '../directory-prompt';
 import type { TerminalControlView } from '../terminal/control';
+import { isTerminalUploadMethod } from '../../shared/terminal-upload-schemas';
 
 export async function remoteOperation(service: EmbeddedSessionService, delivery: TerminalControlView, clientId: string, method: unknown, payload: unknown): Promise<unknown> {
   const parsedMethod = remoteMethodSchema.safeParse(method);
   if (!parsedMethod.success) return failure('AUTH_FAILED', 'This operation is not available remotely.');
   const m = parsedMethod.data;
+  if (isTerminalUploadMethod(m)) return failure('UNSUPPORTED', 'Uploads require an authenticated remote host view.');
   if (!requestSchemas[m].safeParse(payload).success) return failure('VALIDATION', 'Invalid remote request.');
   const profiles = service.getTerminalProfiles();
   if (!profiles.ok) return profiles;

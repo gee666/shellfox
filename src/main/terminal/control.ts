@@ -84,6 +84,10 @@ export class TerminalControlBroker {
     const slot = this.slots.get(input.tabId);
     return slot?.generation === input.generation && slot.epoch === input.controlEpoch && slot.owner === view && slot.viewers.get(view)?.ready ? slot : undefined;
   }
+  checkControl(view: TerminalControlView, input: TerminalControlIdentity): Result<{ authorized: true }> {
+    if (this.port.identity(input.tabId)?.generation !== input.generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
+    return this.owned(view, input) ? success({ authorized: true }) : denied();
+  }
   write(view: TerminalControlView, input: TerminalControlIdentity & { data: string }): Result<{ written: true }> {
     if (!requestSchemas.writeTerminal.safeParse(input).success) return failure('VALIDATION', 'Invalid terminal input.');
     if (this.port.identity(input.tabId)?.generation !== input.generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
@@ -154,6 +158,7 @@ export class TerminalControlView {
   clear(identity: { tabId: string; generation: string }): void { this.delivery.detach({ tabId: identity.tabId, generation: identity.generation }); this.purge(identity.tabId); }
   attach(input: { tabId: string; generation?: string; afterSequence?: number }) { return this.broker.attach(this, input); }
   take(input: { tabId: string; generation: string }) { return this.broker.take(this, input); }
+  checkControl(input: TerminalControlIdentity) { return this.broker.checkControl(this, input); }
   write(input: TerminalControlIdentity & { data: string }) { return this.broker.write(this, input); }
   resize(input: TerminalControlIdentity & { cols: number; rows: number }) { return this.broker.resize(this, input); }
   acknowledge(input: TerminalControlIdentity & { sequence: number }) { return this.broker.acknowledge(this, input); }

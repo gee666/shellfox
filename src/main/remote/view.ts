@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { failure, type AppError } from '../../shared/contracts';
 import { terminalResponseCompatibility } from '../../shared/terminal-compat';
+import { uploadResponseCompatibility } from '../../shared/terminal-upload-schemas';
 import type { RemoteEvent, RemotePeer } from '../../shared/remote-contracts';
 import { remoteForwardRequestSchema, remotePollResponseSchema, responseSchemas, requestSchemas } from '../../shared/remote-schemas';
 
@@ -83,7 +84,7 @@ export class RemoteView implements RemoteViewPort {
       try {
         await connection.ready;
         const result = await this.send(input.peerId, '/v1/request', { clientId: connection.clientId, method: input.method, payload: input.payload }, connection.abort.signal);
-        const validated = responseSchemas[input.method].parse(terminalResponseCompatibility(input.method, result));
+        const validated = responseSchemas[input.method].parse(uploadResponseCompatibility(input.method, terminalResponseCompatibility(input.method, result)));
         if (!connection.abort.signal.aborted && this.connections.get(input.peerId) === connection && !validated.ok && ['APPROVAL_REQUIRED', 'ACCESS_DENIED'].includes(validated.error.code)) this.accessFailure(input.peerId, validated.error);
         if (validated.ok && input.method === 'attachTerminal') {
           const attached = responseSchemas.attachTerminal.parse(validated);

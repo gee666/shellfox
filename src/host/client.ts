@@ -1,6 +1,6 @@
 import type { ChangedEvent, KeepAwakeState, ManagerApi, TerminalApi } from '../shared/contracts';
 import type { RemoteApi, RemoteEvent, RemoteMethod, RemoteResponse, RemoteRequestPayload } from '../shared/remote-contracts';
-import { responseSchemas } from '../shared/schemas';
+import { responseSchemas } from '../shared/remote-schemas';
 import type { HostEndpoint, HostEvent, HostMethod, HostRequest, HostResponse } from '../shared/host-contracts';
 import { hostEndpointSchema } from '../shared/host-schemas';
 import { readPrivateEndpoint } from '../main/control-endpoint';

@@ -3,6 +3,7 @@ import type { RemoteHostEvent, RemoteMethod, RemotePeer, RemoteRequestPayload, R
 import { remoteForwardRequestSchema, remotePairResponseSchema, remotePeerIdSchema, remotePollResponseSchema, remotePayloadSchemas } from '../../../src/shared/remote-schemas';
 import { idSchema, requestSchemas, responseSchemas } from '../../../src/shared/schemas';
 import { RemoteOperations } from './operations';
+import { uploadResponseCompatibility } from '../../../src/shared/terminal-upload-schemas';
 import { connectionError, encodeBody, parseJson, parseResponse, RemoteClientError, untilStopped, waitForRetry, type NativeRemoteTransport, type RemotePath } from './protocol';
 
 export interface ClientState {
@@ -236,7 +237,7 @@ export class RemoteClient extends RemoteOperations {
     try {
       const raw = await this.send(cycle, '/v1/request', { clientId: cycle.clientId, method, payload: validated });
       if (!this.active(run, cycle)) throw new Error('Remote view changed.');
-      const result = parseResponse(method, raw);
+      const result = parseResponse(method, uploadResponseCompatibility(method, raw));
       if (!result.ok && ['AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED'].includes(result.error.code)) this.interrupt(cycle, result.error);
       if (result.ok && method === 'attachTerminal') {
         const attachment = responseSchemas.attachTerminal.parse(result);

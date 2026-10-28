@@ -36,7 +36,20 @@ it('validates renderer identity and only forwards manager contracts, never host 
   expect(await f.invoke('getSnapshot', {}, { sender: {}, senderFrame: f.window.webContents.mainFrame })).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
   expect(await f.invoke('host.stop')).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(await f.invoke('createSession', { cwd: '/work', requestId: 'invalid' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  for (const method of ['beginTerminalUpload', 'writeTerminalUpload', 'finishTerminalUpload', 'cancelTerminalUpload']) expect(await f.invoke(method)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(f.stopped).not.toHaveBeenCalled(); expect(f.service.ownedTerminalCount()).toBe(0);
+});
+it('validates remote-only upload responses through the renderer document proxy', async () => {
+  const f = await fixture(), document = await f.client.fork();
+  vi.spyOn(f.client, 'fork').mockResolvedValue(document);
+  const input = { peerId: 'host', method: 'finishTerminalUpload', payload: { tabId: randomUUID(), generation: randomUUID(), controlEpoch: 1, uploadId: randomUUID() } };
+  const remote = () => electron.handlers.get('remote:request')!({ sender: f.window.webContents, senderFrame: f.window.webContents.mainFrame }, { method: 'request', payload: input });
+  const request = vi.spyOn(document, 'request').mockResolvedValue({ ok: true, value: { path: '/host/uploads/a', fileName: 'a', size: 0 } });
+  expect(await remote()).toEqual({ ok: true, value: { path: '/host/uploads/a', fileName: 'a', size: 0 } });
+  expect(request).toHaveBeenCalledWith('remote.request', input);
+  request.mockResolvedValue({ ok: true, value: { path: '../bad', fileName: 'a', size: 0 } });
+  expect(await remote()).toMatchObject({ ok: false });
+  request.mockRestore();
 });
 it('uses the shared host but keeps clipboard and dialogs in Electron', async () => {
   const f = await fixture();

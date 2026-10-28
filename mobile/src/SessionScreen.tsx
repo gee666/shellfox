@@ -236,6 +236,7 @@ export function SessionScreen({
             <TerminalView
               key={`${active.id}/${active.generation ?? ''}`}
               api={terminalApi}
+              uploadApi={client}
               subscribeTerminal={subscribeTerminal}
               tabId={active.id}
               fontSize={model.preferences.fontSize}

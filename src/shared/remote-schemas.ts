@@ -1,9 +1,14 @@
 import { z } from 'zod';
-import { changedEventSchema, terminalEventSchema, requestSchemas, responseSchemas, resultSchema, envVarsSchemaFor, idSchema, errorSchema } from './schemas';
+import { changedEventSchema, terminalEventSchema, requestSchemas as managerRequestSchemas, responseSchemas as managerResponseSchemas, resultSchema, envVarsSchemaFor, idSchema, errorSchema } from './schemas';
+import { uploadRequestSchemas, uploadResponseSchemas } from './terminal-upload-schemas';
+
+// Uploads are remote-only. They do not grant local renderer filesystem access.
+export const requestSchemas = { ...managerRequestSchemas, ...uploadRequestSchemas };
+export const responseSchemas = { ...managerResponseSchemas, ...uploadResponseSchemas };
 
 // Encoded JSON must fit both loopback and tailnet request readers.
 export const REMOTE_REQUEST_BYTES = 1024 * 1024;
-export const remoteMethods = ['getSnapshot', 'getSessionStats', 'getTerminalProfiles', 'attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'createSession', 'addTab', 'activateSession', 'renameSession', 'renameTab', 'reorderTabs', 'setSessionPinned', 'settleSession', 'unsettleSession', 'deleteSession', 'clearSessionError', 'getHomeDirectory', 'resolveDirectory', 'createDirectory', 'completeDirectory', 'setSessionEnv', 'setVisibleSessions'] as const;
+export const remoteMethods = ['getSnapshot', 'getSessionStats', 'getTerminalProfiles', 'attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'createSession', 'addTab', 'activateSession', 'renameSession', 'renameTab', 'reorderTabs', 'setSessionPinned', 'settleSession', 'unsettleSession', 'deleteSession', 'clearSessionError', 'getHomeDirectory', 'resolveDirectory', 'createDirectory', 'completeDirectory', 'setSessionEnv', 'setVisibleSessions', 'beginTerminalUpload', 'writeTerminalUpload', 'finishTerminalUpload', 'cancelTerminalUpload'] as const;
 export const remoteMethodSchema = z.enum(remoteMethods);
 export const remotePeerIdSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_.:-]+$/);
 export const remoteHostnameSchema = z.string().min(1).max(63).regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/);
@@ -41,4 +46,3 @@ export const remoteResponseSchemas = { getState: resultSchema(remoteStateSchema)
 export const remoteEnvelopeSchema = z.object({ method: z.enum(['getState', 'configure', 'login', 'connect', 'disconnect', 'approve', 'reject', 'revoke', 'forget', 'request']), payload: z.unknown() }).strict();
 export const remotePairResponseSchema = resultSchema(z.object({ paired: z.literal(true), terminalControl: z.literal('exclusive-v1') }).strict());
 export const remotePollResponseSchema = resultSchema(z.object({ events: z.array(remoteHostEventSchema).max(1024) }).strict());
-export { requestSchemas, responseSchemas };

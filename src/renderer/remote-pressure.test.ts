@@ -47,11 +47,11 @@ it('bounds desktop metadata pressure across 1500 duplicate native/state events a
   };
   complete('getSnapshot', responseSchemas.getSnapshot.parse(success({ ...remote.remoteSnapshot, revision: 1501 })));
   complete('getTerminalProfiles', responseSchemas.getTerminalProfiles.parse(success({ profiles, defaultProfileId: 'pwsh', lifetime: 'app-owned', shellSurvival: false })));
-  complete('setVisibleSessions', success({ configured: true }));
+  complete('setVisibleSessions', responseSchemas.setVisibleSessions.parse(success({ configured: true })));
   await flush();
   expect(work.map(item => item.method)).toEqual(['getSnapshot', 'getTerminalProfiles', 'setVisibleSessions', 'setVisibleSessions']);
   expect(work[3]?.payload).toEqual({ sessionIds: [session(1500).id] });
-  work[3]?.resolve(success({ configured: true })); await flush();
+  work[3]?.resolve(responseSchemas.setVisibleSessions.parse(success({ configured: true }))); await flush();
   expect(runtime.client.store.getState().snapshot?.revision).toBe(1501);
   for (let i = 0; i < 1500; i++) {
     remote.emit({ type: 'changed', peerId: 'workstation', event: { revision: 1501, reason: 'native' } });

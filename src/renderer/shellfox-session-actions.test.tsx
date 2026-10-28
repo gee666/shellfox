@@ -110,7 +110,7 @@ describe('Shellfox session actions', () => {
     const { fixture, user } = await setup(snapshot([session(), session(2)]));
     const pending = deferred<Awaited<ReturnType<typeof fixture.api.setSessionEnv>>>(); fixture.api.setSessionEnv.mockReturnValueOnce(pending.promise);
     context(); await user.click(screen.getByRole('menuitem', { name: 'Environment variables…' }));
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'NAME=value' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Environment variables' }), { target: { value: 'NAME=value' } });
     await user.click(screen.getByRole('button', { name: 'Save' })); await user.keyboard('{Escape}');
     context('Session 2'); await user.click(screen.getByRole('menuitem', { name: 'Environment variables…' }));
     await act(async () => pending.resolve(success(session(1, { env: [{ name: 'NAME', value: 'value' }] }))));

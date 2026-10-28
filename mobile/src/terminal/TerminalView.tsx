@@ -11,9 +11,12 @@ import { useTheme } from '../theme';
 import { showTerminalKeyboard } from './native-keyboard';
 import { SpecialKeyboard } from './SpecialKeyboard';
 import { useKeyboardOverlap } from './useKeyboardOverlap';
+import { useTerminalAttachment } from './useTerminalAttachment';
+import { sameUploadIdentity, type TerminalUploadApi } from './upload';
 
 export interface TerminalViewProps {
   api: MobileTerminalApi;
+  uploadApi?: TerminalUploadApi;
   subscribeTerminal: SubscribeTerminal;
   tabId: string;
   fontSize: number;
@@ -25,6 +28,7 @@ export interface TerminalViewProps {
 const source = { html: TERMINAL_HTML, baseUrl: 'about:blank' };
 export function TerminalView({
   api,
+  uploadApi,
   subscribeTerminal,
   tabId,
   fontSize,
@@ -52,6 +56,19 @@ export function TerminalView({
   const [selecting, setSelecting] = useState(false);
   const [selection, setSelection] = useState('');
   const [blocked, setBlocked] = useState(false);
+  const [terminalState, setTerminalState] = useState<TerminalBridgeState>('attaching');
+  const attachment = useTerminalAttachment({
+    api: uploadApi,
+    contextKey: `${tabId}/${connectionEpoch}/${viewId ?? ''}`,
+    enabled: terminalState === 'attached',
+    getContext: () => {
+      const captured = bridge.current;
+      const identity = captured?.getUploadIdentity();
+      if (!captured || !identity) return null;
+      return { identity, current: () => bridge.current === captured && sameUploadIdentity(captured.getUploadIdentity(), identity) };
+    },
+    insert: text => bridge.current?.paste(text),
+  });
   const [taking, setTaking] = useState(false);
   const insets = useSafeAreaInsets();
   const report = useCallback((error: Error) => callbacks.current.onError?.(error), []);
@@ -81,6 +98,8 @@ export function TerminalView({
       send: (message) => web.current?.postMessage(JSON.stringify(message)),
       onError: report,
       onState: state => {
+        setTerminalState(state);
+        if (state !== 'attached') attachment.invalidate();
         setBlocked(state === 'blocked');
         if (state === 'blocked') {
           keyboardModeRef.current = 'closed'; setKeyboardMode('closed'); setSelecting(false); setSelection(''); Keyboard.dismiss();
@@ -100,6 +119,7 @@ export function TerminalView({
     current.start();
     return () => {
       bridge.current = null;
+      attachment.invalidate();
       current.dispose();
     };
   }, [api, subscribeTerminal, tabId, connectionEpoch, viewId, report]);
@@ -206,7 +226,9 @@ export function TerminalView({
           }} />
         </View>}
         </View>
+        {!blocked && attachment.panel}
         {!blocked && <TerminalKeys
+          attach={attachment.button}
           bottomInset={keyboardVisible || specialKeyboard ? 0 : insets.bottom}
           control={modifiers.ctrl}
           selecting={selecting}

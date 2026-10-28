@@ -31,6 +31,8 @@ The local patches are under `C:/Users/user/.pi/agent/npm/node_modules/`. They ch
 
 Pi-side verification passed nine regression tests and a typecheck of the patched swarm graph. Actual Pi integration checks preserved inactive/enabled tool declarations and exercised the flag, environment and enable/disable command paths. Original and bundled subagent tool schemas, descriptions, commands and active-tool declarations matched.
 
+The durable fixes were subsequently ported onto the fetched WSL repositories, committed, pushed and published as `oira666_pi-free-swarm@0.5.2` and `oira666_pi-subagent@0.7.7`. Their release tags are `v0.5.2` and `v0.7.7`. Both were tested against Pi 1.4.0, including packed-package checks. Downloaded npm artifacts matched the verified release tarballs by SHA-512. Normal package updates can now obtain these fixes without reapplying the local patches.
+
 ## Verification
 
 - `pnpm typecheck` passed, including mobile.

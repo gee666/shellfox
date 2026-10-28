@@ -14,6 +14,7 @@ import { RemoteApprovals } from './approvals';
 import { RemoteAccessError, requirePair, remoteFailure, waitForRemoteRetry } from './pairing';
 import { RemoteDiscovery, probeShellfoxHost } from './discovery';
 import { DiscoveryCache } from './discovery-cache';
+import { uploadResponseCompatibility } from '../../shared/terminal-upload-schemas';
 interface Connection { clientId: string; abort: AbortController; status: RemotePeer['connection']; lastError: AppError | null; pending: number; cycle?: AbortController }
 export class RemoteService {
   private stored: RemoteStoredState;
@@ -93,7 +94,7 @@ export class RemoteService {
       this.statusRevision++; this.applyStatus(parsed.data); if (parsed.data.status === 'online') void this.refreshPeers();
     });
     const backendSecret = randomBytes(32).toString('hex');
-    this.host = new RemoteHost(this.service, backendSecret, id => this.stored.approvals.some(a => a.peerId === id), () => {}, (peer, clientId) => this.approvals.authorize(peer, clientId), (peer, clientId) => this.approvals.withdraw(peer.id, clientId));
+    this.host = new RemoteHost(this.service, backendSecret, id => this.stored.approvals.some(a => a.peerId === id), () => {}, (peer, clientId) => this.approvals.authorize(peer, clientId), (peer, clientId) => this.approvals.withdraw(peer.id, clientId), { root: process.env.SHELLFOX_UPLOAD_ROOT ?? path.join(this.directory, 'uploads') });
     const backendUrl = await this.host.listen();
     try {
       const result = await this.helper.command('start', { stateDirectory: path.join(this.directory, 'tailscale'), hostname: this.stored.hostname, ...(authKey ? { authKey } : {}), backendUrl, backendSecret, proxySecret: this.proxySecret });
@@ -245,7 +246,7 @@ export class RemoteService {
     connection.pending++;
     try {
       const raw = await this.send(peerId, '/v1/request', { clientId: connection.clientId, method, payload }, connection.abort.signal);
-      const result = responseSchemas[method].safeParse(raw);
+      const result = responseSchemas[method].safeParse(uploadResponseCompatibility(method, raw));
       if (result.success && !result.data.ok && ['APPROVAL_REQUIRED', 'ACCESS_DENIED'].includes(result.data.error.code)) this.accessFailure(peerId, result.data.error, connection, true);
       return result.success ? result.data : failure('INTERNAL', 'Invalid remote host response.');
     } catch {
