@@ -2,7 +2,7 @@ import type { Terminal } from '@xterm/xterm';
 
 interface TextState { value: string; cursor: number; start?: number }
 interface Composition { before: TextState; edited: boolean; timer?: ReturnType<typeof setTimeout> }
-type TextTerminal = Pick<Terminal, 'textarea' | 'element' | 'paste'> & {
+type TextTerminal = Pick<Terminal, 'textarea' | 'element' | 'paste' | 'onKey'> & {
   options: Pick<Terminal['options'], 'disableStdin'>;
   modes: Pick<Terminal['modes'], 'applicationCursorKeysMode'>;
 };
@@ -57,6 +57,12 @@ export class TerminalInput {
     if (!textarea || !element) throw new Error('Open the terminal before installing native input.');
     this.textarea = textarea;
     this.committed = this.snapshot();
+    const encodedKeys = term.onKey(({ domEvent }) => {
+      // xterm emits uppercase letters on keypress without cancelling its default
+      // edit. Do not send that same letter again through the native input path.
+      if (domEvent.type === 'keypress') domEvent.preventDefault();
+    });
+    this.cleanups.push(() => encodedKeys.dispose());
     const listen = (type: string, listener: EventListener, capture = true) => {
       element.addEventListener(type, listener, capture);
       this.cleanups.push(() => element.removeEventListener(type, listener, capture));
