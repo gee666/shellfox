@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type ElectronApplication } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -10,7 +10,20 @@ type TestGlobal = typeof globalThis & {
   __keyboardInput: string[];
 };
 
-test('Shift letters reach the desktop PTY once without dropping intentional repeats or Unicode', async () => {
+async function recordInput(app: ElectronApplication, tabId: string) {
+  await app.evaluate((_electron, id) => {
+    const state = globalThis as TestGlobal;
+    const backend = state.__shellfoxTest.backend, write = backend.write.bind(backend);
+    state.__keyboardInput = [];
+    backend.write = input => {
+      const result = write(input);
+      if (result.ok && input.tabId === id) state.__keyboardInput.push(input.data);
+      return result;
+    };
+  }, tabId);
+}
+
+test('stock xterm sends lowercase, Shift letters, intentional repeats, spaces and Unicode once', async () => {
   const dir = await scratch('terminal-keyboard');
   const { app, page } = await launch(path.join(dir, 'data'), 'real');
   let identity: { tabId: string; generation: string } | undefined;
@@ -25,16 +38,8 @@ test('Shift letters reach the desktop PTY once without dropping intentional repe
     const textarea = page.locator('.xterm-helper-textarea');
     await expect(textarea).toBeEditable();
     await textarea.focus();
-    await app.evaluate((_electron, tabId) => {
-      const state = globalThis as TestGlobal;
-      const backend = state.__shellfoxTest.backend, write = backend.write.bind(backend);
-      state.__keyboardInput = [];
-      backend.write = input => {
-        const result = write(input);
-        if (result.ok && input.tabId === tabId) state.__keyboardInput.push(input.data);
-        return result;
-      };
-    }, tab.id);
+    await recordInput(app, tab.id);
+    await page.keyboard.type('abcdefghijklmnopqrstuvwxyz');
     for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') await page.keyboard.press(`Shift+${letter}`);
     await page.keyboard.type('AAZZaa!!  password  ');
     await page.keyboard.press('Space');
@@ -43,7 +48,7 @@ test('Shift letters reach the desktop PTY once without dropping intentional repe
     await page.keyboard.insertText('日本語🙂');
     await page.keyboard.press('Enter');
     await expect.poll(() => app.evaluate(() => (globalThis as TestGlobal).__keyboardInput.join('')))
-      .toBe('ABCDEFGHIJKLMNOPQRSTUVWXYZAAZZaa!!  password    !日本語🙂\r');
+      .toBe('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZAAZZaa!!  password    !日本語🙂\r');
   } finally {
     if (identity) await page.evaluate(input => window.shellfox.closeTab!(input), identity).catch(() => {});
     await app.close();
@@ -90,14 +95,27 @@ process.stdout.write('\\x1b[2J\\x1b[HPASSWORD_READY: ');
     const textarea = page.locator('.xterm-helper-textarea');
     await expect(textarea).toBeEditable();
     await textarea.focus();
+    await recordInput(app, tab.id);
     await page.keyboard.press('Space'); await page.keyboard.press('Space');
     await page.keyboard.press('Shift+A'); await page.keyboard.press('Shift+A');
     await page.keyboard.type('aaZZ!!  password');
     await page.keyboard.press('Space'); await page.keyboard.press('Space');
     await page.keyboard.press('Shift+Space'); await page.keyboard.press('Shift+Space');
+    // insertText exercises Chromium text insertion, not a platform IME candidate UI.
     await page.keyboard.insertText('日本語🙂');
+    await textarea.evaluate(element => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData('text/plain', ' native貼付け🙂 ');
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+    });
+    // Stub only the app's clipboard read, leaving the user's host clipboard untouched.
+    await app.evaluate(({ clipboard }, text) => { clipboard.readText = async () => text; }, ' shortcut貼付け🙂 ');
+    await page.keyboard.press('Control+Shift+V');
+    // The clipboard bridge is asynchronous. Wait for its bytes before typing on.
+    await expect.poll(() => app.evaluate(() => (globalThis as TestGlobal).__keyboardInput.join('')))
+      .toContain(' shortcut貼付け🙂 ');
     await page.keyboard.type('  ');
-    const fixture = '  AAaaZZ!!  password    日本語🙂  ';
+    const fixture = '  AAaaZZ!!  password    日本語🙂 native貼付け🙂  shortcut貼付け🙂   ';
     await expect(rows).toHaveText(prompt);
     await page.keyboard.press('Enter');
     await expect(rows).toContainText('PASSWORD_RECORDED');

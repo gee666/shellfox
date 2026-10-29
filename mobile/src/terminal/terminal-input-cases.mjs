@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { expect } from '@playwright/test';
 
 /** Runs real DOM event transactions against the bundled xterm, not mocked onData calls. */
 export async function terminalInputCases(t, { page, send, output, receivedInput }) {
@@ -22,22 +23,29 @@ export async function terminalInputCases(t, { page, send, output, receivedInput 
     await new Promise(resolve => setTimeout(resolve, 25));
   }, { data, inputType, start, end, composing, keys, composed });
 
+  const seed = async text => {
+    const before = receivedInput().length;
+    await page.keyboard.insertText(text);
+    await expect.poll(() => receivedInput().slice(before)).toEqual([text]);
+  };
+
   await t.test('repeated Android 229 key events do not replay a whole phrase', async () => {
     await fresh(); const before = receivedInput().length;
     await edit({ data: "look this is typed twice. I didn't do it", keys: 2 });
-    assert.deepEqual(receivedInput().slice(before), ["look this is typed twice. I didn't do it"]);
+    await expect.poll(() => receivedInput().slice(before)).toEqual(["look this is typed twice. I didn't do it"]);
   });
   await t.test('insertText has one owner even when input is not composed', async () => {
     await fresh(); const before = receivedInput().length;
     await edit({ data: '1', composed: false });
-    assert.deepEqual(receivedInput().slice(before), ['1']);
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['1']);
   });
   await t.test('equal-length autocorrect replaces text instead of reinserting its retained context', async () => {
     for (const composing of [false, true]) {
-      await fresh(); await page.keyboard.insertText('there is one more thing');
+      await fresh(); await seed('there is one more thing');
       const before = receivedInput().length;
       await edit({ data: 'Thing', inputType: composing ? 'insertCompositionText' : 'insertReplacementText', start: 18, end: 23, composing });
-      assert.deepEqual(receivedInput().slice(before), ['\x1b[D'.repeat(4) + '\x7fT' + '\x1b[C'.repeat(4)], JSON.stringify({ composing, seed: receivedInput().slice(0, before).at(-1) }));
+      await expect.poll(() => receivedInput().slice(before), { message: `autocorrect composing=${composing}` })
+        .toEqual(['\x1b[D'.repeat(4) + '\x7fT' + '\x1b[C'.repeat(4)]);
     }
   });
   await t.test('legitimate identical phrases, digits and Unicode commits are never deduplicated', async () => {
@@ -45,7 +53,7 @@ export async function terminalInputCases(t, { page, send, output, receivedInput 
     for (let i = 0; i < 2; i++) await edit({ data: 'one more thing ' });
     for (let i = 0; i < 3; i++) await edit({ data: '1' });
     for (let i = 0; i < 2; i++) await edit({ data: '日本語🙂', composing: true, inputType: 'insertCompositionText' });
-    assert.deepEqual(receivedInput().slice(before), ['one more thing ', 'one more thing ', '1', '1', '1', '日本語🙂', '日本語🙂']);
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['one more thing ', 'one more thing ', '1', '1', '1', '日本語🙂', '日本語🙂']);
   });
   await t.test('Gboard per-character beforeinput/input traces preserve every character under timer pressure', async () => {
     await fresh(); const before = receivedInput().length;
@@ -62,7 +70,7 @@ export async function terminalInputCases(t, { page, send, output, receivedInput 
       }
       await new Promise(resolve => setTimeout(resolve, 25));
     }, phrase);
-    assert.deepEqual(receivedInput().slice(before), [...phrase]);
+    await expect.poll(() => receivedInput().slice(before)).toEqual([...phrase]);
   });
   await t.test('native clipboard paste has one owner and retains bracketed paste semantics', async () => {
     await fresh(); await output('\x1b[?2004h'); const before = receivedInput().length;
@@ -73,17 +81,17 @@ export async function terminalInputCases(t, { page, send, output, receivedInput 
       return event.defaultPrevented;
     });
     assert.equal(prevented, true, 'the browser must not insert a second copy after xterm paste');
-    assert.deepEqual(receivedInput().slice(before), ['\x1b[200~clipboard\r日本語\x1b[201~']);
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['\x1b[200~clipboard\r日本語\x1b[201~']);
   });
   await t.test('Gboard insertFromPaste without a clipboard event is bracketed once per intentional paste', async () => {
     await fresh(); await output('\x1b[?2004h'); const before = receivedInput().length;
     await edit({ data: 'native\n日本語', inputType: 'insertFromPaste' });
     await edit({ data: 'native\n日本語', inputType: 'insertFromPaste' });
-    assert.deepEqual(receivedInput().slice(before), ['\x1b[200~native\r日本語\x1b[201~', '\x1b[200~native\r日本語\x1b[201~']);
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['\x1b[200~native\r日本語\x1b[201~', '\x1b[200~native\r日本語\x1b[201~']);
   });
   await t.test('IME deletion emits one erase, not a copy of its remaining buffer', async () => {
-    await fresh(); await page.keyboard.insertText('phrase'); const before = receivedInput().length;
+    await fresh(); await seed('phrase'); const before = receivedInput().length;
     await edit({ data: null, inputType: 'deleteContentBackward', start: 5, end: 6 });
-    assert.deepEqual(receivedInput().slice(before), ['\x7f']);
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['\x7f']);
   });
 }

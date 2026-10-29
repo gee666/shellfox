@@ -458,6 +458,66 @@ describe('terminal stream ownership', () => {
   });
 });
 
+describe('stock xterm input', () => {
+  it('forwards every onData chunk unchanged, including intentional repeats, spaces and Unicode', () => {
+    const sent = vi.fn();
+    const surface = createTerminalSurface(sent);
+    const terminal = terminalMocks.terminals.at(-1)!;
+    try {
+      terminal.input('disabled');
+      expect(sent).not.toHaveBeenCalled();
+      surface.setInput(true);
+      const chunks = ['a', 'a', 'A', 'A', ' ', ' ', '日本語🙂', '\u001b[200~paste\rtext\u001b[201~'];
+      for (const data of chunks) terminal.input(data);
+      expect(sent.mock.calls).toEqual(chunks.map(data => [data, true]));
+      surface.setInput(false);
+      terminal.input('disabled again');
+      expect(sent).toHaveBeenCalledTimes(chunks.length);
+    } finally { surface.dispose(); }
+  });
+  it('leaves textarea editing and composition to xterm without intercepting or clearing DOM text', () => {
+    const sent = vi.fn();
+    const surface = createTerminalSurface(sent);
+    document.body.append(surface.element); surface.fit(); surface.setInput(true);
+    const terminal = terminalMocks.terminals.at(-1)!;
+    const textarea: HTMLTextAreaElement = terminal.textarea;
+    textarea.value = 'aa AA  日本語🙂';
+    try {
+      const events = [
+        new KeyboardEvent('keydown', { key: 'A', code: 'KeyA', shiftKey: true, bubbles: true, cancelable: true }),
+        new InputEvent('beforeinput', { data: 'A', inputType: 'insertText', bubbles: true, cancelable: true }),
+        new InputEvent('input', { data: 'A', inputType: 'insertText', bubbles: true }),
+        new CompositionEvent('compositionstart', { data: '', bubbles: true }),
+        new CompositionEvent('compositionupdate', { data: '日本語', bubbles: true }),
+        new CompositionEvent('compositionend', { data: '日本語', bubbles: true }),
+      ];
+      for (const event of events) {
+        textarea.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(false);
+        expect(textarea.value).toBe('aa AA  日本語🙂');
+      }
+      expect(sent).not.toHaveBeenCalled();
+      terminal.input('日本語');
+      expect(sent).toHaveBeenCalledExactlyOnceWith('日本語', true);
+    } finally { surface.dispose(); }
+  });
+  it('keeps disableStdin and textarea readOnly in sync before and after opening', () => {
+    const surface = createTerminalSurface(() => {});
+    const terminal = terminalMocks.terminals.at(-1)!;
+    try {
+      expect(terminal.options.disableStdin).toBe(true);
+      document.body.append(surface.element); surface.fit();
+      expect(terminal.textarea.readOnly).toBe(true);
+      surface.setInput(true);
+      expect(terminal.options.disableStdin).toBe(false);
+      expect(terminal.textarea.readOnly).toBe(false);
+      surface.setInput(false);
+      expect(terminal.options.disableStdin).toBe(true);
+      expect(terminal.textarea.readOnly).toBe(true);
+    } finally { surface.dispose(); }
+  });
+});
+
 describe('xterm safety configuration', () => {
   it('skips unchanged-grid repaints and pauses cursor blinking on detached screens', () => {
     const surface = createTerminalSurface(() => {}); document.body.append(surface.element);
