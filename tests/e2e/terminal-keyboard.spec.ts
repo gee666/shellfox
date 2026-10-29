@@ -50,7 +50,7 @@ test('Shift letters reach the desktop PTY once without dropping intentional repe
   }
 });
 
-test('a real no-echo password reader receives exact letters, repeated spaces and Unicode bytes', async () => {
+test('a real no-echo password reader receives exact letters, repeated spaces and Unicode bytes', async ({}, testInfo) => {
   const dir = await scratch('terminal-password');
   const script = path.join(dir, 'password-reader.cjs'), record = path.join(dir, 'received.bin');
   // This reader never echoes input or receives any user credentials.
@@ -86,6 +86,7 @@ process.stdout.write('\\x1b[2J\\x1b[HPASSWORD_READY: ');
     value(await seedTerminal(app, { ...identity, data: command }));
     const rows = page.locator('.xterm-rows');
     await expect(rows).toContainText('PASSWORD_READY:');
+    const prompt = await rows.innerText();
     const textarea = page.locator('.xterm-helper-textarea');
     await expect(textarea).toBeEditable();
     await textarea.focus();
@@ -97,11 +98,15 @@ process.stdout.write('\\x1b[2J\\x1b[HPASSWORD_READY: ');
     await page.keyboard.insertText('日本語🙂');
     await page.keyboard.type('  ');
     const fixture = '  AAaaZZ!!  password    日本語🙂  ';
-    await expect(rows).not.toContainText('password');
-    await expect(rows).not.toContainText('日本語');
+    await expect(rows).toHaveText(prompt);
     await page.keyboard.press('Enter');
     await expect(rows).toContainText('PASSWORD_RECORDED');
     const received = await readFile(record), expected = Buffer.from(fixture, 'utf8');
+    await testInfo.attach('synthetic-password-bytes.json', {
+      body: JSON.stringify({ expectedBytes: expected.byteLength, receivedBytes: received.byteLength,
+        expectedHex: expected.toString('hex'), receivedHex: received.toString('hex') }),
+      contentType: 'application/json',
+    });
     expect(received.toString('hex')).toBe(expected.toString('hex'));
     expect(received.byteLength).toBe(expected.byteLength);
   } finally {
