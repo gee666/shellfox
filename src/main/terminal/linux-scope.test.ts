@@ -1,6 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile, chmod } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
@@ -19,8 +18,8 @@ describe('Linux terminal scopes', () => {
     expect(wrapped.args.slice(wrapped.args.indexOf('--'))).toEqual(['--', '/bin/bash', '-l', '-i', '--user']);
     expect(wrapped.args.find(arg => arg.startsWith('--unit='))).toMatch(/^--unit=shellfox-terminal-[0-9a-f-]{36}$/);
   });
-  it('launches directly when systemd-run is missing or cannot reach a user manager', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'shellfox-scope-'));
+  it.skipIf(process.platform !== 'linux')('launches directly when systemd-run is missing or cannot reach a user manager', async () => {
+    const dir = await mkdtemp(path.resolve('tmp/shellfox-scope-'));
     try {
       const exec = vi.fn(async () => { throw new Error('Failed to connect to bus'); });
       expect(await probeTerminalScope(dir, async () => {})).not.toBe(path.join(dir, 'systemd-run'));
@@ -47,10 +46,17 @@ describe('Linux terminal scopes', () => {
   it.skipIf(process.platform !== 'linux')('raises a process OOM score but never lowers it', async () => {
     const child = spawn('sleep', ['30']);
     try {
+      const score = async () => Number(await readFile(`/proc/${child.pid}/oom_score_adj`, 'utf8'));
+      // CI children may inherit a score higher than our default from the runner.
+      const inherited = await score();
       await raiseOomScore(child.pid!);
-      expect(Number(await readFile(`/proc/${child.pid}/oom_score_adj`, 'utf8'))).toBe(TERMINAL_OOM_SCORE_ADJ);
+      const baseline = Math.max(inherited, TERMINAL_OOM_SCORE_ADJ);
+      expect(await score()).toBe(baseline);
+      const higher = Math.min(1000, baseline + 100);
+      await raiseOomScore(child.pid!, higher);
+      expect(await score()).toBe(higher);
       await raiseOomScore(child.pid!, 100);
-      expect(Number(await readFile(`/proc/${child.pid}/oom_score_adj`, 'utf8'))).toBe(TERMINAL_OOM_SCORE_ADJ);
+      expect(await score()).toBe(higher);
     } finally { child.kill(); }
   });
   it.skipIf(!runner)('runs the shell as the same PID in its own OOM-tolerant scope', async () => {
