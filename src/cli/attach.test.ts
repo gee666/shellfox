@@ -90,6 +90,13 @@ describe('interactive attachment', () => {
     f.emit({ type: 'exit', tabId, generation, controlEpoch: 1, exitCode: 0, signal: null, lastSequence: 2 });
     await done; expect(f.output.text).toContain('last'); expect(f.input.isRaw).toBe(false);
   });
+  it('forwards uppercase and intentional repeats once per raw input chunk', async () => {
+    const f = fixture(), done = attachTerminal(f.api, tabId, f.io); await ready(f);
+    const chunks = ['A', 'A', 'ZZaa!!', '日本語🙂'];
+    for (const chunk of chunks) f.input.emit('data', Buffer.from(chunk));
+    f.input.emit('data', Buffer.from('\u001d')); await done;
+    expect(vi.mocked(f.api.writeTerminal).mock.calls.map(([input]) => input.data)).toEqual(chunks);
+  });
   it('decodes split UTF-8 input without corrupting characters', async () => {
     const f = fixture(), done = attachTerminal(f.api, tabId, f.io); await ready(f);
     const bytes = Buffer.from('💻'); f.input.emit('data', bytes.subarray(0, 2)); f.input.emit('data', bytes.subarray(2));

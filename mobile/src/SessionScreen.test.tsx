@@ -18,7 +18,7 @@ type NativeProps = {
   children?: ReactNode; accessibilityLabel?: string; accessibilityRole?: string; disabled?: boolean;
   onPress?: () => void; onLongPress?: () => void; testID?: string;
 };
-type TerminalProps = { tabId: string; onError: (error: Error) => void; onState: (state: TerminalBridgeState) => void };
+type TerminalProps = { tabId: string; readOnly?: boolean; onError: (error: Error) => void; onState: (state: TerminalBridgeState) => void };
 let terminalProps: TerminalProps | null = null;
 vi.mock('react-native', () => ({
   Alert: { alert: vi.fn() },
@@ -32,7 +32,7 @@ vi.mock('./ui', () => ({
   Button: ({ title, onPress }: { title: string; onPress: () => void }) => <button onClick={onPress}>{title}</button>,
   Note: ({ children }: NativeProps) => <span>{children}</span>,
 }));
-vi.mock('./terminal/TerminalView', () => ({ TerminalView: (props: TerminalProps) => { terminalProps = props; return <div data-testid="terminal" data-tab={props.tabId} />; } }));
+vi.mock('./terminal/TerminalView', () => ({ TerminalView: (props: TerminalProps) => { terminalProps = props; return <div data-testid="terminal" data-tab={props.tabId} data-readonly={props.readOnly} />; } }));
 vi.mock('./ActionMenu', () => ({ ActionMenu: ({ menu, close }: { menu: MenuConfig; close: () => void }) => (
   <div role="dialog">{menu.actions.map(action => <button key={action.title} onClick={() => { close(); action.action(); }}>{action.title}</button>)}</div>
 ) }));
@@ -123,6 +123,15 @@ describe('compact terminal chrome', () => {
     const error = vi.mocked(f.model.report).mock.calls[0][0];
     expect(error).toBeInstanceOf(RemoteClientError);
     expect(error).toMatchObject({ detail: { code: 'TARGET_LOST', retryable: true } });
+  });
+  it.each(['open', 'closed'] as const)('mounts a read-only automation view with lifecycle %s without requesting a new shell', lifecycle => {
+    const item = session(); item.canAddTab = false;
+    item.tabs[0].profileId = 'automation-pipe'; item.tabs[0].lifecycle = lifecycle;
+    const f = setup(true, item);
+    expect(screen.getByTestId('terminal')).toHaveAttribute('data-readonly', 'true');
+    expect(screen.getByRole('button', { name: 'New terminal' })).toBeDisabled();
+    expect(f.request).not.toHaveBeenCalledWith('addTab', expect.anything());
+    expect(f.item.tabs[0].lifecycle).toBe(lifecycle);
   });
   it('never mounts closed tabs and opens the new default shell without a stale global warning', async () => {
     const item = session(); item.tabs[0].lifecycle = 'closed';

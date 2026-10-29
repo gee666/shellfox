@@ -16,7 +16,7 @@ function deferred<T>() {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 }
-function setup(attachment: TerminalAttachmentDto = snapshot()) {
+function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false) {
   let emit: (event: TerminalEvent) => void = () => undefined;
   const unsubscribe = vi.fn(), messages: HostMessage[] = [], onError = vi.fn(), onFocus = vi.fn(), onState = vi.fn();
   const api = {
@@ -28,7 +28,7 @@ function setup(attachment: TerminalAttachmentDto = snapshot()) {
     takeTerminalControl: vi.fn<MobileTerminalApi['takeTerminalControl']>(async () => success({ taken: true })),
   };
   const subscribeTerminal = vi.fn((listener: (event: TerminalEvent) => void) => { emit = listener; return unsubscribe; });
-  const options = { api, subscribeTerminal, tabId, viewId: 'page-1', fontSize: 14, onError, onFocus, onState, send: (message: HostMessage) => messages.push(message) };
+  const options = { api, subscribeTerminal, tabId, readOnly, viewId: 'page-1', fontSize: 14, onError, onFocus, onState, send: (message: HostMessage) => messages.push(message) };
   const bridge = new TerminalBridge(options);
   const latest = () => messages.filter((m): m is Extract<HostMessage, { type: 'output' }> => m.type === 'output').at(-1)!;
   const rendered = () => { const m = latest(); bridge.receive({ type: 'rendered', viewId: m.viewId, epoch: m.epoch, ticket: m.ticket }); };
@@ -37,6 +37,23 @@ function setup(attachment: TerminalAttachmentDto = snapshot()) {
 }
 afterEach(() => vi.useRealTimers());
 describe('mobile terminal delivery', () => {
+  it.each(['open', 'closed'] as const)('renders and acknowledges %s automation replay without accepting input or uploads', async state => {
+    const f = setup(snapshot([event(1, 'saved output')], { state, exitCode: state === 'closed' ? 7 : null }), true);
+    try {
+      await flush();
+      expect(f.messages[0]).toMatchObject({ type: 'reset', readOnly: true });
+      expect(f.latest().data).toBe('saved output');
+      f.bridge.input('typed'); f.bridge.input('parser reply', false);
+      f.bridge.key({ key: 'Enter', modifiers: emptyModifiers }); f.bridge.paste('paste'); f.bridge.focus(true);
+      f.bridge.receive({ type: 'resize', viewId: 'page-1', epoch: f.latest().epoch, cols: 100, rows: 40 });
+      f.rendered(); await flush();
+      expect(f.bridge.getUploadIdentity()).toBeNull();
+      expect(f.api.writeTerminal).not.toHaveBeenCalled(); expect(f.api.resizeTerminal).not.toHaveBeenCalled();
+      expect(f.messages.some(message => message.type === 'paste' || message.type === 'key' || message.type === 'focus' && message.focused)).toBe(false);
+      expect(f.api.acknowledgeTerminal).toHaveBeenCalledWith({ tabId, generation, controlEpoch: 1, sequence: 1 });
+      expect(f.onError).not.toHaveBeenCalled();
+    } finally { f.bridge.dispose(); }
+  });
   it('keeps parser replies separate from adjacent user input when batching writes', async () => {
     const f = setup(); await flush();
     const input = { type: 'input' as const, viewId: 'page-1', epoch: f.latest().epoch };

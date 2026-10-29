@@ -15,6 +15,7 @@ import { TerminalActivity } from './activity';
 import { nativeQueuedInputBytes, MAX_NATIVE_INPUT_BYTES } from './native-input';
 import { prepareDarwinSupervisor, type SupervisorLaunch, type SupervisorControl } from './darwin-supervisor';
 import { ScreenMirror } from './screen-mirror';
+import { AUTOMATION_PROFILE_ID } from './automation-terminal';
 import { probeTerminalScope, raiseOomScore, scopedCommand, waitForScopedExec } from './linux-scope';
 import { ADMIN_POWERSHELL_PROFILE, launchElevatedPty, elevatedHelperPath, elevatedCapability, type ElevatedLaunch, type ElevatedPty } from './windows-elevated';
 
@@ -33,15 +34,18 @@ export interface PtyProcess {
 }
 export type PtyFactory = (file: string, args: string[], options: { name: string; cols: number; rows: number; cwd?: string; env: Record<string, string>; useConpty: boolean; useConptyDll?: boolean }) => PtyProcess;
 export interface TerminalLaunch { tabId: string; sessionId: string; generation: string; profileId: string; cwd: string; env?: EnvVar[]; cliBin?: string }
+export type TerminalAdoption = Pick<TerminalLaunch, 'tabId' | 'sessionId' | 'generation' | 'cwd'>;
 /** Main-process notification only; viewers receive the effective title in session snapshots. */
 export interface TerminalTitleEvent { tabId: string; generation: string; title: string | null }
 export interface OwnedTerminal {
   tabId: string; sessionId: string; generation: string; profileId: string; cwd: string;
   state: 'open' | 'closed'; exitCode: number | null; cols: number; rows: number; root: TrackingRoot;
   cleanupPending: boolean;
+  viewOnly?: boolean;
   processTitle: string | null;
 }
 interface Entry extends Omit<OwnedTerminal, 'processTitle'> {
+  viewOnly: boolean;
   activity: TerminalActivity;
   pty: PtyProcess | null; chunks: { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number; order: number }[];
   bytes: number; sequence: number; inputBytes: number; inputWindow: number;
@@ -139,9 +143,42 @@ export class PtyBackend {
   getProfiles(): TerminalProfilesDto { return structuredClone(this.profiles); }
   get(tabId: string): OwnedTerminal | undefined {
     const e = this.entries.get(tabId);
-    return e && { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, profileId: e.profileId, cwd: e.cwd, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, root: { ...e.root }, cleanupPending: e.cleanupPending, processTitle: e.mirror.title };
+    return e && { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, profileId: e.profileId, cwd: e.cwd, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, root: { ...e.root }, cleanupPending: e.cleanupPending, viewOnly: e.viewOnly, processTitle: e.mirror.title };
   }
   live(): OwnedTerminal[] { return [...this.entries.keys()].map(id => this.get(id)!).filter(e => e.state === 'open' || e.cleanupPending); }
+  /** The caller owns process-tree cleanup and raw pipe bytes. Only the display
+   * stream is adopted here; no shell discovery, preflight or spawn is needed. */
+  adopt(input: TerminalAdoption, process: PtyProcess): Result<OwnedTerminal> {
+    if (!z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, cwd: pathSchema }).strict().safeParse(input).success || !Number.isSafeInteger(process.pid) || process.pid <= 0) return failure('VALIDATION', 'Invalid automation terminal identity.');
+    if (this.disposed) return failure('NATIVE_UNAVAILABLE', 'Terminal backend is shutting down.');
+    // Never silently substitute another supplied process, even for the same generation.
+    if (this.entries.has(input.tabId)) return failure('VALIDATION', 'This tab already owns a terminal.');
+    if (this.live().length >= 64) return failure('VALIDATION', 'The live embedded terminal limit is 64.');
+    const e = this.createEntry({ ...input, profileId: AUTOMATION_PROFILE_ID }, process, {
+      tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: process.pid, environment: 'local', distro: null, marker: randomUUID(),
+    }, { viewOnly: true });
+    this.entries.set(input.tabId, e);
+    try {
+      e.handles.push(process.onData(data => this.output(e, data)));
+      e.handles.push(process.onExit(exit => this.exited(e, exit.exitCode, exit.signal ?? null)));
+      // Also support synchronous callbacks from an already-exited adapter.
+      this.releaseClosed(e);
+      return success(this.get(e.tabId)!);
+    } catch {
+      return failure('LAUNCH_FAILED', 'Automation event handlers could not be attached. Its handle remains owned for explicit close.');
+    }
+  }
+  private createEntry(input: TerminalLaunch, pty: PtyProcess, root: TrackingRoot, options: { viewOnly?: boolean; cleanupPending?: boolean; supervisor?: SupervisorControl; elevated?: ElevatedPty } = {}): Entry {
+    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), state: 'open', exitCode: null, cols: 80, rows: 24, pty, root,
+      chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: options.viewOnly ?? false,
+      cleanupPending: options.cleanupPending ?? false, viewOnly: options.viewOnly ?? false, supervisor: options.supervisor, elevated: options.elevated,
+      mirror: new ScreenMirror(80, 24, title => {
+        if (this.disposed || this.entries.get(e.tabId) !== e) return;
+        const event = { tabId: e.tabId, generation: e.generation, title };
+        for (const listener of this.titleListeners) { try { listener(event); } catch { /* Title observers cannot break PTY ownership. */ } }
+      }, data => { this.writeInput(e, data, false); }) };
+    return e;
+  }
   isBusy(tabId: string): boolean { return this.entries.get(tabId)?.activity.isBusy ?? false; }
   async awaitCleanup(sessionId: string): Promise<Result<{ confirmed: true }>> {
     const pending = [...this.entries.values()].filter(e => e.sessionId === sessionId && e.state === 'closed' && e.cleanupPending);
@@ -244,11 +281,7 @@ export class PtyBackend {
     catch { await supervisor?.control.disposeConfirmed(); return failure('LAUNCH_FAILED', 'The selected interactive shell could not start.'); }
     const bornAfter = (BigInt(Date.now()) + 11644473600000n) * 10000n + 9999n;
     if (current) { current.activity.stop(); this.replayBytes -= current.bytes; current.handles.forEach(h => h.dispose()); current.mirror.dispose(); }
-    const e: Entry = { ...input, activity: new TerminalActivity(input.tabId, event => this.emit(event)), cwd, state: 'open', exitCode: null, cols: 80, rows: 24, pty, root: { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' && !administrator ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, chunks: [], bytes: 0, sequence: 0, inputBytes: 0, inputWindow: Date.now(), handles: [], identity: null, known: [], ready: false, cleanupPending: administrator || profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control, elevated, mirror: new ScreenMirror(80, 24, title => {
-      if (this.disposed || this.entries.get(e.tabId) !== e) return;
-      const event = { tabId: e.tabId, generation: e.generation, title };
-      for (const listener of this.titleListeners) { try { listener(event); } catch { /* Title observers cannot break PTY ownership. */ } }
-    }, data => { this.writeInput(e, data, false); }) };
+    const e = this.createEntry({ ...input, cwd }, pty, { tabId: input.tabId, sessionId: input.sessionId, generation: input.generation, pid: pty.pid, environment: profile.environment, distro: profile.distro, marker, shellExecutable: profile.environment === 'wsl' ? '/bin/bash' : profile.executable, ...(this.platform === 'win32' && profile.environment === 'local' && !administrator ? { ancestorPid: process.pid, ...(bornBefore <= bornAfter ? { birthOrderBounds: { min: bornBefore.toString(), max: bornAfter.toString() } } : {}) } : {}) }, { cleanupPending: administrator || profile.environment === 'wsl' || this.platform !== 'win32', supervisor: supervisor?.control, elevated });
     this.entries.set(input.tabId, e);
     try {
       e.handles.push(pty.onData(data => this.output(e, data)));
@@ -387,6 +420,7 @@ export class PtyBackend {
   }
   private writeInput(e: Entry, data: string, userInitiated: boolean): Result<{ written: true }> {
     if (this.entries.get(e.tabId) !== e || e.state !== 'open' || !e.pty) return failure('TARGET_LOST', 'This shell has exited.');
+    if (e.viewOnly) return failure('UNSUPPORTED', 'Automation terminals are read-only.');
     if (e.closing) return failure('TARGET_LOST', 'Owned terminal cleanup is in progress; no input was enqueued.');
     if (userInitiated && !e.ready) return failure('NATIVE_UNAVAILABLE', 'The terminal input channel is still being prepared.');
     const queued = e.pty.queuedInputBytes?.();
@@ -440,7 +474,7 @@ export class PtyBackend {
       try { if (!this.terminateGuest) throw new Error('No guest termination provider.'); await this.terminateGuest(e.root, e.identity, e.known); e.cleanupPending = false; }
       catch { return failure('MONITOR_UNAVAILABLE', 'Guest shell termination could not be verified. Keep the manager open and exit the guest shell manually, or restore guest tracking and Python pidfd support.', true); }
     }
-    else if (this.platform !== 'win32') {
+    else if (!e.viewOnly && this.platform !== 'win32') {
       try { await this.terminateUnix(e.root, e.identity, e.known); e.cleanupPending = false; }
       catch { return failure('MONITOR_UNAVAILABLE', 'Owned Unix descendant termination could not be confirmed. No numeric PID-only kill was attempted; ownership remains pending for retry.', true); }
     }
@@ -454,7 +488,11 @@ export class PtyBackend {
       // exits. Its output pipe, and node-pty's authoritative onExit, close later.
       const timeoutMs = this.options.closeTimeoutMs ?? (this.platform === 'win32' ? 10000 : 5000);
       const timer = setTimeout(() => finish(failure('NATIVE_UNAVAILABLE', 'The owned PTY did not confirm exit. Its handle remains owned; no shell survival or closure is claimed.', true)), timeoutMs);
-      try { handle = pty.onExit(() => finish(success({ closed: true }))); if (this.platform === 'win32') pty.kill(); }
+      try {
+        handle = pty.onExit(() => finish(success({ closed: true })));
+        if (done) handle.dispose();
+        else if (e.viewOnly || this.platform === 'win32') pty.kill();
+      }
       catch { finish(failure('NATIVE_UNAVAILABLE', 'The owned PTY could not be terminated. Its handle was retained for a retry.', true)); }
     });
   }

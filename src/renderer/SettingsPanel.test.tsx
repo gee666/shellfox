@@ -19,6 +19,14 @@ function setup(initial = snapshot()) {
   return { ...rendered, fixture, client, user };
 }
 describe('autosaving settings', () => {
+  it('defaults automatic updates on and saves opting out without changing other settings', async () => {
+    const { fixture } = setup();
+    const toggle = screen.getByRole('checkbox', { name: 'Automatic updates' });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ autoUpdate: false })));
+    expect(toggle).not.toBeChecked();
+  });
   it('debounces color changes and preserves hidden legacy fields', async () => {
     const initial = snapshot(); initial.settings.historyPageSize = 37; initial.settings.shellExecutable = 'C:\\legacy\\shell.exe';
     const { fixture } = setup(initial);

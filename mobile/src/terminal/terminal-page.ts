@@ -8,7 +8,7 @@ import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from '../../../src/
 type NativeWindow = Window & { ReactNativeWebView?: { postMessage: (data: string) => void } };
 const viewId = `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let epoch = '', terminal: Terminal | null = null, fit: FitAddon | null = null;
-let historical = false, writing = false, selecting = false;
+let historical = false, writing = false, selecting = false, readOnly = false;
 let keyboard: PageKeyboard | null = null;
 let fitted = '', fitFrame = 0, fitPending = false;
 let theme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
@@ -43,7 +43,7 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   // Hold the replay grid until the first output command has painted.
   fitted = ''; historical = true; writing = true; selecting = false; fitPending = false;
   const term = new Terminal({ cols, rows, fontSize, fontFamily: 'Menlo, Consolas, monospace',
-    scrollback: 3000, convertEol: false, cursorBlink: true, allowProposedApi: false,
+    scrollback: 3000, convertEol: false, cursorBlink: !readOnly, disableStdin: readOnly, allowProposedApi: false,
     theme, macOptionIsMeta: true,
     linkHandler: { activate: () => undefined, allowNonHttpProtocols: false },
   });
@@ -52,12 +52,12 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   if (textarea) {
     textarea.setAttribute('autocapitalize', 'off'); textarea.setAttribute('autocorrect', 'off');
     textarea.setAttribute('autocomplete', 'off'); textarea.setAttribute('inputmode', 'text');
-    textarea.spellcheck = false;
+    textarea.spellcheck = false; textarea.readOnly = readOnly;
   }
-  if (focused) term.focus();
+  if (focused && !readOnly) term.focus();
   const keyboardEpoch = epoch;
   keyboard = new PageKeyboard(term, (data, userInitiated) => {
-    if (terminal === term && epoch === keyboardEpoch && !historical && data && !data.includes('\0')) {
+    if (!readOnly && terminal === term && epoch === keyboardEpoch && !historical && data && !data.includes('\0')) {
       send({ type: 'input', ...identity(), data, ...(userInitiated === false ? { userInitiated: false } : {}) });
     }
   });
@@ -79,7 +79,8 @@ function receive(event: MessageEvent) {
       cancelAnimationFrame(fitFrame); container.replaceChildren(); return;
     }
     if (message.type === 'reset') {
-      epoch = message.epoch; createTerminal(message.cols, message.rows, message.fontSize); return;
+      epoch = message.epoch; readOnly = message.readOnly ?? false;
+      createTerminal(message.cols, message.rows, message.fontSize); return;
     }
     if (message.epoch !== epoch || !terminal) return;
     switch (message.type) {
@@ -105,11 +106,11 @@ function receive(event: MessageEvent) {
         container.style.backgroundColor = message.backgroundColor;
         break;
       }
-      case 'paste': keyboard?.paste(message.data); break;
-      case 'key': keyboard?.key(message.event); break;
+      case 'paste': if (!readOnly) keyboard?.paste(message.data); break;
+      case 'key': if (!readOnly) keyboard?.key(message.event); break;
       case 'modifiers': keyboard?.setModifiers(message.modifiers); break;
       case 'focus':
-        if (message.focused) {
+        if (message.focused && !readOnly) {
           terminal.focus();
           if (document.activeElement === terminal.textarea) send({ type: 'focused', ...identity() });
         } else terminal.blur();
@@ -157,7 +158,7 @@ container.addEventListener('touchmove', event => {
     if (!start || !moved || selecting || historical
       || Math.abs(touch.clientY - start.y) <= Math.abs(touch.clientX - start.x)) return;
     const mouseMode = terminal.modes.mouseTrackingMode;
-    const remoteScroll = mouseMode === 'vt200' || mouseMode === 'drag' || mouseMode === 'any';
+    const remoteScroll = !readOnly && (mouseMode === 'vt200' || mouseMode === 'drag' || mouseMode === 'any');
     if (!remoteScroll && terminal.buffer.active.type !== 'normal') return;
     const height = container.querySelector('.xterm-screen')?.getBoundingClientRect().height;
     if (!height) return;
@@ -185,7 +186,7 @@ container.addEventListener('touchmove', event => {
 container.addEventListener('touchend', event => {
   clearLongPress();
   if (anchor) { event.preventDefault(); anchor = null; }
-  else if (start && !moved && !selecting) terminal?.focus();
+  else if (start && !moved && !selecting && !readOnly) terminal?.focus();
   start = null;
 }, { passive: false });
 container.addEventListener('touchcancel', () => { clearLongPress(); anchor = null; start = null; });

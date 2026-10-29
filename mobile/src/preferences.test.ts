@@ -8,16 +8,21 @@ beforeEach(() => { vi.resetAllMocks(); storage.getItem.mockResolvedValue(null); 
 
 describe('mobile preferences', () => {
   it('uses compact defaults on first launch', async () => {
-    expect(await loadPreferences()).toEqual({ hostname: 'shellfox-mobile', remembered: [], fontSize: 14 });
+    expect(await loadPreferences()).toEqual({ hostname: 'shellfox-mobile', remembered: [], fontSize: 14, autoUpdate: true });
     expect(storage.getItem).toHaveBeenCalledWith('shellfox.mobile.preferences.v1');
   });
   it('round trips a renamed device, remembered host and font setting', async () => {
-    const value = { hostname: 'phone-2', remembered: ['host:123', 'host.two'], fontSize: 20 };
+    const value = { hostname: 'phone-2', remembered: ['host:123', 'host.two'], fontSize: 20, autoUpdate: false };
     await savePreferences(value);
     const [key, json] = storage.setItem.mock.calls[0];
     expect(key).toBe('shellfox.mobile.preferences.v1');
     storage.getItem.mockResolvedValue(json);
     expect(await loadPreferences()).toEqual(value);
+  });
+  it('defaults automatic updates on for older preferences and rejects non-boolean settings', () => {
+    expect(preferencesSchema.parse({ hostname: 'old-phone' }).autoUpdate).toBe(true);
+    expect(preferencesSchema.parse({ autoUpdate: false }).autoUpdate).toBe(false);
+    expect(preferencesSchema.safeParse({ autoUpdate: 'false' }).success).toBe(false);
   });
   it('fills defaults for older partial preferences', async () => {
     storage.getItem.mockResolvedValue(JSON.stringify({ hostname: 'old-phone' }));

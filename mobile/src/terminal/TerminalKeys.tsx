@@ -16,6 +16,7 @@ import { KeyboardIcon } from './KeyboardIcon';
 import type { TerminalKey } from './protocol';
 
 interface Props {
+  readOnly?: boolean;
   attach?: React.ReactNode;
   bottomInset: number;
   control: boolean;
@@ -80,22 +81,22 @@ export function TerminalKeys(props: Props) {
     <>
       <KeyboardAccessory bottomInset={props.bottomInset}>
         <KeyboardAccessoryScroll>
-          {button('Ctrl', props.onControl, props.control)}
-          {keys.map(([label, data]) => button(label, () => props.onKey(data)))}
+          {!props.readOnly && button('Ctrl', props.onControl, props.control)}
+          {!props.readOnly && keys.map(([label, data]) => button(label, () => props.onKey(data)))}
           {button('Select', props.onSelect, props.selecting)}
-          {button('Paste', () => { void openPaste(); })}
+          {!props.readOnly && button('Paste', () => { void openPaste(); })}
         </KeyboardAccessoryScroll>
         {!!props.selection && button(copied ? 'Copied' : 'Copy', copy)}
-        {props.attach}
-        <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
+        {!props.readOnly && props.attach}
+        {!props.readOnly && <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
           <KeyboardIcon active={props.systemKeyboard} />
-        </AccessoryButton>
-        <AccessoryButton label="Special keys" onPress={props.onSpecialKeyboard} active={props.specialKeyboard}>
+        </AccessoryButton>}
+        {!props.readOnly && <AccessoryButton label="Special keys" onPress={props.onSpecialKeyboard} active={props.specialKeyboard}>
           <KeyboardIcon special active={props.specialKeyboard} />
-        </AccessoryButton>
+        </AccessoryButton>}
       </KeyboardAccessory>
       <Modal
-        visible={pasting}
+        visible={pasting && !props.readOnly}
         transparent
         animationType="none"
         onRequestClose={closePaste}

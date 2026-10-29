@@ -113,6 +113,40 @@ The first remote connection requires approval on the host. It can be approved th
 
 Use `--host DEVICE_ID_OR_UNIQUE_NAME` for remote session and terminal operations. Network, device-approval, and host lifecycle commands manage the local owning host and reject a remote selector rather than modifying the wrong machine.
 
+## Automation processes
+
+Use `run` when an automation tool needs ordinary process pipes rather than a PTY. It works with a running desktop host or a headless host on Windows, macOS, and Linux:
+
+```sh
+shellfox run --cwd /srv/project -- node worker.mjs --task review
+```
+
+The command forwards stdin bytes and EOF, keeps stdout and stderr separate, and returns the process exit code. Arguments after `--` are literal, including flags named `--json` or `--user-data`. Shell expansion and redirection are not implicit. To run a shell expression, explicitly invoke the appropriate shell, such as `sh -c`, PowerShell, or `cmd.exe /c`. On Windows, invoke `.cmd` scripts through `cmd.exe` or use the underlying executable.
+
+The process receives the caller's working directory and environment, not the desktop's shell profile or session environment. It has pipes, so programs see the same non-TTY behavior they would in a normal piped subprocess. `ELECTRON_RUN_AS_NODE`, which the desktop CLI launcher uses internally, is not forwarded. The runner does not emulate a parent process ID, OS console, or interactive TTY.
+
+Give each subagent a `--title` to identify it in `runs list`. To know its run ID before starting, generate a UUID in your automation tool and pass `--request-id UUID`. That UUID is the run ID, so another command can open the correct viewer without parsing the subagent's output. Reusing an ID from a different CLI invocation is rejected rather than starting the command twice.
+
+From another terminal, find the run and add a read-only Shellfox terminal view:
+
+```sh
+shellfox runs list --json
+shellfox runs show RUN_UUID --json
+```
+
+`show` returns the session and tab IDs. The new tab uses the existing desktop/mobile terminal UI, with recent output and live updates. It does not restart the process, steal its input, merge its actual output pipes, or change its terminal size. Repeating `show` reuses the view. The visual replay is bounded to recent output and decodes text as UTF-8; it is not a complete or byte-exact transcript. The foreground CLI pipes remain byte-exact.
+
+For a job that should start without waiting for its result:
+
+```sh
+shellfox run --detach --json -- node worker.mjs
+shellfox runs stop RUN_UUID --yes
+```
+
+Detached runs close stdin and return a run ID immediately. They retain recent visual output but do not retain separate pipe transcripts. Foreground runs apply output backpressure to bound memory. If the output collector goes away or stops polling for 30 seconds, pipe collection ends and the process resumes independently. A collector that returns receives an error rather than silently incomplete output. The process receives stdin EOF and can still be inspected with `runs show`.
+
+Automation commands target the local host; use the CLI on the remote machine to launch a job there. Created tabs can be viewed through normal remote clients. Jobs last only while the owning host runs. Closing a desktop-owned host or stopping a headless host ends its jobs; closing a desktop attached to a separate host does not. Runs and process execution are not restored after a host restart. The host retains at most 64 run records, retiring completed, fully collected runs when it needs space. Windows uses a non-elevated native Job Object; macOS and Linux use a live process-group supervisor. Ordinary descendants stop when the command root or owning host stops. Unix programs that deliberately leave their process group are not contained by that group.
+
 ## Interactive attachment and automation
 
 ```sh

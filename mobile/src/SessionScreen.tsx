@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import type { TabDto } from '../../src/shared/contracts';
+import { isAutomationView, isViewableTab } from '../../src/shared/terminal-view';
 import type { MachineView, ShellfoxModel } from './useShellfox';
 import { Button, Note, useUi } from './ui';
 import type { PromptConfig } from './Prompt';
@@ -33,12 +34,12 @@ export function SessionScreen({
   const [selected, setSelected] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuConfig | null>(null);
   const active =
-    tabs.find((tab) => tab.id === selected) ?? tabs.find((tab) => tab.lifecycle !== 'closed') ?? tabs[0];
+    tabs.find((tab) => tab.id === selected) ?? tabs.find(isViewableTab) ?? tabs[0];
   const client = machine.client;
   const terminalApi = client.terminalApi;
   const subscribeTerminal = client.subscribeTerminal;
   const metadataCurrent = machine.snapshotConnectionId === machine.state.connectionId;
-  const canAttach = metadataCurrent && active?.lifecycle === 'open' && active.terminalKind !== 'external-legacy';
+  const canAttach = metadataCurrent && !!active && (active.lifecycle === 'open' || active.lifecycle === 'closed' && isAutomationView(active)) && active.terminalKind !== 'external-legacy';
   const terminalKey = `${machine.peer.id}/${sessionId}/${active?.id ?? ''}/${active?.generation ?? ''}/${machine.state.connectionId ?? ''}`;
   const currentTerminalKey = useRef(terminalKey);
   currentTerminalKey.current = terminalKey;
@@ -239,6 +240,7 @@ export function SessionScreen({
               uploadApi={client}
               subscribeTerminal={subscribeTerminal}
               tabId={active.id}
+              readOnly={isAutomationView(active)}
               fontSize={model.preferences.fontSize}
               connectionEpoch={machine.state.connectionId ?? ''}
               onError={onTerminalError}

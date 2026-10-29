@@ -83,6 +83,20 @@ beforeEach(() => { vi.clearAllMocks(); native.visible = false; native.options = 
 afterEach(cleanup);
 
 describe('mobile keyboard controls', () => {
+  it('keeps replay selection and copy but hides automation input controls', () => {
+    setup({ readOnly: true });
+    expect(native.options?.readOnly).toBe(true);
+    act(() => native.options?.onState?.('closed'));
+    for (const name of ['Keyboard', 'Special keys', 'Ctrl', 'Paste', 'Esc', 'Attach']) {
+      expect(screen.queryByRole('button', { name, exact: true })).toBeNull();
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Select', exact: true }));
+    expect(native.bridge.select).toHaveBeenCalledWith(true);
+    act(() => native.options?.onSelection?.('completed output'));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy', exact: true }));
+    expect(native.copy).toHaveBeenCalledWith('completed output');
+    expect(native.bridge.key).not.toHaveBeenCalled(); expect(native.bridge.paste).not.toHaveBeenCalled();
+  });
   it('previews clipboard text and routes Send through terminal paste, not key input', async () => {
     setup();
     const text = '  日本語 🦊\r\nsecond line\n';

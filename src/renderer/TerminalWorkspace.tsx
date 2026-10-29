@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useState } from 'react';
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { SessionDto, TabDto, TerminalProfileDto } from '../shared/contracts';
+import { isAutomationView, isViewableTab } from '../shared/terminal-view';
 import type { ManagerClient } from './store';
 import type { TerminalRegistry } from './terminal-client';
 import { ContextMenu, Icon, useAction } from './components';
@@ -23,7 +24,7 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
   const action = useAction();
   const tabs = useMemo(() => {
     const closed = new Set(closedIds);
-    return session.tabs.filter(tab => tab.terminalKind !== 'external-legacy' && tab.lifecycle !== 'closed' && !closed.has(tab.id));
+    return session.tabs.filter(tab => tab.terminalKind !== 'external-legacy' && isViewableTab(tab) && !closed.has(tab.id));
   }, [session.tabs, closedIds]);
   const selected = tabs.find(tab => tab.id === chosen) ?? tabs[0];
   const terminalApi = getTerminalApi(client.api);
@@ -37,7 +38,7 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
     const result = await action.run(() => client.api.addTab({ sessionId: session.id, ...(profileId ? { profileId } : {}) }));
     if (result?.ok && client.store.getState().selectedId === session.id) {
       client.accept(result.value);
-      const added = result.value.tabs.find(tab => !ids.has(tab.id) && tab.lifecycle !== 'closed');
+      const added = result.value.tabs.find(tab => !ids.has(tab.id) && isViewableTab(tab));
       if (added) client.selectTab(result.value, added.id);
     }
     client.refresh();
@@ -53,7 +54,7 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
       setClosing(null); setClosedIds(ids => [...ids, tab.id]);
       if (client.store.getState().selectedId === session.id) {
         client.accept(result.value);
-        if (wasSelected && client.store.getState().selectionEpoch === selectionEpoch && next && result.value.tabs.some(item => item.id === next.id && item.lifecycle !== 'closed')) client.selectTab(result.value, next.id);
+        if (wasSelected && client.store.getState().selectionEpoch === selectionEpoch && next && result.value.tabs.some(item => item.id === next.id && isViewableTab(item))) client.selectTab(result.value, next.id);
       }
     }
     client.refresh();
@@ -65,7 +66,7 @@ export const TerminalWorkspace = memo(function TerminalWorkspace({ session, clie
       canClose={tab => !!tab.generation && tab.terminalKind === 'embedded' && !!terminalApi} onSelect={select} onClose={requestClose} /><button className="icon-button new-terminal" aria-label="New terminal" title="New terminal. Right-click to choose a shell." disabled={!canAdd || action.pending} onClick={() => void add()} onContextMenu={event => { event.preventDefault(); if (available && session.canAddTab && profiles.length) setProfileMenu({ x: event.clientX, y: event.clientY }); }}><Icon name="plus" /></button></div>
     {!selected ? opening || action.pending ? <TerminalLoading /> : <TerminalPlaceholder />
         : <div className="terminal-panel" data-terminal-session-id={visible && !legacy && selected.lifecycle !== 'launching' ? session.id : undefined} role="tabpanel" id={`terminal-panel-${selected.id}`} aria-labelledby={`terminal-tab-${selected.id}`}>
-          {selected.lifecycle === 'launching' ? <TerminalLoading /> : !legacy ? <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible={visible} /> : <TerminalPlaceholder />}
+          {selected.lifecycle === 'launching' ? <TerminalLoading /> : !legacy ? <TerminalViewport key={selected.id} registry={registry} tabId={selected.id} generation={selected.generation} visible={visible} readOnly={isAutomationView(selected)} /> : <TerminalPlaceholder />}
         </div>}
     {profileMenu && <ContextMenu {...profileMenu} onClose={() => setProfileMenu(null)}>{profiles.map(profile => <button role="menuitem" key={profile.id} disabled={!profile.available || action.pending} title={profile.unavailableReason ?? (profile.elevation ? 'Prompts for Windows administrator approval for this tab only.' : profile.label)} onClick={() => void add(profile.id)}>{profile.label}</button>)}</ContextMenu>}
     {closing && <div className="inline-confirm close-confirm" role="dialog" aria-label={`Close terminal ${closing.title}?`} onKeyDown={event => { if (event.key === 'Escape') setClosing(null); }}><p>An agent is running in this tab. Close?</p><div><button autoFocus disabled={action.pending} onClick={() => void close(closing)}>Close</button><button onClick={() => setClosing(null)}>Cancel</button></div></div>}

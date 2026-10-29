@@ -13,7 +13,7 @@ export interface UpdateRelease { version: string; asset: ReleaseAsset | null }
 export interface UpdatePlatform {
   supported: boolean; reason: string | null;
   assetName(version: string): string;
-  prepare(file: string, version: string, work: string): Promise<() => Promise<InstallHandoff>>;
+  prepare(file: string, version: string, work: string): Promise<(relaunch?: boolean) => Promise<InstallHandoff>>;
   cleanup?(): Promise<void>;
 }
 export interface UpdateSource {
@@ -111,15 +111,17 @@ export class SelfUpdater implements UpdateSource {
   private controller: AbortController | null = null;
   private work: string | null = null;
   private disposed = false;
-  private launch: (() => Promise<InstallHandoff>) | null = null;
+  private launch: ((relaunch?: boolean) => Promise<InstallHandoff>) | null = null;
   private starting: Promise<InstallHandoff> | null = null;
   private activeHandoff: InstallHandoff | null = null;
   private handedOff = false;
   private installing = false;
+  private automaticVersion: string | null = null;
   constructor(private readonly options: {
     current: string; platform: UpdatePlatform; fetch: UpdateFetch; tempRoot: string;
     // Confirm, start/acknowledge the helper, reversibly close terminals, then commit.
     quitForUpdate: (start: () => Promise<InstallHandoff>, onQuit: boolean) => Promise<boolean>;
+    autoUpdate?: () => boolean | Promise<boolean>;
     now?: () => number;
   }) {
     this.state = { current: options.current, latest: null, available: false, command: UPDATE_COMMAND, url: RELEASES_URL,
@@ -135,6 +137,10 @@ export class SelfUpdater implements UpdateSource {
     if (this.disposed || this.operation || this.installing || this.state.phase === 'ready' || this.state.phase === 'installing') return { ...this.state };
     const now = (this.options.now ?? Date.now)();
     if (this.lookup || now - this.checkedAt >= CHECK_INTERVAL_MS) await this.refresh();
+    if (this.state.available && this.state.supported && this.automaticVersion !== this.state.latest && await this.automatic()) {
+      const result = await this.beginDownload(true);
+      if (!result.ok) this.automaticVersion = this.state.latest;
+    }
     return { ...this.state };
   }
   private refresh(): Promise<boolean> {
@@ -162,7 +168,12 @@ export class SelfUpdater implements UpdateSource {
   private downloadBusy(): boolean {
     return !!this.operation || this.installing || this.state.phase === 'ready' || this.state.phase === 'installing';
   }
-  async download(): Promise<Result<UpdateStatusDto>> {
+  private async automatic(): Promise<boolean> {
+    try { return this.options.autoUpdate ? await this.options.autoUpdate() : true; }
+    catch { return false; }
+  }
+  async download(): Promise<Result<UpdateStatusDto>> { return this.beginDownload(false); }
+  private async beginDownload(automatic: boolean): Promise<Result<UpdateStatusDto>> {
     if (this.disposed) return failure('UNSUPPORTED', 'Updater is shutting down.');
     if (this.downloadBusy()) return success({ ...this.state });
     // The notice may be an hour old. Resolve the latest release at download time,
@@ -170,9 +181,12 @@ export class SelfUpdater implements UpdateSource {
     const fresh = await this.refresh();
     if (this.disposed) return failure('UNSUPPORTED', 'Updater is shutting down.');
     if (!fresh) return failure('INTERNAL', 'Could not check the latest release. Try the download again when connected.', true);
+    if (automatic && !await this.automatic()) return success({ ...this.state });
+    if (this.disposed) return failure('UNSUPPORTED', 'Updater is shutting down.');
     if (this.downloadBusy()) return success({ ...this.state });
     const asset = this.release?.asset;
     if (!this.state.available || !this.state.supported || !asset) return failure('UNSUPPORTED', this.state.reason ?? 'No installable update is available.');
+    this.automaticVersion = this.release!.version;
     this.state = { ...this.state, phase: 'downloading', received: 0, total: asset.size, error: null };
     // Start in the background. IPC returns immediately; status polling reports progress.
     this.operation = this.performDownload(asset, this.release!.version).catch(() => {
@@ -192,14 +206,14 @@ export class SelfUpdater implements UpdateSource {
       if (this.disposed) throw new Error('Updater stopped.');
       const prepared = await this.options.platform.prepare(file, version, this.work);
       // Verification and helper startup happen before any terminal is closed.
-      this.launch = async () => {
+      this.launch = async (relaunch = true) => {
         try { if (await hashFile(file) !== asset.sha256) throw new Error('Checksum changed.'); }
         catch {
           this.state.phase = 'error'; this.state.error = 'Downloaded installer changed or is missing. Download the update again.';
           throw new Error('Downloaded installer changed.');
         }
         if (this.disposed) throw new Error('Updater stopped.');
-        const starting = prepared(); this.starting = starting;
+        const starting = prepared(relaunch); this.starting = starting;
         try {
           const handoff = await starting;
           this.activeHandoff = handoff;
@@ -234,11 +248,12 @@ export class SelfUpdater implements UpdateSource {
   }
   /** Inspect staged state only. Quit must not start or wait for a download. */
   async installOnQuit(): Promise<QuitInstallResult> {
-    if (!this.canInstall()) return 'not-ready';
+    if (!this.canInstall() || !await this.automatic() || !this.canInstall()) return 'not-ready';
     return await this.installReady(true) ? 'installed' : 'cancelled';
   }
   private async installReady(onQuit: boolean): Promise<boolean> {
-    const launch = this.launch!;
+    const prepared = this.launch!;
+    const launch = () => prepared(!onQuit);
     this.installing = true;
     this.state.phase = 'installing'; this.state.error = null;
     try {

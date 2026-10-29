@@ -8,6 +8,7 @@ export const preferencesSchema = z
     hostname: remoteHostnameSchema.default('shellfox-mobile'),
     remembered: z.array(remotePeerIdSchema).max(1000).default([]),
     fontSize: z.number().int().min(10).max(24).default(14),
+    autoUpdate: z.boolean().default(true),
     // Missing color fields retain the desktop defaults without rewriting older preferences.
     accentColor: colorSchema.optional(),
     backgroundColor: colorSchema.optional(),
@@ -16,7 +17,7 @@ export const preferencesSchema = z
   })
   .strict();
 export type Preferences = z.infer<typeof preferencesSchema>;
-export const defaultPreferences: Preferences = { hostname: 'shellfox-mobile', remembered: [], fontSize: 14 };
+export const defaultPreferences: Preferences = { hostname: 'shellfox-mobile', remembered: [], fontSize: 14, autoUpdate: true };
 const key = 'shellfox.mobile.preferences.v1';
 export async function loadPreferences(): Promise<Preferences> {
   const value = await AsyncStorage.getItem(key);

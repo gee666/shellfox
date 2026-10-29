@@ -18,11 +18,11 @@ done
 [ ! -f "$control/cancel" ] || exit 1
 `;
 const linuxHelper = `#!/bin/sh
-pid=$1; work=$2; package=$3; executable=$4; expected=$5; control=$6
+pid=$1; work=$2; package=$3; executable=$4; expected=$5; control=$6; relaunch=$7
 exec >"$work/install.log" 2>&1
 failed() {
   if [ -x /usr/bin/zenity ]; then /usr/bin/zenity --error --text='Shellfox update failed or was cancelled. Reopen Shellfox to try again.'; fi
-  "$executable" >/dev/null 2>&1 &
+  if [ "$relaunch" = 1 ]; then "$executable" >/dev/null 2>&1 & fi
   exit 1
 }
 actual=$(/usr/bin/sha256sum -- "$package") || exit 1
@@ -32,18 +32,18 @@ ${waitForExit}
 actual=$(/usr/bin/sha256sum -- "$package") || failed
 [ "\${actual%% *}" = "$expected" ] || failed
 if /usr/bin/pkexec /usr/bin/apt-get install -y "$package"; then
-  "$executable" >/dev/null 2>&1 &
+  if [ "$relaunch" = 1 ]; then "$executable" >/dev/null 2>&1 & fi
   rm -rf -- "$work"
 else
   failed
 fi
 `;
 const macHelper = `#!/bin/sh
-pid=$1; work=$2; bundle=$3; stage=$4; control=$5
+pid=$1; work=$2; bundle=$3; stage=$4; control=$5; relaunch=$6
 exec >"$work/install.log" 2>&1
 failed() {
   /usr/bin/osascript -e 'display alert "Shellfox update failed" message "The previous app was kept. Reopen Shellfox and try again."' || true
-  /usr/bin/open -n "$bundle"
+  if [ "$relaunch" = 1 ]; then /usr/bin/open -n "$bundle"; fi
   exit 1
 }
 /usr/bin/codesign --verify --deep --strict "$stage/Shellfox.app" || exit 1
@@ -54,7 +54,7 @@ new="$stage/Shellfox.app"
 /usr/bin/codesign --verify --deep --strict "$new" || failed
 if mv -- "$bundle" "$old"; then
   if mv -- "$new" "$bundle"; then
-    /usr/bin/open -n "$bundle"
+    if [ "$relaunch" = 1 ]; then /usr/bin/open -n "$bundle"; fi
     rm -rf -- "$stage" "$work"
     exit 0
   fi
@@ -81,13 +81,13 @@ try {
   if ($hash -ne $c.sha256) { throw 'Installer checksum changed.' }
   $install = Start-Process -FilePath $c.file -ArgumentList '--silent' -Wait -PassThru
   if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
-  Start-Process -FilePath $c.updateExe -ArgumentList '--processStart Shellfox.exe'
+  if ($c.relaunch) { Start-Process -FilePath $c.updateExe -ArgumentList '--processStart Shellfox.exe' }
   Remove-Item -LiteralPath $c.work -Recurse -Force
 } catch {
   try { $_ | Out-File -LiteralPath (Join-Path $c.work 'install.log') } catch {}
   if (-not $managerExited) { exit 1 }
   try { Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Shellfox update failed. Reopen Shellfox and try again.', 'Shellfox update') | Out-Null } catch {}
-  try { Start-Process -FilePath $c.updateExe -ArgumentList '--processStart Shellfox.exe' } catch {}
+  if ($c.relaunch) { try { Start-Process -FilePath $c.updateExe -ArgumentList '--processStart Shellfox.exe' } catch {} }
   exit 1
 }
 `;
@@ -107,9 +107,9 @@ export async function createUpdatePlatform(options: { platform: string; arch: st
     return { supported: true, reason: null, assetName, prepare: async (file, _version, work) => {
       const helper = path.join(work, 'install.ps1'), sha256 = await hashFile(file);
       await writeFile(helper, windowsHelper, { flag: 'wx', mode: 0o600 });
-      return async () => {
+      return async (relaunch = true) => {
         const control = await mkdtemp(path.join(work, 'handoff-')), config = path.join(control, 'install.json');
-        await writeFile(config, JSON.stringify({ pid, file, work, updateExe, sha256, control }), { flag: 'wx', mode: 0o600 });
+        await writeFile(config, JSON.stringify({ pid, file, work, updateExe, sha256, control, relaunch }), { flag: 'wx', mode: 0o600 });
         return startHandoff(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helper, '-Config', config], control);
       };
     } };
@@ -129,9 +129,9 @@ export async function createUpdatePlatform(options: { platform: string; arch: st
       const helper = path.join(work, 'install.sh');
       await writeFile(helper, linuxHelper, { flag: 'wx', mode: 0o700 });
       const digest = await hashFile(file);
-      return async () => {
+      return async (relaunch = true) => {
         const control = await mkdtemp(path.join(work, 'handoff-'));
-        return startHandoff('/bin/sh', [helper, String(pid), work, file, executable, digest, control], control);
+        return startHandoff('/bin/sh', [helper, String(pid), work, file, executable, digest, control, relaunch ? '1' : '0'], control);
       };
     } };
   }
@@ -161,9 +161,9 @@ export async function createUpdatePlatform(options: { platform: string; arch: st
         await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', path.join(stage, 'Shellfox.app')]);
         const helper = path.join(work, 'install.sh');
         await writeFile(helper, macHelper, { flag: 'wx', mode: 0o700 });
-        return async () => {
+        return async (relaunch = true) => {
           const control = await mkdtemp(path.join(work, 'handoff-'));
-          return startHandoff('/bin/sh', [helper, String(pid), work, bundle, stage, control], control);
+          return startHandoff('/bin/sh', [helper, String(pid), work, bundle, stage, control, relaunch ? '1' : '0'], control);
         };
       } catch (error) { await rm(stage, { recursive: true, force: true }); throw error; }
     } };

@@ -61,6 +61,10 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
     ? new UpdateChecker({ current: app.getVersion(), check: async () => process.env.SHELLFOX_TEST_LATEST_RELEASE ?? null })
     : new SelfUpdater({ current: app.getVersion(), platform: await createUpdatePlatform({ platform: process.platform, arch: process.arch, executable: process.execPath, packaged: app.isPackaged }),
       fetch: (url, init) => net.fetch(url, init), tempRoot: app.getPath('temp'),
+      autoUpdate: async () => {
+        const snapshot = await client.service.getSnapshot();
+        return snapshot.ok && snapshot.value.settings.autoUpdate;
+      },
       quitForUpdate: async (start, onQuit) => {
         if (quitting || closing && !onQuit) return false;
         return shutdown.run(start, onQuit);

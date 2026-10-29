@@ -14,6 +14,7 @@ interface Options {
   onFocus?: () => void;
   onState?: (state: TerminalBridgeState) => void;
   theme?: TerminalThemeInputs;
+  readOnly?: boolean;
 }
 let nextEpoch = 0;
 
@@ -55,7 +56,7 @@ export class TerminalBridge {
 
   constructor(private readonly options: Options) { this.fontSize = terminalFontSize(options.fontSize); }
   getUploadIdentity(): { tabId: string; generation: string; controlEpoch: number } | null {
-    return this.alive && this.attached && this.open && this.generation
+    return !this.options.readOnly && this.alive && this.attached && this.open && this.generation
       ? { tabId: this.options.tabId, generation: this.generation, controlEpoch: this.controlEpoch } : null;
   }
   start(): void {
@@ -88,6 +89,7 @@ export class TerminalBridge {
     if (this.attached) this.send({ type: 'font', ...this.identity(), fontSize: this.fontSize });
   }
   focus(focused: boolean): void {
+    focused = focused && !this.options.readOnly;
     this.focusPending = focused && this.attached;
     if (this.attached) this.send({ type: 'focus', ...this.identity(), focused });
   }
@@ -96,10 +98,12 @@ export class TerminalBridge {
     if (this.attached) this.send({ type: 'select', ...this.identity(), enabled });
   }
   paste(data: string): void {
+    if (this.options.readOnly) return;
     if (utf8Size(data) > 65000 || data.includes('\0')) { this.report(new Error('Paste a smaller section of text.')); return; }
     if (this.attached && this.open && data) this.send({ type: 'paste', ...this.identity(), data });
   }
   key(event: TerminalKeyEvent): void {
+    if (this.options.readOnly) return;
     const parsed = terminalKeyEventSchema.safeParse(event);
     if (!parsed.success) { this.report(new Error('Invalid terminal key.')); return; }
     if (this.alive && this.attached && this.open) this.send({ type: 'key', ...this.identity(), event: parsed.data });
@@ -175,7 +179,7 @@ export class TerminalBridge {
       }
       this.received = attachment.lastSequence; this.consumed = 0; this.open = attachment.state === 'open';
       this.repaint = attachment.truncated && !attachment.snapshot && this.open;
-      this.send({ type: 'reset', ...this.identity(), cols: attachment.cols, rows: attachment.rows, fontSize: this.fontSize });
+      this.send({ type: 'reset', ...this.identity(), cols: attachment.cols, rows: attachment.rows, fontSize: this.fontSize, ...(this.options.readOnly ? { readOnly: true } : {}) });
       if (this.options.theme) this.send({ type: 'theme', ...this.identity(), ...this.options.theme });
       this.send({ type: 'modifiers', ...this.identity(), modifiers: this.modifiers });
       if (this.selecting) this.send({ type: 'select', ...this.identity(), enabled: true });
@@ -261,6 +265,7 @@ export class TerminalBridge {
     this.recovery = setTimeout(() => { this.recovery = null; void this.attach(); }, 250);
   }
   input(data: string, userInitiated = true): void {
+    if (this.options.readOnly) return;
     const generation = this.generation, epoch = this.epoch, controlEpoch = this.controlEpoch;
     if (!this.alive || !this.attached || !this.open || !generation || !data || data.includes('\0')) return;
     const bytes = utf8Size(data);
@@ -281,6 +286,7 @@ export class TerminalBridge {
     }).finally(() => { this.inputBytes -= batch.bytes; });
   }
   private resize(size: { cols: number; rows: number }): void {
+    if (this.options.readOnly) return;
     const generation = this.generation, epoch = this.epoch, controlEpoch = this.controlEpoch;
     if (!this.alive || !this.attached || !this.open || !generation) return;
     this.nextSize = size;

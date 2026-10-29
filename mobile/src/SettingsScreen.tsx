@@ -7,6 +7,7 @@ import { ColorSwatches } from './ColorSwatches';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND } from './theme';
 import type { PromptConfig } from './Prompt';
 import { updates } from './updates/native';
+import { updateConstraint, type MobileUpdateStatus } from './updates/useUpdates';
 import { useBrowserLogin } from './browser-login';
 import { StatusIndicator } from './StatusIndicator';
 import { ConnectionStatus } from './ConnectionStatus';
@@ -15,9 +16,11 @@ import { isConnectionFailure } from './connection-status';
 export function SettingsScreen({
   model,
   prompt,
+  updateStatus,
 }: {
   model: ShellfoxModel;
   prompt: (value: PromptConfig) => void;
+  updateStatus?: MobileUpdateStatus;
 }) {
   const { styles } = useUi();
   const [authKey, setAuthKey] = useState('');
@@ -210,13 +213,15 @@ export function SettingsScreen({
             />
           </View>
         </Card>
-        {Platform.OS === 'android' && (
-          <>
-            <Text style={styles.section}>Updates</Text>
-            <Card>
-              {updateMessage && <Note>{updateMessage}</Note>}
+        <Text style={styles.section}>Updates</Text>
+        <Card>
+          <Button title={`Automatic updates: ${model.preferences.autoUpdate ? 'On' : 'Off'}`} subtle disabled={busy}
+            onPress={() => run(() => model.updatePreferences({ autoUpdate: !model.preferences.autoUpdate }))} />
+          <Note>{updateConstraint(Platform.OS)}</Note>
+          {Platform.OS === 'android' && <>
+              {(updateMessage ?? updateStatus?.message) && <Note>{updateMessage ?? updateStatus?.message}</Note>}
               <Button title="Check for updates" subtle disabled={busy} onPress={checkUpdate} />
-              {updateAvailable && (
+              {(updateAvailable || updateStatus?.version) && (
                 <Button
                   title="Download and install"
                   disabled={busy}
@@ -234,9 +239,8 @@ export function SettingsScreen({
                   }
                 />
               )}
-            </Card>
-          </>
-        )}
+          </>}
+        </Card>
       </ScrollView>
     </View>
   );

@@ -624,6 +624,7 @@ describe('terminal clipboard shortcuts', () => {
   it('copies the selection and pastes clipboard text without sending control characters to the shell', async () => {
     const sent: string[] = []; const copy = vi.fn(); const read = vi.fn(async () => 'echo hi');
     const surface = createTerminalSurface(data => sent.push(data), undefined, { copy, read }); const terminal = terminalMocks.terminals.at(-1);
+    surface.setInput(true);
     terminal.selection = 'selected text';
     const down = key('KeyC'); expect(terminal.keyHandler(down)).toBe(false); expect(down.defaultPrevented).toBe(true);
     expect(terminal.keyHandler(key('KeyC', {}, 'keyup'))).toBe(false);
@@ -637,6 +638,7 @@ describe('terminal clipboard shortcuts', () => {
   it('distinguishes parser replies from typing and clipboard paste during a pending write', async () => {
     const sent: [string, boolean | undefined][] = [];
     const surface = createTerminalSurface((data, user) => sent.push([data, user]), undefined, { copy() {}, read: async () => 'paste' });
+    surface.setInput(true);
     const terminal = terminalMocks.terminals.at(-1);
     let parsed = () => {};
     terminal.write = (_data: string, done: () => void) => { parsed = done; };
@@ -673,6 +675,7 @@ describe('terminal clipboard shortcuts', () => {
   it('does not paste into a disposed surface after a late clipboard read', async () => {
     const pending = deferred<string | null>();
     const surface = createTerminalSurface(() => {}, undefined, { copy() {}, read: () => pending.promise });
+    surface.setInput(true);
     const terminal = terminalMocks.terminals.at(-1);
     terminal.keyHandler(key('KeyV')); surface.dispose(); pending.resolve('late paste'); await flush();
     expect(terminal.paste).not.toHaveBeenCalled();

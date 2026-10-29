@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { AutomationRuns } from './automation';
+import { automationRequestSchemas, isAutomationMethod } from '../shared/automation-schemas';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { publishPrivateEndpoint } from '../main/control-endpoint';
@@ -49,7 +51,8 @@ async function remoteOperation(remote: HostRemoteService | null | undefined, vie
 export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
   const secret = randomBytes(32).toString('hex');
   const createView = options.remote?.createView?.bind(options.remote);
-  const clients = new RpcClients(options.service, createView);
+  const automation = new AutomationRuns(options.service, path.join(options.userData, 'host'));
+  const clients = new RpcClients(options.service, createView, id => automation.releaseOwner(id));
   const startedAt = options.startedAt ?? new Date().toISOString();
   const unsubscribes = [options.service.subscribe(event => clients.broadcast({ type: 'changed', event: { revision: event.revision, reason: event.reason } })), options.remote?.subscribe(event => { if (!options.remote?.createView || event.type === 'state') clients.broadcast({ type: 'remote', event }); }), options.keepAwake?.subscribe(event => clients.broadcast({ type: 'keepAwake', event }))];
   let closing = false, operations = 0, stopTask: Promise<void> | undefined;
@@ -110,6 +113,16 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
             await startStop(); value = { stopped: true };
           } else value = { stopping: true };
         }
+        else if (isAutomationMethod(method) && client) {
+          switch (method) {
+            case 'automation.start': value = await automation.start(automationRequestSchemas[method].parse(payload), client.id); break;
+            case 'automation.list': value = automation.list(); break;
+            case 'automation.read': { const input = automationRequestSchemas[method].parse(payload); value = automation.read(input.id, input.after, client.id); break; }
+            case 'automation.write': { const input = automationRequestSchemas[method].parse(payload); value = await automation.write(input.id, input.data, input.eof, client.id); break; }
+            case 'automation.stop': value = await automation.stop(automationRequestSchemas[method].parse(payload).id); break;
+            case 'automation.show': value = await automation.show(automationRequestSchemas[method].parse(payload).id); break;
+          }
+        }
         else if (method.startsWith('remote.')) value = await remoteOperation(options.remote, client?.remote, method, payload);
         else if (client) {
           // Update shutdown closes this listener from inside the request handler.
@@ -135,6 +148,7 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
     const remove = await publishPrivateEndpoint(options.userData, hostEndpointPath(options.userData), hostEndpointSchema, { version: 1, host: '127.0.0.1', port: address.port, secret, mode: options.mode });
     let closed: Promise<void> | undefined;
     return { waitForStopReplies, close: () => closed ??= (async () => {
+      await automation.close();
       closing = true; const clientCleanup = clients.dispose(); for (const unsubscribe of unsubscribes) unsubscribe?.();
       const stopped = new Promise<void>(resolve => server.close(() => resolve()));
       for (const socket of sockets) if (!stopResponses.has(socket)) socket.destroy();
@@ -148,6 +162,6 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
       await remove();
     })() };
   } catch (error) {
-    await clients.dispose(); for (const unsubscribe of unsubscribes) unsubscribe?.(); server.closeAllConnections(); server.close(); throw error;
+    await automation.close(); await clients.dispose(); for (const unsubscribe of unsubscribes) unsubscribe?.(); server.closeAllConnections(); server.close(); throw error;
   }
 }

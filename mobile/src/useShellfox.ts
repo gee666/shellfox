@@ -14,6 +14,7 @@ export const errorMessage = (error: unknown): string => error instanceof Error ?
 export function useShellfox() {
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [ready, setReady] = useState(false);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
   const [discovering, setDiscovering] = useState(true);
   const fastPoll = useRef(true);
   const [network, setNetwork] = useState<NetworkStatus>({ status: 'starting', loginUrl: null, error: null });
@@ -137,7 +138,7 @@ export function useShellfox() {
       if (!loaded.current) {
         const saved = await loadPreferences();
         if (!alive.current || attempt !== startAttempt.current) return;
-        current.current = saved; loaded.current = true; setPreferences(saved);
+        current.current = saved; loaded.current = true; setPreferences(saved); setPreferencesLoaded(true);
       }
       await nativeNetwork.start(current.current.hostname);
       if (!alive.current || attempt !== startAttempt.current) return;
@@ -259,6 +260,6 @@ export function useShellfox() {
       || machines.length > 0 && machines.every(machine => !machine.snapshot && (
         machine.state.status === 'connecting' || machine.state.status === 'reconnecting'
         || machine.state.status === 'connected' && snapshotRequests.get(machine.client) === machine.state.connectionId))));
-  return { ready, loading, network, peers, machines, preferences, error, setError, report, updatePreferences, connect, disconnect, login, logout, renameDevice, refresh, retryStart };
+  return { ready, preferencesLoaded, loading, network, peers, machines, preferences, error, setError, report, updatePreferences, connect, disconnect, login, logout, renameDevice, refresh, retryStart };
 }
 export type ShellfoxModel = ReturnType<typeof useShellfox>;

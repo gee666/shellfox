@@ -23,6 +23,7 @@ export function trailingHelpRequested(args: string[]): boolean {
 /** Protect required option values before looking for global flags in the remaining argv. */
 export function takesOptionValue(args: string[], flag: string): boolean {
   const [namespace, operation] = args;
+  if (namespace === 'run') return ['--cwd', '--title', '--request-id'].includes(flag);
   if (namespace === 'ssh') return flag === '--profile' || flag === '-p';
   if (['session', 'ss', 'sessions'].includes(namespace)) {
     if (operation === 'create') return ['--title', '--request-id'].includes(flag);

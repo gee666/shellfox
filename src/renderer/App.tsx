@@ -1,3 +1,4 @@
+import { isViewableTab } from '../shared/terminal-view';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { CSSProperties } from 'react';
@@ -136,11 +137,11 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     if (!result?.ok) { client.refresh(); return false; }
     let session = result.value;
     client.accept(session);
-    if (!session.tabs.some(tab => tab.lifecycle !== 'closed')) {
+    if (!session.tabs.some(tab => isViewableTab(tab))) {
       const added = await action.run(() => target.api.addTab({ sessionId: session.id, ...(target.platform !== 'win32' && target.profileId ? { profileId: target.profileId } : {}) }));
       if (added?.ok) { session = added.value; client.accept(session); }
     }
-    const tab = session.tabs.find(tab => tab.lifecycle !== 'closed');
+    const tab = session.tabs.find(tab => isViewableTab(tab));
     if (tab) client.selectTab(session, tab.id);
     return true;
   }
@@ -167,7 +168,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   }
   function closeSettings() {
     setSettingsOpen(false);
-    const tab = selected?.tabs.find(tab => tab.id === activeState.activeTabIds[selected.id]) ?? selected?.tabs.find(tab => tab.lifecycle !== 'closed');
+    const tab = selected?.tabs.find(tab => tab.id === activeState.activeTabIds[selected.id]) ?? selected?.tabs.find(tab => isViewableTab(tab));
     if (tab) requestAnimationFrame(() => activeRegistry.focus(tab.id));
   }
   useEffect(() => {

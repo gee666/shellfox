@@ -12,7 +12,7 @@ export class RpcClients {
   private readonly clients = new Map<string, RpcClient>();
   private readonly timer: ReturnType<typeof setInterval>;
   private readonly cleanup = new Set<Promise<void>>();
-  constructor(private readonly service: HostSessionService, private readonly remoteView?: (id: string) => RemoteViewPort) {
+  constructor(private readonly service: HostSessionService, private readonly remoteView?: (id: string) => RemoteViewPort, private readonly onDrop?: (id: string) => void) {
     this.timer = setInterval(() => { for (const client of this.clients.values()) if (Date.now() - client.touched > 60_000 && !client.busy) this.drop(client.id); }, 15_000);
     this.timer.unref();
   }
@@ -62,7 +62,7 @@ export class RpcClients {
   }
   drop(id: string): void {
     const client = this.clients.get(id); if (!client) return;
-    this.clients.delete(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.();
+    this.clients.delete(id); this.onDrop?.(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.();
     client.unsubscribeRemote?.();
     if (client.remote) { const cleanup = client.remote.dispose().catch(() => {}); this.cleanup.add(cleanup); void cleanup.finally(() => this.cleanup.delete(cleanup)); }
   }

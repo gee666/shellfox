@@ -72,6 +72,20 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     const input = messages.filter(m => m.type === 'input').map(m => m.data).join('');
     for (const text of ['hello', '\r', '\x03', '\x04', '\x1b[A', '日本語']) assert.ok(input.includes(text), JSON.stringify({ input, text }));
   });
+  await t.test('hardware Shift letters and uppercase keypresses emit once per keystroke', async () => {
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await output('', true);
+    await send({ type: 'focus', focused: true });
+    const before = messages.length;
+    for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') await page.keyboard.press(`Shift+${letter}`);
+    await page.keyboard.type('AAZZaa!!  password  ');
+    await page.keyboard.press('Space');
+    await page.keyboard.press('Shift+Space');
+    await page.keyboard.press('Shift+!');
+    await page.keyboard.insertText('日本語🙂');
+    await expect.poll(() => messages.slice(before).filter(m => m.type === 'input').map(m => m.data).join(''))
+      .toBe('ABCDEFGHIJKLMNOPQRSTUVWXYZAAZZaa!!  password    !日本語🙂');
+  });
   const noModifiers = { ctrl: false, alt: false, shift: false, meta: false, capsLock: false };
   const key = async (key, modifiers = {}) => send({ type: 'key', event: { key, modifiers: { ...noModifiers, ...modifiers } } });
   const receivedInput = () => messages.filter(m => m.type === 'input').map(m => m.data);
@@ -388,6 +402,26 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
       }
     }, cols);
     await expect.poll(() => messages.filter(m => m.type === 'selection' && m.epoch === epoch).at(-1)?.text).toBe('SELECT_COPY');
+  });
+  await t.test('automation replay stays readable without keyboard, paste, key or parser input', async () => {
+    epoch = 'automation-read-only';
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14, readOnly: true });
+    await output('COMPLETED_AUTOMATION', true, true);
+    await expect(page.locator('.xterm-rows')).toContainText('COMPLETED_AUTOMATION');
+    await expect(page.locator('.xterm-helper-textarea')).toHaveAttribute('readonly', '');
+    const before = receivedInput().length;
+    await send({ type: 'focus', focused: true });
+    await send({ type: 'paste', data: 'unwanted paste' });
+    await send({ type: 'key', event: { key: 'Enter', modifiers: { ctrl: false, alt: false, shift: false, meta: false, capsLock: false } } });
+    await output('\x1b[6n\x1b[c', false);
+    await page.locator('.xterm-helper-textarea').focus();
+    await page.keyboard.type('hardware keyboard');
+    assert.equal(receivedInput().length, before);
+    // The next view must restore normal interactive behavior by default.
+    epoch = 'interactive-after-automation';
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await output('INTERACTIVE', true, true);
+    await expect(page.locator('.xterm-helper-textarea')).not.toHaveAttribute('readonly');
   });
   await t.test('Android document messages that bubble are processed once', async () => {
     const current = ++ticket;

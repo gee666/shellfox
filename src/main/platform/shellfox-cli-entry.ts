@@ -9,6 +9,7 @@ import { connectHostClient, type HostClient } from '../../host/client';
 import { parseGlobals, CliUsageError } from '../../cli/arguments';
 import { parseCommand } from '../../cli/commands';
 import { executeCommand } from '../../cli/execute';
+import { parseAutomationCommand, runAutomationCommand } from '../../cli/automation';
 import { CliFailure, printError, printValue, unwrap } from '../../cli/output';
 import { colorEnabled } from '../../cli/human';
 import { cliHelp, knownHelpTopic } from '../../cli/help';
@@ -101,6 +102,12 @@ export async function runShellfoxCli(argv: string[]): Promise<number> {
     if (args[0] === 'host' && args[1] === 'service') {
       const result = await runHostService(args.slice(2), userData, options);
       if (json) printValue(result, true, process.stdout); return 0;
+    }
+    const automation = parseAutomationCommand(args);
+    if (automation) {
+      if (options.host && options.host !== 'local') throw new CliUsageError('Automation commands use the local host. Run the CLI on the target machine.');
+      client = await connect(userData);
+      return await runAutomationCommand(automation, client, options);
     }
     const jsonInput = args[0] === 'api' || (args[0] === 'remote' && args[1] === 'api') || (args[0] === 'settings' && args[1] === 'update') || (sessionNamespaces.includes(args[0]) && args[1] === 'env');
     const command = parseCommand(jsonInput ? await loadJsonArguments(args) : args, Boolean(options.host && options.host !== 'local'));

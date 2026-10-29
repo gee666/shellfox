@@ -10,7 +10,8 @@ import type { OperationRecord, RepositoryPort, SessionRecord, TabRecord } from '
 import { unavailableProbe, defaultSettings } from '../defaults';
 import { DesktopIntegrations } from '../integrations';
 import { resolvePython } from './python';
-import { PtyBackend } from './backend';
+import { PtyBackend, type PtyProcess } from './backend';
+import { AUTOMATION_PROFILE_ID, automationProfile, isAutomationSession } from './automation-terminal';
 import { TerminalControlBroker, type TerminalControlView } from './control';
 import { ProcessTracker, getProcessTrackingCapability, createSystemSnapshotProvider, type TrackingHelperOptions } from './tracking';
 import { closeGuest } from './guest-close';
@@ -194,7 +195,12 @@ export class EmbeddedSessionService {
     for (const [id, exit] of this.pendingExits) {
       try {
         const tab = this.repository.tab(id);
-        if (tab?.terminal && tab.operationId === exit.generation) this.repository.deleteTab(tab.id);
+        if (tab?.terminal && tab.operationId === exit.generation) {
+          if (tab.terminal.profileId === AUTOMATION_PROFILE_ID) {
+            tab.lifecycle = 'closed'; tab.terminal.exitCode = exit.exitCode;
+            this.repository.saveTab(tab);
+          } else this.repository.deleteTab(tab.id);
+        }
         this.pendingExits.delete(id); this.reportedExitFailures.delete(id); this.processKeys.delete(id);
       } catch {
         if (this.reportedExitFailures.has(id)) continue;
@@ -225,8 +231,8 @@ export class EmbeddedSessionService {
     const embedded = session.adapterId === 'embedded-pty', live = this.backend.live().some(e => e.sessionId === session.id);
     const activity = aggregateStatus(tabs, session.error);
     return { id: session.id, title: session.title, cwd: session.cwd, adapterId: session.adapterId, shellId: session.shellId, createdAt: session.createdAt, updatedAt: session.updatedAt, settledAt: session.settledAt, pinnedAt: session.pinnedAt ?? null,
-      status: publicStatus(activity, session.settledAt), activityStatus: activity, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus: live,
-      canAddTab: this.probe.available, controlReason: embedded ? LIFETIME_NOTICE : 'Legacy external terminals are not controlled. Activating this task starts a separate embedded shell.', error: session.error,
+      status: publicStatus(activity, session.settledAt), activityStatus: activity, counts: countTabs(tabs), tabs, env: session.env ?? [], canFocus: live || isAutomationSession(session) && tabs.some(tab => !!this.backend.get(tab.id)),
+      canAddTab: this.probe.available && !isAutomationSession(session), controlReason: embedded ? LIFETIME_NOTICE : 'Legacy external terminals are not controlled. Activating this task starts a separate embedded shell.', error: session.error,
       terminalLifetime: embedded ? 'app-owned' : 'external-legacy', shellSurvival: false,
       window: { state: 'unsupported', canReopen: false, canRegister: false, reason: 'Embedded tabs do not use native window ownership or external shell registration.' } };
   }
@@ -311,11 +317,31 @@ export class EmbeddedSessionService {
       return this.open(session, profile, 'create', input.requestId, undefined, undefined, creator);
     });
   }
+  createAutomationTerminal(input: { cwd: string; title?: string; requestId: string }, process: PtyProcess): Promise<Result<SessionDto>> {
+    const parsed = requestSchemas.createSession.safeParse(input);
+    if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid automation terminal request.'));
+    return this.serialize(`create:${parsed.data.requestId}`, async () => {
+      const existing = this.repository.sessionByRequest(parsed.data.requestId);
+      if (existing) {
+        if (!isAutomationSession(existing)) return failure('VALIDATION', 'This request ID belongs to a shell session.');
+        this.selectSession(existing.id);
+        return success(this.toDto(existing));
+      }
+      if (this.repository.sessions().length >= 10000) return failure('VALIDATION', 'The saved session limit is reached.');
+      const now = new Date().toISOString();
+      const session: SessionRecord = { id: randomUUID(), title: parsed.data.title ?? 'Automation', cwd: parsed.data.cwd, adapterId: 'embedded-pty', shellId: 'login-shell', shellExecutable: automationProfile.executable, createdAt: now, updatedAt: now, settledAt: null, error: null, target: null };
+      const result = await this.open(session, automationProfile, 'adopt', parsed.data.requestId, session.title, undefined, undefined, process);
+      if (!result.ok) return result;
+      this.selectSession(result.value.id);
+      return success(this.toDto(this.repository.session(result.value.id)!));
+    });
+  }
   activateSession(input: { sessionId: string }, creator?: TerminalControlView): Promise<Result<SessionDto>> {
     if (!requestSchemas.activateSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
       this.lifecycle.touch(session.id);
+      if (isAutomationSession(session)) { this.selectSession(session.id); return success(this.toDto(session)); }
       if (this.backend.live().some(e => e.sessionId === session.id && e.state === 'open') || this.repository.tabs(session.id).some(t => t.terminal && t.lifecycle === 'launching')) return success(this.toDto(session));
       const cleanup = await this.backend.awaitCleanup(session.id); if (!cleanup.ok) return cleanup;
       const profile = this.profile(session.cwd, session); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
@@ -326,11 +352,13 @@ export class EmbeddedSessionService {
     if (!requestSchemas.addTab.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid new tab request.'));
     return this.serialize(input.sessionId, async () => {
       const session = this.repository.session(input.sessionId); if (!session) return failure('NOT_FOUND', 'Session not found.');
+      if (isAutomationSession(session)) return failure('UNSUPPORTED', 'Automation runs cannot open shell tabs.');
       const profile = this.profile(input.cwd ?? session.cwd, session, input.profileId); if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The selected terminal profile is unavailable.');
       return this.open(session, profile, 'add', null, input.title, input.cwd, creator);
     });
   }
-  private async open(session: SessionRecord, profile: TerminalProfileDto, kind: OperationRecord['kind'], requestId: string | null = null, title?: string, cwd?: string, creator?: TerminalControlView): Promise<Result<SessionDto>> {
+  private async open(session: SessionRecord, profile: TerminalProfileDto, kind: OperationRecord['kind'], requestId: string | null = null, title?: string, cwd?: string, creator?: TerminalControlView, suppliedProcess?: PtyProcess): Promise<Result<SessionDto>> {
+    if (isAutomationSession(session) && !suppliedProcess) return failure('UNSUPPORTED', 'Automation views cannot launch shells.');
     const tabs = this.repository.tabs(session.id);
     if (tabs.length >= 1000 || this.backend.live().length >= 64) return failure('VALIDATION', 'The embedded terminal limit is reached.');
     const ordinal = tabs.reduce((n, t) => Math.max(n, t.ordinal), -1) + 1, now = new Date().toISOString();
@@ -343,7 +371,9 @@ export class EmbeddedSessionService {
     let openedForCreator = false;
     try {
       this.repository.transaction(() => { this.repository.saveSession(session); this.repository.saveTab(tab); this.repository.saveOperation(operation); }); this.changed();
-      const launched = await this.backend.launch({ tabId: tab.id, sessionId: session.id, generation: tab.operationId, profileId: profile.id, cwd: tab.cwd, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
+      const launched = suppliedProcess
+        ? this.backend.adopt({ ...identity, cwd: tab.cwd }, suppliedProcess)
+        : await this.backend.launch({ ...identity, profileId: profile.id, cwd: tab.cwd, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
       try {
         this.repository.transaction(() => {
           // An immediate PTY exit may already have removed this tab.
@@ -361,7 +391,7 @@ export class EmbeddedSessionService {
             latest.adapterId = 'embedded-pty'; latest.shellId = shellId(profile); latest.shellExecutable = profile.executable; latest.target = null; latest.binding = null;
           }
           latest.updatedAt = new Date().toISOString(); operation.updatedAt = latest.updatedAt;
-          if (current && current.lifecycle !== 'closed') { this.repository.saveTab(current); this.repository.saveOperation(operation); }
+          if (current && (current.lifecycle !== 'closed' || suppliedProcess && launched.ok)) { this.repository.saveTab(current); this.repository.saveOperation(operation); }
           else this.repository.deleteTab(tab.id);
           this.repository.saveSession(latest);
         });
@@ -374,7 +404,7 @@ export class EmbeddedSessionService {
       // every failed launch to the caller instead of claiming a shell was opened.
       if (!launched.ok) return launched;
       const opened = this.repository.tab(tab.id), owned = this.backend.get(tab.id);
-      if (!opened || opened.operationId !== tab.operationId || opened.lifecycle !== 'open' || owned?.generation !== tab.operationId || owned.state !== 'open') {
+      if (!opened || opened.operationId !== tab.operationId || owned?.generation !== tab.operationId || !suppliedProcess && (opened.lifecycle !== 'open' || owned.state !== 'open')) {
         return failure('TARGET_LOST', 'The new shell exited before it could be opened.');
       }
       const result = success(this.toDto(this.repository.session(session.id)!));
@@ -409,11 +439,17 @@ export class EmbeddedSessionService {
       // The PTY exit event is authoritative. A pending OS close must not authorize a replacement shell.
       this.reconcileExits();
       if (this.pendingExits.has(tab.id)) return failure('STORAGE_FAILED', 'Closed tab removal could not be saved. Retry after storage is available.', true);
+      if (tab.terminal.profileId === AUTOMATION_PROFILE_ID) this.repository.deleteTab(tab.id);
       this.changed(); return success(this.toDto(this.repository.session(tab.sessionId)!));
     });
   }
   async focusSession(input: { sessionId: string }): Promise<Result<{ focused: true }>> {
     if (!requestSchemas.focusSession.safeParse(input).success) return failure('VALIDATION', 'Invalid session ID.');
+    const session = this.repository.session(input.sessionId);
+    if (session && isAutomationSession(session) && this.repository.tabs(session.id).some(tab => !!this.backend.get(tab.id))) {
+      this.selectSession(session.id);
+      return success({ focused: true });
+    }
     return this.backend.live().some(e => e.sessionId === input.sessionId) ? success({ focused: true }) : failure('TARGET_LOST', 'No live embedded shell. Activate the session to open one.');
   }
   refreshSessionMembership(input: { sessionId: string }): Promise<Result<SessionDto>> { const s = this.repository.session(input.sessionId); return Promise.resolve(s ? success(this.toDto(s)) : failure('NOT_FOUND', 'Session not found.')); }
@@ -542,6 +578,7 @@ export class EmbeddedSessionService {
       if (input.action === 'inspect') return success({ session: this.toDto(session) });
       if (input.action === 'tab-open') {
         if (session.adapterId !== 'embedded-pty') return failure('UNSUPPORTED', 'Legacy external sessions are not controlled.');
+        if (isAutomationSession(session)) return failure('UNSUPPORTED', 'Automation runs cannot open shell tabs.');
         const profile = this.profile(session.cwd, session);
         if (!profile || !this.probe.available) return failure('DEPENDENCY_MISSING', 'The session terminal profile is unavailable.');
         const opened = await this.open(session, profile, 'add');
@@ -577,6 +614,7 @@ export class EmbeddedSessionService {
     if (!requestSchemas.retryTab.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid retry.'));
     const tab = this.repository.tab(input.tabId);
     if (!tab?.terminal) return Promise.resolve(failure('UNSUPPORTED', 'Legacy external launch retries are disabled.'));
+    if (tab.terminal.profileId === AUTOMATION_PROFILE_ID) return Promise.resolve(failure('UNSUPPORTED', 'Automation views cannot restart their process. Start a new run instead.'));
     return this.activateSession({ sessionId: tab.sessionId });
   }
   saveSettings(input: SettingsDto): Promise<Result<SettingsDto>> {

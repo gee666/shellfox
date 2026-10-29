@@ -12,7 +12,7 @@ export type HostSessionService = Pick<EmbeddedSessionService,
   'refreshSessionMembership' | 'prepareSessionRegistration' | 'renameSession' | 'renameTab' | 'reorderTabs' |
   'setSessionPinned' | 'settleSession' | 'unsettleSession' | 'deleteSession' | 'clearSessionError' | 'retryTab' |
   'setSessionEnv' | 'saveSettings' | 'setExplorerIntegration' | 'setCliIntegration' |
-  'setRemoteVisibleSessions' | 'clearRemoteVisibleSessions'>;
+  'setRemoteVisibleSessions' | 'clearRemoteVisibleSessions'> & Partial<Pick<EmbeddedSessionService, 'createAutomationTerminal'>>;
 export interface HostKeepAwake {
   readonly active: boolean;
   readonly supported?: boolean;

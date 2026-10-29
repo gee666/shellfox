@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import type { AppError, ManagerApi, ManagerSnapshot, SessionDto } from '../shared/contracts';
+import { isViewableTab } from '../shared/terminal-view';
 import { request } from './api';
 import { createSettingsController } from './settings-controller';
 
@@ -70,7 +71,7 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
             const session = sessions.find(item => item.id === restored.selectedId);
             const chosen = session && restored.activeTabIds[session.id];
             // A missing saved tab must not redirect input into a different shell.
-            selectedId = session && (!chosen || session.tabs.some(tab => tab.id === chosen && tab.lifecycle !== 'closed')) ? session.id : null;
+            selectedId = session && (!chosen || session.tabs.some(tab => tab.id === chosen && isViewableTab(tab))) ? session.id : null;
           }
           const activeTabIds = { ...(restored?.activeTabIds ?? state.activeTabIds) };
           const busyTabIds = { ...state.busyTabIds };
@@ -78,7 +79,7 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
           for (const id of Object.keys(activeTabIds)) if (!sessionIds.has(id)) delete activeTabIds[id];
           for (const id of Object.keys(busyTabIds)) if (!tabIds.has(id)) delete busyTabIds[id];
           for (const session of sessions) {
-            const tabs = session.tabs.filter(tab => tab.lifecycle !== 'closed');
+            const tabs = session.tabs.filter(isViewableTab);
             if (!tabs.some(tab => tab.id === activeTabIds[session.id])) {
               if (tabs[0]) activeTabIds[session.id] = tabs[0].id;
               else delete activeTabIds[session.id];
@@ -154,7 +155,7 @@ export function createManagerClient(api: ManagerApi, savedSelection?: ManagerSel
       store.setState(state => ({ selectedId: session.id, selectionEpoch: state.selectionEpoch + 1 }));
     },
     selectTab(session: SessionDto, tabId: string) {
-      if (!session.tabs.some(tab => tab.id === tabId && tab.lifecycle !== 'closed')) return;
+      if (!session.tabs.some(tab => tab.id === tabId && isViewableTab(tab))) return;
       store.setState(state => ({ selectedId: session.id,
         activeTabIds: { ...state.activeTabIds, [session.id]: tabId }, selectionEpoch: state.selectionEpoch + 1 }));
     },

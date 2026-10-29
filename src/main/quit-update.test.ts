@@ -8,7 +8,7 @@ import type { HostRpc, HostRpcOptions } from '../host/rpc';
 // Exercise the actual main close/before-quit wiring and updater transaction.
 // Electron, storage, control transport and terminal/installer effects are replaced.
 const state = vi.hoisted(() => ({
-  root: '', userData: '', owned: 0, committed: false, updater: undefined as SelfUpdater | undefined,
+  root: '', userData: '', owned: 0, committed: false, autoUpdate: false, updater: undefined as SelfUpdater | undefined,
   app: {
     isPackaged: true, setName: vi.fn(), setAppUserModelId: vi.fn(),
     getVersion: () => '0.2.5', getPath: vi.fn(), setPath: vi.fn(),
@@ -25,7 +25,7 @@ const state = vi.hoisted(() => ({
   control: { start: vi.fn(), dispose: vi.fn() },
   remote: { initialize: vi.fn(), dispose: vi.fn(), install: vi.fn(), uninstall: vi.fn() },
   host: { acquire: vi.fn(), release: vi.fn(), start: vi.fn<(options: HostRpcOptions) => Promise<HostRpc>>(), close: vi.fn(), waitForStopReplies: vi.fn(), onLost: vi.fn<(listener: (error: Error) => void) => () => void>(), assertOwned: vi.fn() },
-  repository: { windowState: () => null, settings: () => ({}), close: vi.fn() },
+  repository: { windowState: () => null, settings: () => ({ autoUpdate: state.autoUpdate }), close: vi.fn() },
   fetch: vi.fn(), prepare: vi.fn(), start: vi.fn(), commit: vi.fn(), cancel: vi.fn(), resume: vi.fn(),
   uninstallIpc: vi.fn(), trackerDispose: vi.fn(), systemQuit: undefined as (() => void) | undefined,
 }));
@@ -81,12 +81,13 @@ function quit() {
 async function stage() {
   await state.updater!.download();
   await expect.poll(async () => (await state.updater!.status()).phase).toBe('ready');
+  state.autoUpdate = true;
 }
 beforeEach(async () => {
   vi.resetModules(); vi.resetAllMocks(); vi.stubGlobal('__TEST_BUILD__', false);
   await mkdir('tmp', { recursive: true }); state.root = await mkdtemp(path.resolve('tmp/quit-update-test-'));
   vi.stubGlobal('process', { ...process, resourcesPath: state.root });
-  state.userData = state.root; state.owned = 0; state.committed = false; state.updater = undefined;
+  state.userData = state.root; state.owned = 0; state.committed = false; state.updater = undefined; state.autoUpdate = false;
   state.app.getPath.mockImplementation(name => name === 'userData' ? state.userData : state.root);
   state.app.setPath.mockImplementation((name, value) => { if (name === 'userData') state.userData = value; });
   state.app.quit.mockImplementation(() => { quit(); });
@@ -122,6 +123,19 @@ afterEach(async () => {
 });
 
 describe('main automatic update on close/quit', () => {
+  it('quits normally without handing off a ready installer after opting out', async () => {
+    await stage(); state.autoUpdate = false;
+    quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
+    expect(state.start).not.toHaveBeenCalled(); expect(state.service.dispose).toHaveBeenCalledTimes(1);
+  });
+  it('automatically downloads after opting in without quitting or closing terminals', async () => {
+    state.autoUpdate = true;
+    await state.updater!.status();
+    await expect.poll(async () => (await state.updater!.status()).phase).toBe('ready');
+    expect(state.start).not.toHaveBeenCalled(); expect(state.app.quit).not.toHaveBeenCalled();
+    expect(state.service.closeForUpdate).not.toHaveBeenCalled(); expect(state.service.dispose).not.toHaveBeenCalled();
+    quit(); await expect.poll(() => state.commit.mock.calls.length).toBe(1);
+  });
   it('honors an authenticated CLI stop without a renderer confirmation or update handoff', async () => {
     await stage(); state.owned = 2; state.confirmation.request.mockResolvedValue(false);
     await state.host.start.mock.calls[0]![0].shutdown();

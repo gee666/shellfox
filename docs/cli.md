@@ -166,6 +166,22 @@ pnpm exec playwright test --project=e2e tests/e2e/cli-attach-tty.spec.ts
 
 The smoke creates its sessions and tabs through the window API before launching the built CLI through `node-pty`, not mocked streams. A separate bundled-Node driver loads the staged terminal addon; the Playwright worker never loads it. The harness exchanges JSON lines over ordinary stdio pipes, with only input-write and test-owned kill commands after startup. Evidence records native PTY data/exit events, command acknowledgements, driver errors, stderr and driver exit status. A driver failure never substitutes a terminal exit code. It attaches existing UUIDs through `terminals` and `tm`, checks that a missing UUID fails without mutation, and verifies that no CLI attach changes the session/tab identities. Each client explicitly takes control with Ctrl+T if another viewer owns the terminal, sends a shell command, checks the returned live working directory, and detaches with Ctrl+]. The test checks that the shell remains open after the client exits. A second case starts a resize-driven Node TUI on a pre-sized 90x40 terminal and takes it from an external 90x40 CLI. It checks that the TUI repaints at 90x40 without manually resizing the external TTY. Playwright attaches `external-tty-evidence.json` and `same-grid-repaint.json` with the isolated data directory, CLI/runtime paths, session/tab IDs, shell output, exit codes and repaint counters. It does not access the installed host or register startup tasks. Windows, macOS and Linux require their normal desktop/native build prerequisites. Mobile and headless clients use the same existing manager contracts; the external desktop smoke does not verify those platforms.
 
+## Automation processes
+
+```sh
+shellfox run [--cwd PATH] [--title TITLE] -- EXECUTABLE [ARG...]
+shellfox run --detach --json -- EXECUTABLE [ARG...]
+shellfox runs list --json
+shellfox runs show RUN_UUID --json
+shellfox runs stop RUN_UUID --yes
+```
+
+`run` starts an ordinary piped process in the local desktop or headless host. Foreground mode forwards stdin, separate stdout/stderr bytes, and the exit code without adding output. It rejects `--json`; detached mode closes stdin and returns a run record instead. Arguments after `--` are literal. Invoke a shell explicitly when shell parsing is required.
+
+`runs show` creates or selects a read-only terminal view and returns its session/tab IDs. Viewing does not change the process's pipes. Recent visual replay remains available for finished jobs during the current host lifetime. It is bounded text, not a full transcript. Use foreground pipe capture for exact output.
+
+These commands require an existing local host and reject remote `--host`. Jobs end when their owning host stops, not when an attached desktop client closes. See [headless automation](headless.md#automation-processes) for environment, buffering, retention, and platform details.
+
 ## Host
 
 ```sh

@@ -28,6 +28,8 @@ class ShellfoxUpdatesModule(private val context: ReactApplicationContext) : Reac
     private val stopped = AtomicBoolean(false)
     private val executor = Executors.newSingleThreadExecutor()
     private var pending: Pending? = null
+    private var staged: Staged? = null
+    private data class Staged(val file: File, val sha256: String, val version: String)
     private data class Pending(val file: File, val sha256: String, val version: String, val promise: Promise)
     private val listener = object : BaseActivityEventListener() {
         override fun onActivityResult(activity: Activity, requestCode: Int, resultCode: Int, data: Intent?) {
@@ -50,7 +52,12 @@ class ShellfoxUpdatesModule(private val context: ReactApplicationContext) : Reac
     }
 
     @ReactMethod
-    fun install(url: String, sha256: String, promise: Promise) {
+    fun install(url: String, sha256: String, promise: Promise) = prepare(url, sha256, promise, true)
+
+    @ReactMethod
+    fun download(url: String, sha256: String, promise: Promise) = prepare(url, sha256, promise, false)
+
+    private fun prepare(url: String, sha256: String, promise: Promise, interactive: Boolean) {
         val match = ASSET_URL.matchEntire(url)
         if (match == null || !sha256.matches(Regex("[a-fA-F0-9]{64}"))) {
             promise.reject("VALIDATION", "Invalid Shellfox release asset.")
@@ -72,10 +79,18 @@ class ShellfoxUpdatesModule(private val context: ReactApplicationContext) : Reac
                 // An earlier system installer may still be reading its APK.
                 val expired = System.currentTimeMillis() - 24L * 60 * 60 * 1000
                 directory.listFiles()?.filter { it.isFile && it.lastModified() < expired }?.forEach { it.delete() }
-                file = File.createTempFile("shellfox-", ".apk", directory)
-                download(url, file, sha256.lowercase())
+                val cached = staged?.takeIf { it.sha256 == sha256.lowercase() && it.version == match.groupValues[1] && it.file.isFile }
+                file = cached?.file ?: File.createTempFile("shellfox-", ".apk", directory)
+                if (cached == null) download(url, file, sha256.lowercase())
                 val update = Pending(file, sha256.lowercase(), match.groupValues[1], promise)
                 verify(update)
+                check(!stopped.get()) { "Updater stopped." }
+                staged = Staged(update.file, update.sha256, update.version)
+                if (!interactive) {
+                    busy.set(false)
+                    promise.resolve(null)
+                    return@execute
+                }
                 UiThreadUtil.runOnUiThread {
                     try {
                         val activity = context.currentActivity ?: error("Open Shellfox before installing an update.")
@@ -122,6 +137,7 @@ class ShellfoxUpdatesModule(private val context: ReactApplicationContext) : Reac
     private fun fail(update: Pending, code: String, message: String) {
         pending = null
         update.file.delete()
+        if (staged?.file == update.file) staged = null
         busy.set(false)
         update.promise.reject(code, message)
     }

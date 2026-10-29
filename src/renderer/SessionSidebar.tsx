@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObj
 import type { SessionDto } from '../shared/contracts';
 import { parseWslUnc } from '../shared/wsl-path';
 import { request } from './api';
+import { isViewableTab } from '../shared/terminal-view';
 import type { ManagerClient } from './store';
 import { ContextMenu, Icon, StatusDot, sessionDot, useAction, useNotify } from './components';
 import { ShellfoxEnvModal } from './shellfox-env-modal';
@@ -47,7 +48,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
   async function open(session: SessionDto) {
     onSelect?.();
     client.select(session);
-    const hasOpenTabs = session.tabs.some(tab => tab.lifecycle !== 'closed');
+    const hasOpenTabs = session.tabs.some(tab => isViewableTab(tab));
     if (hasOpenTabs && session.adapterId !== 'embedded-pty') return;
     if (client.store.getState().openingSessionIds[session.id]) return;
     client.store.setState(state => ({ openingSessionIds: { ...state.openingSessionIds, [session.id]: true } }));
@@ -57,7 +58,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
       if (client.store.getState().selectedId !== session.id) return;
       client.accept(result.value);
       if (!hasOpenTabs) {
-        const tab = result.value.tabs.find(item => item.lifecycle !== 'closed');
+        const tab = result.value.tabs.find(item => isViewableTab(item));
         if (tab) client.selectTab(result.value, tab.id);
       }
     } finally {

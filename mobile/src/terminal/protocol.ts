@@ -36,7 +36,7 @@ export const pageMessageSchema = z.discriminatedUnion('type', [
 export type PageMessage = z.infer<typeof pageMessageSchema>;
 export const hostMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('clear'), ...identity }).strict(),
-  z.object({ type: z.literal('reset'), ...identity, cols: dimension, rows: dimension, fontSize: z.number().min(8).max(32) }).strict(),
+  z.object({ type: z.literal('reset'), ...identity, cols: dimension, rows: dimension, fontSize: z.number().min(8).max(32), readOnly: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('output'), ...identity, ticket: sequence, data: z.string().max(262144), historical: z.boolean(), fit: z.boolean() }).strict(),
   z.object({ type: z.literal('font'), ...identity, fontSize: z.number().min(8).max(32) }).strict(),
   z.object({ type: z.literal('theme'), ...identity, ...terminalThemeSchema.shape }).strict(),

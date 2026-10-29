@@ -31,7 +31,7 @@ export interface TerminalViewState {
 interface Entry {
   id: string; surface: TerminalSurface; state: TerminalViewState; listeners: Set<() => void>;
   host: HTMLElement | null; visible: boolean; used: number; sequence: number;
-  surfaceReady: boolean; focusPending: boolean;
+  surfaceReady: boolean; focusPending: boolean; readOnly: boolean;
   pending: Map<number, { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number; historical: boolean }>;  pendingBytes: number;
   early: DeliveryEvent[]; earlyBytes: number; retired: Set<string>;
   attaching: boolean; attachToken: number; replayAgain: boolean; fullReplay: boolean;
@@ -83,7 +83,7 @@ export class TerminalRegistry {
     const entry: Entry = {
       id, surface: this.factory((data, userInitiated) => { if (entry.inputEpoch === 0) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry)),
       state: { generation: null, phase: 'connecting', controlEpoch: null, taking: false, error: null, operationError: null, warning: null, exitCode: null },
-      listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0, surfaceReady: false, focusPending: false,
+      listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0, surfaceReady: false, focusPending: false, readOnly: false,
       pending: new Map(), pendingBytes: 0, early: [], earlyBytes: 0, retired: new Set(), attaching: false,
       attachToken: 0, replayAgain: false, fullReplay: false,
       writes: [], writeBytes: 0, writing: false, epoch: 0, inputEpoch: 0,
@@ -106,6 +106,7 @@ export class TerminalRegistry {
         void request(() => api.copyText!({ text })).then(result => { if (!result.ok) fail(result.error, epoch); });
       },
       read: async () => {
+        if (current().readOnly) return null;
         const epoch = current().epoch;
         const result = await request(() => api.readClipboardText!());
         if (!result.ok) { fail(result.error, epoch); return null; }
@@ -131,12 +132,13 @@ export class TerminalRegistry {
     const entry = this.ensure(id); entry.listeners.add(listener);
     return () => { entry.listeners.delete(listener); this.trim(); };
   }
-  mount(id: string, host: HTMLElement, visible: boolean) {
+  mount(id: string, host: HTMLElement, visible: boolean, readOnly = false) {
     const entry = this.ensure(id);
+    entry.readOnly = readOnly;
     entry.host = host; entry.visible = visible; entry.used = Date.now();
     host.append(entry.surface.element);
     entry.surface.setVisible?.(visible && entry.state.phase !== 'blocked');
-    entry.surface.setInput(entry.state.phase === 'open');
+    entry.surface.setInput(!entry.readOnly && entry.state.phase === 'open');
     if (!this.active) this.update(entry, { phase: 'unavailable', error: { code: 'INTERNAL', message: 'Terminal connection unavailable. Refresh the terminal to reconnect.', retryable: true } });
     else void this.attach(entry);
     this.trim();
@@ -154,7 +156,7 @@ export class TerminalRegistry {
     entry.visible = visible;
     if (!visible) entry.focusPending = false;
     entry.surface.setVisible?.(visible && !!entry.host && entry.state.phase !== 'blocked');
-    entry.surface.setInput(entry.state.phase === 'open');
+    entry.surface.setInput(!entry.readOnly && entry.state.phase === 'open');
     if (visible) this.fit(id);
   }
   focus(id: string) {
@@ -228,7 +230,7 @@ export class TerminalRegistry {
     entry.state = { ...entry.state, ...patch };
     // Keep parser-generated device replies working while hidden. The input
     // boundary separately rejects hidden keystrokes unless a write is parsing.
-    entry.surface.setInput(entry.state.phase === 'open');
+    entry.surface.setInput(!entry.readOnly && entry.state.phase === 'open');
     entry.listeners.forEach(listener => listener());
   }
   private receive(event: DeliveryEvent) {
@@ -489,7 +491,7 @@ export class TerminalRegistry {
   }
   private input(entry: Entry, data: string, userInitiated?: boolean) {
     const generation = entry.state.generation, controlEpoch = entry.state.controlEpoch; const api = this.api;
-    if (!api || controlEpoch === null || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
+    if (entry.readOnly || !api || controlEpoch === null || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
     // xterm emits device replies while parsing output, including hidden replay.
     const userOperation = entry.visible && (userInitiated ?? !entry.writing);
     const epoch = entry.epoch;
@@ -501,7 +503,7 @@ export class TerminalRegistry {
     entry.inputQueue = entry.inputQueue.then(async () => {
       // A display replay invalidates device replies, not queued user intent for
       // the same shell. Never automatically repeat a failed write.
-      if (!this.active || (!userOperation && epoch !== entry.epoch) || entry.state.generation !== generation || entry.state.controlEpoch !== controlEpoch || entry.state.phase !== 'open') return;
+      if (entry.readOnly || !this.active || (!userOperation && epoch !== entry.epoch) || entry.state.generation !== generation || entry.state.controlEpoch !== controlEpoch || entry.state.phase !== 'open') return;
       const result = await request(() => api.writeTerminal({ tabId: entry.id, generation, controlEpoch, data, ...(userOperation ? {} : { userInitiated: false }) }));
       if (!result.ok && userOperation && this.active && entry.host && entry.visible && this.entries.get(entry.id) === entry && entry.state.generation === generation && entry.state.controlEpoch === controlEpoch) this.update(entry, { operationError: result.error });
     }).finally(() => { entry.inputBytes -= bytes; });

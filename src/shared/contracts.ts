@@ -52,6 +52,7 @@ export interface SettingsDto {
   version: 1; pythonPath?: string | null; accentColor: string; backgroundColor: string; adapterId: AdapterId; shellId: ShellId;
   shellExecutable: string | null; processRules: ProcessRule[]; historyPageSize: number;
   sessionSettleHours: number; sessionDeleteHours: number;
+  autoUpdate: boolean;
   terminalProfileId?: string | null;
 }
 export interface ShellOption { id: ShellId; executable: string; available: boolean; reason: string | null }

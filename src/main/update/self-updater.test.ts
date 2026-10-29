@@ -57,20 +57,82 @@ describe('verified downloads', () => {
     expect(await readFile(file, 'utf8')).toBe('keep');
   });
 });
-function fixture(over: { fetch?: UpdateFetch; platform?: Partial<UpdatePlatform>; quit?: (start: () => Promise<InstallHandoff>) => Promise<boolean> } = {}) {
+function fixture(over: { fetch?: UpdateFetch; platform?: Partial<UpdatePlatform>; quit?: (start: () => Promise<InstallHandoff>) => Promise<boolean>; autoUpdate?: () => boolean } = {}) {
   let committed = false;
   const handoff = { get committed() { return committed; }, commit: vi.fn(async () => { committed = true; }), cancel: vi.fn(async () => {}) };
-  const launch = vi.fn(async () => handoff), prepare = vi.fn(async (_file: string, _version: string, _work: string) => launch), cleanup = vi.fn(async () => {});
+  const launch = vi.fn(async (_relaunch?: boolean) => handoff), prepare = vi.fn(async (_file: string, _version: string, _work: string) => launch), cleanup = vi.fn(async () => {});
   const platform: UpdatePlatform = { supported: true, reason: null, assetName: () => asset.name, prepare, cleanup, ...over.platform };
   const fetch = vi.fn<UpdateFetch>(over.fetch ?? (async url => url === LATEST_RELEASE_URL ? Response.json(release()) : body()));
   const quit = vi.fn(over.quit ?? (async (start: () => Promise<InstallHandoff>) => { const h = await start(); await h.commit(); return true; }));
-  const updater = new SelfUpdater({ current: '0.2.5', platform, fetch, tempRoot: root, quitForUpdate: quit });
+  const updater = new SelfUpdater({ current: '0.2.5', platform, fetch, tempRoot: root, quitForUpdate: quit, autoUpdate: over.autoUpdate ?? (() => false) });
   return { updater, launch, prepare, fetch, quit, cleanup, handoff };
 }
 async function ready(updater: SelfUpdater) {
   await expect.poll(async () => (await updater.status()).phase).toBe('ready');
 }
 describe('updater lifecycle', () => {
+  it('downloads automatically when enabled, but never requests quit until the user quits', async () => {
+    const f = fixture({ autoUpdate: () => true });
+    await f.updater.status(); await ready(f.updater);
+    expect(f.prepare).toHaveBeenCalledTimes(1);
+    expect(f.quit).not.toHaveBeenCalled(); expect(f.launch).not.toHaveBeenCalled();
+    expect(await f.updater.installOnQuit()).toBe('installed');
+    expect(f.quit).toHaveBeenCalledWith(expect.any(Function), true);
+    expect(f.launch).toHaveBeenCalledWith(false);
+    await f.updater.dispose();
+  });
+  it('honors a changed setting with a ready download and keeps manual install available', async () => {
+    let enabled = true;
+    const f = fixture({ autoUpdate: () => enabled });
+    await f.updater.status(); await ready(f.updater);
+    enabled = false;
+    expect(await f.updater.installOnQuit()).toBe('not-ready');
+    expect(f.quit).not.toHaveBeenCalled();
+    expect(await f.updater.install()).toMatchObject({ ok: true, value: { phase: 'installing' } });
+    expect(f.quit).toHaveBeenCalledWith(expect.any(Function), false);
+    expect(f.launch).toHaveBeenCalledWith(true);
+    await f.updater.dispose();
+  });
+  it('starts downloading a known release after enabling automatic updates', async () => {
+    let enabled = false;
+    const f = fixture({ autoUpdate: () => enabled });
+    expect(await f.updater.status()).toMatchObject({ phase: 'idle', available: true });
+    expect(f.prepare).not.toHaveBeenCalled();
+    enabled = true;
+    await f.updater.status(); await ready(f.updater);
+    expect(f.prepare).toHaveBeenCalledTimes(1); expect(f.quit).not.toHaveBeenCalled();
+    await f.updater.dispose();
+  });
+  it('honors opting out during a pending automatic check and can opt back in', async () => {
+    let enabled = true, finish!: (response: Response) => void;
+    const f = fixture({ autoUpdate: () => enabled });
+    f.fetch.mockResolvedValueOnce(Response.json(release())).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const status = f.updater.status();
+    await expect.poll(() => typeof finish).toBe('function');
+    enabled = false; finish(Response.json(release())); await status;
+    expect(f.prepare).not.toHaveBeenCalled(); expect(f.fetch).toHaveBeenCalledTimes(2);
+    enabled = true;
+    await f.updater.status(); await ready(f.updater);
+    expect(f.prepare).toHaveBeenCalledTimes(1); expect(f.quit).not.toHaveBeenCalled();
+    await f.updater.dispose();
+  });
+  it('deduplicates concurrent automatic status requests', async () => {
+    const f = fixture({ autoUpdate: () => true });
+    await Promise.all([f.updater.status(), f.updater.status(), f.updater.status()]);
+    await ready(f.updater);
+    expect(f.prepare).toHaveBeenCalledTimes(1); expect(f.quit).not.toHaveBeenCalled();
+    await f.updater.dispose();
+  });
+  it('does not repeatedly retry a failed automatic download during status polling', async () => {
+    const f = fixture({ autoUpdate: () => true, fetch: async url => url === LATEST_RELEASE_URL ? Response.json(release()) : body([Buffer.alloc(content.length)]) });
+    await f.updater.status();
+    await expect.poll(async () => (await f.updater.status()).phase).toBe('error');
+    const calls = f.fetch.mock.calls.length;
+    await f.updater.status(); await f.updater.status();
+    expect(f.fetch).toHaveBeenCalledTimes(calls); expect(f.quit).not.toHaveBeenCalled();
+    await f.updater.dispose();
+  });
+
   it('quit installation does not check releases or download an available update', async () => {
     const f = fixture();
     expect(await f.updater.installOnQuit()).toBe('not-ready'); expect(f.fetch).not.toHaveBeenCalled();
@@ -80,7 +142,7 @@ describe('updater lifecycle', () => {
     await f.updater.dispose();
   });
   it('does not install at 100% download progress until platform preparation finishes', async () => {
-    const f = fixture(); let prepared!: () => void;
+    const f = fixture({ autoUpdate: () => true }); let prepared!: () => void;
     f.prepare.mockImplementationOnce(() => new Promise(resolve => { prepared = () => resolve(f.launch); }));
     await f.updater.download(); await expect.poll(() => typeof prepared).toBe('function');
     expect(await f.updater.status()).toMatchObject({ phase: 'downloading', received: content.length, total: content.length });
@@ -92,7 +154,7 @@ describe('updater lifecycle', () => {
     await f.updater.dispose(); expect(await readdir(root)).toHaveLength(1);
   });
   it('keeps a cancelled quit installation ready for a later attempt', async () => {
-    const f = fixture({ quit: async () => false });
+    const f = fixture({ quit: async () => false, autoUpdate: () => true });
     await f.updater.download(); await ready(f.updater);
     expect(await f.updater.installOnQuit()).toBe('cancelled');
     expect(await f.updater.status()).toMatchObject({ phase: 'ready' }); expect(f.launch).not.toHaveBeenCalled();
@@ -101,7 +163,7 @@ describe('updater lifecycle', () => {
     await f.updater.dispose();
   });
   it.each(['changed', 'missing'])('rechecks a %s installer before automatic quit handoff', async kind => {
-    const f = fixture(); await f.updater.download(); await ready(f.updater);
+    const f = fixture({ autoUpdate: () => true }); await f.updater.download(); await ready(f.updater);
     const file = f.prepare.mock.calls[0]![0];
     if (kind === 'changed') await writeFile(file, 'tampered'); else await rm(file);
     await expect(f.updater.installOnQuit()).rejects.toThrow('Downloaded installer changed');

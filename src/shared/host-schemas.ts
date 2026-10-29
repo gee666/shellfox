@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { automationRequestSchemas, automationResponseSchemas } from './automation-schemas';
 import { terminalResponseCompatibility } from './terminal-compat';
 import { changedEventSchema, keepAwakeStateSchema, requestSchemas, responseSchemas } from './schemas';
 import { terminalEventSchema } from './schemas';
@@ -21,6 +22,7 @@ export const hostEventSchema = z.discriminatedUnion('type', [
 const empty = z.object({}).strict();
 export const hostRequestSchemas = {
   ...requestSchemas,
+  ...automationRequestSchemas,
   'remote.getState': remoteRequestSchemas.getState,
   'remote.configure': remoteRequestSchemas.configure,
   'remote.login': remoteRequestSchemas.login,
@@ -35,6 +37,7 @@ export const hostRequestSchemas = {
 } as const;
 export const hostResponseSchemas = {
   ...responseSchemas,
+  ...automationResponseSchemas,
   'remote.getState': remoteResponseSchemas.getState,
   'remote.configure': remoteResponseSchemas.configure,
   'remote.login': remoteResponseSchemas.login,

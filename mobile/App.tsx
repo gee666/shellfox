@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { v4 as uuid } from 'uuid';
-import { BackHandler, Platform, Pressable, StatusBar, Text, View } from 'react-native';
+import { BackHandler, Pressable, StatusBar, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useShellfox, type ShellfoxModel } from './src/useShellfox';
 import { SessionsScreen, type OpenSession } from './src/SessionsScreen';
@@ -9,7 +9,7 @@ import { SessionScreen } from './src/SessionScreen';
 import { Prompt, type PromptConfig } from './src/Prompt';
 import { Button, Note, useUi } from './src/ui';
 import { ThemeProvider, useTheme } from './src/theme';
-import { updates } from './src/updates/native';
+import { useUpdates } from './src/updates/useUpdates';
 
 function Shellfox() {
   const model = useShellfox();
@@ -27,20 +27,8 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
   const [selection, setSelection] = useState<OpenSession | null>(null);
   const [prompt, setPrompt] = useState<{ id: string; config: PromptConfig } | null>(null);
   const showPrompt = useCallback((config: PromptConfig) => setPrompt({ id: uuid(), config }), []);
-  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    let active = true;
-    void updates
-      .check()
-      .then((update) => {
-        if (active) setUpdateVersion(update?.version ?? null);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, []);
+  const updateStatus = useUpdates(model.preferencesLoaded, model.preferences.autoUpdate);
+  const updateVersion = updateStatus.version;
   const machine = model.machines.find((item) => item.peer.id === selection?.peerId);
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -84,12 +72,12 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
           />
         )
       ) : (
-        <SettingsScreen model={model} prompt={showPrompt} />
+        <SettingsScreen model={model} prompt={showPrompt} updateStatus={updateStatus} />
       )}
       {updateVersion && !selection && section === 'sessions' && (
         <View style={[styles.row, { padding: 12, backgroundColor: colors.panel }]}>
           <View style={styles.grow}>
-            <Note>Shellfox {updateVersion} is available.</Note>
+            <Note>{updateStatus.message ?? `Shellfox ${updateVersion} is available.`}</Note>
           </View>
           <Button title="View update" subtle onPress={() => setSection('settings')} />
         </View>

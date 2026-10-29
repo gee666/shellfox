@@ -19,6 +19,7 @@ export interface TerminalViewProps {
   uploadApi?: TerminalUploadApi;
   subscribeTerminal: SubscribeTerminal;
   tabId: string;
+  readOnly?: boolean;
   fontSize: number;
   /** Change after a remote reconnect to retire the old delivery view. */
   connectionEpoch: string | number;
@@ -31,6 +32,7 @@ export function TerminalView({
   uploadApi,
   subscribeTerminal,
   tabId,
+  readOnly = false,
   fontSize,
   connectionEpoch,
   onError,
@@ -60,7 +62,7 @@ export function TerminalView({
   const attachment = useTerminalAttachment({
     api: uploadApi,
     contextKey: `${tabId}/${connectionEpoch}/${viewId ?? ''}`,
-    enabled: terminalState === 'attached',
+    enabled: !readOnly && terminalState === 'attached',
     getContext: () => {
       const captured = bridge.current;
       const identity = captured?.getUploadIdentity();
@@ -92,6 +94,7 @@ export function TerminalView({
       api,
       subscribeTerminal,
       tabId,
+      readOnly,
       viewId,
       fontSize: callbacks.current.fontSize,
       theme: { accentColor: callbacks.current.accent, backgroundColor: callbacks.current.background },
@@ -108,7 +111,7 @@ export function TerminalView({
       },
       onSelection: setSelection,
       onFocus: () => {
-        if (Platform.OS === 'android' && keyboardModeRef.current === 'system') void showTerminalKeyboard().catch(report);
+        if (!readOnly && Platform.OS === 'android' && keyboardModeRef.current === 'system') void showTerminalKeyboard().catch(report);
       },
     });
     bridge.current = current;
@@ -122,7 +125,7 @@ export function TerminalView({
       attachment.invalidate();
       current.dispose();
     };
-  }, [api, subscribeTerminal, tabId, connectionEpoch, viewId, report]);
+  }, [api, subscribeTerminal, tabId, connectionEpoch, viewId, readOnly, report]);
   useEffect(() => bridge.current?.setFontSize(fontSize), [fontSize]);
   useEffect(() => bridge.current?.setTheme({ accentColor: accent, backgroundColor: background }), [accent, background]);
 
@@ -228,7 +231,8 @@ export function TerminalView({
         </View>
         {!blocked && attachment.panel}
         {!blocked && <TerminalKeys
-          attach={attachment.button}
+          readOnly={readOnly || terminalState === 'closed'}
+          attach={readOnly ? undefined : attachment.button}
           bottomInset={keyboardVisible || specialKeyboard ? 0 : insets.bottom}
           control={modifiers.ctrl}
           selecting={selecting}
@@ -251,7 +255,7 @@ export function TerminalView({
           onSpecialKeyboard={toggleSpecialKeyboard}
           onPaste={(text) => bridge.current?.paste(text)}
         />}
-        {!blocked && specialKeyboard && <SpecialKeyboard modifiers={modifiers} onModifier={toggleModifier}
+        {!blocked && !readOnly && specialKeyboard && <SpecialKeyboard modifiers={modifiers} onModifier={toggleModifier}
           onKey={sendKey} bottomInset={insets.bottom} />}
       </KeyboardAvoidingView>
     </View>

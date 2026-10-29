@@ -96,6 +96,7 @@ export function SettingsPanel({ client, settings, profiles, defaultProfileId, on
     })}</div>
     <div className="settings-scroll"><div className="settings-body">
     <div role="tabpanel" id="settings-panel-General" aria-labelledby="settings-tab-General" hidden={tab !== 'General'} inert={tab !== 'General'}>
+    <section><h3>Updates</h3><label><input type="checkbox" checked={draft.autoUpdate} onChange={event => change(current => ({ ...current, autoUpdate: event.target.checked }))} /> Automatic updates</label><p className="settings-hint">Download new versions automatically and install when you quit. Turn off to update manually.</p></section>
     <section><h3>Accent color</h3><ColorSwatches kind="accent" presets={SWATCHES} value={draft.accentColor} onChange={color => change(current => ({ ...current, accentColor: color }))} />{fieldError('accent')}</section>
     <section><h3>Background color</h3><ColorSwatches kind="background" presets={BACKGROUNDS} value={draft.backgroundColor} onChange={color => change(current => ({ ...current, backgroundColor: color }))} /><p className="settings-hint">Text and all other colors adapt automatically.</p>{fieldError('background')}</section>
     <section className="session-settings"><h3>Session history</h3>

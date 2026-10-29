@@ -21,6 +21,15 @@ RCT_REMAP_METHOD(getVersion,
   resolve(version);
 }
 
+RCT_REMAP_METHOD(download,
+                 downloadURL:(NSString *)url
+                 sha256:(NSString *)sha256
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+  reject(@"UNSUPPORTED", @"iOS updates are managed by the distribution channel, not by Shellfox.", nil);
+}
+
 RCT_REMAP_METHOD(install,
                  installURL:(NSString *)url
                  sha256:(NSString *)sha256

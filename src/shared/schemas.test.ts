@@ -26,6 +26,13 @@ it('bounds session pages and inactivity settings, and upgrades saved settings', 
   }
   expect(requestEnvelopeSchema.safeParse({version:1,method:'getHistory',payload:{}}).success).toBe(false);
 });
+it('defaults automatic updates on for existing settings and preserves an explicit opt-out', () => {
+  const { autoUpdate, ...legacy } = defaultSettings;
+  expect(autoUpdate).toBe(true);
+  expect(settingsSchema.parse(legacy).autoUpdate).toBe(true);
+  expect(settingsSchema.parse({ ...legacy, autoUpdate: false }).autoUpdate).toBe(false);
+  expect(settingsSchema.safeParse({ ...legacy, autoUpdate: 'false' }).success).toBe(false);
+});
 it('validates accents and structured process rules', () => {
   expect(settingsSchema.safeParse(defaultSettings).success).toBe(true);
   expect(settingsSchema.safeParse({...defaultSettings,accentColor:'pink'}).success).toBe(false);

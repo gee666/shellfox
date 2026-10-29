@@ -25,7 +25,10 @@ function fixture(disableStdin = false) {
   const element = document.createElement('div'), textarea = document.createElement('textarea');
   element.append(textarea); document.body.append(element);
   const callbacks = { text: vi.fn<(data: string) => void>(), start: vi.fn<() => void>(), commit: vi.fn<(data: string) => void>() };
+  let encodedKey: (event: { key: string; domEvent: KeyboardEvent }) => void = () => {};
+  const unsubscribe = vi.fn();
   const terminal = { element, textarea, options: { disableStdin }, modes: { applicationCursorKeysMode: false },
+    onKey: (listener: typeof encodedKey) => { encodedKey = listener; return { dispose: unsubscribe }; },
     paste: vi.fn((_data: string) => { textarea.value = ''; }) };
   const input = new TerminalInput(terminal, callbacks);
   const edit = (text: string) => {
@@ -33,9 +36,23 @@ function fixture(disableStdin = false) {
     textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end');
     textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
   };
-  return { ...terminal, input, callbacks, edit };
+  return { ...terminal, input, callbacks, edit, unsubscribe, encodeKey: (event: KeyboardEvent) => encodedKey({ key: event.key, domEvent: event }) };
 }
 describe('native DOM input ownership', () => {
+  it('cancels the default edit only for keypresses encoded by xterm', async () => {
+    const f = fixture();
+    for (const shiftKey of [false, true]) {
+      const event = new KeyboardEvent('keypress', { key: 'A', shiftKey, cancelable: true });
+      f.encodeKey(event);
+      expect(event.defaultPrevented).toBe(true);
+    }
+    const nativeKey = new KeyboardEvent('keypress', { key: 'é', cancelable: true });
+    f.textarea.dispatchEvent(nativeKey);
+    expect(nativeKey.defaultPrevented).toBe(false);
+    f.edit('é'); f.edit('é'); await Promise.resolve();
+    expect(f.callbacks.text.mock.calls).toEqual([['é'], ['é']]);
+    f.input.dispose(); expect(f.unsubscribe).toHaveBeenCalledOnce();
+  });
   it('prevents 229 fallback timers, not native editing, and emits every DOM transaction once', async () => {
     const f = fixture(), fallback = vi.fn(); f.textarea.addEventListener('keydown', fallback);
     for (let i = 0; i < 2; i++) {

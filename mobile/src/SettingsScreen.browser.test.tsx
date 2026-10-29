@@ -6,9 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ShellfoxModel } from './useShellfox';
 import { defaultPreferences } from './preferences';
 
-const native = vi.hoisted(() => ({ openURL: vi.fn(), appState: { currentState: 'active' as string | null } }));
+const native = vi.hoisted(() => ({ openURL: vi.fn(), appState: { currentState: 'active' as string | null }, platform: { OS: 'ios' }, updates: { check: vi.fn(), install: vi.fn() } }));
 vi.mock('react-native', () => ({
-  Alert: { alert: vi.fn() }, AppState: native.appState, Linking: { openURL: native.openURL }, Platform: { OS: 'ios' },
+  Alert: { alert: vi.fn() }, AppState: native.appState, Linking: { openURL: native.openURL }, Platform: native.platform,
   ScrollView: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
   View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -20,16 +20,16 @@ vi.mock('./ui', () => ({
   Note: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
   Field: () => null,
 }));
-vi.mock('./updates/native', () => ({ updates: {} }));
-vi.mock('./preferences', () => ({ defaultPreferences: { hostname: 'shellfox-mobile', remembered: [], fontSize: 14, accentColor: '#ec4899', backgroundColor: '#111016' } }));
+vi.mock('./updates/native', () => ({ updates: native.updates }));
+vi.mock('./preferences', () => ({ defaultPreferences: { hostname: 'shellfox-mobile', remembered: [], fontSize: 14, autoUpdate: true, accentColor: '#ec4899', backgroundColor: '#111016' } }));
 vi.mock('./ColorSwatches', () => ({ ColorSwatches: () => null }));
 const { SettingsScreen } = await import('./SettingsScreen');
 const valid = 'https://login.tailscale.com/a/test-only';
 function setup(loginUrl: string | null = valid, returnedUrl: string | null = valid, click = true) {
   const model: ShellfoxModel = {
-    ready: true, loading: false, preferences: defaultPreferences,
+    ready: true, preferencesLoaded: true, loading: false, preferences: defaultPreferences,
     network: { status: 'login-required', loginUrl, error: null }, peers: [], machines: [], error: null,
-    setError: vi.fn(), report: vi.fn(), updatePreferences: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
+    setError: vi.fn(), report: vi.fn(), updatePreferences: vi.fn(async () => {}), connect: vi.fn(), disconnect: vi.fn(),
     login: vi.fn(async () => ({ status: 'login-required', loginUrl: returnedUrl, error: null })), logout: vi.fn(),
     renameDevice: vi.fn(), refresh: vi.fn(), retryStart: vi.fn(),
   };
@@ -38,9 +38,28 @@ function setup(loginUrl: string | null = valid, returnedUrl: string | null = val
   if (click) fireEvent.click(screen.getByRole('button', { name: /sign in.*browser/i }));
   return { ...model, rerender, unmount: view.unmount, source: model };
 }
-beforeEach(() => { vi.resetAllMocks(); native.openURL.mockResolvedValue(undefined); native.appState.currentState = 'active'; });
+beforeEach(() => { vi.resetAllMocks(); native.openURL.mockResolvedValue(undefined); native.appState.currentState = 'active'; native.platform.OS = 'ios'; native.updates.check.mockResolvedValue({ version: '0.9.8' }); native.updates.install.mockResolvedValue(true); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe('explicit browser sign-in', () => {
+  it('retains manual Android check and install buttons while automatic updates are off', async () => {
+    native.platform.OS = 'android';
+    const model = setup(null, null, false);
+    model.source.preferences = { ...model.source.preferences, autoUpdate: false }; model.rerender();
+    expect(screen.getByRole('button', { name: 'Automatic updates: Off' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    await waitFor(() => expect(screen.getByText('Version 0.9.8 is available.')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Download and install' }));
+    await waitFor(() => expect(native.updates.install).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Confirm the update in the Android installer.')).toBeInTheDocument();
+    expect(screen.getByText(/Android requires your permission and installer confirmation/)).toBeInTheDocument();
+  });
+  it('shows the iOS update restriction and saves the default-on toggle without offering APK installation', async () => {
+    const model = setup(null, null, false);
+    fireEvent.click(screen.getByRole('button', { name: 'Automatic updates: On' }));
+    await waitFor(() => expect(model.updatePreferences).toHaveBeenCalledWith({ autoUpdate: false }));
+    expect(screen.getByText(/iOS manages updates through your distribution channel/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download and install' })).not.toBeInTheDocument();
+  });
   it('shows degraded network health after startup without asking for login again', () => {
     const model = setup(null, null, false);
     model.source.network = { status: 'online', loginUrl: null, error: 'Relay connectivity is degraded.' };

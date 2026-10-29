@@ -66,6 +66,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   const queries = installTerminalQueryHandlers(terminal.parser, () => historical);
   let parsing = false;
   let disposed = false;
+  let inputEnabled = false;
   let visible = false;
   let needsRefresh = true;
   let userInput = false;
@@ -78,7 +79,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   let encodedKey = false, clipboardPaste = false;
   terminal.onKey(() => { encodedKey = true; queueMicrotask(() => { encodedKey = false; }); });
   terminal.onData(data => {
-    if (clipboardPaste || encodedKey || !nativeInput || nativeInput.acceptsXtermData(data)) input(data, userInput || !parsing);
+    if (inputEnabled && (clipboardPaste || encodedKey || !nativeInput || nativeInput.acceptsXtermData(data))) input(data, userInput || !parsing);
   });
   // xterm 6 treats SGR hover reports as user input and clears local selection.
   // Capture only button-free motion; drag events must still reach selection/TUI handlers.
@@ -115,8 +116,8 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     ev.preventDefault();
     if (action === 'copy') { if (terminal.hasSelection()) clipboard.copy(terminal.getSelection()); }
     // paste() applies bracketed-paste mode and newline normalization, then emits onData.
-    else void clipboard.read().then(text => {
-      if (text && !disposed) {
+    else if (inputEnabled) void clipboard.read().then(text => {
+      if (text && !disposed && inputEnabled) {
         userInput = true;
         try { nativeInput?.finish(); clipboardPaste = true; terminal.paste(text); }
         finally { userInput = false; clipboardPaste = false; }
@@ -136,9 +137,10 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       if (!opened) {
         terminal.open(element); opened = true;
         nativeInput = new TerminalInput(terminal, {
-          text: data => { if (data) input(data, true); }, start: () => {},
-          commit: data => { if (data) input(data, true); },
+          text: data => { if (data && inputEnabled) input(data, true); }, start: () => {},
+          commit: data => { if (data && inputEnabled) input(data, true); },
         });
+        if (terminal.textarea) terminal.textarea.readOnly = !inputEnabled;
       }
       const size = fit.proposeDimensions();
       if (!size || !Number.isFinite(size.cols) || !Number.isFinite(size.rows)) return null;
@@ -150,7 +152,10 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     },
     resize: (cols, rows) => { if (cols !== terminal.cols || rows !== terminal.rows) terminal.resize(cols, rows); },
     focus: () => { if (opened) terminal.focus(); },
-    setInput: enabled => { terminal.options.disableStdin = !enabled; },
+    setInput: enabled => {
+      inputEnabled = enabled; terminal.options.disableStdin = !enabled;
+      if (terminal.textarea) terminal.textarea.readOnly = !enabled;
+    },
     setVisible: next => {
       if (visible === next) return;
       visible = next; terminal.options.cursorBlink = next;

@@ -46,7 +46,10 @@ describe('Linux handoff', () => {
     expect(script.indexOf('while kill -0')).toBeLessThan(script.indexOf('/usr/bin/pkexec'));
     expect(script.indexOf('/usr/bin/sha256sum')).toBeLessThan(script.indexOf('/usr/bin/pkexec'));
     expect(script).toContain('"$package"'); expect(script).toContain('/usr/bin/apt-get install -y');
-    await launch(); expect(state.calls.at(-1)).toEqual({ file: '/bin/sh', args: ['/tmp/work/install.sh', '456', '/tmp/work', '/tmp/work/update.deb', '/usr/lib/shellfox/shellfox', 'a'.repeat(64), '/tmp/work/handoff-random'] });
+    await launch(); expect(state.calls.at(-1)).toEqual({ file: '/bin/sh', args: ['/tmp/work/install.sh', '456', '/tmp/work', '/tmp/work/update.deb', '/usr/lib/shellfox/shellfox', 'a'.repeat(64), '/tmp/work/handoff-random', '1'] });
+    await launch(false);
+    expect(state.calls.at(-1)?.args.at(-1)).toBe('0');
+    expect(script.split('if [ "$relaunch" = 1 ]')).toHaveLength(3);
   });
   it.each(['name', 'version', 'arch'])('rejects incorrect Debian package %s', async kind => {
     if (kind === 'name') state.packageName = 'attacker'; if (kind === 'version') state.version = '0.2.5'; if (kind === 'arch') state.arch = 'arm64';
@@ -64,10 +67,13 @@ describe('macOS handoff', () => {
     expect(validateUpdateZip).toHaveBeenCalledTimes(1);
     expect(state.calls).toContainEqual({ file: '/usr/bin/codesign', args: ['--verify', '--deep', '--strict', '/tmp/work/extracted/Shellfox.app'] });
     await launch();
-    expect(state.calls.at(-1)).toEqual({ file: '/bin/sh', args: ['/tmp/work/install.sh', '789', '/tmp/work', '/Applications/Shellfox.app', '/Applications/.Shellfox-update-random', '/tmp/work/handoff-random'] });
+    expect(state.calls.at(-1)).toEqual({ file: '/bin/sh', args: ['/tmp/work/install.sh', '789', '/tmp/work', '/Applications/Shellfox.app', '/Applications/.Shellfox-update-random', '/tmp/work/handoff-random', '1'] });
     const script = state.files.get('/tmp/work/install.sh')!;
     expect(script.indexOf('while kill -0')).toBeLessThan(script.indexOf('mv --'));
     expect(script).toContain('mv -- "$old" "$bundle"'); expect(script).toContain('/usr/bin/open -n "$bundle"');
+    await launch(false);
+    expect(state.calls.at(-1)?.args.at(-1)).toBe('0');
+    expect(script.split('if [ "$relaunch" = 1 ]')).toHaveLength(3);
     await platform.cleanup?.(); expect(rm).toHaveBeenCalledWith(path.normalize('/Applications/.Shellfox-update-random'), { recursive: true, force: true });
   });
   it('cleans sibling staging after a copy failure', async () => {

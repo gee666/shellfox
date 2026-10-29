@@ -6,10 +6,12 @@ const subcommands: Record<string, string[]> = {
   machines: ['list', 'connect', 'disconnect', 'forget'], approvals: ['list', 'approve', 'revoke', 'reject'],
   session: sessionOperations, ss: sessionOperations, sessions: sessionOperations,
   terminals: terminalOperations, tm: terminalOperations,
+  run: ['--cwd', '--title', '--request-id', '--detach', '--'], runs: ['list', 'show', 'stop'],
   update: ['--check'], settings: ['read', 'update'], profiles: ['list'], path: ['home', 'resolve', 'complete', 'create'], remote: ['api'],
 };
 const commands = [
   ['host', 'Run or manage the host'], ['session', 'Manage sessions'],
+  ['run', 'Run an automation process with pipes'], ['runs', 'Inspect or stop automation runs'],
   ['terminals', 'Manage and attach terminals'], ['network', 'Manage Tailscale networking'],
   ['machines', 'Manage remote machines'], ['approvals', 'Manage access approvals'],
   ['settings', 'Read or update settings'], ['profiles', 'List terminal profiles'],

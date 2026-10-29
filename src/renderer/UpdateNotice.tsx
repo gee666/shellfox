@@ -54,7 +54,7 @@ export function UpdateNotice({ api }: { api: ManagerApi }) {
       <progress aria-label="Update download" max={update.total ?? undefined} value={update.total ? update.received ?? 0 : undefined} />
       <small className="update-eta" aria-label="Estimated time remaining" title="Estimated time remaining">{eta ?? '…'}</small>
     </div> : ready || installing ? <button className="update-button" disabled={!supported || pending || installing}
-      title="Also installs automatically when you close Shellfox"
+      title="Install now and restart Shellfox"
       onClick={() => void act()}>
       <span>install and restart</span>
       <svg className="update-symbol" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

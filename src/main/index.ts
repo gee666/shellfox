@@ -243,6 +243,7 @@ async function run(): Promise<void> {
     : new SelfUpdater({ current: app.getVersion(),
       platform: await createUpdatePlatform({ platform: process.platform, arch: process.arch, executable: process.execPath, packaged: app.isPackaged }),
       fetch: (url, init) => net.fetch(url, init), tempRoot: app.getPath('temp'),
+      autoUpdate: () => repository.settings().autoUpdate,
       quitForUpdate: async (start, onQuit) => {
         if (quitting || closingForUpdate || closingForQuit && !onQuit) return false;
         closingForUpdate = true;

@@ -12,4 +12,5 @@ if (mode === 'publish') {
   const project = 'native/Shellfox.Native.Tests/Shellfox.Native.Tests.csproj';
   if (!existsSync(project)) throw new Error('Native test project has not been published by its owner: ' + project);
   run('dotnet', ['test', project, '-c', 'Release', '--logger', 'trx;LogFileName=native.trx', '--results-directory', path.join(root, 'tmp/reports/native')]);
+  run(process.execPath, ['--test', 'scripts/pipe-run.test.mjs']);
 } else throw new Error('Unknown native command');

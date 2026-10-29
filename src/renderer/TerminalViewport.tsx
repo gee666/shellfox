@@ -3,7 +3,7 @@ import { useNotify } from './components';
 import { TerminalLoading } from './TerminalPlaceholder';
 import type { TerminalRegistry } from './terminal-client';
 
-export const TerminalViewport = memo(function TerminalViewport({ registry, tabId, generation, visible }: { registry: TerminalRegistry; tabId: string; generation?: string; visible: boolean }) {
+export const TerminalViewport = memo(function TerminalViewport({ registry, tabId, generation, visible, readOnly = false }: { registry: TerminalRegistry; tabId: string; generation?: string; visible: boolean; readOnly?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const notify = useNotify();
   const state = useSyncExternalStore(
@@ -17,7 +17,7 @@ export const TerminalViewport = memo(function TerminalViewport({ registry, tabId
       registry.clearOperationError(tabId, state.operationError);
     }
   }, [state.operationError, visible, notify, registry, tabId]);
-  useEffect(() => registry.mount(tabId, host.current!, visible), [registry, tabId]);
+  useEffect(() => registry.mount(tabId, host.current!, visible, readOnly), [registry, tabId, readOnly]);
   useEffect(() => {
     const current = registry.getState(tabId);
     // Mount already requests the authoritative generation. Do not request a
@@ -46,6 +46,6 @@ export const TerminalViewport = memo(function TerminalViewport({ registry, tabId
     {visible && state.phase === 'connecting' && <div className="terminal-loading-overlay"><TerminalLoading /></div>}
     {visible && state.phase === 'unavailable' && state.error && <span className="terminal-buffer-note" role="alert">{state.error.message}</span>}
     {!state.error && state.warning && <span className="terminal-buffer-note" title={state.warning}>Earlier output unavailable</span>}
-    <div className="terminal-host" ref={host} hidden={state.phase === 'blocked'} aria-label="Interactive terminal" />
+    <div className="terminal-host" ref={host} hidden={state.phase === 'blocked'} aria-label={readOnly ? 'Read-only terminal' : 'Interactive terminal'} />
   </section>;
 });
