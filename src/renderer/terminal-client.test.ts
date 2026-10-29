@@ -758,6 +758,48 @@ describe('terminal clipboard shortcuts', () => {
     terminal.keyHandler(key('KeyV')); surface.dispose(); pending.resolve('late paste'); await flush();
     expect(terminal.paste).not.toHaveBeenCalled();
   });
+  it('opens a link menu on right click and copies a link on Ctrl+Shift+click', () => {
+    const openLink = vi.fn(), copyLink = vi.fn(), linkMenu = vi.fn();
+    const surface = createTerminalSurface(() => {}, undefined, { copy: vi.fn(), read: async () => null, openLink, copyLink, linkMenu });
+    document.body.append(surface.element); surface.fit();
+    const terminal = terminalMocks.terminals.at(-1); const received = vi.fn();
+    for (const type of ['mousedown', 'mouseup', 'contextmenu']) terminal.element.addEventListener(type, received);
+    const right = (type: string) => { const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 2, clientX: 30, clientY: 40 }); terminal.element.dispatchEvent(event); return event; };
+    try {
+      // Away from a link, right click keeps reaching xterm and the application.
+      for (const type of ['mousedown', 'mouseup', 'contextmenu']) expect(right(type).defaultPrevented).toBe(false);
+      expect(received).toHaveBeenCalledTimes(3);
+      terminal.options.linkHandler.hover({}, 'https://example.com/hidden');
+      for (const type of ['mousedown', 'mouseup', 'contextmenu']) expect(right(type).defaultPrevented).toBe(true);
+      expect(received).toHaveBeenCalledTimes(3);
+      expect(linkMenu).toHaveBeenCalledExactlyOnceWith('https://example.com/hidden', 30, 40);
+      terminal.options.linkHandler.leave({}, 'https://example.com/hidden');
+      expect(right('contextmenu').defaultPrevented).toBe(false);
+      terminal.modes.mouseTrackingMode = 'vt200';
+      terminal.options.linkHandler.activate({ button: 0, ctrlKey: true, shiftKey: true }, 'https://example.com/hidden');
+      expect(copyLink).toHaveBeenCalledExactlyOnceWith('https://example.com/hidden'); expect(openLink).not.toHaveBeenCalled();
+    } finally { surface.dispose(); }
+  });
+  it('runs link menu choices through the bridge and confirms a copied link', async () => {
+    const fixture = mockApi(); const openExternal = fixture.api.openExternal;
+    const registry = new TerminalRegistry(fixture.api); registry.start();
+    const host = document.createElement('div'); document.body.append(host);
+    registry.mount(tab.id, host, true); await flush(); registry.fit(tab.id);
+    const terminal = terminalMocks.terminals.at(-1);
+    const menuAt = (url: string) => { terminal.options.linkHandler.hover({}, url);
+      terminal.element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: 5, clientY: 6 })); };
+    menuAt('https://example.com/a');
+    expect(registry.getState(tab.id).linkMenu).toEqual({ url: 'https://example.com/a', x: 5, y: 6 });
+    registry.linkMenuAction(tab.id, 'open');
+    expect(registry.getState(tab.id).linkMenu).toBeNull(); expect(openExternal).toHaveBeenCalledExactlyOnceWith({ url: 'https://example.com/a' });
+    menuAt('https://example.com/b'); registry.linkMenuAction(tab.id, 'copy'); await flush();
+    expect(fixture.api.copyText).toHaveBeenCalledExactlyOnceWith({ text: 'https://example.com/b' });
+    expect(registry.getState(tab.id).notice).toBe('Link copied');
+    registry.clearNotice(tab.id, 'Link copied'); expect(registry.getState(tab.id).notice).toBeNull();
+    menuAt('https://example.com/c'); registry.visibility(tab.id, false);
+    expect(registry.getState(tab.id).linkMenu).toBeNull(); expect(openExternal).toHaveBeenCalledOnce();
+    registry.dispose(); host.remove();
+  });
   it('routes registry clipboard through the main-process bridge', async () => {
     const fixture = mockApi(); vi.mocked(fixture.api.readClipboardText!).mockResolvedValueOnce(success({ text: 'ls' }));
     const registry = new TerminalRegistry(fixture.api); registry.start();

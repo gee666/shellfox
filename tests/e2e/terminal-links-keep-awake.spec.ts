@@ -75,6 +75,28 @@ test('URLs broken inside a table column and OSC 8 labels open from every row', a
     await click('osc8label', 20);
     await expect.poll(() => app.evaluate(() => (globalThis as any).__opened), { timeout: 10000 }).toEqual(['https://example.com/column/end', 'https://example.com/osc8']);
     await expect(page.locator('.terminal-surface[title="https://example.com/osc8"]')).toHaveCount(1);
+    // A label hides its target: right click offers to copy it without opening it.
+    await app.evaluate(({ clipboard }) => {
+      const copied: string[] = (globalThis as any).__copied = [];
+      clipboard.writeText = async text => { copied.push(text); };
+    });
+    const label = (await page.locator('.xterm-rows > div', { hasText: 'osc8label' }).last().boundingBox())!;
+    await page.mouse.click(label.x + 20, label.y + label.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Copy link address', exact: true }).click();
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__copied)).toEqual(['https://example.com/osc8']);
+    await expect(page.getByRole('status').filter({ hasText: 'Link copied' })).toBeVisible();
+    await page.mouse.move(label.x + 15, label.y + label.height / 2);
+    await page.mouse.move(label.x + 20, label.y + label.height / 2);
+    await page.mouse.click(label.x + 20, label.y + label.height / 2, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Open link', exact: true }).click();
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__opened)).toHaveLength(3);
+    await page.mouse.move(label.x + 15, label.y + label.height / 2);
+    await page.mouse.move(label.x + 20, label.y + label.height / 2);
+    await page.keyboard.down('Control'); await page.keyboard.down('Shift');
+    await page.mouse.click(label.x + 20, label.y + label.height / 2);
+    await page.keyboard.up('Shift'); await page.keyboard.up('Control');
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__copied)).toEqual(['https://example.com/osc8', 'https://example.com/osc8']);
+    expect(await app.evaluate(() => (globalThis as any).__opened)).toHaveLength(3);
   } finally {
     await page.evaluate(async () => {
       const result = await window.shellfox.getSnapshot();

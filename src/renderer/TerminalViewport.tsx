@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { useNotify } from './components';
+import { ContextMenu, useNotify } from './components';
 import { TerminalLoading } from './TerminalPlaceholder';
 import type { TerminalRegistry } from './terminal-client';
 
@@ -17,6 +17,9 @@ export const TerminalViewport = memo(function TerminalViewport({ registry, tabId
       registry.clearOperationError(tabId, state.operationError);
     }
   }, [state.operationError, visible, notify, registry, tabId]);
+  useEffect(() => {
+    if (visible && state.notice) { notify({ message: state.notice, tone: 'info' }); registry.clearNotice(tabId, state.notice); }
+  }, [state.notice, visible, notify, registry, tabId]);
   useEffect(() => registry.mount(tabId, host.current!, visible, readOnly), [registry, tabId, readOnly]);
   useEffect(() => {
     const current = registry.getState(tabId);
@@ -46,6 +49,10 @@ export const TerminalViewport = memo(function TerminalViewport({ registry, tabId
     {visible && state.phase === 'connecting' && <div className="terminal-loading-overlay"><TerminalLoading /></div>}
     {visible && state.phase === 'unavailable' && state.error && <span className="terminal-buffer-note" role="alert">{state.error.message}</span>}
     {!state.error && state.warning && <span className="terminal-buffer-note" title={state.warning}>Earlier output unavailable</span>}
+    {visible && state.linkMenu && <ContextMenu x={state.linkMenu.x} y={state.linkMenu.y} onClose={() => registry.linkMenuAction(tabId, 'close')}>
+      <button role="menuitem" title={state.linkMenu.url} onClick={() => registry.linkMenuAction(tabId, 'open')}>Open link</button>
+      <button role="menuitem" title={state.linkMenu.url} onClick={() => registry.linkMenuAction(tabId, 'copy')}>Copy link address</button>
+    </ContextMenu>}
     <div className="terminal-host" ref={host} hidden={state.phase === 'blocked'} aria-label={readOnly ? 'Read-only terminal' : 'Interactive terminal'} />
   </section>;
 });

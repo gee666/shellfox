@@ -28,6 +28,10 @@ export interface SurfaceClipboard {
   read(): Promise<string | null>;
   /** Opens an http(s) link in the system browser. */
   openLink?(url: string): void;
+  /** Copies a link target, which an OSC 8 label may hide. */
+  copyLink?(url: string): void;
+  /** Offers open/copy for the link under a right click at client coordinates. */
+  linkMenu?(url: string, x: number, y: number): void;
 }
 export type SurfaceFactory = (input: (data: string, userInitiated?: boolean) => void, theme?: ITheme, clipboard?: SurfaceClipboard) => TerminalSurface;
 /** Ctrl+Shift+C / Ctrl+Shift+V (KeyboardEvent.code, so it is keyboard-layout independent). */
@@ -41,9 +45,16 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   // such as pi open the link themselves: opening here too launches it twice.
   // The selection modifier bypasses reporting, so it still opens links there.
   const openLink = (url: string, event: MouseEvent) => {
+    if (event.shiftKey && (MAC ? event.metaKey : event.ctrlKey)) { clipboard?.copyLink?.(url); return; }
+    // Control+click is a right click on macOS; the link menu handles it.
+    if (MAC && event.ctrlKey) return;
     const bypass = MAC ? event.altKey : event.shiftKey;
     if (terminal.modes.mouseTrackingMode === 'none' || bypass) clipboard?.openLink?.(url);
   };
+  // Link under the pointer, reported by xterm's hover for both link kinds.
+  let hovered: string | null = null;
+  const hover = (url: string) => { hovered = url; element.title = url; };
+  const leave = () => { hovered = null; element.removeAttribute('title'); };
   element.className = 'terminal-surface';
   const terminal = new Terminal({
     allowProposedApi: true, scrollback: 3000, fontSize: 14,
@@ -59,14 +70,21 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     // OSC 8 text hides its target, so hovering shows it as a tooltip.
     linkHandler: {
       activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) openLink(uri, event); },
-      hover: (_event, uri) => { if (isWebLink(uri)) element.title = uri; },
-      leave: () => element.removeAttribute('title'),
+      hover: (_event, uri) => { if (isWebLink(uri)) hover(uri); },
+      leave,
       allowNonHttpProtocols: false,
     },
   });
-  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, openLink, {
-    hover: url => { element.title = url; }, leave: () => element.removeAttribute('title'),
-  }));
+  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, openLink, { hover, leave }));
+  // A right click on a link opens the link menu instead of reaching xterm or
+  // a mouse-reporting application (pi pastes on right click).
+  const linkMenu = (ev: MouseEvent) => {
+    if ((ev.button !== 2 && ev.type !== 'contextmenu') || !hovered || !clipboard?.linkMenu) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (ev.type === 'contextmenu') clipboard.linkMenu(hovered, ev.clientX, ev.clientY);
+  };
+  const menuEvents = ['mousedown', 'mouseup', 'contextmenu'] as const;
+  menuEvents.forEach(type => element.addEventListener(type, linkMenu, true));
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   // Shell output must not read/write the OS clipboard.
@@ -171,6 +189,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       disposed = true;
       inputEvents.forEach(type => element.removeEventListener(type, markUserInput, true));
       element.removeEventListener('mousemove', preserveSelection, true);
+      menuEvents.forEach(type => element.removeEventListener(type, linkMenu, true));
       middleEvents.forEach(type => element.removeEventListener(type, middleCopy, true));
       element.removeEventListener('paste', blockMiddlePaste, true);
       queries.dispose(); terminal.dispose(); element.remove();

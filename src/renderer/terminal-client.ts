@@ -27,6 +27,10 @@ export interface TerminalViewState {
   operationError: AppError | null;
   warning: string | null;
   exitCode: number | null;
+  /** Open/copy choices for a right-clicked link, at client coordinates. */
+  linkMenu: { url: string; x: number; y: number } | null;
+  /** A short confirmation for a completed user operation. */
+  notice: string | null;
 }
 interface Entry {
   id: string; surface: TerminalSurface; state: TerminalViewState; listeners: Set<() => void>;
@@ -82,7 +86,7 @@ export class TerminalRegistry {
     if (existing) return existing;
     const entry: Entry = {
       id, surface: this.factory((data, userInitiated) => { if (entry.inputEpoch === 0) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry)),
-      state: { generation: null, phase: 'connecting', controlEpoch: null, taking: false, error: null, operationError: null, warning: null, exitCode: null },
+      state: { generation: null, phase: 'connecting', controlEpoch: null, taking: false, error: null, operationError: null, warning: null, exitCode: null, linkMenu: null, notice: null },
       listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0, surfaceReady: false, focusPending: false, readOnly: false,
       pending: new Map(), pendingBytes: 0, early: [], earlyBytes: 0, retired: new Set(), attaching: false,
       attachToken: 0, replayAgain: false, fullReplay: false,
@@ -100,11 +104,17 @@ export class TerminalRegistry {
       const entry = current();
       if (entry.host && entry.visible && entry.epoch === epoch && this.entries.get(entry.id) === entry) this.update(entry, { operationError: error });
     };
+    const copy = (text: string, done?: () => void) => {
+      const epoch = current().epoch;
+      void request(() => api.copyText!({ text })).then(result => {
+        if (!result.ok) fail(result.error, epoch);
+        else if (done) { const entry = current(); if (entry.host && entry.visible && entry.epoch === epoch) done(); }
+      });
+    };
     return {
-      copy: text => {
-        const epoch = current().epoch;
-        void request(() => api.copyText!({ text })).then(result => { if (!result.ok) fail(result.error, epoch); });
-      },
+      copy: text => copy(text),
+      copyLink: url => copy(url, () => this.update(current(), { notice: 'Link copied' })),
+      linkMenu: (url, x, y) => { const entry = current(); if (entry.host && entry.visible) this.update(entry, { linkMenu: { url, x, y } }); },
       read: async () => {
         if (current().readOnly) return null;
         const epoch = current().epoch;
@@ -124,6 +134,19 @@ export class TerminalRegistry {
     for (const entry of this.entries.values()) entry.surface.setTheme?.(theme);
   }
   getState(id: string) { return this.ensure(id).state; }
+  clearNotice(id: string, notice: string) {
+    const entry = this.entries.get(id);
+    if (entry?.state.notice === notice) this.update(entry, { notice: null });
+  }
+  /** Runs a link menu choice through the same bridge as clicks and Ctrl+Shift+C. */
+  linkMenuAction(id: string, action: 'open' | 'copy' | 'close') {
+    const entry = this.entries.get(id), menu = entry?.state.linkMenu;
+    if (!entry || !menu) return;
+    this.update(entry, { linkMenu: null });
+    const clipboard = this.clipboard(() => entry);
+    if (action === 'open') clipboard?.openLink?.(menu.url);
+    else if (action === 'copy') clipboard?.copyLink?.(menu.url);
+  }
   clearOperationError(id: string, error: AppError) {
     const entry = this.entries.get(id);
     if (entry?.state.operationError === error) this.update(entry, { operationError: null });
@@ -145,6 +168,7 @@ export class TerminalRegistry {
     return () => {
       if (entry.host === host) {
         entry.host = null; entry.visible = false; entry.focusPending = false; entry.surface.setVisible?.(false); entry.surface.element.remove();
+        if (entry.state.linkMenu) entry.state = { ...entry.state, linkMenu: null };
         this.detach(entry); this.trim();
       }
     };
@@ -154,7 +178,7 @@ export class TerminalRegistry {
     // Visibility changes invalidate any fit measured before the layout changed.
     if (visible !== entry.visible) { entry.resized = ''; entry.resizeEpoch++; entry.nextSize = null; }
     entry.visible = visible;
-    if (!visible) entry.focusPending = false;
+    if (!visible) { entry.focusPending = false; if (entry.state.linkMenu) this.update(entry, { linkMenu: null }); }
     entry.surface.setVisible?.(visible && !!entry.host && entry.state.phase !== 'blocked');
     entry.surface.setInput(!entry.readOnly && entry.state.phase === 'open');
     if (visible) this.fit(id);
