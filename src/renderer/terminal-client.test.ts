@@ -550,6 +550,24 @@ describe('xterm safety configuration', () => {
     terminal.options.linkHandler.leave({}, 'https://example.com/b'); expect(surface.element.hasAttribute('title')).toBe(false);
     surface.dispose();
   });
+  it('leaves link clicks to an application that receives mouse reports', () => {
+    const openLink = vi.fn();
+    const surface = createTerminalSurface(() => {}, undefined, { copy: vi.fn(), read: async () => null, openLink }); const terminal = terminalMocks.terminals.at(-1);
+    const plain = (url: string, event: object) => { let links: any[] = [];
+      terminal.buffer = { active: { getLine: (y: number) => y === 0 ? { length: url.length, isWrapped: false, getCell: (x: number) => ({ getWidth: () => 1, getChars: () => url[x] }) } : undefined } };
+      terminal.linkProviders[0].provideLinks(1, (found: any[]) => { links = found; }); links[0].activate(event); };
+    terminal.modes.mouseTrackingMode = 'vt200';
+    terminal.options.linkHandler.activate({ button: 0 }, 'https://example.com/osc');
+    plain('https://example.com/plain', { button: 0 });
+    expect(openLink).not.toHaveBeenCalled();
+    // Shift+click bypasses mouse reporting, so the terminal opens it once.
+    terminal.options.linkHandler.activate({ button: 0, shiftKey: true }, 'https://example.com/osc');
+    plain('https://example.com/plain', { button: 0, shiftKey: true });
+    terminal.modes.mouseTrackingMode = 'none';
+    terminal.options.linkHandler.activate({ button: 0 }, 'https://example.com/shell');
+    expect(openLink.mock.calls).toEqual([['https://example.com/osc'], ['https://example.com/plain'], ['https://example.com/shell']]);
+    surface.dispose();
+  });
   it('bounds scrollback and consumes clipboard escape handlers without browser effects', () => {
     const surface = createTerminalSurface(() => {}); const terminal = terminalMocks.terminals.at(-1);
     expect(terminal.options.scrollback).toBe(3000); expect(terminal.options.linkHandler.allowNonHttpProtocols).toBe(false);

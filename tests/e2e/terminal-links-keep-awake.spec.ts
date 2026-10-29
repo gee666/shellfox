@@ -24,6 +24,18 @@ test('clicking a terminal URL opens it in the system browser', async () => {
     await page.mouse.move(box.x + 50, box.y + box.height / 2);
     await page.mouse.click(box.x + 50, box.y + box.height / 2);
     await expect.poll(() => app.evaluate(() => (globalThis as any).__opened), { timeout: 10000 }).toEqual(['https://example.com/shellfox-link']);
+    // A TUI with mouse reporting receives the click and opens the link itself.
+    value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation!, data: "printf '\\033[?1000h\\033[?1006h'\r" }));
+    await page.waitForTimeout(500);
+    await page.mouse.move(box.x + 40, box.y + box.height / 2);
+    await page.mouse.move(box.x + 50, box.y + box.height / 2);
+    await page.mouse.click(box.x + 50, box.y + box.height / 2);
+    await page.waitForTimeout(500);
+    expect(await app.evaluate(() => (globalThis as any).__opened)).toHaveLength(1);
+    await page.keyboard.down('Shift');
+    await page.mouse.click(box.x + 50, box.y + box.height / 2);
+    await page.keyboard.up('Shift');
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__opened), { timeout: 10000 }).toHaveLength(2);
   } finally {
     await page.evaluate(async () => {
       const result = await window.shellfox.getSnapshot();

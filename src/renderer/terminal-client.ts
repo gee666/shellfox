@@ -380,6 +380,10 @@ export class TerminalRegistry {
     this.update(entry, { generation: attachment.generation, controlEpoch: attachment.controlEpoch, phase: attachment.state, exitCode: attachment.exitCode, error: null,
       warning: attachment.snapshot ? null : attachment.truncated || full ? 'Earlier output is unavailable. Showing the retained terminal buffer.' : entry.state.warning });
     for (const chunk of attachment.chunks) this.apply(entry, { ...chunk, controlEpoch: attachment.controlEpoch }, true);
+    // A reattached view skips replayed chunks it already parsed. Delivery holds
+    // live output until the replay is acknowledged, so a replay with nothing
+    // new must be acknowledged here or typed echoes never arrive.
+    if (attachment.chunks.length && entry.consumed >= attachment.lastSequence) entry.nextAck = Math.max(entry.nextAck, attachment.lastSequence);
     const early = entry.early; entry.early = []; entry.earlyBytes = 0;
     // The attachment, not arbitrary event arrival order, selects the generation.
     let generationRefresh = false;

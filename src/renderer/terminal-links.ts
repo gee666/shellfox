@@ -125,10 +125,10 @@ function columnLinks(terminal: Terminal, row: number): { url: string; segments: 
 }
 
 /** Plain-text URLs, including URLs soft-wrapped across rows and URLs broken inside table columns. */
-export function webLinkProvider(terminal: Terminal, open: (url: string) => void, hooks: LinkHooks = {}): ILinkProvider {
+export function webLinkProvider(terminal: Terminal, open: (url: string, event: MouseEvent) => void, hooks: LinkHooks = {}): ILinkProvider {
   const decorate = (url: string, range: IBufferRange): ILink => ({
     text: url, range, decorations: { underline: true, pointerCursor: true },
-    activate: (event: MouseEvent) => { if (event.button === 0) open(url); },
+    activate: (event: MouseEvent) => { if (event.button === 0) open(url, event); },
     hover: () => hooks.hover?.(url), leave: () => hooks.leave?.(),
   });
   return {

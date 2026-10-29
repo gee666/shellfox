@@ -65,7 +65,7 @@ describe('web links', () => {
       expect(links[0].text).toBe('https://a.io/stash/x/pr/603');
       expect(links[0].range).toEqual({ start: { x: start, y: row }, end: { x: end, y: row } });
       links[0].activate({ button: 0 });
-      expect(open).toHaveBeenCalledWith('https://a.io/stash/x/pr/603');
+      expect(open).toHaveBeenCalledWith('https://a.io/stash/x/pr/603', { button: 0 });
     }
     expect(linksAt(table, 2).links).toEqual([]);
     // A complete URL at the edge is not glued to unrelated text below that is not a URL continuation.

@@ -5,6 +5,7 @@ import { isWebLink, webLinkProvider } from './terminal-links';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from './theme';
 
 const DEFAULT_THEME: ITheme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
+const MAC = /Mac/.test(navigator.userAgent);
 
 export interface TerminalSurface {
   element: HTMLElement;
@@ -36,6 +37,13 @@ export function clipboardShortcut(ev: KeyboardEvent): 'copy' | 'paste' | null {
 }
 export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THEME, clipboard) => {
   const element = document.createElement('div');
+  // With mouse reporting on, the click also reaches the application, and TUIs
+  // such as pi open the link themselves: opening here too launches it twice.
+  // The selection modifier bypasses reporting, so it still opens links there.
+  const openLink = (url: string, event: MouseEvent) => {
+    const bypass = MAC ? event.altKey : event.shiftKey;
+    if (terminal.modes.mouseTrackingMode === 'none' || bypass) clipboard?.openLink?.(url);
+  };
   element.className = 'terminal-surface';
   const terminal = new Terminal({
     allowProposedApi: true, scrollback: 3000, fontSize: 14,
@@ -44,17 +52,19 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     // Preserve application RGB choices; bold must not remap ANSI palette colors.
     minimumContrastRatio: 1, drawBoldTextInBrightColors: false,
     overviewRuler: { width: 8 },
+    // Option+click bypasses mouse reporting on macOS, as Shift+click does elsewhere.
+    macOptionClickForcesSelection: true,
     theme,
     // OSC 8 hyperlinks: only http(s), opened by the main process in the system browser.
     // OSC 8 text hides its target, so hovering shows it as a tooltip.
     linkHandler: {
-      activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) clipboard?.openLink?.(uri); },
+      activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) openLink(uri, event); },
       hover: (_event, uri) => { if (isWebLink(uri)) element.title = uri; },
       leave: () => element.removeAttribute('title'),
       allowNonHttpProtocols: false,
     },
   });
-  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, url => clipboard.openLink!(url), {
+  if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, openLink, {
     hover: url => { element.title = url; }, leave: () => element.removeAttribute('title'),
   }));
   const fit = new FitAddon();

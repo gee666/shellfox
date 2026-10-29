@@ -141,6 +141,22 @@ describe('TUI screen restoration after output the replay ring no longer holds', 
     expect(f.registry.getState(f.input.tabId).warning).toBeNull();
   }, 30000);
 
+  it('shows live output after returning to a tab that printed nothing while away', async () => {
+    const f = await fixture();
+    const unmount = f.registry.mount(f.input.tabId, f.host, true);
+    await until(() => f.registry.getState(f.input.tabId).phase === 'open');
+    f.processes[0]!.output('prompt$ ');
+    await until(() => rowsOf(f.latest()).some(row => row.includes('prompt$')));
+    unmount(); await tick();
+    // The reattached view is replayed output it already parsed.
+    f.registry.mount(f.input.tabId, f.host, true);
+    await until(() => f.registry.getState(f.input.tabId).phase === 'open');
+    await tick(); await tick();
+    f.processes[0]!.output('typed');
+    await until(() => rowsOf(f.latest()).some(row => row.includes('prompt$ typed')));
+    expect(f.terminals).toHaveLength(1);
+  }, 30000);
+
   it('recovers a live burst that overruns the view by restoring the screen, not a tail', async () => {
     const f = await fixture(); const options = { ...VIEW };
     f.registry.mount(f.input.tabId, f.host, true);
