@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { TerminalInput, terminalTextEdit } from './terminal-input';
+import { NativeTextInput, terminalTextEdit } from './native-text-input';
+
+it('keeps the mobile text handler out of the desktop terminal', () => {
+  const desktop = readFileSync('src/renderer/terminal-surface.ts', 'utf8');
+  expect(desktop).not.toMatch(/\b(?:TerminalInput|NativeTextInput)\b|(?:native-text-input|terminal-input)/);
+});
 
 const state = (value: string, cursor = value.length) => ({ value, cursor });
 afterEach(() => { vi.useRealTimers(); document.body.replaceChildren(); });
@@ -30,7 +36,7 @@ function fixture(disableStdin = false) {
   const terminal = { element, textarea, options: { disableStdin }, modes: { applicationCursorKeysMode: false },
     onKey: (listener: typeof encodedKey) => { encodedKey = listener; return { dispose: unsubscribe }; },
     paste: vi.fn((_data: string) => { textarea.value = ''; }) };
-  const input = new TerminalInput(terminal, callbacks);
+  const input = new NativeTextInput(terminal, callbacks);
   const edit = (text: string) => {
     textarea.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: text }));
     textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, 'end');

@@ -40,7 +40,7 @@ export function terminalTextEdit(before: TextState, after: TextState, applicatio
 /** Own native DOM text edits. xterm still owns key encoding, paste and composition display.
  * Its keyCode 229 fallback schedules one textarea-diff timer per keydown, which can
  * replay a commit twice or insert the entire retained buffer during autocorrect. */
-export class TerminalInput {
+export class NativeTextInput {
   private composition: Composition | null = null;
   private before: TextState | null = null;
   private pendingEdit: { before: TextState; after: TextState; paste: boolean } | null = null;

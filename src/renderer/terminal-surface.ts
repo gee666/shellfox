@@ -1,7 +1,6 @@
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { installTerminalQueryHandlers } from './terminal-queries';
-import { TerminalInput } from '../shared/terminal-input';
 import { isWebLink, webLinkProvider } from './terminal-links';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from './theme';
 
@@ -75,11 +74,11 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   const markUserInput = () => { userInput = true; queueMicrotask(() => { userInput = false; }); };
   const inputEvents = ['keydown', 'keypress', 'input', 'compositionend', 'paste', 'mousedown', 'mouseup', 'mousemove', 'wheel'];
   inputEvents.forEach(type => element.addEventListener(type, markUserInput, true));
-  let nativeInput: TerminalInput | null = null;
-  let encodedKey = false, clipboardPaste = false;
-  terminal.onKey(() => { encodedKey = true; queueMicrotask(() => { encodedKey = false; }); });
+  // xterm owns desktop text input, composition and native paste. This listener
+  // only marks encoded keys as user actions; it never edits or cancels input.
+  terminal.onKey(markUserInput);
   terminal.onData(data => {
-    if (inputEnabled && (clipboardPaste || encodedKey || !nativeInput || nativeInput.acceptsXtermData(data))) input(data, userInput || !parsing);
+    if (inputEnabled) input(data, userInput || !parsing);
   });
   // xterm 6 treats SGR hover reports as user input and clears local selection.
   // Capture only button-free motion; drag events must still reach selection/TUI handlers.
@@ -119,8 +118,8 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     else if (inputEnabled) void clipboard.read().then(text => {
       if (text && !disposed && inputEnabled) {
         userInput = true;
-        try { nativeInput?.finish(); clipboardPaste = true; terminal.paste(text); }
-        finally { userInput = false; clipboardPaste = false; }
+        try { terminal.paste(text); }
+        finally { userInput = false; }
       }
     });
     return false;
@@ -136,10 +135,6 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       if (!element.isConnected || element.clientWidth < 20 || element.clientHeight < 20) return null;
       if (!opened) {
         terminal.open(element); opened = true;
-        nativeInput = new TerminalInput(terminal, {
-          text: data => { if (data && inputEnabled) input(data, true); }, start: () => {},
-          commit: data => { if (data && inputEnabled) input(data, true); },
-        });
         if (terminal.textarea) terminal.textarea.readOnly = !inputEnabled;
       }
       const size = fit.proposeDimensions();
@@ -168,7 +163,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       element.removeEventListener('mousemove', preserveSelection, true);
       middleEvents.forEach(type => element.removeEventListener(type, middleCopy, true));
       element.removeEventListener('paste', blockMiddlePaste, true);
-      nativeInput?.dispose(); queries.dispose(); terminal.dispose(); element.remove();
+      queries.dispose(); terminal.dispose(); element.remove();
     },
   };
 };

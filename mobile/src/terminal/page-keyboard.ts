@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import type { Terminal } from '@xterm/xterm';
-import { TerminalInput } from '../../../src/shared/terminal-input';
+import { NativeTextInput } from './native-text-input';
 import { emptyModifiers, terminalKeySchema, type TerminalKeyEvent, type TerminalModifiers } from './protocol';
 
 const namedCodes: Record<string, number> = {
@@ -33,7 +33,7 @@ function shiftedKey(key: string, modifiers: TerminalModifiers): string {
 export class PageKeyboard {
   private modifiers = { ...emptyModifiers };
   private compositionModifiers: TerminalModifiers | null = null;
-  private readonly nativeInput: TerminalInput;
+  private readonly nativeInput: NativeTextInput;
   private readonly synthetic = new WeakSet<KeyboardEvent>();
   private dispatching = false;
   private emitted = false;
@@ -52,7 +52,7 @@ export class PageKeyboard {
     const markUserInput = () => { this.userInput = true; queueMicrotask(() => { this.userInput = false; }); };
     for (const type of inputEvents) element?.addEventListener(type, markUserInput, true);
     this.cleanups.push(() => { for (const type of inputEvents) element?.removeEventListener(type, markUserInput, true); });
-    this.nativeInput = new TerminalInput(term, {
+    this.nativeInput = new NativeTextInput(term, {
       start: () => { this.compositionModifiers = { ...this.modifiers }; },
       commit: data => {
         const modifiers = this.compositionModifiers ?? this.modifiers;

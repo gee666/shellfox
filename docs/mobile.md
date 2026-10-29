@@ -20,7 +20,7 @@ The host validates approval, client identity, terminal generation and control ep
 
 ## Native text input
 
-Mobile and desktop share one DOM edit handler for IME text. It consumes `beforeinput`/`input` edits once instead of also letting xterm schedule textarea-diff timers for key code 229. Composition, autocorrect and paste preserve their edit semantics; intentionally repeated text is not deduplicated.
+Android and iOS use a mobile-only DOM edit adapter for native keyboards. It consumes `beforeinput`/`input` edits once instead of also letting xterm schedule textarea-diff timers for key code 229. Composition, autocorrect and paste preserve their edit semantics; intentionally repeated text is not deduplicated. The adapter lives under `mobile/src/terminal/` and is not imported by desktop. Desktop text input and IME composition use xterm's built-in handling.
 
 The Android terminal fixture can exercise real Gboard taps with `--gboard`:
 
