@@ -19,6 +19,7 @@ export function useShellfox() {
   const [network, setNetwork] = useState<NetworkStatus>({ status: 'starting', loginUrl: null, error: null });
   const [peers, setPeers] = useState<NetworkPeer[]>([]);
   const [machines, setMachines] = useState<MachineView[]>([]);
+  const [snapshotRequests, setSnapshotRequests] = useState(new Map<RemoteClient, string | null>());
   const [error, setError] = useState<string | null>(null);
   const clients = useRef(new Map<string, { client: RemoteClient; dispose: () => void }>());
   const current = useRef(defaultPreferences);
@@ -55,7 +56,15 @@ export function useShellfox() {
   const updatePreferences = useCallback((patch: Partial<Preferences>) => changePreferences(value => ({ ...value, ...patch })), [changePreferences]);
   const readSnapshot = useCallback(async (client: RemoteClient) => {
     const connectionId = client.getState().connectionId;
-    const result = await client.request('getSnapshot', {});
+    setSnapshotRequests(requests => new Map(requests).set(client, connectionId));
+    const result = await client.request('getSnapshot', {}).finally(() => {
+      if (alive.current) setSnapshotRequests(requests => {
+        if (requests.get(client) !== connectionId) return requests;
+        const next = new Map(requests);
+        next.delete(client);
+        return next;
+      });
+    });
     const state = client.getState();
     if (!alive.current || !foreground.current || state.status !== 'connected' || state.connectionId !== connectionId) return;
     if (result.ok) {
@@ -245,9 +254,11 @@ export function useShellfox() {
       await updatePreferences({ hostname });
     } finally { await retryStart(); }
   }, [updatePreferences, retryStart]);
-  const loading = !error && (!ready || network.status === 'starting'
-    || discovering && machines.length === 0
-    || machines.length > 0 && machines.every(machine => !machine.snapshot && ['connecting', 'reconnecting', 'connected'].includes(machine.state.status)));
+  const loading = network.status !== 'error' && (!ready || network.status === 'starting'
+    || network.status === 'online' && (discovering && machines.length === 0
+      || machines.length > 0 && machines.every(machine => !machine.snapshot && (
+        machine.state.status === 'connecting' || machine.state.status === 'reconnecting'
+        || machine.state.status === 'connected' && snapshotRequests.get(machine.client) === machine.state.connectionId))));
   return { ready, loading, network, peers, machines, preferences, error, setError, report, updatePreferences, connect, disconnect, login, logout, renameDevice, refresh, retryStart };
 }
 export type ShellfoxModel = ReturnType<typeof useShellfox>;

@@ -7,6 +7,7 @@ import { sortVisibleSessions } from '../../src/shared/session-order';
 import type { MachineView, ShellfoxModel } from './useShellfox';
 import { Button, Note, useUi } from './ui';
 import { StatusIndicator } from './StatusIndicator';
+import { SessionsEmptyState } from './SessionsEmptyState';
 import type { PromptConfig } from './Prompt';
 import { ActionMenu, type MenuConfig } from './ActionMenu';
 import { EnvironmentEditor } from './EnvironmentEditor';
@@ -261,7 +262,7 @@ export function SessionsScreen({
             void Promise.all(model.machines.filter(item => item.state.status === 'connected').map(item => model.refresh(item.client)))
               .catch(model.report).finally(() => setRefreshing(false));
           }}
-          ListEmptyComponent={<View testID="sessions-empty" accessibilityLabel="No sessions" style={compact.center}><Button title="Open Settings" onPress={settings} /></View>}
+          ListEmptyComponent={<View testID="sessions-empty" accessibilityLabel="No sessions" style={compact.center}><SessionsEmptyState model={model} settings={settings} /></View>}
           renderSectionHeader={({ section: { machine } }) => (
             <View style={{ paddingTop: 4, paddingBottom: 2 }}>
               <View style={styles.row}>

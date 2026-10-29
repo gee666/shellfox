@@ -263,7 +263,21 @@ export class EmbeddedSessionService {
   }
   writeTerminal(input: Parameters<PtyBackend['write']>[0]): Result<{ written: true }> {
     const result = this.backend.write(input), owned = this.backend.get(input.tabId);
-    if (result.ok && input.data.length && owned) this.lifecycle.touch(owned.sessionId);
+    if (result.ok && input.userInitiated !== false && input.data.length && owned) {
+      this.lifecycle.touch(owned.sessionId);
+      try {
+        const session = this.repository.session(owned.sessionId);
+        if (session?.settledAt) {
+          session.settledAt = null;
+          session.updatedAt = new Date().toISOString();
+          this.repository.saveSession(session);
+          this.changed();
+        }
+      } catch {
+        // Input already reached the PTY. Do not report a failed write that a
+        // client might repeat; later input can retry clearing the marker.
+      }
+    }
     return result;
   }
   resizeTerminal(input: Parameters<PtyBackend['resize']>[0]): Result<{ resized: true }> { return this.backend.resize(input); }

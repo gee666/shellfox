@@ -39,11 +39,19 @@ export class PageKeyboard {
   private emitted = false;
   private encodedKey = false;
   private nativeKeyOutput = false;
+  private userInput = false;
   private disposed = false;
   private pendingActions: (() => void)[] = [];
   private readonly cleanups: (() => void)[] = [];
 
-  constructor(private readonly term: Terminal, private readonly emit: (data: string) => void) {
+  constructor(private readonly term: Terminal, private readonly emit: (data: string, userInitiated?: boolean) => void) {
+    // Device replies also use onData. Keep real DOM input, including mouse
+    // reports, distinct from parser output even while a write is in progress.
+    const element = term.element;
+    const inputEvents = ['keydown', 'keypress', 'input', 'compositionend', 'paste', 'mousedown', 'mouseup', 'mousemove', 'wheel'];
+    const markUserInput = () => { this.userInput = true; queueMicrotask(() => { this.userInput = false; }); };
+    for (const type of inputEvents) element?.addEventListener(type, markUserInput, true);
+    this.cleanups.push(() => { for (const type of inputEvents) element?.removeEventListener(type, markUserInput, true); });
     this.nativeInput = new TerminalInput(term, {
       start: () => { this.compositionModifiers = { ...this.modifiers }; },
       commit: data => {
@@ -79,7 +87,9 @@ export class PageKeyboard {
     const subscription = term.onData(data => {
       if (this.disposed) return;
       if (this.dispatching && this.encodedKey || this.nativeKeyOutput || this.nativeInput.acceptsXtermData(data)) {
-        this.emitted = true; this.emit(data);
+        this.emitted = true;
+        if (this.dispatching && this.encodedKey || this.nativeKeyOutput || this.userInput) this.emit(data);
+        else this.emit(data, false);
       }
     });
     this.cleanups.push(() => keySubscription.dispose(), () => subscription.dispose());

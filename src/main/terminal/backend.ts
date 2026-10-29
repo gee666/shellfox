@@ -380,10 +380,10 @@ export class PtyBackend {
     if (e.generation !== generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
     return success(e);
   }
-  write(input: { tabId: string; generation: string; data: string; controlEpoch?: number }): Result<{ written: true }> {
+  write(input: { tabId: string; generation: string; data: string; controlEpoch?: number; userInitiated?: boolean }): Result<{ written: true }> {
     if (!requestSchemas.writeTerminal.partial({ controlEpoch: true }).safeParse(input).success) return failure('VALIDATION', 'Invalid or oversized terminal input.');
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
-    return this.writeInput(owned.value, input.data, true);
+    return this.writeInput(owned.value, input.data, input.userInitiated !== false);
   }
   private writeInput(e: Entry, data: string, userInitiated: boolean): Result<{ written: true }> {
     if (this.entries.get(e.tabId) !== e || e.state !== 'open' || !e.pty) return failure('TARGET_LOST', 'This shell has exited.');

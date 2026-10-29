@@ -39,7 +39,7 @@ export class TerminalBridge {
   private earlyOverflow = false;
   private inputQueue: Promise<void> = Promise.resolve();
   private inputBytes = 0;
-  private pendingInput: { data: string; bytes: number; epoch: string } | null = null;
+  private pendingInput: { data: string; bytes: number; epoch: string; userInitiated: boolean } | null = null;
   private modifiers: TerminalModifiers = { ...emptyModifiers };
   private nextSize: { cols: number; rows: number } | null = null;
   private resizing = false;
@@ -113,7 +113,7 @@ export class TerminalBridge {
   receive(message: PageMessage): void {
     if (!this.alive || message.type === 'ready' || message.viewId !== this.options.viewId || message.epoch !== this.epoch || !this.attached) return;
     switch (message.type) {
-      case 'input': this.input(message.data); break;
+      case 'input': this.input(message.data, message.userInitiated); break;
       case 'resize': this.resize({ cols: message.cols, rows: message.rows }); break;
       case 'rendered': {
         if (!this.pending || message.ticket !== this.pending.ticket) return;
@@ -260,21 +260,21 @@ export class TerminalBridge {
     this.attached = false; this.send({ type: 'clear', ...this.identity() }); this.setState('reconnecting');
     this.recovery = setTimeout(() => { this.recovery = null; void this.attach(); }, 250);
   }
-  input(data: string): void {
+  input(data: string, userInitiated = true): void {
     const generation = this.generation, epoch = this.epoch, controlEpoch = this.controlEpoch;
     if (!this.alive || !this.attached || !this.open || !generation || !data || data.includes('\0')) return;
     const bytes = utf8Size(data);
     if (this.inputBytes + bytes > 65536) { this.report(new Error('Paste a smaller section of text.')); return; }
     this.inputBytes += bytes;
-    if (this.pendingInput?.epoch === epoch) {
+    if (this.pendingInput?.epoch === epoch && this.pendingInput.userInitiated === userInitiated) {
       this.pendingInput.data += data; this.pendingInput.bytes += bytes; return;
     }
     // Combine only adjacent writes not yet dispatched. No timer, replay or extra input.
-    const batch = { data, bytes, epoch }; this.pendingInput = batch;
+    const batch = { data, bytes, epoch, userInitiated }; this.pendingInput = batch;
     this.inputQueue = this.inputQueue.then(async () => {
       if (this.pendingInput === batch) this.pendingInput = null;
       if (!this.alive || !this.attached || epoch !== this.epoch) return;
-      const result = responseSchemas.writeTerminal.parse(await this.options.api.writeTerminal({ tabId: this.options.tabId, generation, controlEpoch, data: batch.data }));
+      const result = responseSchemas.writeTerminal.parse(await this.options.api.writeTerminal({ tabId: this.options.tabId, generation, controlEpoch, data: batch.data, ...(batch.userInitiated ? {} : { userInitiated: false }) }));
       this.controlResult(result, epoch);
     }).catch(error => {
       if (epoch === this.epoch) this.report(error);

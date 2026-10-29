@@ -108,7 +108,8 @@ export interface TerminalApi {
   getTerminalProfiles(): Promise<Result<TerminalProfilesDto>>;
   attachTerminal(input: { tabId: Id; afterSequence?: number; generation?: Id }): Promise<Result<TerminalAttachmentDto>>;
   takeTerminalControl(input: { tabId: Id; generation: Id }): Promise<Result<{ taken: true }>>;
-  writeTerminal(input: TerminalControlIdentity & { data: string }): Promise<Result<{ written: true }>>;
+  /** Parser-generated device replies set userInitiated=false; omitted means user input. */
+  writeTerminal(input: TerminalControlIdentity & { data: string; userInitiated?: boolean }): Promise<Result<{ written: true }>>;
   resizeTerminal(input: TerminalControlIdentity & { cols: number; rows: number }): Promise<Result<{ resized: true }>>;
   closeTab(input: { tabId: Id; generation: Id }): Promise<Result<SessionDto>>;
   acknowledgeTerminal(input: TerminalControlIdentity & { sequence: number }): Promise<Result<{ acknowledged: true }>>;

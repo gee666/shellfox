@@ -44,6 +44,25 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     await expect.poll(() => messages.some(m => m.type === 'resize')).toBe(true);
     assert.ok(messages.findIndex(m => m.type === 'rendered') < messages.findIndex(m => m.type === 'resize'));
   });
+  await t.test('live query replies are passive while keys, paste and mouse remain user input during output', async () => {
+    await output('\x1b[?1000h\x1b[?1006h');
+    const before = messages.length;
+    const current = ++ticket;
+    await page.evaluate(({ viewId, epoch, ticket }) => {
+      const send = message => window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ viewId, epoch, ...message }) }));
+      send({ type: 'output', data: '\x1b[6n', historical: false, fit: false, ticket });
+      send({ type: 'paste', data: 'during-output' });
+      send({ type: 'key', event: { key: 'Enter', modifiers: { ctrl: false, alt: false, shift: false, meta: false, capsLock: false } } });
+      const screen = document.querySelector('.xterm-screen'), rect = screen.getBoundingClientRect();
+      screen.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: rect.x + 5, clientY: rect.y + 5, deltaY: 1, deltaMode: WheelEvent.DOM_DELTA_LINE }));
+    }, { viewId, epoch, ticket: current });
+    await expect.poll(() => messages.some(m => m.type === 'rendered' && m.ticket === current)).toBe(true);
+    const input = messages.slice(before).filter(m => m.type === 'input');
+    assert.ok(input.some(m => /^\x1b\[\d+;\d+R$/.test(m.data) && m.userInitiated === false), 'query replies must not resume settled sessions');
+    for (const data of ['during-output', '\r']) assert.ok(input.some(m => m.data === data && m.userInitiated !== false));
+    assert.ok(input.some(m => /^\x1b\[<65;/.test(m.data) && m.userInitiated !== false), 'mouse reports remain user input during output');
+    await output('\x1b[?1000l\x1b[?1006l');
+  });
   await t.test('keyboard, Ctrl shortcuts, arrows, and Unicode IME input use xterm', async () => {
     await send({ type: 'focus', focused: true });
     await page.keyboard.type('hello'); await page.keyboard.press('Enter');

@@ -26,7 +26,7 @@ export const terminalKeyEventSchema = z.object({ key: terminalKeySchema, modifie
 export type TerminalKeyEvent = z.infer<typeof terminalKeyEventSchema>;
 export const pageMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready'), viewId: token }).strict(),
-  z.object({ type: z.literal('input'), ...identity, data: input }).strict(),
+  z.object({ type: z.literal('input'), ...identity, data: input, userInitiated: z.boolean().optional() }).strict(),
   z.object({ type: z.literal('resize'), ...identity, cols: dimension, rows: dimension }).strict(),
   z.object({ type: z.literal('rendered'), ...identity, ticket: sequence }).strict(),
   z.object({ type: z.literal('focused'), ...identity }).strict(),

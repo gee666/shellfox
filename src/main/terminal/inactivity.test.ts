@@ -90,6 +90,29 @@ describe('session inactivity', () => {
       expect(f.repository.operationMap.size).toBe(0);
     } finally { await f.service.dispose(); }
   });
+  it('resumes an automatically settled terminal on input and restarts its settlement clock', async () => {
+    const f = await fixture();
+    try {
+      await f.jump(HOUR); expect(f.current().status).toBe('settled');
+      await f.jump(HOUR / 2);
+      value(f.service.writeTerminal({ tabId: f.session.tabs[0].id, generation: f.session.tabs[0].generation!, data: 'echo resumed\r' }));
+      expect(f.current().settledAt).toBeNull();
+      expect(f.repository.session(f.session.id)?.updatedAt).toBe(new Date().toISOString());
+      await f.jump(HOUR - MINUTE); expect(f.current().settledAt).toBeNull();
+      await f.jump(MINUTE); expect(f.current().status).toBe('settled');
+      expect(f.processes[0].kill).not.toHaveBeenCalled();
+    } finally { await f.service.dispose(); }
+  });
+  it('does not count parser replies as user activity or extend the settled deletion clock', async () => {
+    const f = await fixture();
+    try {
+      await f.jump(HOUR); expect(f.current().status).toBe('settled');
+      await f.jump(HOUR - MINUTE);
+      value(f.service.writeTerminal({ tabId: f.session.tabs[0].id, generation: f.session.tabs[0].generation!, data: '\x1b[1;1R', userInitiated: false }));
+      await f.jump(MINUTE); expect(f.current()).toBeUndefined();
+      expect(f.processes[0].kill).toHaveBeenCalledOnce();
+    } finally { await f.service.dispose(); }
+  });
   it('uses configured hours and never automatically deletes pinned sessions', async () => {
     const f = await fixture();
     try {

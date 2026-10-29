@@ -113,7 +113,10 @@ afterEach(cleanup);
 describe('compact Sessions screen', () => {
   it('waits for startup before offering Settings, without empty-state prose', () => {
     const model = fixture();
-    const view = render(ui({ ...model, loading: true }));
+    const view = render(ui({ ...model, ready: false, loading: true, network: { status: 'starting', loginUrl: null, error: null } }));
+    expect(screen.getByRole('progressbar', { name: 'Loading sessions' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Open Settings' })).toBeNull();
+    view.rerender(ui({ ...model, loading: true, preferences: { ...model.preferences, remembered: ['host'] } }));
     expect(screen.getByRole('progressbar', { name: 'Loading sessions' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Open Settings' })).toBeNull();
     view.rerender(ui(model));
@@ -123,6 +126,27 @@ describe('compact Sessions screen', () => {
     expect(screen.queryByText(/Connect to your first machine|Your machines|No sessions yet/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
     expect(settings).toHaveBeenCalledOnce();
+  });
+  it.each(['saved machines unavailable', 'startup failed'])('offers Retry rather than setup when %s', async reason => {
+    const model = fixture();
+    if (reason === 'startup failed') {
+      model.ready = false;
+      model.network = { status: 'error', loginUrl: null, error: 'Could not load connections.' };
+    } else model.preferences.remembered = ['host'];
+    render(ui(model));
+    expect(screen.queryByRole('button', { name: 'Open Settings' })).toBeNull();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Retry' })); });
+    expect(model.retryStart).toHaveBeenCalledOnce();
+    expect(settings).not.toHaveBeenCalled();
+  });
+  it.each(['login-required', 'disabled'] as const)('offers Settings after startup confirms network configuration is %s', status => {
+    const model = fixture();
+    model.network = { status, loginUrl: null, error: null };
+    model.preferences.remembered = ['host'];
+    render(ui(model));
+    expect(screen.getByRole('button', { name: 'Open Settings' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
   it('keeps machine name and connection, with compact separate 44px controls', () => {
     const host = machine(); render(ui(fixture([host])));

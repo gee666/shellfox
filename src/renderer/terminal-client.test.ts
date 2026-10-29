@@ -48,6 +48,57 @@ describe('terminal stream ownership', () => {
       { data: 'one', historical: true }, { data: 'twothree', historical: true }, { data: 'live', historical: false },
     ]);
   });
+  it('waits for replay and the first measurable fit before focusing a new terminal', async () => {
+    const f = setup(true);
+    f.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(1, 'prompt')])));
+    await flush();
+    const surface = f.latest();
+    f.registry.focus(tab.id);
+    expect(surface.focus).not.toHaveBeenCalled();
+    while (surface.callbacks.length) surface.callbacks.shift()!();
+    await flush();
+    expect(surface.focus).toHaveBeenCalledOnce();
+    surface.focus.mockClear();
+    f.registry.fit(tab.id);
+    expect(surface.focus).not.toHaveBeenCalled();
+  });
+  it('focuses xterm once its initially zero-sized host becomes measurable', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 0 });
+    const fixture = mockApi();
+    const registry = new TerminalRegistry(fixture.api);
+    registries.push(registry); registry.start();
+    const host = document.createElement('div'); document.body.append(host);
+    registry.mount(tab.id, host, true);
+    registry.focus(tab.id);
+    await flush();
+    const terminal = terminalMocks.terminals.at(-1)!;
+    expect(terminal.element).toBeUndefined();
+    expect(terminal.focus).not.toHaveBeenCalled();
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 800 });
+    registry.fit(tab.id);
+    expect(terminal.element).toBeDefined();
+    expect(terminal.focus).toHaveBeenCalledOnce();
+    registry.fit(tab.id);
+    expect(terminal.focus).toHaveBeenCalledOnce();
+  });
+  it.each(['dialog', 'rename', 'hidden', 'unmounted'])('cancels deferred terminal focus when %s takes over', async target => {
+    const f = setup(true);
+    f.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(1, 'prompt')])));
+    await flush();
+    const surface = f.latest();
+    f.registry.focus(tab.id);
+    if (target === 'hidden') f.registry.visibility(tab.id, false);
+    else if (target === 'unmounted') f.unmount();
+    else {
+      const input = document.createElement('input');
+      if (target === 'dialog') input.setAttribute('role', 'dialog');
+      else input.className = 'tab-rename';
+      document.body.append(input); input.focus();
+    }
+    while (surface.callbacks.length) surface.callbacks.shift()!();
+    await flush();
+    expect(surface.focus).not.toHaveBeenCalled();
+  });
   it('does not steal tab rename focus when an attachment finishes late', async () => {
     const fixture = setup(); await flush(); fixture.latest().focus.mockClear();
     const pending = deferred<Result<TerminalAttachmentDto>>();
@@ -170,7 +221,7 @@ describe('terminal stream ownership', () => {
     const fixture = setup(true); await flush(); fixture.registry.visibility(tab.id, false);
     fixture.latest().input('hidden keystroke'); await flush(); expect(fixture.api.writeTerminal).not.toHaveBeenCalled();
     fixture.emitTerminal(chunk(1, '\u001b[6n')); fixture.latest().input('\u001b[1;1R'); await flush();
-    expect(fixture.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: '\u001b[1;1R' });
+    expect(fixture.api.writeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: '\u001b[1;1R', userInitiated: false });
   });
   it('preserves its screen through host unmount/reattach and never spawns or closes a shell', async () => {
     const fixture = setup(); await flush(); fixture.emitTerminal(chunk(1, 'screen'));

@@ -37,6 +37,22 @@ function setup(attachment: TerminalAttachmentDto = snapshot()) {
 }
 afterEach(() => vi.useRealTimers());
 describe('mobile terminal delivery', () => {
+  it('keeps parser replies separate from adjacent user input when batching writes', async () => {
+    const f = setup(); await flush();
+    const input = { type: 'input' as const, viewId: 'page-1', epoch: f.latest().epoch };
+    f.bridge.receive({ ...input, data: '\x1b[1;1R', userInitiated: false });
+    f.bridge.receive({ ...input, data: '\x1b[?1;2c', userInitiated: false });
+    f.bridge.receive({ ...input, data: 'typed' });
+    f.bridge.receive({ ...input, data: '\r' });
+    f.bridge.receive({ ...input, data: '\x1b[1;2R', userInitiated: false });
+    await flush();
+    expect(f.api.writeTerminal.mock.calls.map(([request]) => request)).toEqual([
+      { tabId, generation, controlEpoch: 1, data: '\x1b[1;1R\x1b[?1;2c', userInitiated: false },
+      { tabId, generation, controlEpoch: 1, data: 'typed\r' },
+      { tabId, generation, controlEpoch: 1, data: '\x1b[1;2R', userInitiated: false },
+    ]);
+    f.bridge.dispose();
+  });
   it('subscribes before attach, parses replay at its grid and ACKs only matching render receipts', async () => {
     const f = setup(snapshot([event(8, 'retained')], { firstSequence: 8, truncated: true, snapshot: true, cols: 132, rows: 43 }));
     await flush();

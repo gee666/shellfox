@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {
   Alert,
@@ -44,7 +44,26 @@ export function TerminalKeys(props: Props) {
   const [pasting, setPasting] = useState(false);
   const [paste, setPaste] = useState('');
   const [copied, setCopied] = useState(false);
+  const pasteRequest = useRef(0);
+  useEffect(() => () => { pasteRequest.current += 1; }, []);
   useEffect(() => setCopied(false), [props.selection]);
+  const closePaste = () => {
+    pasteRequest.current += 1;
+    setPasting(false);
+  };
+  const openPaste = async () => {
+    const request = ++pasteRequest.current;
+    setPaste('');
+    setPasting(true);
+    try {
+      const text = await Clipboard.getString();
+      if (request === pasteRequest.current) setPaste(text);
+    } catch {
+      if (request === pasteRequest.current) {
+        Alert.alert('Could not paste', 'The clipboard is unavailable. Touch and hold in the text field to paste.');
+      }
+    }
+  };
   const copy = () => {
     if (!props.selection) return;
     try {
@@ -64,10 +83,7 @@ export function TerminalKeys(props: Props) {
           {button('Ctrl', props.onControl, props.control)}
           {keys.map(([label, data]) => button(label, () => props.onKey(data)))}
           {button('Select', props.onSelect, props.selecting)}
-          {button('Paste', () => {
-            setPaste('');
-            setPasting(true);
-          })}
+          {button('Paste', () => { void openPaste(); })}
         </KeyboardAccessoryScroll>
         {!!props.selection && button(copied ? 'Copied' : 'Copy', copy)}
         {props.attach}
@@ -82,7 +98,7 @@ export function TerminalKeys(props: Props) {
         visible={pasting}
         transparent
         animationType="none"
-        onRequestClose={() => setPasting(false)}
+        onRequestClose={closePaste}
       >
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.overlay}>
           <View style={styles.dialog} accessibilityViewIsModal>
@@ -91,7 +107,11 @@ export function TerminalKeys(props: Props) {
               autoFocus
               multiline
               value={paste}
-              onChangeText={setPaste}
+              onChangeText={text => {
+                // A delayed clipboard read must not replace the user's edits.
+                pasteRequest.current += 1;
+                setPaste(text);
+              }}
               maxLength={65000}
               style={styles.editor}
               autoCorrect={false}
@@ -101,10 +121,10 @@ export function TerminalKeys(props: Props) {
               accessibilityLabel="Text to paste into terminal"
             />
             <View style={styles.actions}>
-              {button('Cancel', () => setPasting(false))}
+              {button('Cancel', closePaste)}
               {button('Send', () => {
                 props.onPaste(paste);
-                setPasting(false);
+                closePaste();
               }, false, !paste)}
             </View>
           </View>

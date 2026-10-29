@@ -31,6 +31,7 @@ export interface TerminalViewState {
 interface Entry {
   id: string; surface: TerminalSurface; state: TerminalViewState; listeners: Set<() => void>;
   host: HTMLElement | null; visible: boolean; used: number; sequence: number;
+  surfaceReady: boolean; focusPending: boolean;
   pending: Map<number, { event: Extract<TerminalEvent, { type: 'data' }>; bytes: number; historical: boolean }>;  pendingBytes: number;
   early: DeliveryEvent[]; earlyBytes: number; retired: Set<string>;
   attaching: boolean; attachToken: number; replayAgain: boolean; fullReplay: boolean;
@@ -82,7 +83,7 @@ export class TerminalRegistry {
     const entry: Entry = {
       id, surface: this.factory((data, userInitiated) => { if (entry.inputEpoch === 0) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry)),
       state: { generation: null, phase: 'connecting', controlEpoch: null, taking: false, error: null, operationError: null, warning: null, exitCode: null },
-      listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0,
+      listeners: new Set(), host: null, visible: false, used: Date.now(), sequence: 0, surfaceReady: false, focusPending: false,
       pending: new Map(), pendingBytes: 0, early: [], earlyBytes: 0, retired: new Set(), attaching: false,
       attachToken: 0, replayAgain: false, fullReplay: false,
       writes: [], writeBytes: 0, writing: false, epoch: 0, inputEpoch: 0,
@@ -141,7 +142,7 @@ export class TerminalRegistry {
     this.trim();
     return () => {
       if (entry.host === host) {
-        entry.host = null; entry.visible = false; entry.surface.setVisible?.(false); entry.surface.element.remove();
+        entry.host = null; entry.visible = false; entry.focusPending = false; entry.surface.setVisible?.(false); entry.surface.element.remove();
         this.detach(entry); this.trim();
       }
     };
@@ -151,13 +152,19 @@ export class TerminalRegistry {
     // Visibility changes invalidate any fit measured before the layout changed.
     if (visible !== entry.visible) { entry.resized = ''; entry.resizeEpoch++; entry.nextSize = null; }
     entry.visible = visible;
+    if (!visible) entry.focusPending = false;
     entry.surface.setVisible?.(visible && !!entry.host && entry.state.phase !== 'blocked');
     entry.surface.setInput(entry.state.phase === 'open');
     if (visible) this.fit(id);
   }
   focus(id: string) {
     const entry = this.entries.get(id);
-    if (entry?.visible && entry.state.phase !== 'blocked' && !document.querySelector('[role="dialog"], .tab-rename')) entry.surface.focus();
+    if (!entry) return;
+    entry.focusPending = false;
+    if (!entry.visible || !entry.host || entry.state.phase === 'blocked' || document.querySelector('[role="dialog"], .tab-rename')) return;
+    // xterm opens during the first measurable fit, which can follow replay.
+    if (!entry.surfaceReady) entry.focusPending = true;
+    else entry.surface.focus();
   }
   fit(id: string) {
     const entry = this.entries.get(id);
@@ -167,6 +174,10 @@ export class TerminalRegistry {
     if (entry.attaching || entry.writing || entry.writes.length) { entry.fitPending = true; return; }
     entry.fitPending = false;
     const size = entry.surface.fit();
+    if (size) {
+      entry.surfaceReady = true;
+      if (entry.focusPending) this.focus(id);
+    }
     if (entry.state.phase !== 'open' || !entry.state.generation || entry.state.controlEpoch === null) return;
     if (!size || !Number.isInteger(size.cols) || !Number.isInteger(size.rows) || size.cols < 2 || size.cols > 500 || size.rows < 2 || size.rows > 500) return;
     entry.nextSize = { ...size, controlEpoch: entry.state.controlEpoch };
@@ -388,6 +399,7 @@ export class TerminalRegistry {
   }
   private resetSurface(entry: Entry, sequence: number, rebuild = true) {
     if (rebuild) {
+      entry.surfaceReady = false;
       entry.surface.dispose();
       const inputEpoch = ++entry.inputEpoch;
       entry.surface = this.factory((data, userInitiated) => { if (entry.inputEpoch === inputEpoch) this.input(entry, data, userInitiated); }, this.theme, this.clipboard(() => entry));
@@ -490,7 +502,7 @@ export class TerminalRegistry {
       // A display replay invalidates device replies, not queued user intent for
       // the same shell. Never automatically repeat a failed write.
       if (!this.active || (!userOperation && epoch !== entry.epoch) || entry.state.generation !== generation || entry.state.controlEpoch !== controlEpoch || entry.state.phase !== 'open') return;
-      const result = await request(() => api.writeTerminal({ tabId: entry.id, generation, controlEpoch, data }));
+      const result = await request(() => api.writeTerminal({ tabId: entry.id, generation, controlEpoch, data, ...(userOperation ? {} : { userInitiated: false }) }));
       if (!result.ok && userOperation && this.active && entry.host && entry.visible && this.entries.get(entry.id) === entry && entry.state.generation === generation && entry.state.controlEpoch === controlEpoch) this.update(entry, { operationError: result.error });
     }).finally(() => { entry.inputBytes -= bytes; });
   }

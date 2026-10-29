@@ -11,7 +11,7 @@ type BridgeOptions = ConstructorParameters<typeof TerminalBridge>[0];
 const native = vi.hoisted(() => ({
   visible: false,
   listeners: new Map<string, (event: { endCoordinates: { screenY: number } }) => void>(),
-  dismiss: vi.fn(), show: vi.fn(async () => {}), copy: vi.fn(), alert: vi.fn(),
+  dismiss: vi.fn(), show: vi.fn(async () => {}), copy: vi.fn(), read: vi.fn(async () => ''), alert: vi.fn(),
   bridge: { start: vi.fn(), dispose: vi.fn(), focus: vi.fn(), setModifiers: vi.fn(), key: vi.fn(),
     receive: vi.fn(), paste: vi.fn(), select: vi.fn(), setFontSize: vi.fn(), setTheme: vi.fn(), takeControl: vi.fn(async () => {}) },
   options: null as BridgeOptions | null,
@@ -42,7 +42,9 @@ vi.mock('react-native', () => ({
   ScrollView: ({ children }: NativeProps) => <div>{children}</div>,
   KeyboardAvoidingView: ({ children }: NativeProps) => <div>{children}</div>,
   Modal: ({ children, visible }: NativeProps & { visible: boolean }) => visible ? <div>{children}</div> : null,
-  TextInput: () => <textarea />,
+  TextInput: ({ value, onChangeText, accessibilityLabel }: {
+    value: string; onChangeText: (text: string) => void; accessibilityLabel: string;
+  }) => <textarea aria-label={accessibilityLabel} value={value} onChange={event => onChangeText(event.target.value)} />,
   Pressable: ({ children, onPress, accessibilityLabel, accessibilityState, disabled }: NativeProps) =>
     <button aria-label={accessibilityLabel} aria-pressed={accessibilityState?.selected} disabled={disabled}
       onClick={onPress}>{children}</button>,
@@ -52,7 +54,9 @@ vi.mock('react-native-webview', () => ({
   WebView: ({ onMessage }: { onMessage: (event: { nativeEvent: { data: string } }) => void }) =>
     <button aria-label="Page ready" onClick={() => onMessage({ nativeEvent: { data: JSON.stringify({ type: 'ready', viewId: 'view' }) } })} />,
 }));
-vi.mock('@react-native-clipboard/clipboard', () => ({ default: { setString: (text: string) => native.copy(text) } }));
+vi.mock('@react-native-clipboard/clipboard', () => ({ default: {
+  setString: (text: string) => native.copy(text), getString: () => native.read(),
+} }));
 vi.mock('./native-keyboard', () => ({ showTerminalKeyboard: () => native.show() }));
 vi.mock('./terminal-html', () => ({ TERMINAL_HTML: '' }));
 vi.mock('./bridge', () => ({
@@ -79,6 +83,18 @@ beforeEach(() => { vi.clearAllMocks(); native.visible = false; native.options = 
 afterEach(cleanup);
 
 describe('mobile keyboard controls', () => {
+  it('previews clipboard text and routes Send through terminal paste, not key input', async () => {
+    setup();
+    const text = '  日本語 🦊\r\nsecond line\n';
+    native.read.mockResolvedValueOnce(text);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Paste', exact: true })); });
+    expect(screen.getByRole('textbox', { name: 'Text to paste into terminal' })).toHaveValue(text.replace(/\r\n/g, '\n'));
+    expect(native.bridge.paste).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Send', exact: true }));
+    expect(native.bridge.paste).toHaveBeenCalledExactlyOnceWith(text);
+    expect(native.bridge.key).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).toBeNull();
+  });
   it('copies the exact selection directly and shows confirmation without a second dialog', () => {
     setup();
     expect(screen.queryByRole('button', { name: 'Copy' })).toBeNull();

@@ -56,9 +56,9 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   }
   if (focused) term.focus();
   const keyboardEpoch = epoch;
-  keyboard = new PageKeyboard(term, data => {
+  keyboard = new PageKeyboard(term, (data, userInitiated) => {
     if (terminal === term && epoch === keyboardEpoch && !historical && data && !data.includes('\0')) {
-      send({ type: 'input', ...identity(), data });
+      send({ type: 'input', ...identity(), data, ...(userInitiated === false ? { userInitiated: false } : {}) });
     }
   });
   term.onSelectionChange(() => send({ type: 'selection', ...identity(), text: term.getSelection().slice(0, 65536) }));
