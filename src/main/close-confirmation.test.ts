@@ -93,6 +93,12 @@ it.each(['render-process-gone', 'did-start-loading', 'closed'])('fails closed on
   (event === 'closed' ? f.window : f.webContents).emit(event);
   expect(await pending).toBe(false); expect(await f.coordinator.request('quit', 2)).toBe(false);
 });
+it('cancels safely when Electron has already disposed the render frame', async () => {
+  const f = fixture(); f.ready(); const pending = f.coordinator.request('quit', 2);
+  Object.defineProperty(f.webContents, 'mainFrame', { get: () => { throw new Error('Render frame was disposed before WebFrameMain could be accessed'); } });
+  expect(() => f.webContents.emit('did-start-loading')).not.toThrow();
+  expect(await pending).toBe(false);
+});
 it('cleans up pending approval and IPC handlers when disposed', async () => {
   const f = fixture(); f.ready(); const pending = f.coordinator.request('update', 2);
   f.coordinator.dispose(); f.coordinator.dispose();

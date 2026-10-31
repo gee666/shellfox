@@ -4,6 +4,7 @@ import type { RemoteViewPort } from './view';
 import { failure } from '../../shared/contracts';
 import { remoteEnvelopeSchema, remoteRequestSchemas, remoteResponseSchemas } from '../../shared/remote-schemas';
 import { isTrustedSender } from '../ipc';
+import { sendToRenderer } from '../renderer-channel';
 import type { RemoteService } from './service';
 export function installRemoteIpc(window: BrowserWindow, rendererUrl: string, service: RemoteService | null): () => void {
   let view: RemoteViewPort | undefined;
@@ -14,7 +15,7 @@ export function installRemoteIpc(window: BrowserWindow, rendererUrl: string, ser
     if (!view) {
       const current = epoch;
       view = service.createView(randomUUID());
-      view.subscribe(event => { if (current === epoch && !window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send('remote:event', event); });
+      view.subscribe(event => { if (current === epoch) sendToRenderer(window, rendererUrl, 'remote:event', event); });
     }
     return view;
   };
@@ -44,7 +45,7 @@ export function installRemoteIpc(window: BrowserWindow, rendererUrl: string, ser
     } catch { return failure('INTERNAL', 'Remote operation failed.', true); }
   });
   const unsubscribe = service?.subscribe(event => {
-    if (event.type === 'state' && !window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send('remote:event', event);
+    if (event.type === 'state') sendToRenderer(window, rendererUrl, 'remote:event', event);
   });
   window.webContents.on?.('render-process-gone', release);
   window.webContents.on?.('did-start-navigation', release);

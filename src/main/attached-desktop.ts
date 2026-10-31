@@ -7,6 +7,7 @@ import { EarlyRequestQueue, handleCliRequest } from './cli';
 import { installAttachedHostIpc } from './attached-host-ipc';
 import { installDesktopPolicy, secureDesktopWindow } from './desktop-security';
 import { CloseConfirmationCoordinator } from './close-confirmation';
+import { sendToRenderer } from './renderer-channel';
 import { parseWindowState, restoreBounds, trackWindowState } from './window-state';
 import { UpdateChecker } from './update-check';
 import { SelfUpdater, type UpdateSource } from './update/self-updater';
@@ -73,7 +74,7 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
   const adapter = {
     createSession: client.service.createSession,
     selectSession: (id: string) => { void client.service.getSnapshot().then(snapshot => {
-      if (snapshot.ok && !window.isDestroyed()) window.webContents.send('manager:changed', { revision: snapshot.value.revision, reason: 'sessions', selectSessionId: id });
+      if (snapshot.ok) sendToRenderer(window, rendererUrl, 'manager:changed', { revision: snapshot.value.revision, reason: 'sessions', selectSessionId: id });
     }).catch(() => {}); },
   };
   uninstall = installAttachedHostIpc(window, rendererUrl, client, () => requests.ready(async request => {

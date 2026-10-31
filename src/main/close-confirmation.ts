@@ -3,6 +3,7 @@ import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { failure, success, type CloseConfirmation } from '../shared/contracts';
 import { closeConfirmationReadSchema, closeConfirmationResponseSchema, closeConfirmationSchema } from '../shared/close-confirmation-schemas';
 import { isTrustedSender } from './ipc';
+import { rendererShowing, sendToRenderer } from './renderer-channel';
 
 /** Environment variables alone must never suppress production shutdown approval. */
 export function bypassCloseConfirmation(testBuild: boolean, launch: { userData?: string; backend?: 'fake' | 'real' }, optIn: string | undefined): boolean {
@@ -37,7 +38,7 @@ export class CloseConfirmationCoordinator {
   request(kind: CloseConfirmation['kind'], terminalCount: number): Promise<boolean> {
     if (this.disposed) return Promise.resolve(false);
     if (this.options.autoApprove) return Promise.resolve(true);
-    if (!this.rendererReady || this.window.isDestroyed() || this.window.webContents.isDestroyed() || this.window.webContents.mainFrame.url !== this.rendererUrl) return Promise.resolve(false);
+    if (!this.rendererReady || !rendererShowing(this.window, this.rendererUrl)) return Promise.resolve(false);
     if (this.pending) return this.pending.confirmation.kind === kind ? this.pending.promise : Promise.resolve(false);
     const parsed = closeConfirmationSchema.safeParse({ id: randomUUID(), kind, terminalCount });
     if (!parsed.success) return Promise.resolve(false);
@@ -49,14 +50,13 @@ export class CloseConfirmationCoordinator {
     return promise;
   }
   private publish() {
-    if (!this.window.isDestroyed() && !this.window.webContents.isDestroyed() && this.window.webContents.mainFrame.url === this.rendererUrl) {
-      this.window.webContents.send('app:confirmation:changed', this.pending?.confirmation ?? null);
-    }
+    sendToRenderer(this.window, this.rendererUrl, 'app:confirmation:changed', this.pending?.confirmation ?? null);
   }
   private finish(approved: boolean) {
     const pending = this.pending;
+    if (!pending) return;
     this.pending = null;
-    pending?.resolve(approved);
+    pending.resolve(approved);
     this.publish();
   }
   /** The OS is ending the app: a pending quit prompt is moot, any other prompt is declined. */

@@ -9,16 +9,17 @@ import { SshProfileStore } from './ssh/storage';
 import { readPuttySessions } from './ssh/putty';
 import type { UpdateSource } from './update/self-updater';
 import type { KeepAwake } from './keep-awake';
+import { rendererShowing, sendToRenderer } from './renderer-channel';
 
 export function isTrustedSender(event: IpcMainInvokeEvent, window: BrowserWindow, rendererUrl: string): boolean {
-  return !window.isDestroyed() && event.sender === window.webContents && !!event.senderFrame &&
+  return rendererShowing(window, rendererUrl) && event.sender === window.webContents && !!event.senderFrame &&
     event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === rendererUrl;
 }
 export function installIpc(window: BrowserWindow, rendererUrl: string, service: SessionService | EmbeddedSessionService, rendererReady?: () => void, updates?: UpdateSource, ssh?: SshProfileStore, keepAwake?: KeepAwake, assertOwnership?: () => void): () => void {
   let announcedReady = false;
   const embedded = 'attachTerminal' in service ? service : null;
   const sendTerminal = (event: import('../shared/contracts').TerminalEvent) => {
-    if (!window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send('manager:terminal', event);
+    sendToRenderer(window, rendererUrl, 'manager:terminal', event);
   };
   let stopped = false;
   let delivery = embedded?.createTerminalView(sendTerminal) ?? null;
@@ -100,10 +101,10 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
     } catch { return failure('STORAGE_FAILED', 'The request could not be completed', true); }
   });
   const unsubscribe = service.subscribe(event => {
-    if (!window.isDestroyed()) window.webContents.send('manager:changed', event);
+    sendToRenderer(window, rendererUrl, 'manager:changed', event);
   });
   const unsubscribeKeepAwake = keepAwake?.subscribe(state => {
-    if (!window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send('manager:keep-awake', state);
+    sendToRenderer(window, rendererUrl, 'manager:keep-awake', state);
   });
   const resetDelivery = () => { delivery?.dispose(); delivery = stopped ? null : embedded?.createTerminalView(sendTerminal) ?? null; };
   const resetViews = () => {

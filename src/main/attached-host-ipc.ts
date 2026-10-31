@@ -5,6 +5,7 @@ import { requestEnvelopeSchema, requestSchemas, responseSchemas } from '../share
 import { remoteEnvelopeSchema, remoteRequestSchemas, remoteResponseSchemas, responseSchemas as forwardedResponseSchemas } from '../shared/remote-schemas';
 import { desktopRequest } from './desktop-requests';
 import { isTrustedSender } from './ipc';
+import { sendToRenderer } from './renderer-channel';
 import type { UpdateSource } from './update/self-updater';
 
 /** Every renderer document gets its own host view, separate from desktop metadata. */
@@ -13,9 +14,7 @@ export function installAttachedHostIpc(window: BrowserWindow, rendererUrl: strin
   let document: Promise<HostClient> | undefined;
   const closing = new Set<Promise<void>>();
   const attachments = new Map<string, { generation: string; controlEpoch: number }>();
-  const send = (channel: string, value: unknown) => {
-    if (!window.isDestroyed() && window.webContents.mainFrame.url === rendererUrl) window.webContents.send(channel, value);
-  };
+  const send = (channel: string, value: unknown) => sendToRenderer(window, rendererUrl, channel, value);
   function terminal(event: TerminalEvent): void {
     if (event.type === 'control') attachments.set(event.tabId, { generation: event.generation, controlEpoch: event.controlEpoch });
     send('manager:terminal', event);
