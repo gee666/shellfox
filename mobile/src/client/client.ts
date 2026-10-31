@@ -92,7 +92,7 @@ export class RemoteClient extends RemoteOperations {
     if (this.state.status === 'connected') {
       // Relinquish owned and waiting views without cancelling the device's pairing attempt.
       for (const [tabId, value] of this.attachments) void this.detachTerminal({ tabId, generation: value.generation });
-      this.setState('disconnected');
+      this.setState('reconnecting');
       for (const [tabId, value] of this.attachments) this.emit({ type: 'terminal', event: { type: 'control', tabId, ...value, control: 'blocked' } });
       this.attachments.clear();
     }

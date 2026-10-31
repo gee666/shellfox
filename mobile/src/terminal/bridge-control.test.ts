@@ -12,7 +12,7 @@ const owned = (controlEpoch = 1, data = 'private screen'): OwnedTerminalAttachme
 const blocked = (controlEpoch = 2): TerminalAttachmentDto => ({ control: 'blocked', controlEpoch, tabId, sessionId: ids.session, generation });
 const cleanups: Array<() => void> = [];
 afterEach(() => { cleanups.splice(0).reverse().forEach(cleanup => cleanup()); vi.useRealTimers(); });
-function fixture(attachment: TerminalAttachmentDto = owned()) {
+function fixture(attachment: TerminalAttachmentDto = owned(), readOnly = false) {
   vi.useFakeTimers();
   const messages: HostMessage[] = [], onError = vi.fn(), onState = vi.fn();
   let emit: (event: TerminalEvent) => void = () => {};
@@ -24,7 +24,7 @@ function fixture(attachment: TerminalAttachmentDto = owned()) {
     acknowledgeTerminal: vi.fn<MobileTerminalApi['acknowledgeTerminal']>(async () => success({ acknowledged: true })),
     detachTerminal: vi.fn<MobileTerminalApi['detachTerminal']>(async () => success({ detached: true })),
   };
-  const bridge = new TerminalBridge({ api, tabId, viewId: 'control', fontSize: 14, onError, onState,
+  const bridge = new TerminalBridge({ api, tabId, readOnly, viewId: 'control', fontSize: 14, onError, onState,
     subscribeTerminal: listener => { emit = listener; return () => {}; }, send: message => messages.push(message) });
   cleanups.push(() => bridge.dispose()); bridge.start();
   const latest = () => messages.filter(message => message.type === 'output').at(-1);
@@ -45,6 +45,56 @@ it('keeps a blocked subscription blank with no grid, input, ACK or idle polling 
   expect(f.latest()).toMatchObject({ historical: true, data: 'fresh owner screen' });
   f.rendered(); await flush();
   expect(f.api.acknowledgeTerminal).toHaveBeenLastCalledWith({ tabId, generation, controlEpoch: 3, sequence: 1 });
+});
+it('waits for the initial blocked result before consuming explicit navigation intent and taking once', async () => {
+  const f = fixture(blocked()), pending = deferred<Awaited<ReturnType<MobileTerminalApi['attachTerminal']>>>();
+  f.api.attachTerminal.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(success(owned(3)));
+  const consumed = vi.fn();
+  f.bridge.requestControl(consumed); await flush();
+  expect(consumed).not.toHaveBeenCalled(); expect(f.api.takeTerminalControl).not.toHaveBeenCalled();
+  pending.resolve(success(blocked())); await flush();
+  expect(consumed).toHaveBeenCalledOnce(); expect(f.api.takeTerminalControl).toHaveBeenCalledOnce();
+  expect(f.onState).toHaveBeenLastCalledWith('attached');
+  f.emit({ type: 'control', tabId, generation, control: 'blocked', controlEpoch: 4 }); await flush();
+  expect(f.onState).toHaveBeenLastCalledWith('blocked');
+  expect(f.api.takeTerminalControl).toHaveBeenCalledOnce(); expect(consumed).toHaveBeenCalledOnce();
+});
+it('consumes an already-owned initial attachment without fighting a later takeover', async () => {
+  const f = fixture(), consumed = vi.fn(); f.bridge.requestControl(consumed); await flush();
+  expect(consumed).toHaveBeenCalledOnce(); expect(f.api.takeTerminalControl).not.toHaveBeenCalled();
+  f.emit({ type: 'control', tabId, generation, control: 'blocked', controlEpoch: 2 }); await flush();
+  expect(f.api.takeTerminalControl).not.toHaveBeenCalled();
+  expect(f.onState).toHaveBeenLastCalledWith('blocked');
+});
+it('honors a fresh explicit focus action on an already blocked view and does not repeat a failed transfer', async () => {
+  const f = fixture(blocked()); await flush();
+  f.api.takeTerminalControl.mockResolvedValueOnce(failure('FOCUS_DENIED', 'Cannot transfer.'));
+  const consumed = vi.fn(); f.bridge.requestControl(consumed); await flush();
+  expect(consumed).toHaveBeenCalledOnce(); expect(f.api.takeTerminalControl).toHaveBeenCalledOnce();
+  expect(f.onState).toHaveBeenLastCalledWith('blocked');
+  expect(f.onError).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.api.takeTerminalControl).toHaveBeenCalledOnce();
+  f.api.attachTerminal.mockResolvedValueOnce(success(owned(3)));
+  f.bridge.requestControl(consumed); await flush();
+  expect(consumed).toHaveBeenCalledTimes(2); expect(f.api.takeTerminalControl).toHaveBeenCalledTimes(2);
+  expect(f.onState).toHaveBeenLastCalledWith('attached');
+});
+it('discards intent after a failed initial attach instead of taking on automatic recovery', async () => {
+  const f = fixture(blocked()), consumed = vi.fn();
+  f.api.attachTerminal.mockResolvedValueOnce(failure('NATIVE_UNAVAILABLE', 'Offline.', true));
+  f.bridge.requestControl(consumed); await flush();
+  expect(consumed).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(250); await flush();
+  expect(f.onState).toHaveBeenLastCalledWith('blocked');
+  expect(f.api.takeTerminalControl).not.toHaveBeenCalled();
+});
+it('never requests control for read-only automation replay', async () => {
+  const f = fixture(blocked(), true), consumed = vi.fn();
+  f.bridge.requestControl(consumed); await flush();
+  expect(consumed).toHaveBeenCalledOnce(); expect(f.api.takeTerminalControl).not.toHaveBeenCalled();
+  f.bridge.requestControl(consumed); await flush();
+  expect(f.api.takeTerminalControl).not.toHaveBeenCalled();
 });
 it('clears contents immediately on loss, fences old render receipts and queued writes, and does not detach the waiting viewer', async () => {
   const f = fixture(); await flush(); const old = f.latest();

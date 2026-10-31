@@ -18,7 +18,7 @@ function deferred<T>() {
 }
 function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false) {
   let emit: (event: TerminalEvent) => void = () => undefined;
-  const unsubscribe = vi.fn(), messages: HostMessage[] = [], onError = vi.fn(), onFocus = vi.fn(), onState = vi.fn();
+  const unsubscribe = vi.fn(), messages: HostMessage[] = [], onError = vi.fn(), onFocus = vi.fn(), onState = vi.fn(), onInput = vi.fn();
   const api = {
     attachTerminal: vi.fn<MobileTerminalApi['attachTerminal']>(async () => success(attachment)),
     writeTerminal: vi.fn<MobileTerminalApi['writeTerminal']>(async () => success({ written: true })),
@@ -28,7 +28,7 @@ function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false)
     takeTerminalControl: vi.fn<MobileTerminalApi['takeTerminalControl']>(async () => success({ taken: true })),
   };
   const subscribeTerminal = vi.fn((listener: (event: TerminalEvent) => void) => { emit = listener; return unsubscribe; });
-  const options = { api, subscribeTerminal, tabId, readOnly, viewId: 'page-1', fontSize: 14, onError, onFocus, onState, send: (message: HostMessage) => messages.push(message) };
+  const options = { api, subscribeTerminal, tabId, readOnly, viewId: 'page-1', fontSize: 14, onError, onFocus, onState, onInput, send: (message: HostMessage) => messages.push(message) };
   const bridge = new TerminalBridge(options);
   const latest = () => messages.filter((m): m is Extract<HostMessage, { type: 'output' }> => m.type === 'output').at(-1)!;
   const rendered = () => { const m = latest(); bridge.receive({ type: 'rendered', viewId: m.viewId, epoch: m.epoch, ticket: m.ticket }); };
@@ -37,6 +37,19 @@ function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false)
 }
 afterEach(() => vi.useRealTimers());
 describe('mobile terminal delivery', () => {
+  it('reports modifier activity only for accepted user input, not terminal responses', async () => {
+    const f = setup();
+    await flush();
+    f.bridge.input('\u001b[0n', false);
+    expect(f.options.onInput).not.toHaveBeenCalled();
+    f.bridge.input('a');
+    expect(f.options.onInput).toHaveBeenCalledOnce();
+    f.bridge.input(''); f.bridge.input('\0');
+    expect(f.options.onInput).toHaveBeenCalledOnce();
+    f.bridge.dispose();
+    f.bridge.input('b');
+    expect(f.options.onInput).toHaveBeenCalledOnce();
+  });
   it.each(['open', 'closed'] as const)('renders and acknowledges %s automation replay without accepting input or uploads', async state => {
     const f = setup(snapshot([event(1, 'saved output')], { state, exitCode: state === 'closed' ? 7 : null }), true);
     try {

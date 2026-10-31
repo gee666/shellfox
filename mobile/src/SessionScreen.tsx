@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { v4 as uuid } from 'uuid';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import type { TabDto } from '../../src/shared/contracts';
 import { isAutomationView, isViewableTab } from '../../src/shared/terminal-view';
@@ -15,30 +16,51 @@ import type { TerminalBridgeState } from './terminal/bridge';
 import { isConnectionFailure } from './connection-status';
 import { RemoteClientError } from './client';
 
+export interface SessionControlIntent { id: string; connectionId: string | null }
+interface FocusIntent extends SessionControlIntent { tabId?: string; generation?: TabDto['generation'] }
+
 export function SessionScreen({
   machine,
+  controlIntent,
+  onControlIntentCaptured,
   sessionId,
   model,
   back,
   prompt,
 }: {
   machine: MachineView;
+  controlIntent?: SessionControlIntent;
+  onControlIntentCaptured?: (id: string) => void;
   sessionId: string;
   model: ShellfoxModel;
   back: () => void;
   prompt: (value: PromptConfig) => void;
 }) {
   const { colors, styles } = useUi();
+  const metadataCurrent = machine.snapshotConnectionId === machine.state.connectionId;
   const session = machine.snapshot?.sessions.find((item) => item.id === sessionId);
   const tabs = session?.tabs ?? [];
   const [selected, setSelected] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuConfig | null>(null);
   const active =
     tabs.find((tab) => tab.id === selected) ?? tabs.find(isViewableTab) ?? tabs[0];
+  const [focusIntent, setFocusIntent] = useState<FocusIntent | null>(() => controlIntent
+    ? { ...controlIntent, ...(metadataCurrent && active ? { tabId: active.id, generation: active.generation } : {}) } : null);
+  useEffect(() => {
+    if (controlIntent) onControlIntentCaptured?.(controlIntent.id);
+  }, [controlIntent?.id, onControlIntentCaptured]);
+  const consumeIntent = useCallback((id: string) => setFocusIntent(value => value?.id === id ? null : value), []);
   const client = machine.client;
   const terminalApi = client.terminalApi;
   const subscribeTerminal = client.subscribeTerminal;
-  const metadataCurrent = machine.snapshotConnectionId === machine.state.connectionId;
+  useEffect(() => {
+    setFocusIntent(value => {
+      if (!value) return value;
+      if (value.connectionId !== machine.state.connectionId) return null;
+      if (value.tabId || !metadataCurrent || !active) return value;
+      return { ...value, tabId: active.id, generation: active.generation };
+    });
+  }, [machine.state.connectionId, metadataCurrent, active?.id, active?.generation]);
   const canAttach = metadataCurrent && !!active && (active.lifecycle === 'open' || active.lifecycle === 'closed' && isAutomationView(active)) && active.terminalKind !== 'external-legacy';
   const terminalKey = `${machine.peer.id}/${sessionId}/${active?.id ?? ''}/${active?.generation ?? ''}/${machine.state.connectionId ?? ''}`;
   const currentTerminalKey = useRef(terminalKey);
@@ -185,10 +207,13 @@ export function SessionScreen({
       {machine.state.status !== 'connected' ? (
         <View style={styles.content}>
           {machine.state.status === 'awaiting-approval' && <Note>Approve this device on the host.</Note>}
-          {machine.state.status === 'connecting' || machine.state.status === 'reconnecting' ? <StatusIndicator loading label="Connecting" /> : null}
+          {machine.state.status === 'connecting' || machine.state.status === 'reconnecting'
+            || machine.state.status === 'disconnected' && model.preferences.remembered.includes(machine.peer.id)
+            ? <StatusIndicator loading label={machine.state.status === 'connecting' ? 'Connecting' : 'Reconnecting'} /> : null}
+          {machine.state.status === 'rejected' && <Note error>{machine.state.lastError?.message ?? 'Access denied.'}</Note>}
+          {machine.state.status === 'disconnected' && !model.preferences.remembered.includes(machine.peer.id) && <Note>Disconnected.</Note>}
           {machine.state.status === 'awaiting-approval'
-            ? <Button title="Cancel request" onPress={() => run(() => model.disconnect(machine.peer.id))} />
-            : <Button title="Reconnect" onPress={() => client.reconnect()} />}
+            && <Button title="Cancel request" onPress={() => run(() => model.disconnect(machine.peer.id))} />}
         </View>
       ) : !session ? (
         <View style={styles.content}>
@@ -210,7 +235,10 @@ export function SessionScreen({
                   accessibilityRole="tab"
                   accessibilityLabel={tab.title}
                   accessibilityState={{ selected: active?.id === tab.id }}
-                  onPress={() => setSelected(tab.id)}
+                  onPress={() => {
+                    setSelected(tab.id);
+                    setFocusIntent({ id: uuid(), connectionId: machine.state.connectionId, tabId: tab.id, generation: tab.generation });
+                  }}
                   onLongPress={() => manageTab(tab)}
                   style={{
                     paddingHorizontal: 12,
@@ -241,7 +269,11 @@ export function SessionScreen({
               subscribeTerminal={subscribeTerminal}
               tabId={active.id}
               readOnly={isAutomationView(active)}
+              takeoverIntent={focusIntent?.connectionId === machine.state.connectionId && focusIntent?.tabId === active.id
+                && focusIntent.generation === active.generation ? focusIntent.id : undefined}
+              onTakeoverIntentConsumed={consumeIntent}
               fontSize={model.preferences.fontSize}
+              modifierReleaseDelayMs={model.preferences.modifierReleaseDelayMs}
               connectionEpoch={machine.state.connectionId ?? ''}
               onError={onTerminalError}
               onState={onTerminalState}

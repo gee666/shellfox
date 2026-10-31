@@ -5,7 +5,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { useShellfox, type ShellfoxModel } from './src/useShellfox';
 import { SessionsScreen, type OpenSession } from './src/SessionsScreen';
 import { SettingsScreen } from './src/SettingsScreen';
-import { SessionScreen } from './src/SessionScreen';
+import { SessionScreen, type SessionControlIntent } from './src/SessionScreen';
 import { Prompt, type PromptConfig } from './src/Prompt';
 import { Button, Note, useUi } from './src/ui';
 import { ThemeProvider, useTheme } from './src/theme';
@@ -24,7 +24,14 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
   const { colors, styles } = useUi();
   const { palette } = useTheme();
   const [section, setSection] = useState<'sessions' | 'settings'>('sessions');
-  const [selection, setSelection] = useState<OpenSession | null>(null);
+  const [selection, setSelection] = useState<(OpenSession & { controlIntent?: SessionControlIntent }) | null>(null);
+  const openSession = (next: OpenSession) => {
+    const state = model.machines.find(item => item.peer.id === next.peerId)?.state;
+    setSelection({ ...next, controlIntent: next.takeControl && state?.status === 'connected'
+      ? { id: uuid(), connectionId: state.connectionId } : undefined });
+  };
+  const clearControlIntent = useCallback((id: string) => setSelection(value => value?.controlIntent?.id === id
+    ? { ...value, controlIntent: undefined } : value), []);
   const [prompt, setPrompt] = useState<{ id: string; config: PromptConfig } | null>(null);
   const showPrompt = useCallback((config: PromptConfig) => setPrompt({ id: uuid(), config }), []);
   const updateStatus = useUpdates(model.preferencesLoaded, model.preferences.autoUpdate);
@@ -57,6 +64,9 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
       {section === 'sessions' ? (
         selection && machine ? (
           <SessionScreen
+            key={`${machine.peer.id}/${selection.sessionId}`}
+            controlIntent={selection.controlIntent}
+            onControlIntentCaptured={clearControlIntent}
             machine={machine}
             sessionId={selection.sessionId}
             model={model}
@@ -66,7 +76,7 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
         ) : (
           <SessionsScreen
             model={model}
-            open={setSelection}
+            open={openSession}
             prompt={showPrompt}
             settings={() => setSection('settings')}
           />

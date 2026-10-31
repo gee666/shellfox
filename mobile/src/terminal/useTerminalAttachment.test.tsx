@@ -46,6 +46,10 @@ beforeEach(() => {
   };
 });
 afterEach(cleanup);
+it('uses an icon with an accessible Attach label instead of toolbar text', () => {
+  render(<Fixture />);
+  expect(screen.getByRole('button', { name: 'Attach' }).textContent).toBe('');
+});
 it('shows a compact attachment result; Copy and Insert use the exact raw path without submission', async () => {
   render(<Fixture />);
   fireEvent.click(screen.getByRole('button', { name: 'Attach' }));

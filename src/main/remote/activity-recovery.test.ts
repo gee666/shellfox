@@ -127,7 +127,7 @@ it('restores the real mobile client activity subscription on reconnect without t
   events.length = 0; client.reconnect();
   await vi.waitFor(() => expect(events).toContainEqual(busy));
   events.length = 0; client.suspend();
-  expect(client.getState().status).toBe('disconnected');
+  expect(client.getState().status).toBe('reconnecting');
   // Drain the outstanding native long poll, just as an event during backgrounding would.
   f.service.selectSession(f.tab.sessionId); client.connect();
   await vi.waitFor(() => expect(events).toContainEqual(busy));

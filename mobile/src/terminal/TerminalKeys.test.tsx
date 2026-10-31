@@ -13,7 +13,7 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: <T,>(styles: T) => styles },
   View: ({ children }: NativeProps) => <div>{children}</div>,
   Text: ({ children }: NativeProps) => <span>{children}</span>,
-  ScrollView: ({ children }: NativeProps) => <div>{children}</div>,
+  ScrollView: ({ children }: NativeProps) => <div data-testid="scrolling-keys">{children}</div>,
   KeyboardAvoidingView: ({ children }: NativeProps) => <div>{children}</div>,
   Modal: ({ children, visible, onRequestClose }: NativeProps & { visible: boolean; onRequestClose: () => void }) =>
     visible ? <div role="dialog" onKeyDown={event => { if (event.key === 'Escape') onRequestClose(); }}>{children}</div> : null,
@@ -25,9 +25,9 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('@react-native-clipboard/clipboard', () => ({ default: { getString: () => native.read(), setString: vi.fn() } }));
 
-function setup() {
+function setup(attach?: ReactNode) {
   const onPaste = vi.fn();
-  const result = render(<TerminalKeys bottomInset={0} control={false} selecting={false} selection=""
+  const result = render(<TerminalKeys attach={attach} bottomInset={0} control={false} selecting={false} selection=""
     onControl={vi.fn()} onSelect={vi.fn()} onKey={vi.fn()} systemKeyboard={false} specialKeyboard={false}
     onKeyboard={vi.fn()} onSpecialKeyboard={vi.fn()} onPaste={onPaste} />);
   return { ...result, onPaste };
@@ -49,6 +49,12 @@ afterEach(cleanup);
 
 describe.each(['android', 'ios'])('mobile paste dialog on %s', os => {
   beforeEach(() => { native.os = os; });
+
+  it('scrolls Attach together with the keys rather than pinning it beside the keyboard toggles', () => {
+    setup(<button aria-label="Attach" />);
+    expect(screen.getByTestId('scrolling-keys')).toContainElement(screen.getByRole('button', { name: 'Attach' }));
+    expect(screen.getByTestId('scrolling-keys')).not.toContainElement(screen.getByRole('button', { name: 'Keyboard', exact: true }));
+  });
 
   it('reads the local clipboard only on opening and sends the exact edited text only on Send', async () => {
     const { onPaste } = setup();

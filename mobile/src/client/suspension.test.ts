@@ -71,7 +71,7 @@ it.each(['owned', 'blocked'] as const)('detaches a background %s terminal viewer
     expect.objectContaining({ method: 'attachTerminal' }),
     expect.objectContaining({ method: 'detachTerminal', payload: { tabId: ids.tab, generation: ids.generation } }),
   ]);
-  expect(transport.calls('/v1/disconnect')).toHaveLength(0); expect(client.getState().status).toBe('disconnected');
+  expect(transport.calls('/v1/disconnect')).toHaveLength(0); expect(client.getState().status).toBe('reconnecting');
 });
 it('retains a delivered host request beyond two minutes with no heartbeat and withdraws the original UUID after resume', async () => {
   vi.useFakeTimers();

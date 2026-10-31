@@ -163,7 +163,7 @@ describe('compact Sessions screen', () => {
     expect(card.getAttribute('data-style')).toContain('"minHeight":44');
     expect(card.getAttribute('data-style')).toContain('"paddingVertical":4');
     expect(card.parentElement?.querySelectorAll('button')).toHaveLength(2);
-    fireEvent.click(card); expect(open).toHaveBeenCalledWith({ peerId: 'host', sessionId: session().id });
+    fireEvent.click(card); expect(open).toHaveBeenCalledWith({ peerId: 'host', sessionId: session().id, takeControl: true });
   });
   it('hides search by default, searches title or path, and clears the filter when closed', () => {
     const host = machine([session(1), session(2, { cwd: '/home/OtherProject' })]); render(ui(fixture([host])));

@@ -16,7 +16,17 @@ export function KeyboardIcon({ special = false, active = false }: { special?: bo
     <View style={[styles.space, { backgroundColor: color }]} />
   </View>;
 }
+/** Paperclip drawn with native borders so it does not depend on emoji fonts. */
+export function AttachmentIcon() {
+  const { colors } = useTheme();
+  return <View accessible={false} style={[styles.clip, { borderColor: colors.text }]}>
+    <View style={[styles.clipInner, { borderColor: colors.text }]} />
+  </View>;
+}
 const styles = StyleSheet.create({
+  clip: { width: 14, height: 25, borderWidth: 2, borderRadius: 7, transform: [{ rotate: '35deg' }] },
+  clipInner: { position: 'absolute', left: 3, top: 3, width: 8, height: 16,
+    borderWidth: 2, borderTopWidth: 0, borderRadius: 4 },
   frame: { width: 24, height: 18, borderWidth: 1.5, borderRadius: 2, padding: 3, gap: 2 },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   dot: { width: 2, height: 2 },

@@ -4,6 +4,8 @@ import { remoteHostnameSchema } from '../../src/shared/remote-schemas';
 import type { ShellfoxModel } from './useShellfox';
 import { Button, Card, Field, Note, useUi } from './ui';
 import { ColorSwatches } from './ColorSwatches';
+import { ModifierReleaseDelaySlider } from './ModifierReleaseDelaySlider';
+import { DEFAULT_MODIFIER_RELEASE_DELAY_MS } from './preferences';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND } from './theme';
 import type { PromptConfig } from './Prompt';
 import { updates } from './updates/native';
@@ -212,6 +214,11 @@ export function SettingsScreen({
               onPress={() => run(() => model.updatePreferences({ fontSize: model.preferences.fontSize + 1 }))}
             />
           </View>
+          <ModifierReleaseDelaySlider
+            value={model.preferences.modifierReleaseDelayMs ?? DEFAULT_MODIFIER_RELEASE_DELAY_MS}
+            disabled={busy}
+            onChange={modifierReleaseDelayMs => run(() => model.updatePreferences({ modifierReleaseDelayMs }))}
+          />
         </Card>
         <Text style={styles.section}>Updates</Text>
         <Card>

@@ -5,7 +5,8 @@ import type { NetworkPeer, NetworkStatus } from './network';
 import type { Preferences } from './preferences';
 import { snapshotSchema } from '../../src/shared/schemas';
 import type { RemoteResponse } from '../../src/shared/remote-contracts';
-import { deferred, flush, ids, session as testSession, TestTransport } from './client/test-fixtures';
+import { attachment, deferred, flush, ids, session as testSession, TestTransport } from './client/test-fixtures';
+import { withAttachmentPicker } from './attachment-picker-lifecycle';
 import { sessionDot, tabDot } from '../../src/shared/terminal-status';
 
 const mocks = vi.hoisted(() => ({
@@ -146,7 +147,7 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     expect(result.current.machines[0].snapshot).toEqual(snapshot);
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
     expect(result.current.machines).toHaveLength(1); expect(transport.calls('/v1/pair')).toHaveLength(1);
-    await foreground('background'); expect(result.current.machines[0].state.status).toBe('disconnected');
+    await foreground('background'); expect(result.current.machines[0].state.status).toBe('reconnecting');
     expect(result.current.machines[0].snapshot).toEqual(snapshot);
     transport.operation = async () => JSON.stringify({ ok: true, value: { ...snapshot, revision: 0 } });
     const polls = mocks.status.mock.calls.length;
@@ -160,6 +161,41 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     unmount(); expect(removeListener).toHaveBeenCalledOnce();
     const requests = mocks.status.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(6000); }); expect(mocks.status).toHaveBeenCalledTimes(requests);
+  });
+  it('keeps the terminal attached through iOS inactive system sheets', async () => {
+    mocks.load.mockResolvedValue({ ...defaults, remembered: [host.id] }); mocks.status.mockResolvedValue(online);
+    const { result } = renderHook(useShellfox); await settle();
+    const before = result.current.machines[0].state.connectionId;
+    await foreground('inactive'); await foreground('active');
+    expect(result.current.machines[0].state.status).toBe('connected');
+    expect(result.current.machines[0].state.connectionId).toBe(before);
+    expect(transport.calls('/v1/pair')).toHaveLength(1);
+    await foreground('inactive'); await foreground('background');
+    expect(result.current.machines[0].state.status).toBe('reconnecting');
+  });
+  it.each(['selected', 'cancelled', 'failed'] as const)('preserves the attachment across Android picker background and %s result before resume', async outcome => {
+    mocks.load.mockResolvedValue({ ...defaults, remembered: [host.id] }); mocks.status.mockResolvedValue(online);
+    const { result } = renderHook(useShellfox); await settle();
+    const client = result.current.machines[0].client;
+    transport.operation = async body => JSON.stringify({ ok: true, value: JSON.parse(body).method === 'attachTerminal' ? attachment : snapshot });
+    await act(async () => { await client.attachTerminal({ tabId: ids.tab }); });
+    const before = client.getState().connectionId;
+    const pending = deferred<string | null>();
+    const pick = withAttachmentPicker(() => pending.promise).catch(() => 'failed');
+    await foreground('inactive'); await foreground('background');
+    expect(client.getState().status).toBe('connected');
+    expect(client.getState().connectionId).toBe(before);
+    expect(transport.calls('/v1/request').some(body => JSON.parse(body).method === 'detachTerminal')).toBe(false);
+    if (outcome === 'failed') pending.reject(new Error('Provider offline'));
+    else pending.resolve(outcome === 'selected' ? 'file' : null);
+    await pick; await foreground('background'); await foreground('active');
+    expect(client.getState().connectionId).toBe(before);
+    expect(transport.calls('/v1/pair')).toHaveLength(1);
+    // An ordinary background event after returning must still release control.
+    transport.operation = async () => JSON.stringify({ ok: true, value: { detached: true } });
+    await foreground('background');
+    expect(client.getState().status).toBe('reconnecting');
+    expect(transport.calls('/v1/request').filter(body => JSON.parse(body).method === 'detachTerminal')).toHaveLength(1);
   });
   it('does not retry a rejected device without explicit user connect, including after resume', async () => {
     mocks.load.mockResolvedValue({ ...defaults, remembered: [host.id] }); mocks.status.mockResolvedValue(online);

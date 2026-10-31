@@ -12,6 +12,7 @@ interface Options {
   send: (message: HostMessage) => void; onError: (error: Error) => void;
   onSelection?: (text: string) => void;
   onFocus?: () => void;
+  onInput?: () => void;
   onState?: (state: TerminalBridgeState) => void;
   theme?: TerminalThemeInputs;
   readOnly?: boolean;
@@ -48,6 +49,7 @@ export class TerminalBridge {
   private controlEpoch = 0;
   private refreshControl = false;
   private taking = false;
+  private controlIntent: (() => void) | null = null;
   private selecting = false;
   private focusPending = false;
   private fontSize: number;
@@ -131,6 +133,21 @@ export class TerminalBridge {
       case 'error': this.report(new Error(message.message)); this.recover(); break;
     }
   }
+  /** Explicit navigation may request control before the initial attachment has resolved. */
+  requestControl(consumed: () => void): void {
+    if (!this.alive) return;
+    if (this.options.readOnly) { consumed(); return; }
+    this.controlIntent?.();
+    this.controlIntent = consumed;
+    if (!this.attaching && this.state) this.consumeControlIntent(this.state === 'blocked');
+  }
+  private consumeControlIntent(blocked: boolean): void {
+    const consumed = this.controlIntent;
+    this.controlIntent = null;
+    if (!consumed) return;
+    consumed();
+    if (blocked && !this.options.readOnly && this.alive && this.state === 'blocked') void this.takeControl();
+  }
   async takeControl(): Promise<void> {
     if (!this.alive || this.state !== 'blocked' || !this.generation || this.taking) return;
     this.taking = true;
@@ -154,6 +171,7 @@ export class TerminalBridge {
     this.epoch = String(++nextEpoch); this.pending = null;
     this.queue = []; this.queuedBytes = 0; this.early = []; this.earlyBytes = 0; this.earlyOverflow = false;
     const { api, tabId } = this.options;
+    let blockedResult = false;
     try {
       const attachment = await deliveryOperation(api, tabId, async () => {
         if (detach) await detachAttachment(api, tabId);
@@ -172,7 +190,7 @@ export class TerminalBridge {
       this.generation = attachment.generation;
       if (attachment.controlEpoch < this.controlEpoch) return;
       this.controlEpoch = attachment.controlEpoch; this.refreshControl = false;
-      if (attachment.control === 'blocked') { this.block(attachment.controlEpoch); return; }
+      if (attachment.control === 'blocked') { blockedResult = true; this.block(attachment.controlEpoch); return; }
       if (attachment.chunks.some((chunk, index) => chunk.sequence !== attachment.firstSequence + index)
         || (attachment.chunks.length ? attachment.chunks.at(-1)!.sequence !== attachment.lastSequence : attachment.lastSequence !== attachment.firstSequence - 1)) {
         throw new Error('Terminal replay has a sequence gap.');
@@ -195,6 +213,7 @@ export class TerminalBridge {
     } catch (error) { this.attached = false; this.report(error); this.recover(); }
     finally {
       this.attaching = false;
+      if (this.alive) this.consumeControlIntent(blockedResult);
       if (this.refreshControl && this.state !== 'blocked') { this.refreshControl = false; void this.attach(false); }
     }
   }
@@ -270,6 +289,7 @@ export class TerminalBridge {
     if (!this.alive || !this.attached || !this.open || !generation || !data || data.includes('\0')) return;
     const bytes = utf8Size(data);
     if (this.inputBytes + bytes > 65536) { this.report(new Error('Paste a smaller section of text.')); return; }
+    if (userInitiated) this.options.onInput?.();
     this.inputBytes += bytes;
     if (this.pendingInput?.epoch === epoch && this.pendingInput.userInitiated === userInitiated) {
       this.pendingInput.data += data; this.pendingInput.bytes += bytes; return;
@@ -313,7 +333,7 @@ export class TerminalBridge {
   dispose(): void {
     if (!this.alive) return;
     this.send({ type: 'clear', ...this.identity() });
-    this.alive = false; this.attached = false; this.unsubscribe?.();
+    this.alive = false; this.attached = false; this.controlIntent = null; this.unsubscribe?.();
     if (this.recovery) clearTimeout(this.recovery);
     void deliveryOperation(this.options.api, this.options.tabId, () =>
       detachAttachment(this.options.api, this.options.tabId)).catch(() => undefined);

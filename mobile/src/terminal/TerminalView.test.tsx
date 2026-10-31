@@ -13,7 +13,7 @@ const native = vi.hoisted(() => ({
   listeners: new Map<string, (event: { endCoordinates: { screenY: number } }) => void>(),
   dismiss: vi.fn(), show: vi.fn(async () => {}), copy: vi.fn(), read: vi.fn(async () => ''), alert: vi.fn(),
   bridge: { start: vi.fn(), dispose: vi.fn(), focus: vi.fn(), setModifiers: vi.fn(), key: vi.fn(),
-    receive: vi.fn(), paste: vi.fn(), select: vi.fn(), setFontSize: vi.fn(), setTheme: vi.fn(), takeControl: vi.fn(async () => {}) },
+    requestControl: vi.fn<(consumed: () => void) => void>(), receive: vi.fn(), paste: vi.fn(), select: vi.fn(), setFontSize: vi.fn(), setTheme: vi.fn(), takeControl: vi.fn(async () => {}) },
   options: null as BridgeOptions | null,
 }));
 type NativeProps = {
@@ -80,9 +80,49 @@ function setup(extra: Partial<TerminalViewProps> = {}) {
   return result;
 }
 beforeEach(() => { vi.clearAllMocks(); native.visible = false; native.options = null; });
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('mobile keyboard controls', () => {
+  it('dispatches explicit focus intent once, and never regenerates it for rerenders or reconnects', () => {
+    const consumed = vi.fn();
+    const view = setup({ takeoverIntent: 'tap-1', onTakeoverIntentConsumed: consumed });
+    expect(native.bridge.requestControl).toHaveBeenCalledOnce();
+    expect(consumed).not.toHaveBeenCalled();
+    act(() => native.bridge.requestControl.mock.calls[0]?.[0]());
+    expect(consumed).toHaveBeenCalledExactlyOnceWith('tap-1');
+    view.rerender(<TerminalView {...props} takeoverIntent="tap-1" onTakeoverIntentConsumed={consumed} fontSize={18} />);
+    expect(native.bridge.requestControl).toHaveBeenCalledOnce();
+    view.rerender(<TerminalView {...props} takeoverIntent="tap-1" connectionEpoch="replacement" />);
+    expect(native.bridge.requestControl).toHaveBeenCalledOnce();
+    view.rerender(<TerminalView {...props} takeoverIntent="tap-2" connectionEpoch="replacement" />);
+    expect(native.bridge.requestControl).toHaveBeenCalledTimes(2);
+  });
+  it('does not request control for an ordinary or automatically restored view', () => {
+    setup(); act(() => native.options?.onState?.('blocked'));
+    expect(native.bridge.requestControl).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Take it' })).toBeInTheDocument();
+  });
+  it('releases modifiers after native input and accessory keys, but not while armed', () => {
+    vi.useFakeTimers();
+    setup({ modifierReleaseDelayMs: 500 });
+    fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.getByRole('button', { name: 'Ctrl', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    act(() => native.options?.onInput?.());
+    act(() => vi.advanceTimersByTime(400));
+    fireEvent.click(screen.getByRole('button', { name: 'Esc', exact: true }));
+    expect(native.bridge.key).toHaveBeenLastCalledWith({ key: 'Escape', modifiers: { ...emptyModifiers, ctrl: true } });
+    act(() => vi.advanceTimersByTime(499));
+    expect(screen.getByRole('button', { name: 'Ctrl', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    act(() => vi.advanceTimersByTime(1));
+    expect(native.bridge.setModifiers).toHaveBeenLastCalledWith(emptyModifiers);
+  });
+  it('clears armed modifiers when the connection is interrupted', () => {
+    setup();
+    fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
+    act(() => native.options?.onState?.('reconnecting'));
+    expect(native.bridge.setModifiers).toHaveBeenLastCalledWith(emptyModifiers);
+  });
   it('keeps replay selection and copy but hides automation input controls', () => {
     setup({ readOnly: true });
     expect(native.options?.readOnly).toBe(true);

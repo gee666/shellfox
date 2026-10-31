@@ -85,9 +85,9 @@ export function TerminalKeys(props: Props) {
           {!props.readOnly && keys.map(([label, data]) => button(label, () => props.onKey(data)))}
           {button('Select', props.onSelect, props.selecting)}
           {!props.readOnly && button('Paste', () => { void openPaste(); })}
+          {!props.readOnly && props.attach}
         </KeyboardAccessoryScroll>
         {!!props.selection && button(copied ? 'Copied' : 'Copy', copy)}
-        {!props.readOnly && props.attach}
         {!props.readOnly && <AccessoryButton label="Keyboard" onPress={props.onKeyboard} active={props.systemKeyboard}>
           <KeyboardIcon active={props.systemKeyboard} />
         </AccessoryButton>}

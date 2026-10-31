@@ -21,8 +21,13 @@ vi.mock('./ui', () => ({
   Field: () => null,
 }));
 vi.mock('./updates/native', () => ({ updates: native.updates }));
-vi.mock('./preferences', () => ({ defaultPreferences: { hostname: 'shellfox-mobile', remembered: [], fontSize: 14, autoUpdate: true, accentColor: '#ec4899', backgroundColor: '#111016' } }));
+vi.mock('./preferences', () => ({ DEFAULT_MODIFIER_RELEASE_DELAY_MS: 1000, defaultPreferences: { hostname: 'shellfox-mobile', remembered: [], fontSize: 14, autoUpdate: true, accentColor: '#ec4899', backgroundColor: '#111016' } }));
 vi.mock('./ColorSwatches', () => ({ ColorSwatches: () => null }));
+vi.mock('./ModifierReleaseDelaySlider', () => ({
+  ModifierReleaseDelaySlider: ({ value, disabled, onChange }: { value: number; disabled?: boolean; onChange: (value: number) => void }) =>
+    <input type="range" aria-label="Sticky modifier release delay" min={250} max={3000} step={250}
+      value={value} disabled={disabled} onChange={event => onChange(Number(event.target.value))} />,
+}));
 const { SettingsScreen } = await import('./SettingsScreen');
 const valid = 'https://login.tailscale.com/a/test-only';
 function setup(loginUrl: string | null = valid, returnedUrl: string | null = valid, click = true) {
@@ -40,6 +45,32 @@ function setup(loginUrl: string | null = valid, returnedUrl: string | null = val
 }
 beforeEach(() => { vi.resetAllMocks(); native.openURL.mockResolvedValue(undefined); native.appState.currentState = 'active'; native.platform.OS = 'ios'; native.updates.check.mockResolvedValue({ version: '0.9.8' }); native.updates.install.mockResolvedValue(true); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+describe('modifier release delay settings', () => {
+  it.each(['android', 'ios'])('defaults older preferences and saves the delay on %s', async os => {
+    native.platform.OS = os;
+    const model = setup(null, null, false);
+    const slider = screen.getByRole('slider', { name: 'Sticky modifier release delay' });
+    expect(slider).toHaveValue('1000');
+    fireEvent.change(slider, { target: { value: '1750' } });
+    await waitFor(() => expect(model.updatePreferences).toHaveBeenCalledExactlyOnceWith({ modifierReleaseDelayMs: 1750 }));
+    model.source.preferences = { ...model.source.preferences, modifierReleaseDelayMs: 1750 };
+    model.rerender();
+    expect(slider).toHaveValue('1750');
+  });
+  it('blocks edits during save, reports failure, and retains the saved value', async () => {
+    const model = setup(null, null, false);
+    let rejectSave: (error: Error) => void = () => { throw new Error('Save not started'); };
+    vi.mocked(model.updatePreferences).mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectSave = reject; }));
+    const slider = screen.getByRole('slider', { name: 'Sticky modifier release delay' });
+    fireEvent.change(slider, { target: { value: '2500' } });
+    expect(slider).toBeDisabled();
+    await act(async () => { rejectSave(new Error('disk full')); });
+    expect(model.report).toHaveBeenCalledWith(expect.objectContaining({ message: 'disk full' }));
+    expect(slider).toBeEnabled();
+    expect(slider).toHaveValue('1000');
+  });
+});
+
 describe('explicit browser sign-in', () => {
   it('retains manual Android check and install buttons while automatic updates are off', async () => {
     native.platform.OS = 'android';

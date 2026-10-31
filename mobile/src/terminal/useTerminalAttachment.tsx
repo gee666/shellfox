@@ -5,6 +5,7 @@ import { v4 as uuid } from 'uuid';
 import { pickedFiles } from '../files';
 import { useTheme } from '../theme';
 import { AccessoryButton } from './KeyboardAccessory';
+import { AttachmentIcon } from './KeyboardIcon';
 import { sameUploadIdentity, TerminalUpload, UploadCancelled, type TerminalUploadApi, type UploadedFile, type UploadIdentity, type UploadProgress } from './upload';
 
 type Display = UploadProgress | { phase: 'done'; file: UploadedFile; copied: boolean } | { phase: 'error'; message: string };
@@ -63,7 +64,7 @@ export function useTerminalAttachment(options: {
     return captured && captured.current() && live && sameUploadIdentity(live.identity, captured.identity);
   };
   const busy = display?.phase === 'picking' || display?.phase === 'uploading';
-  const button = options.api ? <AccessoryButton label="Attach" onPress={start} disabled={!options.enabled || busy} /> : null;
+  const button = options.api ? <AccessoryButton label="Attach" onPress={start} disabled={!options.enabled || busy}><AttachmentIcon /></AccessoryButton> : null;
   const panel = display && <View style={[styles.row, { backgroundColor: colors.panel, borderColor: colors.line }]}>
     <Text style={[styles.text, { color: display.phase === 'error' ? colors.danger : colors.text }]} numberOfLines={2} selectable={display.phase === 'done'}>
       {display.phase === 'picking' ? 'Choose a file or image...' : display.phase === 'uploading'

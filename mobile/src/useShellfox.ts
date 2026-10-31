@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
+import { isAttachmentPickerOpen } from './attachment-picker-lifecycle';
 import { v4 as uuid } from 'uuid';
 import type { ManagerSnapshot } from '../../src/shared/contracts';
 import { RemoteClient, type ClientState } from './client/client';
@@ -199,7 +200,16 @@ export function useShellfox() {
       if (alive.current) timer = setTimeout(() => { void tick(); }, fastPoll.current ? 250 : 3000);
     };
     timer = setTimeout(() => { void tick(); }, 250);
+    let returningFromPicker = false;
     const subscription = AppState.addEventListener('change', state => {
+      // iOS becomes inactive for system sheets. Only real backgrounding releases terminal control.
+      if (state === 'inactive') return;
+      if (state === 'active') returningFromPicker = false;
+      else if (state === 'background' && (isAttachmentPickerOpen() || returningFromPicker)) {
+        // The picker result may arrive before the foreground event. Keep that whole round trip intact.
+        returningFromPicker = true;
+        return;
+      }
       ++epoch.current;
       foreground.current = state === 'active';
       if (foreground.current) void poll();

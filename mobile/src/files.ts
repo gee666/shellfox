@@ -1,5 +1,6 @@
 import { NativeModules } from 'react-native';
 import { z } from 'zod';
+import { withAttachmentPicker } from './attachment-picker-lifecycle';
 
 export const MAX_PICKED_FILE_BYTES = 64 * 1024 * 1024;
 export const MAX_FILE_CHUNK_BYTES = 192 * 1024;
@@ -35,7 +36,7 @@ function nativeFiles() {
   return parsed.data;
 }
 export const pickedFiles: PickedFiles = {
-  pick: token => nativeFiles().pick(token),
+  pick: token => withAttachmentPicker(() => nativeFiles().pick(token)),
   read: async (handle, offset, length) => {
     const chunk = await nativeFiles().read(handle, offset, length);
     const padding = chunk.data.endsWith('==') ? 2 : chunk.data.endsWith('=') ? 1 : 0;

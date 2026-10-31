@@ -12,13 +12,13 @@ import type { MachineView, ShellfoxModel } from './useShellfox';
 import type { MenuConfig } from './ActionMenu';
 import type { TerminalBridgeState } from './terminal/bridge';
 import { TerminalOperationError } from './terminal/errors';
-import { SessionScreen } from './SessionScreen';
+import { SessionScreen, type SessionControlIntent } from './SessionScreen';
 
 type NativeProps = {
   children?: ReactNode; accessibilityLabel?: string; accessibilityRole?: string; disabled?: boolean;
   onPress?: () => void; onLongPress?: () => void; testID?: string;
 };
-type TerminalProps = { tabId: string; readOnly?: boolean; onError: (error: Error) => void; onState: (state: TerminalBridgeState) => void };
+type TerminalProps = { tabId: string; readOnly?: boolean; takeoverIntent?: string; onTakeoverIntentConsumed?: (id: string) => void; onError: (error: Error) => void; onState: (state: TerminalBridgeState) => void };
 let terminalProps: TerminalProps | null = null;
 vi.mock('react-native', () => ({
   Alert: { alert: vi.fn() },
@@ -36,32 +36,33 @@ vi.mock('./terminal/TerminalView', () => ({ TerminalView: (props: TerminalProps)
 vi.mock('./ActionMenu', () => ({ ActionMenu: ({ menu, close }: { menu: MenuConfig; close: () => void }) => (
   <div role="dialog">{menu.actions.map(action => <button key={action.title} onClick={() => { close(); action.action(); }}>{action.title}</button>)}</div>
 ) }));
-vi.mock('./StatusIndicator', () => ({ StatusIndicator: ({ kind, label }: { kind: string; label: string }) => <span role="img" aria-label={label} data-kind={kind} /> }));
+vi.mock('./StatusIndicator', () => ({ StatusIndicator: ({ kind, label, loading }: { kind: string; label: string; loading?: boolean }) => <span role={loading ? 'progressbar' : 'img'} aria-label={label} data-kind={kind} /> }));
 beforeEach(() => { vi.clearAllMocks(); terminalProps = null; });
 afterEach(cleanup);
-function setup(connected = true, item: SessionDto = session()) {
-  item.tabs[0].status = 'running';
+function setup(connected = true, item: SessionDto = session(), remembered: string[] = [], controlIntent?: SessionControlIntent) {
+  if (item.tabs[0]) item.tabs[0].status = 'running';
   const transport = new TestTransport();
   const client = new RemoteClient('host', transport, { createClientId: () => '10000000-0000-4000-8000-000000000001' });
   const request = vi.spyOn(client, 'request').mockResolvedValue(success({ configured: true }));
   let machine: MachineView = {
     peer: { id: 'host', hostname: 'workstation', online: true, addresses: ['100.64.0.2'] },
     client, state: { ...client.getState(), status: connected ? 'connected' : 'disconnected', connectionId: 'test' },
-    snapshot: snapshot([item]), snapshotConnectionId: 'test', busyTabIds: { [item.tabs[0].id]: true },
+    snapshot: snapshot([item]), snapshotConnectionId: 'test', busyTabIds: item.tabs[0] ? { [item.tabs[0].id]: true } : {},
   };
   let model: ShellfoxModel = {
     ready: true, loading: false, network: { status: 'online', loginUrl: null, error: null }, peers: [], machines: [machine],
-    preferences: { hostname: 'phone', fontSize: 14, remembered: [] }, error: null,
+    preferences: { hostname: 'phone', fontSize: 14, remembered }, error: null,
     setError: vi.fn(), report: vi.fn(), updatePreferences: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
     login: vi.fn(), logout: vi.fn(), renameDevice: vi.fn(), refresh: vi.fn(), retryStart: vi.fn(),
   };
-  const ui = () => <SessionScreen machine={machine} sessionId={item.id} model={model} back={vi.fn()} prompt={vi.fn()} />;
+  const captured = vi.fn();
+  const ui = () => <SessionScreen onControlIntentCaptured={captured} controlIntent={controlIntent} machine={machine} sessionId={item.id} model={model} back={vi.fn()} prompt={vi.fn()} />;
   const view = render(ui());
   const update = (changes: Partial<MachineView>) => {
     machine = { ...machine, ...changes }; model = { ...model, machines: [machine] }; view.rerender(ui());
   };
   const replace = (next: SessionDto) => update({ snapshot: snapshot([next]) });
-  return { item, client, request, model, machine, view, update, replace };
+  return { item, client, request, model, machine, view, update, replace, captured };
 }
 async function press(name: string) { await act(async () => { fireEvent.click(screen.getByRole('button', { name })); }); }
 function newLiveSession(item: SessionDto) {
@@ -70,6 +71,58 @@ function newLiveSession(item: SessionDto) {
   return { ...item, tabs: [created, ...item.tabs, closed] };
 }
 describe('compact terminal chrome', () => {
+  it('does not infer takeover from automatic initial selection or metadata rerenders', () => {
+    const f = setup();
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+    f.replace({ ...f.item, title: 'Metadata update' });
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+  });
+  it('forwards an explicit session navigation intent once and never on reconnect', () => {
+    const f = setup(true, session(), [], { id: 'open-session', connectionId: 'test' });
+    expect(terminalProps?.takeoverIntent).toBe('open-session');
+    expect(f.captured).toHaveBeenCalledExactlyOnceWith('open-session');
+    act(() => terminalProps?.onTakeoverIntentConsumed?.('open-session'));
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+    f.replace({ ...f.item, title: 'Metadata update' });
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+    f.update({ state: { ...f.machine.state, status: 'reconnecting', connectionId: null } });
+    f.update({ state: { ...f.machine.state, status: 'connected', connectionId: 'replacement' }, snapshotConnectionId: 'replacement' });
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+  });
+  it('waits for the first terminal metadata in the captured connection without inventing a new intent', () => {
+    const item = session();
+    const f = setup(true, { ...item, tabs: [] }, [], { id: 'waiting-for-metadata', connectionId: 'test' });
+    expect(screen.queryByTestId('terminal')).toBeNull();
+    f.replace(item);
+    expect(terminalProps?.takeoverIntent).toBe('waiting-for-metadata');
+    act(() => terminalProps?.onTakeoverIntentConsumed?.('waiting-for-metadata'));
+    f.replace({ ...item, title: 'More metadata' });
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+  });
+  it('expires a pending session intent if the connection changes before terminal metadata arrives', () => {
+    const item = session();
+    const f = setup(true, { ...item, tabs: [] }, [], { id: 'stale-selection', connectionId: 'test' });
+    f.update({ state: { ...f.machine.state, connectionId: 'replacement' }, snapshotConnectionId: 'replacement' });
+    f.replace(item);
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+  });
+  it('creates a fresh one-shot intent on every tab focus tap, including the already active tab', async () => {
+    const f = setup();
+    fireEvent.click(screen.getByRole('tab', { name: f.item.tabs[0].title }));
+    const first = terminalProps?.takeoverIntent;
+    expect(first).toBeTruthy();
+    act(() => terminalProps?.onTakeoverIntentConsumed?.(first!));
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+    act(() => terminalProps?.onState('blocked'));
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+    fireEvent.click(screen.getByRole('tab', { name: f.item.tabs[0].title }));
+    const second = terminalProps?.takeoverIntent;
+    expect(second).toBeTruthy(); expect(second).not.toBe(first);
+    act(() => terminalProps?.onTakeoverIntentConsumed?.(first!));
+    expect(terminalProps?.takeoverIntent).toBe(second);
+    act(() => terminalProps?.onTakeoverIntentConsumed?.(second!));
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+  });
   it('keeps the session and host context with an accessible plus control and shared busy status', () => {
     const { item } = setup();
     expect(screen.getByText(item.title)).toBeInTheDocument();
@@ -83,6 +136,39 @@ describe('compact terminal chrome', () => {
     setup(false);
     expect(screen.getByRole('button', { name: 'New terminal' })).toBeDisabled();
     expect(screen.queryByTestId('terminal')).not.toBeInTheDocument();
+  });
+  it.each(['connecting', 'reconnecting'] as const)('shows an automatic recovery loader with no reconnect button while %s', status => {
+    const f = setup(false);
+    const reconnect = vi.spyOn(f.client, 'reconnect');
+    f.update({ state: { ...f.machine.state, status } });
+    expect(screen.getByRole('progressbar', { name: status === 'connecting' ? 'Connecting' : 'Reconnecting' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reconnect/i })).toBeNull();
+    expect(reconnect).not.toHaveBeenCalled();
+    f.update({ state: { ...f.machine.state, status: 'connected' } });
+    expect(screen.getByTestId('terminal')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar', { name: 'Reconnecting' })).toBeNull();
+  });
+  it('shows a loader for a remembered host waiting for automatic recovery, but not an explicit disconnect', () => {
+    const f = setup(false, session(), ['host']);
+    expect(screen.getByRole('progressbar', { name: 'Reconnecting' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /reconnect/i })).toBeNull();
+    f.view.unmount();
+    setup(false);
+    expect(screen.getByText('Disconnected.')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByRole('button', { name: /reconnect/i })).toBeNull();
+  });
+  it('keeps approval cancellation available and does not spin or retry a rejected connection', async () => {
+    const f = setup(false);
+    vi.mocked(f.model.disconnect).mockResolvedValue(undefined);
+    f.update({ state: { ...f.machine.state, status: 'awaiting-approval' } });
+    expect(screen.getByText('Approve this device on the host.')).toBeInTheDocument();
+    await press('Cancel request');
+    expect(f.model.disconnect).toHaveBeenCalledWith(f.machine.peer.id);
+    f.update({ state: { ...f.machine.state, status: 'rejected' } });
+    expect(screen.getByText('Access denied.')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.queryByRole('button', { name: /reconnect/i })).toBeNull();
   });
   it('adds the host default on a short press without requesting profiles, selecting the new live ID regardless of order', async () => {
     const f = setup(); const added = newLiveSession(f.item);

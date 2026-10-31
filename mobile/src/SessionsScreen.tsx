@@ -18,6 +18,7 @@ import { DirectoryPrompt, type DirectoryPromptConfig } from './DirectoryPrompt';
 export interface OpenSession {
   peerId: string;
   sessionId: string;
+  takeControl?: true;
 }
 export function SessionsScreen({
   model,
@@ -319,7 +320,7 @@ const SessionRow = memo(function SessionRow({ session, peerId, client, kind, lab
         accessibilityRole="button"
         accessibilityLabel={`Open ${session.title}`}
         accessibilityHint={`${label}. Long press for session actions`}
-        onPress={() => open({ peerId, sessionId: session.id })}
+        onPress={() => open({ peerId, sessionId: session.id, takeControl: true })}
         onLongPress={() => manage(client, session)}
         style={({ pressed }) => [compact.session, { opacity: pressed ? 0.7 : 1 }]}
       >
