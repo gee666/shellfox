@@ -107,8 +107,13 @@ describe.each(['android', 'ios'])('initial connection loading on %s', os => {
 
   it.each(['preferences', 'network'])('stops loading on %s failure and stays stopped after dismissing the error', async failure => {
     if (failure === 'preferences') native.load.mockRejectedValueOnce(new Error('storage unavailable'));
-    else native.start.mockRejectedValueOnce(new Error('network unavailable'));
+    else native.start.mockRejectedValue(new Error('network unavailable'));
     const { result } = renderHook(useShellfox); await settle();
+    if (failure === 'network') {
+      expect(result.current.network.status).toBe('starting');
+      expect(result.current.error).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+    }
     expect(result.current.network.status).toBe('error');
     expect(result.current.loading).toBe(false);
     act(() => result.current.setError(null));

@@ -34,11 +34,51 @@ it('recovers from a native status failure without leaving a connection-failed to
   mocks.status.mockRejectedValueOnce(new Error('Temporary connection failure'));
   const { result } = renderHook(useShellfox);
   await act(async () => { await flush(); });
-  expect(result.current.network.status).toBe('error');
+  expect(result.current.network.status).toBe('starting');
+  expect(result.current.loading).toBe(true);
   expect(result.current.error).toBeNull();
   await act(async () => { await vi.advanceTimersByTimeAsync(250); await flush(); });
   expect(result.current.network).toEqual(online);
   expect(result.current.error).toBeNull();
+});
+it('recovers a transient native startup failure automatically without a red error or retry action', async () => {
+  mocks.start.mockRejectedValueOnce(new Error('Tailscale is resuming'));
+  const { result } = renderHook(useShellfox);
+  await act(async () => { await flush(); });
+  expect(result.current.network).toEqual({ status: 'starting', loginUrl: null, error: null });
+  expect(result.current.error).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1250); await flush(); });
+  expect(mocks.start).toHaveBeenCalledTimes(2);
+  expect(result.current.network).toEqual(online);
+  expect(result.current.loading).toBe(false);
+  expect(result.current.error).toBeNull();
+});
+it('hides transient resume errors and shows persistent failures only after automatic recovery has had time', async () => {
+  const { result } = renderHook(useShellfox);
+  await act(async () => { await flush(); });
+  act(() => { changeState('background'); });
+  mocks.status.mockResolvedValue({ status: 'error', loginUrl: null, error: 'Tailscale control unavailable' });
+  await act(async () => { changeState('active'); await flush(); });
+  expect(result.current.network.status).toBe('starting');
+  expect(result.current.network.error).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+  expect(result.current.network.status).toBe('error');
+  expect(result.current.error).toBeNull();
+  mocks.status.mockResolvedValue(online);
+  await act(async () => { await vi.advanceTimersByTimeAsync(3250); });
+  expect(result.current.network).toEqual(online);
+  expect(result.current.error).toBeNull();
+});
+it('does not hide persistent discovery failures behind successful native status checks', async () => {
+  mocks.peers.mockRejectedValue(new Error('Discovery unavailable'));
+  const { result } = renderHook(useShellfox);
+  await act(async () => { await flush(); });
+  expect(result.current.network.status).toBe('starting');
+  await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+  expect(result.current.network).toEqual({ status: 'error', loginUrl: null, error: 'Discovery unavailable' });
+  mocks.peers.mockResolvedValue([]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(3250); });
+  expect(result.current.network).toEqual(online);
 });
 it('keeps a dark-screen in-flight approval request, resumes its UUID, and withdraws only on explicit cancel', async () => {
   const peer: NetworkPeer = { id: 'host-1', hostname: 'workstation', online: true, addresses: [] };
@@ -108,6 +148,8 @@ it('keeps a working authenticated stream through a control health error but drop
   const peerReads = mocks.peers.mock.calls.length;
   await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
   expect(client.getState()).toMatchObject({ status: 'connected', connectionId });
+  expect(result.current.network).toEqual(online);
+  expect(result.current.loading).toBe(false);
   await act(async () => { transport.events([{ type: 'terminal', event: { type: 'activity', tabId: '20000000-0000-4000-8000-000000000001', busy: true } }]); await flush(); });
   expect(terminal).toHaveBeenCalledOnce(); expect(transport.polls).toHaveLength(2);
   expect(transport.calls('/v1/disconnect')).toHaveLength(0); expect(mocks.peers).toHaveBeenCalledTimes(peerReads);

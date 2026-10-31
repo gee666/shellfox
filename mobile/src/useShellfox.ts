@@ -6,6 +6,7 @@ import type { ManagerSnapshot } from '../../src/shared/contracts';
 import { RemoteClient, type ClientState } from './client/client';
 import { RemoteClientError } from './client/protocol';
 import { isConnectionFailure } from './connection-status';
+import { NetworkRecovery } from './network-recovery';
 import { nativeNetwork, discoverHosts, networkStatus, type NetworkPeer, type NetworkStatus } from './network';
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './preferences';
 
@@ -34,6 +35,11 @@ export function useShellfox() {
   const alive = useRef(true);
   const epoch = useRef(0);
   const startAttempt = useRef(0);
+  const starting = useRef<number | null>(null);
+  const nativeStarting = useRef<Promise<string> | null>(null);
+  const transitioning = useRef(false);
+  const nextStart = useRef(0);
+  const recovery = useRef(new NetworkRecovery());
   const pollNow = useRef<() => Promise<void>>(async () => {});
   const refreshes = useRef(new WeakMap<RemoteClient, SnapshotRefresh>());
 
@@ -129,28 +135,45 @@ export function useShellfox() {
     return client;
   }, [refresh]);
 
-  const retryStart = useCallback(async () => {
-    if (!alive.current) return;
+  const networkFailure = useCallback((message: string) => {
+    const working = [...clients.current.values()].some(({ client }) => client.getState().status === 'connected');
+    const status = recovery.current.failure(message, working);
+    fastPoll.current = status.status === 'starting';
+    setDiscovering(false);
+    setNetwork(status);
+  }, []);
+  const retryStart = useCallback(async (manual = true) => {
+    if (!alive.current || transitioning.current || starting.current !== null) return;
+    if (manual) recovery.current.reset();
     const attempt = ++startAttempt.current;
+    starting.current = attempt;
     ++epoch.current; started.current = false;
     fastPoll.current = true; setDiscovering(true);
-    setReady(false); setError(null); setNetwork({ status: 'starting', loginUrl: null, error: null });
+    setReady(false);
+    if (manual) { setError(null); setNetwork({ status: 'starting', loginUrl: null, error: null }); }
     try {
       if (!loaded.current) {
         const saved = await loadPreferences();
         if (!alive.current || attempt !== startAttempt.current) return;
         current.current = saved; loaded.current = true; setPreferences(saved); setPreferencesLoaded(true);
       }
-      await nativeNetwork.start(current.current.hostname);
+      await nativeStarting.current?.catch(() => {});
       if (!alive.current || attempt !== startAttempt.current) return;
-      started.current = true; setReady(true); await pollNow.current();
+      const task = nativeNetwork.start(current.current.hostname);
+      nativeStarting.current = task;
+      try { await task; } finally { if (nativeStarting.current === task) nativeStarting.current = null; }
+      if (!alive.current || attempt !== startAttempt.current) return;
+      started.current = true; starting.current = null; setReady(true); await pollNow.current();
     } catch (cause) {
       if (alive.current && attempt === startAttempt.current) {
-        fastPoll.current = false; setDiscovering(false);
-        setNetwork({ status: 'error', loginUrl: null, error: errorMessage(cause) }); report(cause);
+        if (!loaded.current) {
+          fastPoll.current = false; setDiscovering(false);
+          setNetwork({ status: 'error', loginUrl: null, error: errorMessage(cause) }); report(cause);
+        } else if (foreground.current) networkFailure(errorMessage(cause));
+        nextStart.current = Date.now() + 1000;
       }
-    }
-  }, [report]);
+    } finally { if (starting.current === attempt) starting.current = null; }
+  }, [report, networkFailure]);
 
   useEffect(() => {
     alive.current = true;
@@ -162,10 +185,16 @@ export function useShellfox() {
       busy = token;
       const valid = () => alive.current && foreground.current && started.current && token === epoch.current;
       try {
-        const status = await networkStatus(); if (!valid()) return; setNetwork(status);
-        fastPoll.current = status.status === 'starting';
+        const status = await networkStatus(); if (!valid()) return;
+        if (status.status === 'error') networkFailure(status.error ?? 'Could not connect to Tailscale.');
+        else {
+          if (status.status !== 'starting' && status.status !== 'online') recovery.current.reset();
+          if (status.status !== 'online') setNetwork(status);
+          fastPoll.current = status.status === 'starting';
+        }
         if (status.status === 'online') {
           const discovery = await discoverHosts(); if (!valid()) return;
+          recovery.current.reset(); setNetwork(status);
           const found = discovery.peers; setPeers(found); setDiscovering(discovery.discovering);
           fastPoll.current = discovery.discovering;
           setMachines(items => items.map(item => ({ ...item, peer: found.find(peer => peer.id === item.peer.id) ?? { ...item.peer, online: false } })));
@@ -187,8 +216,7 @@ export function useShellfox() {
         }
       } catch (cause) {
         if (valid()) {
-          fastPoll.current = false; setDiscovering(false);
-          setNetwork({ status: 'error', loginUrl: null, error: errorMessage(cause) });
+          networkFailure(errorMessage(cause));
         }
       } finally { if (busy === token) busy = null; }
     };
@@ -196,7 +224,8 @@ export function useShellfox() {
     void retryStart();
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
-      await poll();
+      if (!transitioning.current && !started.current && loaded.current && foreground.current && recovery.current.pending && Date.now() >= nextStart.current) await retryStart(false);
+      else await poll();
       if (alive.current) timer = setTimeout(() => { void tick(); }, fastPoll.current ? 250 : 3000);
     };
     timer = setTimeout(() => { void tick(); }, 250);
@@ -212,15 +241,20 @@ export function useShellfox() {
       }
       ++epoch.current;
       foreground.current = state === 'active';
-      if (foreground.current) void poll();
+      if (foreground.current) {
+        recovery.current.reset();
+        if (loaded.current) setNetwork(value => value.status === 'error' ? { status: 'starting', loginUrl: null, error: null } : value);
+        if (started.current) void poll();
+        else if (loaded.current) void retryStart(false);
+      }
       else for (const { client } of clients.current.values()) client.suspend();
     });
     return () => {
-      alive.current = false; started.current = false; ++epoch.current; ++startAttempt.current;
+      alive.current = false; started.current = false; starting.current = null; ++epoch.current; ++startAttempt.current;
       clearTimeout(timer); subscription.remove();
       for (const entry of clients.current.values()) entry.dispose(); clients.current.clear();
     };
-  }, [ensureClient, report, retryStart]);
+  }, [ensureClient, report, retryStart, networkFailure]);
 
   const connect = useCallback(async (peer: NetworkPeer) => {
     const token = epoch.current;
@@ -246,24 +280,27 @@ export function useShellfox() {
     return status;
   }, []);
   const logout = useCallback(async () => {
-    ++epoch.current; ++startAttempt.current; started.current = false; setReady(false);
+    ++epoch.current; ++startAttempt.current; started.current = false; starting.current = null; transitioning.current = true; setReady(false);
     for (const entry of clients.current.values()) entry.dispose(); clients.current.clear(); setMachines([]); setPeers([]);
     try {
+      await nativeStarting.current?.catch(() => {});
       await nativeNetwork.logout();
       await changePreferences(value => ({ ...value, remembered: [] }));
     } finally {
       // Logout stops the native node. Restart even after a persistence failure, and
       // read the real status rather than claiming sign-out succeeded on an error.
+      transitioning.current = false;
       await retryStart();
     }
   }, [changePreferences, retryStart]);
   const renameDevice = useCallback(async (hostname: string) => {
-    ++epoch.current; ++startAttempt.current; started.current = false; setReady(false);
+    ++epoch.current; ++startAttempt.current; started.current = false; starting.current = null; transitioning.current = true; setReady(false);
     for (const { client } of clients.current.values()) if (client.getState().status !== 'rejected') client.stop();
     try {
+      await nativeStarting.current?.catch(() => {});
       await nativeNetwork.stop();
       await updatePreferences({ hostname });
-    } finally { await retryStart(); }
+    } finally { transitioning.current = false; await retryStart(); }
   }, [updatePreferences, retryStart]);
   const loading = network.status !== 'error' && (!ready || network.status === 'starting'
     || network.status === 'online' && (discovering && machines.length === 0

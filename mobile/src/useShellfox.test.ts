@@ -132,12 +132,14 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     const { unmount } = renderHook(useShellfox); unmount(); loading.resolve(defaults); await settle();
     expect(mocks.start).not.toHaveBeenCalled(); expect(removeListener).toHaveBeenCalledOnce();
   });
-  it('reports startup failure and leaves sign-in disabled', async () => {
+  it('retries startup silently before exposing a persistent failure and leaves sign-in disabled', async () => {
     mocks.start.mockRejectedValue(new Error('native startup failed'));
     const { result } = renderHook(useShellfox); await settle();
-    expect(result.current.ready).toBe(false); expect(result.current.error).toBe('native startup failed');
+    expect(result.current.ready).toBe(false); expect(result.current.error).toBeNull();
+    expect(result.current.network).toEqual({ status: 'starting', loginUrl: null, error: null });
+    await act(async () => { await vi.advanceTimersByTimeAsync(16_000); });
+    expect(mocks.start.mock.calls.length).toBeGreaterThan(1);
     expect(result.current.network).toEqual({ status: 'error', loginUrl: null, error: 'native startup failed' });
-    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
     expect(mocks.status).not.toHaveBeenCalled();
   });
   it('deduplicates connected machines, stops in background and reconnects on resume', async () => {
@@ -245,6 +247,53 @@ describe('mobile state lifecycle with mocked native boundary', () => {
     await act(async () => { await result.current.renameDevice('phone-qa'); });
     expect(mocks.stop).toHaveBeenCalledOnce(); expect(mocks.start).toHaveBeenLastCalledWith('phone-qa');
     expect(result.current.preferences.hostname).toBe('phone-qa'); expect(mocks.save).toHaveBeenCalledWith({ ...defaults, hostname: 'phone-qa' });
+  });
+  it.each(['rename', 'logout'] as const)('%s waits for an invalidated native startup before stopping and restarting', async action => {
+    const oldStart = deferred<string>(), newStart = deferred<string>();
+    mocks.start.mockReturnValueOnce(oldStart.promise).mockReturnValueOnce(newStart.promise);
+    mocks.status.mockResolvedValue(online);
+    const { result } = renderHook(useShellfox); await settle();
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith(defaults.hostname);
+    let pending = Promise.resolve();
+    act(() => { pending = action === 'rename' ? result.current.renameDevice('renamed') : result.current.logout(); });
+    await settle();
+    const stop = action === 'rename' ? mocks.stop : mocks.logout;
+    expect(stop).not.toHaveBeenCalled(); expect(mocks.save).not.toHaveBeenCalled();
+
+    oldStart.resolve(''); await settle();
+    expect(stop).toHaveBeenCalledOnce(); expect(mocks.save).toHaveBeenCalledOnce();
+    const hostname = action === 'rename' ? 'renamed' : defaults.hostname;
+    expect(mocks.start.mock.calls).toEqual([[defaults.hostname], [hostname]]);
+    expect(result.current.ready).toBe(false); expect(mocks.status).not.toHaveBeenCalled();
+    await act(async () => { newStart.resolve(''); await pending; await flush(); });
+    expect(result.current.ready).toBe(true); expect(result.current.network).toEqual(online);
+    expect(result.current.preferences.hostname).toBe(hostname); expect(result.current.error).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(3250); });
+    expect(mocks.start).toHaveBeenCalledTimes(2);
+  });
+  it.each(['rename', 'logout'] as const)('%s suppresses recovery starts while preferences are still saving, including on resume', async action => {
+    mocks.start.mockRejectedValueOnce(new Error('Tailscale is resuming'));
+    mocks.status.mockResolvedValue(online);
+    const { result } = renderHook(useShellfox); await settle();
+    expect(result.current.network.status).toBe('starting'); expect(result.current.ready).toBe(false);
+    const saving = deferred<void>(); mocks.save.mockReturnValueOnce(saving.promise);
+    let pending = Promise.resolve();
+    act(() => { pending = action === 'rename' ? result.current.renameDevice('renamed') : result.current.logout(); });
+    await settle();
+    expect(action === 'rename' ? mocks.stop : mocks.logout).toHaveBeenCalledOnce();
+    expect(mocks.save).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(mocks.start).toHaveBeenCalledExactlyOnceWith(defaults.hostname);
+    await foreground('background'); await foreground('active');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1250); });
+    expect(mocks.start).toHaveBeenCalledTimes(1); expect(mocks.status).not.toHaveBeenCalled();
+
+    await act(async () => { saving.resolve(); await pending; await flush(); });
+    const hostname = action === 'rename' ? 'renamed' : defaults.hostname;
+    expect(mocks.start.mock.calls).toEqual([[defaults.hostname], [hostname]]);
+    expect(result.current.preferences.hostname).toBe(hostname);
+    expect(result.current.ready).toBe(true); expect(result.current.network).toEqual(online);
+    expect(result.current.error).toBeNull();
   });
   it('does not reconnect from an in-flight peer discovery after entering background', async () => {
     const discovering = deferred<NetworkPeer[]>(); mocks.peers.mockReturnValue(discovering.promise);
