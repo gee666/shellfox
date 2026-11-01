@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DOMParser } from '@xmldom/xmldom';
-import { parseHierarchy } from './mobile-e2e-controls.mjs';
+import { controlBounds, parseHierarchy, revealControl } from './mobile-e2e-controls.mjs';
 import { checkGboardInput } from './mobile-terminal-ime.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -60,13 +60,27 @@ async function waitFor(check, description) {
   while (Date.now() < until) { const value = check(dump()); if (value) return value; await sleep(400); }
   throw new Error(`Timed out waiting for ${description}`);
 }
-const control = (tree, label) => tree.find(node => node.label === label);
+const control = (tree, label) => tree.find(node => node.label === label && controlBounds(node));
 function tapNode(node) {
-  const bounds = node.bounds.match(/\d+/g)?.map(Number);
-  assert(bounds?.length === 4, 'Control has no bounds');
-  shell('input', 'tap', `${Math.round((bounds[0] + bounds[2]) / 2)}`, `${Math.round((bounds[1] + bounds[3]) / 2)}`);
+  const bounds = controlBounds(node);
+  assert(bounds, 'Control has no drawable bounds');
+  shell('input', 'tap', `${Math.round((bounds.left + bounds.right) / 2)}`, `${Math.round((bounds.top + bounds.bottom) / 2)}`);
 }
 async function tap(label) { tapNode(await waitFor(tree => control(tree, label), label)); }
+async function tapAccessory(label) {
+  tapNode(await revealControl(label, {
+    read: dump,
+    scroll: direction => {
+      const row = dump().find(node => node.type === 'android.widget.HorizontalScrollView' && controlBounds(node));
+      const bounds = controlBounds(row);
+      assert(bounds, 'Terminal accessory scroll row is missing');
+      const left = bounds.left + 10, right = bounds.right - 10;
+      const y = Math.round((bounds.top + bounds.bottom) / 2);
+      shell('input', 'swipe', `${direction === 'forward' ? right : left}`, `${y}`,
+        `${direction === 'forward' ? left : right}`, `${y}`, '300');
+    },
+  }));
+}
 async function fillDirectory(value) {
   assert(/^[~A-Za-z0-9_./-]+$/.test(value), 'Unsafe fixture path');
   await tap('Host directory');
@@ -149,7 +163,7 @@ try {
   const attachment = path.join(output, 'shellfox-attachment.txt');
   writeFileSync(attachment, 'Shellfox attachment fixture 0123456789\n'.repeat(6000));
   adb(['push', attachment, '/sdcard/Download/shellfox-attachment.txt']);
-  await tap('Attach');
+  await tapAccessory('Attach');
   await waitFor(tree => control(tree, 'Show roots'), 'system document picker');
   screenshot('attachment-picker');
   await tap('Show roots');
@@ -161,7 +175,7 @@ try {
   await tap('Insert path');
   await waitFor(tree => (status(tree) ?? '').endsWith('/home/mobile/uploads/mobile attachment.txt') && delivered(tree), 'inserted path without a submitted command');
   await tap('Dismiss attachment');
-  await tap('Attach');
+  await tapAccessory('Attach');
   await waitFor(tree => control(tree, 'Show roots'), 'second system picker');
   shell('input', 'keyevent', 'KEYCODE_BACK');
   await waitFor(tree => control(tree, 'Attach') && !control(tree, 'Cancel attachment'), 'native picker cancellation returns to terminal');
