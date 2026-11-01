@@ -130,7 +130,12 @@ try {
   screenshot('terminal-keyboard-button');
   await tap('Special keys');
   await waitFor(tree => !imeTop() && control(tree, 'Alt') && control(tree, 'F1'), 'special keys replace system keyboard');
-  await tap('F1'); await tap('Ctrl'); await tap('c'); await tap('c'); await tap('Ctrl');
+  await tap('F1'); await tap('Ctrl'); await tap('c');
+  // UI hierarchy dumps exceed the default idle-release delay. Re-arm Ctrl
+  // after expiry rather than assuming it stays latched between inspections.
+  await sleep(1100);
+  await tap('Ctrl'); await tap('c');
+  await sleep(1100);
   await waitFor(tree => (status(tree) ?? '').endsWith('terminal_native_ok\\x1bOP\\x03\\x03') && delivered(tree), 'F1 and exactly two Ctrl+C bytes rendered');
   screenshot('terminal-special-keys');
   await tap('Keyboard');
