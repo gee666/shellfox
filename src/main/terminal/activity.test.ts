@@ -9,18 +9,35 @@ afterEach(() => vi.useRealTimers());
 describe('terminal activity', () => {
   it('emits transitions only and restarts the 2500ms silence deadline', () => {
     vi.useFakeTimers(); const emit = vi.fn(), activity = new TerminalActivity('tab', emit);
-    activity.output(); activity.output(); expect(emit.mock.calls).toEqual([[{ type: 'activity', tabId: 'tab', busy: true }]]);
-    vi.advanceTimersByTime(2499); activity.output(); vi.advanceTimersByTime(2499); expect(emit).toHaveBeenCalledTimes(1);
+    activity.output('x'); activity.output('x'); expect(emit.mock.calls).toEqual([[{ type: 'activity', tabId: 'tab', busy: true }]]);
+    vi.advanceTimersByTime(2499); activity.output('x'); vi.advanceTimersByTime(2499); expect(emit).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1); expect(emit).toHaveBeenLastCalledWith({ type: 'activity', tabId: 'tab', busy: false });
     vi.advanceTimersByTime(10000); expect(emit).toHaveBeenCalledTimes(2);
-    activity.output(); expect(emit).toHaveBeenLastCalledWith({ type: 'activity', tabId: 'tab', busy: true });
+    activity.output('x'); expect(emit).toHaveBeenLastCalledWith({ type: 'activity', tabId: 'tab', busy: true });
     activity.stop(); activity.stop(); expect(emit).toHaveBeenCalledTimes(4); expect(vi.getTimerCount()).toBe(0);
   });
   it('ignores echo for 250ms after each input without extending a busy deadline', () => {
     vi.useFakeTimers(); const emit = vi.fn(), activity = new TerminalActivity('tab', emit);
-    activity.input(); activity.output(); vi.advanceTimersByTime(249); activity.output(); expect(emit).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1); activity.output(); expect(emit).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(2400); activity.input(); activity.output(); vi.advanceTimersByTime(100);
+    activity.input(); activity.output('x'); vi.advanceTimersByTime(249); activity.output('x'); expect(emit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1); activity.output('x'); expect(emit).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(2400); activity.input(); activity.output('x'); vi.advanceTimersByTime(100);
+    expect(emit).toHaveBeenLastCalledWith({ type: 'activity', tabId: 'tab', busy: false });
+  });
+  it('ignores idle cursor/synchronized-output boilerplate, including split across chunks', () => {
+    vi.useFakeTimers(); const emit = vi.fn(), activity = new TerminalActivity('tab', emit);
+    activity.output('\x1b[?2026h\x1b[35;1H\x1b[?25l\x1b[?2026l'); activity.output('\x1b[?20'); activity.output('26h\x1b[3'); activity.output('5;1H\x1b[A\x1b[?25h');
+    expect(emit).not.toHaveBeenCalled();
+    activity.output('\x1b[?2026h\x1b[2'); activity.output('KHi'); expect(emit).toHaveBeenCalledTimes(1);
+  });
+  it('keeps real text, erase, clear-screen and unknown sequences as activity', () => {
+    vi.useFakeTimers();
+    for (const data of ['hello', '\x1b[2J', '\x1b[K', '\x1b[?1049h', '\x1b[31m', '\x1b]0;t\x07', '\x1b[?2026h\x1b[1;1Hx']) {
+      const emit = vi.fn(), activity = new TerminalActivity('tab', emit); activity.output(data); expect(emit, JSON.stringify(data)).toHaveBeenCalledTimes(1); activity.stop();
+    }
+  });
+  it('does not extend a busy deadline with idle boilerplate', () => {
+    vi.useFakeTimers(); const emit = vi.fn(), activity = new TerminalActivity('tab', emit);
+    activity.output('work'); vi.advanceTimersByTime(2000); activity.output('\x1b[?2026h\x1b[35;1H\x1b[?25l\x1b[?2026l'); vi.advanceTimersByTime(500);
     expect(emit).toHaveBeenLastCalledWith({ type: 'activity', tabId: 'tab', busy: false });
   });
   it('tracks every owned tab independently without attachment and clears timers on exit/disposal', async () => {

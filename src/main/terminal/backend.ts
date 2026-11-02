@@ -318,7 +318,7 @@ export class PtyBackend {
   }
   private output(e: Entry, data: string): void {
     if (e.state !== 'open' || this.entries.get(e.tabId) !== e || !data) return;
-    e.activity.output();
+    e.activity.output(data);
     // Split UTF-16 on codepoint boundaries; 4096 units are always <=16 KiB UTF-8.
     for (let offset = 0; offset < data.length;) {
       let end = Math.min(data.length, offset + 4096);
