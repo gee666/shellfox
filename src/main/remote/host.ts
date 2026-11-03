@@ -56,7 +56,7 @@ export class RemoteHost {
     this.uploads.cancelActor(id, tabId);
     const client = this.clients.get(id); if (!client) return;
     // Activity is global status metadata, not an owned terminal frame.
-    client.events = client.events.filter(event => event.type !== 'terminal' || event.event.type === 'activity' || event.event.tabId !== tabId);
+    client.events = client.events.filter(event => event.type !== 'terminal' || event.event.type === 'activity' || event.event.type === 'settlement' || event.event.tabId !== tabId);
     client.bytes = client.events.reduce((sum, event) => sum + Buffer.byteLength(JSON.stringify(event)), 0);
   }
   private enqueue(id: string, event: RemoteHostEvent): void {
@@ -66,10 +66,10 @@ export class RemoteHost {
       for (const previous of client.events) if (previous.type === 'changed') client.bytes -= Buffer.byteLength(JSON.stringify(previous));
       client.events = client.events.filter(e => e.type !== 'changed');
     }
-    if (event.type === 'terminal' && event.event.type === 'activity') {
+    if (event.type === 'terminal' && (event.event.type === 'activity' || event.event.type === 'settlement')) {
       const tabId = event.event.tabId;
       client.events = client.events.filter(previous => {
-        if (previous.type !== 'terminal' || previous.event.type !== 'activity' || previous.event.tabId !== tabId) return true;
+        if (previous.type !== 'terminal' || previous.event.type !== event.event.type || previous.event.tabId !== tabId) return true;
         client.bytes -= Buffer.byteLength(JSON.stringify(previous));
         return false;
       });
@@ -152,10 +152,11 @@ export class RemoteHost {
       }
       if (client.requests >= 8) { this.reply(response, failure('VALIDATION', 'Too many pending operations.', true)); return; }
       const command = operation.parse(raw); client.requests++;
+      const canCommit = () => this.clients.get(id) === client && this.approved(peer.id) && !this.isDenied(id) && !this.authorize?.(peer, input.clientId);
       try {
         const result = isTerminalUploadMethod(command.method)
-          ? await this.uploads.request({ id, delivery: client.delivery, valid: () => this.clients.get(id) === client && this.approved(peer.id) && !this.isDenied(id) && !this.authorize?.(peer, input.clientId) }, command.method, command.payload)
-          : await remoteOperation(this.service, client.delivery, id, command.method, command.payload);
+          ? await this.uploads.request({ id, delivery: client.delivery, valid: canCommit }, command.method, command.payload)
+          : await remoteOperation(this.service, client.delivery, id, command.method, command.payload, canCommit);
         const permission = this.authorize?.(peer, input.clientId);
         if (!this.approved(peer.id) || this.isDenied(id) || permission?.code === 'ACCESS_DENIED') this.reply(response, failure('ACCESS_DENIED', 'The host revoked this connection.', false));
         else this.reply(response, result);

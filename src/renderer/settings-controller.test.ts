@@ -17,6 +17,22 @@ function setup() {
 const tick = () => vi.advanceTimersByTimeAsync(400);
 
 describe('client-owned settings controller', () => {
+  it('omits terminalEnv from autosaves and accepts the latest globals returned by the host', async () => {
+    const { initial, fixture, controller } = setup();
+    initial.settings.terminalEnv = [{ name: 'GLOBAL', value: 'stale desktop copy' }];
+    controller.observe(initial.settings);
+    const latestEnv = [{ name: 'GLOBAL', value: 'new remote value' }];
+    await fixture.api.setTerminalEnv({ env: latestEnv });
+    controller.update(draft => ({ ...draft, accentColor: '#60a5fa' }));
+    await tick();
+    const input = fixture.api.saveSettings.mock.calls[0]![0];
+    expect(Object.hasOwn(input, 'terminalEnv')).toBe(false);
+    expect(input.accentColor).toBe('#60a5fa');
+    expect(controller.store.getState().draft?.terminalEnv).toEqual(latestEnv);
+    const persisted = await fixture.api.getSnapshot();
+    expect(persisted).toMatchObject({ ok: true, value: { settings: { terminalEnv: latestEnv, accentColor: '#60a5fa' } } });
+  });
+
   it.each(['C:\\Program Files\\agent.exe', '/opt/Agent Tools/agent', '\\\\wsl.localhost\\Ubuntu\\opt\\Agent Tools\\agent', '\\\\wsl$\\Debian\\opt\\agent'])('autosaves executable paths accepted by shared validation: %s', async path => {
     const { fixture, controller } = setup();
     const rule = createAgentRule(path);
@@ -55,7 +71,7 @@ describe('client-owned settings controller', () => {
     expect(controller.store.getState().draft?.processRules[0]!.enabled).toBe(false);
     controller.update(draft => ({ ...draft, accentColor: '#4ade80' }));
     await tick(); expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
-    pending.resolve(success({ ...fixture.api.saveSettings.mock.calls[0]![0], shellExecutable: 'C:\\canonical\\pwsh.exe' }));
+    pending.resolve(success({ ...fixture.api.saveSettings.mock.calls[0]![0], terminalEnv: [], shellExecutable: 'C:\\canonical\\pwsh.exe' }));
     await vi.advanceTimersByTimeAsync(0);
     expect(fixture.api.saveSettings).toHaveBeenCalledTimes(2);
     expect(fixture.api.saveSettings.mock.calls[1]![0]).toMatchObject({ accentColor: '#4ade80', shellExecutable: 'C:\\canonical\\pwsh.exe' });
@@ -79,12 +95,12 @@ describe('client-owned settings controller', () => {
     await tick();
     controller.update(draft => ({ ...draft, terminalProfileId: 'pwsh', processRules: draft.processRules.map(rule => ({ ...rule, enabled: false })) }));
     await tick();
-    pending.resolve(success({ ...fixture.api.saveSettings.mock.calls[0]![0], shellId: 'wsl', shellExecutable: 'C:\\Windows\\System32\\wsl.exe' }));
+    pending.resolve(success({ ...fixture.api.saveSettings.mock.calls[0]![0], terminalEnv: [], shellId: 'wsl', shellExecutable: 'C:\\Windows\\System32\\wsl.exe' }));
     await vi.advanceTimersByTimeAsync(0);
     const second = fixture.api.saveSettings.mock.calls[1]![0];
     expect(second).toMatchObject({ terminalProfileId: 'pwsh', shellId: 'wsl', shellExecutable: 'C:\\Windows\\System32\\wsl.exe' });
     expect(second.processRules[0]!.enabled).toBe(false);
-    expect(controller.store.getState().draft).toEqual(second);
+    expect(controller.store.getState().draft).toEqual({ ...second, terminalEnv: [] });
   });
 
   it('does not roll back a newer untouched snapshot field when a delayed response arrives', async () => {
@@ -94,7 +110,7 @@ describe('client-owned settings controller', () => {
     controller.update(draft => ({ ...draft, accentColor: '#60a5fa' })); await tick();
     controller.observe({ ...initial.settings, historyPageSize: 3 });
     controller.update(draft => ({ ...draft, processRules: draft.processRules.map(rule => ({ ...rule, enabled: false })) })); await tick();
-    pending.resolve(success(fixture.api.saveSettings.mock.calls[0]![0])); await vi.advanceTimersByTimeAsync(0);
+    pending.resolve(success({ ...fixture.api.saveSettings.mock.calls[0]![0], terminalEnv: [] })); await vi.advanceTimersByTimeAsync(0);
     expect(fixture.api.saveSettings.mock.calls[1]![0].historyPageSize).toBe(3);
     expect(controller.store.getState().draft?.historyPageSize).toBe(3);
   });
@@ -114,7 +130,7 @@ describe('client-owned settings controller', () => {
   it('ignores a repeated old snapshot after normalization but accepts a newer external reset', async () => {
     const { initial, fixture, controller } = setup();
     controller.observe(initial.settings, 1);
-    fixture.api.saveSettings.mockImplementationOnce(async value => success({ ...value, shellExecutable: 'C:\\canonical\\pwsh.exe' }));
+    fixture.api.saveSettings.mockImplementationOnce(async value => success({ ...value, terminalEnv: [], shellExecutable: 'C:\\canonical\\pwsh.exe' }));
     controller.update(draft => ({ ...draft, accentColor: '#60a5fa' })); await tick();
     controller.observe(initial.settings, 1);
     expect(controller.store.getState().draft?.shellExecutable).toBe('C:\\canonical\\pwsh.exe');

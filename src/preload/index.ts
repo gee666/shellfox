@@ -71,6 +71,7 @@ const api: ManagerApi = {
     return () => ipcRenderer.removeListener('manager:keep-awake', receive);
   },
   setSessionEnv: input => request('setSessionEnv', input),
+  setTerminalEnv: input => request('setTerminalEnv', input),
   setCliIntegration: input => request('setCliIntegration', input),
   chooseDirectory: () => request('chooseDirectory', {}),
   getHomeDirectory: () => request('getHomeDirectory', {}),

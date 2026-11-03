@@ -5,6 +5,7 @@ import type { OwnedTerminalAttachmentDto, Result, TerminalApi, TerminalEvent } f
 import { CliFailure, unwrap } from './output';
 import { ENTER_TERMINAL_SCREEN, LEAVE_TERMINAL_SCREEN, RESET_TERMINAL_MODES, terminalGrid } from './terminal-presentation';
 import { TerminalQueryFilter } from './terminal-queries';
+import { isTerminalFocusReport } from '../shared/terminal-input';
 export type AttachApi = Pick<TerminalApi, 'attachTerminal' | 'takeTerminalControl' | 'writeTerminal' | 'resizeTerminal' | 'acknowledgeTerminal' | 'detachTerminal' | 'subscribeTerminal'>;
 type Events = Pick<EventEmitter, 'on' | 'off'>;
 export interface AttachIo {
@@ -21,6 +22,8 @@ export async function attachTerminal(api: AttachApi, tabId: string, io: AttachIo
   const wasRaw = io.input.isRaw;
   const decoder = new StringDecoder('utf8'), queries = new TerminalQueryFilter();
   let generation: string | undefined, controlEpoch = 0, sequence = 0;
+  let settledAt: string | null | undefined;
+  let observedSettlement: Extract<TerminalEvent, { type: 'settlement' }> | undefined;
   let stopped = false, attached = false, owned = false, taking = false;
   let observedControl: Extract<TerminalEvent, { type: 'control' }> | undefined;
   let presentationStarted = false, gridRequested = false, replaying = false;
@@ -59,11 +62,14 @@ export async function attachTerminal(api: AttachApi, tabId: string, io: AttachIo
   const replayCurrent = (snapshot: OwnedTerminalAttachmentDto) => !stopped && snapshot.controlEpoch >= controlEpoch
     && (!observedControl || observedControl.generation !== snapshot.generation
       || (observedControl.controlEpoch <= snapshot.controlEpoch && !(observedControl.controlEpoch === snapshot.controlEpoch && observedControl.control === 'blocked')));
-  const present = async (snapshot: OwnedTerminalAttachmentDto) => {
+  const present = async (snapshot: OwnedTerminalAttachmentDto, previousSettlement: typeof observedSettlement) => {
     if (stopped || snapshot.controlEpoch < controlEpoch) return;
     generation = snapshot.generation;
     if (!replayCurrent(snapshot)) { await showBlocked(); return; }
-    controlEpoch = snapshot.controlEpoch; owned = true; queries.reset();
+    controlEpoch = snapshot.controlEpoch;
+    settledAt = observedSettlement !== previousSettlement && observedSettlement?.generation === snapshot.generation
+      ? observedSettlement.settledAt : snapshot.settledAt;
+    owned = true; queries.reset();
     let restored = false;
     replaying = true;
     try {
@@ -100,14 +106,15 @@ export async function attachTerminal(api: AttachApi, tabId: string, io: AttachIo
   };
   const refresh = async () => {
     if (stopped) return;
+    const previousSettlement = observedSettlement;
     const snapshot = unwrap(await api.attachTerminal({ tabId, ...(generation ? { generation } : {}) }));
     if (stopped) { await api.detachTerminal({ tabId, generation: snapshot.generation }).catch(() => {}); return; }
     if (snapshot.controlEpoch < controlEpoch) return;
     generation = snapshot.generation; controlEpoch = snapshot.controlEpoch;
-    if (snapshot.control === 'blocked') await showBlocked(); else await present(snapshot);
+    if (snapshot.control === 'blocked') await showBlocked(); else await present(snapshot, previousSettlement);
   };
   const consume = async (event: TerminalEvent) => {
-    if (stopped || event.type === 'activity' || event.generation !== generation) return;
+    if (stopped || event.type === 'activity' || event.type === 'settlement' || event.generation !== generation) return;
     if (event.type === 'control') {
       if (event.controlEpoch < controlEpoch) return;
       if (event.controlEpoch === controlEpoch && ((event.control === 'owned' && owned) || (event.control === 'blocked' && !owned))) return;
@@ -136,6 +143,11 @@ export async function attachTerminal(api: AttachApi, tabId: string, io: AttachIo
   };
   const unsubscribe = api.subscribeTerminal(event => {
     if (event.tabId !== tabId || stopped) return;
+    if (event.type === 'settlement') {
+      observedSettlement = event;
+      if (event.generation === generation) settledAt = event.settledAt;
+      return;
+    }
     if (event.type === 'control' && (!generation || event.generation === generation)
       && (!observedControl || observedControl.generation !== event.generation || event.controlEpoch >= observedControl.controlEpoch)) {
       observedControl = event;
@@ -172,11 +184,12 @@ export async function attachTerminal(api: AttachApi, tabId: string, io: AttachIo
         return;
       }
       pendingInputBytes += bytes;
-      const currentGeneration = generation, epoch = controlEpoch;
+      const currentGeneration = generation, epoch = controlEpoch, inputSettlement = settledAt;
+      const passive = isTerminalFocusReport(data);
       enqueue(async () => {
         try {
           if (owned && controlEpoch === epoch) {
-            try { await controlledRequest(api.writeTerminal({ tabId, generation: currentGeneration, controlEpoch: epoch, data })); }
+            try { await controlledRequest(api.writeTerminal({ tabId, generation: currentGeneration, controlEpoch: epoch, data, ...(passive ? { userInitiated: false } : {}), ...(inputSettlement === undefined ? {} : { settledAt: inputSettlement }) })); }
             catch (error) {
               if (error instanceof CliFailure) throw error;
               throw new CliFailure('TARGET_LOST', 'Terminal input delivery is uncertain; input was not retried. ' + (error instanceof Error ? error.message : 'Host request failed.'));

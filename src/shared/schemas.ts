@@ -22,7 +22,6 @@ const count = z.number().int().min(0).max(1000000);
 export const capabilitiesSchema = z.object({ createWindow: z.boolean(), addTab: z.boolean(), focusWindow: z.boolean(), activateTab: z.boolean(), splitPane: z.literal(false), attachExisting: z.literal(false), closeTerminal: z.boolean(), commandExitStatus: z.literal(false), processTracking: z.boolean(), explorerContextMenu: z.boolean(), embeddedTerminal: z.boolean().optional(), terminalLifetime: z.enum(['app-owned', 'external-legacy']).optional(), shellSurvival: z.boolean().optional() }).strict();
 const processRuleIdSchema = z.union([idSchema, z.string().max(120).regex(/^custom-[a-z0-9][a-z0-9-]*-[a-z0-9]+$/)]);
 export const processRuleSchema = z.object({ id: processRuleIdSchema, label: titleSchema, enabled: z.boolean(), executableBasenames: z.array(text(260).min(1).refine(s => s.trim().length > 0 && !/[\\/:]/.test(s))).max(30), processNames: z.array(text(260).min(1).refine(s => s.trim().length > 0 && !/[\\/:]/.test(s))).max(30).optional(), executablePaths: z.array(pathSchema.max(32760)).max(30), scriptPathSuffixes: z.array(text(4096).min(1).refine(s => s.trim().length > 0 && !s.split(/[\\/]/).some(component => component === '.' || component === '..'), 'Script suffixes must contain path components, not traversal')).max(30) }).strict().refine(r => r.executableBasenames.length + r.executablePaths.length > 0);
-export const settingsSchema = z.object({ version: z.literal(1), autoUpdate: z.boolean().default(true), pythonPath: pathSchema.nullable().default(null), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#111016'), adapterId: adapterSchema, shellId: shellIdSchema, shellExecutable: pathSchema.nullable(), terminalProfileId: profileIdSchema.nullable().optional(), processRules: z.array(processRuleSchema).max(100).refine(r => new Set(r.map(x => x.id)).size === r.length), historyPageSize: z.number().int().min(1).max(100).default(10), sessionSettleHours: z.number().min(1).max(87600).default(24), sessionDeleteHours: z.number().min(1).max(87600).default(720) }).strict();
 export const probeSchema = z.object({ platform: text(100), arch: text(100), adapterId: adapterSchema, available: z.boolean(), python: z.object({ detected: pathSchema.nullable(), usable: z.boolean(), reason: text(1000).nullable() }).strict().optional(), terminalVersion: text(100).nullable(), capabilities: capabilitiesSchema, shells: z.array(z.object({ id: shellIdSchema, executable: pathSchema, available: z.boolean(), reason: text(1000).nullable() }).strict()).max(100), reasons: z.array(text(1000)).max(100) }).strict();
 export const explorerSchema = z.object({ supported: z.boolean(), installed: z.boolean(), folderItemInstalled: z.boolean(), backgroundInstalled: z.boolean(), reason: text(1000).nullable() }).strict();
 // Keep previously legal stored data readable so the editor can report and repair it.
@@ -35,6 +34,8 @@ export const storedEnvVarsSchema = z.array(storedEnvVarSchema).max(200).refine(v
 const runtimeProcess: unknown = Reflect.get(globalThis, 'process');
 const windowsEnvironment = typeof runtimeProcess !== 'object' || runtimeProcess === null || Reflect.get(runtimeProcess, 'platform') === 'win32';
 export const envVarsSchema = envVarsSchemaFor(windowsEnvironment);
+// Settings may be read by a client on another OS. Only writes use the host case policy.
+export const settingsSchema = z.object({ version: z.literal(1), terminalEnv: envVarsSchemaFor(false).default([]), autoUpdate: z.boolean().default(true), pythonPath: pathSchema.nullable().default(null), accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), backgroundColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#111016'), adapterId: adapterSchema, shellId: shellIdSchema, shellExecutable: pathSchema.nullable(), terminalProfileId: profileIdSchema.nullable().optional(), processRules: z.array(processRuleSchema).max(100).refine(r => new Set(r.map(x => x.id)).size === r.length), historyPageSize: z.number().int().min(1).max(100).default(10), sessionSettleHours: z.number().min(1).max(87600).default(24), sessionDeleteHours: z.number().min(1).max(87600).default(720) }).strict();
 export const cliIntegrationSchema = z.object({ supported: z.boolean(), installed: z.boolean(), command: z.enum(['shellfox', 'shellfox start <path>']), reason: text(1000).nullable() }).strict();
 export const tabSchema = z.object({ id: idSchema, sessionId: idSchema, title: titleSchema, cwd: pathSchema, ordinal: count, createdAt: timestampSchema, lifecycle: lifecycleSchema, status: tabStatusSchema, agents: count, monitoringReason: text(1000).nullable(), error: errorSchema.nullable(), generation: idSchema.optional(), terminalKind: z.enum(['embedded', 'external-legacy']).optional(), profileId: profileIdSchema.nullable().optional(), exitCode: z.number().int().nullable().optional() }).strict();
 export const sessionWindowSchema = z.object({ state: z.enum(['alive', 'closed', 'unknown', 'opening', 'launch-uncertain', 'unsupported']), canReopen: z.boolean(), canRegister: z.boolean(), reason: text(1000) }).strict();
@@ -58,6 +59,7 @@ export const terminalBackendEventSchema = z.discriminatedUnion('type', [
 ]);
 export const controlEpochSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 export const terminalEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('settlement'), tabId: idSchema, generation: idSchema, settledAt: timestampSchema.nullable() }).strict(),
   terminalBackendEventSchema.options[0],
   terminalDataSchema.extend({ controlEpoch: controlEpochSchema }),
   terminalBackendEventSchema.options[2].extend({ controlEpoch: controlEpochSchema }),
@@ -66,7 +68,7 @@ export const terminalEventSchema = z.discriminatedUnion('type', [
 ]);
 export const terminalProfileSchema = z.object({ id: profileIdSchema, label: titleSchema, environment: z.enum(['local', 'wsl']), executable: pathSchema, args: z.array(z.string().max(4096)).max(30), distro: text(200).min(1).nullable(), available: z.boolean(), unavailableReason: text(1000).nullable().optional(), canTerminateDescendants: z.boolean().optional(), elevation: z.literal('administrator').optional() }).strict();
 export const terminalProfilesSchema = z.object({ profiles: z.array(terminalProfileSchema).max(100), defaultProfileId: profileIdSchema.nullable(), lifetime: z.literal('app-owned'), shellSurvival: z.literal(false) }).strict();
-export const terminalSnapshotSchema = z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, firstSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), lastSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), chunks: z.array(terminalDataSchema).max(8192), truncated: z.boolean(), snapshot: z.boolean().optional(), state: z.enum(['open', 'closed']), exitCode: z.number().int().nullable(), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500), lifetime: z.literal('app-owned') }).strict().refine(a => a.chunks.reduce((sum, c) => sum + utf8Size(c.data), 0) <= 262144 && a.firstSequence <= a.lastSequence + 1 && a.chunks.every((c,i) => c.tabId === a.tabId && c.generation === a.generation && c.sequence >= a.firstSequence && c.sequence <= a.lastSequence && (!i || c.sequence > a.chunks[i-1].sequence)));
+export const terminalSnapshotSchema = z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, firstSequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), lastSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), chunks: z.array(terminalDataSchema).max(8192), truncated: z.boolean(), snapshot: z.boolean().optional(), state: z.enum(['open', 'closed']), exitCode: z.number().int().nullable(), cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500), lifetime: z.literal('app-owned'), settledAt: timestampSchema.nullable().optional() }).strict().refine(a => a.chunks.reduce((sum, c) => sum + utf8Size(c.data), 0) <= 262144 && a.firstSequence <= a.lastSequence + 1 && a.chunks.every((c,i) => c.tabId === a.tabId && c.generation === a.generation && c.sequence >= a.firstSequence && c.sequence <= a.lastSequence && (!i || c.sequence > a.chunks[i-1].sequence)));
 export const terminalAttachmentSchema = z.discriminatedUnion('control', [
   terminalSnapshotSchema.safeExtend({ control: z.literal('owned'), controlEpoch: controlEpochSchema }),
   z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, control: z.literal('blocked'), controlEpoch: controlEpochSchema }).strict(),
@@ -103,13 +105,14 @@ export const requestSchemas = {
   setKeepAwake: z.object({ active: z.boolean() }).strict(),
   openSessionFolder: sessionId,
   setSessionEnv: z.object({ sessionId: idSchema, env: envVarsSchema }).strict(),
+  setTerminalEnv: z.object({ env: envVarsSchema }).strict(),
   setCliIntegration: z.object({ installed: z.literal(true) }).strict(),
   createSession: z.object({ title: titleSchema.optional(), cwd: pathSchema, requestId: idSchema }).strict(),
   addTab: z.object({ sessionId: idSchema, title: titleSchema.optional(), profileId: profileIdSchema.optional(), cwd: pathSchema.optional() }).strict(),
   getTerminalProfiles: empty,
   attachTerminal: z.object({ tabId: idSchema, afterSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), generation: idSchema.optional() }).strict(),
   takeTerminalControl: z.object(terminalIdentity).strict(),
-  writeTerminal: z.object({ ...terminalControlIdentity, data: z.string().min(1).max(65536).refine(s => !s.includes('\u0000') && utf8Size(s) <= 65536), userInitiated: z.boolean().optional() }).strict(),
+  writeTerminal: z.object({ ...terminalControlIdentity, data: z.string().min(1).max(65536).refine(s => !s.includes('\u0000') && utf8Size(s) <= 65536), userInitiated: z.boolean().optional(), settledAt: timestampSchema.nullable().optional() }).strict(),
   resizeTerminal: z.object({ ...terminalControlIdentity, cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500) }).strict(),
   closeTab: z.object(terminalIdentity).strict(),
   renameTab: z.object({ sessionId: idSchema, tabId: idSchema, title: titleSchema }).strict(),
@@ -124,7 +127,7 @@ export const requestSchemas = {
   settleSession: z.object({ sessionId: idSchema, confirmActive: z.boolean() }).strict(),
   unsettleSession: sessionId, deleteSession: sessionId, clearSessionError: sessionId,
   retryTab: z.object({ tabId: idSchema, confirmPossibleDuplicate: z.boolean() }).strict(),
-  saveSettings: settingsSchema,
+  saveSettings: settingsSchema.extend({ terminalEnv: envVarsSchema.optional() }),
   setExplorerIntegration: z.object({ installed: z.literal(true) }).strict(), chooseDirectory: empty, getUpdateStatus: empty, downloadUpdate: empty,
   installUpdate: z.object({ confirmCloseTerminals: z.literal(true) }).strict(),
 } as const;
@@ -156,6 +159,7 @@ export const responseSchemas = {
   getKeepAwake: resultSchema(keepAwakeStateSchema),
   setKeepAwake: resultSchema(keepAwakeStateSchema),
   setSessionEnv: resultSchema(sessionSchema),
+  setTerminalEnv: resultSchema(settingsSchema),
   setCliIntegration: resultSchema(cliIntegrationSchema),
   getTerminalProfiles: resultSchema(terminalProfilesSchema), attachTerminal: resultSchema(terminalAttachmentSchema),
   takeTerminalControl: resultSchema(z.object({ taken: z.literal(true) }).strict()),

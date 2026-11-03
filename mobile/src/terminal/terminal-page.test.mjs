@@ -63,6 +63,32 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     assert.ok(input.some(m => /^\x1b\[<65;/.test(m.data) && m.userInitiated !== false), 'mouse reports remain user input during output');
     await output('\x1b[?1000l\x1b[?1006l');
   });
+  await t.test('focus-enabled terminal reports are passive for automatic focus and real browser clicks', async () => {
+    await output('\x1b[?1004h');
+    const before = messages.length;
+    await send({ type: 'focus', focused: false });
+    await send({ type: 'focus', focused: true });
+    await send({ type: 'focus', focused: false });
+    await page.locator('.xterm-screen').click();
+    await expect.poll(() => messages.slice(before).filter(m => m.type === 'input' && m.data === '\x1b[I').length).toBeGreaterThan(0);
+    const reports = messages.slice(before).filter(m => m.type === 'input' && (m.data === '\x1b[I' || m.data === '\x1b[O'));
+    assert.ok(reports.some(m => m.data === '\x1b[O'));
+    assert.ok(reports.every(m => m.userInitiated === false), JSON.stringify(reports));
+    await output('\x1b[?1004l');
+  });
+  await t.test('stamps input in the WebView before native message delivery using the observed settlement', async () => {
+    const before = messages.length;
+    await send({ type: 'settlement', settledAt: null });
+    await send({ type: 'paste', data: 'before-settle' });
+    const settledAt = '2026-11-13T12:00:00.000Z';
+    await send({ type: 'settlement', settledAt });
+    await send({ type: 'paste', data: 'after-settle' });
+    await expect.poll(() => messages.slice(before).filter(m => m.type === 'input').length).toBe(2);
+    assert.deepEqual(messages.slice(before).filter(m => m.type === 'input').map(m => ({ data: m.data, settledAt: m.settledAt })), [
+      { data: 'before-settle', settledAt: null }, { data: 'after-settle', settledAt },
+    ]);
+    await send({ type: 'settlement', settledAt: null });
+  });
   await t.test('keyboard, Ctrl shortcuts, arrows, and Unicode IME input use xterm', async () => {
     await send({ type: 'focus', focused: true });
     await page.keyboard.type('hello'); await page.keyboard.press('Enter');

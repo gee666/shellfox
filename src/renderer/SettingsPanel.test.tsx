@@ -204,7 +204,7 @@ describe('autosaving settings', () => {
     openSettingsTab('Agents');
     await user.click(screen.getByRole('switch', { name: 'Track Pi' }));
     await new Promise(resolve => setTimeout(resolve, 450)); expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
-    await act(async () => pending.resolve(success(fixture.api.saveSettings.mock.calls[0]![0])));
+    await act(async () => pending.resolve(success({ ...fixture.api.saveSettings.mock.calls[0]![0], terminalEnv: [] })));
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(2));
     expect(fixture.api.saveSettings.mock.calls[1]![0].processRules[0]!.enabled).toBe(false);
   });
@@ -236,7 +236,7 @@ describe('autosaving settings', () => {
     await user.click(screen.getByLabelText('Use #4ade80'));
     await new Promise(resolve => setTimeout(resolve, 450));
     expect(fixture.api.saveSettings).toHaveBeenCalledTimes(1);
-    await act(async () => pending.resolve(success(fixture.api.saveSettings.mock.calls[0]![0])));
+    await act(async () => pending.resolve(success({ ...fixture.api.saveSettings.mock.calls[0]![0], terminalEnv: [] })));
     await waitFor(() => expect(fixture.api.saveSettings).toHaveBeenCalledTimes(2));
     expect(fixture.api.saveSettings.mock.calls[1]![0].accentColor).toBe('#4ade80');
     expect(fixture.api.saveSettings.mock.calls[1]![0].processRules[0]!.enabled).toBe(false);
@@ -246,7 +246,7 @@ describe('autosaving settings', () => {
     const { fixture, client, user } = setup();
     fixture.api.saveSettings.mockImplementation(async value => {
       const profile = profiles.find(profile => profile.id === value.terminalProfileId)!;
-      return success({ ...value, shellId: profile.id === 'pwsh' ? 'pwsh' : 'wsl', shellExecutable: profile.executable });
+      return success({ ...value, terminalEnv: [], shellId: profile.id === 'pwsh' ? 'pwsh' : 'wsl', shellExecutable: profile.executable });
     });
     await user.selectOptions(settingsControl('Default shell'), 'wsl:Ubuntu');
     await waitFor(() => expect(client.settings.store.getState().draft?.shellExecutable).toBe(profiles[1]!.executable));

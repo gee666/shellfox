@@ -7,6 +7,8 @@ import { Icon } from './components';
 import { ColorSwatches } from './ColorSwatches';
 import { SshConnections } from './SshConnections';
 import { RemoteSettings } from './RemoteSettings';
+import { EnvironmentVariablesModal } from './shellfox-env-modal';
+import { request } from './api';
 import type { RemoteController } from './remote-controller';
 import './settings.css';
 
@@ -41,6 +43,7 @@ export function SettingsPanel({ client, settings, profiles, defaultProfileId, on
   const state = useStore(controller.store);
   const draft = state.draft ?? settings;
   const [saved, setSaved] = useState(false);
+  const [environmentOpen, setEnvironmentOpen] = useState(false);
   const [localTab, setLocalTab] = useState<SettingsTab>('General');
   const tab = activeTab ?? localTab;
   function setTab(next: SettingsTab) { setLocalTab(next); onTabChange?.(next); }
@@ -89,7 +92,7 @@ export function SettingsPanel({ client, settings, profiles, defaultProfileId, on
       if (next === null) return;
       event.preventDefault(); setTab(TABS[next]!); tabs.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
     }}>{TABS.map(name => {
-      const fields = name === 'General' ? ['accent', 'background', 'historyPageSize', 'sessionSettleHours', 'sessionDeleteHours'] : name === 'Terminals' ? ['shell', 'python'] : name === 'Agents' ? ['agents', ...Object.keys(errors).filter(key => key.includes('.'))] : [];
+      const fields = name === 'General' ? ['accent', 'background', 'historyPageSize', 'sessionSettleHours', 'sessionDeleteHours'] : name === 'Terminals' ? ['shell', 'python', 'terminalEnv'] : name === 'Agents' ? ['agents', ...Object.keys(errors).filter(key => key.includes('.'))] : [];
       const invalid = fields.some(field => errors[field] || saveError?.field === field);
       const id = name.replaceAll(' ', '-');
       return <button key={name} role="tab" aria-label={invalid ? `${name}, needs attention` : undefined} id={`settings-tab-${id}`} aria-controls={`settings-panel-${id}`} aria-selected={tab === name} tabIndex={tab === name ? 0 : -1} onClick={() => setTab(name)}>{name}{name === 'Remote access' && remote && <PendingClientsCount remote={remote} />}{invalid && <span className="settings-tab-error" aria-hidden="true">•</span>}</button>;
@@ -106,6 +109,7 @@ export function SettingsPanel({ client, settings, profiles, defaultProfileId, on
     </section>
     </div><div role="tabpanel" id="settings-panel-Terminals" aria-labelledby="settings-tab-Terminals" hidden={tab !== 'Terminals'} inert={tab !== 'Terminals'}>
     <section><h3>Default shell</h3><select aria-label="Default shell" value={draft.terminalProfileId ?? defaultProfileId ?? ''} onChange={event => change(current => ({ ...current, terminalProfileId: event.target.value }))}>{!profiles.length && <option value="">No shells available</option>}{profiles.filter(profile => !profile.elevation).map(profile => <option key={profile.id} value={profile.id} disabled={!profile.available} title={profile.unavailableReason ?? undefined}>{profile.label}</option>)}</select><p className="settings-hint settings-control-note">Used for new local terminals.</p>{fieldError('shell')}</section>
+    <section><button className="text-button" onClick={() => setEnvironmentOpen(true)}>Add Environment Variables (all terminals)</button>{fieldError('terminalEnv')}</section>
     {linux && <section><h3>Python</h3><input aria-label="Python path" value={draft.pythonPath ?? ''} placeholder={probe.python?.detected ?? 'Not found'} onChange={event => change(current => ({ ...current, pythonPath: event.target.value.trim() ? event.target.value : null }))} /><p className="settings-hint">Used to safely close terminals. Leave empty for auto-detect.</p>{fieldError('python')}{probe.python?.reason && <small className="settings-hint">{probe.python.reason}</small>}</section>}
     </div><div role="tabpanel" id="settings-panel-Agents" aria-labelledby="settings-tab-Agents" hidden={tab !== 'Agents'} inert={tab !== 'Agents'}>
     <section><h3>Tracked programs</h3><p className="settings-hint">Tabs turn green while these programs run. Use a process name or an exact executable path.</p><div className="agent-list">{draft.processRules.map(rule => {
@@ -117,5 +121,14 @@ export function SettingsPanel({ client, settings, profiles, defaultProfileId, on
     </div><div role="tabpanel" id="settings-panel-SSH" aria-labelledby="settings-tab-SSH" hidden={tab !== 'SSH'} inert={tab !== 'SSH'}>
     <SshConnections api={client.api} />
     </div></div></div>
+    {environmentOpen && <EnvironmentVariablesModal title="Environment · All terminals" variables={draft.terminalEnv ?? []}
+      windows={(probe?.platform ?? 'win32') === 'win32'} note="Applies to new terminals on this host. Session variables override these values."
+      onClose={() => setEnvironmentOpen(false)} onSave={async env => {
+        const result = await request(() => client.api.setTerminalEnv({ env }));
+        if (!result.ok) throw new Error(result.error.message);
+        controller.observe(result.value);
+        client.refresh();
+        return true;
+      }} />}
   </div>;
 }

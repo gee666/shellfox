@@ -1,5 +1,5 @@
 import { createStore } from 'zustand/vanilla';
-import type { AppError, ManagerApi, ProcessRule, SettingsDto } from '../shared/contracts';
+import type { AppError, ManagerApi, ProcessRule, SaveSettingsInput, SettingsDto } from '../shared/contracts';
 import { pathSchema } from '../shared/schemas';
 import { request } from './api';
 
@@ -131,7 +131,10 @@ export function createSettingsController(api: ManagerApi, refresh: () => void) {
       const dispatched = new Map(edits);
       const dispatchedVersion = version;
       saving = true; store.setState({ saving: true });
-      const result = await request(() => api.saveSettings(value));
+      // Global env has its own explicit save. Autosaves must not send a stale copy.
+      const input: SaveSettingsInput = { ...value };
+      delete input.terminalEnv;
+      const result = await request(() => api.saveSettings(input));
       saving = false;
       if (result.ok) {
         failedVersion = undefined;

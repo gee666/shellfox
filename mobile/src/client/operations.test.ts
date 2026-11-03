@@ -3,6 +3,7 @@ import { failure, success, type TerminalEvent } from '../../../src/shared/contra
 import type { RemoteHostEvent } from '../../../src/shared/remote-contracts';
 import { RemoteClient } from './client';
 import { attachment, deferred, flush, ids, session, TestTransport } from './test-fixtures';
+import { defaultSettings } from '../../../src/main/defaults';
 
 let transport: TestTransport;
 let client: RemoteClient;
@@ -41,6 +42,28 @@ it('uses remote env validation without enforcing the mobile OS case policy', asy
   const env = [{ name: 'path', value: '/a' }, { name: 'PATH', value: '/b' }];
   expect(await client.setSessionEnv({ sessionId: ids.session, env })).toEqual(success(session));
   expect(JSON.parse(transport.calls('/v1/request')[0]).payload).toEqual({ sessionId: ids.session, env });
+});
+
+it('saves only host globals, validates input before IO, and preserves host validation errors', async () => {
+  const env = [{ name: 'path', value: '/a' }, { name: 'PATH', value: '/b' }];
+  const settings = { ...defaultSettings, terminalEnv: env };
+  transport.operation = async () => JSON.stringify(success(settings));
+  expect(await client.setTerminalEnv({ env })).toEqual(success(settings));
+  expect(JSON.parse(transport.calls('/v1/request')[0])).toEqual({ clientId: ids.client, method: 'setTerminalEnv', payload: { env } });
+  for (const input of [{ env: [{ name: 'BAD=NAME', value: '' }] }, { env: [], shellExecutable: '/other' }]) {
+    expect(await client.setTerminalEnv(input)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  }
+  expect(transport.calls('/v1/request')).toHaveLength(1);
+  transport.operation = async () => JSON.stringify(failure('VALIDATION', 'Duplicate environment variable names'));
+  expect(await client.setTerminalEnv({ env })).toEqual(failure('VALIDATION', 'Duplicate environment variable names'));
+  expect(client.getState().status).toBe('connected');
+  transport.operation = async () => JSON.stringify(success({ ...defaultSettings, terminalEnv: [] }));
+  expect(await client.setTerminalEnv({ env: [] })).toEqual(success({ ...defaultSettings, terminalEnv: [] }));
+});
+
+it('rejects invalid global environment responses at the native boundary', async () => {
+  transport.operation = async () => JSON.stringify(success({ ...defaultSettings, secret: 'private' }));
+  expect(await client.setTerminalEnv({ env: [] })).toMatchObject({ ok: false, error: { code: 'NATIVE_UNAVAILABLE' } });
 });
 
 it('enforces the encoded request byte limit, including JSON expansion', async () => {

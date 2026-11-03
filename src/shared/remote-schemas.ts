@@ -8,7 +8,7 @@ export const responseSchemas = { ...managerResponseSchemas, ...uploadResponseSch
 
 // Encoded JSON must fit both loopback and tailnet request readers.
 export const REMOTE_REQUEST_BYTES = 1024 * 1024;
-export const remoteMethods = ['getSnapshot', 'getSessionStats', 'getTerminalProfiles', 'attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'createSession', 'addTab', 'activateSession', 'renameSession', 'renameTab', 'reorderTabs', 'setSessionPinned', 'settleSession', 'unsettleSession', 'deleteSession', 'clearSessionError', 'getHomeDirectory', 'resolveDirectory', 'createDirectory', 'completeDirectory', 'setSessionEnv', 'setVisibleSessions', 'beginTerminalUpload', 'writeTerminalUpload', 'finishTerminalUpload', 'cancelTerminalUpload'] as const;
+export const remoteMethods = ['getSnapshot', 'getSessionStats', 'getTerminalProfiles', 'attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'createSession', 'addTab', 'activateSession', 'renameSession', 'renameTab', 'reorderTabs', 'setSessionPinned', 'settleSession', 'unsettleSession', 'deleteSession', 'clearSessionError', 'getHomeDirectory', 'resolveDirectory', 'createDirectory', 'completeDirectory', 'setSessionEnv', 'setTerminalEnv', 'setVisibleSessions', 'beginTerminalUpload', 'writeTerminalUpload', 'finishTerminalUpload', 'cancelTerminalUpload'] as const;
 export const remoteMethodSchema = z.enum(remoteMethods);
 export const remotePeerIdSchema = z.string().min(1).max(200).regex(/^[a-zA-Z0-9_.:-]+$/);
 export const remoteHostnameSchema = z.string().min(1).max(63).regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/);
@@ -30,7 +30,7 @@ export const remoteHostEventSchema = z.discriminatedUnion('type', [
 const peer = z.object({ peerId: remotePeerIdSchema }).strict();
 const empty = z.object({}).strict();
 // The sender may run a different OS. The receiving host applies its own write policy.
-export const remotePayloadSchemas = { ...requestSchemas, setSessionEnv: z.object({ sessionId: idSchema, env: envVarsSchemaFor(false) }).strict() };
+export const remotePayloadSchemas = { ...requestSchemas, setSessionEnv: z.object({ sessionId: idSchema, env: envVarsSchemaFor(false) }).strict(), setTerminalEnv: z.object({ env: envVarsSchemaFor(false) }).strict() };
 export const remoteForwardRequestSchema = z.object({ peerId: remotePeerIdSchema, method: remoteMethodSchema, payload: z.unknown() }).strict().superRefine((input, ctx) => {
   if (!remotePayloadSchemas[input.method].safeParse(input.payload).success) {
     ctx.addIssue({ code: 'custom', message: 'Invalid remote request payload' }); return;

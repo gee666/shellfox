@@ -25,6 +25,7 @@ export abstract class RemoteOperations {
   deleteSession(input: RemoteRequestPayload<'deleteSession'>) { return this.request('deleteSession', input); }
   clearSessionError(input: RemoteRequestPayload<'clearSessionError'>) { return this.request('clearSessionError', input); }
   setSessionEnv(input: RemoteRequestPayload<'setSessionEnv'>) { return this.request('setSessionEnv', input); }
+  setTerminalEnv(input: RemoteRequestPayload<'setTerminalEnv'>) { return this.request('setTerminalEnv', input); }
   setVisibleSessions(input: RemoteRequestPayload<'setVisibleSessions'>) { return this.request('setVisibleSessions', input); }
   resolveDirectory(input: RemoteRequestPayload<'resolveDirectory'>) { return this.request('resolveDirectory', input); }
   createDirectory(input: RemoteRequestPayload<'createDirectory'>) { return this.request('createDirectory', input); }

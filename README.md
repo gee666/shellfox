@@ -9,7 +9,7 @@ This is an embedded-terminal preview. Windows x64 dependency/build/package check
 ## Using the workspace
 
 - Click + to create a session. If remote machines are saved, choose the target machine directly under the button. Local folders also offer a native picker; remote folders use the path prompt and host-side completion. Missing folders are created recursively only after confirmation; Keep editing preserves the path. Multiple sessions can use the same folder.
-- Select a session to show its current or first live tab. If it has no open terminal (for example after a restart), selecting it opens one fresh shell; commands are never restored. The session's environment variables apply to every new terminal in it.
+- Select a session to show its current or first live tab. If it has no open terminal (for example after a restart), selecting it opens one fresh shell; commands are never restored. Settings → Terminals → Add Environment Variables (all terminals) sets host-wide values for new terminals. These override inherited environment variables; a session's own variables override the common values. Running terminals keep their existing environment.
 - After a restart all saved sessions are listed, but no terminals open until you select a session.
 - Right-click a session → Pin to top keeps it above the others (in pin order); Unpin returns it to the normal order. Settled sessions keep their pins and stay in the same list. Pins prevent automatic deletion.
 - The tab-strip plus creates another independent shell. Right-click it to choose a discovered profile.

@@ -14,6 +14,7 @@ import { useBrowserLogin } from './browser-login';
 import { StatusIndicator } from './StatusIndicator';
 import { ConnectionStatus } from './ConnectionStatus';
 import { isConnectionFailure } from './connection-status';
+import { HostEnvironmentSettings } from './HostEnvironmentSettings';
 
 export function SettingsScreen({
   model,
@@ -159,6 +160,9 @@ export function SettingsScreen({
                   onPress={() => run(() => (remembered || machine?.state.status === 'awaiting-approval' ? model.disconnect(peer.id) : model.connect(peer)))}
                 />
               </View>
+              {machine?.state.status === 'connected' && machine.snapshot && machine.snapshotConnectionId === machine.state.connectionId && (
+                <HostEnvironmentSettings key={machine.state.connectionId} machine={machine} refresh={model.refresh} disabled={busy} />
+              )}
               {machine?.state.status === 'awaiting-approval' && (
                 <Note>Approve {model.preferences.hostname} in the host's Shellfox remote settings.</Note>
               )}

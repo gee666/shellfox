@@ -10,7 +10,7 @@ Shellfox stores `manager.sqlite3` in Electron's user-data directory. It uses SQL
 - Settled sessions retain the same session and tab data as other sessions. Settling only records a timestamp; unsettling clears it. Neither action closes terminals, stops agents or removes launch operations.
 - App settings, process-matching rules, integration preferences and manager-window geometry remain independent of session deletion.
 
-Configured environment values can contain secrets. They remain in a settled session until the session is deleted or its environment is edited. Shellfox does not persist inherited shell environments wholesale.
+Configured environment values can contain secrets. Session values remain until the session is deleted or its environment is edited. Host-wide terminal values remain in app settings until edited or cleared, independent of session deletion. Shellfox does not persist inherited shell environments wholesale.
 
 ## What is removed
 

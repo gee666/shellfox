@@ -8,7 +8,7 @@ export const profiles: TerminalProfileDto[] = [
   { id: 'wsl:Ubuntu', label: 'Ubuntu', executable: 'C:\\Windows\\System32\\wsl.exe', args: ['--distribution', 'Ubuntu'], environment: 'wsl', distro: 'Ubuntu', available: true },
 ];
 export const settings: SettingsDto = {
-  version: 1, autoUpdate: true, accentColor: '#ec4899', backgroundColor: '#111016', adapterId: 'embedded-pty', shellId: 'pwsh', terminalProfileId: 'pwsh',
+  version: 1, terminalEnv: [], autoUpdate: true, accentColor: '#ec4899', backgroundColor: '#111016', adapterId: 'embedded-pty', shellId: 'pwsh', terminalProfileId: 'pwsh',
   shellExecutable: null, historyPageSize: 10, sessionSettleHours: 24, sessionDeleteHours: 720, processRules: [{
     id: '00000000-0000-4000-8000-000000000099', label: 'Pi', enabled: true,
     executableBasenames: ['node.exe'], executablePaths: [], scriptPathSuffixes: ['pi/dist/cli.js'],
@@ -120,8 +120,14 @@ export function mockApi(initial = snapshot()) {
     }),
     clearSessionError: vi.fn<ManagerApi['clearSessionError']>(async () => success(session())),
     retryTab: vi.fn<ManagerApi['retryTab']>(async () => success(session())),
+    setTerminalEnv: vi.fn<ManagerApi['setTerminalEnv']>(async ({ env }) => {
+      const settings = { ...current.settings, terminalEnv: structuredClone(env) };
+      current = { ...current, revision: current.revision + 1, settings };
+      return success(settings);
+    }),
     saveSettings: vi.fn<ManagerApi['saveSettings']>(async value => {
-      current = { ...current, revision: current.revision + 1, settings: value }; return success(value);
+      const settings = { ...value, terminalEnv: value.terminalEnv ?? current.settings.terminalEnv };
+      current = { ...current, revision: current.revision + 1, settings }; return success(settings);
     }),
     setExplorerIntegration: vi.fn<ManagerApi['setExplorerIntegration']>(async value => {
       const explorer = { ...current.explorer, installed: value.installed, folderItemInstalled: value.installed, backgroundInstalled: value.installed };

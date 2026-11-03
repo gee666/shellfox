@@ -13,13 +13,16 @@ describe('machine API boundary', () => {
     await api.writeTerminal!({ tabId: 'same-tab', generation: 'generation', controlEpoch: 1, data: 'pwd\r' });
     await api.completeDirectory({ path: '/srv/pr' });
     await api.setSessionEnv({ sessionId: 'same-session', env: [{ name: 'Path', value: 'one' }, { name: 'PATH', value: 'two' }] });
+    await api.setTerminalEnv({ env: [{ name: 'HOST_ONLY', value: 'remote' }] });
     expect(remote.request.mock.calls.map(([input]) => input)).toEqual([
       { peerId: 'workstation', method: 'createSession', payload: { cwd: '/srv/project', requestId: 'request-1' } },
       { peerId: 'workstation', method: 'writeTerminal', payload: { tabId: 'same-tab', generation: 'generation', controlEpoch: 1, data: 'pwd\r' } },
       { peerId: 'workstation', method: 'completeDirectory', payload: { path: '/srv/pr' } },
       { peerId: 'workstation', method: 'setSessionEnv', payload: { sessionId: 'same-session', env: [{ name: 'Path', value: 'one' }, { name: 'PATH', value: 'two' }] } },
+      { peerId: 'workstation', method: 'setTerminalEnv', payload: { env: [{ name: 'HOST_ONLY', value: 'remote' }] } },
     ]);
     expect(local.createSession).not.toHaveBeenCalled(); expect(local.writeTerminal).not.toHaveBeenCalled();
+    expect(local.setTerminalEnv).not.toHaveBeenCalled();
   });
 
   it('keeps clipboard and browser operations local and blocks machine settings, pickers and integrations', async () => {

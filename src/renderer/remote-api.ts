@@ -29,6 +29,7 @@ export function createRemoteManagerApi(remote: RemoteApi, peerId: string, local:
     deleteSession: input => forward('deleteSession', input),
     clearSessionError: input => forward('clearSessionError', input),
     setSessionEnv: input => forward('setSessionEnv', input),
+    setTerminalEnv: input => forward('setTerminalEnv', input),
     getHomeDirectory: () => forward('getHomeDirectory', {}),
     resolveDirectory: input => forward('resolveDirectory', input),
     createDirectory: input => forward('createDirectory', input),

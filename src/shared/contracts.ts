@@ -54,7 +54,11 @@ export interface SettingsDto {
   sessionSettleHours: number; sessionDeleteHours: number;
   autoUpdate: boolean;
   terminalProfileId?: string | null;
+  /** New terminals inherit these values; session variables override them. */
+  terminalEnv: EnvVar[];
 }
+/** Omitting terminalEnv preserves the host's latest global environment. */
+export type SaveSettingsInput = Omit<SettingsDto, 'terminalEnv'> & { terminalEnv?: EnvVar[] };
 export interface ShellOption { id: ShellId; executable: string; available: boolean; reason: string | null }
 export interface NativeProbe {
   platform: string; arch: string; adapterId: AdapterId; available: boolean;
@@ -92,7 +96,8 @@ export type TerminalBackendEvent = TerminalDataEvent
   | { type: 'activity'; tabId: Id; busy: boolean }
   | { type: 'exit'; tabId: Id; generation: Id; exitCode: number | null; signal: number | null; lastSequence: number }
   | { type: 'error'; tabId: Id; generation: Id; error: AppError };
-export type TerminalEvent = Extract<TerminalBackendEvent, { type: 'activity' }>
+export type TerminalEvent = { type: 'settlement'; tabId: Id; generation: Id; settledAt: string | null }
+  | Extract<TerminalBackendEvent, { type: 'activity' }>
   | (Exclude<TerminalBackendEvent, { type: 'activity' }> & { controlEpoch: number })
   | { type: 'control'; tabId: Id; generation: Id; control: 'owned' | 'blocked'; controlEpoch: number };
 export interface TerminalSnapshotDto {
@@ -100,6 +105,8 @@ export interface TerminalSnapshotDto {
   /** With `snapshot`, the leading chunks are a serialized screen (history, visible rows, modes) at `cols` x `rows`, not raw PTY output. */
   chunks: TerminalDataEvent[]; truncated: boolean; snapshot?: boolean; state: 'open' | 'closed'; exitCode: number | null;
   cols: number; rows: number; lifetime: 'app-owned';
+  /** Host settlement observed by this view, captured before queuing user input. */
+  settledAt?: string | null;
 }
 export type OwnedTerminalAttachmentDto = TerminalSnapshotDto & { control: 'owned'; controlEpoch: number };
 export interface BlockedTerminalAttachmentDto { tabId: Id; sessionId: Id; generation: Id; control: 'blocked'; controlEpoch: number }
@@ -110,7 +117,7 @@ export interface TerminalApi {
   attachTerminal(input: { tabId: Id; afterSequence?: number; generation?: Id }): Promise<Result<TerminalAttachmentDto>>;
   takeTerminalControl(input: { tabId: Id; generation: Id }): Promise<Result<{ taken: true }>>;
   /** Parser-generated device replies set userInitiated=false; omitted means user input. */
-  writeTerminal(input: TerminalControlIdentity & { data: string; userInitiated?: boolean }): Promise<Result<{ written: true }>>;
+  writeTerminal(input: TerminalControlIdentity & { data: string; userInitiated?: boolean; settledAt?: string | null }): Promise<Result<{ written: true }>>;
   resizeTerminal(input: TerminalControlIdentity & { cols: number; rows: number }): Promise<Result<{ resized: true }>>;
   closeTab(input: { tabId: Id; generation: Id }): Promise<Result<SessionDto>>;
   acknowledgeTerminal(input: TerminalControlIdentity & { sequence: number }): Promise<Result<{ acknowledged: true }>>;
@@ -160,7 +167,7 @@ export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmat
   deleteSession(input: { sessionId: Id }): Promise<Result<{ deleted: true }>>;
   clearSessionError(input: { sessionId: Id }): Promise<Result<SessionDto>>;
   retryTab(input: { tabId: Id; confirmPossibleDuplicate: boolean }): Promise<Result<SessionDto>>;
-  saveSettings(input: SettingsDto): Promise<Result<SettingsDto>>;
+  saveSettings(input: SaveSettingsInput): Promise<Result<SettingsDto>>;
   setExplorerIntegration(input: { installed: true }): Promise<Result<ExplorerIntegrationDto>>;
   copyText(input: { text: string }): Promise<Result<{ copied: true }>>;
   readClipboardText?(): Promise<Result<{ text: string }>>;
@@ -170,6 +177,7 @@ export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmat
   setKeepAwake?(input: { active: boolean }): Promise<Result<KeepAwakeState>>;
   subscribeKeepAwake?(listener: (state: KeepAwakeState) => void): () => void;
   setSessionEnv(input: { sessionId: Id; env: EnvVar[] }): Promise<Result<SessionDto>>;
+  setTerminalEnv(input: { env: EnvVar[] }): Promise<Result<SettingsDto>>;
   setCliIntegration(input: { installed: true }): Promise<Result<CliIntegrationDto>>;
   chooseDirectory(): Promise<Result<{ cwd: string } | null>>;
   listSshProfiles(): Promise<Result<SshProfileDto[]>>;

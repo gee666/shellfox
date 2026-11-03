@@ -6,7 +6,7 @@ import { getHomeDirectory, resolveDirectory, createDirectory, completeDirectory 
 import type { TerminalControlView } from '../terminal/control';
 import { isTerminalUploadMethod } from '../../shared/terminal-upload-schemas';
 
-export async function remoteOperation(service: EmbeddedSessionService, delivery: TerminalControlView, clientId: string, method: unknown, payload: unknown): Promise<unknown> {
+export async function remoteOperation(service: EmbeddedSessionService, delivery: TerminalControlView, clientId: string, method: unknown, payload: unknown, canCommit: () => boolean = () => false): Promise<unknown> {
   const parsedMethod = remoteMethodSchema.safeParse(method);
   if (!parsedMethod.success) return failure('AUTH_FAILED', 'This operation is not available remotely.');
   const m = parsedMethod.data;
@@ -79,6 +79,7 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
     case 'deleteSession': result = await service.deleteSession(requestSchemas.deleteSession.parse(payload)); break;
     case 'clearSessionError': result = await service.clearSessionError(requestSchemas.clearSessionError.parse(payload)); break;
     case 'setSessionEnv': result = await service.setSessionEnv(requestSchemas.setSessionEnv.parse(payload)); break;
+    case 'setTerminalEnv': result = await service.setTerminalEnv(requestSchemas.setTerminalEnv.parse(payload), canCommit); break;
     case 'getHomeDirectory': result = getHomeDirectory(); break;
     case 'resolveDirectory': result = await resolveDirectory(requestSchemas.resolveDirectory.parse(payload)); break;
     case 'createDirectory': result = await createDirectory(requestSchemas.createDirectory.parse(payload)); break;

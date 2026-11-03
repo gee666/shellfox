@@ -88,6 +88,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'saveSettings': result = await service.saveSettings(requestSchemas.saveSettings.parse(payload)); break;
         case 'setExplorerIntegration': result = await service.setExplorerIntegration(requestSchemas.setExplorerIntegration.parse(payload)); break;
         case 'setSessionEnv': result = await service.setSessionEnv(requestSchemas.setSessionEnv.parse(payload)); break;
+        case 'setTerminalEnv': result = await service.setTerminalEnv(requestSchemas.setTerminalEnv.parse(payload)); break;
         case 'setCliIntegration': result = await service.setCliIntegration(requestSchemas.setCliIntegration.parse(payload)); break;
         case 'getKeepAwake': result = keepAwake ? success({ active: keepAwake.active }) : failure('UNSUPPORTED', 'Keep awake is unavailable.'); break;
         case 'setKeepAwake': result = keepAwake ? success({ active: keepAwake.set(requestSchemas.setKeepAwake.parse(payload).active) }) : failure('UNSUPPORTED', 'Keep awake is unavailable.'); break;

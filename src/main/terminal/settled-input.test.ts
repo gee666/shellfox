@@ -28,6 +28,73 @@ async function fixture() {
 }
 
 describe('settled terminal input', () => {
+  it.each(['direct', 'manager', 'remote'] as const)('never unsettles on focus reports through %s, even from a legacy client', async route => {
+    const f = await fixture(), view = f.service.createTerminalView(() => {});
+    try {
+      const attachment = value(view.attach(f.identity));
+      if (attachment.control !== 'owned') throw new Error('Missing owner');
+      const settled = value(await f.settle());
+      const input = { ...f.identity, controlEpoch: attachment.controlEpoch, data: '\x1b[I', settledAt: settled.settledAt };
+      const write = (payload: { data: string; userInitiated?: boolean }) => route === 'direct' ? f.service.writeTerminal({ ...input, ...payload })
+        : route === 'manager' ? managerOperation({ service: f.service, delivery: view, clientId: 'local' }, 'writeTerminal', { ...input, ...payload })
+        : remoteOperation(f.service, view, 'mobile', 'writeTerminal', { ...input, ...payload });
+      for (const data of ['\x1b[I', '\x1b[O', '\x1b[O\x1b[I']) {
+        expect(await write({ data, userInitiated: true })).toEqual({ ok: true, value: { written: true } });
+        expect(f.current().settledAt).toBe(settled.settledAt);
+      }
+      value(f.service.writeTerminal({ ...f.identity, data: '\x1b[I' }));
+      expect(f.current().settledAt).toBe(settled.settledAt);
+      expect(await write({ data: 'real keyboard input' })).toEqual({ ok: true, value: { written: true } });
+      expect(f.current().settledAt).toBeNull();
+    } finally { view.dispose(); await f.service.dispose(); }
+  });
+  it.each(['direct', 'manager', 'remote'] as const)('ignores pre-settle input activity delivered late through %s while accepting later input', async route => {
+    const f = await fixture(), events: unknown[] = [], view = f.service.createTerminalView(event => events.push(event));
+    try {
+      const attachment = value(view.attach(f.identity));
+      if (attachment.control !== 'owned') throw new Error('Missing owner');
+      expect(attachment.settledAt).toBeNull();
+      const queued = { ...f.identity, controlEpoch: attachment.controlEpoch, data: 'queued before settle', settledAt: attachment.settledAt };
+      f.processes[0].output('already busy');
+      f.observe([{ sessionId: f.session.id, tabId: f.identity.tabId, root: 'alive', health: 'healthy', agents: 1, reason: null, observedAt: new Date().toISOString() }]);
+      const settled = value(await f.settle());
+      expect(events).toContainEqual({ type: 'settlement', ...f.identity, settledAt: settled.settledAt });
+      const write = (payload: typeof queued) => route === 'direct' ? f.service.writeTerminal(payload)
+        : route === 'manager' ? managerOperation({ service: f.service, delivery: view, clientId: 'local' }, 'writeTerminal', payload)
+        : remoteOperation(f.service, view, 'mobile', 'writeTerminal', payload);
+      expect(await write(queued)).toEqual({ ok: true, value: { written: true } });
+      expect(f.processes[0].write).toHaveBeenLastCalledWith(queued.data);
+      expect(f.current()).toMatchObject({ status: 'settled', settledAt: settled.settledAt });
+      expect(await write({ ...queued, data: 'new input', settledAt: settled.settledAt })).toEqual({ ok: true, value: { written: true } });
+      expect(f.current().settledAt).toBeNull();
+    } finally { view.dispose(); await f.service.dispose(); }
+  });
+
+  it('gives separate explicit settlements distinct markers within the same millisecond', async () => {
+    const f = await fixture(), clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now());
+    try {
+      const first = value(await f.settle());
+      value(await f.service.unsettleSession({ sessionId: f.session.id }));
+      const second = value(await f.settle());
+      expect(second.settledAt).not.toBe(first.settledAt);
+      value(f.service.writeTerminal({ ...f.identity, data: 'queued during first settlement', settledAt: first.settledAt }));
+      expect(f.current().settledAt).toBe(second.settledAt);
+    } finally { clock.mockRestore(); await f.service.dispose(); }
+  });
+
+  it('applies the same activity boundary to CLI settlement and stale-client markers', async () => {
+    const f = await fixture();
+    try {
+      const settled = value(await f.service.controlSession({ action: 'settle', id: f.session.id })).session!;
+      value(f.service.writeTerminal({ ...f.identity, data: 'old queued input', settledAt: null }));
+      expect(f.current().settledAt).toBe(settled.settledAt);
+      value(f.service.writeTerminal({ ...f.identity, data: 'stale client input', settledAt: '2020-01-01T00:00:00.000Z' }));
+      expect(f.current().settledAt).toBe(settled.settledAt);
+      value(f.service.writeTerminal({ ...f.identity, data: 'new input', settledAt: settled.settledAt }));
+      expect(f.current().settledAt).toBeNull();
+    } finally { await f.service.dispose(); }
+  });
+
   it.each(['direct', 'manager', 'remote'] as const)('unsettles immediately through %s input and preserves tabs, pins and environment', async route => {
     const f = await fixture(), view = f.service.createTerminalView(() => {});
     try {

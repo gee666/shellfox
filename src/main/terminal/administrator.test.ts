@@ -21,9 +21,9 @@ function fixture() {
 }
 it('discovers without elevating and routes only the explicit administrator tab through the helper', async () => {
   const f = fixture(); value(await f.backend.initialize()); expect(f.elevate).not.toHaveBeenCalled();
-  const input = { ...launchInput(), profileId: administrator.id, cwd: "C:\\a';& folder", env: [{ name: 'CUSTOM', value: 'test' }] };
+  const input = { ...launchInput(), profileId: administrator.id, cwd: "C:\\a';& folder", terminalEnv: [{ name: 'CUSTOM', value: 'global' }, { name: 'GLOBAL_ONLY', value: 'administrator' }], env: [{ name: 'custom', value: 'test' }] };
   const owned = value(await f.backend.launch(input));
-  expect(f.factory).not.toHaveBeenCalled(); expect(f.elevate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cwd: input.cwd, cols: 80, rows: 24, env: expect.objectContaining({ CUSTOM: 'test' }) }));
+  expect(f.factory).not.toHaveBeenCalled(); expect(f.elevate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ cwd: input.cwd, cols: 80, rows: 24, env: expect.objectContaining({ custom: 'test', GLOBAL_ONLY: 'administrator' }) }));
   expect(owned.root).toMatchObject({ pid: 789, authenticatedBirth: 'windows:133000000000000009', environment: 'local' });
   expect(owned.root.ancestorPid).toBeUndefined(); expect(owned.cleanupPending).toBe(true);
   value(await f.backend.launch({ ...launchInput(), profileId: regular.id, cwd: 'C:\\work' }));

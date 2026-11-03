@@ -10,6 +10,7 @@ const viewId = `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let epoch = '', terminal: Terminal | null = null, fit: FitAddon | null = null;
 let historical = false, writing = false, selecting = false, readOnly = false;
 let keyboard: PageKeyboard | null = null;
+let settledAt: string | null | undefined;
 let fitted = '', fitFrame = 0, fitPending = false;
 let theme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
 const host = document.getElementById('terminal');
@@ -58,7 +59,7 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   const keyboardEpoch = epoch;
   keyboard = new PageKeyboard(term, (data, userInitiated) => {
     if (!readOnly && terminal === term && epoch === keyboardEpoch && !historical && data && !data.includes('\0')) {
-      send({ type: 'input', ...identity(), data, ...(userInitiated === false ? { userInitiated: false } : {}) });
+      send({ type: 'input', ...identity(), data, ...(userInitiated === false ? { userInitiated: false } : {}), ...(settledAt === undefined ? {} : { settledAt }) });
     }
   });
   term.onSelectionChange(() => send({ type: 'selection', ...identity(), text: term.getSelection().slice(0, 65536) }));
@@ -79,11 +80,12 @@ function receive(event: MessageEvent) {
       cancelAnimationFrame(fitFrame); container.replaceChildren(); return;
     }
     if (message.type === 'reset') {
-      epoch = message.epoch; readOnly = message.readOnly ?? false;
+      epoch = message.epoch; readOnly = message.readOnly ?? false; settledAt = message.settledAt;
       createTerminal(message.cols, message.rows, message.fontSize); return;
     }
     if (message.epoch !== epoch || !terminal) return;
     switch (message.type) {
+      case 'settlement': settledAt = message.settledAt; break;
       case 'output': {
         const term = terminal, renderingEpoch = epoch;
         historical = message.historical; writing = true;

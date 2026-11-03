@@ -55,14 +55,15 @@ it.each(['pwsh', 'windows-powershell', 'wsl:Ubuntu'])('passes session overrides 
   const backend = new PtyBackend({ ...f.options, discover: async () => ({ ...discovered, profiles: [profile], defaultProfileId: profileId }) });
   await backend.initialize();
   try {
-    const input = { tabId: randomUUID(), sessionId: randomUUID(), generation: randomUUID(), profileId, cwd: '/work', env: [
+    const input = { tabId: randomUUID(), sessionId: randomUUID(), generation: randomUUID(), profileId, cwd: '/work', terminalEnv: [{ name: 'GLOBAL_ONLY', value: 'from settings' }, { name: 'shellfox_test', value: 'global' }], env: [
       { name: 'SHELLFOX_TEST', value: 'literal $() ; C:\\folder with spaces' },
       { name: 'wslenv', value: 'KEEP/ul:SHELLFOX_TEST/pw:shellfox_terminal_marker/l' },
     ] };
     expect((await backend.launch(input)).ok).toBe(true);
     const [file, args, options] = vi.mocked(f.factory).mock.calls[0];
     const marker = backend.get(input.tabId)!.root.marker;
-    expect(options.env.WSLENV).toBe('KEEP/ul:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:SHELLFOX_TEST:SHELLFOX_TERMINAL_MARKER');
+    expect(options.env.WSLENV).toBe('KEEP/ul:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:GLOBAL_ONLY:SHELLFOX_TEST:SHELLFOX_TERMINAL_MARKER');
+    expect(options.env.GLOBAL_ONLY).toBe('from settings');
     expect(options.env.SHELLFOX_TEST).toBe(input.env[0].value);
     expect(options.env.SHELLFOX_TERMINAL_MARKER).toBe(marker);
     expect(file).toBe(profile.executable);

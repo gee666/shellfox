@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddedSessionService } from '../main/terminal/service';
-import { failure } from '../shared/contracts';
+import { failure, type SaveSettingsInput } from '../shared/contracts';
 import { PtyBackend } from '../main/terminal/backend';
 import { factoryFixture, MemoryRepository } from '../main/terminal/test-fixtures';
 import { startHostRpc, hostEndpointPath } from './rpc';
@@ -37,6 +37,24 @@ async function session(client: HostClient) {
   if (!result.ok) throw new Error(result.error.message); return result.value;
 }
 describe('local host RPC', () => {
+  it('persists global terminal env through the narrow headless API and merges session overrides at launch', async () => {
+    const f = await fixture(), client = await f.connect();
+    const before = await client.service.getSnapshot();
+    if (!before.ok) throw new Error('Missing snapshot');
+    const env = [{ name: 'GLOBAL_ONLY', value: 'headless' }, { name: 'OVERRIDE', value: 'global' }];
+    expect(await client.service.setTerminalEnv({ env })).toMatchObject({ ok: true, value: { terminalEnv: env, accentColor: before.value.settings.accentColor } });
+    const staleSettings: SaveSettingsInput = { ...before.value.settings, autoUpdate: false };
+    delete staleSettings.terminalEnv;
+    expect(await client.service.saveSettings(staleSettings)).toMatchObject({ ok: true, value: { terminalEnv: env, autoUpdate: false } });
+    const target = await session(client);
+    expect(target.env).toEqual([]);
+    expect(vi.mocked(f.pty.factory).mock.calls[0][2].env).toMatchObject({ GLOBAL_ONLY: 'headless', OVERRIDE: 'global' });
+    expect((await client.service.setSessionEnv({ sessionId: target.id, env: [{ name: 'override', value: 'session' }] })).ok).toBe(true);
+    expect((await client.service.addTab({ sessionId: target.id })).ok).toBe(true);
+    expect(vi.mocked(f.pty.factory).mock.calls[1][2].env).toMatchObject({ GLOBAL_ONLY: 'headless', override: 'session' });
+    expect(f.repository.settings().terminalEnv).toEqual(env);
+    expect((await client.service.getSnapshot())).toMatchObject({ ok: true, value: { settings: { terminalEnv: env } } });
+  });
   it('authenticates and validates methods and payloads before dispatch', async () => {
     const f = await fixture(); const endpoint = await readPrivateEndpoint(hostEndpointPath(f.userData), hostEndpointSchema);
     const raw = await fetch(`http://${endpoint.host}:${endpoint.port}/v1/request`, { method: 'POST', headers: { Authorization: 'Bearer ' + '0'.repeat(64) }, body: '{}' });

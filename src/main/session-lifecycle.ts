@@ -15,7 +15,7 @@ export class SessionLifecycle {
     private readonly repository: RepositoryPort,
     private readonly serialize: (id: string, action: () => Promise<Result<true>>) => Promise<Result<true>>,
     private readonly remove: (session: SessionRecord) => Promise<Result<unknown>>,
-    private readonly changed: () => void,
+    private readonly changed: (settled?: SessionRecord) => void,
     private readonly refreshActivity: () => Promise<void> = async () => {},
     private readonly canExpire: (sessionId: string) => boolean = () => true,
   ) {}
@@ -73,7 +73,7 @@ export class SessionLifecycle {
         if (!session.settledAt) {
           // Settlement starts a fresh deletion grace period, even after a long shutdown.
           session.settledAt = new Date().toISOString();
-          this.repository.saveSession(session); this.changed();
+          this.repository.saveSession(session); this.changed(session);
         } else {
           await this.remove(session);
         }

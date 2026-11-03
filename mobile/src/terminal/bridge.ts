@@ -41,7 +41,9 @@ export class TerminalBridge {
   private earlyOverflow = false;
   private inputQueue: Promise<void> = Promise.resolve();
   private inputBytes = 0;
-  private pendingInput: { data: string; bytes: number; epoch: string; userInitiated: boolean } | null = null;
+  private pendingInput: { data: string; bytes: number; epoch: string; userInitiated: boolean; settledAt: string | null | undefined } | null = null;
+  private settledAt: string | null | undefined;
+  private settlementEvent?: Extract<TerminalEvent, { type: 'settlement' }>;
   private modifiers: TerminalModifiers = { ...emptyModifiers };
   private nextSize: { cols: number; rows: number } | null = null;
   private resizing = false;
@@ -119,7 +121,7 @@ export class TerminalBridge {
   receive(message: PageMessage): void {
     if (!this.alive || message.type === 'ready' || message.viewId !== this.options.viewId || message.epoch !== this.epoch || !this.attached) return;
     switch (message.type) {
-      case 'input': this.input(message.data, message.userInitiated); break;
+      case 'input': this.input(message.data, message.userInitiated, message.settledAt); break;
       case 'resize': this.resize({ cols: message.cols, rows: message.rows }); break;
       case 'rendered': {
         if (!this.pending || message.ticket !== this.pending.ticket) return;
@@ -171,6 +173,7 @@ export class TerminalBridge {
     this.epoch = String(++nextEpoch); this.pending = null;
     this.queue = []; this.queuedBytes = 0; this.early = []; this.earlyBytes = 0; this.earlyOverflow = false;
     const { api, tabId } = this.options;
+    const previousSettlement = this.settlementEvent;
     let blockedResult = false;
     try {
       const attachment = await deliveryOperation(api, tabId, async () => {
@@ -197,7 +200,9 @@ export class TerminalBridge {
       }
       this.received = attachment.lastSequence; this.consumed = 0; this.open = attachment.state === 'open';
       this.repaint = attachment.truncated && !attachment.snapshot && this.open;
-      this.send({ type: 'reset', ...this.identity(), cols: attachment.cols, rows: attachment.rows, fontSize: this.fontSize, ...(this.options.readOnly ? { readOnly: true } : {}) });
+      this.settledAt = this.settlementEvent !== previousSettlement && this.settlementEvent?.generation === attachment.generation
+        ? this.settlementEvent.settledAt : attachment.settledAt;
+      this.send({ type: 'reset', ...this.identity(), cols: attachment.cols, rows: attachment.rows, fontSize: this.fontSize, ...(this.settledAt === undefined ? {} : { settledAt: this.settledAt }), ...(this.options.readOnly ? { readOnly: true } : {}) });
       if (this.options.theme) this.send({ type: 'theme', ...this.identity(), ...this.options.theme });
       this.send({ type: 'modifiers', ...this.identity(), modifiers: this.modifiers });
       if (this.selecting) this.send({ type: 'select', ...this.identity(), enabled: true });
@@ -223,6 +228,14 @@ export class TerminalBridge {
     if (!parsed.success) { this.report(new Error('Invalid terminal event.')); this.recover(); return; }
     const event = parsed.data;
     if (event.tabId !== this.options.tabId || event.type === 'activity') return;
+    if (event.type === 'settlement') {
+      this.settlementEvent = event;
+      if (event.generation === this.generation) {
+        this.settledAt = event.settledAt;
+        if (this.attached) this.send({ type: 'settlement', ...this.identity(), settledAt: event.settledAt });
+      }
+      return;
+    }
     if (event.type === 'control') {
       if ((this.generation && event.generation !== this.generation) || event.controlEpoch < this.controlEpoch) return;
       if (event.control === 'blocked') { this.block(event.controlEpoch); return; }
@@ -240,7 +253,7 @@ export class TerminalBridge {
     if (this.attached) this.apply(event);
   }
   private apply(event: TerminalEvent): void {
-    if (event.type === 'activity' || event.type === 'control') return;
+    if (event.type === 'activity' || event.type === 'control' || event.type === 'settlement') return;
     if (event.controlEpoch !== this.controlEpoch) return;
     if (event.generation !== this.generation) { if (!this.retired.has(event.generation)) this.recover(); return; }
     if (event.type === 'error') { this.report(new TerminalOperationError(event.error)); this.recover(); return; }
@@ -283,7 +296,7 @@ export class TerminalBridge {
     this.attached = false; this.send({ type: 'clear', ...this.identity() }); this.setState('reconnecting');
     this.recovery = setTimeout(() => { this.recovery = null; void this.attach(); }, 250);
   }
-  input(data: string, userInitiated = true): void {
+  input(data: string, userInitiated = true, settledAt = this.settledAt): void {
     if (this.options.readOnly) return;
     const generation = this.generation, epoch = this.epoch, controlEpoch = this.controlEpoch;
     if (!this.alive || !this.attached || !this.open || !generation || !data || data.includes('\0')) return;
@@ -291,15 +304,15 @@ export class TerminalBridge {
     if (this.inputBytes + bytes > 65536) { this.report(new Error('Paste a smaller section of text.')); return; }
     if (userInitiated) this.options.onInput?.();
     this.inputBytes += bytes;
-    if (this.pendingInput?.epoch === epoch && this.pendingInput.userInitiated === userInitiated) {
+    if (this.pendingInput?.epoch === epoch && this.pendingInput.userInitiated === userInitiated && this.pendingInput.settledAt === settledAt) {
       this.pendingInput.data += data; this.pendingInput.bytes += bytes; return;
     }
     // Combine only adjacent writes not yet dispatched. No timer, replay or extra input.
-    const batch = { data, bytes, epoch, userInitiated }; this.pendingInput = batch;
+    const batch = { data, bytes, epoch, userInitiated, settledAt }; this.pendingInput = batch;
     this.inputQueue = this.inputQueue.then(async () => {
       if (this.pendingInput === batch) this.pendingInput = null;
       if (!this.alive || !this.attached || epoch !== this.epoch) return;
-      const result = responseSchemas.writeTerminal.parse(await this.options.api.writeTerminal({ tabId: this.options.tabId, generation, controlEpoch, data: batch.data, ...(batch.userInitiated ? {} : { userInitiated: false }) }));
+      const result = responseSchemas.writeTerminal.parse(await this.options.api.writeTerminal({ tabId: this.options.tabId, generation, controlEpoch, data: batch.data, ...(batch.userInitiated ? {} : { userInitiated: false }), ...(batch.settledAt === undefined ? {} : { settledAt: batch.settledAt }) }));
       this.controlResult(result, epoch);
     }).catch(error => {
       if (epoch === this.epoch) this.report(error);

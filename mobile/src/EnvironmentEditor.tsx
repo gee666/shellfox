@@ -1,32 +1,34 @@
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, View } from 'react-native';
-import type { EnvVar, SessionDto } from '../../src/shared/contracts';
+import type { EnvVar } from '../../src/shared/contracts';
 import { envVarsSchemaFor } from '../../src/shared/schemas';
 import { Button, Field, Note, useUi } from './ui';
 
 export function EnvironmentEditor({
-  session,
+  initialEnv,
+  title = 'Environment',
+  description = 'Applies to new terminals.',
   save,
   close,
 }: {
-  session: SessionDto;
+  initialEnv: EnvVar[];
+  title?: string;
+  description?: string;
   save: (env: EnvVar[]) => Promise<void>;
   close: () => void;
 }) {
   const { styles } = useUi();
-  const [env, setEnv] = useState(session.env);
+  const [env, setEnv] = useState(initialEnv);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const update = (index: number, patch: Partial<EnvVar>) =>
     setEnv((items) => items.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   return (
-    <Modal visible animationType="slide" onRequestClose={close}>
+    <Modal visible animationType="slide" onRequestClose={() => { if (!busy) close(); }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.page}>
         <View style={[styles.content, { flex: 1, paddingTop: 48 }]}>
-          <Text style={styles.title}>Environment</Text>
-          <Note>
-            Applies to new terminals.
-          </Note>
+          <Text style={styles.title}>{title}</Text>
+          <Note>{description}</Note>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 14 }}>
             {env.map((item, index) => (
               <View key={index} style={styles.card}>

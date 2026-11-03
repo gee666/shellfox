@@ -1,13 +1,13 @@
 import type { EnvVar } from '../../shared/contracts';
 import { envVarsSchemaFor } from '../../shared/schemas';
 
-/** Hyperlink opt-ins; session variables can still override them. */
+/** Hyperlink opt-ins; configured variables can still override them. */
 export const HYPERLINK_VARIABLES: readonly (readonly [string, string])[] = [['FORCE_HYPERLINK', '1'], ['PI_HYPERLINKS', '1']];
 const MANAGED_NAMES = ['term', 'colorterm', ...HYPERLINK_VARIABLES.map(([name]) => name.toLowerCase())];
 
 export interface HostTerminalEnvironment { userData: string; runtimePath?: string; resourcesPath?: string; headless?: boolean }
-/** Session overrides win, except host identity and the owned marker. */
-export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: EnvVar[], options: { windows: boolean; wsl: boolean; cliBin?: string; marker?: string; host?: HostTerminalEnvironment }): Record<string, string> {
+/** Inherited < global < session, except managed defaults and owned host identity. */
+export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: EnvVar[], options: { windows: boolean; wsl: boolean; cliBin?: string; marker?: string; host?: HostTerminalEnvironment; terminalEnv?: EnvVar[] }): Record<string, string> {
   const env: Record<string, string> = Object.create(null);
   const set = (name: string, value: string) => {
     if (options.windows) for (const key of Object.keys(env)) if (key.toLowerCase() === name.toLowerCase()) delete env[key];
@@ -27,13 +27,16 @@ export function terminalEnvironment(inherited: NodeJS.ProcessEnv, variables: Env
   // that CLI tools recognise. Without these, pi and supports-hyperlinks users (Claude Code,
   // ink, chalk-based CLIs) print "label (long-url)" instead of a clickable label.
   for (const [name, value] of HYPERLINK_VARIABLES) set(name, value);
-  const parsed = envVarsSchemaFor(options.windows).parse(variables);
+  // Validate each layer separately: duplicates across layers are overrides, and
+  // each layer has its own entry limit.
+  const schema = envVarsSchemaFor(options.windows);
+  const parsed = [...schema.parse(options.terminalEnv ?? []), ...schema.parse(variables)];
   for (const variable of parsed) {
     const name = options.windows && MANAGED_NAMES.includes(variable.name.toLowerCase()) ? variable.name.toUpperCase() : variable.name;
     set(name, variable.value);
   }
   if (options.cliBin) {
-    const name = Object.keys(env).find(key => key.toLowerCase() === 'path') ?? 'PATH', separator = options.windows ? ';' : ':';
+    const name = Object.keys(env).find(key => options.windows ? key.toLowerCase() === 'path' : key === 'PATH') ?? 'PATH', separator = options.windows ? ';' : ':';
     set(name, options.cliBin + separator + (env[name] ?? ''));
   }
   if (options.marker !== undefined) {

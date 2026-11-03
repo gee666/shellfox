@@ -52,6 +52,7 @@ export class HostClient {
       clearSessionError: input => this.request('clearSessionError', input),
       retryTab: input => this.request('retryTab', input),
       setSessionEnv: input => this.request('setSessionEnv', input),
+      setTerminalEnv: input => this.request('setTerminalEnv', input),
       saveSettings: input => this.request('saveSettings', input),
       setExplorerIntegration: input => this.request('setExplorerIntegration', input),
       setCliIntegration: input => this.request('setCliIntegration', input),

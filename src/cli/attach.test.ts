@@ -38,6 +38,32 @@ async function ready(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => { expect(f.input.isRaw).toBe(true); expect(f.output.listenerCount('resize')).toBe(1); });
 }
 describe('interactive attachment', () => {
+  it('forwards complete focus reports as passive without changing actual keyboard input', async () => {
+    const f = fixture(), done = attachTerminal(f.api, tabId, f.io); await ready(f);
+    f.input.emit('data', '\x1b[I'); f.input.emit('data', '\x1b[O\x1b[I'); f.input.emit('data', 'typed\x1d');
+    await done;
+    expect(vi.mocked(f.api.writeTerminal).mock.calls.map(([request]) => ({ data: request.data, userInitiated: request.userInitiated }))).toEqual([
+      { data: '\x1b[I', userInitiated: false }, { data: '\x1b[O\x1b[I', userInitiated: false }, { data: 'typed', userInitiated: undefined },
+    ]);
+  });
+  it('captures settlement before the input queue, even while an earlier request is pending', async () => {
+    let complete!: (result: Result<{ written: true }>) => void;
+    const first = new Promise<Result<{ written: true }>>(resolve => { complete = resolve; });
+    const writes = vi.fn<AttachApi['writeTerminal']>().mockReturnValueOnce(first).mockResolvedValue(success({ written: true }));
+    const f = fixture({ attachTerminal: vi.fn(async () => success({ ...ownedSnapshot(), settledAt: null })), writeTerminal: writes });
+    const done = attachTerminal(f.api, tabId, f.io); await ready(f);
+    f.input.emit('data', 'first');
+    await vi.waitFor(() => expect(writes).toHaveBeenCalledOnce());
+    f.input.emit('data', 'queued before settle');
+    const settledAt = '2026-11-13T12:00:00.000Z';
+    f.emit({ type: 'settlement', tabId, generation, settledAt });
+    f.input.emit('data', 'new input\x1d');
+    complete(success({ written: true })); await done;
+    expect(writes.mock.calls.map(([request]) => ({ data: request.data, settledAt: request.settledAt }))).toEqual([
+      { data: 'first', settledAt: null }, { data: 'queued before settle', settledAt: null }, { data: 'new input', settledAt },
+    ]);
+  });
+
   it('replays at the host grid, streams output once, ACKs delivery, resizes, and detaches without closing', async () => {
     const f = fixture(), done = attachTerminal(f.api, tabId, f.io); await ready(f);
     expect(f.output.text).toBe(ENTER_TERMINAL_SCREEN + RESET_TERMINAL_MODES + '\u001b[2J\u001b[H\u001b[8;24;80tscreen\u001b[8;40;100t');

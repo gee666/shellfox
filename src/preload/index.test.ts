@@ -1,6 +1,7 @@
 import { beforeEach, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { ManagerApi } from '../shared/contracts';
+import { defaultSettings } from '../main/defaults';
 const bridge = vi.hoisted(() => ({ api: undefined as ManagerApi | undefined, listeners: new Map<string, Set<(e: unknown, value: unknown) => void>>(), invoke: vi.fn(), removed: vi.fn() }));
 vi.mock('electron', () => ({ contextBridge: { exposeInMainWorld: (name: string, api: ManagerApi) => { if (name === 'shellfox') bridge.api = api; } }, ipcRenderer: {
   invoke: bridge.invoke,
@@ -44,6 +45,19 @@ it('validates viewport session configuration through the manager request channel
     bridge.invoke.mockResolvedValueOnce({ ok: true, value });
     expect(await bridge.api!.setVisibleSessions({ sessionIds: [] })).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
   }
+});
+it('exposes only validated global environment writes and checks returned settings', async () => {
+  for (const input of [{ env: [{ name: 'A=B', value: '' }] }, { env: [], shellExecutable: '/other' }]) {
+    expect(await bridge.api!.setTerminalEnv(input)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  }
+  expect(bridge.invoke).not.toHaveBeenCalled();
+  const env = [{ name: ' TOKEN ', value: 'literal $()' }];
+  const canonical = [{ name: 'TOKEN', value: 'literal $()' }];
+  bridge.invoke.mockResolvedValueOnce({ ok: true, value: { ...defaultSettings, terminalEnv: canonical } });
+  expect(await bridge.api!.setTerminalEnv({ env })).toEqual({ ok: true, value: { ...defaultSettings, terminalEnv: canonical } });
+  expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'setTerminalEnv', payload: { env } });
+  bridge.invoke.mockResolvedValueOnce({ ok: true, value: { ...defaultSettings, secret: 'private' } });
+  expect(await bridge.api!.setTerminalEnv({ env: [] })).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
 });
 it('validates keep-awake notifications and removes only the subscribed callback', () => {
   const receive = vi.fn(), other = vi.fn();

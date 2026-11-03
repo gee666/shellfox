@@ -150,7 +150,7 @@ export async function executeCommand(command: Command, host: CliHost, options: G
           attachment = unwrap(await service.attachTerminal(identity));
         }
         if (attachment.control !== 'owned') throw new CliFailure('TERMINAL_CONTROL_REQUIRED', 'Another client is controlling this terminal. Use --take to switch control explicitly.');
-        return await request(host, 'writeTerminal', { ...identity, controlEpoch: attachment.controlEpoch, data: checked.data.data }, options.host);
+        return await request(host, 'writeTerminal', { ...identity, controlEpoch: attachment.controlEpoch, data: checked.data.data, ...(attachment.settledAt === undefined ? {} : { settledAt: attachment.settledAt }) }, options.host);
       } catch (error) {
         if (error instanceof CliFailure || error instanceof CliUsageError) throw error;
         throw new CliFailure('TARGET_LOST', 'Terminal input delivery is uncertain; input was not retried. Inspect the terminal before sending it again.');

@@ -10,8 +10,9 @@ import { discoverProfiles, spawnArguments, validateProfileCwd } from './profiles
 import type { TrackingRoot } from './tracking';
 import { captureLinuxRoot, closeUnixTree, type UnixIdentity } from './unix-close';
 import { terminalEnvironment } from './environment';
-import { envVarsSchema } from '../../shared/schemas';
+import { envVarsSchemaFor } from '../../shared/schemas';
 import { TerminalActivity } from './activity';
+import { isTerminalFocusReport } from '../../shared/terminal-input';
 import { nativeQueuedInputBytes, MAX_NATIVE_INPUT_BYTES } from './native-input';
 import { prepareDarwinSupervisor, type SupervisorLaunch, type SupervisorControl } from './darwin-supervisor';
 import { ScreenMirror } from './screen-mirror';
@@ -33,7 +34,7 @@ export interface PtyProcess {
   whenReady?(): Promise<void>;
 }
 export type PtyFactory = (file: string, args: string[], options: { name: string; cols: number; rows: number; cwd?: string; env: Record<string, string>; useConpty: boolean; useConptyDll?: boolean }) => PtyProcess;
-export interface TerminalLaunch { tabId: string; sessionId: string; generation: string; profileId: string; cwd: string; env?: EnvVar[]; cliBin?: string }
+export interface TerminalLaunch { tabId: string; sessionId: string; generation: string; profileId: string; cwd: string; env?: EnvVar[]; terminalEnv?: EnvVar[]; cliBin?: string }
 export type TerminalAdoption = Pick<TerminalLaunch, 'tabId' | 'sessionId' | 'generation' | 'cwd'>;
 /** Main-process notification only; viewers receive the effective title in session snapshots. */
 export interface TerminalTitleEvent { tabId: string; generation: string; title: string | null }
@@ -189,7 +190,7 @@ export class PtyBackend {
   subscribeTitle(listener: (event: TerminalTitleEvent) => void): () => void { this.titleListeners.add(listener); return () => { this.titleListeners.delete(listener); }; }
   private emit(event: TerminalEvent): void { for (const listener of this.listeners) { try { listener(event); } catch { /* Views cannot break PTY ownership. */ } } }
   async launch(input: TerminalLaunch): Promise<Result<OwnedTerminal>> {
-    if (!z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, profileId: profileIdSchema, cwd: pathSchema, env: envVarsSchema.optional(), cliBin: pathSchema.optional() }).strict().safeParse(input).success) return failure('VALIDATION', 'Invalid embedded launch identity.');
+    if (!z.object({ tabId: idSchema, sessionId: idSchema, generation: idSchema, profileId: profileIdSchema, cwd: pathSchema, env: envVarsSchemaFor(this.platform === 'win32').optional(), terminalEnv: envVarsSchemaFor(this.platform === 'win32').optional(), cliBin: pathSchema.optional() }).strict().safeParse(input).success) return failure('VALIDATION', 'Invalid embedded launch identity.');
     const key = `${input.tabId}/${input.generation}`, controller = new AbortController();
     const startup = this.startups.get(key) ?? { tabId: input.tabId, generation: input.generation, controllers: new Set<AbortController>() };
     startup.controllers.add(controller); this.startups.set(key, startup);
@@ -258,7 +259,7 @@ export class PtyBackend {
       return failure('VALIDATION', 'Terminal ownership changed or the live terminal limit was reached during preparation.');
     }
     const command = administrator ? { file: profile.executable, args: [], cwd } : supervisor ?? spawnArguments(profile, cwd, marker, !!input.cliBin);
-    const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', cliBin: input.cliBin, marker, host: this.options.hostEnvironment });
+    const env = terminalEnvironment(process.env, input.env ?? [], { windows: this.platform === 'win32', wsl: profile.environment === 'wsl', terminalEnv: input.terminalEnv, cliBin: input.cliBin, marker, host: this.options.hostEnvironment });
     if (supervisor) Object.assign(env, supervisor.env);
     // Unix node-pty writes options.name back to env.TERM, so use the session value.
     const termName = env.TERM ?? 'xterm-256color';
@@ -413,10 +414,10 @@ export class PtyBackend {
     if (e.generation !== generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
     return success(e);
   }
-  write(input: { tabId: string; generation: string; data: string; controlEpoch?: number; userInitiated?: boolean }): Result<{ written: true }> {
+  write(input: { tabId: string; generation: string; data: string; controlEpoch?: number; userInitiated?: boolean; settledAt?: string | null }): Result<{ written: true }> {
     if (!requestSchemas.writeTerminal.partial({ controlEpoch: true }).safeParse(input).success) return failure('VALIDATION', 'Invalid or oversized terminal input.');
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
-    return this.writeInput(owned.value, input.data, input.userInitiated !== false);
+    return this.writeInput(owned.value, input.data, input.userInitiated !== false && !isTerminalFocusReport(input.data));
   }
   private writeInput(e: Entry, data: string, userInitiated: boolean): Result<{ written: true }> {
     if (this.entries.get(e.tabId) !== e || e.state !== 'open' || !e.pty) return failure('TARGET_LOST', 'This shell has exited.');

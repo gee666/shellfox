@@ -35,6 +35,34 @@ function setup(delayed = false) {
 }
 
 describe('terminal stream ownership', () => {
+  it('does not replace a newer settlement event with an older attachment response', async () => {
+    const f = setup(); await flush();
+    const pending = deferred<Result<TerminalAttachmentDto>>();
+    f.api.attachTerminal.mockReturnValueOnce(pending.promise);
+    f.registry.refresh(tab.id); await flush();
+    const settledAt = '2026-11-13T12:00:00.000Z';
+    f.emitTerminal({ type: 'settlement', tabId: tab.id, generation: tab.generation, settledAt });
+    pending.resolve(success(attachment([], { settledAt: null }))); await flush();
+    f.latest().input('new input', true); await flush();
+    expect(f.api.writeTerminal).toHaveBeenLastCalledWith(expect.objectContaining({ data: 'new input', settledAt }));
+  });
+  it('captures settlement when user input occurs, not when a queued write is dispatched', async () => {
+    const f = setup();
+    f.api.attachTerminal.mockResolvedValueOnce(success(attachment([], { settledAt: null })));
+    await flush();
+    const pending = deferred<Result<{ written: true }>>();
+    f.api.writeTerminal.mockReturnValueOnce(pending.promise);
+    f.latest().input('first', true); await flush();
+    f.latest().input('queued before settle', true);
+    const settledAt = '2026-11-13T12:00:00.000Z';
+    f.emitTerminal({ type: 'settlement', tabId: tab.id, generation: tab.generation, settledAt });
+    f.latest().input('new input', true);
+    pending.resolve(success({ written: true })); await flush();
+    expect(f.api.writeTerminal.mock.calls.map(([request]) => ({ data: request.data, settledAt: request.settledAt }))).toEqual([
+      { data: 'first', settledAt: null }, { data: 'queued before settle', settledAt: null }, { data: 'new input', settledAt },
+    ]);
+  });
+
   it('keeps historical write provenance through batching without merging live output or dropping user input', async () => {
     const f = setup(true); await flush();
     f.api.attachTerminal.mockResolvedValueOnce(success(attachment([chunk(1, 'one'), chunk(2, 'two'), chunk(3, 'three')])));
@@ -459,6 +487,20 @@ describe('terminal stream ownership', () => {
 });
 
 describe('stock xterm input', () => {
+  it('forwards focus reports as passive even outside parsing and during browser input', () => {
+    const sent = vi.fn(), surface = createTerminalSurface(sent);
+    document.body.append(surface.element); surface.fit(); surface.setInput(true);
+    const terminal = terminalMocks.terminals.at(-1)!;
+    try {
+      surface.write('\x1b[?1004h', () => {});
+      terminal.input('\x1b[I'); terminal.input('\x1b[O');
+      surface.element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      terminal.input('\x1b[I'); terminal.input('typed');
+      expect(sent.mock.calls).toEqual([
+        ['\x1b[I', false], ['\x1b[O', false], ['\x1b[I', false], ['typed', true],
+      ]);
+    } finally { surface.dispose(); }
+  });
   it('forwards every onData chunk unchanged, including intentional repeats, spaces and Unicode', () => {
     const sent = vi.fn();
     const surface = createTerminalSurface(sent);

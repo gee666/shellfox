@@ -6,7 +6,7 @@ interface Identity { tabId: string; sessionId: string; generation: string }
 export interface TerminalControlPort {
   identity(tabId: string): Identity | undefined;
   snapshot(input: { tabId: string; generation?: string; afterSequence?: number }): Result<TerminalSnapshotDto>;
-  write(input: { tabId: string; generation: string; data: string; userInitiated?: boolean }): Result<{ written: true }>;
+  write(input: { tabId: string; generation: string; data: string; userInitiated?: boolean; settledAt?: string | null }): Result<{ written: true }>;
   resize(input: { tabId: string; generation: string; cols: number; rows: number }): Result<{ resized: true }>;
 }
 interface Slot extends Identity { epoch: number; owner?: TerminalControlView; viewers: Map<TerminalControlView, { ready: boolean }> }
@@ -88,11 +88,11 @@ export class TerminalControlBroker {
     if (this.port.identity(input.tabId)?.generation !== input.generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
     return this.owned(view, input) ? success({ authorized: true }) : denied();
   }
-  write(view: TerminalControlView, input: TerminalControlIdentity & { data: string; userInitiated?: boolean }): Result<{ written: true }> {
+  write(view: TerminalControlView, input: TerminalControlIdentity & { data: string; userInitiated?: boolean; settledAt?: string | null }): Result<{ written: true }> {
     if (!requestSchemas.writeTerminal.safeParse(input).success) return failure('VALIDATION', 'Invalid terminal input.');
     if (this.port.identity(input.tabId)?.generation !== input.generation) return failure('TARGET_LOST', 'This terminal generation is stale.');
     if (!this.owned(view, input)) return denied();
-    return this.port.write({ tabId: input.tabId, generation: input.generation, data: input.data, ...(input.userInitiated === undefined ? {} : { userInitiated: input.userInitiated }) });
+    return this.port.write({ tabId: input.tabId, generation: input.generation, data: input.data, ...(input.userInitiated === undefined ? {} : { userInitiated: input.userInitiated }), ...(input.settledAt === undefined ? {} : { settledAt: input.settledAt }) });
   }
   resize(view: TerminalControlView, input: TerminalControlIdentity & { cols: number; rows: number }): Result<{ resized: true }> {
     if (!requestSchemas.resizeTerminal.safeParse(input).success) return failure('VALIDATION', 'Invalid terminal size.');
@@ -122,6 +122,9 @@ export class TerminalControlBroker {
     }
     if (!slot.viewers.size) this.slots.delete(slot.tabId);
     return success({ detached: true });
+  }
+  settlement(event: Extract<TerminalEvent, { type: 'settlement' }>): void {
+    for (const view of this.views) view.send(event);
   }
   event(event: TerminalBackendEvent): void {
     if (event.type === 'activity') { for (const view of this.views) view.send(event); return; }
@@ -159,7 +162,7 @@ export class TerminalControlView {
   attach(input: { tabId: string; generation?: string; afterSequence?: number }) { return this.broker.attach(this, input); }
   take(input: { tabId: string; generation: string }) { return this.broker.take(this, input); }
   checkControl(input: TerminalControlIdentity) { return this.broker.checkControl(this, input); }
-  write(input: TerminalControlIdentity & { data: string; userInitiated?: boolean }) { return this.broker.write(this, input); }
+  write(input: TerminalControlIdentity & { data: string; userInitiated?: boolean; settledAt?: string | null }) { return this.broker.write(this, input); }
   resize(input: TerminalControlIdentity & { cols: number; rows: number }) { return this.broker.resize(this, input); }
   acknowledge(input: TerminalControlIdentity & { sequence: number }) { return this.broker.acknowledge(this, input); }
   detach(input: { tabId: string; generation: string }) { return this.broker.detach(this, input); }

@@ -37,6 +37,41 @@ function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false)
 }
 afterEach(() => vi.useRealTimers());
 describe('mobile terminal delivery', () => {
+  it('keeps a settlement event received while an older attachment is in flight', async () => {
+    const pending = deferred<ReturnType<typeof success<TerminalAttachmentDto>>>();
+    const f = setup(); f.api.attachTerminal.mockReturnValueOnce(pending.promise);
+    await flush();
+    try {
+      const settledAt = '2026-11-13T12:00:00.000Z';
+      f.emit({ type: 'settlement', tabId, generation, settledAt });
+      pending.resolve(success(snapshot([], { settledAt: null }))); await flush();
+      expect(f.messages.find(message => message.type === 'reset')).toMatchObject({ settledAt });
+      f.bridge.input('new input'); await flush();
+      expect(f.api.writeTerminal).toHaveBeenLastCalledWith(expect.objectContaining({ data: 'new input', settledAt }));
+    } finally { f.bridge.dispose(); }
+  });
+  it('captures settlement before input queues and WebView delivery without merging across the boundary', async () => {
+    const f = setup(snapshot([], { settledAt: null })); await flush();
+    try {
+      const pending = deferred<ReturnType<typeof success<{ written: true }>>>();
+      f.api.writeTerminal.mockReturnValueOnce(pending.promise);
+      f.bridge.input('first'); await flush();
+      f.bridge.input('queued before settle');
+      const settledAt = '2026-11-13T12:00:00.000Z';
+      f.emit({ type: 'settlement', tabId, generation, settledAt });
+      expect(f.messages.at(-1)).toEqual({ type: 'settlement', viewId: 'page-1', epoch: f.latest().epoch, settledAt });
+      // An older WebView message can arrive after the native bridge learns of settlement.
+      f.bridge.receive({ type: 'input', viewId: 'page-1', epoch: f.latest().epoch, data: 'delayed page input', settledAt: null });
+      f.bridge.input('new input');
+      pending.resolve(success({ written: true })); await flush();
+      expect(f.api.writeTerminal.mock.calls.map(([request]) => ({ data: request.data, settledAt: request.settledAt }))).toEqual([
+        { data: 'first', settledAt: null },
+        { data: 'queued before settledelayed page input', settledAt: null },
+        { data: 'new input', settledAt },
+      ]);
+    } finally { f.bridge.dispose(); }
+  });
+
   it('reports modifier activity only for accepted user input, not terminal responses', async () => {
     const f = setup();
     await flush();

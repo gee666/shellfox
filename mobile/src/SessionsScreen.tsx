@@ -203,7 +203,7 @@ export function SessionsScreen({
       {menu && <ActionMenu menu={menu} close={() => setMenu(null)} />}
       {environment && (
         <EnvironmentEditor
-          session={environment.session}
+          initialEnv={environment.session.env}
           close={() => setEnvironment(null)}
           save={async (env) => {
             const result = await environment.client.request('setSessionEnv', {

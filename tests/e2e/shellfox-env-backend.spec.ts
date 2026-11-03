@@ -6,7 +6,7 @@ import path from 'node:path';
 import { seedTerminal, launch, scratch, snapshot, value } from '../fixtures/electron';
 import type { TabDto } from '../../src/shared/contracts';
 
-test('session env survives SQLite restart and applies to new shells, not already running shells', async () => {
+test('global env survives SQLite restart and session overrides apply only to new shells', async () => {
   test.skip(process.platform !== 'win32', 'Real PowerShell environment inheritance.');
   test.setTimeout(90000);
   const dir = await scratch('shellfox-env-backend'), data = path.join(dir, 'data'), name = 'SHELLFOX_TEST_' + randomUUID().replaceAll('-', '').toUpperCase();
@@ -28,16 +28,22 @@ test('session env survives SQLite restart and applies to new shells, not already
   }
   try {
     const initial = await snapshot(current.page);
-    value(await current.page.evaluate(settings => window.shellfox.saveSettings({ ...settings, terminalProfileId: 'pwsh' }), initial.settings));
+    value(await current.page.evaluate(settings => window.shellfox.saveSettings(settings), { ...initial.settings, terminalProfileId: 'pwsh', terminalEnv: [{ name, value: 'shared original' }] }));
     const session = value(await current.page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID() })), old = session.tabs[0];
+    value(await current.page.evaluate(input => window.shellfox.setTerminalEnv(input), { env: [{ name, value: 'shared updated' }] }));
     value(await current.page.evaluate(input => window.shellfox.setSessionEnv(input), { sessionId: session.id, env: [{ name: ' ' + name + ' ', value: 'round3 stored=with spaces' }] }));
     value(await seedTerminal(current.app, { tabId: old.id, generation: old.generation!, data: `[Console]::WriteLine('SHELLFOX_BEFORE=' + [Environment]::GetEnvironmentVariable('${name}'))\r` }));
-    await expect.poll(() => output(old.id), { timeout: 15000 }).toContain('SHELLFOX_BEFORE=\r\n');
+    await expect.poll(() => output(old.id), { timeout: 15000 }).toContain('SHELLFOX_BEFORE=shared original');
     const added = value(await current.page.evaluate(id => window.shellfox.addTab({ sessionId: id }), session.id)), next = added.tabs.at(-1)!;
     value(await seedTerminal(current.app, { tabId: next.id, generation: next.generation!, data: `[Console]::WriteLine('SHELLFOX_AFTER=' + [Environment]::GetEnvironmentVariable('${name}'))\r` }));
     await expect.poll(() => output(next.id), { timeout: 15000 }).toContain('SHELLFOX_AFTER=round3 stored=with spaces');
     await closeTabs(); await current.app.close(); current = await launch(data, 'real');
-    expect((await snapshot(current.page)).sessions[0].env).toEqual([{ name, value: 'round3 stored=with spaces' }]);
+    const restored = await snapshot(current.page);
+    expect(restored.sessions[0].env).toEqual([{ name, value: 'round3 stored=with spaces' }]);
+    expect(restored.settings.terminalEnv).toEqual([{ name, value: 'shared updated' }]);
+    const fresh = value(await current.page.evaluate(input => window.shellfox.createSession(input), { cwd: dir, requestId: randomUUID() })).tabs[0];
+    value(await seedTerminal(current.app, { tabId: fresh.id, generation: fresh.generation!, data: `[Console]::WriteLine('SHELLFOX_RESTORED=' + [Environment]::GetEnvironmentVariable('${name}'))\r` }));
+    await expect.poll(() => output(fresh.id), { timeout: 15000 }).toContain('SHELLFOX_RESTORED=shared updated');
   } finally { await closeTabs().catch(() => {}); await current.app.close(); }
 });
 

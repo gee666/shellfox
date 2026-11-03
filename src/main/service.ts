@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, Result, SessionDto, SettingsDto, TabDto } from '../shared/contracts';
+import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, Result, SessionDto, SaveSettingsInput, SettingsDto, TabDto } from '../shared/contracts';
 import { failure, success } from '../shared/contracts';
 import type { LaunchReceipt, NativeBackend, NativeEvent, NativeInit, TabObservation, WindowTarget } from '../shared/native-port';
 import { explorerSchema, launchReceiptSchema, nativeEventSchema, probeSchema, requestSchemas, resultSchema, windowTargetSchema } from '../shared/schemas';
@@ -480,7 +480,20 @@ export class SessionService {
       return success(this.toDto(this.repository.session(session.id)!));
     });
   }
-  saveSettings(input: SettingsDto): Promise<Result<SettingsDto>> {
+  setTerminalEnv(input: { env: EnvVar[] }, canCommit?: () => boolean): Promise<Result<SettingsDto>> {
+    const parsed = requestSchemas.setTerminalEnv.safeParse(input);
+    if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid environment variables.'));
+    return this.serialize('settings', async () => {
+      const settings = { ...this.repository.settings(), terminalEnv: parsed.data.env };
+      // Remote approval may change while this write waits behind other settings changes.
+      if (canCommit && !canCommit()) return failure('ACCESS_DENIED', 'Terminal environment write is no longer authorized.');
+      try { this.repository.saveSettings(settings); }
+      catch { return failure('STORAGE_FAILED', 'Terminal environment could not be saved.', true); }
+      this.changed('settings');
+      return success(settings);
+    });
+  }
+  saveSettings(input: SaveSettingsInput): Promise<Result<SettingsDto>> {
     const parsed = requestSchemas.saveSettings.safeParse(input);
     if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid settings'));
     return this.serialize('settings', async () => {
@@ -492,7 +505,7 @@ export class SessionService {
         const unchangedExecutable = sameExecutable(parsed.data.shellExecutable, previous.shellExecutable);
         if (!selected || !sameExecutable(parsed.data.shellExecutable, selected.executable) && !unchangedExecutable) return failure('VALIDATION', 'Choose a discovered supported shell executable');
       }
-      const settings: SettingsDto = selected ? { ...parsed.data, shellId: selected.id, shellExecutable: selected.executable } : parsed.data;
+      const settings: SettingsDto = { ...parsed.data, terminalEnv: parsed.data.terminalEnv ?? previous.terminalEnv, ...(selected ? { shellId: selected.id, shellExecutable: selected.executable } : {}) };
       if (JSON.stringify(previous.processRules) === JSON.stringify(settings.processRules) && (this.watchReady || !this.probe.capabilities.processTracking)) {
         this.repository.saveSettings(settings); this.changed('settings'); return success(settings);
       }

@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { SessionStatsDto, AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SettingsDto, ShellId, TabDto, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
+import type { SessionStatsDto, AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SaveSettingsInput, SettingsDto, ShellId, TabDto, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { parseWslUnc } from '../../shared/wsl-path';
+import { isTerminalFocusReport } from '../../shared/terminal-input';
 import { requestSchemas } from '../../shared/schemas';
 import { aggregateStatus, countTabs, publicStatus, sortSessions, tabStatus } from '../../shared/status';
 import type { NativeInit, TabObservation } from '../../shared/native-port';
@@ -70,11 +71,11 @@ export class EmbeddedSessionService {
       },
       // Existing delivery may drain a confirmed exit after retention removes
       // its tab. That does not authorize a new attachment to deleted metadata.
-      snapshot: input => this.backend.attach(input), write: input => this.writeTerminal(input), resize: input => this.backend.resize(input),
+      snapshot: input => this.attachTerminal(input), write: input => this.writeTerminal(input), resize: input => this.backend.resize(input),
     });
     this.integrations = new DesktopIntegrations(explorerIntegration, cliIntegration, () => !this.disposed && !this.updateClosing, () => this.changed('settings'));
     let expiryPollAt = -Infinity;
-    this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), session => this.removeSession(session), () => this.changed(), async () => {
+    this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), session => this.removeSession(session), session => { if (session) this.publishSettlement(session); this.changed(); }, async () => {
       expiryPollAt = Date.now();
       await this.tracker.poll?.();
     }, id => !this.tracker.poll || backend.live().filter(owned => owned.sessionId === id && owned.state === 'open').every(owned => {
@@ -190,6 +191,13 @@ export class EmbeddedSessionService {
     try { this.refreshWatch(); } catch { /* Exit evidence survives a broken watch/storage dependency. */ }
     this.changed('native');
   }
+  private publishSettlement(session: SessionRecord): void {
+    if (session.settledAt) this.lastSettlementTime = Math.max(this.lastSettlementTime, Date.parse(session.settledAt));
+    for (const owned of this.backend.live().filter(tab => tab.sessionId === session.id)) {
+      const event = { type: 'settlement', tabId: owned.tabId, generation: owned.generation, settledAt: session.settledAt } as const;
+      this.terminalControl.settlement(event);
+    }
+  }
   private forwardTerminal(event: TerminalEvent): void { for (const listener of this.streams) { try { listener(event); } catch { /* Never suppress other viewers. */ } } }
   private reconcileExits(): void {
     for (const [id, exit] of this.pendingExits) {
@@ -265,19 +273,22 @@ export class EmbeddedSessionService {
   attachTerminal(input: Parameters<PtyBackend['attach']>[0]): Result<TerminalAttachmentDto> {
     const tab = this.repository.tab(input.tabId);
     if (!tab?.terminal) return failure('UNSUPPORTED', 'Only owned embedded terminals can be attached.');
-    return this.backend.attach(input);
+    const result = this.backend.attach(input);
+    return result.ok ? success({ ...result.value, settledAt: this.repository.session(tab.sessionId)?.settledAt ?? null }) : result;
   }
   writeTerminal(input: Parameters<PtyBackend['write']>[0]): Result<{ written: true }> {
     const result = this.backend.write(input), owned = this.backend.get(input.tabId);
-    if (result.ok && input.userInitiated !== false && input.data.length && owned) {
+    if (result.ok && input.userInitiated !== false && input.data.length && !isTerminalFocusReport(input.data) && owned) {
       this.lifecycle.touch(owned.sessionId);
       try {
         const session = this.repository.session(owned.sessionId);
-        if (session?.settledAt) {
+        // Legacy clients omit the marker. Current clients capture it when input
+        // occurs, so old queued input still writes without undoing a later settle.
+        if (session?.settledAt && (input.settledAt === undefined || input.settledAt === session.settledAt)) {
           session.settledAt = null;
           session.updatedAt = new Date().toISOString();
           this.repository.saveSession(session);
-          this.changed();
+          this.publishSettlement(session); this.changed();
         }
       } catch {
         // Input already reached the PTY. Do not report a failed write that a
@@ -373,7 +384,7 @@ export class EmbeddedSessionService {
       this.repository.transaction(() => { this.repository.saveSession(session); this.repository.saveTab(tab); this.repository.saveOperation(operation); }); this.changed();
       const launched = suppliedProcess
         ? this.backend.adopt({ ...identity, cwd: tab.cwd }, suppliedProcess)
-        : await this.backend.launch({ ...identity, profileId: profile.id, cwd: tab.cwd, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
+        : await this.backend.launch({ ...identity, profileId: profile.id, cwd: tab.cwd, terminalEnv: this.repository.settings().terminalEnv, env: this.repository.session(session.id)?.env ?? session.env ?? [], ...(this.cli.installed && this.cliIntegration ? { cliBin: this.cliIntegration.binDir } : {}) });
       try {
         this.repository.transaction(() => {
           // An immediate PTY exit may already have removed this tab.
@@ -519,9 +530,15 @@ export class EmbeddedSessionService {
     if (tabs.some(t => this.pendingExits.has(t.id))) return failure('STORAGE_FAILED', 'Closed tab removal could not be saved. Retry after storage is available.', true);
     return success({ closed: true });
   }
+  private lastSettlementTime = 0;
+  private nextSettlementTime(): string {
+    // Distinct explicit settlements must not share an input marker, even in one millisecond.
+    this.lastSettlementTime = Math.max(Date.now(), this.lastSettlementTime + 1);
+    return new Date(this.lastSettlementTime).toISOString();
+  }
   settleSession(input: { sessionId: string; confirmActive: boolean }): Promise<Result<SessionDto>> {
     if (!requestSchemas.settleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid settle request.'));
-    return this.mutate(input.sessionId, s => { s.settledAt ??= new Date().toISOString(); });
+    return this.mutate(input.sessionId, s => { s.settledAt ??= this.nextSettlementTime(); });
   }
   unsettleSession(input: { sessionId: string }): Promise<Result<SessionDto>> {
     if (!requestSchemas.unsettleSession.safeParse(input).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
@@ -595,9 +612,9 @@ export class EmbeddedSessionService {
         const removed = await this.removeSession(session);
         return removed.ok ? success({ message: 'Session deleted.' }) : removed;
       }
-      session.settledAt = input.action === 'settle' ? session.settledAt ?? new Date().toISOString() : null;
+      session.settledAt = input.action === 'settle' ? session.settledAt ?? this.nextSettlementTime() : null;
       session.updatedAt = new Date().toISOString();
-      this.repository.saveSession(session); this.changed();
+      this.repository.saveSession(session); this.publishSettlement(session); this.changed();
       return success({ session: this.toDto(session), message: input.action === 'settle' ? 'Session settled.' : 'Session unsettled.' });
     });
   }
@@ -606,8 +623,11 @@ export class EmbeddedSessionService {
     if (!requestSchemas.activateSession.safeParse({ sessionId: id }).success) return Promise.resolve(failure('VALIDATION', 'Invalid session ID.'));
     return this.serialize(id, async () => {
       const s = this.repository.session(id); if (!s) return failure('NOT_FOUND', 'Session not found.');
+      const settledAt = s.settledAt;
       const result = action(s); if (result) return result;
-      s.updatedAt = new Date().toISOString(); this.repository.saveSession(s); this.changed(reason); return success(this.toDto(s));
+      s.updatedAt = new Date().toISOString(); this.repository.saveSession(s);
+      if (s.settledAt !== settledAt) this.publishSettlement(s);
+      this.changed(reason); return success(this.toDto(s));
     });
   }
   retryTab(input: { tabId: string; confirmPossibleDuplicate: boolean }): Promise<Result<SessionDto>> {
@@ -617,7 +637,20 @@ export class EmbeddedSessionService {
     if (tab.terminal.profileId === AUTOMATION_PROFILE_ID) return Promise.resolve(failure('UNSUPPORTED', 'Automation views cannot restart their process. Start a new run instead.'));
     return this.activateSession({ sessionId: tab.sessionId });
   }
-  saveSettings(input: SettingsDto): Promise<Result<SettingsDto>> {
+  setTerminalEnv(input: { env: EnvVar[] }, canCommit?: () => boolean): Promise<Result<SettingsDto>> {
+    const parsed = requestSchemas.setTerminalEnv.safeParse(input);
+    if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid environment variables.'));
+    return this.serialize('settings', async () => {
+      const settings = { ...this.repository.settings(), terminalEnv: parsed.data.env };
+      // Remote approval may change while this write waits behind other settings changes.
+      if (canCommit && !canCommit()) return failure('ACCESS_DENIED', 'Terminal environment write is no longer authorized.');
+      try { this.repository.saveSettings(settings); }
+      catch { return failure('STORAGE_FAILED', 'Terminal environment could not be saved.', true); }
+      this.changed('settings');
+      return success(settings);
+    });
+  }
+  saveSettings(input: SaveSettingsInput): Promise<Result<SettingsDto>> {
     const parsed = requestSchemas.saveSettings.safeParse(input); if (!parsed.success) return Promise.resolve(failure('VALIDATION', 'Invalid settings.'));
     return this.serialize('settings', async () => {
       const previous = this.repository.settings();
@@ -633,7 +666,7 @@ export class EmbeddedSessionService {
       // An explicit discovered profile owns its derived fields. Full DTOs may still carry the old executable.
       const unchangedExecutable = !!input.terminalProfileId && input.shellExecutable === previous.shellExecutable;
       if (input.shellExecutable && input.shellExecutable !== selected.executable && !unchangedExecutable) { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); return failure('VALIDATION', 'Arbitrary shell executables are not allowed.'); }
-      const settings: SettingsDto = { ...parsed.data, adapterId: 'embedded-pty', terminalProfileId: selected.id, shellId: shellId(selected), shellExecutable: selected.executable };
+      const settings: SettingsDto = { ...parsed.data, terminalEnv: parsed.data.terminalEnv ?? previous.terminalEnv, adapterId: 'embedded-pty', terminalProfileId: selected.id, shellId: shellId(selected), shellExecutable: selected.executable };
       try { this.observations.clear(); this.tracker.setWatch(this.backend.live().map(e => e.root), settings.processRules); this.repository.saveSettings(settings); }
       catch { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); this.tracker.setWatch(this.backend.live().map(e => e.root), previous.processRules); return failure('STORAGE_FAILED', 'Settings could not be applied.', true); }
       if (pythonChanged) {

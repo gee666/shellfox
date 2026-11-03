@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import type { SettingsDto } from '../shared/contracts';
-import { settingsSchema, storedEnvVarsSchema } from '../shared/schemas';
+import { requestSchemas, settingsSchema, storedEnvVarsSchema } from '../shared/schemas';
 import type { RepositoryPort, SessionRecord, TabRecord, OperationRecord } from './models';
 import { defaultSettings, upgradeBundledRules } from './defaults';
 
@@ -163,7 +163,7 @@ export class Repository implements RepositoryPort {
     return this.decode(this.db.prepare('SELECT sessions.* FROM sessions JOIN operations ON sessions.id=operations.sessionId WHERE operations.requestId=?').get(requestId), ['error', 'target']);
   }
   settings(): SettingsDto { return settingsSchema.parse(JSON.parse((this.db.prepare('SELECT value FROM settings WHERE id=1').get() as { value: string }).value)); }
-  saveSettings(settings: SettingsDto): void { this.db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify(settings)); }
+  saveSettings(settings: SettingsDto): void { this.db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify(requestSchemas.saveSettings.parse(settings))); }
   explorerPreference(): boolean { return (this.db.prepare("SELECT value FROM preferences WHERE key='explorer'").get() as { value: string } | undefined)?.value === 'true'; }
   saveExplorerPreference(installed: boolean): void { this.db.prepare("INSERT INTO preferences VALUES ('explorer',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(installed)); }
   cliPreference(): boolean | null {

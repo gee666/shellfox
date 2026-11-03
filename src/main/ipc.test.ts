@@ -3,6 +3,7 @@ import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import type { SessionService } from './service';
 import { SshProfileStore } from './ssh/storage';
 import * as putty from './ssh/putty';
+import { defaultSettings } from './defaults';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 const state=vi.hoisted(()=>({handler:undefined as undefined | ((event: unknown,request: unknown)=>Promise<unknown>),removed:false}));
@@ -82,6 +83,22 @@ it('routes deleteSession only with a strict session id payload and validates the
   expect(await state.handler!(event,{version:1,method:'deleteSession',payload:{sessionId}})).toMatchObject({ok:false,error:{code:'INTERNAL'}});
   await state.handler!({...event,sender:{}},{version:1,method:'deleteSession',payload:{sessionId}});
   expect(service.deleteSession).toHaveBeenCalledTimes(1);
+});
+it('routes narrow global environment writes only from trusted validated requests', async () => {
+  const { window, event, service } = fixture();
+  const setTerminalEnv = vi.fn(async () => ({ ok: true, value: defaultSettings }));
+  Object.assign(service, { setTerminalEnv });
+  installIpc(window, url, service);
+  const request = { version: 1, method: 'setTerminalEnv', payload: { env: [] } };
+  expect(await state.handler!({ ...event, sender: {} }, request)).toMatchObject({ ok: false, error: { code: 'AUTH_FAILED' } });
+  for (const payload of [{}, { env: [], pythonPath: '/other' }, { env: [{ name: 'A', value: '\n' }] }]) {
+    expect(await state.handler!(event, { ...request, payload })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  }
+  expect(setTerminalEnv).not.toHaveBeenCalled();
+  expect(await state.handler!(event, request)).toEqual({ ok: true, value: defaultSettings });
+  expect(setTerminalEnv).toHaveBeenCalledExactlyOnceWith({ env: [] });
+  setTerminalEnv.mockResolvedValueOnce({ ok: true, value: { ...defaultSettings, terminalEnv: [{ name: 'BAD=NAME', value: '' }] } });
+  expect(await state.handler!(event, request)).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
 });
 it('routes SSH storage through trusted validated IPC without exposing the saved password',async()=>{
   await mkdir('tmp',{recursive:true});const directory=await mkdtemp(path.resolve('tmp/ssh-ipc-'));

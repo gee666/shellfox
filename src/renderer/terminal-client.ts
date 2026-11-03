@@ -7,7 +7,7 @@ import { failure } from '../shared/contracts';
 import { request } from './api';
 
 // Activity is metadata-only and has no terminal generation or output sequence.
-type DeliveryEvent = Exclude<TerminalEvent, { type: 'activity' }>;
+type DeliveryEvent = Exclude<TerminalEvent, { type: 'activity' | 'settlement' }>;
 const MAX_BUFFER = 512 * 1024;
 // A valid attach can contain 8192 replay chunks; live delivery adds at most
 // 256 outstanding chunks. Object limits must not reject that bounded replay.
@@ -41,7 +41,8 @@ interface Entry {
   attaching: boolean; attachToken: number; replayAgain: boolean; fullReplay: boolean;
   writes: { sequence: number; data: string; bytes: number; historical: boolean }[]; writeBytes: number; writing: boolean; epoch: number; inputEpoch: number;
   consumed: number; nextAck: number; ackTask: Promise<void> | null; detachFailed: boolean; detachQueue: Promise<Result<{ detached: true }>>;
-  inputQueue: Promise<void>; inputBytes: number;
+  inputQueue: Promise<void>; inputBytes: number; settledAt: string | null | undefined;
+  settlementEvent?: Extract<TerminalEvent, { type: 'settlement' }>;
   resized: string; resizeEpoch: number; resizing: boolean; nextSize: { cols: number; rows: number; controlEpoch: number } | null; fitPending: boolean;
   // Set when a view was rebuilt from a partial raw tail: the app is asked to repaint itself.
   repaint: boolean;
@@ -66,7 +67,15 @@ export class TerminalRegistry {
     if (this.active) return;
     if (!this.api) return;
     this.active = true;
-    try { this.unsubscribe = this.api.subscribeTerminal(event => { if ('generation' in event) this.receive(event); }); }
+    try { this.unsubscribe = this.api.subscribeTerminal(event => {
+      if (event.type === 'settlement') {
+        const entry = this.entries.get(event.tabId);
+        if (entry) {
+          entry.settlementEvent = event;
+          if (entry.state.generation === event.generation) entry.settledAt = event.settledAt;
+        }
+      } else if ('generation' in event) this.receive(event);
+    }); }
     catch { this.active = false; }
     for (const entry of this.entries.values()) void this.attach(entry);
   }
@@ -92,7 +101,7 @@ export class TerminalRegistry {
       attachToken: 0, replayAgain: false, fullReplay: false,
       writes: [], writeBytes: 0, writing: false, epoch: 0, inputEpoch: 0,
       consumed: 0, nextAck: 0, ackTask: null, detachFailed: false, detachQueue: Promise.resolve({ ok: true, value: { detached: true } }),
-      inputQueue: Promise.resolve(), inputBytes: 0, resized: '', resizeEpoch: 0, resizing: false, nextSize: null, fitPending: false, repaint: false,
+      inputQueue: Promise.resolve(), inputBytes: 0, settledAt: undefined, resized: '', resizeEpoch: 0, resizing: false, nextSize: null, fitPending: false, repaint: false,
     };
     this.entries.set(id, entry);
     return entry;
@@ -307,6 +316,7 @@ export class TerminalRegistry {
     if (entry.attaching) { entry.replayAgain = true; return; }
     entry.attaching = true;
     const token = ++entry.attachToken;
+    const previousSettlement = entry.settlementEvent;
     const requestedControlEpoch = entry.state.controlEpoch;
     const full = entry.fullReplay || entry.writing || entry.writes.length > 0 || entry.pending.size > 0 || entry.sequence > entry.consumed;
     entry.fullReplay = false;
@@ -401,6 +411,8 @@ export class TerminalRegistry {
       entry.repaint = !attachment.snapshot && attachment.truncated && attachment.state === 'open';
     }
     entry.surface.element.hidden = false;
+    entry.settledAt = entry.settlementEvent !== previousSettlement && entry.settlementEvent?.generation === attachment.generation
+      ? entry.settlementEvent.settledAt : attachment.settledAt;
     this.update(entry, { generation: attachment.generation, controlEpoch: attachment.controlEpoch, phase: attachment.state, exitCode: attachment.exitCode, error: null,
       warning: attachment.snapshot ? null : attachment.truncated || full ? 'Earlier output is unavailable. Showing the retained terminal buffer.' : entry.state.warning });
     for (const chunk of attachment.chunks) this.apply(entry, { ...chunk, controlEpoch: attachment.controlEpoch }, true);
@@ -522,6 +534,7 @@ export class TerminalRegistry {
     if (entry.readOnly || !api || controlEpoch === null || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
     // xterm emits device replies while parsing output, including hidden replay.
     const userOperation = entry.visible && (userInitiated ?? !entry.writing);
+    const settledAt = entry.settledAt;
     const epoch = entry.epoch;
     const bytes = encoder.encode(data).length;
     if (bytes > 65536 || entry.inputBytes + bytes > 65536) {
@@ -532,7 +545,7 @@ export class TerminalRegistry {
       // A display replay invalidates device replies, not queued user intent for
       // the same shell. Never automatically repeat a failed write.
       if (entry.readOnly || !this.active || (!userOperation && epoch !== entry.epoch) || entry.state.generation !== generation || entry.state.controlEpoch !== controlEpoch || entry.state.phase !== 'open') return;
-      const result = await request(() => api.writeTerminal({ tabId: entry.id, generation, controlEpoch, data, ...(userOperation ? {} : { userInitiated: false }) }));
+      const result = await request(() => api.writeTerminal({ tabId: entry.id, generation, controlEpoch, data, ...(userOperation ? {} : { userInitiated: false }), ...(settledAt === undefined ? {} : { settledAt }) }));
       if (!result.ok && userOperation && this.active && entry.host && entry.visible && this.entries.get(entry.id) === entry && entry.state.generation === generation && entry.state.controlEpoch === controlEpoch) this.update(entry, { operationError: result.error });
     }).finally(() => { entry.inputBytes -= bytes; });
   }

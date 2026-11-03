@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import type { Terminal } from '@xterm/xterm';
 import { NativeTextInput } from './native-text-input';
+import { isTerminalFocusReport } from '../../../src/shared/terminal-input';
 import { emptyModifiers, terminalKeySchema, type TerminalKeyEvent, type TerminalModifiers } from './protocol';
 
 const namedCodes: Record<string, number> = {
@@ -88,7 +89,7 @@ export class PageKeyboard {
       if (this.disposed) return;
       if (this.dispatching && this.encodedKey || this.nativeKeyOutput || this.nativeInput.acceptsXtermData(data)) {
         this.emitted = true;
-        if (this.dispatching && this.encodedKey || this.nativeKeyOutput || this.userInput) this.emit(data);
+        if (!isTerminalFocusReport(data) && (this.dispatching && this.encodedKey || this.nativeKeyOutput || this.userInput)) this.emit(data);
         else this.emit(data, false);
       }
     });

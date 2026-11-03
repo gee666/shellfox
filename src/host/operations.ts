@@ -11,7 +11,7 @@ export type HostSessionService = Pick<EmbeddedSessionService,
   'closeTab' | 'createSession' | 'addTab' | 'activateSession' | 'focusSession' |
   'refreshSessionMembership' | 'prepareSessionRegistration' | 'renameSession' | 'renameTab' | 'reorderTabs' |
   'setSessionPinned' | 'settleSession' | 'unsettleSession' | 'deleteSession' | 'clearSessionError' | 'retryTab' |
-  'setSessionEnv' | 'saveSettings' | 'setExplorerIntegration' | 'setCliIntegration' |
+  'setSessionEnv' | 'setTerminalEnv' | 'saveSettings' | 'setExplorerIntegration' | 'setCliIntegration' |
   'setRemoteVisibleSessions' | 'clearRemoteVisibleSessions'> & Partial<Pick<EmbeddedSessionService, 'createAutomationTerminal'>>;
 export interface HostKeepAwake {
   readonly active: boolean;
@@ -54,6 +54,7 @@ export async function managerOperation(ctx: ManagerContext, method: ManagerMetho
     case 'clearSessionError': return service.clearSessionError(requestSchemas.clearSessionError.parse(payload));
     case 'retryTab': return service.retryTab(requestSchemas.retryTab.parse(payload));
     case 'setSessionEnv': return service.setSessionEnv(requestSchemas.setSessionEnv.parse(payload));
+    case 'setTerminalEnv': return service.setTerminalEnv(requestSchemas.setTerminalEnv.parse(payload));
     case 'saveSettings': return service.saveSettings(requestSchemas.saveSettings.parse(payload));
     case 'setExplorerIntegration': return service.setExplorerIntegration(requestSchemas.setExplorerIntegration.parse(payload));
     case 'setCliIntegration': return service.setCliIntegration(requestSchemas.setCliIntegration.parse(payload));

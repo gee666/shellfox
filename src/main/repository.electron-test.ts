@@ -38,7 +38,18 @@ async function run() {
   assert.equal(repository.db.pragma('journal_mode', { simple: true }), 'wal');
   assert.equal(repository.db.pragma('foreign_keys', { simple: true }), 1);
   assert.deepEqual(repository.settings(), defaultSettings);
-  repository.saveSettings({ ...defaultSettings, accentColor: '#123456' });
+  // Old JSON settings need no database migration for a new defaulted field.
+  const { terminalEnv: emptyTerminalEnv, ...legacySettings } = defaultSettings;
+  assert.deepEqual(emptyTerminalEnv, []);
+  repository.db.prepare('UPDATE settings SET value=? WHERE id=1').run(JSON.stringify(legacySettings));
+  repository.close(); repository = new Repository(filename);
+  assert.deepEqual(repository.settings().terminalEnv, []);
+  const terminalEnv = [{ name: ' GLOBAL_TOKEN ', value: 'literal $() ; 雪' }, { name: 'EMPTY', value: '' }];
+  repository.saveSettings({ ...defaultSettings, accentColor: '#123456', terminalEnv });
+  const canonicalEnv = [{ name: 'GLOBAL_TOKEN', value: terminalEnv[0].value }, terminalEnv[1]];
+  assert.deepEqual(repository.settings().terminalEnv, canonicalEnv);
+  assert.throws(() => repository.saveSettings({ ...repository.settings(), terminalEnv: [{ name: 'BAD=NAME', value: '' }] }));
+  assert.deepEqual(repository.settings().terminalEnv, canonicalEnv);
   repository.saveExplorerPreference(true); repository.saveCliPreference(true);
   repository.saveWindowState({ x: 1, y: 2, width: 900, height: 700, maximized: true });
   const live = session(), a = tab(live), b = tab(live, 1);
@@ -114,7 +125,7 @@ async function run() {
   assert.equal(count('preferences', 'key', 'tab-member:missing-tab'), 0);
   assert.equal(count('preferences', 'key', 'session-window:missing-session'), 0);
   assert.equal(count('preferences', 'key', 'session-window:' + oldArchive.id), 1);
-  assert.equal(repository.settings().accentColor, '#123456'); assert.equal(repository.explorerPreference(), true); assert.equal(repository.cliPreference(), true);
+  assert.equal(repository.settings().accentColor, '#123456'); assert.deepEqual(repository.settings().terminalEnv, canonicalEnv); assert.equal(repository.explorerPreference(), true); assert.equal(repository.cliPreference(), true);
   assert.deepEqual(repository.windowState(), { x: 1, y: 2, width: 900, height: 700, maximized: true });
   assert.deepEqual(repository.db.pragma('foreign_key_check'), []);
   repository.close(); repository = new Repository(filename);

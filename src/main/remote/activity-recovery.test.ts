@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { RemoteClient } from '../../../mobile/src/client/client';
 import type { TerminalEvent } from '../../shared/contracts';
 import { remotePollResponseSchema } from '../../shared/remote-schemas';
+import { responseSchemas } from '../../shared/schemas';
 import { RemoteHost } from './host';
 import { embeddedFixture, identity, signedHeaders } from './test-fixtures';
 
@@ -71,6 +72,26 @@ it('keeps recovery events for the new subscription when re-pairing retires an ol
   expect(replies).toContainEqual(expect.objectContaining({ ok: true, value: { events: expect.arrayContaining([
     { type: 'terminal', event: { type: 'activity', tabId: f.tab.id, busy: false } },
   ]) } }));
+});
+it('preserves settlement metadata across attachment and ignores input captured before settling', async () => {
+  const f = await fixture(); await f.pair();
+  const settled = await f.service.settleSession({ sessionId: f.tab.sessionId, confirmActive: false });
+  if (!settled.ok) throw new Error(settled.error.message);
+  const attached = responseSchemas.attachTerminal.parse(JSON.parse(await f.send('/v1/request', {
+    clientId: f.clientId, method: 'attachTerminal', payload: { tabId: f.tab.id, generation: f.tab.generation },
+  })));
+  if (!attached.ok || attached.value.control !== 'owned') throw new Error('Missing attachment');
+  expect(attached.value.settledAt).toBe(settled.value.settledAt);
+  expect(await f.poll()).toMatchObject({ ok: true, value: { events: expect.arrayContaining([
+    { type: 'terminal', event: { type: 'settlement', tabId: f.tab.id, generation: f.tab.generation, settledAt: settled.value.settledAt } },
+  ]) } });
+  const write = (settledAt: string | null) => f.send('/v1/request', { clientId: f.clientId, method: 'writeTerminal', payload: {
+    tabId: f.tab.id, generation: f.tab.generation, controlEpoch: attached.value.controlEpoch, data: 'typed', settledAt,
+  } });
+  expect(responseSchemas.writeTerminal.parse(JSON.parse(await write(null))).ok).toBe(true);
+  expect(f.repository.session(f.tab.sessionId)?.settledAt).toBe(settled.value.settledAt);
+  expect(responseSchemas.writeTerminal.parse(JSON.parse(await write(settled.value.settledAt))).ok).toBe(true);
+  expect(f.repository.session(f.tab.sessionId)?.settledAt).toBeNull();
 });
 it('preserves queued activity when attaching or detaching while the output stays busy', async () => {
   const f = await fixture(); await f.pair();
