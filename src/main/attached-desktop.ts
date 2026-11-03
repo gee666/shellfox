@@ -6,6 +6,7 @@ import type { HostClient } from '../host/client';
 import { EarlyRequestQueue, handleCliRequest } from './cli';
 import { installAttachedHostIpc } from './attached-host-ipc';
 import { installDesktopPolicy, secureDesktopWindow } from './desktop-security';
+import { recoverRenderer } from './renderer-recovery';
 import { CloseConfirmationCoordinator } from './close-confirmation';
 import { sendToRenderer } from './renderer-channel';
 import { parseWindowState, restoreBounds, trackWindowState } from './window-state';
@@ -38,6 +39,7 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
     webPreferences: { ...(backgroundTest ? { backgroundThrottling: false } : {}), preload: path.resolve(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
   });
   secureDesktopWindow(window);
+  recoverRenderer(window);
   window.on('page-title-updated', event => event.preventDefault());
   if (bounds.maximized && !backgroundTest) window.maximize();
   const tracker = trackWindowState(window, state => {

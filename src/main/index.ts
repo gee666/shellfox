@@ -20,6 +20,7 @@ import { bypassCloseConfirmation, CloseConfirmationCoordinator } from './close-c
 import { installIpc } from './ipc';
 import { desktopRequest } from './desktop-requests';
 import { installDesktopPolicy, secureDesktopWindow } from './desktop-security';
+import { recoverRenderer } from './renderer-recovery';
 import { runAttachedDesktop } from './attached-desktop';
 import { onSystemQuit } from './system-quit';
 import { acquireHostOwnership } from '../host/ownership';
@@ -199,6 +200,7 @@ async function run(): Promise<void> {
   const windowTracker = trackWindowState(window, state => repository.saveWindowState(state));
   startupCleanups.push(() => windowTracker.dispose());
   secureDesktopWindow(window);
+  recoverRenderer(window);
   const ownedTerminalCount = () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0;
   const closeConfirmation = new CloseConfirmationCoordinator(window, rendererUrl, {
     autoApprove: bypassCloseConfirmation(__TEST_BUILD__, parsed.value, process.env.SHELLFOX_TEST_CONFIRM_QUIT),
