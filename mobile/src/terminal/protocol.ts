@@ -32,6 +32,7 @@ export const pageMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rendered'), ...identity, ticket: sequence }).strict(),
   z.object({ type: z.literal('focused'), ...identity }).strict(),
   z.object({ type: z.literal('selection'), ...identity, text: z.string().max(65536) }).strict(),
+  z.object({ type: z.literal('openFile'), ...identity, target: z.string().min(1).max(8192) }).strict(),
   z.object({ type: z.literal('error'), ...identity, message: z.string().max(500) }).strict(),
 ]);
 export type PageMessage = z.infer<typeof pageMessageSchema>;

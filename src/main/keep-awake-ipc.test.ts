@@ -13,7 +13,7 @@ function fixture() {
   const frame = { url }, contents = { mainFrame: frame, send: vi.fn() };
   const window = { webContents: contents, isDestroyed: () => false, isFocused: () => true } as unknown as BrowserWindow;
   const event = { sender: contents, senderFrame: frame } as unknown as IpcMainInvokeEvent;
-  const service = { backend: {}, subscribe: vi.fn(() => () => {}) } as unknown as SessionService;
+  const service = { files: { transfers: { cancelActor: vi.fn() } }, backend: {}, subscribe: vi.fn(() => () => {}) } as unknown as SessionService;
   return { window, event, service, contents, frame };
 }
 const call = (event: unknown, method: string, payload: unknown) => state.handler!(event, { version: 1, method, payload });

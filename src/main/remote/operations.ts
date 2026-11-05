@@ -4,6 +4,7 @@ import { requestSchemas, responseSchemas, remoteMethodSchema } from '../../share
 import type { EmbeddedSessionService } from '../terminal/service';
 import { getHomeDirectory, resolveDirectory, createDirectory, completeDirectory } from '../directory-prompt';
 import type { TerminalControlView } from '../terminal/control';
+import { isFileTransferMethod } from '../../shared/file-transfer-schemas';
 import { isTerminalUploadMethod } from '../../shared/terminal-upload-schemas';
 
 export async function remoteOperation(service: EmbeddedSessionService, delivery: TerminalControlView, clientId: string, method: unknown, payload: unknown, canCommit: () => boolean = () => false): Promise<unknown> {
@@ -26,6 +27,7 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
   // Elevated terminals stay local-only, including destructive session operations.
   let tabId: string | undefined;
   switch (m) {
+    case 'beginFileRead': case 'beginFileWrite': case 'listFiles': case 'readFile': case 'writeFile': case 'writeImageFile': case 'readFileAsset': tabId = requestSchemas[m].parse(payload).tabId; break;
     case 'attachTerminal': tabId = requestSchemas.attachTerminal.parse(payload).tabId; break;
     case 'takeTerminalControl': tabId = requestSchemas.takeTerminalControl.parse(payload).tabId; break;
     case 'writeTerminal': tabId = requestSchemas.writeTerminal.parse(payload).tabId; break;
@@ -44,8 +46,14 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
     if (!owned || owned.generation !== p.generation || service.repository.tab(p.tabId)?.operationId !== p.generation) return failure('TARGET_LOST', 'Stale terminal generation.');
 
   }
+  if (isFileTransferMethod(m)) return responseSchemas[m].parse(await service.files.transfers.request({ id: clientId, valid: canCommit }, m, payload));
   let result: unknown;
   switch (m) {
+    case 'listFiles': result = await service.files.list(requestSchemas.listFiles.parse(payload)); break;
+    case 'readFile': result = await service.files.read(requestSchemas.readFile.parse(payload)); break;
+    case 'writeFile': result = await service.files.write(requestSchemas.writeFile.parse(payload), canCommit); break;
+    case 'writeImageFile': result = await service.files.writeImage(requestSchemas.writeImageFile.parse(payload), canCommit); break;
+    case 'readFileAsset': result = await service.files.readAsset(requestSchemas.readFileAsset.parse(payload)); break;
     case 'getSnapshot': {
       const snapshot = service.getSnapshot();
       result = snapshot.ok ? success({ ...snapshot.value, sessions: snapshot.value.sessions.map(filterSession) }) : snapshot;

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { isFileTransferMethod } from '../shared/file-transfer-schemas';
 import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { failure, success } from '../shared/contracts';
 import { requestEnvelopeSchema, requestSchemas, responseSchemas } from '../shared/schemas';
@@ -22,6 +24,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
     sendToRenderer(window, rendererUrl, 'manager:terminal', event);
   };
   let stopped = false;
+  let fileActor = randomUUID();
   let delivery = embedded?.createTerminalView(sendTerminal) ?? null;
   ipcMain.handle('manager:request', async (event, raw: unknown) => {
     if (!isTrustedSender(event, window, rendererUrl)) return failure('AUTH_FAILED', 'Request did not come from the application renderer');
@@ -36,9 +39,18 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
       if ('authorizeForegroundFocus' in backend && typeof backend.authorizeForegroundFocus === 'function') backend.authorizeForegroundFocus();
     }
     try {
+      if (isFileTransferMethod(method)) {
+        const owner = fileActor;
+        return responseSchemas[method].parse(await service.files.transfers.request({ id: owner, valid: () => !stopped && fileActor === owner }, method, payload));
+      }
       let result = await desktopRequest(method, payload, { window, updates, sessionDirectory: id => service.repository.session(id)?.cwd ?? null });
       // Keep methods explicit. There is no property lookup into the service.
       if (result === undefined) switch (method) {
+        case 'listFiles': result = await service.files.list(requestSchemas.listFiles.parse(payload)); break;
+        case 'readFile': result = await service.files.read(requestSchemas.readFile.parse(payload)); break;
+        case 'writeFile': result = await service.files.write(requestSchemas.writeFile.parse(payload)); break;
+        case 'writeImageFile': result = await service.files.writeImage(requestSchemas.writeImageFile.parse(payload)); break;
+        case 'readFileAsset': result = await service.files.readAsset(requestSchemas.readFileAsset.parse(payload)); break;
         case 'listSshProfiles': result = ssh ? await ssh.list() : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
         case 'saveSshProfile': result = ssh ? await ssh.save(requestSchemas.saveSshProfile.parse(payload)) : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
         case 'deleteSshProfile': result = ssh ? await ssh.delete(requestSchemas.deleteSshProfile.parse(payload).id) : failure('UNSUPPORTED', 'SSH storage is unavailable.'); break;
@@ -107,7 +119,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
   const unsubscribeKeepAwake = keepAwake?.subscribe(state => {
     sendToRenderer(window, rendererUrl, 'manager:keep-awake', state);
   });
-  const resetDelivery = () => { delivery?.dispose(); delivery = stopped ? null : embedded?.createTerminalView(sendTerminal) ?? null; };
+  const resetDelivery = () => { service.files.transfers.cancelActor(fileActor); fileActor = randomUUID(); delivery?.dispose(); delivery = stopped ? null : embedded?.createTerminalView(sendTerminal) ?? null; };
   const resetViews = () => {
     resetDelivery();
     try { embedded?.setVisibleSessions({ sessionIds: [] }); } catch { /* Renderer teardown must still finish. */ }

@@ -12,6 +12,7 @@ import { TerminalLoading, TerminalPlaceholder } from './TerminalPlaceholder';
 import { TerminalRegistry } from './terminal-client';
 import { SettingsPanel, type SettingsTab } from './SettingsPanel';
 import { useSidebarWidth } from './sidebar-width';
+import { LayoutResizer } from './files/file-layout-resizer';
 import { DirectoryPrompt } from './DirectoryPrompt';
 import { UpdateNotice } from './UpdateNotice';
 import { CloseConfirmationModal } from './CloseConfirmationModal';
@@ -22,6 +23,8 @@ import { MachineSidebar } from './MachineSidebar';
 import { NewSessionButton } from './NewSessionButton';
 import { MachineConnectionPanel } from './MachineConnectionPanel';
 import { canCreateSession, type SessionCreationTarget } from './session-creation';
+import { useFilePanels } from './files/use-file-panels';
+import { filePanelScope } from './files/file-panel-scope';
 import './remote.css';
 import './machine-ui.css';
 
@@ -49,6 +52,8 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const activeRegistry = runtime?.registry ?? registry;
   const hostSnapshot = machineId === 'local' || runtime ? activeState.snapshot : null;
   const hostApi = activeClient.api;
+  const files = useFilePanels();
+  const fileActions = useRef(files); fileActions.current = files;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('General');
   const [directory, setDirectory] = useState<SessionCreationTarget | null>(null);
@@ -60,6 +65,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const [width, setWidth] = useSidebarWidth();
   const [dragging, setDragging] = useState(false);
   const action = useAction();
+  const folderAction = useAction();
   const notify = useNotify();
   useEffect(() => { client.start(); registry.start(); return () => { client.stop(); registry.stop(); }; }, [client, registry]);
   useEffect(() => { remote.start(); return () => remote.stop(); }, [remote]);
@@ -101,6 +107,31 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     for (const machine of Object.values(machines.runtimes)) machine.registry.setTheme(palette.terminal);
   }, [snapshot?.settings.accentColor, snapshot?.settings.backgroundColor, registry, machines.runtimes]);
   const selected = hostSnapshot?.sessions.find(session => session.id === activeState.selectedId);
+  const selectedTab = selected?.tabs.find(tab => tab.id === activeState.activeTabIds[selected.id] && isViewableTab(tab)) ?? selected?.tabs.find(isViewableTab);
+  const terminalFolderTarget = useRef({ hostId: machineId, sessionId: selected?.id, tabId: selectedTab?.id });
+  terminalFolderTarget.current = { hostId: machineId, sessionId: selected?.id, tabId: selectedTab?.id };
+  const filesAvailable = !!hostApi.files && (machineId === 'local' || !!runtime);
+  function toggleFiles() {
+    if (filesAvailable) files.toggle({ hostId: machineId, api: hostApi, directory: selectedTab?.cwd ?? selected?.cwd ?? '~', allowNativeBrowse: machineId === 'local', scope: filePanelScope(selected, selectedTab, runtime?.profiles ?? profiles) });
+  }
+  async function openTerminalFolder(tabId: string) {
+    const fileApi = hostApi.files, session = selected, tab = session?.tabs.find(tab => tab.id === tabId && isViewableTab(tab));
+    if (!filesAvailable || !fileApi || !session || !tab) return;
+    const target = { hostId: machineId, api: hostApi, allowNativeBrowse: machineId === 'local', scope: filePanelScope(session, tab, runtime?.profiles ?? profiles) };
+    const result = await folderAction.run(() => fileApi.list({ sessionId: session.id, tabId, path: '.' }));
+    const current = terminalFolderTarget.current;
+    if (result?.ok && current.hostId === target.hostId && current.sessionId === session.id && current.tabId === tabId) files.openDirectory(target, result.value);
+  }
+  useEffect(() => {
+    if (!filesAvailable || settingsOpen) return;
+    return activeRegistry.onFileOpen((tabId, target) => {
+      const session = hostSnapshot?.sessions.find(session => session.tabs.some(tab => tab.id === tabId));
+      const tab = session?.tabs.find(tab => tab.id === tabId);
+      if (!session || !tab) return;
+      fileActions.current.openFile({ hostId: machineId, api: hostApi, directory: tab.cwd, allowNativeBrowse: machineId === 'local', scope: filePanelScope(session, tab, runtime?.profiles ?? profiles) },
+        { ...target, sessionId: session.id, tabId, id: crypto.randomUUID() });
+    });
+  }, [activeRegistry, filesAvailable, hostApi, machineId, hostSnapshot?.sessions, settingsOpen, runtime?.profiles, profiles]);
   const hostProfiles = runtime?.profiles ?? profiles;
   const hostDefaultProfile = runtime ? runtime.defaultProfileId : defaultProfileId;
   const effectiveProfile = hostSnapshot?.settings.terminalProfileId ?? hostDefaultProfile;
@@ -191,16 +222,16 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
       </div>
       <UpdateNotice api={api} />
     </aside>
-    <div className="sidebar-resizer" role="separator" aria-label="Sidebar width" aria-orientation="vertical" aria-valuemin={160} aria-valuemax={Math.max(160, window.innerWidth / 2)} aria-valuenow={width} tabIndex={0}
-      onDoubleClick={() => setWidth(220)}
-      onKeyDown={event => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); setWidth(width + (event.key === 'ArrowLeft' ? -4 : 4)); } if (event.key === 'Home') setWidth(220); }}
-      onPointerDown={event => { if (event.button !== 0) return; event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); setDragging(true); }}
-      onPointerMove={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) setWidth(event.clientX); }}
-      onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setDragging(false); }}
-      onPointerCancel={() => setDragging(false)} onLostPointerCapture={() => setDragging(false)} />
+    <LayoutResizer className="sidebar-resizer" label="Sidebar width" orientation="vertical" min={160} max={Math.max(160, window.innerWidth / 2)}
+      value={width} defaultValue={220} onChange={setWidth} onDraggingChange={setDragging} />
     <main className="workspace" aria-label="Workspace">
       <div className="workspace-content" data-machine-id={machineId} hidden={settingsOpen} inert={settingsOpen}>
-        {selected ? <TerminalWorkspace visible={!settingsOpen} key={`${machineId}:${selected.id}`} session={selected} client={activeClient} registry={activeRegistry} profiles={hostProfiles} defaultProfileId={effectiveProfile} platform={hostSnapshot?.probe.platform} available={available} /> : machineId !== 'local' && !runtime ? <MachineConnectionPanel peer={currentPeer} creating={creationTarget === machineId} onRetry={() => { if (remoteApi) void remote.run(() => remoteApi.connect({ peerId: machineId })); }} onCancel={() => void cancelConnection()} /> : activeState.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
+        <div className="workspace-terminal-region">
+          {!selected && <div className="terminal-tab-strip empty-workspace-toolbar"><button className={`icon-button files-toggle${files.isOpen(machineId) ? ' active' : ''}`} aria-label="Files" title="Files" aria-pressed={files.isOpen(machineId)} disabled={!filesAvailable} onClick={toggleFiles}><Icon name="folder" /></button></div>}
+          {selected ? <TerminalWorkspace visible={!settingsOpen} key={`${machineId}:${selected.id}`} session={selected} client={activeClient} registry={activeRegistry} profiles={hostProfiles} defaultProfileId={effectiveProfile} platform={hostSnapshot?.probe.platform} available={available}
+            filesOpen={files.isOpen(machineId)} onToggleFiles={filesAvailable ? toggleFiles : undefined} onOpenTerminalFolder={filesAvailable ? tabId => void openTerminalFolder(tabId) : undefined} openingTerminalFolder={folderAction.pending} /> : machineId !== 'local' && !runtime ? <MachineConnectionPanel peer={currentPeer} creating={creationTarget === machineId} onRetry={() => { if (remoteApi) void remote.run(() => remoteApi.connect({ peerId: machineId })); }} onCancel={() => void cancelConnection()} /> : activeState.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
+        </div>
+        {files.render(machineId)}
       </div>
       {settingsOpen && snapshot && <SettingsPanel onClose={closeSettings} client={client} settings={snapshot.settings} profiles={profiles} defaultProfileId={defaultProfileId} remote={remote} activeTab={settingsTab} onTabChange={setSettingsTab} />}
     </main>

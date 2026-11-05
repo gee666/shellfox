@@ -18,7 +18,7 @@ type NativeProps = {
   children?: ReactNode; accessibilityLabel?: string; accessibilityRole?: string; disabled?: boolean;
   onPress?: () => void; onLongPress?: () => void; testID?: string;
 };
-type TerminalProps = { tabId: string; readOnly?: boolean; takeoverIntent?: string; onTakeoverIntentConsumed?: (id: string) => void; onError: (error: Error) => void; onState: (state: TerminalBridgeState) => void };
+type TerminalProps = { tabId: string; onFileOpen?: (target: { path: string; line?: number; column?: number }) => void; readOnly?: boolean; takeoverIntent?: string; onTakeoverIntentConsumed?: (id: string) => void; onError: (error: Error) => void; onState: (state: TerminalBridgeState) => void };
 let terminalProps: TerminalProps | null = null;
 vi.mock('react-native', () => ({
   Alert: { alert: vi.fn() },
@@ -55,14 +55,14 @@ function setup(connected = true, item: SessionDto = session(), remembered: strin
     setError: vi.fn(), report: vi.fn(), updatePreferences: vi.fn(), connect: vi.fn(), disconnect: vi.fn(),
     login: vi.fn(), logout: vi.fn(), renameDevice: vi.fn(), refresh: vi.fn(), retryStart: vi.fn(),
   };
-  const captured = vi.fn();
-  const ui = () => <SessionScreen onControlIntentCaptured={captured} controlIntent={controlIntent} machine={machine} sessionId={item.id} model={model} back={vi.fn()} prompt={vi.fn()} />;
+  const captured = vi.fn(), openFiles = vi.fn();
+  const ui = () => <SessionScreen openFiles={openFiles} onControlIntentCaptured={captured} controlIntent={controlIntent} machine={machine} sessionId={item.id} model={model} back={vi.fn()} prompt={vi.fn()} />;
   const view = render(ui());
   const update = (changes: Partial<MachineView>) => {
     machine = { ...machine, ...changes }; model = { ...model, machines: [machine] }; view.rerender(ui());
   };
   const replace = (next: SessionDto) => update({ snapshot: snapshot([next]) });
-  return { item, client, request, model, machine, view, update, replace, captured };
+  return { item, client, request, model, machine, view, update, replace, captured, openFiles };
 }
 async function press(name: string) { await act(async () => { fireEvent.click(screen.getByRole('button', { name })); }); }
 function newLiveSession(item: SessionDto) {
@@ -71,6 +71,20 @@ function newLiveSession(item: SessionDto) {
   return { ...item, tabs: [created, ...item.tabs, closed] };
 }
 describe('compact terminal chrome', () => {
+  it('opens Files with the active host/tab while keeping the terminal mounted', async () => {
+    const f = setup();
+    await press('Files');
+    expect(f.openFiles).toHaveBeenCalledExactlyOnceWith({ sessionId: f.item.id, tabId: f.item.tabs[0].id });
+    expect(screen.getByTestId('terminal')).toBeInTheDocument();
+    expect(terminalProps?.takeoverIntent).toBeUndefined();
+  });
+  it('opens terminal file targets in the full-screen Files view', () => {
+    const f = setup();
+    act(() => terminalProps?.onFileOpen?.({ path: './src/main.ts', line: 12, column: 2 }));
+    expect(f.openFiles).toHaveBeenCalledExactlyOnceWith({ sessionId: f.item.id, tabId: f.item.tabs[0].id,
+      openRequest: { path: './src/main.ts', line: 12, column: 2 } });
+    expect(screen.getByTestId('terminal')).toBeInTheDocument();
+  });
   it('does not infer takeover from automatic initial selection or metadata rerenders', () => {
     const f = setup();
     expect(terminalProps?.takeoverIntent).toBeUndefined();

@@ -10,6 +10,8 @@ import { Prompt, type PromptConfig } from './src/Prompt';
 import { Button, Note, useUi } from './src/ui';
 import { ThemeProvider, useTheme } from './src/theme';
 import { useUpdates } from './src/updates/useUpdates';
+import { FilesScreen } from './src/FilesScreen';
+import type { FileOpenRequest } from './src/file-browser-types';
 
 function Shellfox() {
   const model = useShellfox();
@@ -25,6 +27,7 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
   const { palette } = useTheme();
   const [section, setSection] = useState<'sessions' | 'settings'>('sessions');
   const [selection, setSelection] = useState<(OpenSession & { controlIntent?: SessionControlIntent }) | null>(null);
+  const [files, setFiles] = useState<{ peerId: string; sessionId?: string; tabId?: string; openRequest?: FileOpenRequest } | null>(null);
   const openSession = (next: OpenSession) => {
     const state = model.machines.find(item => item.peer.id === next.peerId)?.state;
     setSelection({ ...next, controlIntent: next.takeControl && state?.status === 'connected'
@@ -37,6 +40,11 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
   const updateStatus = useUpdates(model.preferencesLoaded, model.preferences.autoUpdate);
   const updateVersion = updateStatus.version;
   const machine = model.machines.find((item) => item.peer.id === selection?.peerId);
+  const fileMachine = model.machines.find(item => item.peer.id === files?.peerId);
+  const fileMetadataCurrent = fileMachine?.snapshotConnectionId === fileMachine?.state.connectionId;
+  const fileSession = fileMachine?.snapshot?.sessions.find(item => item.id === files?.sessionId);
+  const fileSessionId = fileMetadataCurrent && fileMachine?.snapshot && !fileSession ? undefined : files?.sessionId;
+  const fileTabId = fileSessionId && (!fileMetadataCurrent || fileSession?.tabs.some(item => item.id === files?.tabId)) ? files?.tabId : undefined;
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (prompt) {
@@ -72,6 +80,7 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
             model={model}
             back={() => setSelection(null)}
             prompt={showPrompt}
+            openFiles={request => setFiles({ peerId: machine.peer.id, ...request })}
           />
         ) : (
           <SessionsScreen
@@ -79,6 +88,7 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
             open={openSession}
             prompt={showPrompt}
             settings={() => setSection('settings')}
+            openFiles={peerId => setFiles({ peerId })}
           />
         )
       ) : (
@@ -140,6 +150,10 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
           ))}
         </View>
       )}
+      {files && fileMachine && <FilesScreen key={files.peerId} api={fileMachine.client.files} directoryApi={fileMachine.client}
+        sessionId={fileSessionId} tabId={fileTabId} openRequest={files.openRequest}
+        connectionEpoch={fileMachine.state.connectionId} available={fileMachine.state.status === 'connected'}
+        closeLabel={selection?.peerId === files.peerId ? '‹ Terminal' : '‹ Sessions'} onClose={() => setFiles(null)} />}
       {prompt && (
         <Prompt
           key={prompt.id}

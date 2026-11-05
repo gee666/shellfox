@@ -5,6 +5,7 @@ export type { SurfaceFactory, SurfaceClipboard, TerminalSurface } from './termin
 import type { AppError, Result, TerminalApi, TerminalAttachmentDto, TerminalEvent } from '../shared/contracts';
 import { failure } from '../shared/contracts';
 import { request } from './api';
+import { parseTerminalFileTarget, type TerminalFileTarget } from '../shared/terminal-file-links';
 
 // Activity is metadata-only and has no terminal generation or output sequence.
 type DeliveryEvent = Exclude<TerminalEvent, { type: 'activity' | 'settlement' }>;
@@ -60,6 +61,11 @@ export class TerminalRegistry {
   private shutdown?: ReturnType<typeof setTimeout>;
   private active = false;
   private theme: ITheme | undefined;
+  private fileListeners = new Set<(tabId: string, target: TerminalFileTarget) => void>();
+  onFileOpen(listener: (tabId: string, target: TerminalFileTarget) => void) {
+    this.fileListeners.add(listener);
+    return () => { this.fileListeners.delete(listener); };
+  }
   constructor(private api: TerminalApi | null, private factory: SurfaceFactory = createTerminalSurface) {}
 
   start() {
@@ -122,6 +128,7 @@ export class TerminalRegistry {
     };
     return {
       copy: text => copy(text),
+      openFile: target => { const entry = current(); if (entry.host && entry.visible) for (const listener of this.fileListeners) listener(entry.id, target); },
       copyLink: url => copy(url, () => this.update(current(), { notice: 'Link copied' })),
       linkMenu: (url, x, y) => { const entry = current(); if (entry.host && entry.visible) this.update(entry, { linkMenu: { url, x, y } }); },
       read: async () => {
@@ -153,7 +160,11 @@ export class TerminalRegistry {
     if (!entry || !menu) return;
     this.update(entry, { linkMenu: null });
     const clipboard = this.clipboard(() => entry);
-    if (action === 'open') clipboard?.openLink?.(menu.url);
+    if (action === 'open') {
+      const target = parseTerminalFileTarget(menu.url);
+      if (target) clipboard?.openFile?.(target);
+      else clipboard?.openLink?.(menu.url);
+    }
     else if (action === 'copy') clipboard?.copyLink?.(menu.url);
   }
   clearOperationError(id: string, error: AppError) {

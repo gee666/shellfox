@@ -15,6 +15,8 @@ import { TerminalOperationError } from './terminal/errors';
 import type { TerminalBridgeState } from './terminal/bridge';
 import { isConnectionFailure } from './connection-status';
 import { RemoteClientError } from './client';
+import { FolderButton } from './FileTransferBar';
+import type { FileOpenRequest } from './file-browser-types';
 
 export interface SessionControlIntent { id: string; connectionId: string | null }
 interface FocusIntent extends SessionControlIntent { tabId?: string; generation?: TabDto['generation'] }
@@ -27,6 +29,7 @@ export function SessionScreen({
   model,
   back,
   prompt,
+  openFiles,
 }: {
   machine: MachineView;
   controlIntent?: SessionControlIntent;
@@ -35,6 +38,7 @@ export function SessionScreen({
   model: ShellfoxModel;
   back: () => void;
   prompt: (value: PromptConfig) => void;
+  openFiles: (request: { sessionId: string; tabId?: string; openRequest?: FileOpenRequest }) => void;
 }) {
   const { colors, styles } = useUi();
   const metadataCurrent = machine.snapshotConnectionId === machine.state.connectionId;
@@ -187,6 +191,8 @@ export function SessionScreen({
             <ConnectionStatus model={model} peerId={machine.peer.id} terminalState={phase} />
           </View>
         </View>
+        <FolderButton disabled={!session || !metadataCurrent || machine.state.status !== 'connected'}
+          onPress={() => openFiles({ sessionId, tabId: active?.id })} />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="New terminal"
@@ -277,6 +283,7 @@ export function SessionScreen({
               connectionEpoch={machine.state.connectionId ?? ''}
               onError={onTerminalError}
               onState={onTerminalState}
+              onFileOpen={target => openFiles({ sessionId, tabId: active.id, openRequest: target })}
             />
           ) : (
             <View style={styles.content}>

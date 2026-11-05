@@ -129,7 +129,7 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
           // Waiting for that same handler here would deadlock the committed update.
           if (method === 'installUpdate') operation.drain = false;
           const manager = requestEnvelopeSchema.parse({ version: 1, method, payload });
-          value = await managerOperation({ ...options, delivery: client.delivery, clientId: client.id }, manager.method, manager.payload);
+          value = await managerOperation({ ...options, delivery: client.delivery, clientId: client.id, valid: () => !!client && clients.has(client.id) }, manager.method, manager.payload);
         } else throw new Error('Host client is required.');
         reply({ requestId, ok: true, value: parseHostResponse(method, value) });
         if (method === 'host.stop' && !hostRequestSchemas['host.stop'].parse(payload).wait) {

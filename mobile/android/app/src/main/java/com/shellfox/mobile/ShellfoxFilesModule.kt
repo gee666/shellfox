@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Only picker-owned cache handles cross the bridge. Provider IO never runs on the UI thread. */
 class ShellfoxFilesModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(context), ActivityEventListener, LifecycleEventListener {
-  private class Selection(val token: String, val promise: Promise, val requestCode: Int) {
+  private class Selection(val token: String, val promise: Promise, val requestCode: Int, val maxBytes: Long) {
     val cancelled = AtomicBoolean(false)
     val signal = CancellationSignal()
     val resource = AtomicReference<Closeable?>(null)
@@ -120,12 +120,18 @@ class ShellfoxFilesModule(context: ReactApplicationContext) : ReactContextBaseJa
   }
 
   @ReactMethod
-  fun pick(token: String, promise: Promise) {
+  fun pick(token: String, promise: Promise) = pickWithLimit(token, 64L * 1024 * 1024, promise)
+  @ReactMethod
+  fun pickForTransfer(token: String, maxBytes: Double, promise: Promise) {
+    if (!maxBytes.isFinite() || maxBytes < 0 || maxBytes > MAX_FILE || maxBytes % 1 != 0.0) { promise.reject("VALIDATION", "Invalid picker limit."); return }
+    pickWithLimit(token, maxBytes.toLong(), promise)
+  }
+  private fun pickWithLimit(token: String, maxBytes: Long, promise: Promise) {
     if (!validId(token)) { promise.reject("VALIDATION", "Invalid picker token."); return }
     UiThreadUtil.runOnUiThread {
       val activity = reactApplicationContext.currentActivity
       if (activity == null) { promise.reject("PICKER_UNAVAILABLE", "The file picker is unavailable."); return@runOnUiThread }
-      val next = Selection(token, promise, nextRequest.getAndUpdate { if (it >= 32760) 6183 else it + 1 })
+      val next = Selection(token, promise, nextRequest.getAndUpdate { if (it >= 32760) 6183 else it + 1 }, maxBytes)
       synchronized(lock) {
         if (closed.get() || selection != null || handles.size >= 4) {
           promise.reject("PICKER_UNAVAILABLE", "The file picker is unavailable or already open."); return@runOnUiThread
@@ -196,7 +202,7 @@ class ShellfoxFilesModule(context: ReactApplicationContext) : ReactContextBaseJa
             val count = input.read(buffer)
             if (count < 0) break
             size += count
-            if (size > MAX_FILE) throw IllegalStateException("Choose a file no larger than 64 MiB.")
+            if (size > current.maxBytes) throw IllegalStateException("The selected file exceeds the ${current.maxBytes / (1024 * 1024)} MiB limit.")
             destination.write(buffer, 0, count)
           }
         }
@@ -289,7 +295,7 @@ class ShellfoxFilesModule(context: ReactApplicationContext) : ReactContextBaseJa
   override fun onHostPause() = Unit
   override fun onNewIntent(intent: Intent) = Unit
   companion object {
-    private const val MAX_FILE = 64L * 1024 * 1024
+    private const val MAX_FILE = 1024L * 1024 * 1024
     private const val MAX_CHUNK = 192 * 1024
     private fun validId(value: String) = value.matches(Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"))
   }

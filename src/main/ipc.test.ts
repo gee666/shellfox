@@ -18,7 +18,7 @@ function fixture(){
   const contents={mainFrame:frame,send:vi.fn()};
   const window={webContents:contents,isDestroyed:()=>false,isFocused:()=>true} as unknown as BrowserWindow;
   const event={sender:contents,senderFrame:frame} as unknown as IpcMainInvokeEvent;
-  const service={backend:{authorizeForegroundFocus:vi.fn()},activateSession:vi.fn(async()=>({ok:false,error:{code:'FOCUS_DENIED',message:'denied',retryable:true}})),getSnapshot:vi.fn(()=>({ok:true,value:{secret:'do not expose'}})),subscribe:vi.fn(()=>vi.fn())} as unknown as SessionService;
+  const service={files:{transfers:{cancelActor:vi.fn()}},backend:{authorizeForegroundFocus:vi.fn()},activateSession:vi.fn(async()=>({ok:false,error:{code:'FOCUS_DENIED',message:'denied',retryable:true}})),getSnapshot:vi.fn(()=>({ok:true,value:{secret:'do not expose'}})),subscribe:vi.fn(()=>vi.fn())} as unknown as SessionService;
   return {window,event,service};
 }
 beforeEach(()=>{state.handler=undefined;state.removed=false;});

@@ -23,5 +23,5 @@ export async function createHostResources(options: HostRuntimeOptions): Promise<
   const remoteHostname = hostname().replace(/[^a-zA-Z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 63).replace(/-+$/g, '') || 'shellfox';
   const remote = new RemoteService(options.userData, new RemoteStore(options.userData, remoteHostname), new RemoteHelper(options.helperPath ?? paths.tailscale), service, remoteHostname);
   const keepAwake = new HeadlessKeepAwake();
-  return { service, remote, keepAwake, ssh: new SshProfileStore(options.userData), closeRepository: () => repository.close(), initialize: async () => { await keepAwake.initialize(); await service.initialize(); await remote.initialize(); }, startLegacyControl: () => startControlServer(options.userData, service, keepAwake, options.assertOwnership) };
+  return { service, remote, keepAwake, ssh: new SshProfileStore(options.userData), closeRepository: () => repository.close(), initialize: async () => { await keepAwake.initialize(); await service.files.initialize(options.userData); await service.initialize(); await remote.initialize(); }, startLegacyControl: () => startControlServer(options.userData, service, keepAwake, options.assertOwnership) };
 }

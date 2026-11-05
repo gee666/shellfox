@@ -1,3 +1,5 @@
+import type { FileApi } from './file-contracts';
+import type { DesktopFilesApi } from './desktop-file-contracts';
 import type { TabStatDto } from './process-stats-schemas';
 export interface SessionStatsDto { sessions: SessionDto[]; tabs: TabStatDto[] }
 export const ADMIN_POWERSHELL_PROFILE = 'administrator-powershell';
@@ -8,7 +10,7 @@ export type TabStatus = Exclude<Status, 'settled'>;
 export type TabLifecycle = 'launching' | 'open' | 'closed' | 'launch-uncertain';
 export type AdapterId = 'windows-terminal' | 'gnome-terminal' | 'embedded-pty';
 export type ShellId = 'pwsh' | 'windows-powershell' | 'bash' | 'login-shell' | 'wsl';
-export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'DEPENDENCY_MISSING' | 'LAUNCH_FAILED' | 'REGISTRATION_TIMEOUT' | 'TARGET_LOST' | 'TARGET_AMBIGUOUS' | 'FOCUS_DENIED' | 'MONITOR_UNAVAILABLE' | 'NATIVE_UNAVAILABLE' | 'AUTH_FAILED' | 'APPROVAL_REQUIRED' | 'ACCESS_DENIED' | 'TERMINAL_CONTROL_REQUIRED' | 'SETTLE_CONFIRM_REQUIRED' | 'RETRY_CONFIRM_REQUIRED' | 'STORAGE_FAILED' | 'INTERNAL';
+export type ErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'DEPENDENCY_MISSING' | 'LAUNCH_FAILED' | 'REGISTRATION_TIMEOUT' | 'TARGET_LOST' | 'TARGET_AMBIGUOUS' | 'FOCUS_DENIED' | 'MONITOR_UNAVAILABLE' | 'NATIVE_UNAVAILABLE' | 'AUTH_FAILED' | 'APPROVAL_REQUIRED' | 'ACCESS_DENIED' | 'TERMINAL_CONTROL_REQUIRED' | 'SETTLE_CONFIRM_REQUIRED' | 'RETRY_CONFIRM_REQUIRED' | 'STORAGE_FAILED' | 'FILE_CONFLICT' | 'INTERNAL';
 export interface AppError { code: ErrorCode; message: string; retryable: boolean }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: AppError };
 export interface Counts { running: number; waiting: number; unknown: number; error: number; closed: number; agents: number }
@@ -147,6 +149,8 @@ export interface SshProfileInput {
 }
 export interface SshImportResultDto { profiles: SshProfileDto[]; added: number; updated: number; found: number }
 export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmationApi> {
+  files?: FileApi;
+  desktopFiles?: DesktopFilesApi;
   getSnapshot(): Promise<Result<ManagerSnapshot>>;
   getSessionStats?(input: { sessionId?: Id }): Promise<Result<SessionStatsDto>>;
   /** Renderer viewport rows plus the displayed terminal session. Empty while the document is hidden. */

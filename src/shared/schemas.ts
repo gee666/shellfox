@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { fileTransferRequestSchemas, fileTransferValueSchemas } from './file-transfer-schemas';
+import { fileLocationSchema, fileWriteSchema, fileImageWriteSchema, fileAssetRequestSchema, fileListSchema, fileReadSchema, fileWriteResultSchema, fileAssetSchema } from './file-schemas';
 import { sshProfileInputSchema, sshProfileDtoSchema } from './ssh-schemas';
 import { parseWslUnc } from './wsl-path';
 import { tabStatSchema } from './process-stats-schemas';
@@ -16,7 +18,7 @@ export const pathSchema = text(32767).min(1).refine(s => isWslUncPath(s) || (/^[
 export const statusSchema = z.enum(['waiting', 'error', 'running', 'unknown', 'settled']);
 export const tabStatusSchema = z.enum(['waiting', 'error', 'running', 'unknown']);
 export const lifecycleSchema = z.enum(['launching', 'open', 'closed', 'launch-uncertain']);
-export const errorSchema = z.object({ code: z.enum(['VALIDATION', 'NOT_FOUND', 'UNSUPPORTED', 'DEPENDENCY_MISSING', 'LAUNCH_FAILED', 'REGISTRATION_TIMEOUT', 'TARGET_LOST', 'TARGET_AMBIGUOUS', 'FOCUS_DENIED', 'MONITOR_UNAVAILABLE', 'NATIVE_UNAVAILABLE', 'AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED', 'TERMINAL_CONTROL_REQUIRED', 'SETTLE_CONFIRM_REQUIRED', 'RETRY_CONFIRM_REQUIRED', 'STORAGE_FAILED', 'INTERNAL']), message: text(1000).min(1), retryable: z.boolean() }).strict();
+export const errorSchema = z.object({ code: z.enum(['VALIDATION', 'NOT_FOUND', 'UNSUPPORTED', 'DEPENDENCY_MISSING', 'LAUNCH_FAILED', 'REGISTRATION_TIMEOUT', 'TARGET_LOST', 'TARGET_AMBIGUOUS', 'FOCUS_DENIED', 'MONITOR_UNAVAILABLE', 'NATIVE_UNAVAILABLE', 'AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED', 'TERMINAL_CONTROL_REQUIRED', 'SETTLE_CONFIRM_REQUIRED', 'RETRY_CONFIRM_REQUIRED', 'STORAGE_FAILED', 'FILE_CONFLICT', 'INTERNAL']), message: text(1000).min(1), retryable: z.boolean() }).strict();
 export const resultSchema = <T extends z.ZodType>(value: T) => z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), value }).strict(), z.object({ ok: z.literal(false), error: errorSchema }).strict()]);
 const count = z.number().int().min(0).max(1000000);
 export const capabilitiesSchema = z.object({ createWindow: z.boolean(), addTab: z.boolean(), focusWindow: z.boolean(), activateTab: z.boolean(), splitPane: z.literal(false), attachExisting: z.literal(false), closeTerminal: z.boolean(), commandExitStatus: z.literal(false), processTracking: z.boolean(), explorerContextMenu: z.boolean(), embeddedTerminal: z.boolean().optional(), terminalLifetime: z.enum(['app-owned', 'external-legacy']).optional(), shellSurvival: z.boolean().optional() }).strict();
@@ -86,6 +88,12 @@ export const CLIPBOARD_COPY_BYTES = 1024 * 1024;
 export const CLIPBOARD_PASTE_BYTES = 65536;
 const sessionId = z.object({ sessionId: idSchema }).strict();
 export const requestSchemas = {
+  ...fileTransferRequestSchemas,
+  listFiles: fileLocationSchema,
+  readFile: fileLocationSchema,
+  writeFile: fileWriteSchema,
+  writeImageFile: fileImageWriteSchema,
+  readFileAsset: fileAssetRequestSchema,
   listSshProfiles: empty,
   saveSshProfile: sshProfileInputSchema,
   deleteSshProfile: z.object({ id: idSchema }).strict(),
@@ -142,6 +150,17 @@ export const updateStatusSchema = z.object({
   total: z.number().int().positive().max(768 * 1024 * 1024).nullable().optional(), error: text(1000).nullable().optional(),
 }).strict();
 export const responseSchemas = {
+  beginFileRead: resultSchema(fileTransferValueSchemas.beginFileRead),
+  readFileChunk: resultSchema(fileTransferValueSchemas.readFileChunk),
+  beginFileWrite: resultSchema(fileTransferValueSchemas.beginFileWrite),
+  writeFileChunk: resultSchema(fileTransferValueSchemas.writeFileChunk),
+  finishFileWrite: resultSchema(fileTransferValueSchemas.finishFileWrite),
+  cancelFileTransfer: resultSchema(fileTransferValueSchemas.cancelFileTransfer),
+  listFiles: resultSchema(fileListSchema),
+  readFile: resultSchema(fileReadSchema),
+  writeFile: resultSchema(fileWriteResultSchema),
+  writeImageFile: resultSchema(fileWriteResultSchema),
+  readFileAsset: resultSchema(fileAssetSchema),
   listSshProfiles: resultSchema(z.array(sshProfileDtoSchema)),
   saveSshProfile: resultSchema(z.array(sshProfileDtoSchema)),
   deleteSshProfile: resultSchema(z.array(sshProfileDtoSchema)),

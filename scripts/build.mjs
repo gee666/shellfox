@@ -10,6 +10,7 @@ const testBuild = process.argv.includes('--test');
 const output = testBuild ? 'tmp/build-test' : 'tmp/build';
 const sourceHash = sourceDigest(root);
 mkdirSync(output, { recursive: true });
+copyFileSync('src/renderer/files/T3CODE-LICENSE.txt', path.join(output, 'T3CODE-LICENSE.txt'));
 mkdirSync(path.join(output, 'icon'), { recursive: true });
 for (const file of ['icon-256.png', 'icon.ico']) copyFileSync(path.join(root, 'resources/icon', file), path.join(output, 'icon', file));
 if (!['win32', 'linux', 'darwin'].includes(process.platform) || !['x64', 'arm64'].includes(process.arch)) throw new Error('Build requires Windows, Linux or macOS with target-native x64/arm64 Node.');

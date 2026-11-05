@@ -1,0 +1,10 @@
+.layout-resizer { flex-shrink: 0; background: var(--sidebar); touch-action: none; user-select: none; }
+.layout-resizer[hidden] { display: none; }
+.layout-resizer-vertical { cursor: col-resize; }
+.layout-resizer-horizontal { cursor: row-resize; height: 4px; border-bottom: 1px solid var(--border); }
+.layout-resizer:hover, .layout-resizer-dragging { background: var(--accent); }
+.layout-resizer:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* A captured drag must not select text or disappear into a preview iframe. */
+.layout-resize-shield { position: fixed; inset: 0; z-index: 150; user-select: none; touch-action: none; }
+.layout-resize-shield-vertical { cursor: col-resize; }
+.layout-resize-shield-horizontal { cursor: row-resize; }

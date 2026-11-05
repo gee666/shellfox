@@ -1,8 +1,19 @@
 import type { RemoteMethod, RemoteRequestPayload, RemoteResponse } from '../../../src/shared/remote-contracts';
+import { createFileApi } from '../../../src/shared/file-api';
 
 /** Convenience methods retain the shared request and Result types. */
 export abstract class RemoteOperations {
   abstract request<M extends RemoteMethod>(method: M, payload: RemoteRequestPayload<M>): Promise<RemoteResponse<M>>;
+
+  readonly files = createFileApi({
+    list: input => this.request('listFiles', input),
+    beginRead: input => this.request('beginFileRead', input),
+    readChunk: input => this.request('readFileChunk', input),
+    beginWrite: input => this.request('beginFileWrite', input),
+    writeChunk: input => this.request('writeFileChunk', input),
+    finishWrite: input => this.request('finishFileWrite', input),
+    cancelTransfer: input => this.request('cancelFileTransfer', input),
+  });
 
   beginTerminalUpload(input: RemoteRequestPayload<'beginTerminalUpload'>) { return this.request('beginTerminalUpload', input); }
   writeTerminalUpload(input: RemoteRequestPayload<'writeTerminalUpload'>) { return this.request('writeTerminalUpload', input); }

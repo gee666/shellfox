@@ -1,3 +1,4 @@
+import { createFileApi } from '../shared/file-api';
 import type { ChangedEvent, KeepAwakeState, ManagerApi, TerminalApi } from '../shared/contracts';
 import type { RemoteApi, RemoteEvent, RemoteMethod, RemoteResponse, RemoteRequestPayload } from '../shared/remote-contracts';
 import { responseSchemas } from '../shared/remote-schemas';
@@ -33,6 +34,15 @@ export class HostClient {
   private constructor(private readonly endpoint: HostEndpoint, private readonly clientId: string) {
     const subscribe = <T>(listeners: Set<(event: T) => void>, listener: (event: T) => void) => { listeners.add(listener); this.startPolling(); return () => { listeners.delete(listener); }; };
     this.service = {
+      files: createFileApi({
+        list: input => this.request('listFiles', input),
+        beginRead: input => this.request('beginFileRead', input),
+        readChunk: input => this.request('readFileChunk', input),
+        beginWrite: input => this.request('beginFileWrite', input),
+        writeChunk: input => this.request('writeFileChunk', input),
+        finishWrite: input => this.request('finishFileWrite', input),
+        cancelTransfer: input => this.request('cancelFileTransfer', input),
+      }),
       getSnapshot: () => this.request('getSnapshot'),
       getSessionStats: input => this.request('getSessionStats', input),
       setVisibleSessions: input => this.request('setVisibleSessions', input),

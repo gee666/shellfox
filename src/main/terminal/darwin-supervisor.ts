@@ -26,6 +26,7 @@ export const supervisorStatusSchema = z.object({ version: z.literal(1), ok: z.bo
 export type SupervisorStatus = z.infer<typeof supervisorStatusSchema>;
 export interface SupervisorControl {
   ready(supervisorPid: number): Promise<SupervisorStatus>;
+  status?(): Promise<SupervisorStatus>;
   close(): Promise<SupervisorStatus>;
   disposeConfirmed(): Promise<void>;
 }
@@ -75,6 +76,7 @@ export class DarwinSupervisorControl implements SupervisorControl {
     } while (Date.now() < deadline);
     throw last ?? new Error('Supervisor startup timed out.');
   }
+  status(): Promise<SupervisorStatus> { return this.request('STATUS'); }
   async close(): Promise<SupervisorStatus> {
     const response = await this.request('CLOSE');
     if (!response.ok || response.state !== 'closed' || response.shellAlive) throw new Error(response.reason ?? 'Owned Darwin session cleanup was not confirmed.');

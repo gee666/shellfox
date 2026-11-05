@@ -26,6 +26,7 @@ vi.mock('./StatusIndicator', () => ({ StatusIndicator: () => null }));
 vi.mock('./DirectoryPrompt', () => ({ DirectoryPrompt: () => null }));
 vi.mock('./EnvironmentEditor', () => ({ EnvironmentEditor: () => null }));
 vi.mock('./terminal/TerminalView', () => ({ TerminalView: () => null }));
+vi.mock('./FilesScreen', () => ({ FilesScreen: () => null }));
 vi.mock('./ActionMenu', () => ({ ActionMenu: () => null }));
 const { SettingsScreen } = await import('./SettingsScreen');
 const { SessionsScreen } = await import('./SessionsScreen');
@@ -44,7 +45,7 @@ function fixture(): ShellfoxModel {
 function ui(name: string, model: ShellfoxModel) {
   if (name === 'settings') return <SettingsScreen model={model} prompt={vi.fn()} />;
   if (name === 'sessions') return <SessionsScreen model={model} open={vi.fn()} prompt={vi.fn()} settings={vi.fn()} />;
-  return <SessionScreen model={model} machine={model.machines[0]} sessionId="session" back={vi.fn()} prompt={vi.fn()} />;
+  return <SessionScreen openFiles={vi.fn()} model={model} machine={model.machines[0]} sessionId="session" back={vi.fn()} prompt={vi.fn()} />;
 }
 it.each(['settings', 'sessions', 'terminal'])('offers Cancel request on %s and uses model disconnect rather than reconnect or forget', async name => {
   const model = fixture(); render(ui(name, model));

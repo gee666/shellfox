@@ -31,6 +31,7 @@ export class ScreenMirror {
   private disposed = false;
   private broken = false;
   private processTitle: string | null = null;
+  private workingDirectoryUrl: string | null = null;
   /**
    * xterm's public `write` parses on later timer ticks, so a burst leaves the mirror behind the
    * replay ring exactly when a snapshot is needed. The input handler's `parse` is what that queue
@@ -46,6 +47,15 @@ export class ScreenMirror {
       if (!this.disposed && !this.broken) {
         try { onReply?.(data); } catch { /* A failed device reply cannot corrupt screen state. */ }
       }
+    });
+    this.term.parser.registerOscHandler(7, value => {
+      if (!value) { this.workingDirectoryUrl = null; return true; }
+      try {
+        if (value.length > 32767) return true;
+        const url = new URL(value);
+        if (url.protocol === 'file:' && !url.username && !url.password && !url.port && !url.search && !url.hash && !/[\x00-\x1f\x7f]/.test(decodeURIComponent(url.pathname))) this.workingDirectoryUrl = url.href;
+      } catch { /* Invalid process metadata does not change the last directory. */ }
+      return true;
     });
     this.term.onTitleChange(raw => {
       if (this.disposed || this.broken) return;
@@ -64,6 +74,7 @@ export class ScreenMirror {
   }
   get sequence(): number { return this.parsed; }
   get title(): string | null { return this.processTitle; }
+  get directoryUrl(): string | null { return this.workingDirectoryUrl; }
   /** `sequence` advances once the chunk has been parsed into the mirror. */
   write(sequence: number, data: string): void {
     if (this.disposed || this.broken || this.finished || !this.term) return;

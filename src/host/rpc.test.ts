@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { hostResourcePaths } from './paths';
-import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddedSessionService } from '../main/terminal/service';
@@ -37,6 +37,20 @@ async function session(client: HostClient) {
   if (!result.ok) throw new Error(result.error.message); return result.value;
 }
 describe('local host RPC', () => {
+  it('exposes filesystem list/read/write/assets through the authenticated headless host API', async () => {
+    const f = await fixture(), client = await f.connect(), target = await session(client);
+    const file = path.join(f.userData, 'preview.html');
+    await writeFile(file, '<p>headless</p>'); await writeFile(path.join(f.userData, 'style.css'), 'p{color:red}');
+    const location = { sessionId: target.id, tabId: target.tabs[0].id, path: file }, files = client.service.files;
+    if (!files) throw new Error('Files API missing');
+    const read = await files.read(location); if (!read.ok) throw new Error(read.error.message);
+    expect(read.value).toMatchObject({ kind: 'text', text: '<p>headless</p>' });
+    expect(await files.list({ ...location, path: f.userData })).toMatchObject({ ok: true, value: { entries: expect.arrayContaining([expect.objectContaining({ name: 'preview.html' })]) } });
+    expect(await files.readAsset({ ...location, assetPath: 'style.css' })).toMatchObject({ ok: true, value: { mimeType: 'text/css' } });
+    expect(await files.write({ ...location, revision: read.value.revision, text: '<p>saved</p>' })).toMatchObject({ ok: true });
+    expect(await readFile(file, 'utf8')).toBe('<p>saved</p>');
+    expect(await files.write({ ...location, revision: read.value.revision, text: '<p>stale</p>' })).toMatchObject({ ok: false, error: { code: 'FILE_CONFLICT' } });
+  });
   it('persists global terminal env through the narrow headless API and merges session overrides at launch', async () => {
     const f = await fixture(), client = await f.connect();
     const before = await client.service.getSnapshot();

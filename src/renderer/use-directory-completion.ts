@@ -12,11 +12,12 @@ export function useDirectoryCompletion(api: ManagerApi, path: string, enabled: b
   const [accepted, setAccepted] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [composing, setComposing] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const composition = useRef(false);
   const serial = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const cycle = useRef<{ matches: readonly string[]; index: number } | null>(null);
-  const visible = enabled && !composing ? visibleDirectoryCompletions(path, matches) : [];
+  const visible = enabled && !composing && !dismissed ? visibleDirectoryCompletions(path, matches) : [];
 
   function cancel() {
     serial.current++;
@@ -24,10 +25,17 @@ export function useDirectoryCompletion(api: ManagerApi, path: string, enabled: b
   }
   function edit() {
     cancel(); cycle.current = null;
-    setMatches([]); setActive(-1); setAccepted(false); setCompleted(false);
+    setMatches([]); setActive(-1); setAccepted(false); setCompleted(false); setDismissed(false);
   }
+  function dismiss() {
+    const wasOpen = visible.length > 0;
+    cancel(); cycle.current = null;
+    setMatches([]); setActive(-1); setDismissed(true);
+    return wasOpen;
+  }
+  function reopen() { setDismissed(false); setCompleted(false); setAccepted(false); }
   useEffect(() => {
-    if (!enabled || composing || completed) return;
+    if (!enabled || composing || completed || dismissed) return;
     const ticket = ++serial.current;
     timer.current = setTimeout(() => {
       void request(() => api.completeDirectory({ path })).then(result => {
@@ -37,7 +45,7 @@ export function useDirectoryCompletion(api: ManagerApi, path: string, enabled: b
       });
     }, DEBOUNCE_MS);
     return cancel;
-  }, [api, path, enabled, composing, completed]);
+  }, [api, path, enabled, composing, completed, dismissed]);
   useEffect(() => cancel, []);
 
   function accept(match: string, index: number) {
@@ -47,7 +55,7 @@ export function useDirectoryCompletion(api: ManagerApi, path: string, enabled: b
   }
   async function tab() {
     if (!enabled || composition.current) return;
-    cancel();
+    cancel(); setDismissed(false);
     const ticket = serial.current;
     if (!cycle.current) {
       const result = await request(() => api.completeDirectory({ path }));
@@ -87,5 +95,5 @@ export function useDirectoryCompletion(api: ManagerApi, path: string, enabled: b
   function endComposition() {
     composition.current = false; setComposing(false);
   }
-  return { matches: visible, active, composition, edit, cancel, tab, choose, move, enter, startComposition, endComposition };
+  return { matches: visible, active, composition, edit, cancel, dismiss, reopen, tab, choose, move, enter, startComposition, endComposition };
 }

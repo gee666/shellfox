@@ -1,4 +1,5 @@
 import { failure, success, type KeepAwakeState } from '../shared/contracts';
+import { isFileTransferMethod } from '../shared/file-transfer-schemas';
 import { requestSchemas, type ManagerMethod } from '../shared/schemas';
 import type { EmbeddedSessionService } from '../main/terminal/service';
 import type { TerminalControlView } from '../main/terminal/control';
@@ -12,7 +13,7 @@ export type HostSessionService = Pick<EmbeddedSessionService,
   'refreshSessionMembership' | 'prepareSessionRegistration' | 'renameSession' | 'renameTab' | 'reorderTabs' |
   'setSessionPinned' | 'settleSession' | 'unsettleSession' | 'deleteSession' | 'clearSessionError' | 'retryTab' |
   'setSessionEnv' | 'setTerminalEnv' | 'saveSettings' | 'setExplorerIntegration' | 'setCliIntegration' |
-  'setRemoteVisibleSessions' | 'clearRemoteVisibleSessions'> & Partial<Pick<EmbeddedSessionService, 'createAutomationTerminal'>>;
+  'setRemoteVisibleSessions' | 'clearRemoteVisibleSessions'> & Partial<Pick<EmbeddedSessionService, 'createAutomationTerminal' | 'files'>>;
 export interface HostKeepAwake {
   readonly active: boolean;
   readonly supported?: boolean;
@@ -21,12 +22,18 @@ export interface HostKeepAwake {
 }
 export interface ManagerContext {
   service: HostSessionService; delivery: TerminalControlView; clientId: string;
-  keepAwake?: HostKeepAwake; ssh?: SshProfileStore;
+  keepAwake?: HostKeepAwake; ssh?: SshProfileStore; valid?: () => boolean;
   desktop?: (method: ManagerMethod, payload: unknown) => Promise<unknown>;
 }
 export async function managerOperation(ctx: ManagerContext, method: ManagerMethod, payload: unknown): Promise<unknown> {
   const { service, delivery } = ctx;
+  if (isFileTransferMethod(method)) return service.files ? service.files.transfers.request({ id: ctx.clientId, valid: ctx.valid ?? (() => true) }, method, payload) : failure('UNSUPPORTED', 'File transfers are unavailable.');
   switch (method) {
+    case 'listFiles': return service.files?.list(requestSchemas.listFiles.parse(payload)) ?? failure('UNSUPPORTED', 'Files are unavailable on this host.');
+    case 'readFile': return service.files?.read(requestSchemas.readFile.parse(payload)) ?? failure('UNSUPPORTED', 'Files are unavailable on this host.');
+    case 'writeFile': return service.files?.write(requestSchemas.writeFile.parse(payload)) ?? failure('UNSUPPORTED', 'Files are unavailable on this host.');
+    case 'writeImageFile': return service.files?.writeImage(requestSchemas.writeImageFile.parse(payload)) ?? failure('UNSUPPORTED', 'Files are unavailable on this host.');
+    case 'readFileAsset': return service.files?.readAsset(requestSchemas.readFileAsset.parse(payload)) ?? failure('UNSUPPORTED', 'Files are unavailable on this host.');
     case 'getSnapshot': return service.getSnapshot();
     case 'getSessionStats': return service.getSessionStats(requestSchemas.getSessionStats.parse(payload));
     case 'getTerminalProfiles': return service.getTerminalProfiles();

@@ -60,9 +60,10 @@ export class RpcClients {
       const events = client.events; client.events = []; client.bytes = 0; return { events };
     } finally { client.polling = false; }
   }
+  has(id: string): boolean { return this.clients.has(id); }
   drop(id: string): void {
     const client = this.clients.get(id); if (!client) return;
-    this.clients.delete(id); this.onDrop?.(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.();
+    this.clients.delete(id); this.service.files?.transfers.cancelActor(id); this.onDrop?.(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.();
     client.unsubscribeRemote?.();
     if (client.remote) { const cleanup = client.remote.dispose().catch(() => {}); this.cleanup.add(cleanup); void cleanup.finally(() => this.cleanup.delete(cleanup)); }
   }

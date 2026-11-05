@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import React, { StrictMode, type ReactNode } from 'react';
+import React, { StrictMode, type ReactNode, type Ref } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ManagerApi, Result } from '../../src/shared/contracts';
 import { failure, success } from '../../src/shared/contracts';
 import { DirectoryPrompt, type DirectoryPromptConfig } from './DirectoryPrompt';
+import { DirectoryPathInput, type DirectoryPathInputHandle } from './DirectoryPathInput';
 import { createDirectoryFixtureApi } from '../e2e/DirectoryHarness';
 
 type NativeProps = {
@@ -12,20 +13,30 @@ type NativeProps = {
   onPress?: () => void; onRequestClose?: () => void; keyboardShouldPersistTaps?: string;
   behavior?: string; keyboardVerticalOffset?: number; style?: unknown;
 };
+type NativeInputProps = {
+  ref?: Ref<HTMLInputElement>; value: string; onChangeText: (value: string) => void;
+  onSubmitEditing: (event: { nativeEvent: KeyboardEvent }) => void;
+  onKeyPress?: (event: { nativeEvent: KeyboardEvent; stopPropagation(): void }) => void;
+  onFocus?: () => void; onPressIn?: () => void; editable?: boolean; accessibilityLabel: string;
+};
 const keyboard = vi.hoisted(() => ({ keyboardVisible: true, keyboardInset: 120, keyboardOffset: 24, measureKeyboardInset: vi.fn() }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 30, bottom: 20 }) }));
 vi.mock('./terminal/useKeyboardOverlap', () => ({ useKeyboardOverlap: () => keyboard }));
 vi.mock('react-native', () => ({
   Platform: { OS: 'android' }, StyleSheet: { create: <T,>(styles: T) => styles },
   View: ({ children, style }: NativeProps) => <div data-style={JSON.stringify(style)}>{children}</div>,
-  Text: ({ children }: NativeProps) => <span>{children}</span>,
+  Text: ({ children, accessibilityLabel }: NativeProps) => <span aria-label={accessibilityLabel}>{children}</span>,
   Pressable: ({ children, accessibilityLabel, disabled, onPress }: NativeProps) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>,
   ScrollView: ({ children, keyboardShouldPersistTaps }: NativeProps) => <div data-taps={keyboardShouldPersistTaps}>{children}</div>,
   Modal: ({ children, onRequestClose }: NativeProps) => <div role="dialog" onKeyDown={event => { if (event.key === 'Escape') onRequestClose?.(); }}>{children}</div>,
   KeyboardAvoidingView: ({ children, behavior, keyboardVerticalOffset, style }: NativeProps) => <div data-testid="keyboard-layout" data-behavior={behavior} data-offset={keyboardVerticalOffset} data-style={JSON.stringify(style)}>{children}</div>,
-  TextInput: ({ value, onChangeText, onSubmitEditing, editable, accessibilityLabel }: { value: string; onChangeText: (value: string) => void; onSubmitEditing: () => void; editable?: boolean; accessibilityLabel: string }) => (
-    <input aria-label={accessibilityLabel} value={value} disabled={editable === false}
-      onChange={event => onChangeText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') onSubmitEditing(); }} />
+  TextInput: ({ ref, value, onChangeText, onSubmitEditing, onKeyPress, onFocus, onPressIn, editable, accessibilityLabel }: NativeInputProps) => (
+    <input ref={ref} aria-label={accessibilityLabel} value={value} disabled={editable === false}
+      onFocus={onFocus} onMouseDown={onPressIn} onChange={event => onChangeText(event.target.value)}
+      onKeyDown={event => {
+        onKeyPress?.({ nativeEvent: event.nativeEvent, stopPropagation: () => event.stopPropagation() });
+        if (event.key === 'Enter') onSubmitEditing({ nativeEvent: event.nativeEvent });
+      }} />
   ),
 }));
 function deferred<T>() {
@@ -54,6 +65,37 @@ async function press(name: string) { await act(async () => { fireEvent.click(scr
 async function complete() { await act(async () => { await vi.advanceTimersByTimeAsync(100); }); }
 beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+describe('reusable mobile directory path input', () => {
+  it('loads the remote home indicator without overwriting the controlled draft', async () => {
+    const { api } = fixture(); const submit = vi.fn(); const close = vi.fn();
+    const handle = React.createRef<DirectoryPathInputHandle>();
+    function Entry() {
+      const [value, setValue] = React.useState('');
+      return <DirectoryPathInput ref={handle} api={api} value={value} onChangeText={setValue}
+        onSubmit={submit} onClose={close} />;
+    }
+    const view = render(<Entry />); await act(async () => {}); await complete();
+    expect(api.getHomeDirectory).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText('Home directory: /home/user')).toBeTruthy();
+    expect(screen.getByRole('textbox')).toHaveProperty('value', '');
+    await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' }); });
+    expect(submit).toHaveBeenCalledExactlyOnceWith('');
+    expect(handle.current?.dismissSuggestions()).toBe(false);
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+    expect(close).toHaveBeenCalledOnce(); view.unmount();
+  });
+  it('shares an existing home lookup and stops stale completions after unmount', async () => {
+    const { api } = fixture(); const completion = deferred<Result<{ matches: string[] }>>();
+    api.completeDirectory.mockReturnValue(completion.promise);
+    const view = render(<DirectoryPathInput api={api} homeDirectory="/remote/home" value="~/w"
+      onChangeText={vi.fn()} onSubmit={vi.fn()} />);
+    expect(screen.getByLabelText('Home directory: /remote/home')).toBeTruthy();
+    await complete(); view.unmount();
+    await act(async () => { completion.resolve(success({ matches: ['~/work/', '~/workshop/'] })); });
+    expect(api.getHomeDirectory).not.toHaveBeenCalled();
+  });
+});
 
 describe('mobile directory prompt', () => {
   it('resolves an existing folder and submits once with OK or the keyboard', async () => {
@@ -181,6 +223,76 @@ describe('mobile directory prompt', () => {
     await show(f); expect(screen.getByText('Home unavailable.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'OK' })).toHaveProperty('disabled', true);
     await press('Retry'); expect(screen.getByRole('textbox')).toHaveProperty('value', '/home/user');
+  });
+  it.each(['', '~', '~/'])('dismisses suggestions before submitting the exact home draft %j', async path => {
+    const f = fixture();
+    f.api.completeDirectory.mockResolvedValue(success({ matches: ['~/work/', '~/workshop/'] }));
+    await show(f); draft(path); await complete();
+    const input = screen.getByRole('textbox');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('button', { name: '~/work/' })).toBeNull();
+    expect(f.close).not.toHaveBeenCalled();
+    await complete();
+    expect(screen.queryByRole('button', { name: '~/work/' })).toBeNull();
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(f.api.resolveDirectory).toHaveBeenCalledExactlyOnceWith({ path });
+  });
+  it('selects the first suggestion with Enter instead of resolving the current home', async () => {
+    const f = fixture(); f.api.completeDirectory.mockResolvedValue(success({ matches: ['~/work/', '~/workshop/'] }));
+    await show(f);
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(screen.getByRole('textbox')).toHaveProperty('value', '~/work/');
+    expect(f.api.resolveDirectory).not.toHaveBeenCalled();
+  });
+  it('consumes Android Back or hardware Escape from the modal before closing', async () => {
+    const f = fixture(); f.api.completeDirectory.mockResolvedValue(success({ matches: ['~/work/', '~/workshop/'] }));
+    await show(f);
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.queryByRole('button', { name: '~/work/' })).toBeNull();
+    expect(f.close).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(f.close).toHaveBeenCalledOnce();
+  });
+  it('closes on a second input Escape without bubbling the first into modal close', async () => {
+    const f = fixture(); f.api.completeDirectory.mockResolvedValue(success({ matches: ['~/work/', '~/workshop/'] }));
+    await show(f); const input = screen.getByRole('textbox');
+    fireEvent.keyDown(input, { key: 'Escape' }); expect(f.close).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Escape' }); expect(f.close).toHaveBeenCalledOnce();
+  });
+  it.each(['press', 'focus', 'type'])('reopens a dismissed menu on %s', async interaction => {
+    const f = fixture(); f.api.completeDirectory.mockResolvedValue(success({ matches: ['~/work/', '~/workshop/'] }));
+    await show(f); const input = screen.getByRole('textbox');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    if (interaction === 'press') fireEvent.mouseDown(input);
+    else if (interaction === 'focus') fireEvent.focus(input);
+    else draft('~/w');
+    await complete();
+    expect(screen.getByRole('button', { name: '~/work/' })).toBeTruthy();
+  });
+  it.each([{ isComposing: true }, { keyCode: 229 }])('leaves composition Enter/Escape to the IME: %j', async metadata => {
+    const f = fixture(); f.api.completeDirectory.mockResolvedValue(success({ matches: ['~/work/', '~/workshop/'] }));
+    await show(f); const input = screen.getByRole('textbox');
+    fireEvent.keyDown(input, { key: 'Enter', ...metadata });
+    fireEvent.keyDown(input, { key: 'Escape', ...metadata });
+    expect(input).toHaveProperty('value', '/home/user');
+    expect(screen.getByRole('button', { name: '~/work/' })).toBeTruthy();
+    expect(f.api.resolveDirectory).not.toHaveBeenCalled(); expect(f.close).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    fireEvent.keyDown(input, { key: 'Enter', ...metadata });
+    expect(f.api.resolveDirectory).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(f.api.resolveDirectory).toHaveBeenCalledExactlyOnceWith({ path: '/home/user' });
+  });
+  it('does not resurrect a dismissed menu when an older completion resolves', async () => {
+    const f = fixture(); const next = deferred<Result<{ matches: string[] }>>();
+    f.api.completeDirectory.mockResolvedValue(success({ matches: ['~/work/', '~/workshop/'] }));
+    await show(f);
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+    f.api.completeDirectory.mockReturnValue(next.promise);
+    draft('~/next'); await complete();
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' });
+    await act(async () => { next.resolve(success({ matches: ['~/next-a/', '~/next-b/'] })); });
+    expect(screen.queryByRole('button', { name: '~/next-a/' })).toBeNull();
   });
   it('uses the native fixture parent suggestions and recursively creates missing parents', async () => {
     const created = vi.fn(); const api = createDirectoryFixtureApi(created);

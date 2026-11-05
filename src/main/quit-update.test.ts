@@ -31,6 +31,7 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock('electron', () => ({
   app: state.app, BrowserWindow: class { constructor() { return state.window; } },
+  protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
   dialog: state.dialog, net: { fetch: state.fetch }, Menu: { setApplicationMenu: vi.fn() }, powerSaveBlocker: { start: vi.fn(() => 1), stop: vi.fn() },
   screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1220, height: 820 } }) },
   session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() }, setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() } },
@@ -42,6 +43,7 @@ vi.mock('./user-data-upgrade', () => ({ migrateUserData: async () => {} }));
 vi.mock('./repository', () => ({ Repository: class { constructor() { return state.repository; } } }));
 vi.mock('./service', () => ({ SessionService: class {} }));
 vi.mock('./terminal/service', () => ({ EmbeddedSessionService: class {
+  files = { initialize: vi.fn(async () => {}) };
   initialize = state.service.initialize;
   ownedTerminalCount = state.service.ownedTerminalCount;
   closeForUpdate = state.service.closeForUpdate;
@@ -50,6 +52,7 @@ vi.mock('./terminal/service', () => ({ EmbeddedSessionService: class {
 vi.mock('./control-server', () => ({ startControlServer: state.control.start }));
 vi.mock('./remote/service', () => ({ RemoteService: class { initialize = state.remote.initialize; dispose = state.remote.dispose; } }));
 vi.mock('./remote/ipc', () => ({ installRemoteIpc: state.remote.install }));
+vi.mock('./desktop-files-ipc', () => ({ installDesktopFilesIpc: () => async () => {} }));
 vi.mock('../host/ownership', () => ({ acquireHostOwnership: state.host.acquire }));
 vi.mock('../host/rpc', () => ({ startHostRpc: state.host.start }));
 vi.mock('./ipc', () => ({ installIpc: (_window: unknown, _url: unknown, _service: unknown, _ready: unknown, updates: SelfUpdater) => {

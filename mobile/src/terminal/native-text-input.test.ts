@@ -5,7 +5,8 @@ import { NativeTextInput, terminalTextEdit } from './native-text-input';
 
 it('keeps the mobile text handler out of the desktop terminal', () => {
   const desktop = readFileSync('src/renderer/terminal-surface.ts', 'utf8');
-  expect(desktop).not.toMatch(/\b(?:TerminalInput|NativeTextInput)\b|(?:native-text-input|terminal-input)/);
+  // Shared input classifiers are safe. The mobile textarea replacement is not.
+  expect(desktop).not.toMatch(/\b(?:TerminalInput|NativeTextInput)\b|native-text-input|from\s+['"](?:[^'"]*mobile\/|\.\/terminal-input['"])/);
 });
 
 const state = (value: string, cursor = value.length) => ({ value, cursor });

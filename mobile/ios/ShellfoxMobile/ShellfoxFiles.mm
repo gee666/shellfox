@@ -6,7 +6,7 @@
 #import <React/RCTInvalidating.h>
 #import <React/RCTUtils.h>
 
-static const NSUInteger SFMaxFile = 64 * 1024 * 1024;
+static const NSUInteger SFMaxFile = 1024ULL * 1024 * 1024;
 static const NSUInteger SFMaxChunk = 192 * 1024;
 
 @interface ShellfoxFiles : NSObject <RCTBridgeModule, RCTInvalidating, UIDocumentPickerDelegate, PHPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate>
@@ -20,6 +20,7 @@ static const NSUInteger SFMaxChunk = 192 * 1024;
 @property(nonatomic, strong) NSFileCoordinator *coordinator;
 @property(nonatomic, strong) NSProgress *photoProgress;
 @property(nonatomic) BOOL closed;
+@property(nonatomic) NSUInteger maximumPickBytes;
 @end
 
 @implementation ShellfoxFiles
@@ -63,13 +64,20 @@ RCT_EXPORT_MODULE(ShellfoxFiles)
   }];
 }
 RCT_REMAP_METHOD(pick, pickToken:(NSString *)token resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  [self chooseToken:token limit:64 * 1024 * 1024 resolver:resolve rejecter:reject];
+}
+RCT_REMAP_METHOD(pickForTransfer, pickTransferToken:(NSString *)token maximum:(double)maximum resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  if (!isfinite(maximum) || maximum < 0 || maximum > SFMaxFile || floor(maximum) != maximum) { reject(@"VALIDATION", @"Invalid picker limit.", nil); return; }
+  [self chooseToken:token limit:(NSUInteger)maximum resolver:resolve rejecter:reject];
+}
+- (void)chooseToken:(NSString *)token limit:(NSUInteger)limit resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject {
   if (![self validID:token]) { reject(@"VALIDATION", @"Invalid picker token.", nil); return; }
   dispatch_async(dispatch_get_main_queue(), ^{
     @synchronized(self) {
       if (self.closed || self.token || self.handles.count >= 4 || !RCTPresentedViewController()) {
         reject(@"PICKER_UNAVAILABLE", @"The file picker is unavailable or already open.", nil); return;
       }
-      self.token = token; self.pickResolve = resolve; self.pickReject = reject;
+      self.token = token; self.pickResolve = resolve; self.pickReject = reject; self.maximumPickBytes = limit;
     }
     UIAlertController *choice = [UIAlertController alertControllerWithTitle:@"Attach" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [choice addAction:[UIAlertAction actionWithTitle:@"Files" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
@@ -121,7 +129,7 @@ RCT_REMAP_METHOD(pick, pickToken:(NSString *)token resolver:(RCTPromiseResolveBl
           if (count < 0) { failure = input.streamError ?: [self fileError:@"Could not read the selected file."]; break; }
           if (count == 0) break;
           size += count;
-          if (size > SFMaxFile) { failure = [self fileError:@"Choose a file no larger than 64 MiB."]; break; }
+          if (size > self.maximumPickBytes) { failure = [self fileError:@"The selected file exceeds the picker limit."]; break; }
           NSInteger written = 0;
           while (written < count) {
             NSInteger n = [output write:buffer + written maxLength:count - written];

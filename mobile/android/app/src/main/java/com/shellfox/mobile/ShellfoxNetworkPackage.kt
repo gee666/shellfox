@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class ShellfoxNetworkPackage : ReactPackage {
   override fun createNativeModules(context: ReactApplicationContext): List<NativeModule> =
-    listOf(ShellfoxNetworkModule(context), ShellfoxUpdatesModule(context), ShellfoxTerminalKeyboardModule(context), ShellfoxFilesModule(context))
+    listOf(ShellfoxNetworkModule(context), ShellfoxUpdatesModule(context), ShellfoxTerminalKeyboardModule(context), ShellfoxFilesModule(context), ShellfoxDownloadsModule(context))
 
   override fun createViewManagers(context: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
 }

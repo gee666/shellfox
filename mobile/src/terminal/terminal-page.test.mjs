@@ -331,6 +331,31 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     await expect.poll(() => messages.filter(m => m.type === 'resize').at(-1)?.cols).toBeLessThan(smaller.cols);
     for (const m of messages.filter(m => m.type === 'resize')) assert.ok(m.cols >= 2 && m.cols <= 500 && m.rows >= 2 && m.rows <= 500);
   });
+  await t.test('bare file paths and OSC file links open Files without navigating the terminal', async () => {
+    const clickFirstCell = async () => {
+      const row = page.locator('.xterm-rows > div').first();
+      const box = await row.boundingBox();
+      assert.ok(box);
+      await page.mouse.move(box.x + 12, box.y + box.height / 2);
+      await expect(page.locator('.xterm-screen')).toHaveClass(/xterm-cursor-pointer/);
+      await page.mouse.click(box.x + 12, box.y + box.height / 2);
+    };
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await output('\x1b[2J\x1b[H./src/main.ts:12:3');
+    const before = messages.length;
+    await clickFirstCell();
+    await expect.poll(() => messages.slice(before).filter(message => message.type === 'openFile')).toHaveLength(1);
+    assert.deepEqual(messages.slice(before).find(message => message.type === 'openFile'), {
+      type: 'openFile', viewId, epoch, target: './src/main.ts:12:3',
+    });
+    await page.mouse.move(750, 500);
+    await send({ type: 'reset', cols: 80, rows: 24, fontSize: 14 });
+    await output('\x1b[2J\x1b[H\x1b]8;;file:///work/code.ts:9:2\x07source\x1b]8;;\x07');
+    const oscBefore = messages.length;
+    await clickFirstCell();
+    await expect.poll(() => messages.slice(oscBefore).some(message => message.type === 'openFile' && message.target === 'file:///work/code.ts:9:2')).toBe(true);
+    assert.equal(page.url(), 'about:blank');
+  });
   await t.test('output stays literal and cannot load resources or navigate', async () => {
     await output('\r\n</script><img src=https://evil.invalid/x>\r\n\x1b]8;;https://evil.invalid/\x07link-label\x1b]8;;\x07');
     await expect(page.locator('.xterm-rows')).toContainText('</script>');

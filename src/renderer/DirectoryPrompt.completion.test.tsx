@@ -198,6 +198,45 @@ it('supports remote hosts without a native picker and without requiring new back
   expect(f.input).toHaveValue('workshop/'); expect(f.api.resolveDirectory).not.toHaveBeenCalled();
 });
 
+it.each(['', '~', 'wo'])('Escape dismisses suggestions for %j and Enter opens the entered path, not its first child', async path => {
+  const f = await setup(); f.edit(path); await tick();
+  expect(screen.getByRole('listbox')).toBeVisible();
+  f.key('Escape');
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  expect(f.onClose).not.toHaveBeenCalled(); expect(f.input).toHaveValue(path);
+  await tick(500); expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  await f.enter();
+  expect(f.api.resolveDirectory).toHaveBeenCalledExactlyOnceWith({ path });
+  expect(f.input).toHaveValue(path);
+});
+
+it('Escape closes the dialog only once the suggestion list has been dismissed', async () => {
+  const f = await setup(); await tick();
+  f.key('Escape'); expect(f.onClose).not.toHaveBeenCalled();
+  f.key('Escape'); expect(f.onClose).toHaveBeenCalledOnce();
+});
+
+it.each(['click', 'focus', 'typing'])('reopens suggestions after dismissal through %s', async action => {
+  const f = await setup(); await tick(); f.key('Escape');
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  if (action === 'click') fireEvent.click(f.input);
+  else if (action === 'focus') { fireEvent.blur(f.input); fireEvent.focus(f.input); }
+  else f.edit('w');
+  await tick(); expect(screen.getByRole('listbox')).toBeVisible();
+  await f.enter();
+  expect(f.input).toHaveValue('work/'); expect(f.api.resolveDirectory).not.toHaveBeenCalled();
+});
+
+it('Escape invalidates a pending suggestion request instead of reopening a dismissed list', async () => {
+  const pending = deferred<Awaited<ReturnType<ManagerApi['completeDirectory']>>>();
+  const f = await setup(); await tick();
+  f.api.completeDirectory.mockReturnValueOnce(pending.promise);
+  f.key('Escape'); fireEvent.click(f.input); await tick();
+  f.key('Escape');
+  await act(async () => pending.resolve(success({ matches: ['late/'] })));
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+});
+
 it('runs only one live request after StrictMode discards its initial effect', async () => {
   const { api } = mockApi();
   render(<StrictMode><DirectoryPrompt api={api} onCreate={vi.fn()} onClose={vi.fn()} /></StrictMode>);

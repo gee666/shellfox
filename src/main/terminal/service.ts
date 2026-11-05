@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { FileService } from '../files/service';
+import { terminalFileContext } from '../files/terminal-context';
 import { randomUUID } from 'node:crypto';
 import type { SessionStatsDto, AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SaveSettingsInput, SettingsDto, ShellId, TabDto, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
@@ -29,6 +31,7 @@ const shellId = (p: TerminalProfileDto): ShellId => p.environment === 'wsl' ? 'w
 export interface TrackerPort { setVisibleSessions?: ProcessTracker['setVisibleSessions']; setWatch: ProcessTracker['setWatch']; dispose(): void; poll?: ProcessTracker['poll']; resolveIdentity?: ProcessTracker['resolveIdentity']; resolveDescendants?: ProcessTracker['resolveDescendants'] }
 export class EmbeddedSessionService {
   revision = 0;
+  readonly files: FileService;
   private readonly terminalControl: TerminalControlBroker;
   createTerminalView(send: Parameters<TerminalControlBroker['createView']>[0], purge?: (tabId: string) => void): TerminalControlView { return this.terminalControl.createView(send, purge); }
   probe: NativeProbe = { ...unavailableProbe('Embedded backend has not initialized.'), adapterId: 'embedded-pty' };
@@ -73,6 +76,7 @@ export class EmbeddedSessionService {
       // its tab. That does not authorize a new attachment to deleted metadata.
       snapshot: input => this.attachTerminal(input), write: input => this.writeTerminal(input), resize: input => this.backend.resize(input),
     });
+    this.files = new FileService(terminalFileContext(repository, backend, () => this.tracker.poll?.()));
     this.integrations = new DesktopIntegrations(explorerIntegration, cliIntegration, () => !this.disposed && !this.updateClosing, () => this.changed('settings'));
     let expiryPollAt = -Infinity;
     this.lifecycle = new SessionLifecycle(repository, (id, action) => this.serialize(id, action), session => this.removeSession(session), session => { if (session) this.publishSettlement(session); this.changed(); }, async () => {
@@ -720,6 +724,7 @@ export class EmbeddedSessionService {
       if (!options.fatal) { this.disposed = false; this.lifecycle.start(); this.refreshWatch(); throw error; }
       fatalError = error;
     }
+    await this.files.dispose();
     this.terminalControl.dispose(); this.tracker.dispose();
     if (this.exitRetryTimer) clearInterval(this.exitRetryTimer);
     this.unsubscribe?.(); this.unsubscribeTitle?.(); this.listeners.clear(); this.streams.clear();

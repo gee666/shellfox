@@ -21,7 +21,10 @@ test('Android picker uses scoped document permissions, not whole-storage grants'
 test('Android provider downloads and reads are bounded on a worker and only opaque handles reach JS', () => {
   assert.match(android, /newSingleThreadExecutor/);
   assert.match(android, /ByteArray\(64 \* 1024\)/);
-  assert.match(android, /size > MAX_FILE/);
+  assert.match(android, /size > current\.maxBytes/);
+  assert.match(android, /fun pick\(token: String, promise: Promise\) = pickWithLimit\(token, 64L \* 1024 \* 1024, promise\)/);
+  assert.match(android, /fun pickForTransfer\(/);
+  assert.match(android, /private const val MAX_FILE = 1024L \* 1024 \* 1024/);
   assert.match(android, /length > MAX_CHUNK/);
   assert.match(android, /handles\[handle\]/);
   assert.match(android, /input\.seek\(offset\.toLong\(\)\); input\.readFully\(bytes\)/);
@@ -55,7 +58,10 @@ test('iOS supports Files and permissionless Photos, including cloud-provider rep
   assert.match(ios, /@finally \{[\s\S]*if \(scoped\) \[url stopAccessingSecurityScopedResource\]/);
 });
 test('iOS native reads and caches are bounded, cancelled handles cannot outlive invalidation', () => {
-  assert.match(ios, /size > SFMaxFile/);
+  assert.match(ios, /size > self\.maximumPickBytes/);
+  assert.match(ios, /chooseToken:token limit:64 \* 1024 \* 1024/);
+  assert.match(ios, /RCT_REMAP_METHOD\(pickForTransfer/);
+  assert.match(ios, /SFMaxFile = 1024ULL \* 1024 \* 1024/);
   assert.match(ios, /length > SFMaxChunk/);
   assert.match(ios, /self\.closed \? nil : self\.handles\[handle\]/);
   assert.match(ios, /readDataUpToLength:\(NSUInteger\)length/);

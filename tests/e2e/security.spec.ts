@@ -20,11 +20,11 @@ test('sandbox, explicit preload, IPC sender/method validation, CSP and literal r
       'renameSession', 'retryTab', 'saveSettings', 'setExplorerIntegration', 'settleSession',
       'subscribe', 'unsettleSession', 'getTerminalProfiles', 'attachTerminal', 'takeTerminalControl', 'writeTerminal',
       'resizeTerminal', 'closeTab', 'acknowledgeTerminal', 'detachTerminal', 'subscribeTerminal',
-      'copyText', 'readClipboardText', 'openSessionFolder', 'setSessionEnv', 'setCliIntegration',
+      'copyText', 'readClipboardText', 'openSessionFolder', 'setSessionEnv', 'setTerminalEnv', 'setCliIntegration',
       'setSessionPinned', 'getUpdateStatus', 'deleteSession', 'renameTab', 'reorderTabs',
       'downloadUpdate', 'installUpdate', 'listSshProfiles', 'saveSshProfile', 'deleteSshProfile',
       'importPuttySessions', 'chooseSshKeyFile', 'getKeepAwake', 'setKeepAwake',
-      'subscribeKeepAwake', 'openExternal', 'setVisibleSessions',
+      'subscribeKeepAwake', 'openExternal', 'setVisibleSessions', 'files', 'desktopFiles',
       'getCloseConfirmation', 'respondCloseConfirmation', 'subscribeCloseConfirmation',
     ].sort());
     const prefs = await app.evaluate(({ BrowserWindow }) => (BrowserWindow.getAllWindows()[0].webContents as any).getLastWebPreferences());

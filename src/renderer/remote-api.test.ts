@@ -25,6 +25,18 @@ describe('machine API boundary', () => {
     expect(local.setTerminalEnv).not.toHaveBeenCalled();
   });
 
+  it('routes all filesystem methods to the selected peer without local filesystem fallback', async () => {
+    const remote = remoteFixture(), local = mockApi().api;
+    const api = createRemoteManagerApi(remote.api, 'server', local), location = { sessionId: 'a308e8ba-47e1-4bd5-b822-f5ada5dc5e97', tabId: '793b9e3b-9711-4c8c-8534-a86eda5cb4f9', path: '/project/file.html' };
+    if (!api.files) throw new Error('Files API missing');
+    remote.request.mockReset().mockResolvedValue(failure('UNSUPPORTED', 'Unavailable.'));
+    await api.files.list(location); await api.files.read(location); await api.files.write({ ...location, revision: '0'.repeat(64), text: 'save' });
+    await api.files.writeImage({ ...location, path: '/project/image.png', revision: '0'.repeat(64), dataUrl: 'data:image/png;base64,YQ==' });
+    await api.files.readAsset({ ...location, assetPath: 'style.css' });
+    expect(remote.request.mock.calls.map(([input]) => [input.peerId, input.method])).toEqual([['server', 'listFiles'], ['server', 'beginFileRead'], ['server', 'beginFileWrite'], ['server', 'beginFileWrite'], ['server', 'beginFileRead']]);
+    expect(local.getSnapshot).not.toHaveBeenCalled();
+  });
+
   it('keeps clipboard and browser operations local and blocks machine settings, pickers and integrations', async () => {
     const remote = remoteFixture(), local = mockApi().api;
     const openExternal = vi.fn(async () => success({ opened: true as const }));

@@ -1,8 +1,10 @@
 import { NativeModules } from 'react-native';
 import { z } from 'zod';
 import { withAttachmentPicker } from './attachment-picker-lifecycle';
+import { FILE_TRANSFER_MAX_BYTES } from '../../src/shared/file-transfer-schemas';
 
-export const MAX_PICKED_FILE_BYTES = 64 * 1024 * 1024;
+export const MAX_PICKED_FILE_BYTES = FILE_TRANSFER_MAX_BYTES;
+export const TERMINAL_PICKED_FILE_BYTES = 64 * 1024 * 1024;
 export const MAX_FILE_CHUNK_BYTES = 192 * 1024;
 const handleSchema = z.string().uuid();
 const offsetSchema = z.number().int().min(0).max(MAX_PICKED_FILE_BYTES);
@@ -18,7 +20,7 @@ const chunkSchema = z.object({
 }).strict();
 export type PickedFile = z.infer<typeof pickedFileSchema>;
 export interface PickedFiles {
-  pick(token: string): Promise<PickedFile | null>;
+  pick(token: string, maximumBytes?: number): Promise<PickedFile | null>;
   read(handle: string, offset: number, length: number): Promise<{ data: string; bytes: number }>;
   release(handle: string): Promise<void>;
   cancelPick(token: string): Promise<void>;
@@ -35,8 +37,20 @@ function nativeFiles() {
   if (!parsed.success) throw new Error('File attachments need a newer Shellfox mobile app.');
   return parsed.data;
 }
+const transferPickerSchema = z.object({
+  pickForTransfer: z.function({ input: [handleSchema, offsetSchema], output: z.promise(pickedFileSchema.nullable()) }),
+});
 export const pickedFiles: PickedFiles = {
-  pick: token => withAttachmentPicker(() => nativeFiles().pick(token)),
+  pick: (token, maximumBytes) => withAttachmentPicker(async () => {
+    const modules: Record<string, unknown> = NativeModules;
+    const result = maximumBytes === undefined ? await nativeFiles().pick(token)
+      : await transferPickerSchema.parse(modules.ShellfoxFiles).pickForTransfer(token, maximumBytes);
+    if (result && result.size > (maximumBytes ?? TERMINAL_PICKED_FILE_BYTES)) {
+      await nativeFiles().release(result.handle);
+      throw new Error('The selected file exceeds the picker limit.');
+    }
+    return result;
+  }),
   read: async (handle, offset, length) => {
     const chunk = await nativeFiles().read(handle, offset, length);
     const padding = chunk.data.endsWith('==') ? 2 : chunk.data.endsWith('=') ? 1 : 0;

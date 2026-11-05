@@ -7,8 +7,10 @@ import { request } from './api';
 
 export { sessionDot, tabDot, type DotState } from '../shared/terminal-status';
 
-export function Icon({ name }: { name: 'plus' | 'settings' | 'close' | 'chevron' | 'pin' | 'folder' | 'edit' | 'more' | 'eye' | 'eye-off' | 'settle' | 'unsettle' | 'connect' | 'disconnect' | 'monitor' | 'server' | 'check' | 'shield' }) {
+export function Icon({ name }: { name: 'plus' | 'settings' | 'close' | 'chevron' | 'pin' | 'folder' | 'folder-terminal' | 'copy' | 'edit' | 'more' | 'eye' | 'eye-off' | 'settle' | 'unsettle' | 'connect' | 'disconnect' | 'monitor' | 'server' | 'check' | 'shield' }) {
   const paths = { connect: 'M6 5V2M10 5V2M4 5h8v3a4 4 0 0 1-8 0V5ZM8 12v2', disconnect: 'M3 2l11 12M6 2v2M10 2v3M4 5h8v3c0 .5-.1 1-.3 1.4M9.5 11.7A4 4 0 0 1 4 8V6M8 12v2', monitor: 'M2 3h12v8H2V3ZM8 11v3M5 14h6', server: 'M3 2h10v5H3V2ZM3 9h10v5H3V9ZM5 4.5h.01M5 11.5h.01M8 4.5h3M8 11.5h3', check: 'm3 8 3.5 3.5L13 4', shield: 'M8 1.5 13 3v4c0 3-2 5.5-5 7-3-1.5-5-4-5-7V3l5-1.5ZM8 5v3M8 10.5h.01', settle: 'M3 8.5 6.5 12 13 4', unsettle: 'M6 3 2 7l4 4M2 7h7a4 4 0 0 1 4 4v2', more: 'M3 8h.01M8 8h.01M13 8h.01', edit: 'm10 2 4 4-8 8H2v-4l8-8ZM8.5 3.5l4 4', folder: 'M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2', pin: 'M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5', plus: 'M8 3v10M3 8h10', close: 'm4 4 8 8M12 4l-8 8', chevron: 'm6 3 5 5-5 5', eye: 'M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z', 'eye-off': 'M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8',
+    copy: 'M6 2h8v8h-3M2 6h8v8H2V6ZM6 5V2',
+    'folder-terminal': 'M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2M6 10h5m-2-2 2 2-2 2',
     settings: 'm6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z' };
   return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} />{name === 'settings' && <circle cx="8" cy="7.5" r="2.25" />}{name === 'eye' && <circle cx="8" cy="8" r="2" />}</svg>;
 }

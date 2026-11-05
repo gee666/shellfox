@@ -13,6 +13,17 @@ beforeEach(() => { bridge.listeners.clear(); bridge.invoke.mockReset(); bridge.r
 it('exposes frozen typed methods and never raw IPC or node access', () => {
   expect(Object.isFrozen(bridge.api)).toBe(true); expect(bridge.api).toHaveProperty('attachTerminal'); expect(bridge.api).toHaveProperty('closeTab'); expect(bridge.api).not.toHaveProperty('ipcRenderer'); expect(bridge.api).not.toHaveProperty('send');
 });
+it('exposes only validated filesystem methods and validates their response metadata', async () => {
+  const files = bridge.api?.files; if (!files) throw new Error('Missing files API');
+  const location = { sessionId: randomUUID(), tabId: randomUUID(), path: 'relative.txt' };
+  expect(await files.read({ ...location, path: 'bad\0path' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(bridge.invoke).not.toHaveBeenCalled();
+  bridge.invoke.mockResolvedValueOnce({ ok: true, value: { kind: 'text', path: '/a', mimeType: 'text/plain', size: 1, revision: '0'.repeat(64), text: 'a', secret: 'not allowed' } });
+  expect(await files.read(location)).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
+  bridge.invoke.mockResolvedValue({ ok: false, error: { code: 'NOT_FOUND', message: 'Missing', retryable: false } });
+  await files.list(location); expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'listFiles', payload: location });
+  await files.readAsset({ ...location, assetPath: 'style.css' }); expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'beginFileRead', payload: { ...location, assetPath: 'style.css' } });
+});
 it('rejects invalid input locally and validates main responses', async () => {
   const id = { tabId: randomUUID(), generation: randomUUID(), controlEpoch: 1 };
   expect(await bridge.api!.writeTerminal!({ ...id, data: '\0' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } }); expect(bridge.invoke).not.toHaveBeenCalled();

@@ -1,3 +1,4 @@
+import { createFileApi } from '../shared/file-api';
 import { failure, type ManagerApi } from '../shared/contracts';
 import type { RemoteApi, RemoteMethod, RemoteRequestPayload } from '../shared/remote-contracts';
 
@@ -8,6 +9,15 @@ export function createRemoteManagerApi(remote: RemoteApi, peerId: string, local:
     return remote.request({ peerId, method, payload });
   }
   return {
+    files: createFileApi({
+      list: input => forward('listFiles', input),
+      beginRead: input => forward('beginFileRead', input),
+      readChunk: input => forward('readFileChunk', input),
+      beginWrite: input => forward('beginFileWrite', input),
+      writeChunk: input => forward('writeFileChunk', input),
+      finishWrite: input => forward('finishFileWrite', input),
+      cancelTransfer: input => forward('cancelFileTransfer', input),
+    }),
     getSnapshot: () => forward('getSnapshot', {}),
     getTerminalProfiles: () => forward('getTerminalProfiles', {}),
     attachTerminal: input => forward('attachTerminal', input),
@@ -41,6 +51,7 @@ export function createRemoteManagerApi(remote: RemoteApi, peerId: string, local:
     subscribeTerminal: listener => remote.subscribe(event => {
       if (event.type === 'terminal' && event.peerId === peerId) listener(event.event);
     }),
+    ...(local.desktopFiles ? { desktopFiles: local.desktopFiles } : {}),
     copyText: input => local.copyText(input),
     ...(local.readClipboardText ? { readClipboardText: () => local.readClipboardText!() } : {}),
     ...(local.openExternal ? { openExternal: (input: { url: string }) => local.openExternal!(input) } : {}),

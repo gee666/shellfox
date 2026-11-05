@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { FileService } from './files/service';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, Result, SessionDto, SaveSettingsInput, SettingsDto, TabDto } from '../shared/contracts';
@@ -16,6 +17,7 @@ import { SessionLifecycle, processActivityKey } from './session-lifecycle';
 
 export class SessionService {
   revision = 0;
+  readonly files: FileService;
   probe: NativeProbe = unavailableProbe('Native backend has not initialized');
   cli = { ...unavailableCli, reason: 'Shellfox CLI integration requires embedded terminals.' };
   private readonly integrations: DesktopIntegrations;
@@ -35,6 +37,7 @@ export class SessionService {
   private readonly lifecycle: SessionLifecycle;
   private activations = new Map<string, Promise<Result<SessionDto>>>();
   constructor(readonly repository: RepositoryPort, readonly backend: NativeBackend, private directoryValidator = validateDirectory, packagedExecutable: string | null = null) {
+    this.files = new FileService({ session: id => repository.session(id), tab: id => repository.tab(id) });
     this.integrations = new DesktopIntegrations(packagedExecutable ? {
       get: () => this.native(() => this.backend.getExplorerIntegration(), explorerSchema),
       set: () => this.native(() => this.backend.setExplorerIntegration({ installed: true, executablePath: packagedExecutable }), explorerSchema),
@@ -94,7 +97,7 @@ export class SessionService {
     this.integrations.markReady(); this.lifecycle.start();
     this.changed('native');
   }
-  async dispose(): Promise<void> { this.disposed = true; this.lifecycle.stop(); this.lifecycle.flushActivity(); this.windows?.dispose(); this.unsubscribe?.(); await this.watchQueue; await this.integrations.drain(); await this.backend.dispose(); }
+  async dispose(): Promise<void> { this.disposed = true; this.lifecycle.stop(); this.lifecycle.flushActivity(); this.windows?.dispose(); this.unsubscribe?.(); await this.watchQueue; await this.integrations.drain(); await this.files.dispose(); await this.backend.dispose(); }
   private serialize<T>(id: string, action: () => Promise<Result<T>>): Promise<Result<T>> {
     const previous = this.queues.get(id) || Promise.resolve();
     const next = previous.catch(() => undefined).then(action).catch(() => failure('STORAGE_FAILED', 'The operation could not be saved', true)) as Promise<Result<T>>;

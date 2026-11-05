@@ -1,4 +1,5 @@
 import type { Result, TerminalApi, TerminalDataEvent, TerminalEvent } from '../../../src/shared/contracts';
+import { parseTerminalFileTarget, type TerminalFileTarget } from '../../../src/shared/terminal-file-links';
 import { responseSchemas, terminalEventSchema } from '../../../src/shared/schemas';
 import { deliveryOperation, detachAttachment, trackAttachment } from './delivery-queue';
 import { TerminalOperationError, unwrapTerminalResult as unwrap } from './errors';
@@ -11,6 +12,7 @@ interface Options {
   api: MobileTerminalApi; subscribeTerminal: SubscribeTerminal; tabId: string; viewId: string; fontSize: number;
   send: (message: HostMessage) => void; onError: (error: Error) => void;
   onSelection?: (text: string) => void;
+  onFileOpen?: (target: TerminalFileTarget) => void;
   onFocus?: () => void;
   onInput?: () => void;
   onState?: (state: TerminalBridgeState) => void;
@@ -129,6 +131,11 @@ export class TerminalBridge {
         void this.acknowledge(this.consumed); this.drain(); break;
       }
       case 'selection': this.options.onSelection?.(message.text); break;
+      case 'openFile': {
+        const target = parseTerminalFileTarget(message.target);
+        if (target) this.options.onFileOpen?.(target);
+        break;
+      }
       case 'focused':
         if (this.focusPending) { this.focusPending = false; this.options.onFocus?.(); }
         break;

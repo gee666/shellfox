@@ -7,6 +7,7 @@ import { EarlyRequestQueue, handleCliRequest } from './cli';
 import { installAttachedHostIpc } from './attached-host-ipc';
 import { installDesktopPolicy, secureDesktopWindow } from './desktop-security';
 import { recoverRenderer } from './renderer-recovery';
+import { installDesktopFilesIpc } from './desktop-files-ipc';
 import { CloseConfirmationCoordinator } from './close-confirmation';
 import { sendToRenderer } from './renderer-channel';
 import { parseWindowState, restoreBounds, trackWindowState } from './window-state';
@@ -39,6 +40,7 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
     webPreferences: { ...(backgroundTest ? { backgroundThrottling: false } : {}), preload: path.resolve(__dirname, '../preload/index.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true },
   });
   secureDesktopWindow(window);
+  const uninstallDesktopFiles = installDesktopFilesIpc(window, rendererUrl);
   recoverRenderer(window);
   window.on('page-title-updated', event => event.preventDefault());
   if (bounds.maximized && !backgroundTest) window.maximize();
@@ -54,7 +56,7 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
   let updates: UpdateSource | undefined;
   async function finish(): Promise<void> {
     quitting = true;
-    await uninstall(); confirmation.dispose(); tracker.dispose();
+    await uninstall(); await uninstallDesktopFiles(); confirmation.dispose(); tracker.dispose();
     await client.close();
     if (updates instanceof SelfUpdater) await updates.dispose(true);
     app.quit();
@@ -84,7 +86,7 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
   }), updates);
   try { await window.loadFile(rendererFile); }
-  catch (error) { await uninstall(); confirmation.dispose(); tracker.dispose(); await client.close(); if (updates instanceof SelfUpdater) await updates.dispose(); throw error; }
+  catch (error) { await uninstall(); await uninstallDesktopFiles(); confirmation.dispose(); tracker.dispose(); await client.close(); if (updates instanceof SelfUpdater) await updates.dispose(); throw error; }
   if (updates instanceof SelfUpdater && app.isPackaged) updates.start();
   window.on('close', event => { if (!quitting) { event.preventDefault(); app.quit(); } });
   app.on('before-quit', event => {

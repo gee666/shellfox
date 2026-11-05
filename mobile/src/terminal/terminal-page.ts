@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { PageKeyboard } from './page-keyboard';
 import { hostMessageSchema, type PageMessage } from './protocol';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from '../../../src/renderer/theme';
+import { parseTerminalFileTarget } from '../../../src/shared/terminal-file-links';
+import { fileLinkProvider } from '../../../src/shared/terminal-file-provider';
 
 type NativeWindow = Window & { ReactNativeWebView?: { postMessage: (data: string) => void } };
 const viewId = `page-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -46,9 +48,14 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   const term = new Terminal({ cols, rows, fontSize, fontFamily: 'Menlo, Consolas, monospace',
     scrollback: 3000, convertEol: false, cursorBlink: !readOnly, disableStdin: readOnly, allowProposedApi: false,
     theme, macOptionIsMeta: true,
-    linkHandler: { activate: () => undefined, allowNonHttpProtocols: false },
+    linkHandler: { activate: (_event, text) => {
+      if (parseTerminalFileTarget(text)) send({ type: 'openFile', ...identity(), target: text });
+    }, allowNonHttpProtocols: true },
   });
   terminal = term; fit = new FitAddon(); term.loadAddon(fit); term.open(container);
+  term.registerLinkProvider(fileLinkProvider(term, target => {
+    send({ type: 'openFile', ...identity(), target: `${target.path}${target.line ? `:${target.line}${target.column ? `:${target.column}` : ''}` : ''}` });
+  }));
   const textarea = term.textarea;
   if (textarea) {
     textarea.setAttribute('autocapitalize', 'off'); textarea.setAttribute('autocorrect', 'off');

@@ -3,6 +3,9 @@ import { FitAddon } from '@xterm/addon-fit';
 import { installTerminalQueryHandlers } from './terminal-queries';
 import { isTerminalFocusReport } from '../shared/terminal-input';
 import { isWebLink, webLinkProvider } from './terminal-links';
+import { parseTerminalFileTarget, type TerminalFileTarget } from '../shared/terminal-file-links';
+import { fileLinkProvider } from '../shared/terminal-file-provider';
+import { installTerminalFileClicks } from './terminal-file-clicks';
 import { DEFAULT_ACCENT, DEFAULT_BACKGROUND, derivePalette } from './theme';
 
 const DEFAULT_THEME: ITheme = derivePalette(DEFAULT_ACCENT, DEFAULT_BACKGROUND).terminal;
@@ -29,6 +32,8 @@ export interface SurfaceClipboard {
   read(): Promise<string | null>;
   /** Opens an http(s) link in the system browser. */
   openLink?(url: string): void;
+  /** Opens a file in this terminal's filesystem, never in an external application. */
+  openFile?(target: TerminalFileTarget): void;
   /** Copies a link target, which an OSC 8 label may hide. */
   copyLink?(url: string): void;
   /** Offers open/copy for the link under a right click at client coordinates. */
@@ -67,16 +72,33 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
     // Option+click bypasses mouse reporting on macOS, as Shift+click does elsewhere.
     macOptionClickForcesSelection: true,
     theme,
-    // OSC 8 hyperlinks: only http(s), opened by the main process in the system browser.
+    // OSC 8 targets are explicitly restricted to web links and file paths.
     // OSC 8 text hides its target, so hovering shows it as a tooltip.
     linkHandler: {
-      activate: (event, uri) => { if (event.button === 0 && isWebLink(uri)) openLink(uri, event); },
-      hover: (_event, uri) => { if (isWebLink(uri)) hover(uri); },
+      activate: (event, uri) => {
+        if (event.button !== 0) return;
+        if (isWebLink(uri)) openLink(uri, event);
+        else if (clipboard?.openFile && parseTerminalFileTarget(uri)) openFile(uri, event);
+      },
+      hover: (_event, uri) => { if (isWebLink(uri) || (clipboard?.openFile && parseTerminalFileTarget(uri))) hover(uri); },
       leave,
-      allowNonHttpProtocols: false,
+      allowNonHttpProtocols: !!clipboard?.openFile,
     },
   });
   if (clipboard?.openLink) terminal.registerLinkProvider(webLinkProvider(terminal, openLink, { hover, leave }));
+  function openFile(uri: string, event: MouseEvent) {
+    const target = parseTerminalFileTarget(uri);
+    if (!target) return;
+    if (event.shiftKey && (MAC ? event.metaKey : event.ctrlKey)) { clipboard?.copyLink?.(uri); return; }
+    if (MAC && event.ctrlKey) return;
+    clipboard?.openFile?.(target);
+  }
+  if (clipboard?.openFile) terminal.registerLinkProvider(fileLinkProvider(terminal, (target, event) => openFile(`${target.path}${target.line ? `:${target.line}` : ''}${target.column ? `:${target.column}` : ''}`, event), { hover, leave }));
+  const removeFileClicks = installTerminalFileClicks(element, {
+    active: () => !!clipboard?.openFile,
+    hovered: () => hovered, mac: MAC,
+    open: target => clipboard?.openFile?.(target), copy: uri => clipboard?.copyLink?.(uri),
+  });
   // A right click on a link opens the link menu instead of reaching xterm or
   // a mouse-reporting application (pi pastes on right click).
   const linkMenu = (ev: MouseEvent) => {
@@ -193,7 +215,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
       menuEvents.forEach(type => element.removeEventListener(type, linkMenu, true));
       middleEvents.forEach(type => element.removeEventListener(type, middleCopy, true));
       element.removeEventListener('paste', blockMiddlePaste, true);
-      queries.dispose(); terminal.dispose(); element.remove();
+      removeFileClicks(); queries.dispose(); terminal.dispose(); element.remove();
     },
   };
 };

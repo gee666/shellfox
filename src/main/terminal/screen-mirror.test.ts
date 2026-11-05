@@ -19,6 +19,17 @@ function state(term: Terminal) {
 async function restoreFrom(cols: number, rows: number, data: string) { const term = new Terminal({ cols, rows, scrollback: 3000, allowProposedApi: true }); await parse(term, data); return term; }
 
 describe('ScreenMirror', () => {
+  it('tracks split OSC7 working-directory metadata, keeps foreign hosts explicit, and ignores invalid URLs', async () => {
+    const mirror = new ScreenMirror(80, 24);
+    expect(mirror.directoryUrl).toBeNull();
+    mirror.write(1, '\x1b]7;file://localhost/work/'); mirror.write(2, 'next%20folder\x07');
+    await drained(mirror, 2); expect(mirror.directoryUrl).toBe('file:///work/next%20folder');
+    mirror.write(3, '\x1b]7;file://remote-host/srv/project\x1b\\');
+    await drained(mirror, 3); expect(mirror.directoryUrl).toBe('file://remote-host/srv/project');
+    for (const value of ['https://example.com/work', 'file://localhost/work?secret=1', 'file://localhost/work%00bad']) mirror.write(4, `\x1b]7;${value}\x07`);
+    await drained(mirror, 4); expect(mirror.directoryUrl).toBe('file://remote-host/srv/project');
+    mirror.dispose();
+  });
   for (const alt of [false, true]) it(`restores a diff-rendered TUI that a byte tail cannot (${alt ? 'alternate' : 'normal'} buffer)`, async () => {
     const options = { cols: 120, rows: 30, alt, frames: 6000 };
     const chunks = tuiStream(options);

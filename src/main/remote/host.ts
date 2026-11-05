@@ -51,7 +51,7 @@ export class RemoteHost {
     this.denied.delete(id); return false;
   }
   revoke(peerId: string): void { for (const [id, client] of this.clients) if (client.peerId === peerId) { this.block(id); this.drop(id); } }
-  private drop(id: string): void { const client = this.clients.get(id); if (!client) return; this.clients.delete(id); this.uploads.cancelActor(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.(); }
+  private drop(id: string): void { const client = this.clients.get(id); if (!client) return; this.clients.delete(id); this.uploads.cancelActor(id); this.service.files.transfers.cancelActor(id); client.delivery.dispose(); this.service.clearRemoteVisibleSessions(id); client.notify?.(); }
   private purge(id: string, tabId: string): void {
     this.uploads.cancelActor(id, tabId);
     const client = this.clients.get(id); if (!client) return;

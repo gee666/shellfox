@@ -1,11 +1,13 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import type { EnvVar, Result, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { idSchema, pathSchema, profileIdSchema, requestSchemas } from '../../shared/schemas';
 import { z } from 'zod';
 import { resolvePython, type PythonProbe } from './python';
+import { linuxDirectory, guestDirectory, darwinDirectory } from './current-directory';
 import { discoverProfiles, spawnArguments, validateProfileCwd } from './profiles';
 import type { TrackingRoot } from './tracking';
 import { captureLinuxRoot, closeUnixTree, type UnixIdentity } from './unix-close';
@@ -44,6 +46,7 @@ export interface OwnedTerminal {
   cleanupPending: boolean;
   viewOnly?: boolean;
   processTitle: string | null;
+  directoryUrl?: string | null;
 }
 interface Entry extends Omit<OwnedTerminal, 'processTitle'> {
   viewOnly: boolean;
@@ -144,7 +147,7 @@ export class PtyBackend {
   getProfiles(): TerminalProfilesDto { return structuredClone(this.profiles); }
   get(tabId: string): OwnedTerminal | undefined {
     const e = this.entries.get(tabId);
-    return e && { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, profileId: e.profileId, cwd: e.cwd, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, root: { ...e.root }, cleanupPending: e.cleanupPending, viewOnly: e.viewOnly, processTitle: e.mirror.title };
+    return e && { tabId: e.tabId, sessionId: e.sessionId, generation: e.generation, profileId: e.profileId, cwd: e.cwd, state: e.state, exitCode: e.exitCode, cols: e.cols, rows: e.rows, root: { ...e.root }, cleanupPending: e.cleanupPending, viewOnly: e.viewOnly, processTitle: e.mirror.title, directoryUrl: e.mirror.directoryUrl };
   }
   live(): OwnedTerminal[] { return [...this.entries.keys()].map(id => this.get(id)!).filter(e => e.state === 'open' || e.cleanupPending); }
   /** The caller owns process-tree cleanup and raw pipe bytes. Only the display
@@ -185,6 +188,34 @@ export class PtyBackend {
     const pending = [...this.entries.values()].filter(e => e.sessionId === sessionId && e.state === 'closed' && e.cleanupPending);
     for (const e of pending) { if (!e.closing) return failure('RETRY_CONFIRM_REQUIRED', 'Owned descendant cleanup is unconfirmed; no replacement shell was launched.'); const result = await e.closing; if (!result.ok) return result; }
     return success({ confirmed: true });
+  }
+  async currentDirectory(tabId: string): Promise<Result<{ cwd: string }>> {
+    const entry = this.entries.get(tabId);
+    if (!entry || entry.state !== 'open') return failure('UNSUPPORTED', 'This terminal is no longer running. Browse Home or choose a folder instead.');
+    try {
+      let cwd: string;
+      if (entry.root.environment === 'wsl') {
+        if (!entry.identity) return failure('MONITOR_UNAVAILABLE', 'The WSL shell identity is not ready. Try Current directory again.');
+        cwd = await guestDirectory(entry.root, entry.identity);
+      } else if (this.platform === 'linux' && entry.identity) cwd = await linuxDirectory(entry.root, entry.identity);
+      else if (this.platform === 'darwin' && entry.identity && entry.supervisor?.status) {
+        const identity = entry.identity, statusProvider = entry.supervisor.status.bind(entry.supervisor);
+        cwd = await darwinDirectory(identity, async () => {
+          const status = await statusProvider();
+          if (!status.ok || !status.shellAlive || status.shellPid !== identity.pid || status.shellBirth !== identity.birth) throw new Error('Owned macOS shell identity changed.');
+        });
+      }
+      else {
+        const report = entry.mirror.directoryUrl;
+        if (!report) return failure('UNSUPPORTED', entry.elevated ? 'Administrator PowerShell does not report its current directory with this helper. Browse Home or enter an absolute folder.' : this.platform === 'win32' ? 'This terminal does not report its current directory. Reopen the PowerShell tab to enable directory tracking, or browse Home.' : 'The shell current directory is unavailable. Try again, browse Home or enter an absolute folder.');
+        const url = new URL(report);
+        if (!['', 'localhost', hostname().toLowerCase()].includes(url.hostname.toLowerCase())) return failure('UNSUPPORTED', 'This terminal reports a different host. Open that machine as a Shellfox remote host.');
+        cwd = decodeURIComponent(url.pathname);
+        if (this.platform === 'win32' && /^\/[a-z]:\//i.test(cwd)) cwd = cwd.slice(1);
+      }
+      if (this.entries.get(tabId) !== entry || entry.state !== 'open') return failure('TARGET_LOST', 'Terminal changed while resolving its current directory.');
+      return success({ cwd: pathSchema.parse(cwd) });
+    } catch { return failure('UNSUPPORTED', 'The shell current directory could not be verified. Browse Home or enter an absolute folder.'); }
   }
   subscribe(listener: (event: TerminalEvent) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   subscribeTitle(listener: (event: TerminalTitleEvent) => void): () => void { this.titleListeners.add(listener); return () => { this.titleListeners.delete(listener); }; }

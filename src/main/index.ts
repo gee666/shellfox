@@ -20,7 +20,9 @@ import { bypassCloseConfirmation, CloseConfirmationCoordinator } from './close-c
 import { installIpc } from './ipc';
 import { desktopRequest } from './desktop-requests';
 import { installDesktopPolicy, secureDesktopWindow } from './desktop-security';
+import { registerFilePreviewScheme } from './file-preview-protocol';
 import { recoverRenderer } from './renderer-recovery';
+import { installDesktopFilesIpc } from './desktop-files-ipc';
 import { runAttachedDesktop } from './attached-desktop';
 import { onSystemQuit } from './system-quit';
 import { acquireHostOwnership } from '../host/ownership';
@@ -43,6 +45,7 @@ import { UpdateShutdown } from './update/update-shutdown';
 import windowsUpdateScript from './update/shellfox-update.ps1';
 declare const __TEST_BUILD__: boolean;
 declare const __PROJECT_ROOT__: string;
+registerFilePreviewScheme();
 app.setName('Shellfox');
 // Stable for all versions and Squirrel lifecycle invocations.
 const appData = __TEST_BUILD__ && process.env.SHELLFOX_TEST_APP_DATA && path.resolve(process.env.SHELLFOX_TEST_APP_DATA).startsWith(path.join(__PROJECT_ROOT__, 'tmp') + path.sep)
@@ -149,6 +152,7 @@ async function run(): Promise<void> {
   } else service = new EmbeddedSessionService(repository, undefined, undefined, folderIntegration, cliIntegration);
   if (__TEST_BUILD__) (globalThis as any).__shellfoxTest = { service, repository, backend: service.backend };
   startupCleanups.push(() => service.dispose());
+  await service.files.initialize(app.getPath('userData'));
   await service.initialize(nativePaths()); ownership.assertOwned();
   const remoteHostname = ('shellfox-' + systemHostname().toLowerCase().replace(/[^a-z0-9-]/g, '-')).slice(0, 63).replace(/-+$/, '') || 'shellfox';
   const remoteHelperName = 'shellfox-tailscale' + (process.platform === 'win32' ? '.exe' : '');
@@ -200,6 +204,8 @@ async function run(): Promise<void> {
   const windowTracker = trackWindowState(window, state => repository.saveWindowState(state));
   startupCleanups.push(() => windowTracker.dispose());
   secureDesktopWindow(window);
+  const uninstallDesktopFiles = installDesktopFilesIpc(window, rendererUrl);
+  startupCleanups.push(uninstallDesktopFiles);
   recoverRenderer(window);
   const ownedTerminalCount = () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0;
   const closeConfirmation = new CloseConfirmationCoordinator(window, rendererUrl, {
@@ -234,7 +240,7 @@ async function run(): Promise<void> {
         await controlServer.dispose().catch(error => console.error('Control shutdown cleanup failed:', error));
         await service.dispose();
         if (updates instanceof SelfUpdater) await updates.dispose(true);
-        uninstallIpc(); windowTracker.dispose(); repository.close(); await ownership.release();
+        await uninstallIpc(); windowTracker.dispose(); repository.close(); await ownership.release();
       } catch (error) { console.error('Update shutdown cleanup failed:', error); }
       app.quit();
     },
@@ -262,7 +268,7 @@ async function run(): Promise<void> {
     if (!result.ok) dialog.showErrorBox('Could not create session', result.error.message);
   }), updates, sshProfiles, keepAwake, () => ownership.assertOwned());
   const uninstallRemoteIpc = installRemoteIpc(window, rendererUrl, remote);
-  const uninstallIpc = () => { closeConfirmation.dispose(); uninstallRemoteIpc(); uninstallManagerIpc(); };
+  const uninstallIpc = async () => { closeConfirmation.dispose(); uninstallRemoteIpc(); uninstallManagerIpc(); await uninstallDesktopFiles(); };
   startupCleanups.push(uninstallIpc);
   const quitGuard = new TerminalQuitGuard({ ownedTerminalCount, dispose: () => service.dispose() }, count => quitApproved || closeConfirmation.request('quit', count));
   // The CLI stop command and the OS approve quitting themselves; never prompt or install an update then.
@@ -292,7 +298,7 @@ async function run(): Promise<void> {
         await hostRpc?.close();
         await controlServer.dispose().catch(error => console.error('Control shutdown cleanup failed:', error));
         if (updates instanceof SelfUpdater) await updates.dispose();
-        uninstallIpc(); windowTracker.dispose(); repository.close(); await ownership.release();
+        await uninstallIpc(); windowTracker.dispose(); repository.close(); await ownership.release();
       } catch (error) { console.error('Quit cleanup failed:', error); }
       cliStop?.resolve(); cliStop = undefined; quitApproved = false;
       await hostRpc?.waitForStopReplies();

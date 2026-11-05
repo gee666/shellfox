@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const native = vi.hoisted(() => ({ pick: vi.fn(), read: vi.fn(), release: vi.fn(), cancelPick: vi.fn() }));
+const native = vi.hoisted(() => ({ pick: vi.fn(), pickForTransfer: vi.fn(), read: vi.fn(), release: vi.fn(), cancelPick: vi.fn() }));
 vi.mock('react-native', () => ({ NativeModules: { ShellfoxFiles: native } }));
 import { MAX_FILE_CHUNK_BYTES, MAX_PICKED_FILE_BYTES, pickedFiles } from './files';
 import { isAttachmentPickerOpen } from './attachment-picker-lifecycle';
@@ -16,6 +16,13 @@ it('accepts only native scoped metadata, including empty files and Unicode names
   await pickedFiles.cancelPick(token);
   expect(native.release).toHaveBeenCalledExactlyOnceWith(handle);
   expect(native.cancelPick).toHaveBeenCalledExactlyOnceWith(token);
+});
+it('opts in to transfer-sized files without raising the terminal attachment limit', async () => {
+  const file = { handle, fileName: 'large.bin', size: 65 * 1024 * 1024 };
+  native.pick.mockResolvedValue(file); native.pickForTransfer.mockResolvedValue(file);
+  await expect(pickedFiles.pick(token)).rejects.toThrow('picker limit');
+  expect(await pickedFiles.pick(token, MAX_PICKED_FILE_BYTES)).toEqual(file);
+  expect(native.pickForTransfer).toHaveBeenCalledExactlyOnceWith(token, MAX_PICKED_FILE_BYTES);
 });
 it('keeps native cancellation null and errors distinct', async () => {
   native.pick.mockResolvedValueOnce(null).mockRejectedValueOnce(new Error('Provider offline'));

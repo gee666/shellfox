@@ -1,10 +1,15 @@
+import { createFileApi } from '../shared/file-api';
 import { contextBridge, ipcRenderer } from 'electron';
+import type { z } from 'zod';
 import { closeConfirmationApi } from './close-confirmation';
 import { remoteApi } from './remote';
+import { desktopFilesApi } from './desktop-files';
 import type { ChangedEvent, KeepAwakeState, ManagerApi, TerminalEvent } from '../shared/contracts';
 import { failure } from '../shared/contracts';
 import { changedEventSchema, keepAwakeStateSchema, terminalEventSchema, requestSchemas, responseSchemas, type ManagerMethod } from '../shared/schemas';
-async function request(method: ManagerMethod, payload: unknown): Promise<any> {
+type ManagerResponse<M extends ManagerMethod = ManagerMethod> = z.output<(typeof responseSchemas)[M]>;
+function request<M extends ManagerMethod>(method: M, payload: unknown): Promise<ManagerResponse<M>>;
+async function request(method: ManagerMethod, payload: unknown): Promise<ManagerResponse> {
   if (!requestSchemas[method].safeParse(payload).success) return failure('VALIDATION', 'Invalid request');
   try {
     const response = responseSchemas[method].safeParse(await ipcRenderer.invoke('manager:request', { version: 1, method, payload }));
@@ -13,6 +18,16 @@ async function request(method: ManagerMethod, payload: unknown): Promise<any> {
 }
 const api: ManagerApi = {
   ...closeConfirmationApi,
+  desktopFiles: desktopFilesApi,
+  files: createFileApi({
+    list: input => request('listFiles', input),
+    beginRead: input => request('beginFileRead', input),
+    readChunk: input => request('readFileChunk', input),
+    beginWrite: input => request('beginFileWrite', input),
+    writeChunk: input => request('writeFileChunk', input),
+    finishWrite: input => request('finishFileWrite', input),
+    cancelTransfer: input => request('cancelFileTransfer', input),
+  }),
   listSshProfiles: () => request('listSshProfiles', {}),
   saveSshProfile: input => request('saveSshProfile', input),
   deleteSshProfile: input => request('deleteSshProfile', input),

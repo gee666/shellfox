@@ -14,6 +14,7 @@ import { EnvironmentEditor } from './EnvironmentEditor';
 import { ConnectionStatus } from './ConnectionStatus';
 import { isConnectionFailure } from './connection-status';
 import { DirectoryPrompt, type DirectoryPromptConfig } from './DirectoryPrompt';
+import { FolderButton } from './FileTransferBar';
 
 export interface OpenSession {
   peerId: string;
@@ -25,11 +26,13 @@ export function SessionsScreen({
   open,
   prompt,
   settings,
+  openFiles,
 }: {
   model: ShellfoxModel;
   open: (selection: OpenSession) => void;
   prompt: (config: PromptConfig) => void;
   settings: () => void;
+  openFiles?: (peerId: string) => void;
 }) {
   const { colors, styles } = useUi();
   const [searching, setSearching] = useState(false);
@@ -273,6 +276,7 @@ export function SessionsScreen({
                     {machine.state.status.replaceAll('-', ' ')}
                   </Text>
                 </View>
+                {machine.state.status === 'connected' && openFiles && <FolderButton label={`Files on ${machine.peer.hostname}`} onPress={() => openFiles(machine.peer.id)} />}
                 {machine.state.status === 'connected' ? (
                   <Pressable
                     accessibilityRole="button"

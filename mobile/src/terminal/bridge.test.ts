@@ -28,7 +28,7 @@ function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false)
     takeTerminalControl: vi.fn<MobileTerminalApi['takeTerminalControl']>(async () => success({ taken: true })),
   };
   const subscribeTerminal = vi.fn((listener: (event: TerminalEvent) => void) => { emit = listener; return unsubscribe; });
-  const options = { api, subscribeTerminal, tabId, readOnly, viewId: 'page-1', fontSize: 14, onError, onFocus, onState, onInput, send: (message: HostMessage) => messages.push(message) };
+  const options = { api, subscribeTerminal, tabId, readOnly, viewId: 'page-1', fontSize: 14, onError, onFocus, onState, onInput, onFileOpen: vi.fn(), send: (message: HostMessage) => messages.push(message) };
   const bridge = new TerminalBridge(options);
   const latest = () => messages.filter((m): m is Extract<HostMessage, { type: 'output' }> => m.type === 'output').at(-1)!;
   const rendered = () => { const m = latest(); bridge.receive({ type: 'rendered', viewId: m.viewId, epoch: m.epoch, ticket: m.ticket }); };
@@ -37,6 +37,20 @@ function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false)
 }
 afterEach(() => vi.useRealTimers());
 describe('mobile terminal delivery', () => {
+  it('opens only file targets from the current attached display identity', async () => {
+    const f = setup(); await flush();
+    const identity = { viewId: 'page-1', epoch: f.latest().epoch };
+    f.bridge.receive({ type: 'openFile', ...identity, target: './src/main.ts:12:3' });
+    expect(f.options.onFileOpen).toHaveBeenCalledExactlyOnceWith({ path: './src/main.ts', line: 12, column: 3 });
+    for (const target of ['https://example.com/file.txt', 'javascript:alert(1)', 'intent://file', 'file://evil/share.txt']) {
+      f.bridge.receive({ type: 'openFile', ...identity, target });
+    }
+    f.bridge.receive({ type: 'openFile', ...identity, viewId: 'retired', target: '/tmp/file.txt' });
+    f.bridge.receive({ type: 'openFile', ...identity, epoch: 'retired', target: '/tmp/file.txt' });
+    f.bridge.dispose();
+    f.bridge.receive({ type: 'openFile', ...identity, target: '/tmp/file.txt' });
+    expect(f.options.onFileOpen).toHaveBeenCalledTimes(1);
+  });
   it('keeps a settlement event received while an older attachment is in flight', async () => {
     const pending = deferred<ReturnType<typeof success<TerminalAttachmentDto>>>();
     const f = setup(); f.api.attachTerminal.mockReturnValueOnce(pending.promise);

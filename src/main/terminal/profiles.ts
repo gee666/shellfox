@@ -12,6 +12,7 @@ import { resolvePython, type PythonProbe } from './python';
 import { getDarwinSupervisorCapability } from './darwin-supervisor';
 import type { TrackingHelperOptions } from './tracking';
 import { ADMIN_POWERSHELL_PROFILE, elevatedCapability } from './windows-elevated';
+import { powershellDirectoryHook } from './cwd-hook';
 import { powershellCompletion } from '../platform/shellfox-completion';
 
 export type Execute = (file: string, args: string[]) => Promise<Buffer>;
@@ -119,8 +120,8 @@ export function spawnArguments(profile: TerminalProfileDto, cwd: string, marker:
     const args = [...profile.args];
     // PowerShell loads the user's profile before this hook, then stays interactive.
     // Do not replace Unix login/rc startup or inject text into the PTY input stream.
-    if (completion && /^(?:pwsh|powershell)(?:\.exe)?$/i.test(path.win32.basename(profile.executable))) {
-      args.push('-NoExit', '-EncodedCommand', Buffer.from(powershellCompletion(), 'utf16le').toString('base64'));
+    if (/^(?:pwsh|powershell)(?:\.exe)?$/i.test(path.win32.basename(profile.executable))) {
+      args.push('-NoExit', '-EncodedCommand', Buffer.from((completion ? powershellCompletion() : '') + powershellDirectoryHook(), 'utf16le').toString('base64'));
     }
     return { file: profile.executable, args, cwd };
   }

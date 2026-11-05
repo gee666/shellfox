@@ -1,0 +1,7 @@
+.file-transfers { flex: 0 0 auto; padding: 2px 4px; border-bottom: 1px solid var(--border); font-size: 11px; }
+.file-transfer-toolbar { display: flex; gap: 4px; align-items: center; min-width: 0; }
+.file-transfer-toolbar > button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; padding: 2px; }
+.file-transfer-toolbar progress { flex: 0 1 80px; min-width: 24px; height: 8px; }
+.file-transfer-toolbar > span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.file-transfers > p { margin: 2px 0; overflow-wrap: anywhere; }
+.file-transfers > span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

@@ -14,6 +14,7 @@ import { useStickyModifiers } from './useStickyModifiers';
 import { useKeyboardOverlap } from './useKeyboardOverlap';
 import { useTerminalAttachment } from './useTerminalAttachment';
 import { sameUploadIdentity, type TerminalUploadApi } from './upload';
+import type { TerminalFileTarget } from '../../../src/shared/terminal-file-links';
 
 export interface TerminalViewProps {
   api: MobileTerminalApi;
@@ -30,6 +31,7 @@ export interface TerminalViewProps {
   connectionEpoch: string | number;
   onError?: (error: Error) => void;
   onState?: (state: TerminalBridgeState) => void;
+  onFileOpen?: (target: TerminalFileTarget) => void;
 }
 const source = { html: TERMINAL_HTML, baseUrl: 'about:blank' };
 export function TerminalView({
@@ -45,6 +47,7 @@ export function TerminalView({
   onTakeoverIntentConsumed,
   onError,
   onState,
+  onFileOpen,
 }: TerminalViewProps) {
   const { colors, palette } = useTheme();
   const web = useRef<WebView>(null);
@@ -52,8 +55,8 @@ export function TerminalView({
   const { keyboardInset, keyboardOffset, keyboardVisible, measureKeyboardInset } = useKeyboardOverlap(container);
   const bridge = useRef<TerminalBridge | null>(null);
   const { accent, background } = palette;
-  const callbacks = useRef({ onError, onState, onTakeoverIntentConsumed, fontSize, accent, background });
-  callbacks.current = { onError, onState, onTakeoverIntentConsumed, fontSize, accent, background };
+  const callbacks = useRef({ onError, onState, onFileOpen, onTakeoverIntentConsumed, fontSize, accent, background });
+  callbacks.current = { onError, onState, onFileOpen, onTakeoverIntentConsumed, fontSize, accent, background };
   const dispatchedIntent = useRef<string | undefined>(undefined);
   const [viewId, setViewId] = useState<string | null>(null);
   const { modifiers, current: modifiersRef, toggle: toggleModifier, activity, reset: resetModifiers } =
@@ -121,6 +124,7 @@ export function TerminalView({
         callbacks.current.onState?.(state);
       },
       onSelection: setSelection,
+      onFileOpen: target => { Keyboard.dismiss(); callbacks.current.onFileOpen?.(target); },
       onFocus: () => {
         if (!readOnly && Platform.OS === 'android' && keyboardModeRef.current === 'system') void showTerminalKeyboard().catch(report);
       },

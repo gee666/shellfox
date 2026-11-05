@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { OpenSession } from './SessionsScreen';
 import type { SessionScreen } from './SessionScreen';
+import type { FilesScreen } from './FilesScreen';
 import App from '../App';
 
 const mocks = vi.hoisted(() => ({ useModel: vi.fn(), nextIntent: 0, tabs: new Map<string, () => void>() }));
@@ -32,26 +33,43 @@ vi.mock('./ui', () => ({ useUi: () => ({ colors: {}, styles: {} }), Button: () =
 vi.mock('./updates/useUpdates', () => ({ useUpdates: () => ({}) }));
 vi.mock('./Prompt', () => ({ Prompt: () => null }));
 vi.mock('./SettingsScreen', () => ({ SettingsScreen: () => <div>Settings screen</div> }));
-vi.mock('./SessionsScreen', () => ({ SessionsScreen: ({ open }: { open: (value: OpenSession) => void }) => <>
+vi.mock('./FilesScreen', () => ({ FilesScreen: ({ sessionId, tabId, onClose }: Parameters<typeof FilesScreen>[0]) =>
+  <div data-testid="files" data-session={sessionId} data-tab={tabId}><button onClick={onClose}>Close Files</button></div> }));
+vi.mock('./SessionsScreen', () => ({ SessionsScreen: ({ open, openFiles }: { open: (value: OpenSession) => void; openFiles: (peerId: string) => void }) => <>
+  <button onClick={() => openFiles('host')}>Host files</button>
   <button onClick={() => open({ peerId: 'host', sessionId: 'session', takeControl: true })}>Tap session</button>
   <button onClick={() => open({ peerId: 'host', sessionId: 'session' })}>Restore selection</button>
 </> }));
-vi.mock('./SessionScreen', () => ({ SessionScreen: ({ controlIntent, onControlIntentCaptured, back }: Parameters<typeof SessionScreen>[0]) => {
+vi.mock('./SessionScreen', () => ({ SessionScreen: ({ controlIntent, onControlIntentCaptured, back, openFiles }: Parameters<typeof SessionScreen>[0]) => {
   const [captured] = React.useState(controlIntent);
   React.useEffect(() => { if (controlIntent) onControlIntentCaptured?.(controlIntent.id); }, [controlIntent, onControlIntentCaptured]);
   return <>
     <div data-testid="session" data-intent={captured?.id} data-connection={captured?.connectionId} />
     <button onClick={back}>Back</button>
+    <button onClick={() => openFiles({ sessionId: 'session', tabId: 'tab' })}>Session files</button>
   </>;
 } }));
-function model(connectionId = 'original') {
+function model(connectionId = 'original', hasSession = false) {
   return {
-    ready: true, preferences: {}, machines: [{ peer: { id: 'host' }, state: { status: 'connected', connectionId } }],
+    ready: true, preferences: {}, machines: [{ peer: { id: 'host' }, state: { status: 'connected', connectionId }, client: { files: {} }, snapshot: { sessions: hasSession ? [{ id: 'session', tabs: [{ id: 'tab' }] }] : [] }, snapshotConnectionId: connectionId }],
     error: null,
   };
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.nextIntent = 0; mocks.tabs.clear(); mocks.useModel.mockReturnValue(model()); });
 afterEach(cleanup);
+it('opens host Files without any session', () => {
+  render(<App />); fireEvent.click(screen.getByText('Host files'));
+  expect(screen.getByTestId('files').getAttribute('data-session')).toBeNull();
+  expect(screen.getByTestId('files').getAttribute('data-tab')).toBeNull();
+});
+it('keeps the App-owned Files screen mounted when its original session disappears', () => {
+  mocks.useModel.mockReturnValue(model('original', true));
+  const view = render(<App />); fireEvent.click(screen.getByText('Tap session')); fireEvent.click(screen.getByText('Session files'));
+  expect(screen.getByTestId('files').getAttribute('data-session')).toBe('session');
+  mocks.useModel.mockReturnValue(model('original', false)); view.rerender(<App />);
+  expect(screen.getByTestId('files')).toBeTruthy();
+  fireEvent.click(screen.getByText('Back')); expect(screen.getByTestId('files')).toBeTruthy();
+});
 it('creates connection-scoped takeover intent only for explicit session navigation', () => {
   const view = render(<App />);
   fireEvent.click(screen.getByText('Tap session'));
