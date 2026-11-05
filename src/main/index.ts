@@ -206,7 +206,7 @@ async function run(): Promise<void> {
   secureDesktopWindow(window);
   const uninstallDesktopFiles = installDesktopFilesIpc(window, rendererUrl);
   startupCleanups.push(uninstallDesktopFiles);
-  recoverRenderer(window);
+  recoverRenderer(window, rendererUrl);
   const ownedTerminalCount = () => 'ownedTerminalCount' in service ? service.ownedTerminalCount() : 0;
   const closeConfirmation = new CloseConfirmationCoordinator(window, rendererUrl, {
     autoApprove: bypassCloseConfirmation(__TEST_BUILD__, parsed.value, process.env.SHELLFOX_TEST_CONFIRM_QUIT),

@@ -41,7 +41,7 @@ export async function runAttachedDesktop(options: AttachedDesktopOptions): Promi
   });
   secureDesktopWindow(window);
   const uninstallDesktopFiles = installDesktopFilesIpc(window, rendererUrl);
-  recoverRenderer(window);
+  recoverRenderer(window, rendererUrl);
   window.on('page-title-updated', event => event.preventDefault());
   if (bounds.maximized && !backgroundTest) window.maximize();
   const tracker = trackWindowState(window, state => {

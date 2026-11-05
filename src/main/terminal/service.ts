@@ -671,8 +671,18 @@ export class EmbeddedSessionService {
       const unchangedExecutable = !!input.terminalProfileId && input.shellExecutable === previous.shellExecutable;
       if (input.shellExecutable && input.shellExecutable !== selected.executable && !unchangedExecutable) { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); return failure('VALIDATION', 'Arbitrary shell executables are not allowed.'); }
       const settings: SettingsDto = { ...parsed.data, terminalEnv: parsed.data.terminalEnv ?? previous.terminalEnv, adapterId: 'embedded-pty', terminalProfileId: selected.id, shellId: shellId(selected), shellExecutable: selected.executable };
-      try { this.observations.clear(); this.tracker.setWatch(this.backend.live().map(e => e.root), settings.processRules); this.repository.saveSettings(settings); }
-      catch { if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null); this.tracker.setWatch(this.backend.live().map(e => e.root), previous.processRules); return failure('STORAGE_FAILED', 'Settings could not be applied.', true); }
+      const rulesChanged = JSON.stringify(previous.processRules) !== JSON.stringify(settings.processRules);
+      try {
+        if (rulesChanged) this.tracker.setWatch(this.backend.live().map(e => e.root), settings.processRules);
+        this.repository.saveSettings(settings);
+      } catch {
+        if (rulesChanged) this.tracker.setWatch(this.backend.live().map(e => e.root), previous.processRules);
+        if (pythonChanged) await this.backend.refreshProfiles(previous.pythonPath ?? null);
+        return failure('STORAGE_FAILED', 'Settings could not be applied.', true);
+      }
+      // Unrelated autosaves must keep evidence, especially for roots outside the
+      // polling viewport. Discard old-rule evidence only after a successful save.
+      if (rulesChanged) this.observations.clear();
       if (pythonChanged) {
         const available = profiles.profiles.some(p => p.available);
         this.probe = { ...this.probe, available, python: this.backend.getPython(), reasons: [LIFETIME_NOTICE, ...profiles.profiles.filter(p => !p.available).map(p => p.unavailableReason ?? 'Shell unavailable')], shells: profiles.profiles.filter(p => p.environment === 'local' && !p.elevation).map(p => ({ id: shellId(p), executable: p.executable, available: p.available, reason: p.unavailableReason ?? null })), capabilities: { ...this.probe.capabilities, createWindow: available, addTab: available, closeTerminal: available, focusWindow: available, activateTab: available } };
