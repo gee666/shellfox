@@ -16,7 +16,7 @@ Configured environment values can contain secrets. Session values remain until t
 
 A confirmed tab exit removes the tab row, all its launch/retry operations and request IDs, terminal metadata and legacy member metadata. The same applies to failed or cancelled launches that own no live shell. Session-level launch errors remain on the session for reporting.
 
-Settling is non-destructive. The `settle` and `unsettle` commands change status without confirmation and leave live terminals and agents alone.
+Settling is non-destructive. The `settle` and `unsettle` commands change status without confirmation and leave live terminals and agents alone. Accepted typing, paste and mouse clicks, drags or scrolling reported to the terminal app resume the session. Focus notifications and button-free mouse motion reach the terminal app without clearing settlement or counting as input activity.
 
 Deleting a session closes its owned terminals and removes the session, dependent rows and keyed preferences after confirmation. If terminal closure cannot be confirmed, deletion fails. Closing some tabs before a later closure fails does not undo their exits; still-running tabs remain owned. Missing sessions leave other sessions untouched.
 

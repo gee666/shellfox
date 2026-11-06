@@ -6,6 +6,8 @@ import { responseSchemas } from '../../shared/schemas';
 import { managerOperation } from '../../host/operations';
 import { remoteOperation } from '../remote/operations';
 import { PtyBackend } from './backend';
+import { TerminalActivity } from './activity';
+import { SessionLifecycle } from '../session-lifecycle';
 import { EmbeddedSessionService } from './service';
 import { factoryFixture, MemoryRepository } from './test-fixtures';
 
@@ -47,6 +49,47 @@ describe('settled terminal input', () => {
       expect(await write({ data: 'real keyboard input' })).toEqual({ ok: true, value: { written: true } });
       expect(f.current().settledAt).toBeNull();
     } finally { view.dispose(); await f.service.dispose(); }
+  });
+  it.each(['direct', 'manager', 'remote'] as const)('keeps repeated settlements during button-free mouse reports through %s', async route => {
+    const f = await fixture(), view = f.service.createTerminalView(() => {});
+    try {
+      const attachment = value(view.attach(f.identity));
+      if (attachment.control !== 'owned') throw new Error('Missing owner');
+      const write = (data: string, settledAt: string | null) => {
+        const input = { ...f.identity, controlEpoch: attachment.controlEpoch, data, settledAt, userInitiated: true };
+        return route === 'direct' ? f.service.writeTerminal(input)
+          : route === 'manager' ? managerOperation({ service: f.service, delivery: view, clientId: 'local' }, 'writeTerminal', input)
+          : remoteOperation(f.service, view, 'mobile', 'writeTerminal', input);
+      };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const settled = value(await f.settle());
+        // Any-motion TUIs send hover reports even without a click or keypress.
+        for (const data of ['\x1b[<35;12;8M', '\x1b[<51;13;8M', '\x1b[<35;14;8M\x1b[I']) {
+          expect(await write(data, settled.settledAt)).toEqual({ ok: true, value: { written: true } });
+          expect(f.processes[0].write).toHaveBeenLastCalledWith(data);
+          expect(f.current()).toMatchObject({ status: 'settled', settledAt: settled.settledAt });
+        }
+        expect(await write('\x1b[<0;12;8M', settled.settledAt)).toEqual({ ok: true, value: { written: true } });
+        expect(f.current().settledAt).toBeNull();
+      }
+    } finally { view.dispose(); await f.service.dispose(); }
+  });
+  it('does not save or count legacy hover input as activity, but accepts mixed active frames', async () => {
+    const f = await fixture();
+    const settled = value(await f.settle());
+    const activity = vi.spyOn(TerminalActivity.prototype, 'input');
+    const touch = vi.spyOn(SessionLifecycle.prototype, 'touch');
+    const save = vi.spyOn(f.repository, 'saveSession');
+    try {
+      const hover = '\x1b[<35;12;8M\x1b[MCAB';
+      value(f.service.writeTerminal({ ...f.identity, data: hover }));
+      expect(f.processes[0].write).toHaveBeenLastCalledWith(hover);
+      expect(f.current().settledAt).toBe(settled.settledAt);
+      expect(activity).not.toHaveBeenCalled(); expect(touch).not.toHaveBeenCalled(); expect(save).not.toHaveBeenCalled();
+      value(f.service.writeTerminal({ ...f.identity, data: hover + 'typed' }));
+      expect(f.current().settledAt).toBeNull();
+      expect(activity).toHaveBeenCalledOnce(); expect(touch).toHaveBeenCalledOnce(); expect(save).toHaveBeenCalledOnce();
+    } finally { activity.mockRestore(); touch.mockRestore(); save.mockRestore(); await f.service.dispose(); }
   });
   it.each(['direct', 'manager', 'remote'] as const)('ignores pre-settle input activity delivered late through %s while accepting later input', async route => {
     const f = await fixture(), events: unknown[] = [], view = f.service.createTerminalView(event => events.push(event));

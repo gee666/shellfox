@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { SessionStatsDto, AppError, ChangedEvent, EnvVar, ExplorerIntegrationDto, ManagerSnapshot, NativeProbe, RegistrationGuideDto, Result, SessionDto, SaveSettingsInput, SettingsDto, ShellId, TabDto, TerminalSnapshotDto as TerminalAttachmentDto, TerminalBackendEvent as TerminalEvent, TerminalProfileDto, TerminalProfilesDto } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import { parseWslUnc } from '../../shared/wsl-path';
-import { isTerminalFocusReport } from '../../shared/terminal-input';
+import { isPassiveTerminalInput } from '../../shared/terminal-input';
 import { requestSchemas } from '../../shared/schemas';
 import { aggregateStatus, countTabs, publicStatus, sortSessions, tabStatus } from '../../shared/status';
 import type { NativeInit, TabObservation } from '../../shared/native-port';
@@ -282,7 +282,7 @@ export class EmbeddedSessionService {
   }
   writeTerminal(input: Parameters<PtyBackend['write']>[0]): Result<{ written: true }> {
     const result = this.backend.write(input), owned = this.backend.get(input.tabId);
-    if (result.ok && input.userInitiated !== false && input.data.length && !isTerminalFocusReport(input.data) && owned) {
+    if (result.ok && input.userInitiated !== false && input.data.length && !isPassiveTerminalInput(input.data) && owned) {
       this.lifecycle.touch(owned.sessionId);
       try {
         const session = this.repository.session(owned.sessionId);

@@ -14,7 +14,7 @@ import { captureLinuxRoot, closeUnixTree, type UnixIdentity } from './unix-close
 import { terminalEnvironment } from './environment';
 import { envVarsSchemaFor } from '../../shared/schemas';
 import { TerminalActivity } from './activity';
-import { isTerminalFocusReport } from '../../shared/terminal-input';
+import { isPassiveTerminalInput } from '../../shared/terminal-input';
 import { nativeQueuedInputBytes, MAX_NATIVE_INPUT_BYTES } from './native-input';
 import { prepareDarwinSupervisor, type SupervisorLaunch, type SupervisorControl } from './darwin-supervisor';
 import { ScreenMirror } from './screen-mirror';
@@ -448,7 +448,7 @@ export class PtyBackend {
   write(input: { tabId: string; generation: string; data: string; controlEpoch?: number; userInitiated?: boolean; settledAt?: string | null }): Result<{ written: true }> {
     if (!requestSchemas.writeTerminal.partial({ controlEpoch: true }).safeParse(input).success) return failure('VALIDATION', 'Invalid or oversized terminal input.');
     const owned = this.owned(input.tabId, input.generation); if (!owned.ok) return owned;
-    return this.writeInput(owned.value, input.data, input.userInitiated !== false && !isTerminalFocusReport(input.data));
+    return this.writeInput(owned.value, input.data, input.userInitiated !== false && !isPassiveTerminalInput(input.data));
   }
   private writeInput(e: Entry, data: string, userInitiated: boolean): Result<{ written: true }> {
     if (this.entries.get(e.tabId) !== e || e.state !== 'open' || !e.pty) return failure('TARGET_LOST', 'This shell has exited.');

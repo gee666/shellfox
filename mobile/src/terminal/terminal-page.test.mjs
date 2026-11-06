@@ -76,6 +76,26 @@ test('offline bundled xterm bridge in Chromium', { timeout: 90000 }, async t => 
     assert.ok(reports.every(m => m.userInitiated === false), JSON.stringify(reports));
     await output('\x1b[?1004l');
   });
+  await t.test('any-motion hover stays passive while clicks, drags and wheel input resume work', async () => {
+    await output('\x1b[?1003h\x1b[?1006h');
+    const before = messages.length;
+    const rect = await page.locator('.xterm-screen').boundingBox();
+    assert.ok(rect);
+    await page.mouse.move(rect.x + 30, rect.y + 30);
+    await page.mouse.move(rect.x + 60, rect.y + 30);
+    await expect.poll(() => messages.slice(before).filter(m => m.type === 'input' && /^\x1b\[<35;/.test(m.data)).length).toBeGreaterThan(0);
+    const hover = messages.slice(before).filter(m => m.type === 'input' && /^\x1b\[<35;/.test(m.data));
+    assert.ok(hover.every(m => m.userInitiated === false), JSON.stringify(hover));
+    const active = messages.length;
+    await page.mouse.down();
+    await page.mouse.move(rect.x + 90, rect.y + 30);
+    await page.mouse.up();
+    await page.mouse.wheel(0, 50);
+    await expect.poll(() => messages.slice(active).filter(m => m.type === 'input' && m.data.startsWith('\x1b[<65;')).length).toBeGreaterThan(0);
+    const input = messages.slice(active).filter(m => m.type === 'input');
+    for (const code of [0, 32, 65]) assert.ok(input.some(m => m.data.startsWith(`\x1b[<${code};`) && m.userInitiated !== false), JSON.stringify(input));
+    await output('\x1b[?1003l\x1b[?1006l');
+  });
   await t.test('stamps input in the WebView before native message delivery using the observed settlement', async () => {
     const before = messages.length;
     await send({ type: 'settlement', settledAt: null });

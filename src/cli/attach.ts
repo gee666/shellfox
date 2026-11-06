@@ -5,7 +5,7 @@ import type { OwnedTerminalAttachmentDto, Result, TerminalApi, TerminalEvent } f
 import { CliFailure, unwrap } from './output';
 import { ENTER_TERMINAL_SCREEN, LEAVE_TERMINAL_SCREEN, RESET_TERMINAL_MODES, terminalGrid } from './terminal-presentation';
 import { TerminalQueryFilter } from './terminal-queries';
-import { isTerminalFocusReport } from '../shared/terminal-input';
+import { isPassiveTerminalInput } from '../shared/terminal-input';
 export type AttachApi = Pick<TerminalApi, 'attachTerminal' | 'takeTerminalControl' | 'writeTerminal' | 'resizeTerminal' | 'acknowledgeTerminal' | 'detachTerminal' | 'subscribeTerminal'>;
 type Events = Pick<EventEmitter, 'on' | 'off'>;
 export interface AttachIo {
@@ -185,7 +185,7 @@ export async function attachTerminal(api: AttachApi, tabId: string, io: AttachIo
       }
       pendingInputBytes += bytes;
       const currentGeneration = generation, epoch = controlEpoch, inputSettlement = settledAt;
-      const passive = isTerminalFocusReport(data);
+      const passive = isPassiveTerminalInput(data);
       enqueue(async () => {
         try {
           if (owned && controlEpoch === epoch) {

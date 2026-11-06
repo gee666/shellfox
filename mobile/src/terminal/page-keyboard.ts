@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 import type { Terminal } from '@xterm/xterm';
 import { NativeTextInput } from './native-text-input';
-import { isTerminalFocusReport } from '../../../src/shared/terminal-input';
+import { isPassiveTerminalInput } from '../../../src/shared/terminal-input';
 import { emptyModifiers, terminalKeySchema, type TerminalKeyEvent, type TerminalModifiers } from './protocol';
 
 const namedCodes: Record<string, number> = {
@@ -89,7 +89,10 @@ export class PageKeyboard {
       if (this.disposed) return;
       if (this.dispatching && this.encodedKey || this.nativeKeyOutput || this.nativeInput.acceptsXtermData(data)) {
         this.emitted = true;
-        if (!isTerminalFocusReport(data) && (this.dispatching && this.encodedKey || this.nativeKeyOutput || this.userInput)) this.emit(data);
+        // Native event capture can yield to microtasks before xterm handles the
+        // event. Mouse reports cannot come from parsing output, unlike replies.
+        const mouseReport = /^\x1b\[<\d+;\d+;\d+[Mm]$/.test(data);
+        if (!isPassiveTerminalInput(data) && (mouseReport || this.dispatching && this.encodedKey || this.nativeKeyOutput || this.userInput)) this.emit(data);
         else this.emit(data, false);
       }
     });

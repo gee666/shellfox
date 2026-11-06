@@ -501,6 +501,24 @@ describe('stock xterm input', () => {
       ]);
     } finally { surface.dispose(); }
   });
+  it('forwards hover reports as passive during browser input without suppressing actual mouse actions', () => {
+    const sent = vi.fn(), surface = createTerminalSurface(sent);
+    document.body.append(surface.element); surface.fit(); surface.setInput(true);
+    const terminal = terminalMocks.terminals.at(-1)!;
+    try {
+      surface.element.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, buttons: 0 }));
+      terminal.input('\x1b[<35;12;8M');
+      terminal.input('\x1b[MCAB');
+      terminal.input('\x1b[<0;12;8M');
+      terminal.input('\x1b[<32;13;8M');
+      terminal.input('\x1b[<65;13;8M');
+      terminal.input('typed');
+      expect(sent.mock.calls).toEqual([
+        ['\x1b[<35;12;8M', false], ['\x1b[MCAB', false], ['\x1b[<0;12;8M', true],
+        ['\x1b[<32;13;8M', true], ['\x1b[<65;13;8M', true], ['typed', true],
+      ]);
+    } finally { surface.dispose(); }
+  });
   it('forwards every onData chunk unchanged, including intentional repeats, spaces and Unicode', () => {
     const sent = vi.fn();
     const surface = createTerminalSurface(sent);

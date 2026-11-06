@@ -1,7 +1,7 @@
 import { Terminal, type ITheme } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { installTerminalQueryHandlers } from './terminal-queries';
-import { isTerminalFocusReport } from '../shared/terminal-input';
+import { isPassiveTerminalInput } from '../shared/terminal-input';
 import { isWebLink, webLinkProvider } from './terminal-links';
 import { parseTerminalFileTarget, type TerminalFileTarget } from '../shared/terminal-file-links';
 import { fileLinkProvider } from '../shared/terminal-file-provider';
@@ -129,7 +129,7 @@ export const createTerminalSurface: SurfaceFactory = (input, theme = DEFAULT_THE
   // only marks encoded keys as user actions; it never edits or cancels input.
   terminal.onKey(markUserInput);
   terminal.onData(data => {
-    if (inputEnabled) input(data, !isTerminalFocusReport(data) && (userInput || !parsing));
+    if (inputEnabled) input(data, !isPassiveTerminalInput(data) && (userInput || !parsing));
   });
   // xterm 6 treats SGR hover reports as user input and clears local selection.
   // Capture only button-free motion; drag events must still reach selection/TUI handlers.

@@ -38,12 +38,16 @@ async function ready(f: ReturnType<typeof fixture>) {
   await vi.waitFor(() => { expect(f.input.isRaw).toBe(true); expect(f.output.listenerCount('resize')).toBe(1); });
 }
 describe('interactive attachment', () => {
-  it('forwards complete focus reports as passive without changing actual keyboard input', async () => {
+  it('forwards focus and hover reports as passive without changing keyboard or drag input', async () => {
     const f = fixture(), done = attachTerminal(f.api, tabId, f.io); await ready(f);
-    f.input.emit('data', '\x1b[I'); f.input.emit('data', '\x1b[O\x1b[I'); f.input.emit('data', 'typed\x1d');
+    f.input.emit('data', '\x1b[I'); f.input.emit('data', '\x1b[O\x1b[I');
+    f.input.emit('data', '\x1b[<35;12;8M\x1b[MCAB'); f.input.emit('data', '\x1b[<32;12;8M');
+    f.input.emit('data', 'typed\x1d');
     await done;
     expect(vi.mocked(f.api.writeTerminal).mock.calls.map(([request]) => ({ data: request.data, userInitiated: request.userInitiated }))).toEqual([
-      { data: '\x1b[I', userInitiated: false }, { data: '\x1b[O\x1b[I', userInitiated: false }, { data: 'typed', userInitiated: undefined },
+      { data: '\x1b[I', userInitiated: false }, { data: '\x1b[O\x1b[I', userInitiated: false },
+      { data: '\x1b[<35;12;8M\x1b[MCAB', userInitiated: false }, { data: '\x1b[<32;12;8M', userInitiated: undefined },
+      { data: 'typed', userInitiated: undefined },
     ]);
   });
   it('captures settlement before the input queue, even while an earlier request is pending', async () => {
