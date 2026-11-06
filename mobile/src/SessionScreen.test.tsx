@@ -27,6 +27,7 @@ vi.mock('react-native', () => ({
   ScrollView: ({ children }: NativeProps) => <div>{children}</div>,
   Pressable: ({ children, accessibilityLabel, accessibilityRole, disabled, onPress, onLongPress }: NativeProps) => <button role={accessibilityRole} aria-label={accessibilityLabel} disabled={disabled} onClick={onPress} onContextMenu={onLongPress}>{children}</button>,
 }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('./ui', () => ({
   useUi: () => ({ colors: {}, styles: {} }),
   Button: ({ title, onPress }: { title: string; onPress: () => void }) => <button onClick={onPress}>{title}</button>,

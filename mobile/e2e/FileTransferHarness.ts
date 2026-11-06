@@ -10,15 +10,17 @@ const revision = 'a'.repeat(64);
 export const transferFixtures: FileRead[] = [
   { kind: 'binary', path: '/fixture/shellfox-transfer-download.bin', size: nativeDownloadSize, revision, mimeType: 'application/octet-stream' },
   { kind: 'binary', path: '/fixture/shellfox-transfer-empty.bin', size: 0, revision, mimeType: 'application/octet-stream' },
+  { kind: 'binary', path: '/fixture/shellfox-transfer-cancel.bin', size: FILE_CHUNK_BYTES, revision, mimeType: 'application/octet-stream' },
   { kind: 'binary', path: '/fixture/shellfox-transfer-large.bin', size: nativeLargeSize, revision, mimeType: 'application/octet-stream' },
 ];
 const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 /** Test-owned streaming endpoint. Native pickers/Downloads IO are real; remote bytes are deterministic. */
-export function fixtureFileTransfers(files: Map<string, FileRead>, report: (message: string) => void): FileTransferApi {
+export function fixtureFileTransfers(files: Map<string, FileRead>, report: (message: string) => void, options: { qa?: boolean } = {}): FileTransferApi {
   let nextId = 0;
   const reads = new Map<string, { size: number; path: string; data?: Uint8Array }>();
   const writes = new Map<string, { size: number; path: string; offset: number; chunks: number }>();
+  const cancelled = new Map<string, () => void>();
   const id = () => `30000000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`;
   return {
     beginRead: async input => {
@@ -33,7 +35,11 @@ export function fixtureFileTransfers(files: Map<string, FileRead>, report: (mess
     readChunk: async input => {
       const read = reads.get(input.transferId);
       if (!read || input.offset > read.size) return failure('NOT_FOUND', 'Fixture transfer expired.');
-      if (read.path.endsWith('download.bin')) await delay(1200);
+      if (options.qa && read.path.endsWith('-cancel.bin')) {
+        await new Promise<void>(resolve => cancelled.set(input.transferId, resolve));
+        return failure('ACCESS_DENIED', 'Fixture transfer cancelled.');
+      }
+      if (options.qa && read.path.endsWith('download.bin')) await delay(2000);
       const length = Math.min(FILE_CHUNK_BYTES, read.size - input.offset);
       const bytes = read.data?.subarray(input.offset, input.offset + length) ?? Uint8Array.from({ length }, (_, index) => (input.offset + index) % 251);
       return success({ offset: input.offset + length, data: encodeFileChunk(bytes), eof: input.offset + length === read.size });
@@ -45,7 +51,7 @@ export function fixtureFileTransfers(files: Map<string, FileRead>, report: (mess
       return success({ transferId, chunkBytes: FILE_CHUNK_BYTES });
     },
     writeChunk: async input => {
-      await delay(1200);
+      if (options.qa) await delay(2000);
       const write = writes.get(input.transferId);
       if (!write || input.offset !== write.offset) return failure('NOT_FOUND', 'Fixture write expired.');
       const bytes = atob(input.data);
@@ -61,6 +67,6 @@ export function fixtureFileTransfers(files: Map<string, FileRead>, report: (mess
       report(`Uploaded fixture; bytes ${write.size}; chunks ${write.chunks}; exact`);
       return success({ path: write.path, size: write.size, revision });
     },
-    cancelTransfer: async input => { reads.delete(input.transferId); writes.delete(input.transferId); return success({ cancelled: true }); },
+    cancelTransfer: async input => { reads.delete(input.transferId); writes.delete(input.transferId); cancelled.get(input.transferId)?.(); cancelled.delete(input.transferId); return success({ cancelled: true }); },
   };
 }

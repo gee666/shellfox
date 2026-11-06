@@ -15,6 +15,7 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: <T,>(styles: T) => styles },
   SectionList: ({ sections, renderSectionHeader }: { sections: { machine: MachineView }[]; renderSectionHeader: (value: { section: { machine: MachineView } }) => ReactNode }) => <>{sections.map(section => <div key={section.machine.peer.id}>{renderSectionHeader({ section })}</div>)}</>,
 }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 vi.mock('./ui', () => ({
   useUi: () => ({ colors: {}, styles: {} }),
   Button: ({ title, onPress, disabled }: Props) => <button disabled={disabled} onClick={onPress}>{title}</button>,

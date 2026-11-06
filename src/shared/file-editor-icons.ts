@@ -1,4 +1,6 @@
 export const fileEditorIconPaths = {
+  close: 'M6 6l12 12M18 6 6 18',
+  more: 'M12 4a1 1 0 1 0 0 2 1 1 0 0 0 0-2M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2M12 18a1 1 0 1 0 0 2 1 1 0 0 0 0-2',
   save: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12l4 4v12a2 2 0 0 1-2 2ZM7 3v6h10V3M7 21v-8h10v8',
   'rotate-left': 'M3 10a9 9 0 1 1 2.6 8.4M3 4v6h6M10 9h5v6h-5z',
   'rotate-right': 'M21 10a9 9 0 1 0-2.6 8.4M21 4v6h-6M9 9h5v6H9z',

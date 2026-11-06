@@ -21,6 +21,7 @@ export interface DirectoryPathInputProps {
   bottomInset?: number;
   homeDirectory?: string;
   renderSuggestions?: (suggestions: ReactNode) => ReactNode;
+  compact?: boolean;
 }
 function completionName(match: string): string {
   const separator = match.at(-1);
@@ -34,7 +35,7 @@ function composing(event: object): boolean {
 
 export const DirectoryPathInput = forwardRef<DirectoryPathInputHandle, DirectoryPathInputProps>(function DirectoryPathInput({
   api, value, onChangeText, onSubmit, onClose, label = 'Host directory', editable = true, autoFocus = false,
-  bottomInset = 0, homeDirectory, renderSuggestions,
+  bottomInset = 0, homeDirectory, renderSuggestions, compact = false,
 }, ref) {
   const { colors, styles } = useUi();
   const input = useRef<ComponentRef<typeof TextInput>>(null);
@@ -61,13 +62,13 @@ export const DirectoryPathInput = forwardRef<DirectoryPathInputHandle, Directory
   useEffect(() => {
     let active = true;
     setHome(homeDirectory ?? '~');
-    if (homeDirectory === undefined) {
+    if (homeDirectory === undefined && !compact) {
       void api.getHomeDirectory().then(result => {
         if (active && result.ok) setHome(result.value.cwd);
       }).catch(() => {});
     }
     return () => { active = false; };
-  }, [api, homeDirectory]);
+  }, [api, homeDirectory, compact]);
   useEffect(() => {
     const ticket = ++version.current;
     updateMatches([]);
@@ -105,14 +106,14 @@ export const DirectoryPathInput = forwardRef<DirectoryPathInputHandle, Directory
       </KeyboardAccessoryScroll>
     </KeyboardAccessory>
   ) : null;
-  return <View style={styles.field}>
-    <Text style={styles.label}>{label}</Text>
-    <View style={[styles.input, { flexDirection: 'row', alignItems: 'center', paddingVertical: 0 }]}>
-      <Text accessibilityLabel={`Home directory: ${home}`} style={{ color: colors.muted }}>~ › </Text>
+  return <View style={[styles.field, compact && { gap: 4 }]}>
+    {!compact && <Text style={styles.label}>{label}</Text>}
+    <View style={[styles.input, { flexDirection: 'row', alignItems: 'center', paddingVertical: 0 }, compact && { minHeight: 36, paddingHorizontal: 8 }]}>
+      {!compact && <Text accessibilityLabel={`Home directory: ${home}`} style={{ color: colors.muted }}>~ › </Text>}
       <TextInput ref={input} accessibilityLabel={label} value={value} onChangeText={change}
-        editable={editable} autoFocus={autoFocus} autoCorrect={false} autoCapitalize="none"
+        editable={editable} autoFocus={autoFocus} autoCorrect={false} autoCapitalize="none" disableFullscreenUI={compact}
         placeholder="folder path" placeholderTextColor={colors.placeholder}
-        style={{ flex: 1, minHeight: 44, paddingVertical: 10, color: colors.text, fontSize: 15 }}
+        style={{ flex: 1, minHeight: compact ? 34 : 44, paddingVertical: compact ? 6 : 10, color: colors.text, fontSize: compact ? 14 : 15 }}
         returnKeyType="done" submitBehavior="submit"
         onFocus={reopen} onPressIn={reopen}
         onKeyPress={event => {

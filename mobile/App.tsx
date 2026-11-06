@@ -153,7 +153,7 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
       {files && fileMachine && <FilesScreen key={files.peerId} api={fileMachine.client.files} directoryApi={fileMachine.client}
         sessionId={fileSessionId} tabId={fileTabId} openRequest={files.openRequest}
         connectionEpoch={fileMachine.state.connectionId} available={fileMachine.state.status === 'connected'}
-        closeLabel={selection?.peerId === files.peerId ? '‹ Terminal' : '‹ Sessions'} onClose={() => setFiles(null)} />}
+        hostName={fileMachine.peer.hostname} onClose={() => setFiles(null)} />}
       {prompt && (
         <Prompt
           key={prompt.id}

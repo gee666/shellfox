@@ -12,6 +12,7 @@ interface EditorSession {
   expectedSaved?: EditableImage;
   acquired: boolean;
   loadSent: boolean;
+  fileActions: boolean;
   active: boolean;
   ready: boolean;
   dirty: boolean;
@@ -43,10 +44,11 @@ export function useImageEditor(
   transport.current = send;
   const { path, revision, dataUrl, mimeType } = props.image;
   const draftScope = props.draftScope;
+  const fileActions = platform === 'mobile' && typeof props.onFileAction === 'function';
   useEffect(() => {
     const image = callbacks.current.image;
     const previous = session.current;
-    if (previous?.active && previous.scope === draftScope && previous.expectedSaved
+    if (previous?.active && previous.scope === draftScope && previous.fileActions === fileActions && previous.expectedSaved
       && previous.expectedSaved.path === image.path && previous.expectedSaved.revision === image.revision
       && previous.expectedSaved.dataUrl === image.dataUrl && previous.expectedSaved.mimeType === image.mimeType) {
       previous.expectedSaved = undefined;
@@ -55,14 +57,14 @@ export function useImageEditor(
     disposeSession(previous);
     // The token separates document generations. Desktop also authenticates the window and origin.
     const token = Array.from({ length: 4 }, () => Math.random().toString(36).slice(2).padEnd(12, '0')).join('');
-    const current: EditorSession = { token, scope: draftScope, image, acquired: false, loadSent: false,
+    const current: EditorSession = { token, scope: draftScope, image, acquired: false, loadSent: false, fileActions,
       active: true, ready: false, dirty: false, phase: 'idle', operations: [] };
     session.current = current;
     try {
       validateEditorImage(image);
       const operations = acquireImageEditorDraft(image, current.scope);
       current.acquired = true;
-      const document = imageEditorDocument({ image, token, platform, parentOrigin, operations });
+      const document = imageEditorDocument({ image, token, platform, parentOrigin, operations, fileActions });
       current.operations = operations;
       current.dirty = operations.length > 0;
       setView({ ...initialView, document, dirty: current.dirty });
@@ -70,7 +72,7 @@ export function useImageEditor(
     } catch (cause) {
       setView({ ...initialView, error: cause instanceof Error ? cause.message : 'Could not open image editor.' });
     }
-  }, [path, revision, dataUrl, mimeType, platform, parentOrigin, draftScope]);
+  }, [path, revision, dataUrl, mimeType, platform, parentOrigin, draftScope, fileActions]);
   useEffect(() => () => { disposeSession(session.current); session.current = null; }, []);
 
   const fail = useCallback((message: string) => {
@@ -80,6 +82,19 @@ export function useImageEditor(
     current.phase = 'idle';
     transport.current({ type: 'unlock', token: current.token });
     setView(previous => ({ ...previous, busy: false, error: message }));
+  }, []);
+  const transportFailed = useCallback((message: string) => {
+    const current = session.current;
+    if (!current?.active) return;
+    current.ready = false;
+    // An API write may already have committed. Keep its promise and busy guard alive.
+    if (current.phase === 'saving') {
+      setView(previous => ({ ...previous, ready: false, error: message }));
+      return;
+    }
+    clearTimeout(current.timer);
+    current.phase = 'idle';
+    setView(previous => ({ ...previous, ready: false, busy: false, error: message }));
   }, []);
   const save = useCallback(() => {
     const current = session.current;
@@ -102,6 +117,10 @@ export function useImageEditor(
       current.loadSent = true;
       try { transport.current({ type: 'load', token: current.token, dataUrl: current.image.dataUrl }); }
       catch (cause) { fail(cause instanceof Error ? cause.message : 'Could not load image.'); }
+      return;
+    }
+    if (message.type === 'file-action') {
+      if (current.fileActions && current.phase === 'idle') callbacks.current.onFileAction?.(message.action);
       return;
     }
     if (message.type === 'save-request') {
@@ -150,5 +169,5 @@ export function useImageEditor(
       }
     })();
   }, [fail, save]);
-  return { ...view, receive, fail };
+  return { ...view, receive, fail, transportFailed };
 }

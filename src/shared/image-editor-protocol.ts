@@ -8,6 +8,8 @@ export const IMAGE_EDITOR_MAX_PIXELS = 16_000_000;
 export const IMAGE_EDITOR_MAX_DIMENSION = 8192;
 export const IMAGE_EDITOR_MAX_OPERATIONS = 256;
 export const imageEditorMimeSchema = z.enum(['image/png', 'image/jpeg', 'image/webp']);
+export const imageEditorFileActionSchema = z.enum(['close', 'more']);
+export type ImageEditorFileAction = z.infer<typeof imageEditorFileActionSchema>;
 const coordinate = z.number().int().min(0).max(IMAGE_EDITOR_MAX_DIMENSION);
 export const imageEditorOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rotate'), direction: z.enum(['left', 'right']) }).strict(),
@@ -20,6 +22,7 @@ export const imageEditorDataUrlSchema = z.string().refine(value => validDataUrl(
 export const imageEditorMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('request-image'), token }).strict(),
   z.object({ type: z.literal('save-request'), token }).strict(),
+  z.object({ type: z.literal('file-action'), action: imageEditorFileActionSchema, token }).strict(),
   z.object({ type: z.literal('state'), token, dirty: z.boolean(), width: coordinate.min(1), height: coordinate.min(1), operations: imageEditorOperationsSchema }).strict(),
   z.object({ type: z.literal('export'), token, dataUrl: imageEditorDataUrlSchema }).strict(),
   z.object({ type: z.literal('error'), token, message: z.string().min(1).max(500) }).strict(),
@@ -36,6 +39,8 @@ export interface FileImageEditorProps {
   onSave: (dataUrl: string) => Promise<Result<FileWriteResult>>;
   onSaved?: (result: FileWriteResult, dataUrl: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Mobile-only file controls, rendered inside the trusted canvas toolbar. */
+  onFileAction?: (action: ImageEditorFileAction) => void;
 }
 
 export function parseImageEditorMessage(value: unknown, expectedToken: string): ImageEditorMessage | null {

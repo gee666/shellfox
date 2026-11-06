@@ -1,0 +1,4 @@
+<!-- Explicit real-remote QA entry overlay only, injected by a temporary Gradle init script. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/files_remote_qa_network_security" />
+</manifest>

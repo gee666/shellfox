@@ -1,22 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { Image, KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
-import type { BrowserFile, FileOpenRequest } from './file-browser-types';
+import type { BrowserFile, FileOpenRequest, FileViewMode } from './file-browser-types';
 import { FileImageEditor, type FileImageEditorProps } from './FileImageEditor';
 import { FilePreview } from './FilePreview';
 import { sourceSelection, textPreviewKind } from './file-preview-document';
-import { fileSourceLanguage } from './file-source-preview';
-import { Button, Note, useUi } from './ui';
-import { FileIconButton } from './FileIconButton';
 import { sourceUnwrappedWidth } from './file-source-layout';
+import { Note, useUi } from './ui';
 
-export function FileContent({ file, draft, setDraft, saving, available, save, reload, imageEditor, openRequest, previewHtml, previewLoading, onPreviewError }: {
+/** File contents only. Navigation and actions belong to the single screen toolbar. */
+export function FileContent({ file, draft, setDraft, saving, mode, wrapLines, imageEditor, openRequest, previewHtml, previewLoading, onPreviewError }: {
   file: BrowserFile;
   draft: string;
   setDraft: (value: string) => void;
   saving: boolean;
-  available: boolean;
-  save: () => void;
-  reload: () => void;
+  mode: FileViewMode;
+  wrapLines: boolean;
   imageEditor: Omit<FileImageEditorProps, 'image'>;
   openRequest?: FileOpenRequest;
   previewHtml?: string;
@@ -24,76 +22,64 @@ export function FileContent({ file, draft, setDraft, saving, available, save, re
   onPreviewError: (message: string) => void;
 }) {
   const { colors, styles } = useUi();
-  const kind = textPreviewKind(file.path, file.mimeType);
-  const [mode, setMode] = useState<'source' | 'preview' | 'code'>(() => openRequest?.line || kind === 'text' ? 'source' : kind === 'code' ? 'code' : 'preview');
-  const [editingImage, setEditingImage] = useState(false);
-  const [wrap, setWrap] = useState(true);
   const [sourceViewport, setSourceViewport] = useState(0);
   const sourceWidth = useMemo(() => sourceUnwrappedWidth(draft), [draft]);
+  const input = useRef<ComponentRef<typeof TextInput>>(null);
   const [selection, setSelection] = useState<{ start: number; end: number } | undefined>(() =>
     file.kind === 'text' && openRequest?.line ? sourceSelection(file.text, openRequest.line, openRequest.column) : undefined);
-  useEffect(() => { if (!selection) return; const timer = setTimeout(() => setSelection(undefined), 300); return () => clearTimeout(timer); }, [selection]);
+  const caret = useRef(selection), previousMode = useRef(mode), currentMode = useRef(mode);
+  currentMode.current = mode;
+  const restoring = useRef(selection);
+  const releaseSelection = () => { restoring.current = undefined; setSelection(undefined); };
+  useEffect(() => {
+    if (!selection) return;
+    const pending = selection;
+    const timer = setTimeout(() => {
+      if (restoring.current === pending) restoring.current = undefined;
+      setSelection(current => current === pending ? undefined : current);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [selection]);
+  useLayoutEffect(() => {
+    const previous = previousMode.current; previousMode.current = mode;
+    if (mode !== 'edit') { releaseSelection(); return; }
+    if (previous === 'edit' || file.kind !== 'text') return;
+    const range = caret.current ? { start: Math.min(caret.current.start, draft.length), end: Math.min(caret.current.end, draft.length) } : undefined;
+    // RN synchronizes controlled text and selection atomically after focus.
+    // Keep the range until its native ACK, never as a permanent cursor pin.
+    restoring.current = range;
+    if (range) caret.current = range;
+    setSelection(range);
+    input.current?.focus();
+  }, [mode]);
   const imageSource = useMemo(() => file.kind === 'image' ? { uri: file.dataUrl } : undefined, [file]);
-  if (file.kind === 'binary') return <View style={styles.content}><Note>No preview for this file type.</Note><Note>{file.size} bytes</Note></View>;
-  if (file.kind === 'image') return (
-    <View style={styles.grow}>
-      <View style={[styles.row, { padding: 8 }]}>
-        <FileIconButton icon="preview" label="Preview" active={!editingImage} disabled={saving} onPress={() => setEditingImage(false)} />
-        {/^(?:image\/png|image\/jpeg|image\/webp)$/.test(file.mimeType) &&
-          <FileIconButton icon="edit" label="Edit image" active={editingImage} disabled={saving} onPress={() => setEditingImage(true)} />}
-        <View style={styles.grow} />
-        <FileIconButton icon="reload" label="Reload" disabled={saving || !available} onPress={reload} />
-      </View>
-      {editingImage ? <FileImageEditor image={file} {...imageEditor} /> : /^(?:image\/x-icon|image\/vnd\.microsoft\.icon|image\/avif)$/.test(file.mimeType)
-        ? <FilePreview text={file.dataUrl} kind="image" onError={onPreviewError} /> : <Image testID="file-image" accessibilityLabel={file.path} source={imageSource} resizeMode="contain" style={{ flex: 1, width: '100%' }}
-        onError={() => onPreviewError('This image could not be displayed.')} />}
-      <View style={{ padding: 8 }}><Note>{file.size} bytes</Note></View>
-    </View>
-  );
-  const dirty = draft !== file.text;
-  return (
-    <KeyboardAvoidingView style={styles.grow} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={[styles.row, { padding: 8, flexWrap: 'wrap', gap: 6 }]}>
-        {kind !== 'text' && <>
-          <Button title="Source" subtle={mode !== 'source'} onPress={() => setMode('source')} />
-          {fileSourceLanguage(file.path) && <Button title="Code" subtle={mode !== 'code'} onPress={() => setMode('code')} />}
-          {kind !== 'code' && <Button title="Preview" subtle={mode !== 'preview'} onPress={() => setMode('preview')} />} 
-        </>}
-        {(mode === 'source' || mode === 'code') && <Button title={wrap ? 'Unwrap' : 'Wrap'} subtle onPress={() => setWrap(value => !value)} />}
-        <View style={styles.grow} />
-        <Button title="Reload" subtle disabled={saving || !available} onPress={reload} />
-        <Button title={saving ? 'Saving…' : 'Save'} disabled={!dirty || saving || !available} onPress={save} />
-      </View>
-      {dirty && <View style={{ paddingHorizontal: 8 }}><Note>Unsaved</Note></View>}
-      {mode === 'source' ? (
-        <ScrollView testID="source-scroll" horizontal scrollEnabled={!wrap} directionalLockEnabled style={styles.grow}
+  const kind = textPreviewKind(file.path, file.mimeType);
+  const previewKind = mode === 'code' || kind === 'text' ? 'code' : kind;
+  return <KeyboardAvoidingView testID="files-content" collapsable={false} style={styles.grow} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    {file.kind === 'binary' ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Note>No preview available.</Note></View>
+      : file.kind === 'image' ? mode === 'edit' ? <FileImageEditor image={file} {...imageEditor} />
+        : /^(?:image\/x-icon|image\/vnd\.microsoft\.icon|image\/avif)$/.test(file.mimeType)
+          ? <FilePreview text={file.dataUrl} kind="image" onError={onPreviewError} />
+          : <Image testID="file-image" accessibilityLabel={file.path} source={imageSource} resizeMode="contain" style={{ flex: 1, width: '100%' }}
+            onError={() => onPreviewError('This image could not be displayed.')} />
+        : mode === 'edit' ? <ScrollView testID="source-scroll" horizontal scrollEnabled={!wrapLines} directionalLockEnabled style={styles.grow}
           onLayout={event => setSourceViewport(event.nativeEvent.layout.width)} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1 }}>
-          <TextInput
-            accessibilityLabel="File source"
-            testID="file-source"
-            value={draft}
-            onChangeText={setDraft}
-            selection={selection}
-            multiline
-            autoCapitalize="none"
-            autoCorrect={false}
-            spellCheck={false}
-            editable={!saving}
-            textAlignVertical="top"
-            scrollEnabled
-            style={{ width: sourceViewport ? wrap ? sourceViewport : Math.max(sourceViewport, sourceWidth) : wrap ? '100%' : sourceWidth,
-              minHeight: 240, padding: 12, color: colors.text, backgroundColor: colors.bg,
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13 }}
-          />
+          <TextInput ref={input} accessibilityLabel="File source" testID="file-source" value={draft} selection={selection}
+            onChangeText={value => { releaseSelection(); setDraft(value); }} onPressIn={releaseSelection}
+            onSelectionChange={event => {
+              const range = event.nativeEvent.selection, expected = restoring.current;
+              if (currentMode.current !== 'edit' || !Number.isInteger(range.start) || !Number.isInteger(range.end) || range.start < 0 || range.end < range.start) return;
+              if (expected && (range.start !== expected.start || range.end !== expected.end)) return;
+              caret.current = range;
+              if (expected) releaseSelection();
+            }}
+            multiline disableFullscreenUI autoCapitalize="none" autoCorrect={false} spellCheck={false} editable={!saving} textAlignVertical="top" scrollEnabled
+            style={{ width: sourceViewport ? wrapLines ? sourceViewport : Math.max(sourceViewport, sourceWidth) : wrapLines ? '100%' : sourceWidth,
+              minHeight: 120, padding: 10, color: colors.text, backgroundColor: colors.bg,
+              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13 }} />
         </ScrollView>
-      ) : kind !== 'text' ? (
-        <>
-          {kind === 'html' && mode === 'preview' && <View style={{ paddingHorizontal: 8 }}><Note>Isolated preview. Network and device access are blocked.</Note></View>}
-          {kind === 'html' && mode === 'preview' && previewLoading ? <View style={styles.content}><Note>Loading preview…</Note></View>
-            : <FilePreview text={kind === 'html' && mode === 'preview' ? previewHtml ?? '' : draft} kind={mode === 'code' ? 'code' : kind} path={file.path}
-                preparedMarkdown={kind === 'markdown' ? previewHtml : undefined} wrapLines={wrap} onError={onPreviewError} />}
-        </>
-      ) : null}
-    </KeyboardAvoidingView>
-  );
+          : previewKind === 'html' && previewLoading ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Note>Loading preview…</Note></View>
+            : <FilePreview text={previewKind === 'html' ? previewHtml ?? '' : draft} kind={previewKind} path={file.path}
+              preparedMarkdown={previewKind === 'markdown' ? previewHtml : undefined} wrapLines={wrapLines} onError={onPreviewError} />}
+  </KeyboardAvoidingView>;
 }

@@ -1,6 +1,7 @@
 import { failure, success, type Result } from './contracts';
 import type { FileApi, FileRead, FileWriteResult, FileLocation, FileAsset } from './file-contracts';
 import type { FileTransferApi, FileTransferInput } from './file-transfer-contracts';
+import { decodeFileUtf8, isWellFormedFileText } from './file-utf8';
 import { FILE_CHUNK_BYTES } from './file-transfer-schemas';
 import { FILE_IMAGE_BYTES, FILE_TEXT_BYTES, fileReadSchema, fileAssetSchema, fileLocationSchema, fileEditorWriteSchema, fileEditorImageWriteSchema, fileAssetRequestSchema } from './file-schemas';
 
@@ -67,7 +68,7 @@ export function createFileApi(wire: FileWire): FileApi & FileTransferApi {
         bytes.set(part, offset); offset = chunk.value.offset; if (chunk.value.eof) break;
       } while (offset < size);
       if (assetPath !== undefined) return success(fileAssetSchema.parse({ mimeType, size, dataUrl: `data:${mimeType};base64,${encodeFileChunk(bytes)}` }));
-      if (kind === 'text') return success(fileReadSchema.parse({ kind, path, size, mimeType, revision, text: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) }));
+      if (kind === 'text') return success(fileReadSchema.parse({ kind, path, size, mimeType, revision, text: decodeFileUtf8(bytes) }));
       return success(fileReadSchema.parse({ kind, path, size, mimeType, revision, dataUrl: `data:${mimeType};base64,${encodeFileChunk(bytes)}` }));
     } catch { return failure('INTERNAL', 'Invalid preview data received.'); }
     finally { await wire.cancelTransfer({ transferId }).catch(() => {}); }
@@ -77,6 +78,7 @@ export function createFileApi(wire: FileWire): FileApi & FileTransferApi {
     read: async input => { const result = await read(input); if (!result.ok) return result; const parsed = fileReadSchema.safeParse(result.value); return parsed.success ? success(parsed.data) : failure('INTERNAL', 'Invalid file preview.'); },
     readAsset: async input => { const checked = fileAssetRequestSchema.safeParse(input); if (!checked.success) return failure('VALIDATION', 'Invalid preview asset location.'); const { assetPath, ...location } = checked.data, result = await read(location, assetPath); if (!result.ok) return result; const parsed = fileAssetSchema.safeParse(result.value); return parsed.success ? success(parsed.data) : failure('INTERNAL', 'Invalid preview asset.'); },
     write: async input => {
+      if (typeof input?.text !== 'string' || !isWellFormedFileText(input.text)) return failure('VALIDATION', 'Text contains an unpaired UTF-16 surrogate and cannot be saved.');
       if (!fileEditorWriteSchema.safeParse(input).success) return failure('VALIDATION', 'Invalid text save request. Text editing supports UTF-8 up to 8 MiB.');
       const bytes = new TextEncoder().encode(input.text); if (bytes.length > FILE_TEXT_BYTES || input.text.includes('\0')) return failure('VALIDATION', 'Text exceeds the 8 MiB editor limit or contains NUL bytes.');
       const { text: _text, ...location } = input;

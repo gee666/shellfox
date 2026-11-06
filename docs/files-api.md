@@ -12,6 +12,16 @@ The separate terminal-folder icon resolves the selected terminal's current direc
 
 Text has a wrap toggle that changes display, not file contents. Images have a single row of compact rotation, flip, crop and reset icons, with Save last. Drag or touch the image to select a rectangle, then use Crop. There are no numeric crop fields.
 
+## Mobile navigation
+
+Mobile uses separate full-screen browser and file pages. A file has one Close action, returning to its previous browser page or its terminal caller. The browser has one Back action. Closing a file restores the preceding folder snapshot and scroll position, including while disconnected; it does not need another folder request.
+
+Only one compact icon toolbar is permanent. The filename uses the remaining width. Read mode offers editing, path, copy, download and More. Text edit mode keeps Save at the right; secondary actions such as wrapping and reloading live in More. Switching text into read/preview mode retains the unsaved draft, which can still be saved. Image editing uses its own single toolbar with Close and More before the image actions and Save last.
+
+The path field is hidden until its icon is selected. Path and More sheets do not recreate the file editor or HTML view. Copy always uses the viewing phone's clipboard and the scoped host path. Transfers and errors use temporary overlays instead of reserving another navigation row. The browser list uses full-width rows.
+
+The emulator UI demo opens the browser directly. Internal native-test controls are in a separate QA-only entry point, not on the application's navigation path.
+
 ## What happens on a remote host
 
 File operations run on the selected Shellfox desktop or headless host. Its operating-system account and file permissions apply. The viewing app does not resolve remote paths against its own filesystem.

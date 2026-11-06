@@ -4,6 +4,8 @@ export const IMAGE_EDITOR_SCRIPT = String.raw`
   'use strict';
   const config = JSON.parse(document.getElementById('configuration').textContent);
   const canvas = document.getElementById('image');
+  const viewport = document.getElementById('viewport');
+  const stage = document.getElementById('stage');
   const selection = document.getElementById('selection');
   const status = document.getElementById('status');
   const saveButton = document.getElementById('save');
@@ -15,7 +17,7 @@ export const IMAGE_EDITOR_SCRIPT = String.raw`
     if (config.platform === 'mobile') window.ReactNativeWebView.postMessage(JSON.stringify(payload));
     else parent.postMessage(payload, config.parentOrigin === 'null' ? '*' : config.parentOrigin);
   }
-  function error(message) { status.textContent = message; }
+  function error(message) { status.textContent = message; status.classList.add('notice'); }
   function report(message) { error(message); send({ type: 'error', message: message.slice(0, 500) }); }
   function controls() {
     document.querySelectorAll('button').forEach(button => { button.disabled = !ready || locked; });
@@ -24,10 +26,21 @@ export const IMAGE_EDITOR_SCRIPT = String.raw`
     saveButton.title = ready && locked ? 'Saving…' : 'Save image';
     cropButton.disabled = !ready || locked || selectedArea === null;
     document.getElementById('reset').disabled = !ready || locked || (!operations.length && !selectedArea);
+    // Navigation remains available if image decoding fails, never during a save.
+    if (config.fileActions) ['close', 'more'].forEach(action => { document.getElementById(action).disabled = ready && locked; });
   }
   function lock(value) { locked = value; controls(); }
+  function fitViewport() {
+    if (!config.fileActions || !ready) return;
+    const bounds = viewport.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const scale = Math.min(bounds.width / canvas.width, bounds.height / canvas.height);
+    stage.style.width = canvas.width * scale + 'px';
+    stage.style.height = canvas.height * scale + 'px';
+    canvas.style.visibility = 'visible';
+  }
   function state() {
-    controls();
+    controls(); fitViewport(); status.classList.remove('notice');
     status.textContent = canvas.width + ' × ' + canvas.height + (operations.length ? ' · Unsaved' : '');
     send({ type: 'state', dirty: operations.length > 0, width: canvas.width, height: canvas.height, operations });
   }
@@ -137,6 +150,11 @@ export const IMAGE_EDITOR_SCRIPT = String.raw`
     requestingSave = true; lock(true); send({ type: 'save-request' });
   }
   saveButton.onclick = requestSave;
+  if (config.fileActions) ['close', 'more'].forEach(action => {
+    document.getElementById(action).onclick = () => {
+      if (!(ready && locked)) send({ type: 'file-action', action });
+    };
+  });
   document.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); requestSave(); }
     if (event.key === 'Escape' && selectedArea && !locked) { event.preventDefault(); clearSelection(); }
@@ -238,6 +256,10 @@ export const IMAGE_EDITOR_SCRIPT = String.raw`
   }
   window.addEventListener('message', receive);
   if (config.platform === 'mobile') document.addEventListener('message', receive);
+  if (config.fileActions) {
+    window.addEventListener('resize', fitViewport);
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(fitViewport).observe(viewport);
+  }
   lock(true);
   send({ type: 'request-image' });
 })();

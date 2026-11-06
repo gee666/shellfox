@@ -5,7 +5,7 @@ import { desktopPreviewUrl } from './file-preview-url';
 import { parseImageEditorMessage, type EditableImage, type ImageEditorMessage } from './image-editor-protocol';
 
 const token = 'image_editor_browser_token';
-async function openEditor(page: Page, mimeType: 'image/png' | 'image/jpeg' | 'image/webp' = 'image/png', padding = 0, noisy = false) {
+async function openEditor(page: Page, mimeType: 'image/png' | 'image/jpeg' | 'image/webp' = 'image/png', padding = 0, noisy = false, fileActions = false) {
   let dataUrl = await page.evaluate(({ mime, noisy }) => {
     const canvas = document.createElement('canvas'); canvas.width = noisy ? 512 : 3; canvas.height = noisy ? 512 : 2;
     const context = canvas.getContext('2d');
@@ -35,7 +35,7 @@ async function openEditor(page: Page, mimeType: 'image/png' | 'image/jpeg' | 'im
       postMessage: (data: string) => console.debug('image-editor-message:' + data),
     } });
   });
-  const bootstrap = imageEditorDocument({ image, token, platform: 'mobile' });
+  const bootstrap = imageEditorDocument({ image, token, platform: 'mobile', fileActions });
   await page.setContent(bootstrap);
   await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(message) })), { type: 'load', token, dataUrl });
   await page.locator('#status').filter({ hasText: noisy ? '512 × 512' : '3 × 2' }).waitFor();
@@ -131,6 +131,59 @@ it('keeps all seven compact icon actions in one row with Save last on desktop an
       expect(layout.count).toBe(7); expect(layout.names.at(-1)).toBe('Save image'); expect(new Set(layout.top).size).toBe(1);
       expect(layout.width).toEqual(new Array(7).fill(touch ? 32 : 26)); expect(layout.fits).toBe(true);
       expect(layout.text).toEqual(new Array(7).fill('')); expect(await page.locator('input,p').count()).toBe(0);
+      await page.close();
+    }
+  } finally { await browser.close(); }
+}, 20_000);
+
+it('fits the mobile canvas below nine balanced actions and preserves pixels/selection through More and orientation changes', async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    for (const [width, height] of [[320, 640], [360, 740], [680, 320]] as const) {
+      const page = await browser.newPage({ viewport: { width, height }, hasTouch: true });
+      const f = await openEditor(page, 'image/png', 0, false, true);
+      const canvas = page.locator('#image'), originalNode = await canvas.elementHandle();
+      if (!originalNode) throw new Error('Missing canvas');
+      const dataUrl = await canvas.evaluate(element => { if (!(element instanceof HTMLCanvasElement)) throw new Error('Not a canvas'); return element.toDataURL(); });
+      const layout = () => page.evaluate(() => {
+        const image = document.querySelector('canvas'), viewport = document.getElementById('viewport'), stage = document.getElementById('stage'), status = document.getElementById('status');
+        if (!image || !viewport || !stage || !status) throw new Error('Missing editor layout');
+        const box = image.getBoundingClientRect(), available = viewport.getBoundingClientRect(), stageBox = stage.getBoundingClientRect();
+        const buttons = [...document.querySelectorAll('.toolbar button')];
+        return { names: buttons.map(button => button.getAttribute('aria-label')), top: buttons.map(button => button.getBoundingClientRect().top),
+          buttonWidths: buttons.map(button => button.getBoundingClientRect().width), firstLeft: buttons[0].getBoundingClientRect().left,
+          saveRight: buttons.at(-1)?.getBoundingClientRect().right ?? 0, canvas: { x: box.x, y: box.y, width: box.width, height: box.height, right: box.right, bottom: box.bottom },
+          viewport: { x: available.x, y: available.y, width: available.width, height: available.height, right: available.right, bottom: available.bottom },
+          stage: { x: stageBox.x, y: stageBox.y, width: stageBox.width, height: stageBox.height }, bitmap: [image.width, image.height],
+          statusPosition: getComputedStyle(status).position, statusOpacity: getComputedStyle(status).opacity };
+      });
+      const size = await layout();
+      expect(size.names).toEqual(['Close file', 'More file actions', 'Rotate left', 'Rotate right', 'Flip horizontal', 'Flip vertical', 'Crop', 'Reset', 'Save image']);
+      expect(new Set(size.top).size).toBe(1); expect(size.buttonWidths).toEqual(new Array(9).fill(32));
+      expect(size.firstLeft).toBe(6); expect(width - size.saveRight).toBe(6);
+      expect(size.viewport.height).toBe(height - 40); expect(size.statusPosition).toBe('absolute'); expect(size.statusOpacity).toBe('0');
+      expect(size.canvas.x).toBeGreaterThanOrEqual(size.viewport.x - 0.05); expect(size.canvas.y).toBeGreaterThanOrEqual(size.viewport.y - 0.05);
+      expect(size.canvas.right).toBeLessThanOrEqual(size.viewport.right + 0.05); expect(size.canvas.bottom).toBeLessThanOrEqual(size.viewport.bottom + 0.05);
+      expect(Math.min(Math.abs(size.canvas.width - size.viewport.width), Math.abs(size.canvas.height - size.viewport.height))).toBeLessThan(0.05);
+      expect(size.bitmap).toEqual([3, 2]); expect(size.canvas.width / size.canvas.height).toBeCloseTo(1.5, 3);
+      expect(size.stage).toEqual({ x: size.canvas.x, y: size.canvas.y, width: size.canvas.width, height: size.canvas.height });
+      await page.mouse.move(size.canvas.x + size.canvas.width / 3, size.canvas.y + 1); await page.mouse.down();
+      await page.mouse.move(size.canvas.right - 1, size.canvas.bottom - 1, { steps: 4 }); await page.mouse.up();
+      await page.getByRole('button', { name: 'More file actions', exact: true }).click();
+      await expect.poll(() => f.messages.at(-1)?.type).toBe('file-action');
+      expect(f.messages.at(-1)).toEqual({ type: 'file-action', action: 'more', token });
+      expect(await canvas.evaluate((element, previous) => element === previous, originalNode)).toBe(true);
+      expect(await canvas.evaluate(element => element instanceof HTMLCanvasElement ? element.toDataURL() : '')).toBe(dataUrl);
+      await page.setViewportSize({ width: 700, height: 320 });
+      await expect.poll(async () => { const current = await layout(); return Math.abs(current.canvas.height - current.viewport.height); }).toBeLessThan(0.05);
+      const selected = await page.locator('#selection').boundingBox(), resized = await canvas.boundingBox();
+      if (!selected || !resized) throw new Error('Crop selection was lost');
+      expect(selected.x - resized.x).toBeCloseTo(resized.width / 3, 1); expect(selected.width).toBeCloseTo(resized.width * 2 / 3, 1);
+      expect(selected.height).toBeCloseTo(resized.height, 1);
+      await page.getByRole('button', { name: 'Crop', exact: true }).click(); expect(await pixels(page)).toMatchObject({ width: 2, height: 2 });
+      const output = await f.save(), bytes = Buffer.from(output.split(',')[1], 'base64');
+      expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([2, 2]); await f.command('saved');
+      expect(await page.getByRole('button', { name: 'Close file', exact: true }).isEnabled()).toBe(true);
       await page.close();
     }
   } finally { await browser.close(); }

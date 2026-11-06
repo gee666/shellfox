@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { validDataUrl } from './file-base64';
+import { isWellFormedFileText } from './file-utf8';
 
 export const FILE_MAX_BYTES = 1024 * 1024 * 1024;
 export const FILE_TEXT_BYTES = 8 * 1024 * 1024;
@@ -14,7 +15,7 @@ export const FILE_LIST_BYTES = 256 * 1024;
 export const filePathSchema = z.string().min(1).max(32767).refine(value => !/[\x00-\x1f\x7f]/.test(value) && !value.includes('://') && !/^[a-z][a-z0-9+.-]+:/i.test(value));
 export const fileLocationSchema = z.object({ sessionId: z.string().uuid().optional(), tabId: z.string().uuid().optional(), path: filePathSchema }).strict().refine(value => !value.tabId || !!value.sessionId, 'A tab requires its session identity.');
 export const fileRevisionSchema = z.string().regex(/^[a-f0-9]{64}$/);
-const text = z.string().max(FILE_TEXT_BYTES).refine(value => !value.includes('\0') && new TextEncoder().encode(value).byteLength <= FILE_TEXT_BYTES);
+const text = z.string().max(FILE_TEXT_BYTES).refine(value => value.length <= FILE_TEXT_BYTES && isWellFormedFileText(value) && !value.includes('\0') && new TextEncoder().encode(value).byteLength <= FILE_TEXT_BYTES);
 export const fileEditorWriteSchema = fileLocationSchema.safeExtend({ text, revision: fileRevisionSchema });
 export const fileEditorImageWriteSchema = fileLocationSchema.safeExtend({ revision: fileRevisionSchema, dataUrl: z.string().refine(value => validDataUrl(value, FILE_IMAGE_WRITE_BYTES, true)) });
 export const fileWriteSchema = fileLocationSchema.safeExtend({ text: text.refine(value => new TextEncoder().encode(value).byteLength <= FILE_INLINE_TEXT_BYTES), revision: fileRevisionSchema });

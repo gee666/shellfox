@@ -78,8 +78,14 @@ jobs:
         run: sudo chown root:root node_modules/electron/dist/chrome-sandbox && sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - run: pnpm typecheck
         timeout-minutes: 2
+      - name: Unit-test native prerequisites
+        run: pnpm rebuild
+        timeout-minutes: 10
+      - name: Browser unit-test prerequisites
+        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 5
       - run: pnpm test:unit && pnpm test:packaging
-        timeout-minutes: 3
+        timeout-minutes: 10
       - run: pnpm build
         timeout-minutes: 10
       - name: macOS native helper preflight

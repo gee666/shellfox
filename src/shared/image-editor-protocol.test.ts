@@ -21,6 +21,13 @@ describe('image editor bridge', () => {
       { ...state, operations: [{ type: 'run', code: 'attack()' }] }, { ...state, operations: new Array(257).fill({ type: 'flip', axis: 'horizontal' }) },
       { type: 'write', token, dataUrl: image.dataUrl }, '{']) expect(parseImageEditorMessage(value, token)).toBeNull();
   });
+  it('accepts only known mobile file actions with the current token and no additional fields', () => {
+    for (const action of ['close', 'more']) expect(parseImageEditorMessage({ type: 'file-action', action, token }, token)).toEqual({ type: 'file-action', action, token });
+    for (const value of [{ type: 'file-action', action: 'copy', token }, { type: 'file-action', action: 'more', token: 'foreign_document_token' },
+      { type: 'file-action', action: 'close', token, path: '/private' }, { type: 'file-action', action: 'more', token, dataUrl: image.dataUrl }]) {
+      expect(parseImageEditorMessage(value, token)).toBeNull();
+    }
+  });
   it('accepts only a token-bound save request with no privileged or payload fields', () => {
     expect(parseImageEditorMessage({ type: 'save-request', token }, token)).toEqual({ type: 'save-request', token });
     for (const value of [{ type: 'save-request', token: 'foreign_document_token' }, { type: 'save-request', token, path: '/other.png' },

@@ -52,11 +52,14 @@ jobs:
       - name: Typecheck desktop and mobile
         run: pnpm typecheck
         timeout-minutes: 5
+      - name: Install browser test prerequisites
+        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 5
       - name: Mobile updater and build contracts
         run: pnpm test:unit mobile/src && node --test scripts/mobile-build.test.mjs scripts/mobile-e2e-controls.test.mjs
         timeout-minutes: 5
       - name: Bundled terminal browser tests
-        run: pnpm exec playwright install --with-deps chromium && pnpm test:mobile:terminal
+        run: pnpm test:mobile:terminal
         timeout-minutes: 5
       - name: Native mobile tests
         run: pnpm test:mobile:native
@@ -171,6 +174,10 @@ jobs:
       - name: Unit-test native prerequisites
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
         run: bash .github/scripts/ci-step.sh unit-native pnpm rebuild
+      - name: Browser unit-test prerequisites
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 5
       - name: Unit tests
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
         run: bash .github/scripts/ci-step.sh unit-tests pnpm test:unit

@@ -17,7 +17,7 @@ type NativeInputProps = {
   ref?: Ref<HTMLInputElement>; value: string; onChangeText: (value: string) => void;
   onSubmitEditing: (event: { nativeEvent: KeyboardEvent }) => void;
   onKeyPress?: (event: { nativeEvent: KeyboardEvent; stopPropagation(): void }) => void;
-  onFocus?: () => void; onPressIn?: () => void; editable?: boolean; accessibilityLabel: string;
+  onFocus?: () => void; onPressIn?: () => void; editable?: boolean; accessibilityLabel: string; style?: unknown; disableFullscreenUI?: boolean;
 };
 const keyboard = vi.hoisted(() => ({ keyboardVisible: true, keyboardInset: 120, keyboardOffset: 24, measureKeyboardInset: vi.fn() }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 30, bottom: 20 }) }));
@@ -30,8 +30,8 @@ vi.mock('react-native', () => ({
   ScrollView: ({ children, keyboardShouldPersistTaps }: NativeProps) => <div data-taps={keyboardShouldPersistTaps}>{children}</div>,
   Modal: ({ children, onRequestClose }: NativeProps) => <div role="dialog" onKeyDown={event => { if (event.key === 'Escape') onRequestClose?.(); }}>{children}</div>,
   KeyboardAvoidingView: ({ children, behavior, keyboardVerticalOffset, style }: NativeProps) => <div data-testid="keyboard-layout" data-behavior={behavior} data-offset={keyboardVerticalOffset} data-style={JSON.stringify(style)}>{children}</div>,
-  TextInput: ({ ref, value, onChangeText, onSubmitEditing, onKeyPress, onFocus, onPressIn, editable, accessibilityLabel }: NativeInputProps) => (
-    <input ref={ref} aria-label={accessibilityLabel} value={value} disabled={editable === false}
+  TextInput: ({ ref, value, onChangeText, onSubmitEditing, onKeyPress, onFocus, onPressIn, editable, accessibilityLabel, style, disableFullscreenUI }: NativeInputProps) => (
+    <input ref={ref} data-style={JSON.stringify(style)} data-extract-disabled={disableFullscreenUI} aria-label={accessibilityLabel} value={value} disabled={editable === false}
       onFocus={onFocus} onMouseDown={onPressIn} onChange={event => onChangeText(event.target.value)}
       onKeyDown={event => {
         onKeyPress?.({ nativeEvent: event.nativeEvent, stopPropagation: () => event.stopPropagation() });
@@ -67,6 +67,17 @@ beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('reusable mobile directory path input', () => {
+  it('uses a compact caption-free 36dp field without a hidden home lookup in the file path sheet', async () => {
+    const { api } = fixture();
+    render(<DirectoryPathInput api={api} value="/remote/work" label="File path" compact onChangeText={vi.fn()} onSubmit={vi.fn()} />);
+    await act(async () => {}); await complete();
+    const input = screen.getByRole('textbox', { name: 'File path' });
+    expect(screen.queryByText('File path')).toBeNull(); expect(screen.queryByLabelText(/Home directory/)).toBeNull();
+    expect(input.getAttribute('data-style')).toContain('"minHeight":34');
+    expect(input.getAttribute('data-extract-disabled')).toBe('true');
+    expect(input.parentElement?.getAttribute('data-style')).toContain('"minHeight":36');
+    expect(api.getHomeDirectory).not.toHaveBeenCalled();
+  });
   it('loads the remote home indicator without overwriting the controlled draft', async () => {
     const { api } = fixture(); const submit = vi.fn(); const close = vi.fn();
     const handle = React.createRef<DirectoryPathInputHandle>();
@@ -79,6 +90,7 @@ describe('reusable mobile directory path input', () => {
     expect(api.getHomeDirectory).toHaveBeenCalledOnce();
     expect(screen.getByLabelText('Home directory: /home/user')).toBeTruthy();
     expect(screen.getByRole('textbox')).toHaveProperty('value', '');
+    expect(screen.getByRole('textbox').getAttribute('data-extract-disabled')).toBe('false');
     await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' }); });
     expect(submit).toHaveBeenCalledExactlyOnceWith('');
     expect(handle.current?.dismissSuggestions()).toBe(false);

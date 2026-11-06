@@ -86,6 +86,29 @@ describe('mobile release contract', () => {
     assert.match(workflow, /:app:assembleTerminalTest/);
     assert.match(workflow, /mobile-terminal-native-e2e\.mjs --serial emulator-5554/);
   });
+  it('keeps iOS source versions aligned with the distributable apps', () => {
+    const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+    assert.equal(JSON.parse(readFileSync('mobile/package.json', 'utf8')).version, version);
+    const expected = mobileVersion(version);
+    const project = readFileSync('mobile/ios/ShellfoxMobile.xcodeproj/project.pbxproj', 'utf8');
+    const names = [...project.matchAll(/MARKETING_VERSION = ([^;]+);/g)].map(match => match[1]);
+    const codes = [...project.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map(match => Number(match[1]));
+    assert.deepEqual(names, [expected.name, expected.name]);
+    assert.deepEqual(codes, [expected.code, expected.code]);
+  });
+  it('installs browser prerequisites before browser-backed unit suites', () => {
+    const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
+    const mobile = workflow.slice(workflow.indexOf('  mobile:'), workflow.indexOf('  package:'));
+    assert.ok(mobile.indexOf('- name: Install browser test prerequisites') >= 0);
+    assert.ok(mobile.indexOf('- name: Install browser test prerequisites') < mobile.indexOf('- name: Mobile updater and build contracts'));
+    const desktop = workflow.slice(workflow.indexOf('  package:'));
+    assert.ok(desktop.indexOf('- name: Browser unit-test prerequisites') >= 0);
+    assert.ok(desktop.indexOf('- name: Browser unit-test prerequisites') < desktop.indexOf('- name: Unit tests'));
+    const embedded = readFileSync('.github/workflows/embedded-packages.yml', 'utf8');
+    assert.ok(embedded.indexOf('- name: Browser unit-test prerequisites') >= 0);
+    assert.ok(embedded.indexOf('- name: Browser unit-test prerequisites') < embedded.indexOf('run: pnpm test:unit'));
+    assert.match(embedded, /pnpm test:unit && pnpm test:packaging\s+timeout-minutes: 10/);
+  });
   it('uses a separate preview build and never a debug-signed release fallback', () => {
     const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
     assert.match(gradle, /preview \{[\s\S]*?initWith release[\s\S]*?signingConfig signingConfigs\.debug[\s\S]*?debuggable false/);

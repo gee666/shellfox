@@ -41,7 +41,13 @@ it('keeps textarea and syntax highlight wrapping aligned after edits, resizing a
     // clientWidth rounds226.5 to227, enough to fit one extra character per line.
     await input.fill('x'.repeat(1000));
     await page.locator('#root').evaluate(element => { element.style.width = '226.5px'; });
+    // Native scrollbar gutters differ by OS; matching heights can also describe the old width.
+    const expectedWidth = await input.evaluate(element => {
+      if (!(element instanceof HTMLTextAreaElement)) throw new Error('Missing source input');
+      return element.getBoundingClientRect().width - Math.max(0, element.offsetWidth - element.clientWidth);
+    });
+    expect(expectedWidth % 1).toBe(0.5);
+    await expect.poll(() => page.locator('pre').evaluate(element => element.getBoundingClientRect().width)).toBe(expectedWidth);
     await expect.poll(async () => { const value = await metrics(); return value.preHeight - value.inputHeight; }).toBe(0);
-    expect(await page.locator('pre').evaluate(element => element.getBoundingClientRect().width)).toBe(226.5);
   } finally { await browser.close(); }
 }, 20_000);

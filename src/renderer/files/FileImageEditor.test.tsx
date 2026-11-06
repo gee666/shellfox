@@ -42,6 +42,12 @@ it('uses the isolated protocol, opaque sandbox and exact origin/source/token aut
   f.state(true); f.saveRequest(); expect(f.sent).toHaveBeenCalledWith({ type: 'export', token: f.token }, '*');
   expect(f.onDirtyChange).toHaveBeenLastCalledWith(true);
 });
+it('does not enable mobile file actions or call their handler in a desktop editor', () => {
+  const onFileAction = vi.fn(); const f = setup({ onFileAction });
+  expect(f.html).not.toContain('id="close"'); expect(f.html).not.toContain('id="more"');
+  f.post({ type: 'file-action', action: 'close', token: f.token }); f.post({ type: 'file-action', action: 'more', token: f.token });
+  expect(onFileAction).not.toHaveBeenCalled();
+});
 it('keeps a >8 MiB original out of the document URL and loads it only after an authenticated request', () => {
   const large: EditableImage = { ...image, size: 9 * 1024 * 1024, dataUrl: 'data:image/png;base64,' + 'A'.repeat(12 * 1024 * 1024) };
   const f = setup({ image: large }, false);

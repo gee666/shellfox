@@ -12,7 +12,7 @@ function png(width: number, height: number): EditableImage {
   header.write('IHDR', 12); header.writeUInt32BE(width, 16); header.writeUInt32BE(height, 20);
   return { kind: 'image', path: '/photo.png', mimeType: 'image/png', revision: 'a'.repeat(64), size: header.length, dataUrl: `data:image/png;base64,${header.toString('base64')}` };
 }
-function setup(image = png(3, 2), operations: ImageEditorOperation[] = [], platform: 'desktop' | 'mobile' = 'mobile') {
+function setup(image = png(3, 2), operations: ImageEditorOperation[] = [], platform: 'desktop' | 'mobile' = 'mobile', fileActions = false) {
   const messages: unknown[] = [];
   const send = vi.fn((value: string) => { messages.push(JSON.parse(value)); });
   const context = { drawImage: vi.fn(), translate: vi.fn(), rotate: vi.fn(), scale: vi.fn(), fillRect: vi.fn(), fillStyle: '' };
@@ -28,7 +28,7 @@ function setup(image = png(3, 2), operations: ImageEditorOperation[] = [], platf
   vi.stubGlobal('Image', TestImage);
   vi.stubGlobal('ReactNativeWebView', { postMessage: send });
   if (platform === 'desktop') vi.spyOn(window, 'postMessage').mockImplementation(value => { messages.push(value); });
-  document.documentElement.innerHTML = imageEditorDocument({ image, token, platform, operations, parentOrigin: window.location.origin });
+  document.documentElement.innerHTML = imageEditorDocument({ image, token, platform, operations, parentOrigin: window.location.origin, fileActions });
   const windowListeners = vi.spyOn(window, 'addEventListener');
   const documentListeners = vi.spyOn(document, 'addEventListener');
   window.eval(IMAGE_EDITOR_SCRIPT);
@@ -74,6 +74,28 @@ describe('trusted canvas document', () => {
     for (const directive of ["default-src 'none'", `script-src 'nonce-${token}'`, "connect-src 'none'", "frame-src 'none'", "form-action 'none'", "base-uri 'none'"]) expect(policy).toContain(directive);
     expect(document.getElementById('configuration')?.textContent).not.toContain('</script>');
     expect(() => imageEditorDocument({ image: png(3, 2), token: '" bad', platform: 'mobile' })).toThrow();
+  });
+  it('adds mobile Close/More without disturbing canvas state and disables them only while saving', () => {
+    const f = editor(png(3, 2), [], 'mobile', true);
+    expect([...document.querySelectorAll('button')].map(button => button.id)).toEqual(['close', 'more', 'rotate-left', 'rotate-right', 'flip-horizontal', 'flip-vertical', 'crop', 'reset', 'save']);
+    const actions = () => f.messages.map(value => parseImageEditorMessage(value, token)).filter(value => value?.type === 'file-action');
+    f.click('more'); f.click('close'); expect(actions()).toEqual([{ type: 'file-action', action: 'more', token }, { type: 'file-action', action: 'close', token }]);
+    f.click('rotate-right'); const before = f.state(); f.click('more');
+    expect(f.state()).toEqual(before); expect(document.getElementById('image')).toBe(f.canvas);
+    f.click('save'); expect(document.getElementById('close')).toHaveProperty('disabled', true); expect(document.getElementById('more')).toHaveProperty('disabled', true);
+    const count = actions().length; f.click('close'); f.click('more'); expect(actions()).toHaveLength(count);
+    f.command('export'); expect(document.getElementById('more')).toHaveProperty('disabled', true);
+    f.command('unlock'); expect(document.getElementById('close')).toHaveProperty('disabled', false); f.click('close'); expect(actions()).toHaveLength(count + 1);
+  });
+  it('keeps Close/More available if the mobile decoder rejects the raster', () => {
+    const f = editor(png(8192, 8192), [], 'mobile', true);
+    expect(f.imageCreated).not.toHaveBeenCalled(); expect(document.getElementById('close')).toHaveProperty('disabled', false); expect(document.getElementById('more')).toHaveProperty('disabled', false);
+    f.click('close'); expect(f.messages.at(-1)).toEqual({ type: 'file-action', action: 'close', token });
+  });
+  it('ignores fileActions for desktop documents and retains exactly seven actions', () => {
+    editor(png(3, 2), [], 'desktop', true);
+    expect(document.querySelectorAll('button')).toHaveLength(7); expect(document.getElementById('close')).toBeNull(); expect(document.getElementById('more')).toBeNull();
+    expect(document.body.classList.contains('mobile-file-editor')).toBe(false);
   });
   it('rotates both ways, flips both axes and resets to the original with clean state', () => {
     const f = editor();
