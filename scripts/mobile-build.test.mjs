@@ -109,6 +109,17 @@ describe('mobile release contract', () => {
     assert.ok(embedded.indexOf('- name: Browser unit-test prerequisites') < embedded.indexOf('run: pnpm test:unit'));
     assert.match(embedded, /pnpm test:unit && pnpm test:packaging\s+timeout-minutes: 10/);
   });
+  it('gives cold browser dependencies time and limits mirror changes to disposable Ubuntu runners', () => {
+    const install = readFileSync('.github/scripts/install-browser-tests.sh', 'utf8');
+    assert.match(install, /RUNNER_OS:-.*Linux/);
+    assert.match(install, /SHELLFOX_UBUNTU_MIRROR:-https:\/\/archive\.ubuntu\.com\/ubuntu/);
+    assert.match(install, /parsed\.scheme != 'https'/);
+    assert.match(install, /pnpm exec playwright install --with-deps chromium/);
+    for (const workflow of ['release.yml', 'embedded-packages.yml']) {
+      const source = readFileSync('.github/workflows/' + workflow, 'utf8');
+      assert.match(source, /run: bash \.github\/scripts\/install-browser-tests\.sh\s+timeout-minutes: 15/);
+    }
+  });
   it('uses a separate preview build and never a debug-signed release fallback', () => {
     const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
     assert.match(gradle, /preview \{[\s\S]*?initWith release[\s\S]*?signingConfig signingConfigs\.debug[\s\S]*?debuggable false/);

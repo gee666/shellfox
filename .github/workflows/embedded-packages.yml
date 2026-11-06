@@ -30,7 +30,7 @@ jobs:
             platform: darwin
             arch: arm64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       TMP: ${{ github.workspace }}/tmp
       TEMP: ${{ github.workspace }}/tmp
@@ -82,8 +82,8 @@ jobs:
         run: pnpm rebuild
         timeout-minutes: 10
       - name: Browser unit-test prerequisites
-        run: pnpm exec playwright install --with-deps chromium
-        timeout-minutes: 5
+        run: bash .github/scripts/install-browser-tests.sh
+        timeout-minutes: 15
       - run: pnpm test:unit && pnpm test:packaging
         timeout-minutes: 10
       - run: pnpm build
