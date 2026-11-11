@@ -53,6 +53,8 @@ node --test mobile/src/terminal/terminal-page.test.mjs
 pnpm typecheck
 ```
 
+The input regressions exercise autocorrect growth/shrinkage, punctuation replacement, middle-word composition, unchanged replacements that move the caret, selection deletion, undo/redo, empty-context Backspace/Delete, encoded-key context invalidation and late composition completion. A line-editor oracle checks text and caret after range replacements across repeated characters, RTL, CJK and surrogate pairs. These synthetic browser transactions test the handler against bundled xterm, not every Android/iOS keyboard's native event ordering. Remote editors also differ in how many Backspaces erase complex emoji sequences; grapheme-level diffs cannot guarantee identical editing in every remote application.
+
 The generator bundles xterm, addon-fit, CSS and the page bridge into one TypeScript HTML export. No external scripts, fonts or styles are loaded. A script hash in the page CSP blocks unapproved scripts, and the WebView rejects navigation outside its initial `about:blank` document. Host output travels only as JSON messages, never as JavaScript source.
 
 ## Native Android regression

@@ -101,7 +101,9 @@ export class PageKeyboard {
   private text(data: string, modifiers: TerminalModifiers) {
     if (this.disposed || !data) return;
     if (active(modifiers) && ascii(data)) {
-      for (const key of data) this.dispatchKey({ key, modifiers });
+      this.nativeInput.encodeText(() => {
+        for (const key of data) this.dispatchKey({ key, modifiers });
+      });
     } else this.emit(data);
   }
   setModifiers(modifiers: TerminalModifiers) { this.modifiers = { ...modifiers }; }
@@ -110,7 +112,7 @@ export class PageKeyboard {
     if (this.nativeInput.pendingCommit) { this.pendingActions.push(() => this.paste(data)); return; }
     this.nativeInput.finish();
     this.dispatching = true; this.encodedKey = true;
-    try { this.term.paste(data); } finally { this.dispatching = false; }
+    try { this.nativeInput.paste(data); } finally { this.dispatching = false; }
   }
   key(event: TerminalKeyEvent) {
     if (this.disposed) return;

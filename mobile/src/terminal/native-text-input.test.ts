@@ -22,6 +22,9 @@ describe('terminal textarea edits', () => {
     expect(terminalTextEdit(state('abc'), state('ac', 1), true)).toBe('\x1bOD\x7f');
     expect(terminalTextEdit(state('phrase'), state('phras'))).toBe('\x7f');
   });
+  it('does not append a lone low surrogate when native context completes an emoji', () => {
+    expect(terminalTextEdit(state('\ud83d'), state('🙂'))).toBe('\x7f🙂');
+  });
   it('does not split an emoji or a combining sequence while replacing it', () => {
     expect(terminalTextEdit(state('x🙂'), state('x🙃'))).toBe('\x7f🙃');
     expect(terminalTextEdit(state('cafe\u0301'), state('café'))).toBe('\x7fé');
@@ -46,6 +49,83 @@ function fixture(disableStdin = false) {
   return { ...terminal, input, callbacks, edit, unsubscribe, encodeKey: (event: KeyboardEvent) => encodedKey({ key: event.key, domEvent: event }) };
 }
 describe('native DOM input ownership', () => {
+  it('starts composition replacements from the last terminal cursor, not the IME selection', async () => {
+    vi.useFakeTimers(); const f = fixture();
+    f.edit('hello world'); await Promise.resolve();
+    f.textarea.setSelectionRange(0, 5);
+    f.textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    f.edit('hi');
+    f.textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true }));
+    await vi.runAllTimersAsync();
+    expect(f.callbacks.commit).toHaveBeenCalledExactlyOnceWith('\x1b[D'.repeat(6) + '\x7f'.repeat(4) + 'i');
+    f.input.dispose();
+  });
+  it('forgets native context after encoded keys and paste, but never duplicates their output', async () => {
+    const f = fixture();
+    for (const key of ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'a']) {
+      f.edit('native context'); await Promise.resolve();
+      const count = f.callbacks.text.mock.calls.length;
+      f.encodeKey(new KeyboardEvent('keydown', { key }));
+      expect(f.textarea.value).toBe('');
+      expect(f.callbacks.text).toHaveBeenCalledTimes(count);
+      f.edit('x'); await Promise.resolve();
+      expect(f.callbacks.text).toHaveBeenLastCalledWith('x');
+    }
+    f.input.paste('clipboard');
+    expect(f.paste).toHaveBeenCalledExactlyOnceWith('clipboard');
+    expect(f.textarea.value).toBe('');
+    f.edit('after paste'); await Promise.resolve();
+    expect(f.callbacks.text).toHaveBeenLastCalledWith('after paste');
+    f.input.dispose();
+  });
+  it.each(['deleteContentBackward', 'deleteContentForward'])('handles beforeinput-only %s with empty local context once', async inputType => {
+    const f = fixture();
+    f.textarea.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType }));
+    await Promise.resolve();
+    expect(f.callbacks.text.mock.calls).toEqual([[inputType === 'deleteContentBackward' ? '\x7f' : '\x1b[3~']]);
+    f.input.dispose();
+  });
+  it('does not duplicate empty deletion when input follows a beforeinput microtask checkpoint', async () => {
+    const f = fixture();
+    for (const inputType of ['deleteContentBackward', 'deleteContentForward']) {
+      const before = f.callbacks.text.mock.calls.length;
+      f.textarea.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType }));
+      await Promise.resolve();
+      f.textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType }));
+      await Promise.resolve();
+      expect(f.callbacks.text.mock.calls.slice(before)).toEqual([[inputType === 'deleteContentBackward' ? '\x7f' : '\x1b[3~']]);
+    }
+    f.input.dispose();
+  });
+  it('does not deduplicate successive input-only empty deletions', async () => {
+    const f = fixture();
+    for (let count = 0; count < 2; count++) {
+      f.textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' }));
+      await Promise.resolve();
+    }
+    expect(f.callbacks.text.mock.calls).toEqual([['\x7f'], ['\x7f']]);
+    f.input.dispose();
+  });
+  it('accepts identical keyless text after the late composition transaction has ended', async () => {
+    vi.useFakeTimers(); const f = fixture();
+    f.textarea.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    f.edit('日本語'); f.input.finish();
+    f.encodeKey(new KeyboardEvent('keydown', { key: 'Enter' }));
+    f.textarea.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+    await vi.advanceTimersByTimeAsync(100);
+    f.edit('日本語'); await Promise.resolve();
+    expect(f.callbacks.commit).toHaveBeenCalledExactlyOnceWith('日本語');
+    expect(f.callbacks.text).toHaveBeenCalledExactlyOnceWith('日本語');
+    f.input.dispose();
+  });
+  it('uses the committed state when a keyboard omits beforeinput', async () => {
+    const f = fixture(); f.edit('word'); await Promise.resolve();
+    f.textarea.value = 'words'; f.textarea.setSelectionRange(5, 5);
+    f.textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 's' }));
+    await Promise.resolve();
+    expect(f.callbacks.text.mock.calls).toEqual([['word'], ['s']]);
+    f.input.dispose();
+  });
   it('cancels the default edit only for keypresses encoded by xterm', async () => {
     const f = fixture();
     for (const shiftKey of [false, true]) {

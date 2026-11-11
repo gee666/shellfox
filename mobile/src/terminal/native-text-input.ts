@@ -19,8 +19,10 @@ const characters = (text: string) => segmenter ? Array.from(segmenter.segment(te
 /** Translate an actual textarea edit, not its whole retained IME context, to terminal input. */
 function textMutation(before: TextState, after: TextState, applicationCursor = false) {
   const empty = { before: '', data: '', after: '' };
-  if (before.value === after.value) return empty;
-  if (before.cursor === before.value.length && after.cursor === after.value.length && after.value.startsWith(before.value)) {
+  const cursor = (state: TextState) => characters(state.value.slice(0, state.cursor)).length;
+  const move = (from: number, to: number) => (applicationCursor ? '\x1bO' : '\x1b[').concat(to < from ? 'D' : 'C').repeat(Math.abs(to - from));
+  if (before.value === after.value) return { ...empty, after: move(cursor(before), cursor(after)) };
+  if (before.cursor === before.value.length && after.cursor === after.value.length && after.value.startsWith(before.value) && !/[\uD800-\uDBFF]$/.test(before.value)) {
     return { ...empty, data: after.value.slice(before.value.length) };
   }
   const old = characters(before.value), next = characters(after.value);
@@ -28,8 +30,6 @@ function textMutation(before: TextState, after: TextState, applicationCursor = f
   while (prefix < old.length && prefix < next.length && old[prefix] === next[prefix]) prefix++;
   while (suffix < old.length - prefix && suffix < next.length - prefix && old[old.length - 1 - suffix] === next[next.length - 1 - suffix]) suffix++;
   const oldEnd = old.length - suffix, newEnd = next.length - suffix;
-  const cursor = (state: TextState) => characters(state.value.slice(0, state.cursor)).length;
-  const move = (from: number, to: number) => (applicationCursor ? '\x1bO' : '\x1b[').concat(to < from ? 'D' : 'C').repeat(Math.abs(to - from));
   return { before: move(cursor(before), oldEnd) + '\x7f'.repeat(oldEnd - prefix), data: next.slice(prefix, newEnd).join(''), after: move(newEnd, cursor(after)) };
 }
 export function terminalTextEdit(before: TextState, after: TextState, applicationCursor = false): string {
@@ -43,11 +43,16 @@ export function terminalTextEdit(before: TextState, after: TextState, applicatio
 export class NativeTextInput {
   private composition: Composition | null = null;
   private before: TextState | null = null;
-  private pendingEdit: { before: TextState; after: TextState; paste: boolean } | null = null;
+  private pendingEdit: { before: TextState; after: TextState; inputType: string; fallback?: boolean } | null = null;
+  private retiredComposition: string | null = null;
+  private emptyDeletion: string | null = null;
+  private retiredTimer?: ReturnType<typeof setTimeout>;
+  private deletionTimer?: ReturnType<typeof setTimeout>;
   private committed: TextState;
   private forced = false;
   private finalizing = false;
   private pasting = false;
+  private emittingEdit = false;
   private disposed = false;
   private readonly cleanups: (() => void)[] = [];
   private readonly textarea: HTMLTextAreaElement;
@@ -58,6 +63,9 @@ export class NativeTextInput {
     this.textarea = textarea;
     this.committed = this.snapshot();
     const encodedKeys = term.onKey(({ domEvent }) => {
+      // Encoded keys edit the remote line, not this retained native context.
+      // Keeping it after Backspace/arrows makes the next IME edit use stale text.
+      if (!this.emittingEdit) { this.flushEdit(); this.resetContext(); }
       // xterm emits uppercase letters on keypress without cancelling its default
       // edit. Do not send that same letter again through the native input path.
       if (domEvent.type === 'keypress') domEvent.preventDefault();
@@ -69,6 +77,8 @@ export class NativeTextInput {
     };
     listen('keydown', event => {
       if (!(event instanceof KeyboardEvent) || event.target !== textarea || this.finalizing) return;
+      this.retiredComposition = null;
+      this.emptyDeletion = null;
       this.flushEdit();
       if (event.keyCode === 229) {
         // Do not cancel the browser edit. Only prevent xterm's timer-based fallback.
@@ -82,13 +92,23 @@ export class NativeTextInput {
     listen('beforeinput', event => {
       if (event.target !== textarea) return;
       this.flushEdit();
+      this.emptyDeletion = null;
       if (this.composition) this.composition.edited = true;
       this.before = this.snapshot();
+      // Some keyboards emit only beforeinput when the local context is empty.
+      // There can still be remote text to erase after arrows, paste or Backspace.
+      if (!this.composition && !this.before.value && event instanceof InputEvent && /^deleteContent(?:Backward|Forward)$/.test(event.inputType)) {
+        const edit = { before: this.before, after: this.before, inputType: event.inputType, fallback: true };
+        this.pendingEdit = edit;
+        queueMicrotask(() => { if (this.pendingEdit === edit && !this.disposed) this.flushEdit(); });
+      }
     });
     listen('compositionstart', event => {
       if (event.target !== textarea) return;
+      this.retiredComposition = null;
       this.flushEdit(); this.finish(); this.forced = false;
-      this.composition = { before: this.snapshot(), edited: false }; this.before = null;
+      const before = this.snapshot();
+      this.composition = { before: { ...before, cursor: this.committed.cursor }, edited: false }; this.before = null;
       this.callbacks.start();
     });
     listen('compositionupdate', event => {
@@ -96,6 +116,11 @@ export class NativeTextInput {
     });
     listen('compositionend', event => {
       if (event.target === textarea && this.forced) {
+        this.retiredComposition = event instanceof CompositionEvent ? event.data : null;
+        if (this.retiredTimer) clearTimeout(this.retiredTimer);
+        // Only the final edit in this event transaction belongs to the old IME.
+        // A later keyless insertion of the same text is intentional input.
+        this.retiredTimer = setTimeout(() => { this.retiredComposition = null; }, 0);
         this.forced = false; this.committed = this.snapshot(); this.before = null;
         event.stopImmediatePropagation();
       }
@@ -112,7 +137,17 @@ export class NativeTextInput {
     listen('input', event => {
       if (event.target !== textarea || !(event instanceof InputEvent)) return;
       event.stopImmediatePropagation();
+      // A forcibly completed preedit can still be inserted by the IME after its
+      // late compositionend. Consume that final DOM edit, not a second command.
+      const retired = this.retiredComposition;
+      this.retiredComposition = null;
+      if (retired !== null && event.data === retired && ['insertText', 'insertCompositionText', 'insertFromComposition'].includes(event.inputType)) {
+        this.resetContext(); return;
+      }
       const after = this.snapshot(), before = this.before ?? this.committed;
+      const deleted = this.emptyDeletion;
+      this.emptyDeletion = null;
+      if (deleted === event.inputType && !before.value && !after.value) { this.before = null; return; }
       const start = before.start ?? before.cursor;
       const inserted = event.data ?? '';
       if (before.value.slice(0, start) + inserted + before.value.slice(before.cursor) === after.value && before.value !== after.value) {
@@ -126,7 +161,7 @@ export class NativeTextInput {
       // terminal cursor. Keep the last committed cursor when its value still matches.
       const cursor = before.value === this.committed.value ? this.committed.cursor : before.cursor;
       this.before = null;
-      const edit = { before: { ...before, cursor }, after, paste: event.inputType === 'insertFromPaste' }; this.pendingEdit = edit;
+      const edit = { before: { ...before, cursor }, after, inputType: event.inputType }; this.pendingEdit = edit;
       // Chromium can update the caret after input capture has run. Finish this
       // edit at the end of DOM dispatch, or before the next edit starts.
       queueMicrotask(() => { if (this.pendingEdit === edit && !this.disposed) this.flushEdit(); });
@@ -149,17 +184,32 @@ export class NativeTextInput {
     const after = current.value === edit.after.value ? current : edit.after;
     this.committed = after;
     if (this.term.options.disableStdin) return;
-    if (edit.paste) {
+    if (!edit.before.value && !after.value && /^deleteContent(?:Backward|Forward)$/.test(edit.inputType)) {
+      if (edit.fallback) {
+        this.emptyDeletion = edit.inputType;
+        if (this.deletionTimer) clearTimeout(this.deletionTimer);
+        this.deletionTimer = setTimeout(() => { this.emptyDeletion = null; }, 0);
+      }
+      this.callbacks.text(edit.inputType === 'deleteContentBackward' ? '\x7f' : '\x1b[3~');
+    } else if (edit.inputType === 'insertFromPaste') {
       const mutation = textMutation(edit.before, after, this.term.modes.applicationCursorKeysMode);
       if (mutation.before) this.callbacks.text(mutation.before);
       this.paste(mutation.data);
       if (mutation.after) this.callbacks.text(mutation.after);
     } else this.callbacks.text(terminalTextEdit(edit.before, after, this.term.modes.applicationCursorKeysMode));
   }
-  private paste(data: string) {
+  paste(data: string) {
+    this.finish();
     this.pasting = true;
     try { this.term.paste(data); }
-    finally { this.pasting = false; this.committed = this.snapshot(); }
+    finally { this.pasting = false; this.resetContext(); }
+  }
+  private resetContext() {
+    this.retiredComposition = null;
+    this.emptyDeletion = null;
+    this.textarea.value = '';
+    this.committed = this.snapshot();
+    this.before = null;
   }
   private commit(composition: Composition) {
     if (composition.timer) clearTimeout(composition.timer);
@@ -169,6 +219,12 @@ export class NativeTextInput {
     // authority to erase previously committed terminal text.
     const cancelled = !composition.edited && after.value.length < composition.before.value.length;
     this.callbacks.commit(this.term.options.disableStdin || cancelled ? '' : terminalTextEdit(composition.before, after, this.term.modes.applicationCursorKeysMode));
+  }
+  /** Modifier encoding of an existing native edit must not invalidate its context. */
+  encodeText(encode: () => void) {
+    const previous = this.emittingEdit;
+    this.emittingEdit = true;
+    try { encode(); } finally { this.emittingEdit = previous; }
   }
   get pendingCommit(): boolean { return this.composition?.timer !== undefined; }
   /** Finish before an accessory/hardware key or paste, without waiting for IME dismissal. */
@@ -191,6 +247,8 @@ export class NativeTextInput {
   }
   dispose() {
     this.disposed = true;
+    if (this.retiredTimer) clearTimeout(this.retiredTimer);
+    if (this.deletionTimer) clearTimeout(this.deletionTimer);
     if (this.composition?.timer) clearTimeout(this.composition.timer);
     this.composition = null; this.pendingEdit = null;
     for (const cleanup of this.cleanups) cleanup();
