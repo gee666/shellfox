@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  SHELLFOX_UBUNTU_MIRROR: ${{ vars.SHELLFOX_UBUNTU_MIRROR }}
+  SHELLFOX_UBUNTU_PORTS_MIRROR: ${{ vars.SHELLFOX_UBUNTU_PORTS_MIRROR }}
 jobs:
   headless:
     name: headless ${{ matrix.platform }}-${{ matrix.arch }}
@@ -37,6 +40,10 @@ jobs:
         with:
           node-version: 24.22.1
           architecture: ${{ matrix.arch }}
+      - name: Ubuntu archive setup
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/setup-ubuntu-apt.sh
+        timeout-minutes: 2
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.3'

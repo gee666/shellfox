@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { androidBuildToolsDirectory, androidBuildToolsVersion, mobileVersion, signingEnvironment, verifyApkSigner } from './mobile-build.mjs';
+import { aptPolicy, configureUbuntuApt, rewriteSources, validateMirror } from '../.github/scripts/setup-ubuntu-apt.mjs';
 
 const signing = {
   SHELLFOX_ANDROID_KEYSTORE_BASE64: 'YQ==', SHELLFOX_ANDROID_STORE_PASSWORD: 'test-store',
@@ -109,21 +110,133 @@ describe('mobile release contract', () => {
     assert.ok(embedded.indexOf('- name: Browser unit-test prerequisites') < embedded.indexOf('run: pnpm test:unit'));
     assert.match(embedded, /pnpm test:unit && pnpm test:packaging\s+timeout-minutes: 10/);
   });
-  it('gives cold browser dependencies time and limits mirror changes to disposable Ubuntu runners', () => {
+  it('gives cold browser dependencies time and shares archive setup with other apt consumers', () => {
     const install = readFileSync('.github/scripts/install-browser-tests.sh', 'utf8');
-    assert.match(install, /RUNNER_OS:-.*Linux/);
-    assert.match(install, /SHELLFOX_UBUNTU_MIRROR:-https:\/\/archive\.ubuntu\.com\/ubuntu/);
-    assert.match(install, /parsed\.scheme != 'https'/);
+    assert.match(install, /setup-ubuntu-apt\.sh/);
+    assert.ok(install.indexOf('setup-ubuntu-apt.sh') < install.indexOf('pnpm exec playwright'));
     assert.match(install, /pnpm exec playwright install --with-deps chromium/);
     for (const workflow of ['release.yml', 'embedded-packages.yml']) {
       const source = readFileSync('.github/workflows/' + workflow, 'utf8');
       assert.match(source, /run: bash \.github\/scripts\/install-browser-tests\.sh\s+timeout-minutes: 15/);
     }
   });
+  it('configures Ubuntu archives before any Linux apt consumers in every packaging job', () => {
+    const release = readFileSync('.github/workflows/release.yml', 'utf8');
+    const workflows = ['release.yml', 'embedded-packages.yml', 'headless-packages.yml'];
+    for (const name of workflows) {
+      const workflow = readFileSync('.github/workflows/' + name, 'utf8');
+      for (const variable of ['SHELLFOX_UBUNTU_MIRROR', 'SHELLFOX_UBUNTU_PORTS_MIRROR']) {
+        assert.ok(workflow.includes(variable + ': ${{ vars.' + variable + ' }}'));
+      }
+    }
+    const jobs = [
+      release.slice(release.indexOf('  mobile:'), release.indexOf('  package:')),
+      release.slice(release.indexOf('  package:'), release.indexOf('  release:')),
+      ...workflows.slice(1).map(name => readFileSync('.github/workflows/' + name, 'utf8')),
+    ];
+    for (const job of jobs) {
+      const setup = job.indexOf('run: bash .github/scripts/setup-ubuntu-apt.sh');
+      assert.ok(setup >= 0);
+      for (const consumer of ['sudo apt-get', 'run: bash .github/scripts/install-browser-tests.sh']) {
+        const index = job.indexOf(consumer);
+        if (index >= 0) assert.ok(setup < index);
+      }
+    }
+    const setup = readFileSync('.github/scripts/setup-ubuntu-apt.sh', 'utf8');
+    assert.match(setup, /GITHUB_ACTIONS:-.*true/);
+    assert.match(setup, /RUNNER_OS:-.*Linux/);
+    assert.match(setup, /\$ID.*ubuntu/);
+    assert.match(setup, /dpkg --print-architecture/);
+    assert.match(setup, /amd64\) mirror="\$\{SHELLFOX_UBUNTU_MIRROR:-https:\/\/mirrors\.edge\.kernel\.org\/ubuntu\}"/);
+    assert.match(setup, /arm64\) mirror="\$\{SHELLFOX_UBUNTU_PORTS_MIRROR:-https:\/\/mirrors\.mit\.edu\/ubuntu-ports\}"/);
+  });
   it('uses a separate preview build and never a debug-signed release fallback', () => {
     const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
     assert.match(gradle, /preview \{[\s\S]*?initWith release[\s\S]*?signingConfig signingConfigs\.debug[\s\S]*?debuggable false/);
     assert.match(gradle, /Release APK requires all SHELLFOX_UPLOAD_\*/);
     assert.match(gradle, /implementation\(files\("\.\.\/\.\.\/\.\.\/tmp\/mobile-native\/android\/shellfox-mobile\.aar"\)\)/);
+  });
+});
+
+describe('Ubuntu CI archive configuration', () => {
+  const mirrors = ['https://mirrors.edge.kernel.org/ubuntu', 'https://mirrors.mit.edu/ubuntu-ports'];
+  const key = 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg';
+  const stanza = uri => `Types: deb deb-src\nURIs: ${uri}\nSuites: noble noble-updates noble-backports noble-security\nComponents: main restricted universe multiverse\n${key}\n`;
+
+  it('replaces GitHub mirror lists and direct Ubuntu sources without changing suites or signing keys', () => {
+    const uris = [
+      'mirror+file:/etc/apt/apt-mirrors.txt',
+      'mirror+file:/etc/apt/apt-mirrors-security.txt',
+      'http://azure.archive.ubuntu.com/ubuntu/',
+      'https://azure.archive.ubuntu.com/ubuntu',
+      'http://archive.ubuntu.com/ubuntu',
+      'https://us.archive.ubuntu.com/ubuntu',
+      'http://security.ubuntu.com/ubuntu',
+      'http://ports.ubuntu.com/ubuntu-ports/',
+      'https://ports.ubuntu.com/ubuntu-ports',
+    ];
+    for (const mirror of mirrors) {
+      for (const uri of uris) {
+        assert.equal(rewriteSources(stanza(uri), '.sources', mirror), stanza(mirror));
+      }
+      const multi = stanza(uris[0] + '\n ' + uris[1]);
+      assert.equal(rewriteSources(multi, '.sources', mirror), stanza(mirror + '\n ' + mirror));
+    }
+  });
+
+  it('supports legacy lists and leaves third-party archives, comments and other fields alone', () => {
+    const uri = 'http://azure.archive.ubuntu.com/ubuntu';
+    const mirror = mirrors[0];
+    const thirdParty = '# ' + uri + '\n' + stanza('https://packages.microsoft.com/repos/code');
+    assert.equal(rewriteSources(thirdParty, '.sources', mirror), thirdParty);
+    const legacy = `deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] ${uri} noble main\ndeb-src ${uri} noble-updates universe\n`;
+    assert.equal(rewriteSources(legacy, '.list', mirror), legacy.replaceAll(uri, mirror));
+    const untouched = '# deb ' + uri + ' noble main\ndeb https://ppa.launchpadcontent.net/test/ubuntu noble main\n' +
+      'deb https://archive.ubuntu.com/ubuntu-other noble main\n';
+    assert.equal(rewriteSources(untouched, '.list', mirror), untouched);
+    assert.equal(rewriteSources(`Description: ${uri}\n` + stanza(mirror), '.sources', mirror), `Description: ${uri}\n` + stanza(mirror));
+  });
+
+  it('rejects insecure mirrors and apt syntax injection before changing any files', () => {
+    for (const value of [undefined, '', 'http://mirror.example/ubuntu', 'file:/archive',
+      'https://user:password@mirror.example/ubuntu', 'https://mirror.example/ubuntu?x=1',
+      'https://mirror.example/ubuntu#fragment', 'https://mirror.example/ubuntu\nTrusted: yes',
+      'https://mirror.example/ubuntu other', 'https://mirror.example\\ubuntu']) {
+      assert.throws(() => validateMirror(value));
+    }
+    assert.equal(validateMirror('https://mirror.example/ubuntu/'), 'https://mirror.example/ubuntu');
+  });
+
+  it('updates all apt source files idempotently and makes failed index downloads fatal', () => {
+    mkdirSync('tmp', { recursive: true });
+    const directory = mkdtempSync(path.resolve('tmp/ubuntu-apt-test-'));
+    try {
+      mkdirSync(path.join(directory, 'sources.list.d'));
+      mkdirSync(path.join(directory, 'apt.conf.d'));
+      const main = path.join(directory, 'sources.list');
+      const ubuntu = path.join(directory, 'sources.list.d/ubuntu.sources');
+      const legacy = path.join(directory, 'sources.list.d/ubuntu-security.list');
+      const vendor = path.join(directory, 'sources.list.d/vendor.sources');
+      const backup = path.join(directory, 'sources.list.d/ubuntu.sources.bak');
+      const content = stanza('mirror+file:/etc/apt/apt-mirrors.txt');
+      const vendorContent = stanza('https://packages.microsoft.com/repos/code');
+      writeFileSync(main, 'deb http://archive.ubuntu.com/ubuntu noble main\n');
+      writeFileSync(ubuntu, content);
+      writeFileSync(legacy, 'deb http://security.ubuntu.com/ubuntu noble-security main\n');
+      writeFileSync(vendor, vendorContent);
+      writeFileSync(backup, content);
+      assert.throws(() => configureUbuntuApt(directory, 'http://invalid.example/ubuntu'));
+      assert.equal(readFileSync(ubuntu, 'utf8'), content);
+      assert.equal(configureUbuntuApt(directory, mirrors[1]), 3);
+      assert.equal(readFileSync(ubuntu, 'utf8'), stanza(mirrors[1]));
+      assert.equal(readFileSync(vendor, 'utf8'), vendorContent);
+      assert.equal(readFileSync(backup, 'utf8'), content);
+      assert.equal(configureUbuntuApt(directory, mirrors[1]), 0);
+      const policy = readFileSync(path.join(directory, 'apt.conf.d/80shellfox-archives'), 'utf8');
+      assert.equal(policy, aptPolicy);
+      assert.match(policy, /APT::Update::Error-Mode "any"/);
+      assert.match(policy, /Acquire::Retries "3"/);
+      assert.doesNotMatch(policy, /AllowInsecure|AllowUnauthenticated|Verify-Peer|Trusted/i);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   });
 });

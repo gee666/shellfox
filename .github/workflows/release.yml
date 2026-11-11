@@ -8,6 +8,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  SHELLFOX_UBUNTU_MIRROR: ${{ vars.SHELLFOX_UBUNTU_MIRROR }}
+  SHELLFOX_UBUNTU_PORTS_MIRROR: ${{ vars.SHELLFOX_UBUNTU_PORTS_MIRROR }}
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -32,6 +35,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.22.1
+      - name: Ubuntu archive setup
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/setup-ubuntu-apt.sh
+        timeout-minutes: 2
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -146,6 +153,10 @@ jobs:
         with:
           node-version: 24.22.1
           architecture: ${{ matrix.arch }}
+      - name: Ubuntu archive setup
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/setup-ubuntu-apt.sh
+        timeout-minutes: 2
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.3'
