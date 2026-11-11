@@ -73,6 +73,7 @@ const api: ManagerApi = {
   copyText: input => request('copyText', input),
   readClipboardText: () => request('readClipboardText', {}),
   openSessionFolder: input => request('openSessionFolder', input),
+  openFileExplorer: input => request('openFileExplorer', input),
   openExternal: input => request('openExternal', input),
   getKeepAwake: () => request('getKeepAwake', {}),
   setKeepAwake: input => request('setKeepAwake', input),

@@ -20,7 +20,8 @@ async function setup() {
     writeImage: vi.fn<FileApi['writeImage']>(async () => failure('UNSUPPORTED', 'Not used')),
     readAsset: vi.fn<FileApi['readAsset']>(async () => failure('UNSUPPORTED', 'Not used')),
   } satisfies FileApi;
-  const api: ManagerApi = { ...base, files };
+  const createDirectory = vi.fn<NonNullable<ManagerApi['createDirectory']>>(async input => success({ cwd: input.path }));
+  const api: ManagerApi = { ...base, files, createDirectory };
   const onOpen = vi.fn(), onFolderChange = vi.fn();
   const view = render(<FileTree api={api} onOpen={onOpen} onFolderChange={onFolderChange} />);
   await act(async () => {});
@@ -28,7 +29,7 @@ async function setup() {
   const enter = async () => { await act(async () => {
     if (fireEvent.keyDown(input, { key: 'Enter' })) fireEvent.submit(input.closest('form') ?? input);
   }); };
-  return { ...view, api, files, onOpen, onFolderChange, input, enter };
+  return { ...view, api, files, createDirectory, onOpen, onFolderChange, input, enter };
 }
 
 it('uses the shared path picker and lists host home with no session identity', async () => {
@@ -55,12 +56,49 @@ it('accepts the first suggestion while open, then opens it on the next Enter', a
   await f.enter(); expect(f.files.list).toHaveBeenLastCalledWith({ path: '/home/child/' });
 });
 
-it('opens typed files without replacing the actual folder used for uploads', async () => {
-  const f = await setup(); f.files.list.mockResolvedValueOnce(failure('NOT_FOUND', 'Not a directory'));
-  fireEvent.change(f.input, { target: { value: '/home/note.txt' } }); await f.enter();
-  expect(f.onOpen).toHaveBeenCalledExactlyOnceWith('/home/note.txt');
-  expect(f.onFolderChange).toHaveBeenLastCalledWith('/home');
+it('opens typed files and navigates their parent without reading or creating them', async () => {
+  const f = await setup(); f.files.list.mockResolvedValueOnce(failure('NOT_FOUND', 'Not a directory'))
+    .mockResolvedValueOnce(success({ path: '/other', parentPath: '/', truncated: false, entries: [{ name: 'archive.zip', path: '/other/archive.zip', kind: 'file' }] }));
+  fireEvent.change(f.input, { target: { value: '/other/archive.zip' } }); await f.enter();
+  expect(f.onOpen).toHaveBeenCalledExactlyOnceWith('/other/archive.zip');
+  expect(f.onFolderChange).toHaveBeenLastCalledWith('/other'); expect(f.input).toHaveValue('/other');
+  expect(f.files.read).not.toHaveBeenCalled(); expect(f.createDirectory).not.toHaveBeenCalled();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('asks before creating a missing directory and keeps its text when declined', async () => {
+  const f = await setup();
+  f.files.list.mockResolvedValueOnce(failure('NOT_FOUND', 'Missing folder')).mockResolvedValueOnce(failure('NOT_FOUND', 'Missing parent'));
+  fireEvent.change(f.input, { target: { value: '/new/child' } }); await f.enter();
+  expect(screen.getByRole('alertdialog', { name: 'Create missing folder?' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Keep editing' })).toHaveFocus();
+  expect(f.createDirectory).not.toHaveBeenCalled(); expect(f.onOpen).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+  expect(f.input).toHaveValue('/new/child'); expect(f.input).toHaveFocus();
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+});
+
+it('creates only after confirmation and preserves the session and tab scope', async () => {
+  const f = await setup();
+  f.rerender(<FileTree api={f.api} sessionId="wsl" tabId="tab" onOpen={f.onOpen} />);
+  await act(async () => {});
+  f.files.list.mockResolvedValueOnce(failure('NOT_FOUND', 'Missing folder'))
+    .mockResolvedValueOnce(success({ path: '/home', parentPath: '/', entries: [], truncated: false }));
+  fireEvent.change(f.input, { target: { value: '/home/new' } }); await f.enter();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create folder' })); });
+  expect(f.createDirectory).toHaveBeenCalledExactlyOnceWith({ sessionId: 'wsl', tabId: 'tab', path: '/home/new' });
+  expect(f.files.list).toHaveBeenLastCalledWith({ sessionId: 'wsl', tabId: 'tab', path: '/home/new' });
+  expect(f.input).toHaveValue('/home/new'); expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+});
+
+it('reports creation errors and leaves the path editable', async () => {
+  const f = await setup();
+  f.files.list.mockResolvedValueOnce(failure('NOT_FOUND', 'Missing folder')).mockResolvedValueOnce(failure('NOT_FOUND', 'Missing parent'));
+  f.createDirectory.mockResolvedValueOnce(failure('ACCESS_DENIED', 'Cannot create here'));
+  fireEvent.change(f.input, { target: { value: '/new/child' } }); await f.enter();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Create folder' })); });
+  expect(screen.getByRole('alert')).toHaveTextContent('Cannot create here'); expect(f.input).not.toHaveAttribute('readonly');
+  expect(f.input).toHaveValue('/new/child'); expect(f.onOpen).not.toHaveBeenCalled();
 });
 
 it('reports folder access errors without mistaking them for file navigation', async () => {

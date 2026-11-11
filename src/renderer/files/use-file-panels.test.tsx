@@ -9,10 +9,31 @@ import { mockApi } from '../test-fixtures';
 import { useFilePanels } from './use-file-panels';
 
 afterEach(cleanup);
-function Harness({ api }: { api: ManagerApi }) {
+function Harness({ api, onToggle }: { api: ManagerApi; onToggle?: (handled: boolean) => void }) {
   const panels = useFilePanels();
-  return <><button onClick={() => panels.toggle({ hostId: 'peer-1', api, directory: '/work' })}>Files</button>{panels.render('peer-1')}</>;
+  return <><button onClick={() => panels.toggle({ hostId: 'peer-1', api, directory: '/work' })}>Files</button>
+    <button onClick={() => onToggle?.(panels.toggleBrowser('peer-1'))}>Folders</button>{panels.render('peer-1')}</>;
 }
+
+it('toggles controlled folder visibility only in an open host panel and retains it across closing', async () => {
+  const onToggle = vi.fn();
+  const api: ManagerApi = { ...mockApi().api, files: {
+    list: async () => success({ path: '/work', parentPath: '/', entries: [], truncated: false }),
+    read: vi.fn(), write: vi.fn(), writeImage: vi.fn(), readAsset: vi.fn(),
+  } };
+  render(<Harness api={api} onToggle={onToggle} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Folders' })); expect(onToggle).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+  expect(await screen.findByRole('region', { name: 'File browser' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Folders' })); expect(onToggle).toHaveBeenLastCalledWith(true);
+  expect(screen.queryByRole('region', { name: 'File browser' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Folders' })); expect(onToggle).toHaveBeenLastCalledWith(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Files' }));
+  expect(screen.getByRole('button', { name: 'Toggle file browser' })).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(screen.getByRole('button', { name: 'Folders' }));
+  expect(await screen.findByRole('region', { name: 'File browser' })).toBeVisible();
+});
 it('retains the panel API and dirty draft when reconnect replaces a wrapper for the same host', async () => {
   const firstWriter = vi.fn<FileApi['write']>(async input => success({ path: input.path, size: input.text.length, revision: 'b'.repeat(64) }));
   const nextWriter = vi.fn<FileApi['write']>(async input => success({ path: input.path, size: input.text.length, revision: 'c'.repeat(64) }));

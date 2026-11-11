@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { FileTransfers } from './transfers';
 import { constants } from 'node:fs';
-import { open, opendir, realpath, stat, rename, unlink } from 'node:fs/promises';
+import { open, opendir, realpath, stat, rename, unlink, mkdir } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { failure, success, type Result } from '../../shared/contracts';
 import type { FileApi, FileLocation, FileWriteInput, FileImageWriteInput, FileAssetInput, FileList, FileRead, FileWriteResult, FileAsset } from '../../shared/file-contracts';
@@ -45,6 +45,15 @@ export class FileService implements FileApi {
   constructor(private readonly context: FileSessionContext) { this.transfers = new FileTransfers(context); }
   initialize(userData: string): Promise<void> { return this.transfers.initialize(userData); }
   dispose(): Promise<void> { return this.transfers.dispose(); }
+  createDirectory(input: FileLocation): Promise<Result<{ cwd: string }>> {
+    return result(async () => {
+      const target = await resolveFileTarget(this.context, input);
+      await mkdir(target.native, { recursive: true });
+      const canonical = await realpath(target.native);
+      if (!(await stat(canonical)).isDirectory()) throw new FileError('VALIDATION', 'Expected a directory.');
+      return { cwd: target.display(canonical) };
+    });
+  }
   list(input: FileLocation): Promise<Result<FileList>> {
     return result(async () => {
       const target = await resolveFileTarget(this.context, input), canonical = await realpath(target.native);

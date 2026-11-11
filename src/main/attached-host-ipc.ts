@@ -52,7 +52,7 @@ export function installAttachedHostIpc(window: BrowserWindow, rendererUrl: strin
       const scoped = ['beginFileRead', 'readFileChunk', 'beginFileWrite', 'writeFileChunk', 'finishFileWrite', 'cancelFileTransfer', 'createSession', 'addTab', 'activateSession', 'attachTerminal', 'takeTerminalControl', 'writeTerminal', 'resizeTerminal', 'acknowledgeTerminal', 'detachTerminal', 'setVisibleSessions'].includes(method);
       const target = scoped ? await view() : client;
       if (scoped && current !== epoch) return failure('TARGET_LOST', 'Renderer view changed.');
-      let result = await desktopRequest(method, payload, { window, updates, sessionDirectory: async id => {
+      let result = await desktopRequest(method, payload, { window, updates, snapshot: () => client.service.getSnapshot(), sessionDirectory: async id => {
         const snapshot = await client.service.getSnapshot();
         return snapshot.ok ? snapshot.value.sessions.find(session => session.id === id)?.cwd ?? null : null;
       } });

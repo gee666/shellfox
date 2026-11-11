@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ManagerApi } from '../../shared/contracts';
 import type { FileApi, FileList } from '../../shared/file-contracts';
 import { DirectoryPathInput } from '../DirectoryPathInput';
 import { request } from '../api';
-import { compareFileEntries } from './file-preview-utils';
+import { compareFileEntries, fileDirectory, fileName } from './file-preview-utils';
+import { FileTransfers } from './FileTransfers';
 import type { FileDirectoryRequest } from './file-directory-request';
 
 interface TreeProps {
   api: ManagerApi; sessionId?: string; tabId?: string; selectedPath?: string; initialDirectory?: string;
   onOpen(path: string): void; onFolderChange?(path: string): void; allowNativeBrowse?: boolean; hidden?: boolean;
   directoryRequest?: FileDirectoryRequest; refreshId?: number; onHostDirectory?: (path: string) => void;
+  showTransfers?: boolean; onUploaded?: () => void; onFocusedUnmount?: () => void;
 }
 interface RowsProps extends Omit<TreeProps, 'api'> {
   api: FileApi; path: string; depth?: number; initialListing?: FileList; onListed?(listing: FileList): void;
@@ -51,12 +53,21 @@ function DirectoryRows({ api, sessionId, tabId, path, selectedPath, onOpen, dept
   </>;
 }
 
-export function FileTree({ api, sessionId, tabId, selectedPath, onOpen, onFolderChange, initialDirectory, allowNativeBrowse, hidden, directoryRequest, refreshId, onHostDirectory }: TreeProps) {
+export function FileTree({ api, sessionId, tabId, selectedPath, onOpen, onFolderChange, initialDirectory, allowNativeBrowse, hidden, directoryRequest, refreshId, onHostDirectory, showTransfers, onUploaded, onFocusedUnmount }: TreeProps) {
+  const root = useRef<HTMLElement>(null);
+  const restoreFocus = useRef(onFocusedUnmount); restoreFocus.current = onFocusedUnmount;
+  useLayoutEffect(() => () => {
+    if (root.current?.contains(document.activeElement)) restoreFocus.current?.();
+  }, []);
   const initial = directoryRequest?.path ?? initialDirectory ?? (sessionId ? '.' : '~');
   const [path, setPath] = useState(initial), [input, setInput] = useState(initial);
   const [parent, setParent] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0), [seed, setSeed] = useState<FileList | undefined>(directoryRequest?.listing);
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [missing, setMissing] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null), editButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (missing !== null) editButton.current?.focus(); }, [missing]);
+  const keepEditing = () => { setMissing(null); inputRef.current?.focus(); };
   const serial = useRef(0), edited = useRef(false);
   const currentFolder = useRef(initial);
   const folderCallback = useRef(onFolderChange); folderCallback.current = onFolderChange;
@@ -69,21 +80,37 @@ export function FileTree({ api, sessionId, tabId, selectedPath, onOpen, onFolder
     edited.current = false; setSeed(listing); setPath(listing.path); setInput(listing.path); setRefresh(value => value + 1);
     listed(listing);
   };
-  async function navigate(value: string) {
+  async function navigate(value: string, create = false) {
     if (!api.files) return;
     const next = value.trim() || '~';
     if (sessionId && onHostDirectory && (next === '~' || next.startsWith('~/'))) { onHostDirectory(next); return; }
     const ticket = ++serial.current;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setMissing(null);
+    const scope = { ...(sessionId ? { sessionId } : {}), ...(tabId ? { tabId } : {}) };
     try {
-      const result = await api.files.list({ ...(sessionId ? { sessionId } : {}), ...(tabId ? { tabId } : {}), path: next });
-      if (ticket !== serial.current) return;
-      if (!result.ok) {
-        if (result.error.code === 'NOT_FOUND') onOpen(next);
-        else setError(result.error.message);
-        return;
+      let target = next;
+      if (create && api.createDirectory) {
+        const created = await api.createDirectory({ ...scope, path: next });
+        if (ticket !== serial.current) return;
+        if (!created.ok) { setError(created.error.message); inputRef.current?.focus(); return; }
+        target = created.value.cwd;
       }
-      showDirectory(result.value);
+      const result = await api.files.list({ ...scope, path: target });
+      if (ticket !== serial.current) return;
+      if (result.ok) { showDirectory(result.value); return; }
+      if (result.error.code !== 'NOT_FOUND' || create) { setError(result.error.message); return; }
+      const parentListing = await api.files.list({ ...scope, path: fileDirectory(target) });
+      if (ticket !== serial.current) return;
+      if (parentListing.ok) {
+        const name = fileName(target);
+        const entry = parentListing.value.entries.find(item => item.name === name || /^[a-z]:[\\/]/i.test(target) && item.name.toLowerCase() === name.toLowerCase());
+        if (entry && (entry.kind === 'file' || entry.kind === 'symlink')) {
+          showDirectory(parentListing.value); onOpen(entry.path); return;
+        }
+        if (parentListing.value.truncated && !entry) { setError('Folder listing is incomplete. Choose the file from its folder.'); return; }
+      } else if (parentListing.error.code !== 'NOT_FOUND') { setError(parentListing.error.message); return; }
+      if (api.createDirectory) setMissing(next);
+      else setError(result.error.message);
     } catch (cause) { if (ticket === serial.current) setError(cause instanceof Error ? cause.message : 'Could not open path.'); }
     finally { if (ticket === serial.current) setBusy(false); }
   }
@@ -92,13 +119,13 @@ export function FileTree({ api, sessionId, tabId, selectedPath, onOpen, onFolder
   useEffect(() => {
     if (!directoryRequest) return;
     if (!directoryRequest.listing) { void commands.current.navigate(directoryRequest.path); return; }
-    serial.current++; setBusy(false); setError(''); commands.current.showDirectory(directoryRequest.listing);
+    serial.current++; setBusy(false); setError(''); setMissing(null); commands.current.showDirectory(directoryRequest.listing);
   }, [directoryRequest?.id]);
   useEffect(() => { if (refreshId) commands.current.refreshFolder(); }, [refreshId]);
   if (!api.files) return null;
-  return <section className="file-browser" aria-label="File browser">
-    <DirectoryPathInput api={api} value={input} readOnly={busy} suggestionsEnabled={!hidden} onError={setError}
-      onChange={value => { edited.current = true; setInput(value); setError(''); }} onSubmit={() => void navigate(input)}
+  return <section ref={root} className="file-browser" aria-label="File browser">
+    <DirectoryPathInput api={api} value={input} inputRef={inputRef} readOnly={busy} suggestionsEnabled={!hidden && missing === null} onError={setError}
+      onChange={value => { edited.current = true; setInput(value); setError(''); setMissing(null); }} onSubmit={() => { if (!busy && missing === null) void navigate(input); }}
       onBrowse={allowNativeBrowse ? () => { void request(() => api.chooseDirectory(), 0).then(result => {
         if (!result.ok) setError(result.error.message);
         else if (result.value) {
@@ -106,7 +133,12 @@ export function FileTree({ api, sessionId, tabId, selectedPath, onOpen, onFolder
         }
       }); } : undefined}
       leading={<button type="button" aria-label="Parent folder" title="Parent folder" disabled={parent === null || busy} onClick={() => { if (parent !== null) void navigate(parent); }}>↑</button>}
-      trailing={<><button type="submit" disabled={busy}>Go</button><button type="button" aria-label="Refresh files" title="Refresh files" disabled={busy} onClick={refreshFolder}>↻</button></>} />
+      trailing={<><button type="submit" aria-label="Open path" title="Open path" disabled={busy}>Go</button><button type="button" aria-label="Refresh files" title="Refresh files" disabled={busy} onClick={refreshFolder}>↻</button>
+        {showTransfers && <FileTransfers inline uploadOnly api={api} location={{ ...(sessionId ? { sessionId } : {}), ...(tabId ? { tabId } : {}), path: currentFolder.current }} onUploaded={onUploaded} />}</>} />
+    {missing !== null && <div className="directory-create-confirm" role="alertdialog" aria-label="Create missing folder?" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); keepEditing(); } }}>
+      <div><strong>This folder doesn't exist. Create it?</strong><small>Parent folders will be created too.</small></div>
+      <div className="directory-confirm-actions"><button ref={editButton} type="button" disabled={busy} onClick={keepEditing}>Keep editing</button><button type="button" disabled={busy} onClick={() => void navigate(missing, true)}>Create folder</button></div>
+    </div>}
     {error && <p className="file-tree-message" role="alert">{error}</p>}
     <ul className="file-tree" role="tree" aria-label="Files" onKeyDown={event => {
       if (!(event.target instanceof HTMLButtonElement)) return;

@@ -1,4 +1,4 @@
-import type { FileApi } from './file-contracts';
+import type { FileApi, FileLocation } from './file-contracts';
 import type { DesktopFilesApi } from './desktop-file-contracts';
 import type { TabStatDto } from './process-stats-schemas';
 export interface SessionStatsDto { sessions: SessionDto[]; tabs: TabStatDto[] }
@@ -176,6 +176,7 @@ export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmat
   copyText(input: { text: string }): Promise<Result<{ copied: true }>>;
   readClipboardText?(): Promise<Result<{ text: string }>>;
   openSessionFolder(input: { sessionId: Id }): Promise<Result<{ opened: true }>>;
+  openFileExplorer?(input: FileLocation): Promise<Result<null>>;
   /** Prevent system and display sleep while Shellfox runs. Not persisted. */
   getKeepAwake?(): Promise<Result<KeepAwakeState>>;
   setKeepAwake?(input: { active: boolean }): Promise<Result<KeepAwakeState>>;
@@ -194,7 +195,7 @@ export interface ManagerApi extends Partial<TerminalApi>, Partial<CloseConfirmat
   chooseSshKeyFile(): Promise<Result<{ path: string } | null>>;
   getHomeDirectory(): Promise<Result<{ cwd: string }>>;
   resolveDirectory(input: { path: string }): Promise<Result<{ cwd: string }>>;
-  createDirectory?(input: { path: string }): Promise<Result<{ cwd: string }>>;
+  createDirectory?(input: FileLocation): Promise<Result<{ cwd: string }>>;
   completeDirectory(input: { path: string }): Promise<Result<{ matches: string[] }>>;
   getUpdateStatus?(): Promise<Result<UpdateStatusDto>>;
   downloadUpdate?(): Promise<Result<UpdateStatusDto>>;

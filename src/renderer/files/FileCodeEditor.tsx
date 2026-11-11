@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-markup';
 import 'prismjs/components/prism-css';
@@ -31,10 +31,9 @@ function highlightedSource(text: string, path: string): string | null {
   return grammar ? Prism.highlight(text, grammar, language) : null;
 }
 
-export function FileCodeEditor({ path, text, request, onChange, onSave }: {
-  path: string; text: string; request: FileOpenRequest | null; onChange: (text: string) => void; onSave: () => void;
+export function FileCodeEditor({ path, text, request, onChange, onSave, wrap = true }: {
+  path: string; text: string; request: FileOpenRequest | null; onChange: (text: string) => void; onSave: () => void; wrap?: boolean;
 }) {
-  const [wrap, setWrap] = useState(true);
   const input = useRef<HTMLTextAreaElement>(null);
   const code = useRef<HTMLPreElement>(null);
   const html = useMemo(() => highlightedSource(text, path), [text, path]);
@@ -77,8 +76,6 @@ export function FileCodeEditor({ path, text, request, onChange, onSave }: {
     input.current.scrollTop = Math.max(0, top); syncScroll();
   }, [request?.id]);
   return <div className="file-source-editor">
-    <div className="file-code-toolbar"><button type="button" aria-pressed={wrap}
-      title={wrap ? 'Disable line wrapping' : 'Wrap long lines'} onClick={() => setWrap(value => !value)}>{wrap ? 'Unwrap' : 'Wrap'}</button></div>
     <div className={`file-code-editor${html === null ? ' file-code-plain' : ''}${wrap ? ' file-code-wrap' : ''}`}>
     <pre ref={code} aria-hidden="true">{html === null ? text + '\n' : <code dangerouslySetInnerHTML={{ __html: html + '\n' }} />}</pre>
     <textarea ref={input} aria-label="File contents" value={text} wrap={wrap ? 'soft' : 'off'} spellCheck={false} autoCapitalize="off" autoCorrect="off"

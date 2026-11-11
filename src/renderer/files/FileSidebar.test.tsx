@@ -193,7 +193,7 @@ describe('file sidebar', () => {
 
   it('reports an oversized HTML preview URL without crashing or disabling Source and download controls', async () => {
     const f = fixture(textFile('/work/large.html', `<p>${'界'.repeat(1_500_000)}</p>`));
-    render(<FileSidebar {...f.props} />);
+    render(<FileSidebar {...f.props} allowNativeBrowse={false} />);
     expect(await screen.findByRole('alert')).toHaveTextContent('Preview assets exceed the document size limit');
     expect(screen.queryByTitle('HTML preview')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Source' })).toBeEnabled();

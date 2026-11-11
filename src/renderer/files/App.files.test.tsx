@@ -6,12 +6,10 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { failure, success, type ManagerApi, type SessionDto } from '../../shared/contracts';
 import type { FileApi } from '../../shared/file-contracts';
-import type { FileTransfersProps } from './FileTransfers';
 import { App } from '../App';
 import { TerminalRegistry } from '../terminal-client';
 import { deferred, mockApi, session, snapshot } from '../test-fixtures';
 
-vi.mock('./FileTransfers', () => ({ FileTransfers: (props: FileTransfersProps) => <div data-testid="file-transfer-target" data-folder={props.location.path} data-selected={props.selectedPath} data-session={props.location.sessionId} data-tab={props.location.tabId} /> }));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 beforeEach(() => localStorage.clear());
 function setup(sessions: SessionDto[] = [session()]) {
@@ -24,9 +22,10 @@ function setup(sessions: SessionDto[] = [session()]) {
     writeImage: vi.fn<FileApi['writeImage']>(async () => failure('UNSUPPORTED', 'Not used')),
     readAsset: vi.fn<FileApi['readAsset']>(async () => success({ mimeType: 'text/javascript', dataUrl: 'data:text/javascript;base64,YQ==', size: 1 })),
   } satisfies FileApi;
-  const api: ManagerApi = { ...base.api, files };
+  const openFileExplorer = vi.fn<NonNullable<ManagerApi['openFileExplorer']>>(async () => success(null));
+  const api: ManagerApi = { ...base.api, files, openFileExplorer };
   render(<App api={api} />);
-  return { ...base, api, files, user: userEvent.setup() };
+  return { ...base, api, files, openFileExplorer, user: userEvent.setup() };
 }
 
 it('provides an icon-only folder toggle and host-home browser without any sessions', async () => {
@@ -77,7 +76,8 @@ it('opens the backend-reported terminal cwd through a separate icon instead of u
   await f.user.click(button);
   expect(await screen.findByRole('combobox', { name: 'Folder path' })).toHaveValue('/current/shell/folder');
   expect(f.files.list).toHaveBeenCalledExactlyOnceWith({ sessionId: item.id, tabId: item.tabs[0].id, path: '.' });
-  expect(screen.getByTestId('file-transfer-target')).toHaveAttribute('data-folder', '/current/shell/folder');
+  await f.user.click(screen.getByRole('button', { name: 'Open in system explorer' }));
+  expect(f.openFileExplorer).toHaveBeenCalledWith({ path: '/current/shell/folder' });
 });
 
 it('returns an already-browsed or hidden panel to the terminal cwd without replacing its dirty preview', async () => {
@@ -89,7 +89,9 @@ it('returns an already-browsed or hidden panel to the terminal cwd without repla
   fireEvent.change(editor, { target: { value: 'unsaved text stays' } });
   const path = screen.getByRole('combobox', { name: 'Folder path' });
   fireEvent.change(path, { target: { value: '/browsed/elsewhere' } }); fireEvent.submit(path.closest('form') ?? path);
-  await waitFor(() => expect(screen.getByTestId('file-transfer-target')).toHaveAttribute('data-folder', '/browsed/elsewhere'));
+  await waitFor(() => expect(path).toHaveValue('/browsed/elsewhere'));
+  await f.user.click(screen.getByRole('button', { name: 'Open in system explorer' }));
+  expect(f.openFileExplorer).toHaveBeenLastCalledWith({ path: '/browsed/elsewhere' });
   await f.user.click(screen.getByRole('button', { name: 'Toggle file browser' }));
   await f.user.click(screen.getByRole('button', { name: 'Files' }));
   f.files.list.mockResolvedValueOnce(success({ path: '/shell/current', parentPath: '/shell', entries: [], truncated: false }));
@@ -139,16 +141,20 @@ it('reports terminal cwd lookup failures without opening a broken panel', async 
   expect(screen.getByRole('button', { name: 'Open terminal folder' })).toBeEnabled();
 });
 
-it('keeps a failed preview target downloadable without treating it as the upload folder', async () => {
+it('keeps local failed previews available in the native explorer without offering transfers', async () => {
   const f = setup([]); f.files.read.mockResolvedValueOnce(failure('UNSUPPORTED', 'File is too large for preview'));
   await f.user.click(await screen.findByRole('button', { name: 'Files' }));
   await f.user.click(await screen.findByRole('button', { name: 'note.ts' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('too large');
-  expect(screen.getByTestId('file-transfer-target')).toHaveAttribute('data-folder', '/home');
-  expect(screen.getByTestId('file-transfer-target')).toHaveAttribute('data-selected', '/home/note.ts');
+  expect(screen.queryByRole('button', { name: 'Upload file' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Download selected file' })).toBeNull();
+  await f.user.click(screen.getByRole('button', { name: 'Open in system explorer' }));
+  expect(f.openFileExplorer).toHaveBeenLastCalledWith({ path: '/home' });
+  await f.user.click(screen.getByRole('button', { name: 'Show file in system explorer' }));
+  expect(f.openFileExplorer).toHaveBeenLastCalledWith({ path: '/home/note.ts' });
 });
 
-it('keeps terminal-relative failed preview downloads in their original session context', async () => {
+it('keeps terminal-relative failed preview explorer actions in their original session context', async () => {
   let open: Parameters<TerminalRegistry['onFileOpen']>[0] | undefined;
   vi.spyOn(TerminalRegistry.prototype, 'onFileOpen').mockImplementation(listener => { open = listener; return () => {}; });
   const item = session(); item.tabs[0].cwd = '/work/session';
@@ -156,10 +162,8 @@ it('keeps terminal-relative failed preview downloads in their original session c
   await screen.findByRole('button', { name: 'Select session Session 1' });
   act(() => open?.(item.tabs[0].id, { path: './large.bin' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Preview unavailable');
-  const transfers = screen.getByTestId('file-transfer-target');
-  expect(transfers).toHaveAttribute('data-folder', '/work/session');
-  expect(transfers).toHaveAttribute('data-selected', './large.bin');
-  expect(transfers).toHaveAttribute('data-session', item.id); expect(transfers).toHaveAttribute('data-tab', item.tabs[0].id);
+  await f.user.click(screen.getByRole('button', { name: 'Show file in system explorer' }));
+  expect(f.openFileExplorer).toHaveBeenLastCalledWith({ sessionId: item.id, tabId: item.tabs[0].id, path: './large.bin' });
 });
 
 it('retains WSL session/tab identity for relative reads, canonical browsing, assets and saves, then allows switching to host home', async () => {

@@ -8,13 +8,13 @@ it('keeps textarea and syntax highlight wrapping aligned after edits, resizing a
   const compiled = await build({ stdin: { loader: 'tsx', resolveDir: process.cwd(), contents: `
     import React, {useState} from 'react'; import {createRoot} from 'react-dom/client';
     import {FileCodeEditor} from './src/renderer/files/FileCodeEditor';
-    function App(){const [text,setText]=useState(${JSON.stringify(text)});return <FileCodeEditor path="file.ts" text={text} request={null} onChange={setText} onSave={()=>{}}/>}
+    function App(){const [text,setText]=useState(${JSON.stringify(text)});const [wrap,setWrap]=useState(true);return <><button onClick={()=>setWrap(!wrap)}>{wrap?'Unwrap':'Wrap'}</button><FileCodeEditor path="file.ts" text={text} wrap={wrap} request={null} onChange={setText} onSave={()=>{}}/></>}
     createRoot(document.getElementById('root')).render(<App/>);
   ` }, bundle: true, write: false, format: 'iife', define: { 'process.env.NODE_ENV': '"production"' } });
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
-    await page.setContent('<style>body{margin:0;--fg:#ddd;--panel:#17171b;--border:#555}#root{display:flex;width:320px;height:300px}</style><div id="root"></div>');
+    await page.setContent('<style>body{margin:0;--fg:#ddd;--panel:#17171b;--border:#555}#root{display:flex;flex-direction:column;width:320px;height:300px}</style><div id="root"></div>');
     await page.addStyleTag({ content: await readFile('src/renderer/files/files.css', 'utf8') });
     await page.addScriptTag({ content: compiled.outputFiles[0].text });
     const input = page.getByRole('textbox', { name: 'File contents' });

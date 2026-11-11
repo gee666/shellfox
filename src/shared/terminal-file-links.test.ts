@@ -13,6 +13,19 @@ describe('terminal file targets', () => {
     expect(parseTerminalFileTarget('file:///work/app.py#L12-L20')).toEqual({ path: '/work/app.py', line: 12 });
     expect(parseTerminalFileTarget('file:///work/app.py%3A12%3A4')).toEqual({ path: '/work/app.py', line: 12, column: 4 });
   });
+  it('accepts folders without extensions and relative folders with trailing separators', () => {
+    for (const path of ['/home/me/project/', 'C:\\work\\folder', './src/shared', '../folder/', '~/project', 'src/shared/', 'src\\shared\\']) {
+      expect(parseTerminalFileTarget(path)).toEqual({ path });
+    }
+  });
+  it('keeps paths after apostrophes and unmatched quotes in prose', () => {
+    for (const text of ["Here's ./src/main.ts", 'an unmatched "quote before ./src/main.ts']) {
+      expect(findTerminalFileLinks(text).map(link => link.text)).toEqual(['./src/main.ts']);
+    }
+  });
+  it('stops file tokens at table borders without requiring padding', () => {
+    expect(findTerminalFileLinks('│./src/main.ts:12:3│src/shared/│').map(link => link.text)).toEqual(['./src/main.ts:12:3', 'src/shared/']);
+  });
   it('does not treat network URLs, arbitrary protocols, control characters or invalid positions as files', () => {
     for (const value of ['https://example.com/a.py', 'javascript:alert(1)', 'file://other-host/etc/passwd', 'data:text/html,x', 'app.py:0', 'a.py:9007199254740992', '/etc/\npasswd', 'file:///a%00b', 'file:///x?command=y', 'file:///x#javascript:alert(1)', 'file:///x#L0', 'plain']) {
       expect(parseTerminalFileTarget(value), value).toBeNull();

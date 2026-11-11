@@ -21,6 +21,14 @@ async function fixture() {
   await writeFile(path.join(root, 'a.txt'), 'old\r\n雪\ufeff');
   return { root, sessionId, tabId, terminal, service, input };
 }
+it('creates scoped directories relative to the current terminal and validates identities', async () => {
+  const f = await fixture(), current = path.join(f.root, 'current');
+  await mkdir(current); f.terminal.cwd = current;
+  expect(await f.service.createDirectory({ ...f.input, path: 'new/nested' })).toEqual({ ok: true, value: { cwd: path.join(current, 'new/nested') } });
+  expect(await f.service.createDirectory({ ...f.input, tabId: randomUUID(), path: 'denied' })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+  expect(await readdir(current)).toEqual(['new']);
+  expect(await f.service.createDirectory({ ...f.input, path: path.join(f.root, 'a.txt/child') })).toMatchObject({ ok: false });
+});
 const png = (suffix = '') => Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from(suffix)]);
 it('reads exact UTF-8/BOM/line endings and saves with content revisions without stale overwrites', async () => {
   const f = await fixture(), read = value(await f.service.read(f.input));

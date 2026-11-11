@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { failure, success, type ManagerApi } from '../../shared/contracts';
 import { FILE_CHUNK_BYTES } from '../../shared/file-transfer-schemas';
 import { mockApi } from '../test-fixtures';
+import { Notifications } from '../components';
 import { FileTransfers } from './FileTransfers';
 import { localId, transferFixture } from './file-transfer-test-fixtures';
 
@@ -27,6 +28,17 @@ describe('desktop transfer toolbar', () => {
     expect(screen.getByRole('button', { name: 'Download selected file' })).toHaveProperty('disabled', true);
     view.rerender(<FileTransfers api={f.api} location={location} selectedPath="/folder/selected.bin" />);
     expect(screen.getByRole('button', { name: 'Download selected file' })).toHaveProperty('disabled', false);
+  });
+  it('keeps inline folder controls upload-only and reports outcomes without adding a toolbar row', async () => {
+    const f = fixture();
+    const view = render(<Notifications><FileTransfers inline uploadOnly api={f.api} location={location} /></Notifications>);
+    expect(screen.queryByRole('button', { name: 'Download selected file' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
+    await screen.findByText('Uploaded upload.bin');
+    expect(view.container.querySelector('.file-transfers-inline > span')).toBeNull();
+    f.remote.beginWrite.mockResolvedValueOnce(failure('FILE_CONFLICT', 'Already exists'));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload file' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Already exists');
   });
   it('does not depend on a successful or supported file preview to download', async () => {
     const f = fixture();

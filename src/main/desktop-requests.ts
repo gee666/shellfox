@@ -1,12 +1,14 @@
 import { clipboard, dialog, shell, type BrowserWindow } from 'electron';
-import { failure, success } from '../shared/contracts';
+import { failure, success, type ManagerSnapshot, type Result } from '../shared/contracts';
 import { CLIPBOARD_PASTE_BYTES, requestSchemas, type ManagerMethod } from '../shared/schemas';
 import { validateDirectory } from './directory';
+import { openFileExplorer } from './desktop-explorer';
 import type { UpdateSource } from './update/self-updater';
 
 interface DesktopRequests {
   window: BrowserWindow;
   updates?: UpdateSource;
+  snapshot?(): Result<ManagerSnapshot> | Promise<Result<ManagerSnapshot>>;
   sessionDirectory(sessionId: string): string | null | Promise<string | null>;
 }
 /** Desktop-only operations stay in Electron, even when another process owns the host. */
@@ -25,6 +27,11 @@ export async function desktopRequest(method: ManagerMethod, payload: unknown, op
     case 'openExternal':
       try { await shell.openExternal(new URL(requestSchemas.openExternal.parse(payload).url).href); return success({ opened: true }); }
       catch { return failure('INTERNAL', 'The link could not be opened.'); }
+    case 'openFileExplorer': {
+      const input = requestSchemas.openFileExplorer.parse(payload);
+      const snapshot = await options.snapshot?.();
+      return snapshot?.ok ? openFileExplorer(input, snapshot.value) : failure('NATIVE_UNAVAILABLE', 'The local filesystem is unavailable.');
+    }
     case 'openSessionFolder': {
       const cwd = await options.sessionDirectory(requestSchemas.openSessionFolder.parse(payload).sessionId);
       if (!cwd) return failure('NOT_FOUND', 'Session not found.');

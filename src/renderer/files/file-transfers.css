@@ -5,3 +5,8 @@
 .file-transfer-toolbar > span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .file-transfers > p { margin: 2px 0; overflow-wrap: anywhere; }
 .file-transfers > span { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.file-transfers-inline { display: flex; align-items: center; min-width: 0; padding: 0; border: 0; }
+.file-transfers-inline .file-transfer-toolbar { gap: 3px; }
+.file-transfers-inline .file-transfer-toolbar > button { flex-basis: 24px; width: 24px; }
+.file-transfers-inline .file-transfer-toolbar > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.file-transfers-inline .file-transfer-toolbar progress { width: 24px; }

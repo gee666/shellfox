@@ -313,7 +313,7 @@ async function run(): Promise<void> {
   if (service instanceof EmbeddedSessionService) {
     const hostWindow = window;
     hostRpc = await startHostRpc({ userData: app.getPath('userData'), service, remote, keepAwake, ssh: sshProfiles, mode: 'desktop', guard: () => ownership.assertOwned(),
-      desktop: (method, payload) => desktopRequest(method, payload, { window: hostWindow, updates, sessionDirectory: id => service.repository.session(id)?.cwd ?? null }),
+      desktop: (method, payload) => desktopRequest(method, payload, { window: hostWindow, updates, snapshot: () => service.getSnapshot(), sessionDirectory: id => service.repository.session(id)?.cwd ?? null }),
       shutdown: () => new Promise<void>((resolve, reject) => { cliStop = { resolve, reject }; quitApproved = true; app.quit(); }),
     });
     startupCleanups.push(() => hostRpc?.close());

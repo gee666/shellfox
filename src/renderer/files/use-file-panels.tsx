@@ -1,15 +1,24 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ManagerApi } from '../../shared/contracts';
 import type { FileList } from '../../shared/file-contracts';
 import type { FileDirectoryRequest } from './file-directory-request';
 import { FileSidebar, type FileOpenRequest } from './FileSidebar';
 
 interface HostTarget { hostId: string; api: ManagerApi; directory?: string; allowNativeBrowse?: boolean; scope?: { sessionId: string; tabId?: string } }
-interface FilePanel extends HostTarget { open: boolean; request?: FileOpenRequest; directoryRequest?: FileDirectoryRequest }
+interface FilePanel extends HostTarget { open: boolean; browserOpen?: boolean; request?: FileOpenRequest; directoryRequest?: FileDirectoryRequest }
 
 /** Host panels outlive terminal sessions, including sessions that have been deleted. */
 export function useFilePanels() {
   const [panels, setPanels] = useState<Record<string, FilePanel>>({});
+  const currentPanels = useRef(panels); currentPanels.current = panels;
+  const toggleBrowser = (hostId: string): boolean => {
+    if (!currentPanels.current[hostId]?.open) return false;
+    setPanels(previous => {
+      const panel = previous[hostId];
+      return panel?.open ? { ...previous, [hostId]: { ...panel, browserOpen: !(panel.browserOpen ?? true) } } : previous;
+    });
+    return true;
+  };
   const toggle = (target: HostTarget) => {
     if (!target.api.files) return;
     setPanels(previous => {
@@ -45,10 +54,14 @@ export function useFilePanels() {
   const render = (activeHostId: string) => Object.values(panels).map(panel => <FileSidebar key={panel.hostId}
     api={panel.api} sessionId={panel.scope?.sessionId} tabId={panel.scope?.tabId} initialDirectory={panel.directory}
     allowNativeBrowse={panel.allowNativeBrowse} openRequest={panel.request} directoryRequest={panel.directoryRequest}
+    browserOpen={panel.browserOpen ?? true} onBrowserChange={browserOpen => setPanels(previous => {
+      const current = previous[panel.hostId];
+      return current ? { ...previous, [panel.hostId]: { ...current, browserOpen } } : previous;
+    })}
     onHostDirectory={path => setPanels(previous => {
       const current = previous[panel.hostId];
       return current ? { ...previous, [panel.hostId]: { ...current, scope: undefined, directory: path, request: undefined, directoryRequest: undefined } } : previous;
     })}
     hidden={panel.hostId !== activeHostId || !panel.open} onClose={() => close(panel.hostId)} />);
-  return { toggle, openFile, openDirectory, render, isOpen: (hostId: string) => !!panels[hostId]?.open };
+  return { toggle, toggleBrowser, openFile, openDirectory, render, isOpen: (hostId: string) => !!panels[hostId]?.open };
 }

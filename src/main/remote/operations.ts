@@ -90,7 +90,10 @@ export async function remoteOperation(service: EmbeddedSessionService, delivery:
     case 'setTerminalEnv': result = await service.setTerminalEnv(requestSchemas.setTerminalEnv.parse(payload), canCommit); break;
     case 'getHomeDirectory': result = getHomeDirectory(); break;
     case 'resolveDirectory': result = await resolveDirectory(requestSchemas.resolveDirectory.parse(payload)); break;
-    case 'createDirectory': result = await createDirectory(requestSchemas.createDirectory.parse(payload)); break;
+    case 'createDirectory': {
+      const input = requestSchemas.createDirectory.parse(payload);
+      result = await (input.sessionId ? service.files.createDirectory(input) : createDirectory(input)); break;
+    }
     case 'completeDirectory': result = await completeDirectory(requestSchemas.completeDirectory.parse(payload)); break;
   }
   const response = responseSchemas[m].safeParse(result);

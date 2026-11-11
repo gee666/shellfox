@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ManagerApi } from '../../shared/contracts';
 import type { FileLocation } from '../../shared/file-contracts';
+import { useNotify } from '../components';
 import { downloadDesktopFile, hasFileTransfers, uploadDesktopFile } from './desktop-file-transfers';
 import './file-transfers.css';
 
@@ -10,6 +11,8 @@ export interface FileTransfersProps {
   /** Selected file request, including a target whose preview failed or exceeded its limit. */
   selectedPath?: string;
   onUploaded?: () => void;
+  inline?: boolean;
+  uploadOnly?: boolean;
 }
 interface Progress { direction: 'upload' | 'download'; name: string; offset: number; total: number; cancelled: boolean }
 function TransferIcon({ upload }: { upload: boolean }) {
@@ -19,6 +22,7 @@ function TransferIcon({ upload }: { upload: boolean }) {
 }
 
 export function FileTransfers(props: FileTransfersProps) {
+  const notify = useNotify();
   const [progress, setProgress] = useState<Progress | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +33,11 @@ export function FileTransfers(props: FileTransfersProps) {
     mounted.current = true;
     return () => { mounted.current = false; running.current?.abort(); };
   }, []);
+  useEffect(() => {
+    if (!props.inline) return;
+    if (error) notify({ code: 'NATIVE_UNAVAILABLE', message: error, retryable: true });
+    else if (notice) notify({ tone: 'info', message: notice });
+  }, [props.inline, error, notice, notify]);
   const available = hasFileTransfers(props.api.files) && !!props.api.desktopFiles;
   async function start(direction: 'upload' | 'download') {
     if (running.current) return;
@@ -60,17 +69,17 @@ export function FileTransfers(props: FileTransfersProps) {
       if (mounted.current) { setProgress(null); if (controller.signal.aborted && !committed) setNotice('Transfer cancelled'); }
     }
   }
-  return <div className="file-transfers">
+  return <div className={`file-transfers${props.inline ? ' file-transfers-inline' : ''}`}>
     <div className="file-transfer-toolbar" role="group" aria-label="File transfers">
       <button type="button" aria-label="Upload file" title={available ? 'Upload a local file to this folder' : 'File transfers are not supported by this host'} disabled={!available || !props.location.path || !!progress} onClick={() => void start('upload')}><TransferIcon upload /></button>
-      <button type="button" aria-label="Download selected file" title="Download selected file" disabled={!available || !props.selectedPath || !!progress} onClick={() => void start('download')}><TransferIcon upload={false} /></button>
+      {!props.uploadOnly && <button type="button" aria-label="Download selected file" title="Download selected file" disabled={!available || !props.selectedPath || !!progress} onClick={() => void start('download')}><TransferIcon upload={false} /></button>}
       {progress && <>
         <progress aria-label="File transfer progress" max={Math.max(1, progress.total)} value={progress.offset} />
         <span role="status" title={progress.name}>{progress.cancelled ? 'Cancelling…' : progress.name ? `${progress.direction === 'upload' ? 'Uploading' : 'Downloading'} ${progress.name}` : 'Choosing file…'}</span>
         <button type="button" aria-label="Cancel file transfer" title="Cancel transfer" disabled={progress.cancelled} onClick={() => { running.current?.abort(); setProgress(previous => previous ? { ...previous, cancelled: true } : null); }}>×</button>
       </>}
     </div>
-    {error && <p role="alert">{error}</p>}
-    {notice && <span role="status">{notice}</span>}
+    {!props.inline && error && <p role="alert">{error}</p>}
+    {!props.inline && notice && <span role="status">{notice}</span>}
   </div>;
 }

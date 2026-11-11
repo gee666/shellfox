@@ -12,6 +12,8 @@ import { TerminalLoading, TerminalPlaceholder } from './TerminalPlaceholder';
 import { TerminalRegistry } from './terminal-client';
 import { SettingsPanel, type SettingsTab } from './SettingsPanel';
 import { useSidebarWidth } from './sidebar-width';
+import { useSessionsSidebarOpen } from './sidebar-visibility';
+import { layoutShortcutHint, useLayoutShortcuts } from './layout-shortcuts';
 import { LayoutResizer } from './files/file-layout-resizer';
 import { DirectoryPrompt } from './DirectoryPrompt';
 import { UpdateNotice } from './UpdateNotice';
@@ -63,6 +65,8 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const [profiles, setProfiles] = useState<TerminalProfileDto[]>([]);
   const [defaultProfileId, setDefaultProfileId] = useState<string | null>(null);
   const [width, setWidth] = useSidebarWidth();
+  const [sessionsOpen, setSessionsOpen] = useSessionsSidebarOpen();
+  const sessionsToggle = useRef<HTMLButtonElement>(null);
   const [dragging, setDragging] = useState(false);
   const action = useAction();
   const folderAction = useAction();
@@ -112,8 +116,27 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   terminalFolderTarget.current = { hostId: machineId, sessionId: selected?.id, tabId: selectedTab?.id };
   const filesAvailable = !!hostApi.files && (machineId === 'local' || !!runtime);
   function toggleFiles() {
-    if (filesAvailable) files.toggle({ hostId: machineId, api: hostApi, directory: selectedTab?.cwd ?? selected?.cwd ?? '~', allowNativeBrowse: machineId === 'local', scope: filePanelScope(selected, selectedTab, runtime?.profiles ?? profiles) });
+    if (!filesAvailable) return;
+    const restoreFocus = files.isOpen(machineId) && document.activeElement instanceof HTMLElement && !!document.activeElement.closest('.file-sidebar');
+    files.toggle({ hostId: machineId, api: hostApi, directory: selectedTab?.cwd ?? selected?.cwd ?? '~', allowNativeBrowse: machineId === 'local', scope: filePanelScope(selected, selectedTab, runtime?.profiles ?? profiles) });
+    if (restoreFocus) requestAnimationFrame(() => {
+      if (selectedTab) activeRegistry.focus(selectedTab.id);
+      else root.current?.querySelector<HTMLButtonElement>('.files-toggle')?.focus();
+    });
   }
+  function toggleSessions() {
+    if (sessionsOpen) {
+      setDragging(false);
+      if (document.activeElement instanceof HTMLElement && document.activeElement.closest('.sidebar, .sidebar-resizer')) sessionsToggle.current?.focus();
+    }
+    setSessionsOpen(open => !open);
+  }
+  useLayoutShortcuts(action => {
+    if (action === 'sessions') { toggleSessions(); return true; }
+    if (settingsOpen || !filesAvailable) return false;
+    if (action === 'files') { toggleFiles(); return true; }
+    return files.toggleBrowser(machineId);
+  });
   async function openTerminalFolder(tabId: string) {
     const fileApi = hostApi.files, session = selected, tab = session?.tabs.find(tab => tab.id === tabId && isViewableTab(tab));
     if (!filesAvailable || !fileApi || !session || !tab) return;
@@ -213,21 +236,23 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
     document.addEventListener('keydown', keydown);
     return () => document.removeEventListener('keydown', keydown);
   });
-  return <div ref={root} className={`app-shell${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
+  return <div ref={root} className={`app-shell${sessionsOpen ? '' : ' sessions-collapsed'}${dragging ? ' resizing' : ''}`} style={{ '--sidebar-width': `${width}px` } as CSSProperties}>
     <aside className="sidebar" aria-label="Session navigation">
-      <div className="sidebar-toolbar"><NewSessionButton peers={machines.state?.peers ?? []} selectedMachine={machineId} localAvailable={localCanCreate} busy={action.pending} onChoose={id => void prepareSession(id)} />{api.setKeepAwake && <button className={`icon-button${awake ? ' active' : ''}`} aria-label="Keep awake" aria-pressed={awake} data-tip="Keep awake" onClick={() => void toggleAwake()}><Icon name={awake ? 'eye' : 'eye-off'} /></button>}<button className={`icon-button${settingsOpen ? ' active' : ''}`} aria-label="Settings" aria-pressed={settingsOpen} data-tip={requestCount ? `Settings · ${requestCount} access request${requestCount === 1 ? '' : 's'}` : 'Settings'} disabled={!snapshot} onClick={() => settingsOpen ? closeSettings() : requestCount ? reviewRequests() : setSettingsOpen(true)}><Icon name="settings" />{requestCount > 0 && <span className="toolbar-request-count" aria-hidden="true">{requestCount > 9 ? '9+' : requestCount}</span>}</button></div>
+      <div className="sidebar-toolbar"><button ref={sessionsToggle} className={`icon-button sessions-toggle${sessionsOpen ? ' expanded' : ''}`} aria-label={sessionsOpen ? 'Hide sessions' : 'Show sessions'} aria-expanded={sessionsOpen} aria-controls="sessions-sidebar-content" title={`${sessionsOpen ? 'Hide' : 'Show'} sessions (${layoutShortcutHint('sessions')})`} onClick={toggleSessions}><Icon name="chevron" /></button><div className="sidebar-actions" hidden={!sessionsOpen} inert={!sessionsOpen}><NewSessionButton peers={machines.state?.peers ?? []} selectedMachine={machineId} localAvailable={localCanCreate} busy={action.pending} onChoose={id => void prepareSession(id)} />{api.setKeepAwake && <button className={`icon-button${awake ? ' active' : ''}`} aria-label="Keep awake" aria-pressed={awake} data-tip="Keep awake" onClick={() => void toggleAwake()}><Icon name={awake ? 'eye' : 'eye-off'} /></button>}<button className={`icon-button${settingsOpen ? ' active' : ''}`} aria-label="Settings" aria-pressed={settingsOpen} data-tip={requestCount ? `Settings · ${requestCount} access request${requestCount === 1 ? '' : 's'}` : 'Settings'} disabled={!snapshot} onClick={() => settingsOpen ? closeSettings() : requestCount ? reviewRequests() : setSettingsOpen(true)}><Icon name="settings" />{requestCount > 0 && <span className="toolbar-request-count" aria-hidden="true">{requestCount > 9 ? '9+' : requestCount}</span>}</button></div></div>
+      <div className="sidebar-content" id="sessions-sidebar-content" hidden={!sessionsOpen} inert={!sessionsOpen}>
       <div ref={navigation} className={remoteApi ? 'machine-navigation' : 'local-navigation'}>
         {snapshot && <section data-machine-id="local"><SessionSidebar onSelect={() => chooseMachine('local')} onSectionSelect={() => chooseMachine('local')} scrollContainer={remoteApi ? navigation : undefined} client={client} sessions={snapshot.sessions} selectedId={machineId === 'local' ? state.selectedId : null} busy={state.busyTabIds} pageSize={snapshot.settings.historyPageSize} /></section>}
         {remoteApi && <MachineSidebar controller={remote} selectedMachine={machineId} onSelect={chooseMachine} scrollContainer={navigation} root={root} pageSize={snapshot?.settings.historyPageSize ?? 20} />}
       </div>
       <UpdateNotice api={api} />
+      </div>
     </aside>
-    <LayoutResizer className="sidebar-resizer" label="Sidebar width" orientation="vertical" min={160} max={Math.max(160, window.innerWidth / 2)}
-      value={width} defaultValue={220} onChange={setWidth} onDraggingChange={setDragging} />
+    {sessionsOpen && <LayoutResizer className="sidebar-resizer" label="Sidebar width" orientation="vertical" min={160} max={Math.max(160, window.innerWidth / 2)}
+      value={width} defaultValue={220} onChange={setWidth} onDraggingChange={setDragging} />}
     <main className="workspace" aria-label="Workspace">
       <div className="workspace-content" data-machine-id={machineId} hidden={settingsOpen} inert={settingsOpen}>
         <div className="workspace-terminal-region">
-          {!selected && <div className="terminal-tab-strip empty-workspace-toolbar"><button className={`icon-button files-toggle${files.isOpen(machineId) ? ' active' : ''}`} aria-label="Files" title="Files" aria-pressed={files.isOpen(machineId)} disabled={!filesAvailable} onClick={toggleFiles}><Icon name="folder" /></button></div>}
+          {!selected && <div className="terminal-tab-strip empty-workspace-toolbar"><button className={`icon-button files-toggle${files.isOpen(machineId) ? ' active' : ''}`} aria-label="Files" title={`Files (${layoutShortcutHint('files')})`} aria-pressed={files.isOpen(machineId)} disabled={!filesAvailable} onClick={toggleFiles}><Icon name="folder" /></button></div>}
           {selected ? <TerminalWorkspace visible={!settingsOpen} key={`${machineId}:${selected.id}`} session={selected} client={activeClient} registry={activeRegistry} profiles={hostProfiles} defaultProfileId={effectiveProfile} platform={hostSnapshot?.probe.platform} available={available}
             filesOpen={files.isOpen(machineId)} onToggleFiles={filesAvailable ? toggleFiles : undefined} onOpenTerminalFolder={filesAvailable ? tabId => void openTerminalFolder(tabId) : undefined} openingTerminalFolder={folderAction.pending} /> : machineId !== 'local' && !runtime ? <MachineConnectionPanel peer={currentPeer} creating={creationTarget === machineId} onRetry={() => { if (remoteApi) void remote.run(() => remoteApi.connect({ peerId: machineId })); }} onCancel={() => void cancelConnection()} /> : activeState.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
         </div>

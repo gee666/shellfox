@@ -79,6 +79,7 @@ export class HostClient {
       copyText: input => this.request('copyText', input),
       readClipboardText: () => this.request('readClipboardText'),
       openSessionFolder: input => this.request('openSessionFolder', input),
+      openFileExplorer: input => this.request('openFileExplorer', input),
       openExternal: input => this.request('openExternal', input),
       getKeepAwake: () => this.request('getKeepAwake'),
       setKeepAwake: input => this.request('setKeepAwake', input),

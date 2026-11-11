@@ -9,8 +9,9 @@ afterEach(cleanup);
 function setup(path = 'example.ts', text = 'const word = "unchanged";\n' + 'long '.repeat(100)) {
   const changed = vi.fn(), saved = vi.fn();
   function Editor() {
-    const [value, setValue] = useState(text);
-    return <FileCodeEditor path={path} text={value} request={null} onSave={saved} onChange={next => { changed(next); setValue(next); }} />;
+    const [value, setValue] = useState(text), [wrap, setWrap] = useState(true);
+    return <><button onClick={() => setWrap(current => !current)}>{wrap ? 'Unwrap' : 'Wrap'}</button>
+      <FileCodeEditor path={path} text={value} wrap={wrap} request={null} onSave={saved} onChange={next => { changed(next); setValue(next); }} /></>;
   }
   const view = render(<Editor />);
   const input = screen.getByRole('textbox', { name: 'File contents' });

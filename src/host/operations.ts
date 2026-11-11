@@ -67,7 +67,10 @@ export async function managerOperation(ctx: ManagerContext, method: ManagerMetho
     case 'setCliIntegration': return service.setCliIntegration(requestSchemas.setCliIntegration.parse(payload));
     case 'getHomeDirectory': return getHomeDirectory();
     case 'resolveDirectory': return resolveDirectory(requestSchemas.resolveDirectory.parse(payload));
-    case 'createDirectory': return createDirectory(requestSchemas.createDirectory.parse(payload));
+    case 'createDirectory': {
+      const input = requestSchemas.createDirectory.parse(payload);
+      return input.sessionId ? service.files?.createDirectory(input) ?? failure('UNSUPPORTED', 'File browsing is unavailable.') : createDirectory(input);
+    }
     case 'completeDirectory': return completeDirectory(requestSchemas.completeDirectory.parse(payload));
     case 'getKeepAwake': return success({ active: ctx.keepAwake?.active ?? false });
     case 'setKeepAwake': {
@@ -80,7 +83,7 @@ export async function managerOperation(ctx: ManagerContext, method: ManagerMetho
     case 'deleteSshProfile': return ctx.ssh ? ctx.ssh.delete(requestSchemas.deleteSshProfile.parse(payload).id) : failure('UNSUPPORTED', 'SSH storage is unavailable.');
     case 'importPuttySessions': return ctx.ssh ? ctx.ssh.import(await readPuttySessions()) : failure('UNSUPPORTED', 'SSH storage is unavailable.');
     case 'chooseDirectory': case 'chooseSshKeyFile': case 'copyText': case 'readClipboardText':
-    case 'openSessionFolder': case 'openExternal': case 'getUpdateStatus': case 'downloadUpdate': case 'installUpdate':
+    case 'openSessionFolder': case 'openFileExplorer': case 'openExternal': case 'getUpdateStatus': case 'downloadUpdate': case 'installUpdate':
       return ctx.desktop ? ctx.desktop(method, payload) : failure('UNSUPPORTED', 'This action requires a desktop attached to the host.');
   }
 }

@@ -43,7 +43,7 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         const owner = fileActor;
         return responseSchemas[method].parse(await service.files.transfers.request({ id: owner, valid: () => !stopped && fileActor === owner }, method, payload));
       }
-      let result = await desktopRequest(method, payload, { window, updates, sessionDirectory: id => service.repository.session(id)?.cwd ?? null });
+      let result = await desktopRequest(method, payload, { window, updates, snapshot: () => service.getSnapshot(), sessionDirectory: id => service.repository.session(id)?.cwd ?? null });
       // Keep methods explicit. There is no property lookup into the service.
       if (result === undefined) switch (method) {
         case 'listFiles': result = await service.files.list(requestSchemas.listFiles.parse(payload)); break;
@@ -106,7 +106,10 @@ export function installIpc(window: BrowserWindow, rendererUrl: string, service: 
         case 'setKeepAwake': result = keepAwake ? success({ active: keepAwake.set(requestSchemas.setKeepAwake.parse(payload).active) }) : failure('UNSUPPORTED', 'Keep awake is unavailable.'); break;
         case 'getHomeDirectory': result = getHomeDirectory(); break;
         case 'resolveDirectory': result = await resolveDirectory(requestSchemas.resolveDirectory.parse(payload)); break;
-        case 'createDirectory': result = await createDirectory(requestSchemas.createDirectory.parse(payload)); break;
+        case 'createDirectory': {
+          const input = requestSchemas.createDirectory.parse(payload);
+          result = await (input.sessionId ? service.files.createDirectory(input) : createDirectory(input)); break;
+        }
         case 'completeDirectory': result = await completeDirectory(requestSchemas.completeDirectory.parse(payload)); break;
       }
       const response = responseSchemas[method].safeParse(result);
