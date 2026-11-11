@@ -40,10 +40,6 @@ jobs:
         with:
           node-version: 24.22.1
           architecture: ${{ matrix.arch }}
-      - name: Ubuntu archive setup
-        if: runner.os == 'Linux'
-        run: bash .github/scripts/setup-ubuntu-apt.sh
-        timeout-minutes: 2
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.3'
@@ -54,7 +50,9 @@ jobs:
         run: node -e "if(process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Wrong native target')"
       - name: Linux compiler prerequisites, no display server
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++
+        run: |
+          bash .github/scripts/setup-ubuntu-apt.sh
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++
       - name: Install build dependencies without Electron or lifecycle rebuilds
         run: pnpm install --frozen-lockfile --ignore-scripts
         timeout-minutes: 5

@@ -153,10 +153,6 @@ jobs:
         with:
           node-version: 24.22.1
           architecture: ${{ matrix.arch }}
-      - name: Ubuntu archive setup
-        if: runner.os == 'Linux'
-        run: bash .github/scripts/setup-ubuntu-apt.sh
-        timeout-minutes: 2
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.3'
@@ -173,7 +169,9 @@ jobs:
           node -e "const v=require('./package.json').version; if('v'+v !== process.env.GITHUB_REF_NAME) throw new Error('Tag ' + process.env.GITHUB_REF_NAME + ' does not match package.json version ' + v)"
       - name: Linux build and Electron dependencies
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++ dpkg fakeroot util-linux dbus-x11 xvfb libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
+        run: |
+          bash .github/scripts/setup-ubuntu-apt.sh
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++ dpkg fakeroot util-linux dbus-x11 xvfb libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
       - name: Install dependencies
         run: bash .github/scripts/ci-step.sh install pnpm install --frozen-lockfile
       - name: Typecheck

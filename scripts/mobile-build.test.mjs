@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { androidBuildToolsDirectory, androidBuildToolsVersion, mobileVersion, signingEnvironment, verifyApkSigner } from './mobile-build.mjs';
-import { aptPolicy, configureUbuntuApt, rewriteSources, validateMirror } from '../.github/scripts/setup-ubuntu-apt.mjs';
+import { aptPolicy, configureUbuntuApt, describeSources, rewriteSources, validateMirror } from '../.github/scripts/setup-ubuntu-apt.mjs';
 
 const signing = {
   SHELLFOX_ANDROID_KEYSTORE_BASE64: 'YQ==', SHELLFOX_ANDROID_STORE_PASSWORD: 'test-store',
@@ -135,12 +135,19 @@ describe('mobile release contract', () => {
       ...workflows.slice(1).map(name => readFileSync('.github/workflows/' + name, 'utf8')),
     ];
     for (const job of jobs) {
-      const setup = job.indexOf('run: bash .github/scripts/setup-ubuntu-apt.sh');
+      const setup = job.indexOf('bash .github/scripts/setup-ubuntu-apt.sh');
       assert.ok(setup >= 0);
       for (const consumer of ['sudo apt-get', 'run: bash .github/scripts/install-browser-tests.sh']) {
         const index = job.indexOf(consumer);
         if (index >= 0) assert.ok(setup < index);
       }
+      const lines = job.split('\n');
+      for (const [index, line] of lines.entries()) {
+        if (line.includes('sudo apt-get')) {
+          assert.equal(lines[index - 1].trim(), 'bash .github/scripts/setup-ubuntu-apt.sh');
+        }
+      }
+      assert.doesNotMatch(job, /run: sudo apt-get/);
     }
     const setup = readFileSync('.github/scripts/setup-ubuntu-apt.sh', 'utf8');
     assert.match(setup, /GITHUB_ACTIONS:-.*true/);
@@ -163,10 +170,39 @@ describe('Ubuntu CI archive configuration', () => {
   const key = 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg';
   const stanza = uri => `Types: deb deb-src\nURIs: ${uri}\nSuites: noble noble-updates noble-backports noble-security\nComponents: main restricted universe multiverse\n${key}\n`;
 
+  // Ubuntu 24.04 main/security stanzas, including the file URI spelling apt
+  // normalizes to mirror+file:/etc/... in fetch logs.
+  const imageSources = `Types: deb
+URIs: mirror+file:///etc/apt/apt-mirrors.txt
+Suites: noble noble-updates noble-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.ubuntu.com/ubuntu/
+Suites: noble-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+`;
+  const configuredImage = mirror => imageSources
+    .replace('mirror+file:///etc/apt/apt-mirrors.txt', mirror)
+    .replace('http://security.ubuntu.com/ubuntu/', mirror);
+
+  it('rewrites both stanzas when a file mixes triple-slash main archives and direct security URIs', () => {
+    for (const mirror of mirrors) {
+      const result = rewriteSources(imageSources, '.sources', mirror);
+      assert.equal(result, configuredImage(mirror));
+      assert.doesNotMatch(result, /mirror\+file|security\.ubuntu\.com/);
+      assert.equal(rewriteSources(result, '.sources', mirror), result);
+    }
+  });
+
   it('replaces GitHub mirror lists and direct Ubuntu sources without changing suites or signing keys', () => {
     const uris = [
       'mirror+file:/etc/apt/apt-mirrors.txt',
       'mirror+file:/etc/apt/apt-mirrors-security.txt',
+      'mirror+file:///etc/apt/apt-mirrors.txt',
+      'mirror+file:///etc/apt/apt-mirrors-security.txt',
       'http://azure.archive.ubuntu.com/ubuntu/',
       'https://azure.archive.ubuntu.com/ubuntu',
       'http://archive.ubuntu.com/ubuntu',
@@ -179,6 +215,7 @@ describe('Ubuntu CI archive configuration', () => {
       for (const uri of uris) {
         assert.equal(rewriteSources(stanza(uri), '.sources', mirror), stanza(mirror));
       }
+      assert.equal(rewriteSources(stanza(uris.join(' ')), '.sources', mirror), stanza(uris.map(() => mirror).join(' ')));
       const multi = stanza(uris[0] + '\n ' + uris[1]);
       assert.equal(rewriteSources(multi, '.sources', mirror), stanza(mirror + '\n ' + mirror));
     }
@@ -191,10 +228,29 @@ describe('Ubuntu CI archive configuration', () => {
     assert.equal(rewriteSources(thirdParty, '.sources', mirror), thirdParty);
     const legacy = `deb [arch=amd64 signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] ${uri} noble main\ndeb-src ${uri} noble-updates universe\n`;
     assert.equal(rewriteSources(legacy, '.list', mirror), legacy.replaceAll(uri, mirror));
+    const mirrorList = legacy.replaceAll(uri, 'mirror+file:///etc/apt/apt-mirrors.txt');
+    assert.equal(rewriteSources(mirrorList, '.list', mirror), legacy.replaceAll(uri, mirror));
     const untouched = '# deb ' + uri + ' noble main\ndeb https://ppa.launchpadcontent.net/test/ubuntu noble main\n' +
       'deb https://archive.ubuntu.com/ubuntu-other noble main\n';
     assert.equal(rewriteSources(untouched, '.list', mirror), untouched);
     assert.equal(rewriteSources(`Description: ${uri}\n` + stanza(mirror), '.sources', mirror), `Description: ${uri}\n` + stanza(mirror));
+  });
+
+  it('logs source fields without URL credentials, query/fragment secrets, arbitrary fields or legacy auth options', () => {
+    const authenticated = 'https://private-user:private-password@mirror.example/ubuntu?token=query-secret#fragment-secret';
+    const source = stanza(authenticated + '\n ' + authenticated) +
+      'Password: field-secret\n# comment-secret\n';
+    const diagnostics = describeSources(source, '.sources');
+    assert.match(diagnostics, /Types: deb deb-src/);
+    assert.match(diagnostics, /URIs: https:\/\/redacted@mirror\.example\/ubuntu\?redacted#redacted/);
+    assert.ok(diagnostics.includes(key));
+    const legacy = describeSources(`deb [arch=amd64 password=option-secret] ${authenticated} noble main # inline-secret\n`, '.list');
+    assert.match(legacy, /^deb https:\/\/redacted@mirror\.example\/ubuntu\?redacted#redacted noble main$/);
+    for (const secret of ['private-user', 'private-password', 'query-secret', 'fragment-secret',
+      'field-secret', 'comment-secret', 'option-secret', 'inline-secret']) {
+      assert.ok(!diagnostics.includes(secret));
+      assert.ok(!legacy.includes(secret));
+    }
   });
 
   it('rejects insecure mirrors and apt syntax injection before changing any files', () => {
@@ -218,7 +274,7 @@ describe('Ubuntu CI archive configuration', () => {
       const legacy = path.join(directory, 'sources.list.d/ubuntu-security.list');
       const vendor = path.join(directory, 'sources.list.d/vendor.sources');
       const backup = path.join(directory, 'sources.list.d/ubuntu.sources.bak');
-      const content = stanza('mirror+file:/etc/apt/apt-mirrors.txt');
+      const content = imageSources;
       const vendorContent = stanza('https://packages.microsoft.com/repos/code');
       writeFileSync(main, 'deb http://archive.ubuntu.com/ubuntu noble main\n');
       writeFileSync(ubuntu, content);
@@ -227,11 +283,18 @@ describe('Ubuntu CI archive configuration', () => {
       writeFileSync(backup, content);
       assert.throws(() => configureUbuntuApt(directory, 'http://invalid.example/ubuntu'));
       assert.equal(readFileSync(ubuntu, 'utf8'), content);
-      assert.equal(configureUbuntuApt(directory, mirrors[1]), 3);
-      assert.equal(readFileSync(ubuntu, 'utf8'), stanza(mirrors[1]));
+      const diagnostics = [];
+      assert.equal(configureUbuntuApt(directory, mirrors[1], message => diagnostics.push(message)), 3);
+      assert.equal(readFileSync(ubuntu, 'utf8'), configuredImage(mirrors[1]));
+      assert.match(diagnostics.join('\n'), /APT source .*ubuntu\.sources \[rewritten\]/);
+      assert.doesNotMatch(diagnostics.join('\n'), /mirror\+file|azure\.archive/);
       assert.equal(readFileSync(vendor, 'utf8'), vendorContent);
       assert.equal(readFileSync(backup, 'utf8'), content);
       assert.equal(configureUbuntuApt(directory, mirrors[1]), 0);
+      // A later consumer must repair sources if an image service restores them.
+      writeFileSync(ubuntu, content);
+      assert.equal(configureUbuntuApt(directory, mirrors[1]), 1);
+      assert.equal(readFileSync(ubuntu, 'utf8'), configuredImage(mirrors[1]));
       const policy = readFileSync(path.join(directory, 'apt.conf.d/80shellfox-archives'), 'utf8');
       assert.equal(policy, aptPolicy);
       assert.match(policy, /APT::Update::Error-Mode "any"/);

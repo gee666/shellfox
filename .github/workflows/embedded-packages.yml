@@ -53,10 +53,6 @@ jobs:
         with:
           node-version: 24.22.1
           architecture: ${{ matrix.arch }}
-      - name: Ubuntu archive setup
-        if: runner.os == 'Linux'
-        run: bash .github/scripts/setup-ubuntu-apt.sh
-        timeout-minutes: 2
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.3'
@@ -69,7 +65,9 @@ jobs:
       # Only changes disposable CI runners. No GNOME Terminal or .NET helper.
       - name: Linux build and Electron dependencies
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++ dpkg fakeroot util-linux dbus-x11 xvfb libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
+        run: |
+          bash .github/scripts/setup-ubuntu-apt.sh
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends python3 make g++ dpkg fakeroot util-linux dbus-x11 xvfb libgtk-3-0t64 libnss3 libxss1 libgbm1 libnotify4 libxtst6 libasound2t64 xdg-utils
       - name: Linux private namespace fixture support
         if: matrix.platform == 'linux'
         # Ubuntu 24.04 restricts unprivileged user namespaces by default.
