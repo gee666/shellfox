@@ -42,10 +42,12 @@ export class SessionLifecycle {
     return true;
   }
   private due(session: SessionRecord): boolean {
+    // Pinned sessions are kept as they are: never settled or deleted automatically.
+    if (session.pinnedAt) return false;
     const settings = this.repository.settings();
     const lastAction = Math.max(Date.parse(session.updatedAt), this.activity.get(session.id) ?? 0);
     const deadline = session.settledAt
-      ? session.pinnedAt ? Infinity : Math.max(Date.parse(session.settledAt), lastAction) + settings.sessionDeleteHours * HOUR_MS
+      ? Math.max(Date.parse(session.settledAt), lastAction) + settings.sessionDeleteHours * HOUR_MS
       : lastAction + settings.sessionSettleHours * HOUR_MS;
     return Date.now() >= deadline;
   }

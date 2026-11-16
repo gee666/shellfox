@@ -10,7 +10,7 @@ import { FileSidebar } from './FileSidebar';
 afterEach(cleanup);
 function setup(remote = false, open = true) {
   const files = {
-    list: vi.fn<FileApi['list']>(async () => success({ path: '/work', parentPath: '/', entries: [], truncated: false })),
+    list: vi.fn<FileApi['list']>(async input => /\.[a-z]+$/i.test(input.path) ? failure('NOT_FOUND', 'Not a folder.') : success({ path: '/work', parentPath: '/', entries: [], truncated: false })),
     read: vi.fn<FileApi['read']>(async () => success({ path: '/work/note.txt', kind: 'text', text: 'original', size: 8, revision: 'a'.repeat(64), mimeType: 'text/plain' })),
     write: vi.fn<FileApi['write']>(), writeImage: vi.fn<FileApi['writeImage']>(), readAsset: vi.fn<FileApi['readAsset']>(),
   } satisfies FileApi;

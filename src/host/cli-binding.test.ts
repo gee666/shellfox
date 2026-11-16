@@ -34,7 +34,7 @@ it.skipIf(transport === 'posix' && !posixShell)(`binds literal arguments and cus
   await mkdir('tmp', { recursive: true }); const root = await mkdtemp(path.resolve("tmp/host-bound-Ю ' &%-")); directories.push(root);
   const entry = path.join(root, 'cli.cjs');
   await writeFile(entry, `let args=process.argv.slice(2); if(args[0]==='--shellfox-argv-json')args=JSON.parse(Buffer.from(args[1],'base64').toString('utf8')); console.log(JSON.stringify({args,electron:process.env.ELECTRON_RUN_AS_NODE,resources:process.env.SHELLFOX_RESOURCES_PATH,project:process.env.SHELLFOX_PROJECT_ROOT,runtime:process.env.SHELLFOX_RUNTIME_PATH}));`);
-  const a = path.join(root, 'data-a'), b = path.join(root, 'data-b'); await mkdir(a); await mkdir(b);
+  const a = path.join(root, 'data-a'), b = path.join(root, 'data-b'); await mkdir(a, { mode: 0o700 }); await mkdir(b, { mode: 0o700 });
   const resourcesPath = path.join(root, 'own resources'), projectRoot = path.join(root, 'own project'), runtimePath = path.join(root, 'verified runtime');
   const cliA = await createBoundHostCli(a, { executable: process.execPath, entry, runAsNode: false }, { resourcesPath, projectRoot, runtimePath });
   const cliB = await createBoundHostCli(b, { executable: process.execPath, entry, runAsNode: true }, { resourcesPath, projectRoot });

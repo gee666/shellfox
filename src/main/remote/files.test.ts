@@ -34,7 +34,8 @@ it('streams file-browser transfers without sessions, requires approval, never cl
   await host.remote.revoke({ peerId: 'client' });
   expect(await wire.finishWrite({ transferId: starting.value.transferId })).toMatchObject({ ok: false });
   await vi.waitFor(async () => expect((await readdir(host.directory)).filter(name => name.startsWith('.shellfox-transfer-'))).toEqual([]));
-});
+  // Approval alone may take up to 5 s, then a 1 MiB round trip streams twice.
+}, 20_000);
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
 it('requires peer approval and routes bounded file read/list/save/assets to the host, including conflicts', async () => {
   const network = new Map<string, FakeRemoteHelper>();

@@ -7,6 +7,7 @@ import { resultSchema } from '../../shared/schemas';
 import { FILE_CHUNK_BYTES, FILE_TRANSFER_TTL_MS, fileTransferValueSchemas, type FileTransferMethod } from '../../shared/file-transfer-schemas';
 import type { FileTransferInput, FileTransferValue } from '../../shared/file-transfer-contracts';
 import { createFileApi, uploadFileChunks, downloadFileChunks, encodeFileChunk, type FileWire } from '../../shared/file-api';
+import { createTextFile, openFileTarget } from '../../shared/file-actions';
 import { FileService } from './service';
 import { FileTransfers, type FileActor } from './transfers';
 
@@ -107,4 +108,16 @@ it('confines streaming assets through canonical paths and detects source changes
   const outer = await mkdtemp(path.resolve('tmp/file-outside-')); cleanup.push(() => rm(outer, { recursive: true, force: true })); await writeFile(path.join(outer, 'secret.css'), 'secret');
   await symlink(outer, path.join(f.root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
   expect(await f.send('beginFileRead', { path: html, assetPath: 'linked/secret.css' })).toMatchObject({ ok: false, error: { code: 'ACCESS_DENIED' } });
+});
+it('creates empty text files with any extension, never overwriting, and opens folders through file links', async () => {
+  const f = await fixture(), name = 'notes.custom-ext';
+  const created = await createTextFile(f.api, { path: f.root }, name);
+  expect(created).toMatchObject({ ok: true, value: { path: path.join(f.root, name), size: 0 } });
+  expect(await readFile(path.join(f.root, name), 'utf8')).toBe('');
+  expect(await createTextFile(f.api, { path: f.root }, name)).toMatchObject({ ok: false, error: { code: 'FILE_CONFLICT' } });
+  expect(await createTextFile(f.api, { path: f.root }, '../escape.txt')).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  expect(await openFileTarget(f.api, { path: path.join(f.root, name) })).toMatchObject({ kind: 'file', file: { kind: 'text', text: '' } });
+  expect(await openFileTarget(f.api, { path: f.root + path.sep })).toMatchObject({ kind: 'directory', listing: { path: f.root } });
+  const missing = path.join(f.root, 'missing.md');
+  expect(await openFileTarget(f.api, { path: missing })).toEqual({ kind: 'error', path: missing, error: expect.objectContaining({ code: 'NOT_FOUND' }) });
 });

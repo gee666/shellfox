@@ -113,17 +113,25 @@ describe('session inactivity', () => {
       expect(f.processes[0].kill).toHaveBeenCalledOnce();
     } finally { await f.service.dispose(); }
   });
-  it('uses configured hours and never automatically deletes pinned sessions', async () => {
+  it('uses configured hours and never automatically settles or deletes pinned sessions', async () => {
     const f = await fixture();
     try {
       f.repository.config.sessionSettleHours = 2; f.repository.config.sessionDeleteHours = 3;
       value(await f.service.setSessionPinned({ sessionId: f.session.id, pinned: true }));
-      await f.jump(HOUR); expect(f.current().settledAt).toBeNull();
-      await f.jump(HOUR); expect(f.current().status).toBe('settled');
-      await f.jump(10 * HOUR); expect(f.current()).toBeDefined(); expect(f.backend.live()).toHaveLength(1);
+      await f.jump(20 * HOUR); expect(f.current().settledAt).toBeNull(); expect(f.current().status).not.toBe('settled');
+      expect(f.backend.live()).toHaveLength(1);
       value(await f.service.setSessionPinned({ sessionId: f.session.id, pinned: false }));
-      await f.jump(3 * HOUR - MINUTE); expect(f.current()).toBeDefined();
-      await f.jump(MINUTE); expect(f.current()).toBeUndefined();
+      await f.jump(2 * HOUR); expect(f.current().status).toBe('settled');
+      await f.jump(3 * HOUR); expect(f.current()).toBeUndefined();
+    } finally { await f.service.dispose(); }
+  });
+  it('keeps a manually settled pinned session until it is unpinned', async () => {
+    const f = await fixture();
+    try {
+      f.repository.config.sessionDeleteHours = 1;
+      value(await f.service.setSessionPinned({ sessionId: f.session.id, pinned: true }));
+      value(await f.service.settleSession({ sessionId: f.session.id, confirmActive: true }));
+      await f.jump(10 * HOUR); expect(f.current().status).toBe('settled');
     } finally { await f.service.dispose(); }
   });
   it.each(['input', 'output', 'process'] as const)('%s delays settlement and writes activity at most once per sweep', async kind => {

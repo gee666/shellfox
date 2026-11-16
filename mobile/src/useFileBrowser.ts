@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Keyboard } from 'react-native';
 import { failure } from '../../src/shared/contracts';
 import type { FileLocation, FileWriteResult } from '../../src/shared/file-contracts';
+import { createTextFile, openFileTarget } from '../../src/shared/file-actions';
 import { discardImageEditorDraft, getImageDraftScope } from '../../src/shared/image-editor-drafts';
 import type { BrowserDirectory, BrowserFile, FileApi, FileOpenRequest, FileViewMode } from './file-browser-types';
 import { fileParentPath } from './file-preview-document';
@@ -32,14 +33,18 @@ export function useFileBrowser({ api, sessionId, tabId, openRequest, available, 
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** A file request that could not be opened, with the absolute path that was searched. */
+  const [openError, setOpenError] = useState<{ message: string; path: string } | null>(null);
   const origin = useRef<Origin | null>(null);
   const operation = useRef(0), mounted = useRef(true), writePending = useRef(false);
   const scrollOffset = useRef(0), restoreOffset = useRef<number | null>(null);
   const initialFile = useRef<{ path: string; context: Context } | null>(null);
+  // A file created from a folder makes that folder's snapshot stale.
+  const originStale = useRef(false);
   const renderVersion = operation.current;
   const report = useCallback((message: string) => setError(message), []);
   const preview = useFileHtmlPreview(api, context, file, draft, available, report);
-  const clipboard = useFilePathCopy({ api, context, file, target, operation, mounted, report });
+  const clipboard = useFilePathCopy({ api, context, file, target, resolved: openError?.path ?? null, operation, mounted, report });
   const transfer = useFileTransfers({ api, context, available, connectionEpoch, uploaded: () => {
     if (operation.current === renderVersion && directory && !fileOpen) void load(directory.path, 'directory', history, true);
   } });
@@ -74,7 +79,7 @@ export function useFileBrowser({ api, sessionId, tabId, openRequest, available, 
       if (!fileOpen && page) origin.current = { page, history };
       setFileOpen(true); setTarget(nextPath); setFile(null);
     }
-    setPath(nextPath); setBusy(true); setError(null); clipboard.clear();
+    setPath(nextPath); setBusy(true); setError(null); setOpenError(null); clipboard.clear();
     try {
       let result: { kind: 'file'; value: BrowserFile } | { kind: 'directory'; value: BrowserDirectory };
       if (kind === 'directory') {
@@ -82,14 +87,10 @@ export function useFileBrowser({ api, sessionId, tabId, openRequest, available, 
         if (!listed.ok) throw new Error(listed.error.message);
         result = { kind: 'directory', value: listed.value };
       } else {
-        const read = await api.read({ ...nextContext, path: nextPath });
+        const opened = await openFileTarget(api, { ...nextContext, path: nextPath });
         if (id !== operation.current) return;
-        if (read.ok) result = { kind: 'file', value: read.value };
-        else {
-          const listed = await api.list({ ...nextContext, path: nextPath });
-          if (!listed.ok) throw new Error(read.error.message);
-          result = { kind: 'directory', value: listed.value };
-        }
+        if (opened.kind === 'error') { setOpenError({ message: opened.error.message, path: opened.path }); return; }
+        result = opened.kind === 'file' ? { kind: 'file', value: opened.file } : { kind: 'directory', value: opened.listing };
       }
       if (id !== operation.current) return;
       setContext(nextContext); setPath(result.value.path); setImageDirty(false);
@@ -120,14 +121,18 @@ export function useFileBrowser({ api, sessionId, tabId, openRequest, available, 
     operation.current++; origin.current = null;
     scrollOffset.current = page.offset; restoreOffset.current = page.offset;
     setContext(page.context); setDirectory(page.directory); setHistory(previous); setPath(page.directory.path);
-    setFileOpen(false); setFile(null); setTarget(null); setDraft(''); setImageDirty(false); setBusy(false); setError(null); clipboard.clear();
+    setFileOpen(false); setFile(null); setTarget(null); setDraft(''); setImageDirty(false); setBusy(false); setError(null); setOpenError(null); clipboard.clear();
   };
   const closeFile = () => {
     Keyboard.dismiss();
     confirmDiscard(() => {
       transfer.cancel();
-      if (origin.current) restore(origin.current.page, origin.current.history);
-      else { operation.current++; onClose(); }
+      if (origin.current) {
+        const { page, history: previous } = origin.current;
+        restore(page, previous);
+        if (originStale.current) void load(page.directory.path, 'directory', previous, true);
+      } else { operation.current++; onClose(); }
+      originStale.current = false;
     });
   };
   const back = () => {
@@ -144,6 +149,14 @@ export function useFileBrowser({ api, sessionId, tabId, openRequest, available, 
   const openEntry = (entry: BrowserDirectory['entries'][number]) => {
     if (blocked) return;
     Keyboard.dismiss(); void load(entry.path, entry.kind === 'directory' ? 'directory' : 'auto', navigationHistory());
+  };
+  const createFile = async (name: string) => {
+    if (!directory || fileOpen || blocked || !available) throw new Error('Open a folder before creating a file.');
+    const created = await createTextFile(api, { ...context, path: directory.path }, name);
+    if (!created.ok) throw new Error(created.error.message);
+    Keyboard.dismiss();
+    await load(created.value.path, 'auto', history);
+    originStale.current = true; setMode('edit');
   };
   const changeMode = (next: FileViewMode) => {
     if (blocked) return;
@@ -187,8 +200,8 @@ export function useFileBrowser({ api, sessionId, tabId, openRequest, available, 
   const updateDraft = (value: string) => { if (operation.current === renderVersion && fileOpen) setDraft(value); };
   const trackScroll = (offset: number) => { if (operation.current === renderVersion && !fileOpen) scrollOffset.current = offset; };
   return { file, directory, fileOpen, path, setPath, target, draft, setDraft: updateDraft, mode, wrapLines, setWrapLines, dirty, busy, saving, blocked,
-    error, report, clearError: () => setError(null), context, canonicalPath, imageScope, imageDirty: setImageDirty, imageSaved, initialPosition,
+    error, openError, report, clearError: () => setError(null), context, canonicalPath, imageScope, imageDirty: setImageDirty, imageSaved, initialPosition,
     preview, clipboard, transfer, uploadFolder, scrollOffset, restoreOffset, trackScroll,
-    back, closeFile, go, openEntry, changeMode, reload, save, saveImage, parentFolder, confirmDiscard,
+    back, closeFile, go, openEntry, createFile, changeMode, reload, save, saveImage, parentFolder, confirmDiscard,
   };
 }

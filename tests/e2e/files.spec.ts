@@ -297,6 +297,43 @@ test('plain paths and OSC file links open the sidebar while a TUI captures the m
   expect(app.windows()).toHaveLength(1);
 });
 
+test('folder links open the folder browser; missing links show the searched path in the content area', async ({ files: { app, page, directory, session } }) => {
+  const tab = session.tabs[0];
+  if (!tab?.generation) throw new Error('No live terminal for folder link test.');
+  await expect(page.locator('.xterm-helper-textarea')).toBeEditable();
+  const folder = pathToFileURL(path.join(directory, 'nested folder')).href;
+  const output = `\x1b[2J\x1b[H\x1b]8;;${folder}\x1b\\folder-link\x1b]8;;\x1b\\\r\nmissing/REPORT.md\r\n`;
+  const script = `process.stdout.write(Buffer.from('${Buffer.from(output).toString('base64')}','base64'));setTimeout(()=>{},60000)`;
+  const executable = process.execPath.replaceAll("'", process.platform === 'win32' ? "''" : "'\\''");
+  value(await seedTerminal(app, { tabId: tab.id, generation: tab.generation, data: `${process.platform === 'win32' ? '& ' : ''}'${executable}' -e "${script}"\r` }));
+  await expect(page.locator('.xterm-rows')).toContainText('missing/REPORT.md');
+  await clickTerminalText(page, 'missing/REPORT.md');
+  const error = page.locator('.file-document .file-open-error');
+  await expect(error).toContainText('File or directory not found.');
+  await expect(error).toContainText(path.join(directory, 'missing', 'REPORT.md'));
+  await expect(error.getByRole('button', { name: 'Copy file path', exact: true })).toBeVisible();
+  await clickTerminalText(page, 'folder-link', folder);
+  await expect(page.getByRole('button', { name: 'child.txt', exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Folder path', exact: true })).toHaveValue(path.join(directory, 'nested folder'));
+  await expect(page.locator('.file-open-error')).toHaveCount(0);
+});
+
+test('creates a new text file with any extension from the file browser', async ({ files: { page, directory } }) => {
+  await openFiles(page);
+  await page.getByRole('button', { name: 'New file', exact: true }).click();
+  await page.getByRole('textbox', { name: 'New file name', exact: true }).fill('todo.anyext');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'todo.anyext', exact: true })).toBeVisible();
+  await editor(page).fill('created in shellfox');
+  await page.getByRole('button', { name: 'Save file', exact: true }).click();
+  await expect.poll(() => readFile(path.join(directory, 'todo.anyext'), 'utf8')).toBe('created in shellfox');
+  await page.getByRole('button', { name: 'New file', exact: true }).click();
+  await page.getByRole('textbox', { name: 'New file name', exact: true }).fill('todo.anyext');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('A file already exists at this destination.')).toBeVisible();
+  expect(await readFile(path.join(directory, 'todo.anyext'), 'utf8')).toBe('created in shellfox');
+});
+
 test('remote sidebar reads, saves and loads preview assets from the approved host filesystem', async () => {
   test.setTimeout(180_000);
   const remote = await remoteApps('remote-files');

@@ -19,24 +19,21 @@ const titles = (service: EmbeddedSessionService) => live(service).map(s => s.tit
 const spawnedEnv = (f: ReturnType<typeof factoryFixture>, call: number) => ((f.factory as unknown as { mock: { calls: unknown[][] } }).mock.calls[call]![2] as { env: Record<string, string> }).env;
 
 describe('pinned sessions', () => {
-  it('keeps pinned sessions on top in pin order, and unpinning restores the normal order', async () => {
+  it('keeps pinned sessions on top, newest first, and unpinning restores the normal order', async () => {
     const repository = new MemoryRepository(), { service } = await start(repository);
-    const a = await create(service, 'a'), b = await create(service, 'b'), c = await create(service, 'c');
-    expect(titles(service)).toEqual(['a', 'b', 'c']);
-    const pinnedC = value(await service.setSessionPinned({ sessionId: c.id, pinned: true }));
-    expect(pinnedC.pinnedAt).toEqual(expect.any(String));
-    expect(titles(service)).toEqual(['c', 'a', 'b']);
-    await new Promise(resolve => setTimeout(resolve, 5));
+    const pause = () => new Promise(resolve => setTimeout(resolve, 5));
+    await create(service, 'a'); await pause(); const b = await create(service, 'b'); await pause(); const c = await create(service, 'c');
+    expect(titles(service)).toEqual(['c', 'b', 'a']);
+    const pinnedA = value(await service.setSessionPinned({ sessionId: live(service).find(s => s.title === 'a')!.id, pinned: true }));
+    expect(pinnedA.pinnedAt).toEqual(expect.any(String));
+    expect(titles(service)).toEqual(['a', 'c', 'b']);
     await service.setSessionPinned({ sessionId: b.id, pinned: true });
-    expect(titles(service)).toEqual(['c', 'b', 'a']);
-    // Pinning again keeps the original pin time (no reordering).
-    await service.setSessionPinned({ sessionId: c.id, pinned: true });
-    expect(titles(service)).toEqual(['c', 'b', 'a']);
-    await service.setSessionPinned({ sessionId: c.id, pinned: false });
     expect(titles(service)).toEqual(['b', 'a', 'c']);
-    expect(live(service).find(s => s.id === c.id)!.pinnedAt).toBeNull();
+    await service.setSessionPinned({ sessionId: b.id, pinned: false });
+    expect(titles(service)).toEqual(['a', 'c', 'b']);
+    expect(live(service).find(s => s.id === b.id)!.pinnedAt).toBeNull();
     expect(snapshotSchema.safeParse(value(service.getSnapshot())).success).toBe(true);
-    void a;
+    void c;
   });
   it('keeps settled pinned sessions visible and permits pin changes', async () => {
     const repository = new MemoryRepository(), { service } = await start(repository);

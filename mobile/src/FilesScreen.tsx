@@ -4,9 +4,10 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import type { ManagerApi } from '../../src/shared/contracts';
 import type { BrowserDirectory, FileApi, FileOpenRequest } from './file-browser-types';
 import { FileContent } from './FileContent';
-import { FileIconGlyph } from './FileIconButton';
+import { FileIconButton, FileIconGlyph } from './FileIconButton';
 import { FileMoreMenu, type FileMenuItem } from './FileMoreMenu';
 import { FilePathSheet } from './FilePathSheet';
+import { Prompt } from './Prompt';
 import { FileToolbar, FILE_MODAL_ORIENTATIONS } from './FileToolbar';
 import { FileTransferBar } from './FileTransferBar';
 import { remoteFileName } from './file-transfer';
@@ -41,6 +42,7 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
   useImperativeHandle(props.guard, () => ({ confirmReplace: browser.confirmDiscard }), [browser.confirmDiscard]);
   const [pathOpen, setPathOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [newFileOpen, setNewFileOpen] = useState(false);
   const [offlineDismissed, setOfflineDismissed] = useState(false);
   const list = useRef<FlatList<Entry>>(null);
   useEffect(() => {
@@ -62,6 +64,7 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
   const upload = () => { if (browser.uploadFolder && !blocked) browser.transfer.upload(browser.uploadFolder); };
   props.backHandler.current = () => {
     if (menuOpen) { setMenuOpen(false); return; }
+    if (newFileOpen) { setNewFileOpen(false); return; }
     if (pathOpen) { setPathOpen(false); return; }
     browser.back();
   };
@@ -69,6 +72,7 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
   const items: FileMenuItem[] = [
     { label: 'Hide files', action: hide },
     { label: fileOpen ? 'Show file path' : 'Change directory', action: showPath, disabled: blocked },
+    ...(!fileOpen ? [{ label: 'New file', action: () => setNewFileOpen(true), disabled: blocked || !props.available || !directory || !props.api.beginWrite }] : []),
     ...(fileOpen ? [{ label: 'Copy file path', action: copyPath, disabled: !canCopy }] : []),
     ...(fileOpen && editable ? [{ label: mode === 'edit' ? file?.kind === 'image' ? 'Preview image' : 'Read file' : text ? 'Edit source' : 'Edit image',
       action: () => browser.changeMode(mode === 'edit' ? 'read' : 'edit'), disabled: blocked }] : []),
@@ -96,7 +100,13 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
       imageEditor={{ draftScope: browser.imageScope, onSave: browser.saveImage, onDirtyChange: browser.imageDirty,
         onSaved: browser.imageSaved, onFileAction: action => { if (action === 'close') browser.closeFile(); else showMenu(); } }} />
       : <View testID="files-content" collapsable={false} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <Note>{browser.busy ? 'Loading…' : 'No preview available.'}</Note>
+        {browser.openError && !browser.busy ? <>
+          <Note error>{browser.openError.message}</Note>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '100%', paddingHorizontal: 12 }}>
+            <Text testID="files-error-path" selectable style={{ flexShrink: 1, color: colors.text, fontSize: 12 }}>{browser.openError.path}</Text>
+            <FileIconButton icon="copy" label="Copy searched path" onPress={copyPath} disabled={!canCopy} />
+          </View>
+        </> : <Note>{browser.busy ? 'Loading…' : 'No preview available.'}</Note>}
       </View>
       : <View testID="files-content" collapsable={false} style={styles.grow}>
         {directory ? <FlatList ref={list} testID="files-list" key={`${browser.context.sessionId ?? ''}/${browser.context.tabId ?? ''}/${directory.path}`}
@@ -123,6 +133,7 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
       error={!browser.clipboard.copied && !!(browser.error || browser.transfer.error || !props.available)} cancel={browser.transfer.cancel} dismiss={dismissNotice} />
     {pathOpen && <FilePathSheet api={props.directoryApi} value={browser.path} change={browser.setPath} hostName={props.hostName}
       editable={!blocked && props.available} close={() => setPathOpen(false)} submit={value => { setPathOpen(false); browser.go(value); }} />}
+    {newFileOpen && <Prompt config={{ title: 'New file', label: 'File name', initial: '', action: 'Create', submit: browser.createFile }} onClose={() => setNewFileOpen(false)} />}
     {menuOpen && <FileMoreMenu path={browser.canonicalPath} hostName={props.hostName} items={items} close={() => setMenuOpen(false)} />}
   </SafeAreaView>
     </SwipeView></SafeAreaProvider>

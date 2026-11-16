@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Alert, Keyboard } from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { success, failure } from '../../src/shared/contracts';
+import { FILE_CHUNK_BYTES } from '../../src/shared/file-transfer-schemas';
 import { discardImageEditorDraft, getImageDraftScope } from '../../src/shared/image-editor-drafts';
 import type { BrowserDirectory, BrowserFile, FileApi } from './file-browser-types';
 import type { FileImageEditorProps } from './FileImageEditor';
@@ -60,15 +61,21 @@ vi.mock('./FileImageEditor', () => ({ FileImageEditor: (props: FileImageEditorPr
       if (result.ok) { props.onDirtyChange?.(false); props.onSaved?.(result.value, 'data:image/png;base64,Yg=='); }
     }); }}>Save image</button></div>;
 } }));
+vi.mock('./Prompt', () => ({ Prompt: ({ config, onClose }: { config: { title: string; action?: string; submit: (value: string) => Promise<void> }; onClose: () => void }) => {
+  const [value, setValue] = React.useState(''), [error, setError] = React.useState('');
+  return <div data-testid="prompt">{config.title}<textarea aria-label="File name" value={value} onChange={event => setValue(event.target.value)} />{error}
+    <button onClick={() => { void config.submit(value).then(onClose, (cause: Error) => setError(cause.message)); }}>{config.action ?? 'Save'}</button></div>;
+} }));
 const revision = 'a'.repeat(64);
 const textFile: BrowserFile = { kind: 'text', path: '/work/code.ts', mimeType: 'text/plain', size: 4, revision, text: 'code' };
 const directory: BrowserDirectory = { path: '/work', parentPath: '/', truncated: false, entries: [
   { name: 'src', path: '/work/src', kind: 'directory' }, { name: 'code.ts', path: '/work/code.ts', kind: 'file' },
 ] };
-function setup(openRequest?: { path: string; line?: number; column?: number }, host = false) {
+function setup(openRequest?: { path: string; line?: number; column?: number }, host = false, prepare?: (api: { list: ReturnType<typeof vi.fn<FileApi['list']>>; read: ReturnType<typeof vi.fn<FileApi['read']>> }) => void) {
   const api = { list: vi.fn<FileApi['list']>(async () => success(directory)), read: vi.fn<FileApi['read']>(async () => success(textFile)),
     write: vi.fn<FileApi['write']>(async () => success({ path: textFile.path, revision: 'b'.repeat(64), size: 5 })),
     readAsset: vi.fn<FileApi['readAsset']>(async () => success({ size: 1, mimeType: 'text/javascript', dataUrl: 'data:text/javascript;base64,YQ==' })), writeImage: vi.fn<FileApi['writeImage']>() };
+  prepare?.(api);
   const onClose = vi.fn(), onHide = vi.fn(), guard = React.createRef<FilesScreenHandle>();
   const props = { api, onHide, guard, ...(host ? {} : { sessionId: 'session', tabId: 'tab' }), available: true, onClose, openRequest };
   const view = render(<FilesScreen {...props} />);
@@ -222,4 +229,37 @@ it('rejects a late native input callback after another file has opened', async (
   const f = setup(); await openFile(); await press('Edit source'); const late = sourceChange;
   await press('Close file'); f.api.read.mockResolvedValueOnce(success({ ...textFile, path: '/work/other.ts', text: 'new source' })); await openFile();
   act(() => late?.('late source')); expect(screen.getByTestId('preview')).toHaveTextContent('new source');
+});
+it('shows a missing terminal link in the content area with the searched path and copies it', async () => {
+  const f = setup({ path: 'REPORT.md' }, false, api => {
+    api.read.mockResolvedValueOnce(failure('NOT_FOUND', 'File or directory not found.'));
+    api.list.mockImplementation(async input => input.path === '.' ? success(directory) : failure('NOT_FOUND', 'File or directory not found.'));
+  });
+  expect(await screen.findByTestId('files-error-path')).toHaveTextContent('/work/REPORT.md');
+  expect(screen.getByText('File or directory not found.')).toBeInTheDocument();
+  expect(screen.queryByText('No preview available.')).toBeNull();
+  await press('Copy searched path'); expect(Clipboard.setString).toHaveBeenCalledExactlyOnceWith('/work/REPORT.md');
+  void f;
+});
+it('opens a linked folder as a folder listing', async () => {
+  const f = setup({ path: '/work/src/' }, false, api => {
+    api.read.mockResolvedValueOnce(failure('UNSUPPORTED', 'Only regular files can be transferred.'));
+    api.list.mockResolvedValueOnce(success({ ...directory, path: '/work/src' }));
+  });
+  expect(await screen.findByRole('button', { name: 'Open file code.ts' })).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).toBeNull(); void f;
+});
+it('creates a new text file in the current folder and opens it for editing, then refreshes the folder', async () => {
+  const f = setup(); await screen.findByRole('button', { name: 'Open file code.ts' });
+  const transferId = '00000000-0000-4000-8000-000000000001';
+  const files = { ...f.api, beginWrite: vi.fn(async () => success({ transferId, chunkBytes: FILE_CHUNK_BYTES })), writeChunk: vi.fn(),
+    finishWrite: vi.fn(async () => success({ path: '/work/new.cfg', size: 0, revision })), cancelTransfer: vi.fn(async () => success({ cancelled: true as const })) };
+  f.view.rerender(<FilesScreen {...f.props} api={files} />);
+  f.api.read.mockResolvedValueOnce(success({ ...textFile, path: '/work/new.cfg', text: '', size: 0 }));
+  await press('More folder actions'); await press('New file');
+  fireEvent.change(screen.getByRole('textbox', { name: 'File name' }), { target: { value: 'new.cfg' } }); await press('Create');
+  await waitFor(() => expect(f.api.read).toHaveBeenLastCalledWith({ sessionId: 'session', tabId: 'tab', path: '/work/new.cfg' }));
+  expect(files.beginWrite).toHaveBeenCalledWith({ sessionId: 'session', tabId: 'tab', path: '/work/new.cfg', size: 0, mode: 'create', content: 'text' });
+  expect(screen.queryByTestId('prompt')).toBeNull();
+  await press('Close file'); await waitFor(() => expect(f.api.list).toHaveBeenLastCalledWith({ sessionId: 'session', tabId: 'tab', path: '/work' }));
 });

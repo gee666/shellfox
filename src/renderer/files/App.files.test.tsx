@@ -15,7 +15,8 @@ beforeEach(() => localStorage.clear());
 function setup(sessions: SessionDto[] = [session()]) {
   const base = mockApi(snapshot(sessions));
   const files = {
-    list: vi.fn<FileApi['list']>(async input => success({ path: input.path === '~' ? '/home' : input.path, parentPath: '/', truncated: false,
+    // Like a real host, listing a file path fails.
+    list: vi.fn<FileApi['list']>(async input => /\.[a-z]+$/i.test(input.path) ? failure('NOT_FOUND', 'Not a folder.') : success({ path: input.path === '~' ? '/home' : input.path, parentPath: '/', truncated: false,
       entries: [{ name: 'note.ts', path: '/home/note.ts', kind: 'file' }] })),
     read: vi.fn<FileApi['read']>(async input => success({ kind: 'text', path: input.path, mimeType: 'text/plain', size: 4, revision: 'a'.repeat(64), text: 'note' })),
     write: vi.fn<FileApi['write']>(async input => success({ path: input.path, revision: 'b'.repeat(64), size: input.text.length })),

@@ -7,6 +7,7 @@ import type { ManagerApi, Result } from '../../shared/contracts';
 import { failure, success } from '../../shared/contracts';
 import type { FileApi, FileRead, FileWriteResult } from '../../shared/file-contracts';
 import { deferred, mockApi, session } from '../test-fixtures';
+import { FILE_CHUNK_BYTES } from '../../shared/file-transfer-schemas';
 import { FileSidebar } from './FileSidebar';
 
 afterEach(cleanup);
@@ -17,7 +18,7 @@ function textFile(path = '/work/main.ts', text = 'const answer = 42;'): FileRead
 }
 function fixture(initial: FileRead = textFile()) {
   const files = {
-    list: vi.fn<FileApi['list']>(async () => success({ path: '/work', parentPath: '/', truncated: false, entries: [
+    list: vi.fn<FileApi['list']>(async input => /\.[a-z]+$/i.test(input.path) ? failure('NOT_FOUND', 'Not a folder.') : success({ path: '/work', parentPath: '/', truncated: false, entries: [
       { name: 'main.ts', path: '/work/main.ts', kind: 'file' },
       { name: 'next.ts', path: '/work/next.ts', kind: 'file' },
       { name: 'src', path: '/work/src', kind: 'directory' },
@@ -232,6 +233,48 @@ describe('file sidebar', () => {
     await f.user.click(screen.getByRole('button', { name: 'Retry folder' }));
     await f.user.click(await screen.findByRole('button', { name: 'src' }));
     await waitFor(() => expect(f.files.list).toHaveBeenCalledWith(expect.objectContaining({ path: '/work/src' })));
+  });
+
+  it('opens a linked folder in the folder browser instead of failing as a file', async () => {
+    const f = fixture(); const view = render(<FileSidebar {...f.props} />);
+    await screen.findByRole('textbox', { name: 'File contents' });
+    f.files.read.mockResolvedValueOnce(failure('UNSUPPORTED', 'Only regular files can be transferred.'));
+    f.files.list.mockImplementation(async input => success({ path: input.path === '/work/out/' ? '/work/out' : '/work', parentPath: '/', truncated: false,
+      entries: input.path === '/work/out/' ? [{ name: 'REPORT.md', path: '/work/out/REPORT.md', kind: 'file' }] : [] }));
+    view.rerender(<FileSidebar {...f.props} openRequest={{ path: '/work/out/', id: 2 }} />);
+    expect(await screen.findByRole('button', { name: 'REPORT.md' })).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Folder path' })).toHaveValue('/work/out');
+    expect(screen.getByText('Select a file.')).toBeVisible();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('creates a new text file with any extension in the browsed folder and opens it', async () => {
+    const f = fixture(); const transferId = '00000000-0000-4000-8000-000000000001';
+    const beginWrite = vi.fn<NonNullable<FileApi['beginWrite']>>(async () => success({ transferId, chunkBytes: FILE_CHUNK_BYTES }));
+    const finishWrite = vi.fn<NonNullable<FileApi['finishWrite']>>(async () => success({ path: '/work/todo.xyz', size: 0, revision }));
+    const files: FileApi = { ...f.files, beginWrite, finishWrite, writeChunk: vi.fn(), beginRead: vi.fn(), readChunk: vi.fn(),
+      cancelTransfer: vi.fn<NonNullable<FileApi['cancelTransfer']>>(async () => success({ cancelled: true })) };
+    render(<FileSidebar {...f.props} api={{ ...f.api, files }} />);
+    await screen.findByRole('button', { name: 'main.ts' });
+    await f.user.click(screen.getByRole('button', { name: 'New file' }));
+    await f.user.type(screen.getByRole('textbox', { name: 'New file name' }), 'todo.xyz{Enter}');
+    await waitFor(() => expect(f.files.read).toHaveBeenLastCalledWith({ sessionId: item.id, tabId: item.tabs[0].id, path: '/work/todo.xyz' }));
+    expect(beginWrite).toHaveBeenCalledExactlyOnceWith({ sessionId: item.id, tabId: item.tabs[0].id, path: '/work/todo.xyz', size: 0, mode: 'create', content: 'text' });
+    expect(screen.queryByRole('form', { name: 'New file' })).toBeNull();
+  });
+
+  it('keeps the new-file form open with the host error and closes on Escape', async () => {
+    const f = fixture();
+    const files: FileApi = { ...f.files, beginWrite: vi.fn(async () => failure('FILE_CONFLICT', 'A file already exists at this destination.')),
+      writeChunk: vi.fn(), finishWrite: vi.fn(), beginRead: vi.fn(), readChunk: vi.fn(), cancelTransfer: vi.fn() };
+    render(<FileSidebar {...f.props} api={{ ...f.api, files }} />);
+    await screen.findByRole('button', { name: 'main.ts' });
+    await f.user.click(screen.getByRole('button', { name: 'New file' }));
+    const input = screen.getByRole('textbox', { name: 'New file name' });
+    await f.user.type(input, 'main.ts{Enter}');
+    expect(await screen.findByText('A file already exists at this destination.')).toBeVisible();
+    await f.user.type(input, '{Escape}');
+    expect(screen.queryByRole('textbox', { name: 'New file name' })).toBeNull();
   });
 
   it('opens a requested source location and retains dirty text while hidden', async () => {

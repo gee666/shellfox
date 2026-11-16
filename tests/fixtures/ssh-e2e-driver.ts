@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { spawn } from 'node-pty';
 import { sshFixture } from './ssh-server';
@@ -10,6 +10,10 @@ import { shellfoxShims } from '../../src/main/platform/shellfox-cli';
 import { linuxLauncher } from '../../src/main/platform/linux-cli';
 import { remoteCommand } from '../../src/main/ssh/presentation';
 import { generatedTestKey, generatedPpk, TEST_KEY_PASSPHRASE } from './ssh-test-keys';
+
+const sshString=(value:Buffer)=>{const length=Buffer.alloc(4);length.writeUInt32BE(value.length);return Buffer.concat([length,value]);};
+/** OpenSSH public blob for an Ed25519 key: the raw key is the SPKI DER tail. */
+const ed25519PublicSsh=(key:KeyObject)=>Buffer.concat([sshString(Buffer.from('ssh-ed25519')),sshString(key.export({type:'spki',format:'der'}).subarray(-32))]);
 async function main(){
  const root=process.cwd(),directory=process.argv[2],helper=process.argv[3],windows=process.platform==='win32',fixture=await sshFixture();
  const folder=path.join(directory,'shims');await mkdir(folder,{recursive:true});
@@ -57,7 +61,7 @@ async function main(){
  }
  try{
   const cmdArgs=['/d','/c','call',shim,'ssh','--profile','fixture'],terminal=windows?'cmd.exe':'/bin/sh',plainArgs=windows?cmdArgs:[shim,'ssh','fixture'];
-  const encryptedKey=path.join(directory,'generated-ed25519-v3.ppk');
+  const encryptedKey=path.join(directory,'generated-ed25519-v3.ppk');const testKey=generatedTestKey('ed25519').reference;if(!testKey)throw new Error('Missing generated test key');fixture.authorize(testKey.getPublicSSH());
   await writeFile(encryptedKey,await generatedPpk(generatedTestKey('ed25519'),3,{passphrase:TEST_KEY_PASSPHRASE,newline:'\r\n'}),{mode:0o600});
   await store.save({...profile,password:null,keyFile:encryptedKey});await interactive(terminal,plainArgs,'key');await store.save(profile);
   await interactive(terminal,plainArgs);await interactive(terminal,plainArgs,'lost');
@@ -78,7 +82,8 @@ async function main(){
    }
   }
   await store.save({...profile,user:'',password:null});await interactive(terminal,plainArgs,'prompt');await store.save(profile);
-  const keyFile=path.join(directory,'key.pem');await writeFile(keyFile,generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'}).toString(),{mode:0o600});
+  const pemKey=generateKeyPairSync('ed25519');fixture.authorize(ed25519PublicSsh(pemKey.publicKey));
+  const keyFile=path.join(directory,'key.pem');await writeFile(keyFile,pemKey.privateKey.export({type:'pkcs8',format:'pem'}).toString(),{mode:0o600});
   const cwd="~/it's $(echo unsafe)";await store.save({...profile,keyFile,remoteCwd:cwd,password:null});await interactive(terminal,plainArgs,'key');assert.equal(fixture.records.commands.at(-1),remoteCommand(cwd));
   const hostsFile=path.join(directory,'ssh-known-hosts.json'),hosts=JSON.parse(await readFile(hostsFile,'utf8'));for(const host of Object.values(hosts.hosts) as {fingerprint:string}[])host.fingerprint='SHA256:changed';await writeFile(hostsFile,JSON.stringify(hosts));await interactive(terminal,plainArgs,'changed');
   console.log(JSON.stringify({ok:true,evidence,records:{pty:fixture.records.pty,windows:fixture.records.windows,auth:fixture.records.auth,commands:fixture.records.commands}},null,2));

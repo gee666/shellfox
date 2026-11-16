@@ -3,6 +3,7 @@ import { failure, type ManagerApi } from '../../shared/contracts';
 import { Icon } from '../components';
 import { layoutShortcutHint } from '../layout-shortcuts';
 import { OpenFileExplorerButton } from './OpenFileExplorerButton';
+import { CopyFilePathButton } from './CopyFilePathButton';
 import { FileDocumentToolbar } from './FileDocumentToolbar';
 import { FileCodeEditor } from './FileCodeEditor';
 import { FileTree } from './FileTree';
@@ -61,6 +62,7 @@ function FileSidebarContent({ api, sessionId, tabId, openRequest, onClose, hidde
   useEffect(() => { if (directoryRequest) setBrowser(true); }, [directoryRequest?.id]);
   const [folderPath, setFolderPath] = useState(initialDirectory ?? (sessionId ? '.' : '~'));
   const [folderRefresh, setFolderRefresh] = useState(0);
+  const [linkedFolder, setLinkedFolder] = useState<FileDirectoryRequest>();
   const [imageEditing, setImageEditing] = useState(false);
   const [imageDirty, setImageDirty] = useState(false);
   const imageDirtyRef = useRef(false);
@@ -81,7 +83,13 @@ function FileSidebarContent({ api, sessionId, tabId, openRequest, onClose, hidde
       latest.current.reveal(request);
       return;
     }
-    guard(() => { setPreview(!request.line); setImageEditing(false); updateImageDirty(false); void latest.current.open(request); });
+    guard(() => {
+      setPreview(!request.line); setImageEditing(false); updateImageDirty(false); setLinkedFolder(undefined);
+      void latest.current.open(request).then(listing => {
+        if (!listing) return;
+        setLinkedFolder({ path: listing.path, id: `folder-${request.id}`, listing }); setBrowser(true);
+      });
+    });
   };
   const requestHandler = useRef(requestOpen);
   requestHandler.current = requestOpen;
@@ -135,15 +143,13 @@ function FileSidebarContent({ api, sessionId, tabId, openRequest, onClose, hidde
       {browser && <FileTree api={api} sessionId={sessionId} tabId={tabId} selectedPath={file?.path} onOpen={openPath}
         initialDirectory={folderPath} onFolderChange={setFolderPath} allowNativeBrowse={allowNativeBrowse} hidden={hidden} refreshId={folderRefresh} onHostDirectory={onHostDirectory}
         showTransfers={allowNativeBrowse === false && !file && !document.request} onUploaded={() => setFolderRefresh(value => value + 1)} onFocusedUnmount={() => browserToggle.current?.focus()}
-        directoryRequest={directoryRequest ?? (file && document.request?.sessionId ? { path: fileDirectory(file.path), id: document.request.id } : undefined)} />}
+        directoryRequest={directoryRequest ?? linkedFolder ?? (file && document.request?.sessionId ? { path: fileDirectory(file.path), id: document.request.id } : undefined)} />}
       <LayoutResizer className="file-browser-resizer" label="File browser height" orientation="horizontal"
         value={layout.browserHeight} min={layout.heightMin} max={layout.heightMax} defaultValue={FILE_BROWSER_HEIGHT_DEFAULT}
         onChange={layout.setBrowserHeight} hidden={hidden || !browser} />
       <section className="file-document" aria-label="File preview and editor">
         {document.loading && <p className="file-feedback" role="status">Loading file…</p>}
-        {document.error && <div className="file-feedback" role="alert">{document.error}
-          {!file && document.request && <button onClick={() => { if (document.request) void document.open(document.request); }}>Retry file</button>}
-        </div>}
+        {document.error && file && <p className="file-feedback" role="alert">{document.error}</p>}
         {draft?.conflict && <p className="file-feedback" role="alert">This file changed on disk. Your draft is retained. Copy it before reloading; saving will check for conflicts.</p>}
         {(file || document.request) && <FileDocumentToolbar api={api} location={{ ...transferScope, path: file?.path ?? document.request?.path ?? '' }} folderPath={folderPath}
           dirty={document.dirty || imageDirty} saving={document.saving} native={allowNativeBrowse} remote={allowNativeBrowse === false} copyPath={!!file}
@@ -160,7 +166,13 @@ function FileSidebarContent({ api, sessionId, tabId, openRequest, onClose, hidde
           </>}
           </>}
         </FileDocumentToolbar>}
-        {!document.loading && !file && !document.error && <p className="file-feedback">Select a file.</p>}
+        {!document.loading && !file && (document.error
+          ? <div className="file-open-error" role="alert">
+            <p>{document.error}</p>
+            {document.errorPath && <p className="file-open-error-path"><code>{document.errorPath}</code><CopyFilePathButton api={api} path={document.errorPath} /></p>}
+            {document.request && <button type="button" onClick={() => { if (document.request) requestOpen({ ...document.request, id: `retry-${++serial.current}` }); }}>Retry file</button>}
+          </div>
+          : <p className="file-feedback">Select a file.</p>)}
         {file?.kind === 'image' && (imageEditing
           ? <><FileImageEditor image={file} draftScope={imageDraftScope} onDirtyChange={updateImageDirty} onSaved={document.updateImage}
             onSave={async dataUrl => {

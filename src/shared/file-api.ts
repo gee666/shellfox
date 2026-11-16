@@ -13,7 +13,7 @@ export function encodeFileChunk(bytes: Uint8Array): string {
 export function decodeFileChunk(data: string): Uint8Array { return Uint8Array.from(atob(data), char => char.charCodeAt(0)); }
 
 /** Streams a picker file or editor contents. The caller supplies bounded slices, never a whole-file base64 request. */
-export async function uploadFileChunks(api: FileTransferApi, input: FileTransferInput<'beginFileWrite'>, read: (offset: number, length: number) => Promise<Uint8Array>, options: { signal?: AbortSignal; progress?: (offset: number) => void } = {}): Promise<Result<FileWriteResult>> {
+export async function uploadFileChunks(api: Pick<FileTransferApi, 'beginWrite' | 'writeChunk' | 'finishWrite' | 'cancelTransfer'>, input: FileTransferInput<'beginFileWrite'>, read: (offset: number, length: number) => Promise<Uint8Array>, options: { signal?: AbortSignal; progress?: (offset: number) => void } = {}): Promise<Result<FileWriteResult>> {
   if (options.signal?.aborted) return failure('ACCESS_DENIED', 'File transfer cancelled.');
   const begin = await api.beginWrite(input); if (!begin.ok) return begin;
   const transferId = begin.value.transferId;
