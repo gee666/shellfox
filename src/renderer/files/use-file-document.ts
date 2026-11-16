@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ManagerApi } from '../../shared/contracts';
-import type { FileWriteResult } from '../../shared/file-contracts';
+import type { FileList, FileWriteResult } from '../../shared/file-contracts';
+import { openFileTarget } from '../../shared/file-actions';
 import { getFileDraft, isFileSaving, markFileSaving, rememberFile, retainFileDraft, subscribeFileDraft, type FileDraft } from './file-drafts';
 
 type FileApi = NonNullable<ManagerApi['files']>;
@@ -14,8 +15,10 @@ interface DocumentState {
   loading: boolean;
   saving: boolean;
   error: string | null;
+  /** Absolute path the failed open searched, shown so users can check it. */
+  errorPath: string | null;
 }
-const initialState: DocumentState = { file: null, draft: null, request: null, loading: false, saving: false, error: null };
+const initialState: DocumentState = { file: null, draft: null, request: null, loading: false, saving: false, error: null, errorPath: null };
 const message = (error: unknown) => error instanceof Error ? error.message : 'File operation failed.';
 
 export function useFileDocument(api: ManagerApi, sessionId?: string, tabId?: string) {
@@ -35,16 +38,26 @@ export function useFileDocument(api: ManagerApi, sessionId?: string, tabId?: str
   const target = { ...(sessionId ? { sessionId } : {}), ...(tabId ? { tabId } : {}) };
   const update = (next: DocumentState) => { current.current = next; setState(next); };
 
-  const open = async (request: FileOpenRequest) => {
+  const fail = (request: FileOpenRequest, error: string, errorPath: string | null) => {
+    const retained = getFileDraft(api, sessionId, tabId, request.path);
+    if (retained) {
+      const draft = { ...retained, conflict: true };
+      const file: ReadFile = { kind: 'text', path: draft.path, text: draft.savedText, revision: draft.revision, mimeType: draft.mimeType, size: new TextEncoder().encode(draft.savedText).byteLength };
+      update({ ...initialState, file, draft, request, error });
+    } else update({ ...initialState, request, error, errorPath });
+  };
+  /** Resolves to the folder listing when the request names a directory. */
+  const open = async (request: FileOpenRequest): Promise<FileList | null> => {
     const requestId = ++generation.current;
     update({ ...initialState, request, loading: true });
     try {
       if (!api.files) throw new Error('File browsing is not supported by this host.');
       const scope = request.sessionId ? { sessionId: request.sessionId, ...(request.tabId ? { tabId: request.tabId } : {}) } : target;
-      const result = await api.files.read({ ...scope, path: request.path });
-      if (requestId !== generation.current) return;
-      if (!result.ok) throw new Error(result.error.message);
-      const file = result.value;
+      const result = await openFileTarget(api.files, { ...scope, path: request.path });
+      if (requestId !== generation.current) return null;
+      if (result.kind === 'directory') { update(initialState); return result.listing; }
+      if (result.kind === 'error') { fail(request, result.error.message, result.path); return null; }
+      const file = result.file;
       let draft: FileDraft | null = null;
       if (file.kind === 'text') {
         const cached = getFileDraft(api, sessionId, tabId, file.path);
@@ -54,16 +67,9 @@ export function useFileDocument(api: ManagerApi, sessionId?: string, tabId?: str
         retainFileDraft(api, sessionId, tabId, draft);
       }
       rememberFile(api, sessionId, tabId, file.path);
-      update({ file, draft, request, loading: false, saving: isFileSaving(api, sessionId, tabId, file.path), error: null });
-    } catch (error) {
-      if (requestId !== generation.current) return;
-      const retained = getFileDraft(api, sessionId, tabId, request.path);
-      if (retained) {
-        const draft = { ...retained, conflict: true };
-        const file: ReadFile = { kind: 'text', path: draft.path, text: draft.savedText, revision: draft.revision, mimeType: draft.mimeType, size: new TextEncoder().encode(draft.savedText).byteLength };
-        update({ ...initialState, file, draft, request, error: message(error) });
-      } else update({ ...initialState, request, error: message(error) });
-    }
+      update({ ...initialState, file, draft, request, saving: isFileSaving(api, sessionId, tabId, file.path) });
+    } catch (error) { if (requestId === generation.current) fail(request, message(error), null); }
+    return null;
   };
 
   const setText = (text: string) => {

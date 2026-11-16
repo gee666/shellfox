@@ -6,26 +6,33 @@ import { session } from '../renderer/test-fixtures';
 
 const ids = (items: SessionDto[]) => items.map(item => item.id);
 describe('visible session sorting', () => {
-  it('puts every pin first, then error, solid green, flashing green, blue, and settled', () => {
+  it('puts pins first, then error, solid green, flashing green, blue and settled, newest first', () => {
     const shell = session(1);
     const running = session(2); running.tabs[0]!.status = 'running';
     const busy = session(3); busy.tabs[0]!.status = 'running';
     const settled = session(4, { status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' });
     const error = session(5, { error: { code: 'INTERNAL', message: 'Oops', retryable: true } });
     const pinned = session(6, { pinnedAt: '2026-10-04T11:00:00.000Z' });
-    const pinnedSettled = session(7, { ...settled, id: session(7).id, pinnedAt: '2026-10-04T10:00:00.000Z' });
+    const pinnedSettled = session(7, { ...settled, id: session(7).id, title: 'Session 7', pinnedAt: '2026-10-04T10:00:00.000Z' });
     const input = [shell, busy, settled, running, pinned, error, pinnedSettled];
-    expect(ids(sortVisibleSessions(input, { [busy.tabs[0]!.id]: true }))).toEqual(ids([pinnedSettled, pinned, error, running, busy, shell, settled]));
+    expect(ids(sortVisibleSessions(input, { [busy.tabs[0]!.id]: true }))).toEqual(ids([pinned, pinnedSettled, error, running, busy, shell, settled]));
     expect(input[0]).toBe(shell);
   });
 
-  it('uses the same rank for waiting and unknown, with stable creation/id ties', () => {
-    const first = session(1, { status: 'unknown', activityStatus: 'unknown' }); first.tabs[0]!.status = 'unknown';
-    const next = session(2);
-    const older = session(3, { createdAt: '2026-01-01T00:00:00.000Z' });
-    expect(ids(sortVisibleSessions([next, first, older], {}))).toEqual(ids([older, first, next]));
-    first.status = 'waiting'; first.tabs[0]!.status = 'waiting'; next.status = 'unknown'; next.tabs[0]!.status = 'unknown';
-    expect(ids(sortVisibleSessions([next, first, older], {}))).toEqual(ids([older, first, next]));
+  it('orders one status by newest creation, then name, with waiting and unknown ranked together', () => {
+    const unknown = session(1, { status: 'unknown', activityStatus: 'unknown', title: 'beta' }); unknown.tabs[0]!.status = 'unknown';
+    const named = session(2, { title: 'Alpha' });
+    const older = session(3, { createdAt: '2026-01-01T00:00:00.000Z', title: 'aaa' });
+    const newer = session(4, { createdAt: '2026-12-01T00:00:00.000Z', title: 'zzz' });
+    expect(ids(sortVisibleSessions([older, unknown, named, newer], {}))).toEqual(ids([newer, named, unknown, older]));
+  });
+
+  it('keeps a row in place while only its activity timestamp changes', () => {
+    const first = session(1), second = session(2, { createdAt: '2026-10-05T10:00:00.000Z' });
+    const before = ids(sortVisibleSessions([first, second], {}));
+    first.updatedAt = '2026-10-09T10:00:00.000Z';
+    expect(ids(sortVisibleSessions([second, first], {}))).toEqual(before);
+    expect(before).toEqual(ids([second, first]));
   });
 
   it('reorders only when the displayed class changes on activity updates', () => {

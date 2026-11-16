@@ -6,6 +6,8 @@ export interface PromptConfig {
   title: string;
   label: string;
   initial: string;
+  /** Confirm button label; defaults to Save. */
+  action?: string;
   submit: (value: string) => Promise<void>;
 }
 export function Prompt({ config, onClose }: { config: PromptConfig; onClose: () => void }) {
@@ -62,7 +64,7 @@ export function Prompt({ config, onClose }: { config: PromptConfig; onClose: () 
               </View>
               <View style={styles.grow}>
                 <Button
-                  title={busy ? 'Saving...' : 'Save'}
+                  title={busy ? `${config.action ?? 'Saving'}...` : config.action ?? 'Save'}
                   disabled={busy || !value.trim()}
                   onPress={() => {
                     void run(() => config.submit(value.trim()));

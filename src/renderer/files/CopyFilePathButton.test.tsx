@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { failure, success, type ManagerApi } from '../../shared/contracts';
@@ -59,14 +59,18 @@ it('uses the successfully opened canonical path in the sidebar and maximized vie
   await user.click(button); expect(base.copyText).toHaveBeenLastCalledWith({ text: path });
 });
 
-it('does not offer a path-copy button for a failed file preview', async () => {
+it('shows and copies the searched path when a relative file link is missing', async () => {
   const base = mockApi().api;
   const files: FileApi = {
-    list: async () => success({ path: '/work', parentPath: '/', entries: [], truncated: false }),
-    read: async () => failure('NOT_FOUND', 'File missing'), write: async () => failure('UNSUPPORTED', 'Not used'),
+    list: async input => input.path === '.' ? success({ path: '/work/project', parentPath: '/work', entries: [], truncated: false }) : failure('NOT_FOUND', 'File or directory not found.'),
+    read: async () => failure('NOT_FOUND', 'File or directory not found.'), write: async () => failure('UNSUPPORTED', 'Not used'),
     writeImage: async () => failure('UNSUPPORTED', 'Not used'), readAsset: async () => failure('UNSUPPORTED', 'Not used'),
   };
-  render(<Notifications><FileSidebar api={{ ...base, files }} openRequest={{ path: '/missing.ts', id: 1 }} onClose={vi.fn()} /></Notifications>);
-  expect(await screen.findByRole('alert')).toHaveTextContent('File missing');
-  expect(screen.queryByRole('button', { name: 'Copy file path' })).not.toBeInTheDocument();
+  render(<Notifications><FileSidebar api={{ ...base, files }} sessionId="session" openRequest={{ path: 'tmp/../REPORT.md', id: 1 }} onClose={vi.fn()} /></Notifications>);
+  const error = await screen.findByText('File or directory not found.');
+  const block = error.closest('.file-open-error');
+  if (!(block instanceof HTMLElement)) throw new Error('Missing centered error');
+  expect(within(block).getByText('/work/project/REPORT.md')).toBeVisible();
+  await userEvent.setup().click(within(block).getByRole('button', { name: 'Copy file path' }));
+  expect(base.copyText).toHaveBeenCalledExactlyOnceWith({ text: '/work/project/REPORT.md' });
 });

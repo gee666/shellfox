@@ -6,6 +6,8 @@ export async function sshFixture(port=0){
   const records:SshFixtureRecord={auth:[],pty:[],commands:[],windows:[],bytes:[],keepalives:0,shells:0,env:[]};
   const settings={denyAuth:false,stallKeepalives:false,colors:false,rejectEnv:false};
   const heldReplies:(()=>void)[]=[];
+  // Like authorized_keys: a developer's SSH agent keys must never log in to the fixture.
+  const authorizedKeys=new Set<string>();
   const clients=new Set<import('ssh2').Connection>();
   const server=new Server({hostKeys:[hostKey]},client=>{
     clients.add(client);client.on('close',()=>clients.delete(client));client.on('error',()=>{});
@@ -20,7 +22,7 @@ export async function sshFixture(port=0){
       if(ctx.username==='fixture'&&ctx.method==='password'&&ctx.password==='fixture-secret')ctx.accept();
       else if(ctx.username==='fixture'&&ctx.method==='publickey'){
         const key=utils.parseKey(ctx.key.data);
-        if(!(key instanceof Error)&&!Array.isArray(key)&&(!ctx.signature||key.verify(ctx.blob!,ctx.signature,ctx.hashAlgo)===true))ctx.accept();else ctx.reject();
+        if(!(key instanceof Error)&&!Array.isArray(key)&&authorizedKeys.has(key.getPublicSSH().toString('base64'))&&(!ctx.signature||key.verify(ctx.blob!,ctx.signature,ctx.hashAlgo)===true))ctx.accept();else ctx.reject();
       }else ctx.reject(['publickey','password','keyboard-interactive']);
     });
     client.on('ready',()=>client.on('session',accept=>{
@@ -43,6 +45,6 @@ export async function sshFixture(port=0){
     }));
   });
   await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(port,'0.0.0.0',resolve);});
-  return {server,hostKey,records,settings,flushKeepalives:()=>{for(const reply of heldReplies.splice(0))reply();},port:(server.address() as import('node:net').AddressInfo).port,
+  return {server,hostKey,records,settings,authorize:(publicSsh:Buffer)=>{authorizedKeys.add(publicSsh.toString('base64'));},flushKeepalives:()=>{for(const reply of heldReplies.splice(0))reply();},port:(server.address() as import('node:net').AddressInfo).port,
     close:async()=>{heldReplies.length=0;for(const c of clients)(c as unknown as {_sock:import('node:net').Socket})._sock.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
 }
