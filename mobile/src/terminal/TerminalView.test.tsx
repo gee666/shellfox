@@ -9,7 +9,7 @@ import type { TerminalBridge } from './bridge';
 
 type BridgeOptions = ConstructorParameters<typeof TerminalBridge>[0];
 const native = vi.hoisted(() => ({
-  visible: false,
+  visible: false, platform: { OS: 'android' },
   listeners: new Map<string, (event: { endCoordinates: { screenY: number } }) => void>(),
   dismiss: vi.fn(), show: vi.fn(async () => {}), copy: vi.fn(), read: vi.fn(async () => ''), alert: vi.fn(),
   bridge: { start: vi.fn(), dispose: vi.fn(), focus: vi.fn(), setModifiers: vi.fn(), key: vi.fn(),
@@ -25,7 +25,7 @@ type NativeProps = {
   onPress?: () => void;
 };
 vi.mock('react-native', () => ({
-  Platform: { OS: 'android' },
+  Platform: native.platform,
   Alert: { alert: (...args: unknown[]) => native.alert(...args) },
   StyleSheet: { create: <T,>(styles: T) => styles },
   Keyboard: {
@@ -79,7 +79,7 @@ function setup(extra: Partial<TerminalViewProps> = {}) {
   fireEvent.click(screen.getByRole('button', { name: 'Page ready' }));
   return result;
 }
-beforeEach(() => { vi.clearAllMocks(); native.visible = false; native.options = null; });
+beforeEach(() => { vi.clearAllMocks(); native.visible = false; native.options = null; native.platform.OS = 'android'; });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe('mobile keyboard controls', () => {
@@ -102,9 +102,10 @@ describe('mobile keyboard controls', () => {
     expect(native.bridge.requestControl).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Take it' })).toBeInTheDocument();
   });
-  it('releases modifiers after native input and accessory keys, but not while armed', () => {
+  it.each(['android', 'ios'])('releases modifiers 430 ms after the last native input or accessory key on %s, but not while armed', os => {
     vi.useFakeTimers();
-    setup({ modifierReleaseDelayMs: 500 });
+    native.platform.OS = os;
+    setup();
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
     act(() => vi.advanceTimersByTime(10_000));
     expect(screen.getByRole('button', { name: 'Ctrl', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -112,7 +113,7 @@ describe('mobile keyboard controls', () => {
     act(() => vi.advanceTimersByTime(400));
     fireEvent.click(screen.getByRole('button', { name: 'Esc', exact: true }));
     expect(native.bridge.key).toHaveBeenLastCalledWith({ key: 'Escape', modifiers: { ...emptyModifiers, ctrl: true } });
-    act(() => vi.advanceTimersByTime(499));
+    act(() => vi.advanceTimersByTime(429));
     expect(screen.getByRole('button', { name: 'Ctrl', exact: true })).toHaveAttribute('aria-pressed', 'true');
     act(() => vi.advanceTimersByTime(1));
     expect(native.bridge.setModifiers).toHaveBeenLastCalledWith(emptyModifiers);

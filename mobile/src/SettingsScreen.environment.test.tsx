@@ -35,7 +35,6 @@ vi.mock('./ui', () => ({
 vi.mock('./browser-login', () => ({ useBrowserLogin: () => ({ pending: false, start: vi.fn() }) }));
 vi.mock('./updates/native', () => ({ updates: {} }));
 vi.mock('./ColorSwatches', () => ({ ColorSwatches: () => null }));
-vi.mock('./ModifierReleaseDelaySlider', () => ({ ModifierReleaseDelaySlider: () => null }));
 vi.mock('./ConnectionStatus', () => ({ ConnectionStatus: () => null }));
 vi.mock('./StatusIndicator', () => ({ StatusIndicator: () => null }));
 afterEach(cleanup);

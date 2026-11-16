@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { FlatList, Keyboard, Modal, Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import type { ManagerApi } from '../../src/shared/contracts';
@@ -13,8 +13,10 @@ import { remoteFileName } from './file-transfer';
 import { textPreviewKind } from './file-preview-document';
 import { useFileBrowser } from './useFileBrowser';
 import { Note, useUi } from './ui';
+import { SwipeView } from './SwipeView';
 
 type Entry = BrowserDirectory['entries'][number];
+export interface FilesScreenHandle { confirmReplace: (action: () => void) => void }
 export interface FilesScreenProps {
   api: FileApi;
   sessionId?: string;
@@ -24,21 +26,26 @@ export interface FilesScreenProps {
   hostName?: string;
   openRequest?: FileOpenRequest;
   available: boolean;
+  visible?: boolean;
+  guard?: React.Ref<FilesScreenHandle>;
+  onHide?: () => void;
   onClose: () => void;
 }
 export function FilesScreen(props: FilesScreenProps) {
   const back = useRef(props.onClose);
-  return <Modal visible animationType="slide" presentationStyle="fullScreen" supportedOrientations={FILE_MODAL_ORIENTATIONS} statusBarTranslucent navigationBarTranslucent onRequestClose={() => back.current()}>
-    <SafeAreaProvider><FilesView {...props} backHandler={back} /></SafeAreaProvider>
-  </Modal>;
+  return <FilesView {...props} backHandler={back} />;
 }
 function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() => void> }) {
   const { colors, styles } = useUi();
   const browser = useFileBrowser(props);
+  useImperativeHandle(props.guard, () => ({ confirmReplace: browser.confirmDiscard }), [browser.confirmDiscard]);
   const [pathOpen, setPathOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [offlineDismissed, setOfflineDismissed] = useState(false);
   const list = useRef<FlatList<Entry>>(null);
+  useEffect(() => {
+    if (props.visible === false) browser.restoreOffset.current = browser.scrollOffset.current;
+  }, [props.visible, browser.restoreOffset, browser.scrollOffset]);
   useEffect(() => { if (props.available) setOfflineDismissed(false); }, [props.available]);
   const { file, fileOpen, directory, blocked, mode } = browser;
   const text = file?.kind === 'text';
@@ -58,7 +65,9 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
     if (pathOpen) { setPathOpen(false); return; }
     browser.back();
   };
+  const hide = () => { Keyboard.dismiss(); (props.onHide ?? props.onClose)(); };
   const items: FileMenuItem[] = [
+    { label: 'Hide files', action: hide },
     { label: fileOpen ? 'Show file path' : 'Change directory', action: showPath, disabled: blocked },
     ...(fileOpen ? [{ label: 'Copy file path', action: copyPath, disabled: !canCopy }] : []),
     ...(fileOpen && editable ? [{ label: mode === 'edit' ? file?.kind === 'image' ? 'Preview image' : 'Read file' : text ? 'Edit source' : 'Edit image',
@@ -73,7 +82,10 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
   const notification = browser.clipboard.copied ? 'Path copied.' : browser.error ?? browser.transfer.error ?? browser.transfer.message
     ?? (!props.available && !offlineDismissed ? 'Host disconnected. Changes stay here until you close the file.' : null);
   const dismissNotice = () => { browser.clearError(); browser.transfer.dismiss(); browser.clipboard.clear(); setOfflineDismissed(true); };
-  return <SafeAreaView testID="files-screen" style={styles.page} edges={['top', 'bottom', 'left', 'right']}>
+  return <Modal visible={props.visible ?? true} animationType="slide" presentationStyle="fullScreen" supportedOrientations={FILE_MODAL_ORIENTATIONS}
+    statusBarTranslucent navigationBarTranslucent onRequestClose={() => props.backHandler.current()}>
+    <SafeAreaProvider><SwipeView onLeft={imageEditing ? undefined : hide}>
+    <SafeAreaView testID="files-screen" style={styles.page} edges={['top', 'bottom', 'left', 'right']}>
     {!imageEditing && <FileToolbar title={title} file={fileOpen} editable={!!editable} editing={editing} text={text}
       dirty={!!browser.dirty} saving={browser.saving} blocked={blocked} canTransfer={canTransfer} canCopy={canCopy} canSave={props.available}
       close={browser.back} toggleMode={() => browser.changeMode(mode === 'edit' ? 'read' : 'edit')} path={showPath} copy={copyPath}
@@ -112,5 +124,7 @@ function FilesView(props: FilesScreenProps & { backHandler: React.RefObject<() =
     {pathOpen && <FilePathSheet api={props.directoryApi} value={browser.path} change={browser.setPath} hostName={props.hostName}
       editable={!blocked && props.available} close={() => setPathOpen(false)} submit={value => { setPathOpen(false); browser.go(value); }} />}
     {menuOpen && <FileMoreMenu path={browser.canonicalPath} hostName={props.hostName} items={items} close={() => setMenuOpen(false)} />}
-  </SafeAreaView>;
+  </SafeAreaView>
+    </SwipeView></SafeAreaProvider>
+  </Modal>;
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import { BackHandler, Pressable, StatusBar, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -10,7 +10,7 @@ import { Prompt, type PromptConfig } from './src/Prompt';
 import { Button, Note, useUi } from './src/ui';
 import { ThemeProvider, useTheme } from './src/theme';
 import { useUpdates } from './src/updates/useUpdates';
-import { FilesScreen } from './src/FilesScreen';
+import { FilesScreen, type FilesScreenHandle } from './src/FilesScreen';
 import type { FileOpenRequest } from './src/file-browser-types';
 
 function Shellfox() {
@@ -27,7 +27,20 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
   const { palette } = useTheme();
   const [section, setSection] = useState<'sessions' | 'settings'>('sessions');
   const [selection, setSelection] = useState<(OpenSession & { controlIntent?: SessionControlIntent }) | null>(null);
-  const [files, setFiles] = useState<{ peerId: string; sessionId?: string; tabId?: string; openRequest?: FileOpenRequest } | null>(null);
+  type FileTarget = { peerId: string; sessionId?: string; tabId?: string; openRequest?: FileOpenRequest };
+  const [files, setFiles] = useState<(FileTarget & { id: number; visible: boolean }) | null>(null);
+  const filesGuard = useRef<FilesScreenHandle>(null);
+  const openFiles = (target: FileTarget, resume = false) => {
+    if (resume && files && files.peerId === target.peerId && files.sessionId === target.sessionId && files.tabId === target.tabId) {
+      setFiles({ ...files, visible: true });
+      return;
+    }
+    const replace = () => setFiles(previous => previous === files
+      ? { ...target, id: (previous?.id ?? 0) + 1, visible: true } : previous);
+    if (filesGuard.current) filesGuard.current.confirmReplace(replace);
+    else replace();
+  };
+  const hideFiles = () => setFiles(previous => previous ? { ...previous, visible: false } : null);
   const openSession = (next: OpenSession) => {
     const state = model.machines.find(item => item.peer.id === next.peerId)?.state;
     setSelection({ ...next, controlIntent: next.takeControl && state?.status === 'connected'
@@ -80,7 +93,7 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
             model={model}
             back={() => setSelection(null)}
             prompt={showPrompt}
-            openFiles={request => setFiles({ peerId: machine.peer.id, ...request })}
+            openFiles={(request, resume) => openFiles({ peerId: machine.peer.id, ...request }, resume)}
           />
         ) : (
           <SessionsScreen
@@ -88,7 +101,7 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
             open={openSession}
             prompt={showPrompt}
             settings={() => setSection('settings')}
-            openFiles={peerId => setFiles({ peerId })}
+            openFiles={(peerId, resume) => openFiles({ peerId }, resume)}
           />
         )
       ) : (
@@ -150,10 +163,10 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
           ))}
         </View>
       )}
-      {files && fileMachine && <FilesScreen key={files.peerId} api={fileMachine.client.files} directoryApi={fileMachine.client}
+      {files && fileMachine && <FilesScreen key={`${files.peerId}/${files.id}`} visible={files.visible} guard={filesGuard} api={fileMachine.client.files} directoryApi={fileMachine.client}
         sessionId={fileSessionId} tabId={fileTabId} openRequest={files.openRequest}
         connectionEpoch={fileMachine.state.connectionId} available={fileMachine.state.status === 'connected'}
-        hostName={fileMachine.peer.hostname} onClose={() => setFiles(null)} />}
+        hostName={fileMachine.peer.hostname} onHide={hideFiles} onClose={() => setFiles(null)} />}
       {prompt && (
         <Prompt
           key={prompt.id}

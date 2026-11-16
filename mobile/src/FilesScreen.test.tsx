@@ -9,13 +9,15 @@ import { success, failure } from '../../src/shared/contracts';
 import { discardImageEditorDraft, getImageDraftScope } from '../../src/shared/image-editor-drafts';
 import type { BrowserDirectory, BrowserFile, FileApi } from './file-browser-types';
 import type { FileImageEditorProps } from './FileImageEditor';
-import { FilesScreen } from './FilesScreen';
+import { FilesScreen, type FilesScreenHandle } from './FilesScreen';
 import type { FileMenuItem } from './FileMoreMenu';
 
 const transfer = vi.hoisted(() => ({ progress: null, running: false, message: null, error: null, supported: false,
   download: vi.fn(), upload: vi.fn(), cancel: vi.fn(), dismiss: vi.fn() }));
 const scroll = vi.hoisted(() => vi.fn());
 vi.mock('./useFileTransfers', () => ({ useFileTransfers: () => transfer }));
+vi.mock('./SwipeView', () => ({ SwipeView: ({ children, onLeft }: { children: ReactNode; onLeft: () => void }) =>
+  <div><button onClick={onLeft}>Swipe left</button>{children}</div> }));
 vi.mock('@react-native-clipboard/clipboard', () => ({ default: { setString: vi.fn() } }));
 vi.mock('../../src/shared/image-editor-drafts', async original => ({ ...await original<typeof import('../../src/shared/image-editor-drafts')>(), discardImageEditorDraft: vi.fn() }));
 type NativeProps = { children?: ReactNode; testID?: string; accessibilityLabel?: string; disabled?: boolean; onPress?: () => void };
@@ -29,7 +31,7 @@ vi.mock('react-native', () => ({
   View: ({ children, testID }: NativeProps) => <div data-testid={testID}>{children}</div>,
   ScrollView: ({ children }: NativeProps) => <div>{children}</div>,
   KeyboardAvoidingView: ({ children, testID }: NativeProps) => <div data-testid={testID}>{children}</div>,
-  Modal: ({ children, onRequestClose, supportedOrientations }: NativeProps & { onRequestClose: () => void; supportedOrientations?: string[] }) => { hardwareBack = onRequestClose; modalOrientations = supportedOrientations; return <div role="dialog">{children}</div>; },
+  Modal: ({ children, onRequestClose, supportedOrientations, visible }: NativeProps & { onRequestClose: () => void; supportedOrientations?: string[]; visible?: boolean }) => { hardwareBack = onRequestClose; modalOrientations = supportedOrientations; return visible === false ? null : <div role="dialog">{children}</div>; },
   Pressable: ({ children, onPress, accessibilityLabel, disabled, testID }: NativeProps) => <button data-testid={testID} aria-label={accessibilityLabel} onClick={onPress} disabled={disabled}>{children}</button>,
   TextInput: ({ value, onChangeText, accessibilityLabel, editable }: NativeProps & { value: string; onChangeText: (value: string) => void; editable?: boolean }) => {
     if (accessibilityLabel === 'File source') sourceChange = onChangeText;
@@ -67,10 +69,10 @@ function setup(openRequest?: { path: string; line?: number; column?: number }, h
   const api = { list: vi.fn<FileApi['list']>(async () => success(directory)), read: vi.fn<FileApi['read']>(async () => success(textFile)),
     write: vi.fn<FileApi['write']>(async () => success({ path: textFile.path, revision: 'b'.repeat(64), size: 5 })),
     readAsset: vi.fn<FileApi['readAsset']>(async () => success({ size: 1, mimeType: 'text/javascript', dataUrl: 'data:text/javascript;base64,YQ==' })), writeImage: vi.fn<FileApi['writeImage']>() };
-  const onClose = vi.fn();
-  const props = { api, ...(host ? {} : { sessionId: 'session', tabId: 'tab' }), available: true, onClose, openRequest };
+  const onClose = vi.fn(), onHide = vi.fn(), guard = React.createRef<FilesScreenHandle>();
+  const props = { api, onHide, guard, ...(host ? {} : { sessionId: 'session', tabId: 'tab' }), available: true, onClose, openRequest };
   const view = render(<FilesScreen {...props} />);
-  return { api, onClose, view, props };
+  return { api, onClose, onHide, guard, view, props };
 }
 async function press(name: string) { await act(async () => { fireEvent.click(screen.getByRole('button', { name, exact: true })); }); }
 async function menu(name: string) { await press('More file actions'); await press(name); }
@@ -79,6 +81,43 @@ async function discard() { const buttons = vi.mocked(Alert.alert).mock.calls.at(
 beforeEach(() => { vi.clearAllMocks(); transfer.supported = false; imageMounts = 0; sourceChange = undefined; imageScope = undefined; });
 afterEach(cleanup);
 
+it('starts a terminal browser at its live CWD on every fresh opening', async () => {
+  const f = setup(); await screen.findByRole('button', { name: 'Open file code.ts' });
+  expect(f.api.list).toHaveBeenCalledWith({ sessionId: 'session', tabId: 'tab', path: '.' });
+  f.view.unmount(); f.api.list.mockResolvedValueOnce(success({ ...directory, path: '/new-cwd' }));
+  render(<FilesScreen {...f.props} />);
+  await waitFor(() => expect(f.api.list).toHaveBeenCalledTimes(2));
+  expect(f.api.list).toHaveBeenLastCalledWith({ sessionId: 'session', tabId: 'tab', path: '.' });
+});
+it('hides deep folders by swipe and restores the folder and scroll without an RPC', async () => {
+  const f = setup(); await screen.findByRole('button', { name: 'Open folder src' });
+  f.api.list.mockResolvedValueOnce(success({ ...directory, path: '/work/src', entries: [] })); await press('Open folder src');
+  act(() => listProps?.onScroll({ nativeEvent: { contentOffset: { y: 240 } } }));
+  await press('Swipe left'); expect(f.onHide).toHaveBeenCalledOnce();
+  f.view.rerender(<FilesScreen {...f.props} visible={false} />);
+  expect(screen.queryByTestId('files-screen')).toBeNull();
+  f.view.rerender(<FilesScreen {...f.props} visible />);
+  expect(f.api.list).toHaveBeenCalledTimes(2);
+  expect(scroll).toHaveBeenLastCalledWith({ offset: 240, animated: false });
+  await press('Change directory'); expect(screen.getByLabelText('File path')).toHaveValue('/work/src');
+});
+it('preserves dirty source and edit mode across swipe hiding without discarding or re-reading', async () => {
+  const f = setup(); await openFile(); await press('Edit source');
+  fireEvent.change(screen.getByLabelText('File source'), { target: { value: 'unsaved edits' } });
+  await press('Swipe left'); expect(Alert.alert).not.toHaveBeenCalled(); expect(f.onHide).toHaveBeenCalledOnce();
+  f.view.rerender(<FilesScreen {...f.props} visible={false} />);
+  f.view.rerender(<FilesScreen {...f.props} visible />);
+  expect(screen.getByLabelText('File source')).toHaveValue('unsaved edits');
+  expect(f.api.read).toHaveBeenCalledOnce(); expect(f.api.list).toHaveBeenCalledOnce();
+});
+it('guards replacing a suspended dirty browser with a fresh CWD or a different host', async () => {
+  const f = setup(); await openFile(); await press('Edit source');
+  fireEvent.change(screen.getByLabelText('File source'), { target: { value: 'keep this draft' } });
+  f.view.rerender(<FilesScreen {...f.props} visible={false} />);
+  const replace = vi.fn(); act(() => f.guard.current?.confirmReplace(replace));
+  expect(Alert.alert).toHaveBeenCalled(); expect(replace).not.toHaveBeenCalled();
+  await discard(); expect(replace).toHaveBeenCalledOnce();
+});
 it('shows one compact icon row, no path field or transfer row until requested', async () => {
   setup(); await screen.findByRole('button', { name: 'Open file code.ts' });
   expect(modalOrientations).toEqual(['portrait', 'portrait-upside-down', 'landscape-left', 'landscape-right']);

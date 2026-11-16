@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storage = vi.hoisted(() => ({ getItem: vi.fn<() => Promise<string | null>>(), setItem: vi.fn<(_key: string, _value: string) => Promise<void>>() }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: storage }));
-import { DEFAULT_MODIFIER_RELEASE_DELAY_MS, defaultPreferences, loadPreferences, preferencesSchema, savePreferences, type Preferences } from './preferences';
+import { defaultPreferences, loadPreferences, preferencesSchema, savePreferences } from './preferences';
 
 beforeEach(() => { vi.resetAllMocks(); storage.getItem.mockResolvedValue(null); storage.setItem.mockResolvedValue(); });
 
 describe('mobile preferences', () => {
   it('uses compact defaults on first launch', async () => {
-    expect(await loadPreferences()).toEqual({ hostname: 'shellfox-mobile', remembered: [], fontSize: 14, autoUpdate: true, modifierReleaseDelayMs: 1000 });
+    expect(await loadPreferences()).toEqual({ hostname: 'shellfox-mobile', remembered: [], fontSize: 14, autoUpdate: true });
     expect(storage.getItem).toHaveBeenCalledWith('shellfox.mobile.preferences.v1');
   });
   it('round trips a renamed device, remembered host and font setting', async () => {
@@ -17,7 +17,7 @@ describe('mobile preferences', () => {
     const [key, json] = storage.setItem.mock.calls[0];
     expect(key).toBe('shellfox.mobile.preferences.v1');
     storage.getItem.mockResolvedValue(json);
-    expect(await loadPreferences()).toEqual({ ...value, modifierReleaseDelayMs: DEFAULT_MODIFIER_RELEASE_DELAY_MS });
+    expect(await loadPreferences()).toEqual(value);
   });
   it('defaults automatic updates on for older preferences and rejects non-boolean settings', () => {
     expect(preferencesSchema.parse({ hostname: 'old-phone' }).autoUpdate).toBe(true);
@@ -68,28 +68,29 @@ describe('mobile preferences', () => {
     storage.getItem.mockResolvedValue(JSON.stringify({ ...defaultPreferences, ...patch }));
     expect(await loadPreferences()).toEqual(defaultPreferences);
   });
-  it('keeps older typed preferences valid and defaults their release delay on load', async () => {
-    const legacy: Preferences = { hostname: 'old-phone', remembered: [], fontSize: 14, autoUpdate: true };
-    expect(preferencesSchema.parse(legacy).modifierReleaseDelayMs).toBeUndefined();
-    await savePreferences(legacy);
-    const [, json] = storage.setItem.mock.calls[0];
-    storage.getItem.mockResolvedValue(json);
-    expect((await loadPreferences()).modifierReleaseDelayMs).toBe(DEFAULT_MODIFIER_RELEASE_DELAY_MS);
+  it.each([250, 1000, 3000, null, '1000', false, 0, 1100, 3250])('discards retired release delay %j without losing other preferences', async modifierReleaseDelayMs => {
+    const value = {
+      hostname: 'phone-2', remembered: ['host:123'], fontSize: 20, autoUpdate: false,
+      accentColor: '#aabbcc', backgroundColor: '#112233',
+      customAccentColors: ['#123456'], customBackgroundColors: ['#654321'],
+    };
+    storage.getItem.mockResolvedValue(JSON.stringify({ ...value, modifierReleaseDelayMs }));
+    const loaded = await loadPreferences();
+    expect(loaded).toEqual(value);
+    await savePreferences(loaded);
+    expect(JSON.parse(storage.setItem.mock.calls[0][1])).toEqual(value);
   });
-  it.each(Array.from({ length: 12 }, (_, index) => (index + 1) * 250))('round trips release delay %i ms', async modifierReleaseDelayMs => {
-    const value = { ...defaultPreferences, modifierReleaseDelayMs };
-    await savePreferences(value);
-    const [, json] = storage.setItem.mock.calls[0];
-    storage.getItem.mockResolvedValue(json);
-    expect(await loadPreferences()).toEqual(value);
-  });
-  it.each([0, 249, 3001, 3250, 500.5, 1100, -250, NaN, Infinity])('rejects invalid release delay %s before writing', async modifierReleaseDelayMs => {
-    await expect(savePreferences({ ...defaultPreferences, modifierReleaseDelayMs })).rejects.toThrow();
+  it('rejects the retired setting on new writes', async () => {
+    const value = { ...defaultPreferences, modifierReleaseDelayMs: 1000 };
+    expect(preferencesSchema.safeParse(value).success).toBe(false);
+    await expect(savePreferences(value)).rejects.toThrow();
     expect(storage.setItem).not.toHaveBeenCalled();
   });
-  it.each([null, '1000', false, 0, 1100, 3250])('recovers from invalid persisted release delay %j', async modifierReleaseDelayMs => {
-    storage.getItem.mockResolvedValue(JSON.stringify({ hostname: 'phone-2', modifierReleaseDelayMs }));
-    expect(await loadPreferences()).toEqual(defaultPreferences);
+  it('still rejects unknown or invalid fields beside the retired setting', async () => {
+    for (const patch of [{ authKey: 'do-not-store' }, { fontSize: 25 }]) {
+      storage.getItem.mockResolvedValue(JSON.stringify({ hostname: 'phone-2', modifierReleaseDelayMs: 1000, ...patch }));
+      expect(await loadPreferences()).toEqual(defaultPreferences);
+    }
   });
   it('does not hide storage read or write failures', async () => {
     storage.getItem.mockRejectedValue(new Error('read failed'));

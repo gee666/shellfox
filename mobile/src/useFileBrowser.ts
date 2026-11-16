@@ -189,6 +189,6 @@ export function useFileBrowser({ api, sessionId, tabId, openRequest, available, 
   return { file, directory, fileOpen, path, setPath, target, draft, setDraft: updateDraft, mode, wrapLines, setWrapLines, dirty, busy, saving, blocked,
     error, report, clearError: () => setError(null), context, canonicalPath, imageScope, imageDirty: setImageDirty, imageSaved, initialPosition,
     preview, clipboard, transfer, uploadFolder, scrollOffset, restoreOffset, trackScroll,
-    back, closeFile, go, openEntry, changeMode, reload, save, saveImage, parentFolder,
+    back, closeFile, go, openEntry, changeMode, reload, save, saveImage, parentFolder, confirmDiscard,
   };
 }

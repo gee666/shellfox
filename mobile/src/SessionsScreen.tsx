@@ -15,12 +15,9 @@ import { ConnectionStatus } from './ConnectionStatus';
 import { isConnectionFailure } from './connection-status';
 import { DirectoryPrompt, type DirectoryPromptConfig } from './DirectoryPrompt';
 import { FolderButton } from './FileTransferBar';
+import { SwipeView } from './SwipeView';
 
-export interface OpenSession {
-  peerId: string;
-  sessionId: string;
-  takeControl?: true;
-}
+export interface OpenSession { peerId: string; sessionId: string; takeControl?: true }
 export function SessionsScreen({
   model,
   open,
@@ -32,7 +29,7 @@ export function SessionsScreen({
   open: (selection: OpenSession) => void;
   prompt: (config: PromptConfig) => void;
   settings: () => void;
-  openFiles?: (peerId: string) => void;
+  openFiles?: (peerId: string, resume?: boolean) => void;
 }) {
   const { colors, styles } = useUi();
   const [searching, setSearching] = useState(false);
@@ -268,6 +265,7 @@ export function SessionsScreen({
           }}
           ListEmptyComponent={<View testID="sessions-empty" accessibilityLabel="No sessions" style={compact.center}><SessionsEmptyState model={model} settings={settings} /></View>}
           renderSectionHeader={({ section: { machine } }) => (
+            <SwipeView fill={false} onRight={machine.state.status === 'connected' && openFiles ? () => openFiles(machine.peer.id, true) : undefined}>
             <View style={{ paddingTop: 4, paddingBottom: 2 }}>
               <View style={styles.row}>
                 <View style={styles.grow}>
@@ -296,10 +294,11 @@ export function SessionsScreen({
               {machine.state.status === 'awaiting-approval' && <Note>Approve this phone in Shellfox on {machine.peer.hostname}.</Note>}
               {machine.state.lastError && !isConnectionFailure(machine.state.lastError) && <Note error>{machine.state.lastError.message}</Note>}
             </View>
+            </SwipeView>
           )}
           renderItem={({ item: session, section: { machine } }) => {
             const indicator = sessionDot(session, machine.busyTabIds);
-            return <SessionRow session={session} peerId={machine.peer.id} client={machine.client} kind={indicator.kind} label={indicator.title} loading={machine.state.status !== 'connected' || machine.snapshotConnectionId !== machine.state.connectionId} open={open} manage={manage} />;
+            return <SwipeView fill={false} onRight={machine.state.status === 'connected' && openFiles ? () => openFiles(machine.peer.id, true) : undefined}><SessionRow session={session} peerId={machine.peer.id} client={machine.client} kind={indicator.kind} label={indicator.title} loading={machine.state.status !== 'connected' || machine.snapshotConnectionId !== machine.state.connectionId} open={open} manage={manage} /></SwipeView>;
           }}
         />
       )}
