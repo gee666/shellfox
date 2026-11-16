@@ -13,10 +13,14 @@ export class RemoteHelper implements HelperPort {
   subscribeStatus(listener: (status: HelperStatus) => void): () => void { this.statuses.add(listener); return () => { this.statuses.delete(listener); }; }
   private emitStatus(status: HelperStatus): void { for (const listener of this.statuses) { try { listener({ ...status, loginUrl: status.status === 'login-required' ? status.loginUrl : null }); } catch { /* Consumers cannot interrupt native replies. */ } } }
   private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
-  constructor(private readonly executable: string) {}
+  constructor(private readonly executable: string, private readonly options: { stableNetworkPath?: boolean; runtimeChannel?: 'testing' } = {}) {}
   private start(): ChildProcessWithoutNullStreams {
     if (this.child) return this.child;
-    const child = spawn(this.executable, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // The Windows launcher stays offline. Only its stable-path child opens sockets,
+    // so versioned installs and temporary package tests reuse the firewall approval.
+    const args = process.platform === 'win32' && this.options.stableNetworkPath !== false
+      ? ['--network-runtime', ...(this.options.runtimeChannel ? [this.options.runtimeChannel] : [])] : [];
+    const child = spawn(this.executable, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.child = child; let buffered = '';
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {

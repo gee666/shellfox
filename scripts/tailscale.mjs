@@ -4,6 +4,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env, root } from './common.mjs';
+import { runGoTests } from './go-tests.mjs';
 
 export const tailscaleVersion = '1.104.2';
 export const goVersion = '1.27.3';
@@ -85,7 +86,7 @@ export function buildHelper(platform = process.platform, arch = process.arch) {
 
 async function testHelper() {
   const target = helperTarget();
-  go(['test', '-mod=readonly', '-count=1', './...'], target);
+  runGoTests({ command: process.env.SHELLFOX_GO || 'go', cwd: source, env: goEnvironment(target), root });
   const executable = buildHelper();
   // Exercise framing with an invalid startup configuration, never a real enrollment.
   // Build only synthetic marker values; never put live or revoked credentials in fixtures.
@@ -102,6 +103,27 @@ async function testHelper() {
   assert.deepEqual(responses[2].value, { stopped: true });
   privatePermissionsSmoke(executable);
   await ownershipSmoke(executable);
+  networkRuntimeSmoke(executable);
+}
+
+function networkRuntimeSmoke(executable) {
+  if (process.platform !== 'win32') return;
+  const local = mkdtempSync(path.join(root, 'tmp/network-runtime-smoke-'));
+  try {
+    const input = JSON.stringify({ id: 'stop', method: 'stop' }) + '\n';
+    for (const channel of [[], ['testing']]) {
+      // Exercise the real launcher without starting tsnet or opening network sockets.
+      const result = spawnSync(executable, ['--network-runtime', ...channel], {
+        env: { ...env, LOCALAPPDATA: local }, input, timeout: 10000, encoding: 'utf8', windowsHide: true,
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stderr, '');
+      assert.deepEqual(JSON.parse(result.stdout), { id: 'stop', ok: true, value: { stopped: true } });
+      const cached = path.join(local, 'Shellfox/network', process.arch, ...channel, 'shellfox-tailscale.exe');
+      assert.ok(readFileSync(cached).equals(readFileSync(executable)), 'Stable helper differs from the bundled binary');
+    }
+  } finally { rmSync(local, { recursive: true, force: true }); }
 }
 
 function privatePermissionsSmoke(executable) {

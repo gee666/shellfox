@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameS
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { runGoTests } from './go-tests.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const scratch = path.join(root, 'tmp');
@@ -98,7 +99,8 @@ export function main(args = process.argv.slice(2)) {
     for (const tool of ['gomobile', 'gobind']) run(go, ['install', `golang.org/x/mobile/cmd/${tool}@${mobileVersion}`]);
     run(gomobile, ['init']);
   } else if (command === 'test') {
-    run(go, ['test', '-mod=readonly', '-count=1', '-timeout=60s', './...', 'shellfox.local/tailscale-helper/nethealth'], { CGO_ENABLED: '0' });
+    runGoTests({ command: go, cwd: source, env: { ...env, CGO_ENABLED: '0' }, root,
+      packages: ['./...', 'shellfox.local/tailscale-helper/nethealth'] });
   } else if (command === 'build') {
     if (!['android', 'ios'].includes(target)) throw new Error('Target must be android or ios.');
     if (target === 'ios' && process.platform !== 'darwin') throw new Error('iOS frameworks require macOS with Xcode and iOS SDKs.');

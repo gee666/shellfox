@@ -29,6 +29,16 @@ A single native worker observes local status and coalesced network changes. It f
 
 Mobile preserves pending approval UUIDs during recoverable health errors and resumes them online. Existing authenticated peer streams remain active until their actual HTTP connection fails. Authentication loss still stops those clients. No new discovery probes run while global health is offline.
 
+## Windows Firewall approval
+
+Windows Firewall remembers application permissions by executable path. Versioned installs and temporary package-test folders used to give the embedded helper a different path, causing repeated "allow access" prompts.
+
+Desktop and headless Windows hosts now launch their network helper from `%LOCALAPPDATA%\Shellfox\network\<architecture>\shellfox-tailscale.exe`. Development and test builds use a fixed `testing` subfolder so testing does not replace a running release's helper. These private, per-user paths stay the same across updates and test profiles. The launcher copies and verifies the bundled helper before starting it; it never falls back to a new network executable path or silently runs an older helper. Close other Shellfox hosts using an older helper in the same channel before switching builds.
+
+Windows may ask once for each stable path. Approve only the network profiles you intend to use. Shellfox does not disable the firewall, grant access to other programs, or bypass administrator policy. Removing the rule, changing network profiles, or an organization policy can still require approval again. Tailscale login and Shellfox device approval remain separate and unchanged. macOS, Linux, Android and iOS keep their existing launch behavior.
+
+For native tests on Windows, use `pnpm test:tailscale` and `pnpm test:mobile:native`. Both compile Go test packages, including `nethealth`, to fixed paths under `tmp/go-tests/win32-<architecture>/` before running them. Windows can reuse approval for those paths too. Raw `go test` runs temporary executables at new paths and can bring back the prompts. A new checkout location needs its own approval.
+
 ## Who owns a terminal?
 
 The machine running the terminal owns its processes. A remote client attaches to that terminal rather than launching a replacement shell on every connection.

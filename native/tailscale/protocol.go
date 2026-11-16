@@ -53,6 +53,9 @@ func decode(data []byte, target interface{}) error {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "--network-runtime" {
+		os.Exit(runNetworkRuntime(os.Args[2:], os.Stderr))
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "--private-permissions" {
 		os.Exit(runPrivatePermissions(os.Args[2:], os.Stdout))
 	}

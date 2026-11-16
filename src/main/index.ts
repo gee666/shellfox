@@ -159,7 +159,7 @@ async function run(): Promise<void> {
   const testRemoteHelper = __TEST_BUILD__ && process.env.SHELLFOX_TEST_REMOTE_HELPER && path.resolve(process.env.SHELLFOX_TEST_REMOTE_HELPER).startsWith(path.join(__PROJECT_ROOT__, 'tmp') + path.sep)
     ? path.resolve(process.env.SHELLFOX_TEST_REMOTE_HELPER) : null;
   const remoteHelperPath = testRemoteHelper ?? (app.isPackaged ? path.join(process.resourcesPath, 'tailscale', remoteHelperName) : path.resolve('tmp/tailscale', process.platform + '-' + process.arch, remoteHelperName));
-  const remote = service instanceof EmbeddedSessionService ? new RemoteService(app.getPath('userData'), new RemoteStore(app.getPath('userData'), remoteHostname), new RemoteHelper(remoteHelperPath), service, remoteHostname) : null;
+  const remote = service instanceof EmbeddedSessionService ? new RemoteService(app.getPath('userData'), new RemoteStore(app.getPath('userData'), remoteHostname), new RemoteHelper(remoteHelperPath, { stableNetworkPath: !testRemoteHelper, runtimeChannel: __TEST_BUILD__ || !app.isPackaged ? 'testing' : undefined }), service, remoteHostname) : null;
   if (remote) { startupCleanups.push(() => remote.dispose()); await remote.initialize(); }
   const keepAwake = new KeepAwake(powerSaveBlocker, { stateDir: app.getPath('userData') });
   startupCleanups.push(() => keepAwake.dispose());

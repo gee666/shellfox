@@ -21,7 +21,7 @@ export async function createHostResources(options: HostRuntimeOptions): Promise<
   const backend = new PtyBackend({ helperOptions: paths.helpers, allowAdministrator: options.mode === 'desktop', hostEnvironment: { userData: options.userData, runtimePath: bundledCli?.binDir, resourcesPath: paths.helpers.resourcesPath, headless: options.mode !== 'desktop' } });
   const service = new EmbeddedSessionService(repository, backend, emit => new ProcessTracker(emit, createSystemSnapshotProvider(paths.helpers)), undefined, cli, paths.helpers);
   const remoteHostname = hostname().replace(/[^a-zA-Z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 63).replace(/-+$/g, '') || 'shellfox';
-  const remote = new RemoteService(options.userData, new RemoteStore(options.userData, remoteHostname), new RemoteHelper(options.helperPath ?? paths.tailscale), service, remoteHostname);
+  const remote = new RemoteService(options.userData, new RemoteStore(options.userData, remoteHostname), new RemoteHelper(options.helperPath ?? paths.tailscale, { stableNetworkPath: !options.helperPath, runtimeChannel: paths.helpers.packaged ? undefined : 'testing' }), service, remoteHostname);
   const keepAwake = new HeadlessKeepAwake();
   return { service, remote, keepAwake, ssh: new SshProfileStore(options.userData), closeRepository: () => repository.close(), initialize: async () => { await keepAwake.initialize(); await service.files.initialize(options.userData); await service.initialize(); await remote.initialize(); }, startLegacyControl: () => startControlServer(options.userData, service, keepAwake, options.assertOwnership) };
 }
