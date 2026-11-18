@@ -16,6 +16,11 @@ pub enum OutgoingV2Endpoint {
     Request,
     Events,
     Disconnect,
+    DiscoverV1,
+    PairV1,
+    RequestV1,
+    EventsV1,
+    DisconnectV1,
 }
 impl OutgoingV2Endpoint {
     pub(crate) fn wire(self) -> shellfox_protocol::Endpoint {
@@ -26,6 +31,11 @@ impl OutgoingV2Endpoint {
             Self::Request => Endpoint::RequestV2,
             Self::Events => Endpoint::EventsV2,
             Self::Disconnect => Endpoint::DisconnectV2,
+            Self::DiscoverV1 => Endpoint::Discover,
+            Self::PairV1 => Endpoint::Pair,
+            Self::RequestV1 => Endpoint::Request,
+            Self::EventsV1 => Endpoint::Events,
+            Self::DisconnectV1 => Endpoint::Disconnect,
         }
     }
 }

@@ -2,6 +2,8 @@
 //! opens Host/SQLite or consumes runtime events directly.
 #[path = "host_client_catalog.rs"]
 mod catalog;
+#[path = "peer_v1.rs"]
+pub mod peer_v1;
 #[cfg(feature = "experimental-shellfox-native")]
 #[path = "peer_client.rs"] pub mod peer;
 #[path = "host_client_endpoint.rs"]
