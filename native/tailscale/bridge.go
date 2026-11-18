@@ -44,7 +44,8 @@ type proxyRequest struct {
 
 func allowedPath(path string) bool {
 	switch path {
-	case "/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect":
+	case "/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect",
+		"/v2/discover", "/v2/pair", "/v2/request", "/v2/events", "/v2/disconnect":
 		return true
 	}
 	return false
@@ -207,6 +208,8 @@ func forward(w http.ResponseWriter, ctx context.Context, transport *http.Transpo
 		http.Error(w, "Invalid upstream request", http.StatusBadGateway)
 		return
 	}
+	// A failed POST has an uncertain outcome. Never make its body replayable.
+	req.GetBody = nil
 	if headers != nil {
 		req.Header = headers
 	}

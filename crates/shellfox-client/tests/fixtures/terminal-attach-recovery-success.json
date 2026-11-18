@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "value": {
+    "control": "owned",
+    "controlEpoch": 1,
+    "tabId": "20000000-0000-4000-8000-000000000001",
+    "sessionId": "40000000-0000-4000-8000-000000000001",
+    "generation": "30000000-0000-4000-8000-000000000001",
+    "firstSequence": 1,
+    "lastSequence": 1,
+    "chunks": [
+      {
+        "type": "data",
+        "tabId": "20000000-0000-4000-8000-000000000001",
+        "generation": "30000000-0000-4000-8000-000000000001",
+        "sequence": 1,
+        "data": "\u001b[H\u001b[2Jprompt$ "
+      }
+    ],
+    "truncated": true,
+    "snapshot": true,
+    "state": "open",
+    "exitCode": null,
+    "cols": 80,
+    "rows": 24,
+    "lifetime": "app-owned"
+  }
+}

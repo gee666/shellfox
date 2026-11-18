@@ -1,0 +1,12 @@
+[package]
+name = "shellfox-ghostty-vt"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+experimental-shellfox-native = ["shellfox-ghostty-vt-sys/experimental-shellfox-native"]
+
+[dependencies]
+shellfox-ghostty-vt-sys = { path = "../ghostty-vt-sys" }

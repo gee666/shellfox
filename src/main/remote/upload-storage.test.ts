@@ -2,12 +2,16 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:
 import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { UploadStorage, sanitizeUploadName, type StoredUpload } from './upload-storage';
+import { registerFixtureUploadRoot } from '../../../tests/unit/upload-permission-model';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const fn of cleanups.splice(0).reverse()) await fn(); });
 async function fixture() {
   await mkdir('tmp', { recursive: true }); const directory = await mkdtemp(path.resolve('tmp/upload-storage-'));
-  cleanups.push(() => rm(directory, { recursive: true, force: true })); return { directory, root: path.join(directory, 'uploads') };
+  const root = path.join(directory, 'uploads');
+  cleanups.push(() => rm(directory, { recursive: true, force: true }));
+  registerFixtureUploadRoot(root);
+  return { directory, root };
 }
 it('sanitizes traversal, reserved devices, alternate streams and invisible/command text', () => {
   for (const [name, expected] of [['../../foo.txt', 'foo.txt'], ['C:\\evil\\NUL.jpg', 'file_NUL.jpg'], ['. .', 'file'], ['a.txt:evil', 'a.txt_evil'], ['foo.  ', 'foo'], ['\u202eevil\u0000.png', '_evil_.png'], ['$(touch x);.sh', '__touch x__.sh']]) expect(sanitizeUploadName(name)).toBe(expected);

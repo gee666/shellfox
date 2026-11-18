@@ -37,6 +37,16 @@ function setup(attachment: TerminalAttachmentDto = snapshot(), readOnly = false)
 }
 afterEach(() => vi.useRealTimers());
 describe('mobile terminal delivery', () => {
+  it('forwards a Ctrl+Space page message without truncating NUL or relaxing view identity', async () => {
+    const f = setup(); await flush();
+    try {
+      const input = { type: 'input' as const, viewId: 'page-1', epoch: f.latest().epoch, data: 'A\u0000B' };
+      f.bridge.receive({ ...input, viewId: 'retired' }); f.bridge.receive({ ...input, epoch: 'retired' });
+      expect(f.api.writeTerminal).not.toHaveBeenCalled();
+      f.bridge.receive(input); await flush();
+      expect(f.api.writeTerminal).toHaveBeenCalledExactlyOnceWith({ tabId, generation, controlEpoch: 1, data: 'A\u0000B' });
+    } finally { f.bridge.dispose(); }
+  });
   it('opens only file targets from the current attached display identity', async () => {
     const f = setup(); await flush();
     const identity = { viewId: 'page-1', epoch: f.latest().epoch };
@@ -94,10 +104,10 @@ describe('mobile terminal delivery', () => {
     f.bridge.input('a');
     expect(f.options.onInput).toHaveBeenCalledOnce();
     f.bridge.input(''); f.bridge.input('\0');
-    expect(f.options.onInput).toHaveBeenCalledOnce();
+    expect(f.options.onInput).toHaveBeenCalledTimes(2);
     f.bridge.dispose();
     f.bridge.input('b');
-    expect(f.options.onInput).toHaveBeenCalledOnce();
+    expect(f.options.onInput).toHaveBeenCalledTimes(2);
   });
   it.each(['open', 'closed'] as const)('renders and acknowledges %s automation replay without accepting input or uploads', async state => {
     const f = setup(snapshot([event(1, 'saved output')], { state, exitCode: state === 'closed' ? 7 : null }), true);

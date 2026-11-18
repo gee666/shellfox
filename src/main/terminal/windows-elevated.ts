@@ -112,7 +112,7 @@ export class WindowsElevatedPty implements ElevatedPty {
   private send(value: unknown): void { this.sendFrame(this.encode(value)); }
   write(data: string): void {
     const bytes = Buffer.byteLength(data);
-    if (!this.ready || this.ended || this.failure || this.closing || !bytes || bytes > 65536 || data.includes('\0') || this.queued + bytes > MAX_INPUT || this.pending.size >= 128) throw new Error('Administrator input queue full or unavailable.');
+    if (!this.ready || this.ended || this.failure || this.closing || !bytes || bytes > 65536 || this.queued + bytes > MAX_INPUT || this.pending.size >= 128) throw new Error('Administrator input queue full or unavailable.');
     // Serialize and bound before reserving any input bytes or sequence ID.
     // Rejection of a large escaped frame leaves this terminal usable.
     const id = this.nextId + 1, frame = this.encode({ type: 'write', id, data });

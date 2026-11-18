@@ -1,0 +1,244 @@
+{
+  "format": 1,
+  "status": "recorded-not-parity-accepted",
+  "engine": "actual Electron BrowserWindow",
+  "platform": "win32",
+  "arch": "x64",
+  "dimensions": {
+    "width": 1200,
+    "height": 760
+  },
+  "identity": {
+    "pid": 5908,
+    "hwnd": "3279950",
+    "data": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tmp\\electron-parity-662d208c-6e18-4172-bc72-a8d12e1bfe41\\user-data",
+    "executable": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\node_modules\\electron\\dist\\electron.exe",
+    "electron": "44.5.1",
+    "chrome": "152.0.7977.130",
+    "bounds": {
+      "x": 64,
+      "y": 64,
+      "width": 1216,
+      "height": 799
+    },
+    "contentBounds": {
+      "x": 72,
+      "y": 95,
+      "width": 1200,
+      "height": 760
+    },
+    "displays": [
+      {
+        "accelerometerSupport": "unknown",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "colorDepth": 24,
+        "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+        "depthPerComponent": 8,
+        "detected": true,
+        "displayFrequency": 60,
+        "id": 1741437006,
+        "internal": false,
+        "label": "24B2W1G5",
+        "maximumCursorSize": {
+          "width": 0,
+          "height": 0
+        },
+        "monochrome": false,
+        "nativeOrigin": {
+          "x": 0,
+          "y": 0
+        },
+        "rotation": 0,
+        "scaleFactor": 1,
+        "size": {
+          "width": 1920,
+          "height": 1080
+        },
+        "workArea": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1032
+        },
+        "workAreaSize": {
+          "width": 1920,
+          "height": 1032
+        },
+        "touchSupport": "unknown"
+      }
+    ],
+    "launcherPid": 12340,
+    "clientOrigin": {
+      "X": 72,
+      "Y": 95
+    },
+    "dwm": {
+      "Left": 71,
+      "Top": 64,
+      "Right": 1273,
+      "Bottom": 856
+    },
+    "focused": true,
+    "dpi": 96,
+    "client": {
+      "Left": 0,
+      "Top": 0,
+      "Right": 1200,
+      "Bottom": 760
+    },
+    "birth": "134390823573041509",
+    "window": {
+      "Left": 64,
+      "Top": 64,
+      "Right": 1280,
+      "Bottom": 863
+    }
+  },
+  "source": {
+    "sourceHash": "0306836fce310432d0bef0c9dd0222ff4e36b9fd7eec3db520c899dc2d467c50",
+    "platform": "win32",
+    "arch": "x64",
+    "builtAt": "2026-11-13T22:21:45.904Z"
+  },
+  "git": "c8cafb86d3a3b1bae01c3e12ed13df4fb4636dfd",
+  "states": [
+    {
+      "name": "01-empty",
+      "files": {
+        "renderer": "2d27ae07c5f547a3f83175ef245ab595fa04ce20b1f93ef0601e344c641e25fe",
+        "window": "2cd2e646e60af0da1cb4d52c78afe8ceee1d4de168ed410393dee05db341aed4",
+        "client": "d4787e664dd9a3a737498d0213b95d98870b483bb70d588d86286ffe1840ef7e"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390823573041509",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 5908,
+        "hwnd": "3279950"
+      }
+    },
+    {
+      "name": "02-new-session-dialog",
+      "files": {
+        "renderer": "4b4b0e553e9e85e932ccc1a70ab95f60409beeaefdc4eaf619049238b5ed39ef",
+        "window": "a4c488303d4573d1f7a70b40a0d15945fa8b226fecc8300c1cae60c28b1e89ce",
+        "client": "ece92b02de4d0ea219a9bb0fe0d37e6393bef746734ddc7e28b953086a6fc142"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390823573041509",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 5908,
+        "hwnd": "3279950"
+      }
+    },
+    {
+      "name": "03-new-session-filled",
+      "files": {
+        "renderer": "cebfe0bcda671e0dfa0fc94ed8044bb89b0fa565253fde0045f2cfa315897bef",
+        "window": "2f30afdd0d6937a5256242f9d7060787a3b476c0942c08f5d8b631984e939a9f",
+        "client": "cde5809862cf0a0be520a303c86bd8c2a123f07b46b2fcb262922860eee778b9"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390823573041509",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 5908,
+        "hwnd": "3279950"
+      }
+    }
+  ],
+  "policy": {
+    "pixelTolerance": 0,
+    "masks": [],
+    "animations": "unaltered",
+    "terminalContent": "required, never masked",
+    "dynamicPolicy": "No user-approved dynamic exclusions. Repeated capture must prove determinism before acceptance."
+  }
+}

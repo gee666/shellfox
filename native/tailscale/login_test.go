@@ -18,13 +18,13 @@ func TestKeyEnrollmentStartsAuthenticationAfterInstallingKey(t *testing.T) {
 		{BackendState: "NeedsLogin", HaveNodeKey: true},
 	} {
 		f := &fakeLogin{prefs: ipn.NewPrefs(), status: &state}
-		if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil {
+		if err := enroll(context.Background(), f, "tskey"+"-auth-"+"synthetic-secret"); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(f.calls, []string{"status", "prefs", "start", "login"}) {
 			t.Fatalf("incorrect enrollment order: %v", f.calls)
 		}
-		if f.options.AuthKey != "tskey" + "-auth-" + "synthetic-secret" || !f.options.UpdatePrefs.WantRunning {
+		if f.options.AuthKey != "tskey"+"-auth-"+"synthetic-secret" || !f.options.UpdatePrefs.WantRunning {
 			t.Fatal("authentication started without enrollment configuration")
 		}
 	}
@@ -33,7 +33,7 @@ func TestKeyEnrollmentStartsAuthenticationAfterInstallingKey(t *testing.T) {
 func TestKeyEnrollmentPreservesExistingAuthorizedNode(t *testing.T) {
 	for _, state := range []string{"Running", "Stopped", "NeedsMachineAuth"} {
 		f := &fakeLogin{prefs: ipn.NewPrefs(), status: &ipnstate.Status{BackendState: state, HaveNodeKey: true}}
-		if err := enroll(context.Background(), f, "tskey" + "-auth-" + "synthetic-secret"); err != nil {
+		if err := enroll(context.Background(), f, "tskey"+"-auth-"+"synthetic-secret"); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(f.calls, []string{"status", "prefs", "start"}) {
@@ -58,12 +58,38 @@ func TestKeyEnrollmentStopsOnErrorsWithoutExposingSecrets(t *testing.T) {
 	}
 }
 
-func TestInteractiveLoginDoesNotRestartControlClient(t *testing.T) {
-	f := &fakeLogin{}
+func TestInteractiveLoginPreservesRunningPreferences(t *testing.T) {
+	prefs := ipn.NewPrefs()
+	prefs.WantRunning = true
+	f := &fakeLogin{prefs: prefs}
 	if err := enroll(context.Background(), f, ""); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(f.calls, []string{"login"}) {
-		t.Fatalf("interactive login changed configuration: %v", f.calls)
+	if !reflect.DeepEqual(f.calls, []string{"prefs", "start", "login"}) || f.options.UpdatePrefs != prefs {
+		t.Fatal("interactive login replaced running preferences or skipped Start")
+	}
+}
+func TestInteractiveLoginResumesNodeBeforeAuthenticationAndPreservesControl(t *testing.T) {
+	prefs := ipn.NewPrefs()
+	prefs.WantRunning = false
+	prefs.ControlURL = "http://127.0.0.1:1234"
+	f := &fakeLogin{prefs: prefs}
+	if err := enroll(context.Background(), f, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(f.calls, []string{"prefs", "start", "login"}) {
+		t.Fatalf("incorrect interactive order: %v", f.calls)
+	}
+	if f.options.UpdatePrefs != prefs || !prefs.WantRunning || prefs.ControlURL != "http://127.0.0.1:1234" || f.options.AuthKey != "" {
+		t.Fatal("interactive login replaced configuration or supplied a key")
+	}
+}
+func TestInteractiveLoginStopsOnErrorsWithoutExposingUpstream(t *testing.T) {
+	for _, stage := range []string{"prefs", "start", "login"} {
+		f := &fakeLogin{prefs: ipn.NewPrefs(), failures: map[string]error{stage: errors.New("upstream secret")}}
+		err := enroll(context.Background(), f, "")
+		if err == nil || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "upstream") || f.calls[len(f.calls)-1] != stage {
+			t.Fatal("interactive login continued after failure or leaked upstream content")
+		}
 	}
 }

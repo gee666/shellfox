@@ -28,6 +28,21 @@ process.once('message', input => {
   child.once('exit',(code,signal)=>{if(launched)process.send({type:'exit',code,signal});});
 });
 `;
+/** Request shutdown once for the original live supervisor. This is not exit confirmation. */
+export function requestAutomationStop(child: ChildProcessWithoutNullStreams): void {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32') {
+    // libuv holds the helper's process handle; terminating it closes its native job.
+    if (!child.kill('SIGKILL') && child.exitCode === null && child.signalCode === null) throw new Error('Automation supervisor termination failed.');
+    return;
+  }
+  const pid = child.pid;
+  if (!pid || pid <= 0) throw new Error('Automation supervisor identity is unavailable.');
+  // The live supervisor owns this process group. ESRCH still requires its original close event.
+  try { process.kill(-pid, 'SIGKILL'); }
+  catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error; }
+}
+
 export interface AutomationLaunch {
   child: ChildProcessWithoutNullStreams;
   ready: Promise<void>;

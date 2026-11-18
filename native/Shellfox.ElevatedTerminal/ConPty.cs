@@ -24,10 +24,11 @@ internal sealed class ConPty : IDisposable
     private readonly object closeLock = new();
     private Task? closing;
 
-    internal static void ValidateLaunch(JsonElement value)
+    internal static void ValidateLaunch(JsonElement value, bool isolated = false)
     {
-        Wire.Fields(value, "type", "cwd", "env", "cols", "rows");
-        if (Wire.Type(value) != "launch") throw new InvalidDataException("Expected launch.");
+        if (isolated) Wire.Fields(value, "type", "isolationRoot", "cwd", "env", "cols", "rows");
+        else Wire.Fields(value, "type", "cwd", "env", "cols", "rows");
+        if (Wire.Type(value) != (isolated ? "launch-isolated" : "launch")) throw new InvalidDataException("Expected launch.");
         var cwd = value.GetProperty("cwd").GetString() ?? "";
         if (cwd.Length is < 1 or > 32767 || cwd.Any(c => c < 32) || !Path.IsPathFullyQualified(cwd)) throw new InvalidDataException("Invalid working directory.");
         Dimensions(value);
@@ -42,6 +43,7 @@ internal sealed class ConPty : IDisposable
             units += item.Name.Length + text.Length + 2;
         }
         if (names.Count > 1024 || units > 32767) throw new InvalidDataException("Oversized environment.");
+        if (isolated) IsolatedLaunch.Validate(value);
     }
     internal static bool SafeEnvironmentName(string name) =>
         !new[] { "COR_", "CORECLR_", "COMPLUS_", "DOTNET_" }.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
@@ -53,9 +55,9 @@ internal sealed class ConPty : IDisposable
         if (cols is < 2 or > 500 || rows is < 2 or > 500) throw new InvalidDataException("Invalid dimensions.");
         return new Coord { X = (short)cols, Y = (short)rows };
     }
-    internal ConPty(JsonElement launch)
+    internal ConPty(JsonElement launch, bool isolated = false)
     {
-        ValidateLaunch(launch);
+        ValidateLaunch(launch, isolated);
         SafeFileHandle? inRead = null, outWrite = null, inWrite = null, outRead = null, thread = null, createdProcess = null, createdJob = null;
         IntPtr attributes = IntPtr.Zero, environment = IntPtr.Zero;
         try
@@ -78,9 +80,10 @@ internal sealed class ConPty : IDisposable
             // launcher stdio out of the shell. ConPTY supplies console handles;
             // otherwise PowerShell can read the app pipe and exit on its EOF.
             var start = new StartupInfoEx { Info = new StartupInfo { Size = Marshal.SizeOf<StartupInfoEx>(), Flags = 0x100 }, Attributes = attributes };
-            // Never accept an executable or shell script in the IPC launch frame.
-            var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
-            var command = new StringBuilder($"\"{executable}\" -NoLogo");
+            // Both modes use the OS system directory, never PATH or a payload
+            // executable. Only the separate isolated protocol suppresses profiles.
+            var executable = IsolatedLaunch.Executable;
+            var command = new StringBuilder(IsolatedLaunch.CommandLine(isolated));
             // Final privileged boundary, after inherited and session variables
             // were merged. Never let either source inject a CLR profiler, startup
             // hook or runtime override before the first interactive command.
@@ -107,7 +110,7 @@ internal sealed class ConPty : IDisposable
                         // Ack means the bytes reached the ConPTY pipe, not that a
                         // shell command executed. Pending application bytes stay
                         // bounded until this exact acknowledgement.
-                        await write.Send(new { type = "ack", id = write.Id });
+                        await write.Send(Wire.Object(("type", "ack"), ("id", write.Id)));
                     }
                 }
                 catch { await Close(); }
@@ -139,7 +142,7 @@ internal sealed class ConPty : IDisposable
         var id = value.GetProperty("id").GetInt64();
         var text = value.GetProperty("data").GetString() ?? "";
         var data = Wire.Utf8.GetBytes(text);
-        if (id <= lastInput || data.Length is < 1 or > 65536 || text.Contains('\0')) throw new InvalidDataException("Invalid input.");
+        if (id <= lastInput || data.Length is < 1 or > 65536) throw new InvalidDataException("Invalid input.");
         if (Interlocked.Add(ref inputBytes, data.Length) > 131072 || !writes.Writer.TryWrite((data, id, send))) throw new InvalidDataException("Input queue full.");
         lastInput = id;
     }
@@ -192,22 +195,40 @@ internal sealed class ConPty : IDisposable
     [StructLayout(LayoutKind.Sequential)] private struct JobAccounting { public long UserTime, KernelTime, PeriodUserTime, PeriodKernelTime; public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses; }
     [StructLayout(LayoutKind.Sequential)] private struct IoCounters { public ulong ReadOperations, WriteOperations, OtherOperations, ReadBytes, WriteBytes, OtherBytes; }
     [StructLayout(LayoutKind.Sequential)] private struct JobLimits { public BasicLimits Basic; public IoCounters Io; public nuint ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory; }
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool CreatePipe(out SafeFileHandle read, out SafeFileHandle write, IntPtr attributes, uint size);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")] private static extern int CreatePseudoConsole(Coord size, SafeFileHandle input, SafeFileHandle output, uint flags, out IntPtr console);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")] private static extern int ResizePseudoConsole(IntPtr console, Coord size);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")] private static extern void ClosePseudoConsole(IntPtr console);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool CreateProcess(string application, StringBuilder command, IntPtr processAttributes, IntPtr threadAttributes, bool inherit, uint flags, IntPtr environment, string directory, ref StartupInfoEx startup, out ProcessInfo info);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, uint flags, ref nuint size);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, nuint size, IntPtr previous, IntPtr returned);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")] private static extern void DeleteProcThreadAttributeList(IntPtr list);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern uint ResumeThread(SafeFileHandle thread);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateJobObject(IntPtr attributes, string? name);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool SetInformationJobObject(SafeFileHandle job, int infoClass, ref JobLimits limits, uint size);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool QueryInformationJobObject(SafeFileHandle job, int infoClass, out JobAccounting accounting, uint size, IntPtr returned);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool AssignProcessToJobObject(SafeFileHandle job, SafeFileHandle process);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool TerminateJobObject(SafeFileHandle job, uint code);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool TerminateProcess(SafeFileHandle process, uint code);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetProcessTimes(SafeFileHandle process, out long creation, out long exit, out long kernel, out long user);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetExitCodeProcess(SafeFileHandle process, out uint code);
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", SetLastError = true)] private static extern uint WaitForSingleObject(SafeFileHandle process, uint milliseconds);
 }

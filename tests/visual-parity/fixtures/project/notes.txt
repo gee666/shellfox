@@ -1,0 +1,2 @@
+Shellfox parity fixture
+A stable file for editor, save and discard checks.

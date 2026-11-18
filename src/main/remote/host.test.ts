@@ -1,3 +1,4 @@
+import { registerEndpointRoot } from '../../../tests/unit/endpoint-permission-model';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -59,6 +60,7 @@ it('delivers only to the owner and automatically promotes a waiting remote view 
   const poll = remotePollResponseSchema.parse(await f.send('/v1/events', { clientId: f.clientId }));
   expect(poll).toMatchObject({ ok: true, value: { events: expect.arrayContaining([expect.objectContaining({ type: 'terminal', event: expect.objectContaining({ type: 'data', data: 'live', controlEpoch: attached.value.controlEpoch }) })]) } });
   expect(await f.request('resizeTerminal', { ...controlled, cols: 100, rows: 35 })).toEqual({ ok: true, value: { resized: true } });
+  for (const data of ['\0', 'A\0B']) { expect(await f.request('writeTerminal', { ...controlled, data })).toEqual({ ok: true, value: { written: true } }); expect(f.processes[0].write).toHaveBeenLastCalledWith(data); }
   const second = randomUUID(); await f.send('/v1/pair', { clientId: second });
   expect(await f.request('attachTerminal', terminal, second)).toMatchObject({ ok: true, value: { control: 'blocked' } });
   expect(await f.request('writeTerminal', { ...controlled, data: 'other' }, second)).toMatchObject({ ok: false, error: { code: 'TERMINAL_CONTROL_REQUIRED' } });
@@ -91,7 +93,7 @@ it('arbitrates one owner across remote HTTP, local host RPC and a host-local des
   const id = { tabId: session.value.tabs[0].id, generation: session.value.tabs[0].generation! };
   const remote = responseSchemas.attachTerminal.parse(await f.request('attachTerminal', id));
   if (!remote.ok || remote.value.control !== 'owned') throw new Error('No remote owner');
-  await mkdir('tmp', { recursive: true }); const directory = await mkdtemp(path.resolve('tmp/exclusive-transports-'));
+  await mkdir('tmp', { recursive: true }); const directory = await mkdtemp(path.resolve('tmp/exclusive-transports-')); registerEndpointRoot(directory, ['host']);
   const rpc = await startHostRpc({ userData: directory, service: f.service, mode: 'headless', shutdown: async () => {} });
   const client = await connectHostClient(directory), localEvents: unknown[] = [];
   const local = f.service.createTerminalView(event => localEvents.push(event));

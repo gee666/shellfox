@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "binding": {
+    "clientId": "20000000-0000-4000-8000-000000000001",
+    "ownerId": "10000000-0000-4000-8000-000000000001",
+    "connectionId": "40000000-0000-4000-8000-000000000001",
+    "profile": "observer-v2"
+  },
+  "ok": true,
+  "value": {
+    "kind": "attached",
+    "delivery": {
+      "tabId": "50000000-0000-4000-8000-000000000001",
+      "generation": "60000000-0000-4000-8000-000000000001",
+      "deliveryId": "70000000-0000-4000-8000-000000000001",
+      "deliveryEpoch": 1
+    },
+    "input": null,
+    "layout": {
+      "kind": "fixedCanonicalGrid"
+    },
+    "recovery": {
+      "recoveryId": "80000000-0000-4000-8000-000000000001",
+      "format": "formatted-active-buffer-v1",
+      "encoding": "base64",
+      "data": "GBtj",
+      "lastSequence": 4,
+      "cols": 80,
+      "rows": 24,
+      "layoutRevision": 1
+    }
+  }
+}

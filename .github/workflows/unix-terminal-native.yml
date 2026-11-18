@@ -1,0 +1,61 @@
+name: Unix terminal ownership acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'crates/shellfox-terminal/**'
+      - 'src/main/terminal/native/darwin-terminal-supervisor.c'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'scripts/darwin-supervisor-model-test.mjs'
+      - 'src/main/terminal/native/tests/darwin-supervisor-model.c'
+      - '.github/workflows/unix-terminal-native.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-ownership:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, arch: x64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
+          - { os: macos-15, arch: arm64 }
+          - { os: macos-15-intel, arch: x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: node -e 'if (process.arch !== process.env.EXPECTED_ARCH) throw new Error("Runner architecture does not match native acceptance target")'
+      - name: Install pinned Rust
+        run: rustup show
+      - name: Build retained Darwin supervisor
+        if: runner.os == 'macOS'
+        run: |
+          node crates/shellfox-terminal/tests/native/build-darwin.mjs
+          node -e 'const p=require("node:path"); require("node:fs").appendFileSync(process.env.GITHUB_ENV, "SHELLFOX_DARWIN_SUPERVISOR="+p.resolve("tmp/terminal-native/darwin-"+process.arch+"/shellfox-terminal-supervisor")+"\n")'
+      - name: Contract tests and native fixture build
+        run: cargo test --locked -p shellfox-terminal --features test-support --lib --test unix_native --no-fail-fast
+      - name: Retained C control-flow model, not native acceptance
+        run: node scripts/darwin-supervisor-model-test.mjs
+      - name: Native PTY ownership acceptance
+        run: cargo test --locked -p shellfox-terminal --features test-support --test unix_native -- --ignored --test-threads=1
+      - name: Scoped Clippy
+        run: cargo clippy --locked -p shellfox-terminal --features test-support --all-targets -- -D warnings
+      - name: Retain native helper evidence
+        if: always() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-supervisor-${{ matrix.os }}
+          path: tmp/terminal-native/darwin-*/supervisor-manifest.json
+          if-no-files-found: error

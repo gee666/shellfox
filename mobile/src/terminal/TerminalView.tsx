@@ -15,6 +15,9 @@ import { useKeyboardOverlap } from './useKeyboardOverlap';
 import { useTerminalAttachment } from './useTerminalAttachment';
 import { sameUploadIdentity, type TerminalUploadApi } from './upload';
 import type { TerminalFileTarget } from '../../../src/shared/terminal-file-links';
+import { nativeTerminalForApi } from '../rust-client/native-terminal';
+
+const RustTerminalView = React.lazy(() => import('./RustTerminalView').then(module => ({ default: module.RustTerminalView })));
 
 export interface TerminalViewProps {
   api: MobileTerminalApi;
@@ -34,7 +37,14 @@ export interface TerminalViewProps {
   onFileOpen?: (target: TerminalFileTarget) => void;
 }
 const source = { html: TERMINAL_HTML, baseUrl: 'about:blank' };
-export function TerminalView({
+export function TerminalView(props: TerminalViewProps) {
+  const driver = nativeTerminalForApi(props.api);
+  return driver ? <React.Suspense fallback={<View style={styles.container} />}>
+    <RustTerminalView {...props} driver={driver} />
+  </React.Suspense> : <WebViewTerminalView {...props} />;
+}
+
+function WebViewTerminalView({
   api,
   uploadApi,
   subscribeTerminal,

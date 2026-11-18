@@ -1,0 +1,47 @@
+[package]
+name = "shellfox-service"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+experimental-shellfox-native = ["shellfox-runtime/experimental-shellfox-native", "shellfox-mobile/experimental-shellfox-native"]
+
+[dependencies]
+anyhow.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "=2.5.8"
+roxmltree = "=0.20.0"
+cap-std = "=3.4.6"
+cap-fs-ext = "=3.4.6"
+shellfox-core = { path = "../shellfox-core" }
+shellfox-ghostty-vt.workspace = true
+shellfox-host = { path = "../shellfox-host" }
+shellfox-files = { path = "../shellfox-files" }
+shellfox-runtime = { path = "../shellfox-runtime" }
+shellfox-ssh = { path = "../shellfox-ssh" }
+zeroize = "1"
+rand = "0.8"
+shellfox-terminal = { path = "../shellfox-terminal" }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["rt", "net", "io-util", "process", "time", "sync", "signal", "macros"] }
+shellfox-protocol = { path = "../shellfox-protocol", features = ["local-host"] }
+shellfox-client = { path = "../shellfox-client", features = ["local-host"] }
+shellfox-transport = { path = "../shellfox-transport", features = ["helper"] }
+shellfox-remote = { path = "../shellfox-remote" }
+subtle = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_Power"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.6", features = ["fs", "process"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "=5.19.0", features = ["blocking-api"] }
+
+[dev-dependencies]
+shellfox-mobile = { path = "../shellfox-mobile" }
+tempfile = "3"

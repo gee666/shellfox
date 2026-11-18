@@ -277,14 +277,28 @@ describe('main automatic update on close/quit', () => {
     quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
     expect(state.control.dispose).toHaveBeenCalledTimes(1); expect(state.remote.dispose).toHaveBeenCalledTimes(1);
   });
-  it('does not strand a disposed manager if control endpoint cleanup fails', async () => {
+  it('rejects CLI Stop after failed control cleanup and retries only incomplete cleanup', async () => {
+    await stage();
     state.control.dispose.mockRejectedValueOnce(new Error('Endpoint cleanup failed.'));
-    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      quit(); await expect.poll(() => state.repository.close.mock.calls.length).toBe(1);
-      expect(logged).toHaveBeenCalled(); expect(state.service.dispose).toHaveBeenCalledTimes(1);
-      expect(state.app.quit).toHaveBeenCalledTimes(1); expect(state.dialog.showErrorBox).not.toHaveBeenCalled();
-    } finally { logged.mockRestore(); }
+    await expect(state.host.start.mock.calls[0]![0].shutdown()).rejects.toThrow('Endpoint cleanup failed.');
+    expect(state.host.close).toHaveBeenCalledTimes(1);
+    expect(state.service.dispose).toHaveBeenCalledTimes(1);
+    expect(state.remote.dispose).toHaveBeenCalledTimes(1);
+    expect(state.repository.close).not.toHaveBeenCalled();
+    expect(state.host.release).not.toHaveBeenCalled();
+    expect(state.host.waitForStopReplies).not.toHaveBeenCalled();
+    expect(state.app.quit).toHaveBeenCalledTimes(1); // Initial quit request only.
+    expect(state.dialog.showErrorBox).toHaveBeenCalledTimes(1);
+
+    expect(quit().preventDefault).toHaveBeenCalled();
+    await expect.poll(() => state.app.quit.mock.calls.length).toBe(2);
+    expect(state.service.dispose).toHaveBeenCalledTimes(1);
+    expect(state.remote.dispose).toHaveBeenCalledTimes(1);
+    expect(state.control.dispose).toHaveBeenCalledTimes(2);
+    expect(state.start).not.toHaveBeenCalled();
+    expect(state.repository.close).toHaveBeenCalledTimes(1);
+    expect(state.host.release).toHaveBeenCalledTimes(1);
+    expect(state.repository.close.mock.invocationCallOrder[0]).toBeLessThan(state.host.release.mock.invocationCallOrder[0]!);
   });
   it.each(['initialize', 'listener', 'renderer'] as const)('cleans up resources after %s startup failure', async phase => {
     await state.updater?.dispose(); state.updater = undefined;

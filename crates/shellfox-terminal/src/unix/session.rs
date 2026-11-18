@@ -1,0 +1,287 @@
+use super::{cgroup::Cgroup, startup::Gate, state::State};
+use crate::{config::size, input::InputWriter, reader::OutputReader};
+use crate::{ExitStatus, NativeLaunchBinding, PtyConfig, PtyOutput, SpawnError, TrustedProgramEnv};
+use anyhow::{ensure, Context, Result};
+use std::sync::{
+    mpsc::{self, SyncSender, TryRecvError},
+    Mutex,
+};
+use std::time::Duration;
+
+#[derive(Default)]
+pub(crate) struct SpawnOptions {
+    #[cfg(feature = "test-support")]
+    pub fault: Option<crate::StartupFault>,
+}
+impl SpawnOptions {
+    fn before_assignment(&self) -> Result<()> {
+        #[cfg(feature = "test-support")]
+        ensure!(
+            !matches!(self.fault, Some(crate::StartupFault::AssignmentDenied)),
+            "injected assignment denial before GO"
+        );
+        Ok(())
+    }
+    fn before_go(&self) -> Result<()> {
+        #[cfg(feature = "test-support")]
+        ensure!(
+            !matches!(self.fault, Some(crate::StartupFault::NoRelease)),
+            "injected startup cancellation before GO"
+        );
+        Ok(())
+    }
+    fn after_ready(&self, state: &mut State) -> Result<()> {
+        #[cfg(not(feature = "test-support"))]
+        let _ = state;
+        #[cfg(feature = "test-support")]
+        if matches!(self.fault, Some(crate::StartupFault::ReadyCleanupFailure)) {
+            state.inject_cleanup_failure = true;
+            anyhow::bail!("injected post-READY failure");
+        }
+        Ok(())
+    }
+}
+pub struct PtySession {
+    inner: Option<State>,
+    reaper: SyncSender<State>,
+}
+impl std::fmt::Debug for PtySession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PtySession")
+            .field("closed", &self.inner.is_none())
+            .finish()
+    }
+}
+impl PtySession {
+    pub fn spawn(config: PtyConfig) -> std::result::Result<Self, SpawnError> {
+        Self::spawn_inner(config, None, None, SpawnOptions::default())
+    }
+    pub fn spawn_bound(
+        config: PtyConfig,
+        binding: NativeLaunchBinding,
+    ) -> std::result::Result<Self, SpawnError> {
+        Self::spawn_inner(config, None, Some(binding), SpawnOptions::default())
+    }
+    pub fn spawn_program(
+        config: PtyConfig,
+        environment: TrustedProgramEnv,
+    ) -> std::result::Result<Self, SpawnError> {
+        Self::spawn_inner(config, Some(environment), None, SpawnOptions::default())
+    }
+    pub fn spawn_program_bound(
+        config: PtyConfig,
+        environment: TrustedProgramEnv,
+        binding: NativeLaunchBinding,
+    ) -> std::result::Result<Self, SpawnError> {
+        Self::spawn_inner(
+            config,
+            Some(environment),
+            Some(binding),
+            SpawnOptions::default(),
+        )
+    }
+    pub(crate) fn spawn_inner(
+        config: PtyConfig,
+        environment: Option<TrustedProgramEnv>,
+        binding: Option<NativeLaunchBinding>,
+        options: SpawnOptions,
+    ) -> std::result::Result<Self, SpawnError> {
+        config.validate()?;
+        if let Some(env) = &environment {
+            env.validate_for(&config)?;
+        }
+        let command = match &config.command {
+            Some(command) => command.clone(),
+            None => match config.profile {
+                Some(id) => crate::shell_profile(id)?,
+                None => crate::default_shell_profile()?,
+            }
+            .command()?,
+        };
+        let supervisor = super::private::helper_path(
+            config
+                .supervisor
+                .as_ref()
+                .context("trusted supervisor missing")?,
+        )?;
+        let group = Cgroup::create()?;
+        let gate = Gate::new()?;
+        let runner = super::private::helper_path(std::path::Path::new("/usr/bin/systemd-run"))?;
+        let mut argv = vec![runner.into_os_string()];
+        argv.extend(super::linux::scope::scope_arguments(
+            &super::linux::scope::fresh_nonce()?,
+            &supervisor,
+            &gate.arguments(&command, config.unix_privilege),
+        )?);
+        // The scope wrapper execs the same original child into the waiting
+        // supervisor. User command arguments must never expand in the wrapper.
+        argv.insert(1, "--expand-environment=no".into());
+        let mut builder = config.builder(&argv)?;
+        builder.env(
+            "DBUS_SESSION_BUS_ADDRESS",
+            format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }),
+        );
+        let pair = portable_pty::native_pty_system().openpty(size(config.cols, config.rows)?)?;
+        let writer = InputWriter::start(pair.master.take_writer()?).context("start PTY input")?;
+        let output =
+            OutputReader::start(pair.master.try_clone_reader()?).context("start PTY output")?;
+        let (reaper, receiver) = mpsc::sync_channel::<State>(1);
+        std::thread::Builder::new()
+            .name("linux-pty-cleanup".into())
+            .spawn(move || {
+                while let Ok(mut state) = receiver.recv() {
+                    while state.shutdown().is_err() {
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                }
+            })
+            .context("start retained Linux PTY owner")?;
+        let mut session = Self {
+            inner: Some(State::new(group, pair.master, writer, output, environment)),
+            reaper,
+        };
+        let startup = (|| -> Result<()> {
+            let state = session.inner.as_mut().context("PTY state missing")?;
+            state.child = Some(pair.slave.spawn_command(builder)?);
+            drop(pair.slave);
+            let pid = state.pin()?;
+            let packet = state
+                .environment
+                .as_ref()
+                .map(|env| {
+                    env.validate_for(&config)?;
+                    env.packet()
+                })
+                .transpose()?;
+            let bound = binding.is_some();
+            let binding =
+                binding.unwrap_or_else(|| crate::launch_privilege::new_launch_binding().0);
+            state.control = Some(gate.release(pid, packet.as_ref(), || {
+                options.before_assignment()?;
+                state.attach(pid)?;
+                options.before_go()?;
+                let evidence = crate::launch_privilege::capture_posix(
+                    binding,
+                    pid,
+                    state
+                        .pidfd
+                        .as_ref()
+                        .context("original POSIX pidfd missing")?,
+                    config.unix_privilege,
+                )?;
+                if bound {
+                    state.evidence = Some(evidence);
+                }
+                Ok(())
+            })?);
+            state.ready = true;
+            options.after_ready(state)?;
+            Ok(())
+        })();
+        if let Err(error) = startup {
+            return match session.shutdown() {
+                Ok(()) => Err(error.into()),
+                Err(cleanup) => Err(SpawnError {
+                    error: error.context(format!("cleanup unconfirmed: {cleanup:#}")),
+                    session: Mutex::new(Some(Box::new(session))),
+                }),
+            };
+        }
+        Ok(session)
+    }
+    #[cfg(feature = "test-support")]
+    pub(crate) fn set_cleanup_failure(&mut self, fail: bool) {
+        if let Some(state) = &mut self.inner {
+            state.inject_cleanup_failure = fail;
+        }
+    }
+    #[cfg(feature = "test-support")]
+    pub fn disconnect_controller_for_test(&mut self) {
+        if let Some(state) = &mut self.inner {
+            state.control = None;
+        }
+    }
+    #[cfg(feature = "test-support")]
+    pub fn signal_controller_for_test(&self, signal: i32) -> Result<()> {
+        use std::os::fd::AsRawFd;
+        ensure!(
+            matches!(signal, libc::SIGHUP | libc::SIGTERM | libc::SIGINT),
+            "unsupported controller test signal"
+        );
+        let pidfd = self
+            .inner
+            .as_ref()
+            .and_then(|state| state.pidfd.as_ref())
+            .context("original controller pidfd missing")?;
+        ensure!(
+            unsafe {
+                libc::syscall(
+                    libc::SYS_pidfd_send_signal,
+                    pidfd.as_raw_fd(),
+                    signal,
+                    std::ptr::null::<libc::siginfo_t>(),
+                    0,
+                )
+            } == 0,
+            "signal original controller: {}",
+            std::io::Error::last_os_error()
+        );
+        Ok(())
+    }
+    pub fn take_launch_evidence(&mut self) -> Option<crate::NativeLaunchEvidence> {
+        self.inner.as_mut().and_then(|s| s.evidence.take())
+    }
+    pub fn try_read(&self) -> std::result::Result<Option<PtyOutput>, TryRecvError> {
+        self.inner
+            .as_ref()
+            .ok_or(TryRecvError::Disconnected)?
+            .output
+            .try_read()
+    }
+    pub fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        let state = self.inner.as_mut().context("PTY closed")?;
+        ensure!(state.ready && !state.stopping, "PTY input disabled");
+        let result = state.writer.write(bytes);
+        if result.is_err() {
+            state.ready = false;
+        }
+        result
+    }
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        let size = size(cols, rows)?;
+        let state = self.inner.as_ref().context("PTY closed")?;
+        ensure!(state.ready && !state.stopping, "PTY resize disabled");
+        state
+            .master
+            .as_ref()
+            .context("PTY master closed")?
+            .resize(size)
+    }
+    pub fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
+        self.inner.as_mut().map_or(Ok(None), State::poll)
+    }
+    pub fn begin_shutdown(&mut self) -> Result<()> {
+        if let Some(state) = &mut self.inner {
+            state.begin()?;
+        }
+        Ok(())
+    }
+    pub fn shutdown(&mut self) -> Result<()> {
+        if let Some(state) = &mut self.inner {
+            state.shutdown()?;
+        }
+        self.inner = None;
+        Ok(())
+    }
+}
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        if let Some(mut state) = self.inner.take() {
+            if state.shutdown().is_err() {
+                if let Err(mpsc::SendError(retained)) = self.reaper.send(state) {
+                    std::mem::forget(retained);
+                }
+            }
+        }
+    }
+}

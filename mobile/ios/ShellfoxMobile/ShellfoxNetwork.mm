@@ -1,8 +1,21 @@
 #import <Foundation/Foundation.h>
+#import <CommonCrypto/CommonDigest.h>
 #import <UIKit/UIKit.h>
 #import <React/RCTBridgeModule.h>
 #import <React/RCTInvalidating.h>
 #import <Mobile/Mobile.h>
+#import "../ShellfoxRust/SFNetworkPolicy.h"
+
+static NSURL *SFNetworkStateDirectory(NSString *name, NSError **error) {
+  NSURL *base = [[NSFileManager defaultManager] URLForDirectory:NSApplicationSupportDirectory
+    inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:error];
+  if (!base) return nil;
+  NSURL *directory = [base URLByAppendingPathComponent:name isDirectory:YES];
+  NSDictionary *attributes = @{NSFileProtectionKey: NSFileProtectionCompleteUntilFirstUserAuthentication};
+  if (![[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:YES attributes:attributes error:error] ||
+      ![directory setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:error]) return nil;
+  return directory;
+}
 
 @interface ShellfoxNetwork : NSObject <RCTBridgeModule, RCTInvalidating>
 @end
@@ -90,15 +103,26 @@ RCT_REMAP_METHOD(start,
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
   [self submit:_control work:^id(NSError **error) {
-    NSURL *base = [[NSFileManager defaultManager] URLForDirectory:NSApplicationSupportDirectory
-                          inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:error];
-    if (!base) return nil;
-    NSURL *directory = [base URLByAppendingPathComponent:@"shellfox-tailscale" isDirectory:YES];
-    NSDictionary *attributes = @{NSFileProtectionKey: NSFileProtectionCompleteUntilFirstUserAuthentication};
-    if (![[NSFileManager defaultManager] createDirectoryAtURL:directory withIntermediateDirectories:YES
-                                              attributes:attributes error:error]) return nil;
-    if (![directory setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:error]) return nil;
+    NSURL *directory = SFNetworkStateDirectory(@"shellfox-tailscale", error);
+    if (!directory) return nil;
     if (!MobileStart(directory.path, hostname, error)) return nil;
+    return MobileStatus(error);
+  } resolve:resolve reject:reject];
+}
+
+RCT_REMAP_METHOD(startWithControlServer,
+                 startHostname:(NSString *)hostname controlURL:(NSString *)controlURL
+                 resolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
+  [self submit:_control work:^id(NSError **error) {
+    NSData *origin = [controlURL dataUsingEncoding:NSUTF8StringEncoding];
+    if (!origin || origin.length > 2048) { *error = [NSError errorWithDomain:@"ShellfoxNetwork" code:1 userInfo:nil]; return nil; }
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(origin.bytes, (CC_LONG)origin.length, digest);
+    NSMutableString *name = [NSMutableString stringWithString:@"shellfox-tailscale-loopback-"];
+    for (unsigned index = 0; index < 16; ++index) [name appendFormat:@"%02x", digest[index]];
+    // State isolation only. The shared Go parser validates the control origin.
+    NSURL *directory = SFNetworkStateDirectory(name, error);
+    if (!directory || !MobileStartWithControlServer(directory.path, hostname, controlURL, error)) return nil;
     return MobileStatus(error);
   } resolve:resolve reject:reject];
 }
@@ -140,7 +164,8 @@ RCT_REMAP_METHOD(request,
                  body:(NSString *)body
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
-  if ([path isEqualToString:@"/v1/pair"]) {
+  if (!SFNetworkPathAllowed(path)) { reject(@"NETWORK_ERROR", @"Network operation failed.", nil); return; }
+  if (SFNetworkPathFiniteCompletion(path)) {
     // iOS grants a finite completion window, not indefinite background networking.
     dispatch_async(dispatch_get_main_queue(), ^{
       __block UIBackgroundTaskIdentifier task = UIBackgroundTaskInvalid;
@@ -153,7 +178,7 @@ RCT_REMAP_METHOD(request,
         });
       };
       task = [[UIApplication sharedApplication] beginBackgroundTaskWithName:@"Shellfox approval" expirationHandler:finish];
-      [self submitConcurrent:NO
+      [self submitConcurrent:SFNetworkPathPoll(path)
                        work:^id(NSError **error) { return MobileRequest(peerId, path, body, error); }
                     resolve:^(id value) { finish(); resolve(value); }
                      reject:^(NSString *code, NSString *message, NSError *error) { finish(); reject(code, message, error); }];
@@ -161,7 +186,7 @@ RCT_REMAP_METHOD(request,
     return;
   }
   // Long-polls must never occupy the workers used for terminal input or peers.
-  [self submitConcurrent:[path isEqualToString:@"/v1/events"]
+  [self submitConcurrent:SFNetworkPathPoll(path)
                     work:^id(NSError **error) { return MobileRequest(peerId, path, body, error); }
        resolve:resolve reject:reject];
 }

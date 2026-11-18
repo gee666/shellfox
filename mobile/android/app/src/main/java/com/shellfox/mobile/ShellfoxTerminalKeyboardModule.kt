@@ -1,6 +1,7 @@
 package com.shellfox.mobile
 
 import android.webkit.WebView
+import com.shellfox.mobile.rust.ShellfoxRustTerminalView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.facebook.react.bridge.Promise
@@ -9,7 +10,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.UiThreadUtil
 
-/** Shows the IME only after the local terminal page confirms its textarea has focus. */
+/** Shows the IME only for the focused terminal, native or transitional WebView. */
 class ShellfoxTerminalKeyboardModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   override fun getName() = "ShellfoxTerminalKeyboard"
 
@@ -17,7 +18,7 @@ class ShellfoxTerminalKeyboardModule(context: ReactApplicationContext) : ReactCo
   fun show(promise: Promise) {
     UiThreadUtil.runOnUiThread {
       val focused = reactApplicationContext.currentActivity?.currentFocus
-      if (focused !is WebView) {
+      if (focused !is WebView && focused !is ShellfoxRustTerminalView) {
         promise.reject("KEYBOARD_UNAVAILABLE", "Terminal is not focused.")
         return@runOnUiThread
       }

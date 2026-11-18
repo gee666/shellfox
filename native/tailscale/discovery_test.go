@@ -17,7 +17,7 @@ func TestDiscoveryAllowlistAddsNoGeneralProxyPaths(t *testing.T) {
 	if !allowedPath("/v1/discover") {
 		t.Fatal("discovery not allowed")
 	}
-	for _, path := range []string{"/v1/discover?target=localhost", "/v1/discover/", "/v1/%64iscover", "/v1/../discover", "http://localhost/v1/discover", "/v2/discover", "/debug", "/v1/hosts"} {
+	for _, path := range []string{"/v1/discover?target=localhost", "/v1/discover/", "/v1/%64iscover", "/v1/../discover", "http://localhost/v1/discover", "/v3/discover", "/debug", "/v1/hosts"} {
 		if allowedPath(path) {
 			t.Errorf("unsafe path allowed %q", path)
 		}

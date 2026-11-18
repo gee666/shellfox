@@ -10,17 +10,48 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestOwnershipUnixPermissionsDoNotChangeAppdataRoot(t *testing.T) {
-	dir := t.TempDir()
+func TestOwnershipUnixRejectsUnsafeExistingPermissionsWithoutRepair(t *testing.T) {
+	for _, unsafe := range []string{"root", "directory", "file"} {
+		t.Run(unsafe, func(t *testing.T) {
+			dir := ownershipTestRoot(t)
+			private := filepath.Join(dir, ownershipDirectory)
+			if err := os.Mkdir(private, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(private, ownershipFilename)
+			if err := os.WriteFile(path, []byte("retained"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			modes := map[string]os.FileMode{dir: 0700, private: 0700, path: 0600}
+			target := map[string]string{"root": dir, "directory": private, "file": path}[unsafe]
+			modes[target] = map[string]os.FileMode{"root": 0770, "directory": 0755, "file": 0644}[unsafe]
+			if err := os.Chmod(target, modes[target]); err != nil {
+				t.Fatal(err)
+			}
+			file, locked, err := acquireOwnership(dir)
+			if file != nil {
+				t.Cleanup(func() { _ = file.Close() })
+			}
+			if err == nil || locked || file != nil {
+				t.Fatal("unsafe existing permissions were adopted")
+			}
+			for name, want := range modes {
+				info, err := os.Stat(name)
+				if err != nil || info.Mode().Perm() != want {
+					t.Fatal("ownership repaired unsafe permissions")
+				}
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || string(data) != "retained" {
+				t.Fatal("ownership changed the stable lock file")
+			}
+		})
+	}
+}
+
+func TestOwnershipUnixReadOnlyGroupRootIsNotRepaired(t *testing.T) {
+	dir := ownershipTestRoot(t)
 	if err := os.Chmod(dir, 0750); err != nil {
-		t.Fatal(err)
-	}
-	private := filepath.Join(dir, ownershipDirectory)
-	if err := os.Mkdir(private, 0755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(private, ownershipFilename)
-	if err := os.WriteFile(path, []byte("retained"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	file, locked, err := acquireOwnership(dir)
@@ -28,21 +59,14 @@ func TestOwnershipUnixPermissionsDoNotChangeAppdataRoot(t *testing.T) {
 		t.Fatalf("ownership: %v", err)
 	}
 	defer file.Close()
-	for path, want := range map[string]os.FileMode{dir: 0750, private: 0700, path: 0600} {
-		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != want {
-			t.Errorf("incorrect permissions on %s", filepath.Base(path))
-		}
-	}
-	_ = file.Close()
-	data, err := os.ReadFile(path)
-	if err != nil || string(data) != "retained" {
-		t.Fatal("ownership truncated the stable lock file")
+	info, err := os.Stat(dir)
+	if err != nil || info.Mode().Perm() != 0750 {
+		t.Fatal("root permissions changed")
 	}
 }
 
 func TestOwnershipUnixRejectsFIFOWithoutBlocking(t *testing.T) {
-	dir := t.TempDir()
+	dir := ownershipTestRoot(t)
 	if err := os.Mkdir(filepath.Join(dir, ownershipDirectory), 0700); err != nil {
 		t.Fatal(err)
 	}

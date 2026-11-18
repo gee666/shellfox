@@ -53,21 +53,39 @@ func decode(data []byte, target interface{}) error {
 }
 
 func main() {
+	// This lease is acquired before every existing mode and before any network
+	// initialization. It outlives h.close via defer order in normal mode.
+	image, err := acquireRuntimeExecutableLease()
+	if err != nil {
+		os.Exit(2)
+	}
+	if image != nil {
+		defer image.Close()
+	}
+	expected, networkMode, err := runtimeNetworkArguments(os.Args[1:])
+	if err != nil {
+		os.Exit(2)
+	}
+	if expected != nil {
+		if err := verifyRuntimeImagePin(image, expected); err != nil {
+			os.Exit(2)
+		}
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "--private-permissions" {
 		os.Exit(runPrivatePermissions(os.Args[2:], os.Stdout))
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "--ownership" {
-		if len(os.Args) != 3 {
+		if len(os.Args) != 4 || validateOwnershipIdentity(os.Args[3]) != nil {
 			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"error": "Invalid ownership arguments"})
 			os.Exit(2)
 		}
-		os.Exit(runOwnership(os.Args[2], os.Stdin, os.Stdout))
+		os.Exit(runOwnershipExpected(os.Args[2], os.Args[3], os.Stdin, os.Stdout))
 	}
 	if len(os.Args) == 2 && os.Args[1] == "--probe" {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"protocolVersion": 1, "tailscaleVersion": "1.104.2", "platform": runtime.GOOS, "arch": runtime.GOARCH})
 		return
 	}
-	if len(os.Args) != 1 {
+	if !networkMode {
 		os.Exit(2)
 	}
 	// tsnet configuration and credentials come only from the parent protocol.

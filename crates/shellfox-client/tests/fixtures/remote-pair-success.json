@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "value": {
+    "paired": true,
+    "terminalControl": "exclusive-v1"
+  }
+}

@@ -1,6 +1,22 @@
 import { it, expect } from 'vitest';
 import { nativeEventSchema, pathSchema, requestEnvelopeSchema, requestSchemas, settingsSchema } from './schemas';
 import { defaultSettings } from '../main/defaults';
+it('accepts terminal Ctrl+Space NUL without loosening other fields or input byte bounds', () => {
+  const id = 'c36951c8-03f5-49c7-bb11-ad8828044a31';
+  const identity = { tabId: id, generation: id, controlEpoch: 1 };
+  for (const data of ['\u0000', 'A\u0000B', '\u0000'.repeat(65536), '雪'.repeat(21845)]) {
+    expect(requestSchemas.writeTerminal.parse({ ...identity, data }).data).toBe(data);
+  }
+  for (const data of ['', '\u0000'.repeat(65537), '雪'.repeat(21846)]) {
+    expect(requestSchemas.writeTerminal.safeParse({ ...identity, data }).success).toBe(false);
+  }
+  expect(requestSchemas.writeTerminal.safeParse({ ...identity, controlEpoch: 0, data: '\u0000' }).success).toBe(false);
+  expect(requestSchemas.writeTerminal.safeParse({ ...identity, data: '\u0000', binary: true }).success).toBe(false);
+  expect(requestSchemas.createSession.safeParse({ cwd: '/tmp/\u0000', requestId: id }).success).toBe(false);
+  expect(requestSchemas.renameSession.safeParse({ sessionId: id, title: 'a\u0000b' }).success).toBe(false);
+  expect(requestSchemas.setTerminalEnv.safeParse({ env: [{ name: 'A', value: '\u0000' }] }).success).toBe(false);
+  expect(requestSchemas.writeFile.safeParse({ path: 'file.txt', text: '\u0000', revision: 'a'.repeat(64) }).success).toBe(false);
+});
 it('rejects unexpected IPC fields and arbitrary methods', () => {
   expect(requestEnvelopeSchema.safeParse({version:1,method:'execute',payload:{}}).success).toBe(false);
   expect(requestSchemas.createSession.safeParse({cwd:'C:\\work',requestId:'c36951c8-03f5-49c7-bb11-ad8828044a31',command:'evil'}).success).toBe(false);

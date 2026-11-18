@@ -1,0 +1,46 @@
+{
+  "version": 2,
+  "binding": {
+    "clientId": "20000000-0000-4000-8000-000000000001",
+    "ownerId": "10000000-0000-4000-8000-000000000001",
+    "connectionId": "40000000-0000-4000-8000-000000000001",
+    "profile": "manager-v2"
+  },
+  "ok": true,
+  "value": {
+    "events": [
+      {
+        "type": "terminal",
+        "event": {
+          "type": "data",
+          "delivery": {
+            "tabId": "50000000-0000-4000-8000-000000000001",
+            "generation": "60000000-0000-4000-8000-000000000001",
+            "deliveryId": "70000000-0000-4000-8000-000000000001",
+            "deliveryEpoch": 7
+          },
+          "sequence": 13,
+          "encoding": "base64",
+          "data": "QQBC"
+        }
+      },
+      {
+        "type": "terminal",
+        "event": {
+          "type": "layout",
+          "delivery": {
+            "tabId": "50000000-0000-4000-8000-000000000001",
+            "generation": "60000000-0000-4000-8000-000000000001",
+            "deliveryId": "70000000-0000-4000-8000-000000000001",
+            "deliveryEpoch": 7
+          },
+          "layoutRevision": 4,
+          "cols": 132,
+          "rows": 32,
+          "recoveryRequired": true,
+          "lastSequence": 13
+        }
+      }
+    ]
+  }
+}

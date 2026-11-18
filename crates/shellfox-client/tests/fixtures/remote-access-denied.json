@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "ACCESS_DENIED",
+    "message": "This connection was declined or revoked. Request access again.",
+    "retryable": false
+  }
+}

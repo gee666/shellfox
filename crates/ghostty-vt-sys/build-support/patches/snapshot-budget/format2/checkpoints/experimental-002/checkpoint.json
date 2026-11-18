@@ -1,0 +1,262 @@
+{
+  "schema": 1,
+  "status": "changes-requested-revision-candidate-awaiting-independent-review",
+  "patchOrder": 5,
+  "patch": "0005-bounded-format2.patch",
+  "patchSha256": "6572bb5ae16175380ed596b670e15c88347dbe130da8f9c668fcae43c109c340",
+  "requires": [
+    {
+      "order": 1,
+      "path": "ansi-export/checkpoints/native-002/0001-ansi-export.patch",
+      "sha256": "68d3e2d557594ae91bf4655c6a4fc9bde5a89cbe3958053cb61b0e09cd00183d"
+    },
+    {
+      "order": 2,
+      "path": "terminal-profile/checkpoints/native-002/0002-terminal-profile.patch",
+      "sha256": "8cc4f2403f4fe69faf1b77916d2db8ac3f713824dbfe273ba714c0a3fdf02d22"
+    },
+    {
+      "order": 3,
+      "path": "snapshot-budget/checkpoints/native-002/0003-snapshot-budget.patch",
+      "sha256": "28fd8c68edebdd8a014c40123261a2494ea3bde47089b3c2e4dd3cf474012a00"
+    },
+    {
+      "order": 4,
+      "path": "terminal-profile/prototype/native-002-p4-002/0004-cell-layout2-alt.patch",
+      "sha256": "f387980a974eb3f65d4c8b85f64d5a31bd6acea42a544ec6c3426b9523e10ac3",
+      "sourceDigest": "8d203cb2f34e15b58837c10cd6eccc775dd3717c39033fc116aa62ee9eda8833",
+      "sourceFilesVerified": 25
+    }
+  ],
+  "supersededP4NotUsed": "b011032c333b5c7562cc85b97a8a14681d41fac9dd498c296f38b837ce7a8775",
+  "native002Modified": false,
+  "originalSignedArchivesModified": false,
+  "upstream": {
+    "version": "vt-1.0.1",
+    "sourceSha256": "333dfce97641ef9b536bb9e08907ad86abaaada50e8f7417b70d9284adef37aa",
+    "depsSha256": "91a4e10960a52bf5bf4b15aa2a2cddaff8a89d6cd903d3055bda4fd17de3356d"
+  },
+  "wire": {
+    "magicHex": "53464f58534e3200",
+    "prefixBytes": 32,
+    "version": 2,
+    "wireProfile": 2,
+    "layoutABI": 2,
+    "flags": 0,
+    "exactLength": true,
+    "strictTagRange": "0x2001..0x2007",
+    "finish": "record/page/physical-slot/text-scalar totals and exact EOF",
+    "raw1CellDecoderUsed": false,
+    "invalidScalarNormalizationUsed": false,
+    "nativePaddingOrPointersSerialized": false
+  },
+  "profileState": {
+    "soleType": "GhosttyShellfoxTerminalProfileState ABI1",
+    "wire": "fixed u32 ABI/profile/preceding_join inside COMPATIBILITY2",
+    "freshFactory": "P4 newFreshRestore requires active charged scope, selects Legacy identity with join UNKNOWN",
+    "restore": "P4 cell/row/screen helpers, then FreshRestore.installProfileState, takeForContinuation and final C-wrapper address replay",
+    "postReplayCaptureEqualityRequired": true,
+    "privateProfileOrLayoutFieldsPoked": false
+  },
+  "availability": {
+    "normalPublicLegacy": false,
+    "publicLegacyConstructor": false,
+    "format2Default": false,
+    "testGate": "builtin.is_test OR explicit -Dshellfox-experimental-format2=true",
+    "oldBudgetBitImpliesFormat2": false,
+    "matchedWrappersArtifactsAccepted": false,
+    "fullStateOrLegacyApplicationParityClaimed": false
+  },
+  "publicAPI": {
+    "header": "ghostty/vt/shellfox_snapshot_format2.h",
+    "headerSha256": "129964605c2839c69cbca2cf65abc30321964c6ddc61579ad71455dea3919156",
+    "abi": 1,
+    "encode": "ghostty_shellfox_snapshot_format2_encode_buf",
+    "decode": "ghostty_shellfox_snapshot_format2_decode_buf",
+    "optionsWindowsX64Size": 152,
+    "reportWindowsX64Size": 64,
+    "sourceOwnership": "exclusive for complete atomic State/layout/config/continuation capture",
+    "failure": "private staging; caller output untouched and written0; no partial terminal",
+    "effects": "no source feed/query/switch/callback, passive destination"
+  },
+  "budgets": {
+    "heapAndPages": "Native002 scoped cumulative OS-rounded heap/pool/direct mapping charges, including P4 hidden storage allocations",
+    "physicalOwnedSlots": "all physical stride rows, hidden suffixes and ragged padding, not visible cells",
+    "capacity": "actual capacity cols/rows separately encoded and work charged; full native backing reservation is charged",
+    "text": "all cell scalars/graphemes, style/link tables/strings, title/PWD/cursor links",
+    "work": "deterministic record bytes, masks/remaps, rows/slots/text, Cora validation and continuation replay admission",
+    "imagesAndDecompression": false,
+    "compressedSourcePages": false,
+    "canonicalUnencodedConfig": "same explicit resize flag; zero Legacy image storage/direct-only, canonical C-stream settings, no pending APC/unencoded sessions"
+  },
+  "tested": {
+    "compiler": "project-local verified Zig0.17.0",
+    "zigWindowsArchiveSha256": "b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428",
+    "host": "Windows x64",
+    "target": "x86_64-windows-gnu",
+    "optimize": "ReleaseSafe",
+    "cpu": "baseline",
+    "features": "upstream default",
+    "appVersion": "1.4.1-dev",
+    "libVersion": "1.0.1",
+    "actualOrdered1Through5": true,
+    "fuzz": 0,
+    "freshIndependentSourceReproduction": "matches built source, excluding build cache only",
+    "experimentalEngineProfile": "d3c3618a333b58192f845a398e274d2e58d721ab5729abef2de38de98aed800d",
+    "defaultOffEngineProfile": "8aa523b5e5be1904de89ace26a230b3d97c2e6001d51f9ba6e3ecd2776c1ddc8",
+    "profilePreimages": "engine-profile-experimental.txt and engine-profile-default.txt; external compatibility identities, not authenticity",
+    "combinedFilters": [
+      "snapshot",
+      "Shellfox",
+      "format2"
+    ],
+    "combinedPassed": 496,
+    "combinedSkipped": 2,
+    "combinedTotal": 498,
+    "corePassed": 215,
+    "cPassed": 281,
+    "skip": "Native002 unavailable-build and new format2 unavailable-build refusal tests intentionally skip on supported build",
+    "codecMatrix": "all38cases/214cuts of exact published P4 oracle: source->format2->decode canonical physical/layout/cell/style/link/cursor/join/copy equality, then following live input/resize step, both screens and history",
+    "negative": "all blob truncations, CRC/framing/FINISH/trailing, malformed scalars/layout flags/references preallocation, physical/text/row/page/record/work refusal, every64KiB allocation-refusal boundary, no partial encoded output; concrete aliases preallocation, high sparse capacity/work, real compressed-source immutability, managed allocation cleanup, mid-buffer/exact and independent encoded/continuation errors",
+    "publicCExperimental": "strict C11 -Wall -Wextra -Werror; actual experimental DLL: decode fixture, recapture/reencode, decode again, edit+buffer-switch suffix, copy/join, resource failure, constructor stillOFF; revised mid-buffer, encoded-limit and pending-continuation-limit error assertions",
+    "publicCDefaultOff": "same C consumer, actual separate defaultOFF DLL, both APIs UNSUPPORTED/no output publication; Legacy constructor stillOFF",
+    "experimentalDllSha256": "ba7aeea30ad880130fcb4964bbdcbe349d36766f5de3650009c1c8bd8275c78e",
+    "defaultDllSha256": "a8dc530137d1d242468f8857d8a3ae96214edad8b2bd5fa7ae0895580b5574b6",
+    "nativeRaw1CrossDllFixture": "f05bfc6439f06562e50a7552e7285503e98493cfab36fc87a14ae687d9b301b8; byte-identical Native002 DLL and new defaultOFF DLL",
+    "allUpstreamTests": false,
+    "otherOSRuntime": false,
+    "GUIAccountProductionReleaseTraffic": false,
+    "targetedReview": {
+      "passed": 81,
+      "skipped": 1,
+      "total": 82
+    },
+    "snapshotDisabled": {
+      "passed": 74,
+      "total": 74
+    },
+    "debugSlowIntegrity": {
+      "passed": 74,
+      "total": 74
+    },
+    "proofsFrom001Reused": false
+  },
+  "remaining": [
+    "independent review and broader fuzz/property coverage",
+    "matched profile-aware render/formatter/edit/reflow/overflow/replay acceptance beyond scoped oracle",
+    "matched application wrappers and artifacts",
+    "all supported-platform native execution",
+    "no universal FullState or migration completion"
+  ],
+  "canonicalArtifacts": "none; only own project tmp source/install/evidence, no staged mobile or official artifacts replaced",
+  "finalAcceptedEngineProfile": null,
+  "supersedes": "experimental-001; immutable, Reagan REQUESTS CHANGES, not accepted as bounded",
+  "sourceDigest": "62a6769eb0db1d4b3e944fdb93d7b2de07957479e0c4a257ba48fe583b23188c",
+  "sourceDigestMethod": "SHA256(sorted UTF8 path + NUL + fileSHA256 + LF), 24 P5 source/header files",
+  "sourceFiles": [
+    {
+      "path": "include/ghostty/vt/shellfox_snapshot_format2.h",
+      "sha256": "129964605c2839c69cbca2cf65abc30321964c6ddc61579ad71455dea3919156"
+    },
+    {
+      "path": "src/lib_vt.zig",
+      "sha256": "7c9ddbc1540bd90e99e9a7188a915426670d95d904d0af8d16b756865755b53c"
+    },
+    {
+      "path": "src/shellfox_format2_framing_tests.zig",
+      "sha256": "6cab21b7ad400086cd3d541431f84cba3163eb0ff6b7536e4fa968fdf79fb3fc"
+    },
+    {
+      "path": "src/terminal/c/main.zig",
+      "sha256": "13ea2572fe9ec4e2df4aa543e85a732d5b58658ad9f14366f6f303dd0d0f5466"
+    },
+    {
+      "path": "src/terminal/c/shellfox_snapshot_format2.zig",
+      "sha256": "d436018f3cb37cbc4a5d612bc7d2016452fce49fb144bd5defa20cbcc2c7dd6f"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/cell.zig",
+      "sha256": "4317d640234c7049cbbeeb995f5a47b389bd16d626bd05ebf5b9d6931e6a279e"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/codec.zig",
+      "sha256": "b1da838623c79251ea05a1365e6175381b7864edf7dbbd4a3ed87761413800d4"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/codec_tests.zig",
+      "sha256": "6df115235abc7e706cfac81ba1913b16868f435fe7b5c3557397a78ce1e4456e"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/compare_tests.zig",
+      "sha256": "3e9f80eaf23897c3e28aac483da0d6588d9cdb2d093b4c6dff07c2e1bdd2ffa6"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/envelope.zig",
+      "sha256": "8480bd8c3477fd9e87570db045ee3001bb2a8d5a739ab2d4ee21ebb423731cb0"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/failure_tests.zig",
+      "sha256": "c6d8b60ced59d6dfb08ec25c900927563bd551c3e4f997f5dfe8877c533a0eec"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/framing_tests.zig",
+      "sha256": "4081b78afa56e12ab14aa2326c9aa75a61fcc3f8261bf2290fdba4b7959d1da3"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/managed_review_tests.zig",
+      "sha256": "15273b91dafe4d0b94e857ca7236d5e54e5c6474798639a66af5b7cee56a64d5"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/matrix_tests.zig",
+      "sha256": "7617251456e20b3957604b7b1de1820c76c03576dfb1d62d91d8ed355ae48b4f"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/options.zig",
+      "sha256": "9b2a130bef10f3b2259b6961274dfc4f9668c3947b3c42a353f9fa4313b34a73"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/page.zig",
+      "sha256": "6c4dbbe07c40319bc8ca4538a57cbc32aa92d172fe14ced519aef3d376e20b96"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/record.zig",
+      "sha256": "667e351a51ad93dfa774b51aa9064f5b891aa0fe22e6bf5763804ed0e92b1371"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/resources.zig",
+      "sha256": "38e6cfc96c7fea74c8d6f5018b7f173b86d20fd53268e23deb863add940ac9b3"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/review_tests.zig",
+      "sha256": "bf923587a172133250cbf3eab015937d82a486129db2e3703770f1ddef4dbce2"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/screen.zig",
+      "sha256": "1062bb3eb2bd309e039ee99ff3906c543a29324f746bd06bc5835e53d9bbaf35"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/source.zig",
+      "sha256": "80135e945858f5c60135a30671d629e286255a5e639623cd5dd4695d247ecc1c"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/tables.zig",
+      "sha256": "9edaf50c5dd753cf12673b4163587b594c7729ec2943001c919be808eedc6277"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/terminal.zig",
+      "sha256": "f0362425d9777243ca513e15082b5a662b0909fcd27e7ae5853ffcbc3d0e88c7"
+    },
+    {
+      "path": "src/terminal/shellfox_snapshot_format2/work.zig",
+      "sha256": "21234ba632af782bcc498ca95ed5367ed2ce6a109103ab2b5b3f7d3075b835d4"
+    }
+  ],
+  "reviewChanges": {
+    "residentFirst": "Bounded ALL-node pageIfResident walk before any configuration/profile/layout/content accessor; real compressed history storage/bytes/state unchanged on refusal, then deliberate suffix/control comparison",
+    "referenceAdmission": "Allocation-free complete canonical concrete style/link pass before remap/native set allocation or increments; distinct IDs may not alias equal concrete values",
+    "capacityWork": "Checked capacity x operations x comparison/copy prepayment; page memory upper bounds native map/bitmap capacities; source validators/lookups, table inserts, repeated grapheme/map work and cursor managed restoration charged; same prepayment in admission before native alloc",
+    "writerErrors": "OutOfSpace for caller capacity, EncodedLimitExceeded/ContinuationLimitExceeded separately internally and LIMIT_EXCEEDED at C boundary; mid-buffer/exact and independent cap tests",
+    "supportedBuild": "Native002 supported_build restriction, snapshot feature, slow-integrity compatibility and exact compiled profile/budget ABI declarations",
+    "managedCleanup": "Style/link tables, repeated graphemes, both cursor hyperlinks, saved cursors/both-screen replacement, every64KiB refusal and late managed failure"
+  }
+}

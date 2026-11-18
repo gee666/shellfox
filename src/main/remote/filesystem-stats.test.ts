@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises';
 import { afterEach, expect, it, vi } from 'vitest';
 import { success } from '../../shared/contracts';
 import { FakeRemoteHelper, remoteFixture } from './test-fixtures';
+import { registerDirectoryDriveChecks } from '../../../tests/unit/directory-drive-model';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await close(); });
@@ -11,7 +12,9 @@ it('requires approval for mkdir/stats, creates only after approval, and strips s
   const host = await remoteFixture(network, 'host'), client = await remoteFixture(network, 'client'); cleanups.push(host.dispose, client.dispose);
   const created = await host.create(); if (!created.ok) throw new Error('Create failed');
   await host.service.setSessionEnv({ sessionId: created.value.id, env: [{ name: 'SECRET', value: 'never-in-metrics' }] });
-  const cwd = path.join(host.directory, 'new', 'nested'); await client.remote.connect({ peerId: 'host' });
+  const cwd = path.join(host.directory, 'new', 'nested');
+  await registerDirectoryDriveChecks(host.directory, [host.directory, cwd]);
+  await client.remote.connect({ peerId: 'host' });
   await vi.waitFor(() => expect(client.remote.getState()).toMatchObject({ ok: true, value: { peers: [expect.objectContaining({ connection: 'awaiting-approval' })] } }));
   for (const request of [{ method: 'createDirectory', payload: { path: cwd } }, { method: 'getSessionStats', payload: {} }]) expect(await client.remote.request({ peerId: 'host', ...request })).toMatchObject({ ok: false, error: { code: 'APPROVAL_REQUIRED' } });
   await expect(stat(cwd)).rejects.toMatchObject({ code: 'ENOENT' });

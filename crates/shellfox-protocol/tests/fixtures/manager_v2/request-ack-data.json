@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "binding": {
+    "clientId": "20000000-0000-4000-8000-000000000001",
+    "ownerId": "10000000-0000-4000-8000-000000000001",
+    "connectionId": "40000000-0000-4000-8000-000000000001",
+    "profile": "manager-v2"
+  },
+  "method": "acknowledgeTerminal",
+  "payload": {
+    "delivery": {
+      "tabId": "50000000-0000-4000-8000-000000000001",
+      "generation": "60000000-0000-4000-8000-000000000001",
+      "deliveryId": "70000000-0000-4000-8000-000000000001",
+      "deliveryEpoch": 7
+    },
+    "ack": {
+      "kind": "data",
+      "sequence": 13
+    }
+  }
+}

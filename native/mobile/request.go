@@ -17,30 +17,47 @@ type peerClient interface {
 }
 type dialFunc func(context.Context, string, string) (net.Conn, error)
 
-// Request posts JSON to an allowlisted Shellfox endpoint through tsnet.
-// /v1/events is a bounded long-poll, so it must run concurrently with requests.
-// WireGuard encrypts this HTTP traffic; it never goes through OS HTTP or a VPN.
+// RequestResult exposes immutable, gomobile-supported getters only.
+// StatusCode is always a received HTTP status, never a translated error.
+type RequestResult struct {
+	statusCode int
+	body       string
+}
+
+func (r *RequestResult) StatusCode() int { return r.statusCode }
+func (r *RequestResult) Body() string    { return r.body }
+
+// Request preserves the legacy string/error API and rejection behavior.
 func Request(peerID, path, body string) (string, error) {
+	response, err := RequestWithStatus(peerID, path, body)
+	return legacyResponse(response, err)
+}
+
+// RequestWithStatus sends one allowlisted POST through tsnet. Both versions'
+// events share the bounded poll pool. No OS HTTP/VPN, headers or URLs are accepted.
+// Non-2xx bodies are discarded. Errors return nil, never a synthetic status or
+// fallback decision; only the shared client may negotiate another profile.
+func RequestWithStatus(peerID, path, body string) (*RequestResult, error) {
 	if err := validateRequest(peerID, path, body); err != nil {
-		return "", err
+		return nil, err
 	}
 	n, err := current()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	release, err := n.admit(path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer release()
 	ctx, cancel := context.WithTimeout(n.ctx, requestTimeout)
 	defer cancel()
-	return n.transports.request(ctx, n.client, n.server.Dial, peerID, path, body)
+	return n.transports.requestWithStatus(ctx, n.client, n.server.Dial, peerID, path, body)
 }
 
 func (n *node) admit(path string) (func(), error) {
 	slots := n.requests
-	if path == "/v1/events" {
+	if isEventPath(path) {
 		slots = n.polls
 	}
 	select {
@@ -59,17 +76,29 @@ func validateRequest(peerID, path, body string) error {
 }
 
 func (p *transportPool) request(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string) (string, error) {
-	data, status, err := p.postPeer(ctx, client, dial, peerID, path, body, responseLimit)
+	response, err := p.requestWithStatus(ctx, client, dial, peerID, path, body)
+	return legacyResponse(response, err)
+}
+
+func legacyResponse(response *RequestResult, err error) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if status < 200 || status >= 300 {
+	if response.statusCode < 200 || response.statusCode >= 300 {
 		return "", errors.New("Remote host rejected request")
 	}
-	if !json.Valid([]byte(data)) {
-		return "", errors.New("Invalid remote response")
+	return response.body, nil
+}
+
+func (p *transportPool) requestWithStatus(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string) (*RequestResult, error) {
+	data, status, err := p.postPeer(ctx, client, dial, peerID, path, body, responseLimit)
+	if err != nil {
+		return nil, err
 	}
-	return data, nil
+	if status >= 200 && status < 300 && !json.Valid([]byte(data)) {
+		return nil, errors.New("Invalid remote response")
+	}
+	return &RequestResult{statusCode: status, body: data}, nil
 }
 
 func postPeer(ctx context.Context, client peerClient, dial dialFunc, peerID, path, body string, limit int64) (string, int, error) {

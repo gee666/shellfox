@@ -29,6 +29,16 @@ func enroll(ctx context.Context, client loginClient, key string) error {
 		return errors.New("Invalid enrollment key")
 	}
 	if key == "" {
+		prefs, err := client.GetPrefs(ctx)
+		if err != nil || prefs == nil {
+			return errors.New("Cannot read network configuration")
+		}
+		// Explicit interactive login must resume a stopped/new node, preserving
+		// its existing control server and every other preference.
+		prefs.WantRunning = true
+		if err := client.Start(ctx, ipn.Options{UpdatePrefs: prefs}); err != nil {
+			return errors.New("Cannot start node for login")
+		}
 		if err := client.StartLoginInteractive(ctx); err != nil {
 			return errors.New("Cannot start login")
 		}

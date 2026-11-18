@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { run, root } from './common.mjs';
+import { assertSdk, dotnetEnvironment } from './dotnet-sdk.mjs';
 const mode = process.argv[2];
 const linux = process.argv.includes('--linux') || process.platform === 'linux';
 if (mode === 'publish') {
@@ -12,5 +13,7 @@ if (mode === 'publish') {
   const project = 'native/Shellfox.Native.Tests/Shellfox.Native.Tests.csproj';
   if (!existsSync(project)) throw new Error('Native test project has not been published by its owner: ' + project);
   run('dotnet', ['test', project, '-c', 'Release', '--logger', 'trx;LogFileName=native.trx', '--results-directory', path.join(root, 'tmp/reports/native')]);
-  run(process.execPath, ['--test', 'scripts/pipe-run.test.mjs']);
+  const activeSdk = assertSdk();
+  run(activeSdk, ['test', 'native/Shellfox.ElevatedTerminal.Tests/Shellfox.ElevatedTerminal.Tests.csproj', '-c', 'Release', '--logger', 'trx;LogFileName=isolated-helper.trx', '--results-directory', path.join(root, 'tmp/reports/isolated-helper')], 300000, dotnetEnvironment(activeSdk));
+  run(process.execPath, ['--test', 'scripts/pipe-run.test.mjs', 'scripts/elevated-isolated.test.mjs']);
 } else throw new Error('Unknown native command');

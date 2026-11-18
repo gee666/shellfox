@@ -9,19 +9,26 @@ import { SshProfileStore } from '../../src/main/ssh/storage';
 import { shellfoxShims } from '../../src/main/platform/shellfox-cli';
 import { linuxLauncher } from '../../src/main/platform/linux-cli';
 import { remoteCommand } from '../../src/main/ssh/presentation';
-import { generatedTestKey, generatedPpk, TEST_KEY_PASSPHRASE } from './ssh-test-keys';
+import { generatedTestKey, generatedPpk, testKeyFromObject, TEST_KEY_PASSPHRASE } from './ssh-test-keys';
+import { sshTestEnvironment } from './ssh-test-environment';
 async function main(){
- const root=process.cwd(),directory=process.argv[2],helper=process.argv[3],windows=process.platform==='win32',fixture=await sshFixture();
+ const root=process.cwd(),directory=process.argv[2],helper=process.argv[3],windows=process.platform==='win32';
+ if (process.env.SHELLFOX_SSH_TEST_WSL === '1' || process.env.SHELLFOX_SSH_TEST_LINUX_ELECTRON) {
+  throw new Error('WSL_REMOTE_FIXTURE_HOLD: loopback-only SSH fixture has no approved remote-route owner');
+ }
+ const ppk=generatedTestKey('ed25519'),pem=generateKeyPairSync('ed25519').privateKey;
+ const fixture=await sshFixture([ppk.publicBlob,testKeyFromObject('ed25519',pem).publicBlob]);
+ try {
  const folder=path.join(directory,'shims');await mkdir(folder,{recursive:true});
  const options={executable:process.execPath,cliHelper:helper,userData:directory};
  const shim=path.join(folder,windows?'shellfox.cmd':'shellfox'),shims=windows?shellfoxShims(options):null;
  await writeFile(shim,shims?.cmd??linuxLauncher(options),{mode:0o755});if(shims)await writeFile(path.join(folder,'shellfox'),shims.posix,{mode:0o755});
- const store=new SshProfileStore(directory),profile={id:'00000000-0000-4000-8000-000000000001',name:'fixture',host:'127.0.0.1',port:fixture.port,user:'fixture',password:'fixture-secret',keyFile:null,remoteCwd:null};
+ const store=new SshProfileStore(directory),profile={id:'00000000-0000-4000-8000-000000000001',name:'fixture',host:'127.0.0.1',port:fixture.port,user:'fixture',password:'fixture-secret',keyFile:null,remoteCwd:null,connectionOptions:{tryAgent:false,agentForward:false}};
  await store.save(profile);const evidence:unknown[]=[];
  type Mode='password'|'key'|'cancel'|'changed'|'lost'|'refused'|'prompt'|'auth-failed';
  async function interactive(shell:string,args:string[],mode:Mode='password'){
   const before=fixture.records.bytes.length,authBefore=fixture.records.auth.length,windowsBefore=fixture.records.windows.length,commandsBefore=fixture.records.commands.length,shellsBefore=fixture.records.shells;
-  const p=spawn(shell,args,{cwd:root,cols:90,rows:25,env:{...process.env,NO_COLOR:'1'}});
+  const p=spawn(shell,args,{cwd:root,cols:90,rows:25,env:sshTestEnvironment(directory)});
   let output='',trust=false,ready=false,sent=false,login=false,passphrase=false,passwords=0;
   const result=await new Promise<number>((resolve,reject)=>{
    const timer=setTimeout(()=>{p.kill();reject(new Error('interactive timeout: '+shell+'\n'+output));},15000);
@@ -55,20 +62,20 @@ async function main(){
   // ssh2's fixture decoder starts encoded tty modes at offset 1; verify
   // RFC mode bytes independently in pty.test.ts and against real sshd.
  }
- try{
   const cmdArgs=['/d','/c','call',shim,'ssh','--profile','fixture'],terminal=windows?'cmd.exe':'/bin/sh',plainArgs=windows?cmdArgs:[shim,'ssh','fixture'];
   const encryptedKey=path.join(directory,'generated-ed25519-v3.ppk');
-  await writeFile(encryptedKey,await generatedPpk(generatedTestKey('ed25519'),3,{passphrase:TEST_KEY_PASSPHRASE,newline:'\r\n'}),{mode:0o600});
+  await writeFile(encryptedKey,await generatedPpk(ppk,3,{passphrase:TEST_KEY_PASSPHRASE,newline:'\r\n'}),{mode:0o600});
   await store.save({...profile,password:null,keyFile:encryptedKey});await interactive(terminal,plainArgs,'key');await store.save(profile);
   await interactive(terminal,plainArgs);await interactive(terminal,plainArgs,'lost');
   fixture.settings.denyAuth=true;await interactive(terminal,plainArgs,'auth-failed');fixture.settings.denyAuth=false;
-  await new Promise<void>(resolve=>fixture.server.close(()=>resolve()));await interactive(terminal,plainArgs,'refused');await new Promise<void>(resolve=>{fixture.server.listen(fixture.port,'0.0.0.0',resolve);});
+  await fixture.close();await interactive(terminal,plainArgs,'refused');await fixture.rebind();
   if(windows){
    await interactive('powershell.exe',['-NoLogo','-NoProfile','-Command',`& '${shim}' ssh -p fixture; exit $LASTEXITCODE`]);
    await interactive(path.join(process.env.ProgramFiles||'C:\\Program Files','PowerShell/7/pwsh.exe'),['-NoLogo','-NoProfile','-Command',`& '${shim}' ssh fixture; exit $LASTEXITCODE`]);
    await interactive('C:\\Program Files\\Git\\bin\\bash.exe',['-c',`'${path.join(folder,'shellfox').replaceAll('\\','/')}' ssh fixture`]);
    await interactive('cmd.exe',['/d','/c','call',shim,'ssh'],'cancel');
    if(process.env.SHELLFOX_SSH_TEST_WSL==='1'){
+    // Retained remote-route cases. Both entry points refuse this request before launch.
     const translate=(p:string)=>execFileSync('wsl.exe',['-d','Debian','--exec','wslpath','-u',p],{encoding:'utf8',timeout:10000}).trim();
     await interactive('wsl.exe',['-d','Debian','--exec','/bin/sh',translate(path.join(folder,'shellfox')),'ssh','fixture']);
     if(process.env.SHELLFOX_SSH_TEST_LINUX_ELECTRON){
@@ -78,7 +85,7 @@ async function main(){
    }
   }
   await store.save({...profile,user:'',password:null});await interactive(terminal,plainArgs,'prompt');await store.save(profile);
-  const keyFile=path.join(directory,'key.pem');await writeFile(keyFile,generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'}).toString(),{mode:0o600});
+  const keyFile=path.join(directory,'key.pem');await writeFile(keyFile,pem.export({type:'pkcs8',format:'pem'}).toString(),{mode:0o600});
   const cwd="~/it's $(echo unsafe)";await store.save({...profile,keyFile,remoteCwd:cwd,password:null});await interactive(terminal,plainArgs,'key');assert.equal(fixture.records.commands.at(-1),remoteCommand(cwd));
   const hostsFile=path.join(directory,'ssh-known-hosts.json'),hosts=JSON.parse(await readFile(hostsFile,'utf8'));for(const host of Object.values(hosts.hosts) as {fingerprint:string}[])host.fingerprint='SHA256:changed';await writeFile(hostsFile,JSON.stringify(hosts));await interactive(terminal,plainArgs,'changed');
   console.log(JSON.stringify({ok:true,evidence,records:{pty:fixture.records.pty,windows:fixture.records.windows,auth:fixture.records.auth,commands:fixture.records.commands}},null,2));

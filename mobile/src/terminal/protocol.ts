@@ -5,7 +5,8 @@ const token = z.string().min(1).max(100);
 const dimension = z.number().int().min(2).max(500);
 const sequence = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const terminalFontSize = (size: number): number => Number.isFinite(size) ? Math.max(8, Math.min(32, size)) : 14;
-const input = z.string().min(1).max(65536).refine(s => !s.includes('\0') && utf8Size(s) <= 65536);
+const input = z.string().min(1).max(65536).refine(s => utf8Size(s) <= 65536);
+const paste = input.refine(s => !s.includes('\0'));
 const identity = { viewId: token, epoch: token };
 const settledAt = z.iso.datetime().nullable().optional();
 const themeColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -43,7 +44,7 @@ export const hostMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('output'), ...identity, ticket: sequence, data: z.string().max(262144), historical: z.boolean(), fit: z.boolean() }).strict(),
   z.object({ type: z.literal('font'), ...identity, fontSize: z.number().min(8).max(32) }).strict(),
   z.object({ type: z.literal('theme'), ...identity, ...terminalThemeSchema.shape }).strict(),
-  z.object({ type: z.literal('paste'), ...identity, data: input }).strict(),
+  z.object({ type: z.literal('paste'), ...identity, data: paste }).strict(),
   z.object({ type: z.literal('key'), ...identity, event: terminalKeyEventSchema }).strict(),
   z.object({ type: z.literal('modifiers'), ...identity, modifiers: terminalModifiersSchema }).strict(),
   z.object({ type: z.literal('focus'), ...identity, focused: z.boolean() }).strict(),

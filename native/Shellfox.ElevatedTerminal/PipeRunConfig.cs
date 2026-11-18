@@ -71,7 +71,12 @@ internal sealed record PipeRunConfig(string Executable, string[] Args, string Cw
         if (!Path.IsPathFullyQualified(text) || text.Any(c => c < 32 || c == '"')) throw new InvalidDataException("Invalid launch path.");
         return text;
     }
-    internal string CommandLine() => string.Join(" ", new[] { Executable }.Concat(Args).Select(Quote));
+    internal string CommandLine() => string.Join(" ", new[] { Quote(Executable) }.Concat(Args.Select(Argument)));
+    // cmd's switch parser does not use CRT quoting. Only plain ASCII tokens
+    // bypass Quote; metacharacters and all ambiguous data keep the old encoding.
+    private static string Argument(string value) => value.Length > 0 && value.All(c =>
+        c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '-' or '.' or '/' or '\\' or ':')
+        ? value : Quote(value);
     internal string EnvironmentBlock() => string.Join("\0", Env.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase).Select(p => p.Key + "=" + p.Value)) + "\0\0";
 
     // CommandLineToArgvW/CRT quoting. Shell metacharacters remain argument data.

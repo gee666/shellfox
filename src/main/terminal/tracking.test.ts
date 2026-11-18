@@ -3,8 +3,8 @@ import { ChildProcess, execFile } from 'node:child_process';
 import { access, open, readdir, readlink, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
-vi.mock('node:child_process', async importOriginal => ({
-  ...await importOriginal<typeof import('node:child_process')>(), execFile: vi.fn(),
+vi.mock('node:child_process', async () => ({
+  ...(await import('../../../tests/unit/app-process-model')).unitChildProcess, execFile: vi.fn(),
 }));
 vi.mock('node:fs/promises', async importOriginal => ({
   ...await importOriginal<typeof import('node:fs/promises')>(), access: vi.fn(async () => {}),

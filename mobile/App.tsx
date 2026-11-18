@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { z } from 'zod';
+
 import { v4 as uuid } from 'uuid';
 import { BackHandler, Pressable, StatusBar, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -12,6 +14,8 @@ import { ThemeProvider, useTheme } from './src/theme';
 import { useUpdates } from './src/updates/useUpdates';
 import { FilesScreen } from './src/FilesScreen';
 import type { FileOpenRequest } from './src/file-browser-types';
+
+const ManagerApp = React.lazy(() => import('./src/rust-client/manager-v2/ManagerApp').then(module => ({ default: module.ManagerApp })));
 
 function Shellfox() {
   const model = useShellfox();
@@ -164,10 +168,15 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
     </SafeAreaView>
   );
 }
-export default function App() {
+const managerSelection = z.object({ profile:z.literal('manager-v2'), engine:z.object({
+  engine:z.literal('rust-native'), accepted:z.object({android:z.boolean(),ios:z.boolean()}).strict(),
+}).strict() }).strict();
+export default function App({shellfoxProfileSelection,shellfoxControlURL}:{shellfoxProfileSelection?:string;shellfoxControlURL?:string}) {
+  // Explicit caller adoption only. Absence retains the existing app/default.
+  const selected=shellfoxProfileSelection===undefined?undefined:managerSelection.parse(JSON.parse(shellfoxProfileSelection));
   return (
     <SafeAreaProvider>
-      <Shellfox />
+      {selected?<React.Suspense fallback={<View />}><ManagerApp engine={selected.engine} controlURL={shellfoxControlURL}/></React.Suspense>:<Shellfox />}
     </SafeAreaProvider>
   );
 }

@@ -1,0 +1,31 @@
+[package]
+name = "shellfox-transport"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.97.1"
+license = "MIT"
+
+[features]
+default = []
+helper = ["host-auth", "tokio/process", "tokio/io-util", "tokio/net", "dep:rustix"]
+host-auth = ["dep:base64", "dep:hmac", "dep:sha2", "dep:hex"]
+test-helper = ["helper"]
+
+[dependencies]
+shellfox-protocol = { path = "../shellfox-protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+base64 = { version = "0.22", optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "process"], optional = true }
+
+[[bin]]
+name = "shellfox-fixture-helper"
+path = "tests/fixtures/helper.rs"
+required-features = ["test-helper"]

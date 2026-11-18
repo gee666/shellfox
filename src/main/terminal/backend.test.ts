@@ -153,14 +153,20 @@ describe('owned PTY backend', () => {
     const f = await fixture(); f.backend.attach({ tabId: f.input.tabId }); f.backend.attach({ tabId: f.input.tabId }); f.backend.subscribe(() => {})();
     expect(f.factory).toHaveBeenCalledTimes(1); expect(f.pty.kill).not.toHaveBeenCalled(); await f.backend.dispose();
   });
-  it('validates generation, input bytes, NUL, dimension bounds and input rate', async () => {
+  it('validates generation, input bytes, dimension bounds and input rate', async () => {
     const f = await fixture(), identity = { tabId: f.input.tabId, generation: f.input.generation };
     expect(f.backend.write({ ...identity, generation: randomUUID(), data: 'x' })).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
-    for (const data of ['', '\0', '雪'.repeat(30000)]) expect(f.backend.write({ ...identity, data }).ok).toBe(false);
+    for (const data of ['', '雪'.repeat(30000)]) expect(f.backend.write({ ...identity, data }).ok).toBe(false);
     for (const cols of [1, 501, 2.5]) expect(f.backend.resize({ ...identity, cols, rows: 24 }).ok).toBe(false);
     value(f.backend.resize({ ...identity, cols: 100, rows: 40 })); expect(f.pty.resize).toHaveBeenCalledWith(100, 40);
     for (let i = 0; i < 4; i++) value(f.backend.write({ ...identity, data: 'x'.repeat(65536) }));
     expect(f.backend.write({ ...identity, data: 'x' }).ok).toBe(false); expect(f.pty.write).toHaveBeenCalledTimes(4); await f.backend.dispose();
+  });
+  it('forwards NUL as valid Ctrl+Space terminal input', async () => {
+    const f = await fixture();
+    value(f.backend.write({ tabId: f.input.tabId, generation: f.input.generation, data: '\0' }));
+    expect(f.pty.write).toHaveBeenCalledWith('\0');
+    await f.backend.dispose();
   });
   it('sends one authoritative exit, keeps replay, and closes only exact owned handles', async () => {
     const f = await fixture(), events: TerminalBackendEvent[] = []; f.backend.subscribe(e => events.push(e)); f.pty.output('done'); f.pty.exit(7); f.pty.exit(8);

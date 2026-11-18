@@ -1,0 +1,1469 @@
+diff --git a/include/ghostty/vt/shellfox_ansi.h b/include/ghostty/vt/shellfox_ansi.h
+new file mode 100644
+index 0000000..19f35e1
+--- /dev/null
++++ b/include/ghostty/vt/shellfox_ansi.h
+@@ -0,0 +1,65 @@
++/* Shellfox additive compatibility extension. MIT, like libghostty-vt. */
++#ifndef GHOSTTY_SHELLFOX_ANSI_H
++#define GHOSTTY_SHELLFOX_ANSI_H
++#include <ghostty/vt/shellfox_extension.h>
++#include <ghostty/vt/color.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++#define GHOSTTY_SHELLFOX_ANSI_ABI 1u
++#define GHOSTTY_SHELLFOX_TARGET_NATIVE_VT1 0u
++#define GHOSTTY_SHELLFOX_TARGET_LEGACY_XTERM6 1u
++#define GHOSTTY_SHELLFOX_TARGET_KITTY_KEYBOARD (1ull << 0)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_PROFILE (1ull << 0)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_RESET_DEFAULTS (1ull << 1)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_GRAPHICS (1ull << 2)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_METADATA (1ull << 3)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_MODES (1ull << 4)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_CHARSETS (1ull << 5)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_KEYBOARD (1ull << 6)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_CURSOR (1ull << 7)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_REP (1ull << 8)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_SEMANTICS (1ull << 9)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_WIDTH_POLICY (1ull << 10)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_CONTINUATION (1ull << 11)
++#define GHOSTTY_SHELLFOX_UNSUPPORTED_SOURCE_ERROR (1ull << 12)
++typedef struct {
++    size_t size;
++    uint32_t abi_version;
++    uint32_t target;
++    uint64_t target_features;
++    GhosttyString engine_profile;
++    size_t max_output_bytes, max_rows, max_cells, max_continuation_bytes;
++    /* Target reset baseline. Null RGB means unset, not black. */
++    const GhosttyColorRgb *default_foreground, *default_background, *default_cursor;
++    /* NULL means the unmodified upstream palette, otherwise exactly 256 RGBs. */
++    const GhosttyColorRgb *default_palette;
++    uint32_t default_cursor_style;
++    /* -1 = emulator policy, 0 = steady, 1 = blinking. */
++    int32_t default_cursor_blink;
++    uint32_t runtime_resize_pull_scrollback;
++    /* Must be 1: create/configure a fresh passive target before applying bytes. */
++    uint8_t target_is_fresh;
++    /* Exact declared restoration configuration; SIZE_MAX means unlimited. */
++    size_t target_scrollback_max_bytes, target_scrollback_max_rows;
++    uint64_t runtime_image_storage_limit;
++} GhosttyShellfoxAnsiOptions;
++/* Immutable full-for-accepted-profile export, not an arbitrary terminal snapshot.
++ * Preflight returns UNSUPPORTED plus reason bits for inexpressible state.
++ * No bytes are published before preflight and bounded counting succeed.
++ * Requires a fresh target with the same grid and declared baseline/config.
++ * It is not an in-place reset of an arbitrary dirty target. Source access must
++ * be serialized with ALL terminal operations.
++ * NULL/0 queries required capacity; undersized output is left untouched.
++ * Continuation is appended LAST and may be incomplete UTF-8. This is a BYTE
++ * format, not a v1 JSON-string replacement. Receivers must suppress replies
++ * and external effects. No source callbacks are invoked by this function.
++ * On every failure, out_written is zero except OUT_OF_SPACE, where it is the
++ * full required capacity. An old official library does not export this API. */
++GHOSTTY_API GhosttyResult ghostty_terminal_export_ansi_full_buf(
++    GhosttyTerminal terminal, const GhosttyShellfoxAnsiOptions* options,
++    uint8_t* buffer, size_t capacity, size_t* out_written, uint64_t* unsupported);
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/include/ghostty/vt/shellfox_extension.h b/include/ghostty/vt/shellfox_extension.h
+new file mode 100644
+index 0000000..e1818c4
+--- /dev/null
++++ b/include/ghostty/vt/shellfox_extension.h
+@@ -0,0 +1,29 @@
++/* Shellfox additive compatibility extension. MIT, like libghostty-vt. */
++#ifndef GHOSTTY_SHELLFOX_EXTENSION_H
++#define GHOSTTY_SHELLFOX_EXTENSION_H
++#include <ghostty/vt/types.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++#define GHOSTTY_SHELLFOX_EXTENSION_ABI 1u
++#define GHOSTTY_SHELLFOX_FEATURE_ANSI_FULL (1ull << 0)
++#define GHOSTTY_SHELLFOX_FEATURE_SNAPSHOT_BUDGET (1ull << 1)
++#define GHOSTTY_SHELLFOX_FEATURE_TERMINAL_PROFILE (1ull << 2)
++typedef struct {
++    size_t size;
++    uint32_t abi_version;
++    uint32_t ansi_abi_version;
++    uint32_t terminal_profile_abi_version;
++    uint32_t snapshot_budget_abi_version;
++    uint32_t snapshot_format_version;
++    uint64_t features;
++    /* Declared compatibility identity, not authenticity. Static borrowed bytes. */
++    GhosttyString engine_profile;
++    GhosttyString legacy_width_profile;
++} GhosttyShellfoxExtensionInfo;
++/* Requires exact sizeof and ABI version. Never authenticates an artifact. */
++GHOSTTY_API GhosttyResult ghostty_shellfox_extension_info(GhosttyShellfoxExtensionInfo* info);
++#ifdef __cplusplus
++}
++#endif
++#endif
+diff --git a/src/build/Config.zig b/src/build/Config.zig
+index 8c2dbb8..0f6c699 100644
+--- a/src/build/Config.zig
++++ b/src/build/Config.zig
+@@ -74,6 +74,7 @@ emit_unicode_table_gen: bool = false,
+ /// Feature gates for libghostty-vt artifacts (-Dvt-features). The full
+ /// Ghostty application ignores this and always enables everything.
+ vt_features: TerminalBuildOptions.Features = .{},
++shellfox_engine_profile: []const u8 = "",
+ 
+ /// True when Ghostty is being built as a dependency of another project
+ /// rather than as the root project.
+@@ -503,6 +504,7 @@ pub fn init(b: *std.Build, versions: Versions) !Config {
+ 
+     config.emit_lib_vt = emit_lib_vt;
+ 
++    config.shellfox_engine_profile = b.option([]const u8, "shellfox-engine-profile", "Declared Shellfox compatibility profile SHA256; not artifact authentication") orelse "";
+     config.vt_features = features: {
+         const list = b.option(
+             []const u8,
+@@ -855,6 +857,7 @@ pub fn terminalOptions(
+ ) TerminalBuildOptions {
+     return .{
+         .artifact = artifact,
++        .shellfox_engine_profile = self.shellfox_engine_profile,
+         .simd = self.simd,
+         .oniguruma = true,
+         .c_abi = false,
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 440031a..6c973a6 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -356,6 +356,8 @@ comptime {
+         @export(&c.terminal_grid_ref, .{ .name = "ghostty_terminal_grid_ref" });
+         @export(&c.terminal_point_from_grid_ref, .{ .name = "ghostty_terminal_point_from_grid_ref" });
+         @export(&c.terminal_grid_ref_track, .{ .name = "ghostty_terminal_grid_ref_track" });
++        @export(&c.shellfox_extension_info, .{ .name = "ghostty_shellfox_extension_info" });
++        @export(&c.terminal_export_ansi_full_buf, .{ .name = "ghostty_terminal_export_ansi_full_buf" });
+         @export(&c.snapshot_encode, .{ .name = "ghostty_snapshot_encode" });
+         @export(&c.snapshot_encode_buf, .{ .name = "ghostty_snapshot_encode_buf" });
+         @export(&c.snapshot_encode_alloc, .{ .name = "ghostty_snapshot_encode_alloc" });
+diff --git a/src/terminal/build_options.zig b/src/terminal/build_options.zig
+index ea32129..d9e2527 100644
+--- a/src/terminal/build_options.zig
++++ b/src/terminal/build_options.zig
+@@ -12,6 +12,7 @@ pub const Options = struct {
+ 
+     /// The target artifact to build. This will gate some functionality.
+     artifact: Artifact,
++    shellfox_engine_profile: []const u8 = "",
+ 
+     /// Whether Oniguruma regex support is available. If this isn't
+     /// available, some features will be disabled. This may be outdated,
+@@ -286,6 +287,7 @@ pub const Options = struct {
+         m: *std.Build.Module,
+     ) void {
+         const opts = b.addOptions();
++        opts.addOption([]const u8, "shellfox_engine_profile", self.shellfox_engine_profile);
+         opts.addOption(Artifact, "artifact", self.artifact);
+         opts.addOption(bool, "c_abi", self.c_abi);
+         opts.addOption(bool, "oniguruma", self.oniguruma);
+diff --git a/src/terminal/c/main.zig b/src/terminal/c/main.zig
+index 3c32b58..adf5b33 100644
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -47,6 +47,9 @@ pub const search = @import("search.zig");
+ pub const sgr = @import("sgr.zig");
+ pub const size_report = @import("size_report.zig");
+ pub const snapshot = @import("snapshot.zig");
++pub const shellfox_ansi = @import("shellfox_ansi.zig");
++pub const shellfox_extension_info = shellfox_ansi.extension_info;
++pub const terminal_export_ansi_full_buf = shellfox_ansi.export_buf;
+ pub const style = @import("style.zig");
+ pub const sys = @import("sys.zig");
+ pub const terminal = @import("terminal.zig");
+@@ -297,6 +300,7 @@ test {
+     _ = sgr;
+     _ = size_report;
+     _ = snapshot;
++    _ = shellfox_ansi;
+     _ = style;
+     _ = sys;
+     _ = terminal;
+diff --git a/src/terminal/c/shellfox_ansi.zig b/src/terminal/c/shellfox_ansi.zig
+new file mode 100644
+index 0000000..7da594a
+--- /dev/null
++++ b/src/terminal/c/shellfox_ansi.zig
+@@ -0,0 +1,141 @@
++//! Shellfox additive compatibility ABI. Existing C entry points are unchanged.
++const std = @import("std");
++const lib = @import("../lib.zig");
++const Result = @import("result.zig").Result;
++const terminal = @import("terminal.zig");
++const core = @import("../shellfox_ansi/main.zig");
++const profile = @import("../shellfox_profile.zig");
++const width = @import("../shellfox_unicode_v6.zig");
++pub const Options = core.Options;
++pub const ExtensionInfo = extern struct {
++    size: usize = @sizeOf(ExtensionInfo),
++    abi_version: u32 = 1,
++    ansi_abi_version: u32 = 0,
++    terminal_profile_abi_version: u32 = 0,
++    snapshot_budget_abi_version: u32 = 0,
++    snapshot_format_version: u32 = 0,
++    features: u64 = 0,
++    engine_profile: lib.String = .init(@as([]const u8, "")),
++    legacy_width_profile: lib.String = .init(@as([]const u8, "")),
++};
++pub fn extension_info(out_: ?*ExtensionInfo) callconv(lib.calling_conv) Result {
++    const out = out_ orelse return .invalid_value;
++    if (out.size != @sizeOf(ExtensionInfo)) return .invalid_value;
++    if (out.abi_version != 1) return .invalid_value;
++    out.* = .{
++        .ansi_abi_version = if (lib.feature(.formatter)) profile.ansi_abi_version else 0,
++        .terminal_profile_abi_version = profile.terminal_profile_abi_version,
++        .snapshot_budget_abi_version = profile.snapshot_budget_abi_version,
++        .snapshot_format_version = if (lib.feature(.snapshot)) @import("../snapshot/envelope.zig").version else 0,
++        .features = @as(u64, if (lib.feature(.formatter)) 1 else 0) |
++            @as(u64, if (profile.snapshot_budget_abi_version > 0) 2 else 0) |
++            @as(u64, if (profile.terminal_profile_abi_version > 0) 4 else 0),
++        .engine_profile = .init(profile.engine_profile),
++        .legacy_width_profile = .init(@as([]const u8, width.profile)),
++    };
++    return .success;
++}
++const Counter = struct {
++    writer: std.Io.Writer,
++    limit: usize,
++    count: usize = 0,
++    exceeded: bool = false,
++    fn init(limit: usize) Counter {
++        return .{ .writer = .{ .vtable = &.{ .drain = drain }, .buffer = &.{} }, .limit = limit };
++    }
++    fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
++        const self: *Counter = @alignCast(@fieldParentPtr("writer", w));
++        const last = data.len - 1;
++        var n = std.math.mul(usize, data[last].len, splat) catch {
++            self.exceeded = true;
++            return error.WriteFailed;
++        };
++        for (data[0..last]) |s| n = std.math.add(usize, n, s.len) catch {
++            self.exceeded = true;
++            return error.WriteFailed;
++        };
++        if (n > self.limit - self.count or w.end > self.limit - self.count - n) {
++            self.exceeded = true;
++            return error.WriteFailed;
++        }
++        self.count += n + w.end;
++        w.end = 0;
++        return n;
++    }
++};
++pub fn export_buf(terminal_: terminal.Terminal, options_: ?*const Options, buffer: ?[*]u8, capacity: usize, written_: ?*usize, unsupported_: ?*u64) callconv(lib.calling_conv) Result {
++    const written = written_ orelse return .invalid_value;
++    written.* = 0;
++    const unsupported = unsupported_ orelse return .invalid_value;
++    unsupported.* = 0;
++    if (comptime !lib.feature(.formatter)) return .unsupported;
++    const t = terminal.zigTerminal(terminal_) orelse return .invalid_value;
++    const options = options_ orelse return .invalid_value;
++    if (!options.valid() or (buffer == null and capacity != 0)) return .invalid_value;
++    var source_failed = false;
++    const status = terminal.get(terminal_, .vt_processing_error, &source_failed);
++    if (status != .success) return status;
++    if (source_failed) {
++        unsupported.* = core.Reason.source_error;
++        return .unsupported;
++    }
++    const plan = core.preflight(t, options) catch return .limit_exceeded;
++    unsupported.* = plan.unsupported;
++    if (unsupported.* != 0) return .unsupported;
++    const allocator = lib.alloc.default(null);
++    var continuation: []u8 = &.{};
++    defer allocator.free(continuation);
++    var ground = false;
++    const ground_result = terminal.get(terminal_, .vt_ground, &ground);
++    if (ground_result != .success) return ground_result;
++    if (!ground) {
++        var needed: usize = 0;
++        const result = terminal.continuation_buf(terminal_, null, 0, &needed);
++        if (result != .out_of_space and result != .success) {
++            unsupported.* = core.Reason.continuation;
++            return .unsupported;
++        }
++        if (needed > options.max_continuation_bytes) return .limit_exceeded;
++        continuation = allocator.alloc(u8, needed) catch return .out_of_memory;
++        const copied = terminal.continuation_buf(terminal_, continuation.ptr, continuation.len, &needed);
++        if (copied != .success or needed != continuation.len) return .invalid_value;
++    }
++    var counter: Counter = .init(options.max_output_bytes);
++    core.format(t, options, plan, continuation, &counter.writer) catch {
++        return if (counter.exceeded) .limit_exceeded else .io_error;
++    };
++    const required = counter.count + counter.writer.end;
++    if (required > options.max_output_bytes) return .limit_exceeded;
++    written.* = required;
++    if (buffer == null or capacity < required) return .out_of_space;
++    const staged = allocator.alloc(u8, required) catch {
++        written.* = 0;
++        return .out_of_memory;
++    };
++    defer allocator.free(staged);
++    var writer: std.Io.Writer = .fixed(staged);
++    core.format(t, options, plan, continuation, &writer) catch {
++        written.* = 0;
++        return .io_error;
++    };
++    if (writer.end != required) {
++        written.* = 0;
++        return .io_error;
++    }
++    @memcpy(buffer.?[0..required], staged);
++    return .success;
++}
++test "Shellfox extension-info rejects unknown layout/version and reports compiled features" {
++    var info: ExtensionInfo = .{};
++    try std.testing.expectEqual(Result.success, extension_info(&info));
++    try std.testing.expectEqual(profile.snapshot_budget_abi_version, info.snapshot_budget_abi_version);
++    info.abi_version = 2;
++    try std.testing.expectEqual(Result.invalid_value, extension_info(&info));
++    info = .{};
++    info.size -= 1;
++    try std.testing.expectEqual(Result.invalid_value, extension_info(&info));
++}
++test {
++    _ = core;
++    _ = profile;
++}
+diff --git a/src/terminal/shellfox_ansi/cursor.zig b/src/terminal/shellfox_ansi/cursor.zig
+new file mode 100644
+index 0000000..ab90a91
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/cursor.zig
+@@ -0,0 +1,110 @@
++//! State emitters adapted from formatter.zig, under the same MIT license.
++const std = @import("std");
++const T = @import("types.zig");
++const charsets = @import("../charsets.zig");
++const Style = @import("../style.zig").Style;
++pub fn charset(state: T.Screen.CharsetState, singles: bool, w: *std.Io.Writer) !void {
++    for (std.enums.values(charsets.Slots)) |slot| {
++        const value = state.charsets.get(slot);
++        const final: ?u8 = switch (value) {
++            .utf8 => null,
++            .ascii => 'B',
++            .british => 'A',
++            .dec_special => '0',
++        };
++        if (final) |v| try w.print("\x1b{c}{c}", .{ switch (slot) {
++            .G0 => @as(u8, '('),
++            .G1 => ')',
++            .G2 => '*',
++            .G3 => '+',
++        }, v });
++    }
++    try w.writeAll(switch (state.gl) {
++        .G0 => "\x0f",
++        .G1 => "\x0e",
++        .G2 => "\x1bn",
++        .G3 => "\x1bo",
++    });
++    try w.writeAll(switch (state.gr) {
++        .G0 => unreachable,
++        .G1 => "\x1b~",
++        .G2 => "\x1b}",
++        .G3 => "\x1b|",
++    });
++    if (singles) if (state.single_shift) |slot| try w.writeAll(switch (slot) {
++        .G2 => "\x1bN",
++        .G3 => "\x1bO",
++        else => unreachable,
++    });
++}
++pub fn literalCharset(state: T.Screen.CharsetState, w: *std.Io.Writer) !void {
++    // Preserve a UTF8 slot as UTF8; non-default slots can be restored explicitly.
++    if (state.charsets.get(.G0) != .utf8) try w.writeAll("\x1b(B");
++    try w.writeAll("\x0f");
++}
++pub fn margins(t: *const T.Terminal, w: *std.Io.Writer) !void {
++    const r = t.scrolling_region;
++    try w.print("\x1b[?69{s}\x1b[{d};{d}r", .{ if (t.modes.get(.enable_left_and_right_margin)) "h" else "l", r.top + 1, r.bottom + 1 });
++    if (t.modes.get(.enable_left_and_right_margin)) try w.print("\x1b[{d};{d}s", .{ r.left + 1, r.right + 1 });
++}
++fn writeCursorState(t: *const T.Terminal, s: *const T.Screen, x: u16, y: u16, pending: bool, origin: bool, pen: Style, protected: bool, cs: T.Screen.CharsetState, singles: bool, w: *std.Io.Writer) !void {
++    const left = if (origin) t.scrolling_region.left else 0;
++    const top = if (origin) t.scrolling_region.top else 0;
++    try w.print("\x1b[?6{s}\x1b[{d};{d}H", .{ if (origin) "h" else "l", y - top + 1, x - left + 1 });
++    if (pending) {
++        const pin = s.pages.pin(.{ .active = .{ .x = x, .y = y } }).?;
++        const rc = pin.rowAndCell();
++        const start = if (rc.cell.wide == .spacer_tail) x - 1 else x;
++        if (start != x) try w.print("\x1b[{d};{d}H", .{ y - top + 1, start - left + 1 });
++        try literalCharset(cs, w);
++        var cell: T.formatter.PageFormatter = .init(pin.node.page(), .{ .emit = .vt, .unwrap = false, .trim = false });
++        cell.start_x = start;
++        cell.end_x = x;
++        cell.start_y = pin.y;
++        cell.end_y = pin.y;
++        try cell.format(w);
++    }
++    try w.print("{f}", .{pen.formatterVt()});
++    // DECSCA resets active protection without resetting the historical mode.
++    if (s.protected_mode == .dec) try w.writeAll("\x1b[1\"q");
++    try w.writeAll(if (protected) "\x1b[1\"q" else "\x1b[0\"q");
++    try charset(cs, singles, w);
++}
++pub fn saved(t: *const T.Terminal, s: *const T.Screen, w: *std.Io.Writer) !void {
++    if (s.saved_cursor) |v| {
++        try writeCursorState(t, s, v.x, v.y, v.pending_wrap, v.origin, v.style, v.protected, v.charset, false, w);
++        try w.writeAll("\x1b7");
++    }
++}
++pub fn current(t: *const T.Terminal, s: *const T.Screen, origin: bool, singles: bool, w: *std.Io.Writer) !void {
++    try writeCursorState(t, s, s.cursor.x, s.cursor.y, s.cursor.pending_wrap, origin, s.cursor.style, s.cursor.protected, s.charset, singles, w);
++    if (s.cursor.hyperlink) |link| switch (link.id) {
++        .explicit => |id| try w.print("\x1b]8;id={s};{s}\x1b\\", .{ id, link.uri }),
++        .implicit => try w.print("\x1b]8;;{s}\x1b\\", .{link.uri}),
++    };
++    const shape: u8 = switch (s.cursor.cursor_style) {
++        .block => 1,
++        .underline => 3,
++        .bar => 5,
++        .block_hollow => 1,
++    };
++    try w.print("\x1b[{d} q", .{shape + @intFromBool(!t.modes.get(.cursor_blinking))});
++}
++pub fn keyboard(s: *const T.Screen, w: *std.Io.Writer) !void {
++    const stack = s.kitty_keyboard;
++    try w.writeAll("\x1b[<8u");
++    // Preserve every ring entry, not just current flags. Seven pushes position
++    // the same logical top; index rotation is not externally observable.
++    for (1..stack.flags.len + 1) |i| {
++        const index = (@as(usize, stack.idx) + i) % stack.flags.len;
++        if (i == 1) try w.print("\x1b[={d};1u", .{stack.flags[index].int()}) else try w.print("\x1b[>{d}u", .{stack.flags[index].int()});
++    }
++}
++pub fn dynamicColors(t: *const T.Terminal, w: *std.Io.Writer) !void {
++    for (t.colors.palette.current, 0..) |rgb, index| if (t.colors.palette.mask.isSet(index)) {
++        try w.print("\x1b]4;{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\", .{ index, rgb.r, rgb.g, rgb.b });
++    };
++    inline for (.{ .{ 10, t.colors.foreground }, .{ 11, t.colors.background }, .{ 12, t.colors.cursor } }) |entry| {
++        if (entry[1].override) |rgb| try w.print("\x1b]{d};rgb:{x:0>2}/{x:0>2}/{x:0>2}\x1b\\", .{ entry[0], rgb.r, rgb.g, rgb.b });
++    }
++}
+diff --git a/src/terminal/shellfox_ansi/legacy_width.zig b/src/terminal/shellfox_ansi/legacy_width.zig
+new file mode 100644
+index 0000000..be6b550
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/legacy_width.zig
+@@ -0,0 +1,5 @@
++//! One shared attributed table for export preflight and the parser profile.
++const shared = @import("../shellfox_unicode_v6.zig");
++pub const profile = shared.profile;
++pub const width = shared.width;
++pub const clusterWidth = shared.clusterWidth;
+diff --git a/src/terminal/shellfox_ansi/main.zig b/src/terminal/shellfox_ansi/main.zig
+new file mode 100644
+index 0000000..c9f0354
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/main.zig
+@@ -0,0 +1,93 @@
++//! Immutable ANSI reconstruction. No source parser, callbacks or viewport writes.
++const std = @import("std");
++const T = @import("types.zig");
++const modes = @import("modes.zig");
++const cursor = @import("cursor.zig");
++pub const Options = T.Options;
++pub const Reason = T.Reason;
++pub const Plan = T.Plan;
++pub const preflight = @import("preflight.zig").run;
++
++fn body(t: *const T.Terminal, s: *const T.Screen, w: *std.Io.Writer) !void {
++    try w.writeAll("\x1b[?6l\x1b[?69l\x1b[r\x1b[4l\x1b[?7h\x1b[H");
++    if (t.modes.get(.grapheme_cluster)) try w.writeAll("\x1b[?2027h");
++    var f: T.formatter.ScreenFormatter = .init(s, .{ .emit = .vt, .unwrap = false, .trim = false });
++    try f.format(w);
++}
++fn restore(t: *const T.Terminal, s: *const T.Screen, origin: bool, o: *const Options, w: *std.Io.Writer) !void {
++    try cursor.margins(t, w);
++    if (s.saved_cursor) |_| try cursor.saved(t, s, w);
++    if (o.target == 0 and o.target_features & 1 != 0) try cursor.keyboard(s, w);
++    try cursor.current(t, s, origin, false, w);
++}
++fn repairRep(t: *const T.Terminal, plan: Plan, w: *std.Io.Writer) !void {
++    const repair = plan.repair orelse return;
++    const s = t.screens.active;
++    try w.print("\x1b[?6l\x1b[{d};{d}H", .{ repair.y + 1, repair.x + 1 });
++    try cursor.literalCharset(s.charset, w);
++    if (repair.scratch) {
++        try w.writeAll("\x1b[0m\x1b[0\"q");
++        var bytes: [4]u8 = undefined;
++        const cp = t.previous_char.?;
++        const len = std.unicode.utf8Encode(cp, &bytes) catch return error.WriteFailed;
++        try w.writeAll(bytes[0..len]);
++        try w.print("\x1b[{d};{d}H\x1b[3X", .{ repair.y + 1, repair.x + 1 });
++    } else {
++        const pin = s.pages.pin(.{ .active = .{ .x = repair.x, .y = repair.y } }).?;
++        var cell: T.formatter.PageFormatter = .init(pin.node.page(), .{ .emit = .vt, .unwrap = false, .trim = false });
++        cell.start_x = repair.x;
++        cell.end_x = repair.x + @intFromBool(pin.rowAndCell().cell.wide == .wide);
++        cell.start_y = pin.y;
++        cell.end_y = pin.y;
++        try cell.format(w);
++    }
++}
++/// Called only after preflight succeeded. All unsupported-state checks precede
++/// this function, and the C wrapper counts into a bounded writer before copying.
++pub fn format(t: *const T.Terminal, o: *const Options, plan: Plan, continuation: []const u8, w: *std.Io.Writer) !void {
++    // RIS changes C-constructor policy, including shell redraw defaults.
++    // The accepted contract starts with a fresh configured target instead.
++    try w.writeAll("\x18");
++    if (t.flags.shell_redraws_prompt == .true) try w.writeAll("\x1b]133;A;redraw=1\x07\x1b]133;D\x07");
++    try modes.save(t, w);
++    try cursor.dynamicColors(t, w);
++    try w.print("\x1b]0;{s}\x1b\\\x1b]7;{s}\x1b\\", .{ t.getTitle() orelse "", t.getPwd() orelse "" });
++    // Tab stops are terminal-wide. Set them before content/cursor restoration.
++    try w.writeAll("\x1b[3g");
++    for (0..t.cols) |x| if (t.tabstops.get(x)) try w.print("\x1b[{d}G\x1bH", .{x + 1});
++    const primary = t.screens.get(.primary).?;
++    try body(t, primary, w);
++    if (t.screens.get(.alternate)) |alternate| {
++        if (t.screens.active_key == .alternate) {
++            const origin = if (t.modes.get(.alt_screen_save_cursor_clear_enter)) primary.saved_cursor.?.origin else false;
++            try restore(t, primary, origin, o, w);
++            if (t.modes.get(.alt_screen_save_cursor_clear_enter)) try modes.set(.alt_screen_save_cursor_clear_enter, true, w) else if (t.modes.get(.alt_screen)) try modes.set(.alt_screen, true, w) else try modes.set(.alt_screen_legacy, true, w);
++            if (t.modes.get(.save_cursor)) try modes.set(.save_cursor, true, w);
++            try body(t, alternate, w);
++            try restore(t, alternate, t.modes.get(.origin), o, w);
++        } else {
++            try modes.set(.alt_screen_legacy, true, w);
++            try body(t, alternate, w);
++            try restore(t, alternate, false, o, w);
++            try modes.set(.alt_screen_legacy, false, w);
++            if (t.modes.get(.save_cursor)) try modes.set(.save_cursor, true, w);
++            try restore(t, primary, t.modes.get(.origin), o, w);
++        }
++    } else {
++        if (t.modes.get(.save_cursor)) try modes.set(.save_cursor, true, w);
++        try restore(t, primary, t.modes.get(.origin), o, w);
++    }
++    try modes.current(t, w);
++    try cursor.margins(t, w);
++    try repairRep(t, plan, w);
++    try cursor.current(t, t.screens.active, t.modes.get(.origin), true, w);
++    if (t.cursor.is_default) try w.writeAll("\x1b[0 q");
++    // Nothing may follow this suffix before the next ordered live source byte.
++    try w.writeAll(continuation);
++}
++
++test {
++    _ = @import("legacy_width.zig");
++    _ = @import("../shellfox_unicode_v6_tests.zig");
++    _ = @import("tests.zig");
++}
+diff --git a/src/terminal/shellfox_ansi/modes.zig b/src/terminal/shellfox_ansi/modes.zig
+new file mode 100644
+index 0000000..75f3848
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/modes.zig
+@@ -0,0 +1,70 @@
++const std = @import("std");
++const T = @import("types.zig");
++pub fn set(mode: T.modes.Mode, value: bool, w: *std.Io.Writer) !void {
++    const tag: T.modes.ModeTag = @bitCast(@backingInt(mode));
++    try w.print("\x1b[{s}{d}{s}", .{ if (tag.ansi) "" else "?", tag.value, if (value) "h" else "l" });
++}
++fn excluded(mode: T.modes.Mode) bool {
++    return switch (mode) {
++        .@"132_column", .enable_mode_3, .in_band_size_reports, .report_color_scheme, .report_visibility, .kitty_paste_events => true,
++        else => false,
++    };
++}
++pub fn save(t: *const T.Terminal, w: *std.Io.Writer) !void {
++    const saved: T.modes.ModeState = .{ .values = t.modes.saved };
++    inline for (@typeInfo(T.modes.Mode).@"enum".field_values) |value| {
++        const mode: T.modes.Mode = @fromBackingInt(value);
++        const tag: T.modes.ModeTag = @bitCast(@backingInt(mode));
++        if (!tag.ansi and !excluded(mode)) {
++            if (mode == .save_cursor and saved.get(mode) and t.screens.get(.primary).?.saved_cursor == null)
++                try set(.alt_screen_legacy, true, w);
++            try set(mode, saved.get(mode), w);
++            try w.print("\x1b[?{d}s", .{tag.value});
++        }
++    }
++    // Return to the reset mode baseline WITHOUT resetting the saved-mode bank.
++    const defaults: T.modes.ModeState = .{};
++    inline for (@typeInfo(T.modes.Mode).@"enum".field_values) |value| {
++        const mode: T.modes.Mode = @fromBackingInt(value);
++        if (!excluded(mode)) try set(mode, defaults.get(mode), w);
++    }
++}
++pub fn current(t: *const T.Terminal, w: *std.Io.Writer) !void {
++    inline for (@typeInfo(T.modes.Mode).@"enum".field_values) |value| {
++        const mode: T.modes.Mode = @fromBackingInt(value);
++        if (!T.transition(mode) and !excluded(mode)) try set(mode, t.modes.get(mode), w);
++    }
++    // Event/format precedence is independent of the mode bitset. Re-enable
++    // the effective mode last, or disable an already-false mode for defaults.
++    const event = switch (t.flags.mouse_event) {
++        .none => null,
++        .x10 => T.modes.Mode.mouse_event_x10,
++        .normal => .mouse_event_normal,
++        .button => .mouse_event_button,
++        .any => .mouse_event_any,
++    };
++    if (event) |mode| try set(mode, true, w) else {
++        for ([_]T.modes.Mode{ .mouse_event_x10, .mouse_event_normal, .mouse_event_button, .mouse_event_any }) |mode| {
++            if (!t.modes.get(mode)) {
++                try set(mode, false, w);
++                break;
++            }
++        }
++    }
++    const format = switch (t.flags.mouse_format) {
++        .x10 => null,
++        .utf8 => T.modes.Mode.mouse_format_utf8,
++        .sgr => .mouse_format_sgr,
++        .urxvt => .mouse_format_urxvt,
++        .sgr_pixels => .mouse_format_sgr_pixels,
++    };
++    if (format) |mode| try set(mode, true, w) else {
++        for ([_]T.modes.Mode{ .mouse_format_utf8, .mouse_format_sgr, .mouse_format_urxvt, .mouse_format_sgr_pixels }) |mode| {
++            if (!t.modes.get(mode)) {
++                try set(mode, false, w);
++                break;
++            }
++        }
++    }
++    try w.print("\x1b[>4;{d}m", .{@as(u8, if (t.flags.modify_other_keys_2) 2 else 0)});
++}
+diff --git a/src/terminal/shellfox_ansi/preflight.zig b/src/terminal/shellfox_ansi/preflight.zig
+new file mode 100644
+index 0000000..d74e0cb
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/preflight.zig
+@@ -0,0 +1,207 @@
++const std = @import("std");
++const T = @import("types.zig");
++const width = @import("legacy_width.zig");
++const color = @import("../color.zig");
++const build = @import("terminal_options");
++const charsets = @import("../charsets.zig");
++pub const Error = error{LimitExceeded};
++fn effectiveMouseValid(t: *const T.Terminal) bool {
++    const event: ?T.modes.Mode = switch (t.flags.mouse_event) {
++        .none => null,
++        .x10 => .mouse_event_x10,
++        .normal => .mouse_event_normal,
++        .button => .mouse_event_button,
++        .any => .mouse_event_any,
++    };
++    if (event) |mode| {
++        if (!t.modes.get(mode)) return false;
++    } else {
++        var off = false;
++        for ([_]T.modes.Mode{ .mouse_event_x10, .mouse_event_normal, .mouse_event_button, .mouse_event_any }) |mode| off = off or !t.modes.get(mode);
++        if (!off) return false;
++    }
++    const format: ?T.modes.Mode = switch (t.flags.mouse_format) {
++        .x10 => null,
++        .utf8 => .mouse_format_utf8,
++        .sgr => .mouse_format_sgr,
++        .urxvt => .mouse_format_urxvt,
++        .sgr_pixels => .mouse_format_sgr_pixels,
++    };
++    if (format) |mode| {
++        if (!t.modes.get(mode)) return false;
++    } else {
++        var off = false;
++        for ([_]T.modes.Mode{ .mouse_format_utf8, .mouse_format_sgr, .mouse_format_urxvt, .mouse_format_sgr_pixels }) |mode| off = off or !t.modes.get(mode);
++        if (!off) return false;
++    }
++    return true;
++}
++
++pub fn run(t: *const T.Terminal, o: *const T.Options) Error!T.Plan {
++    var plan: T.Plan = .{};
++    if (o.target_is_fresh != 1) plan.unsupported |= T.Reason.defaults;
++    if (!effectiveMouseValid(t)) plan.unsupported |= T.Reason.modes;
++    const state_bridge = @import("profile_state.zig");
++    if (state_bridge.terminal_profile_abi_version != T.profile.terminal_profile_abi_version)
++        plan.unsupported |= T.Reason.profile;
++    plan.unsupported |= state_bridge.check(t, o);
++    // Legacy final join-state reproduction remains a separate acceptance gate.
++    if (o.target == 1) plan.unsupported |= T.Reason.profile;
++    if (!T.profile.matches(o.engine_profile.ptr[0..o.engine_profile.len])) plan.unsupported |= T.Reason.profile;
++    if (!std.meta.eql(t.modes.default, T.modes.ModePacked{}) or
++        !T.equalRgb(t.colors.foreground.default, o.default_foreground) or
++        !T.equalRgb(t.colors.background.default, o.default_background) or
++        !T.equalRgb(t.colors.cursor.default, o.default_cursor) or
++        @backingInt(t.cursor.default_style) != o.default_cursor_style or
++        (if (t.cursor.default_blink) |b| @as(i32, @intFromBool(b)) else -1) != o.default_cursor_blink or
++        t.flags.resize_pull_scrollback != (o.runtime_resize_pull_scrollback != 0)) plan.unsupported |= T.Reason.defaults;
++    const primary = t.screens.get(.primary).?;
++    if (primary.pages.limits.bytes.explicit != o.target_scrollback_max_bytes or
++        primary.pages.limits.lines.explicit != o.target_scrollback_max_rows) plan.unsupported |= T.Reason.defaults;
++    const palette: []const color.RGB = if (o.default_palette) |p| p[0..256] else &color.default;
++    if (!std.mem.eql(color.RGB, t.colors.palette.original, palette)) plan.unsupported |= T.Reason.defaults;
++    if (!T.safeOsc(t.getPwd() orelse "") or !T.safeOsc(t.getTitle() orelse "")) plan.unsupported |= T.Reason.metadata;
++    if (t.glyph_glossary.entries.count() != 0 or t.kitty_dnd != null) plan.unsupported |= T.Reason.graphics;
++    if (t.status_display != .main or t.mouse_shape != .text or t.flags.password_input or t.flags.mouse_shift_capture != .null or
++        !std.meta.eql(t.default_xt_checksum, @import("../xt_checksum.zig").Flags{}) or
++        !std.meta.eql(t.flags.xt_checksum, t.default_xt_checksum)) plan.unsupported |= T.Reason.semantics;
++    const state: T.modes.ModeState = .{ .values = t.modes.saved };
++    const reset: T.modes.ModeState = .{};
++    inline for (@typeInfo(T.modes.Mode).@"enum".field_values) |v| {
++        const mode: T.modes.Mode = @fromBackingInt(v);
++        const tag: T.modes.ModeTag = @bitCast(@backingInt(mode));
++        if (tag.ansi and state.get(mode) != reset.get(mode)) plan.unsupported |= T.Reason.modes;
++    }
++    if (t.modes.get(.save_cursor) and t.screens.active.saved_cursor == null) plan.unsupported |= T.Reason.cursor;
++    if (t.screens.get(.primary).?.saved_cursor == null and state.get(.alt_screen_save_cursor_clear_enter)) plan.unsupported |= T.Reason.cursor;
++    if (state.get(.save_cursor) and t.screens.get(.primary).?.saved_cursor == null and
++        (t.screens.get(.alternate) == null or t.screens.get(.alternate).?.saved_cursor == null)) plan.unsupported |= T.Reason.cursor;
++    for ([_]T.modes.Mode{ .@"132_column", .enable_mode_3, .in_band_size_reports, .report_color_scheme, .report_visibility, .kitty_paste_events }) |mode| {
++        if (t.modes.get(mode) or state.get(mode)) plan.unsupported |= T.Reason.modes;
++    }
++    if (o.target == 1 and (t.modes.get(.grapheme_cluster) or state.get(.grapheme_cluster))) plan.unsupported |= T.Reason.width;
++    const alt = t.screens.active_key == .alternate;
++    const transitions = @as(u3, @intFromBool(t.modes.get(.alt_screen_legacy))) +
++        @as(u3, @intFromBool(t.modes.get(.alt_screen))) + @as(u3, @intFromBool(t.modes.get(.alt_screen_save_cursor_clear_enter)));
++    if ((!alt and transitions != 0) or (alt and transitions != 1)) plan.unsupported |= T.Reason.modes;
++    if (t.screens.get(.alternate) == null and (state.get(.alt_screen_legacy) or state.get(.alt_screen) or
++        state.get(.alt_screen_save_cursor_clear_enter))) plan.unsupported |= T.Reason.modes;
++    if (alt and t.modes.get(.alt_screen_save_cursor_clear_enter)) {
++        const p = t.screens.get(.primary).?;
++        const saved = p.saved_cursor orelse {
++            plan.unsupported |= T.Reason.cursor;
++            return plan;
++        };
++        if (saved.x != p.cursor.x or saved.y != p.cursor.y or saved.pending_wrap != p.cursor.pending_wrap or
++            saved.protected != p.cursor.protected or !std.meta.eql(saved.style, p.cursor.style) or
++            !std.meta.eql(saved.charset, p.charset)) plan.unsupported |= T.Reason.cursor;
++    }
++    var any_nonempty = false;
++    var rows: usize = 0;
++    var cells: usize = 0;
++    var screen_map = t.screens.all;
++    var screens = screen_map.iterator();
++    while (screens.next()) |entry| {
++        const s = entry.value.*;
++        rows = std.math.add(usize, rows, s.pages.total_rows) catch return error.LimitExceeded;
++        const n = std.math.mul(usize, s.pages.total_rows, t.cols) catch return error.LimitExceeded;
++        cells = std.math.add(usize, cells, n) catch return error.LimitExceeded;
++        if (rows > o.max_rows or cells > o.max_cells) return error.LimitExceeded;
++        if (comptime build.kitty_graphics) {
++            if (s.kitty_images.total_limit != o.runtime_image_storage_limit or s.kitty_images.image_limits.file or
++                s.kitty_images.image_limits.shared_memory or s.kitty_images.image_limits.temporary_file != .disabled)
++                plan.unsupported |= T.Reason.graphics;
++            if (s.kitty_images.images.count() != 0 or s.kitty_images.placements.count() != 0) plan.unsupported |= T.Reason.graphics;
++        }
++        if (s.cursor.cursor_style == .block_hollow) plan.unsupported |= T.Reason.cursor;
++        if (entry.key == .alternate and s.pages.total_rows != t.rows) plan.unsupported |= T.Reason.cursor;
++        if (!std.meta.eql(s.semantic_prompt, T.Screen.SemanticPrompt.disabled)) plan.unsupported |= T.Reason.semantics;
++        if (s.charset.single_shift) |slot| if (slot != .G2 and slot != .G3) {
++            plan.unsupported |= T.Reason.charsets;
++        };
++        if (s.cursor.semantic_content != .output or s.cursor.semantic_content_clear_eol or s.protected_mode == .iso)
++            plan.unsupported |= T.Reason.semantics;
++        if (s.cursor.hyperlink) |link| if (!T.safeOsc(link.uri) or switch (link.id) {
++            .explicit => |id| !T.safeOsc(id),
++            .implicit => false,
++        }) {
++            plan.unsupported |= T.Reason.metadata;
++        };
++        if (entry.key != t.screens.active_key and s.cursor.hyperlink != null) plan.unsupported |= T.Reason.cursor;
++        if (o.target == 1 or o.target_features & 1 == 0) {
++            for (s.kitty_keyboard.flags) |flags| if (flags.int() != 0) {
++                plan.unsupported |= T.Reason.keyboard;
++            };
++        }
++        if (s.saved_cursor) |saved| {
++            if (saved.charset.single_shift != null or saved.charset.gr == .G0) plan.unsupported |= T.Reason.charsets;
++            if (saved.origin and (saved.x < t.scrolling_region.left or saved.x > t.scrolling_region.right or
++                saved.y < t.scrolling_region.top or saved.y > t.scrolling_region.bottom)) plan.unsupported |= T.Reason.cursor;
++            if (saved.pending_wrap and saved.x != (if (saved.x > t.scrolling_region.right) t.cols - 1 else t.scrolling_region.right))
++                plan.unsupported |= T.Reason.cursor;
++            for (std.enums.values(charsets.Slots)) |slot| {
++                if (saved.charset.charsets.get(slot) != .utf8 and s.charset.charsets.get(slot) == .utf8)
++                    plan.unsupported |= T.Reason.charsets;
++            }
++            if (saved.pending_wrap and !s.pages.pin(.{ .active = .{ .x = saved.x, .y = saved.y } }).?.rowAndCell().cell.hasText())
++                plan.unsupported |= T.Reason.cursor;
++        }
++        if (entry.key == t.screens.active_key and t.modes.get(.origin) and (s.cursor.x < t.scrolling_region.left or s.cursor.x > t.scrolling_region.right or
++            s.cursor.y < t.scrolling_region.top or s.cursor.y > t.scrolling_region.bottom)) plan.unsupported |= T.Reason.cursor;
++        if (s.cursor.pending_wrap and s.cursor.x != (if (s.cursor.x > t.scrolling_region.right) t.cols - 1 else t.scrolling_region.right))
++            plan.unsupported |= T.Reason.cursor;
++        if (s.cursor.pending_wrap and !s.cursor.page_cell.hasText() and s.cursor.page_cell.wide != .spacer_tail)
++            plan.unsupported |= T.Reason.cursor;
++        if (s.charset.gr == .G0) plan.unsupported |= T.Reason.charsets;
++        var pages = s.pages.getTopLeft(.screen).pageIterator(.right_down, s.pages.getBottomRight(.screen).?);
++        while (pages.next()) |chunk| {
++            const p = chunk.node.page();
++            if (p.size.cols != t.cols) plan.unsupported |= T.Reason.width;
++            for (chunk.start..chunk.end) |y| {
++                const row = p.getRow(y);
++                if (row.kitty_virtual_placeholder) plan.unsupported |= T.Reason.graphics;
++                for (p.getCells(row)) |*cell| {
++                    any_nonempty = any_nonempty or !cell.isEmpty();
++                    if (cell.hasText()) {
++                        const cp = cell.codepoint();
++                        if (cp > 0x10ffff or (cp >= 0xd800 and cp <= 0xdfff)) plan.unsupported |= T.Reason.width;
++                        if (p.lookupGrapheme(cell)) |extra| for (extra) |item| {
++                            if (item > 0x10ffff or (item >= 0xd800 and item <= 0xdfff)) plan.unsupported |= T.Reason.width;
++                        };
++                    }
++                    if (cell.semantic_content != .output or cell.protected) plan.unsupported |= T.Reason.semantics;
++                    // Cell URI replay is intentionally not lossy or guessed safe.
++                    if (cell.hyperlink) plan.unsupported |= T.Reason.metadata;
++                    if (o.target == 1 and cell.hasText()) {
++                        const actual: u2 = if (cell.wide == .wide) 2 else 1;
++                        if (width.clusterWidth(cell.codepoint(), p.lookupGrapheme(cell) orelse &.{}) != actual)
++                            plan.unsupported |= T.Reason.width;
++                    }
++                }
++            }
++        }
++    }
++    const s = t.screens.active;
++    // A pending-wrap cursor reprints its cell last, establishing REP itself.
++    if (s.cursor.pending_wrap) {
++        const c = if (s.cursor.page_cell.wide == .spacer_tail) s.cursorCellLeft(1) else s.cursor.page_cell;
++        if (t.previous_char != c.codepoint()) plan.unsupported |= T.Reason.rep;
++    } else if (t.previous_char) |previous| {
++        var scratch: ?T.Repair = null;
++        for (0..t.rows) |y| for (0..t.cols) |x| {
++            const pin = s.pages.pin(.{ .active = .{ .x = @intCast(x), .y = @intCast(y) } }).?;
++            const rc = pin.rowAndCell();
++            if (x + 3 < t.cols and rc.cell.isEmpty() and
++                pin.right(1).rowAndCell().cell.isEmpty() and pin.right(2).rowAndCell().cell.isEmpty())
++                scratch = .{ .x = @intCast(x), .y = @intCast(y), .scratch = true };
++            if (rc.cell.hasText() and rc.cell.codepoint() == previous and x + 2 < t.cols and rc.cell.wide != .spacer_tail)
++                plan.repair = .{ .x = @intCast(x), .y = @intCast(y), .scratch = false };
++        };
++        if (plan.repair == null) plan.repair = scratch;
++        if (plan.repair == null) plan.unsupported |= T.Reason.rep;
++    } else {
++        // A populated screen with no REP register is not ANSI-reconstructible.
++        if (any_nonempty) plan.unsupported |= T.Reason.rep;
++    }
++    return plan;
++}
+diff --git a/src/terminal/shellfox_ansi/profile_state.zig b/src/terminal/shellfox_ansi/profile_state.zig
+new file mode 100644
+index 0000000..7bc5ac8
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/profile_state.zig
+@@ -0,0 +1,8 @@
++//! Patch-1 prerequisite: original terminals are Native by construction.
++//! Patch 2 must replace this check with its sole checked capture() routine.
++const T = @import("types.zig");
++pub const terminal_profile_abi_version: u32 = 0;
++pub fn check(t: *const T.Terminal, options: *const T.Options) u64 {
++    _ = t;
++    return if (options.target == 0) 0 else T.Reason.profile;
++}
+diff --git a/src/terminal/shellfox_ansi/tests.zig b/src/terminal/shellfox_ansi/tests.zig
+new file mode 100644
+index 0000000..3f6636c
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/tests.zig
+@@ -0,0 +1,222 @@
++const std = @import("std");
++const testing = std.testing;
++const api = @import("../c/shellfox_ansi.zig");
++const term = @import("../c/terminal.zig");
++const snapshot = @import("../c/snapshot.zig");
++const Result = @import("../c/result.zig").Result;
++const lib = @import("../lib.zig");
++const T = @import("types.zig");
++fn new() !term.Terminal {
++    var value: term.Terminal = null;
++    try testing.expectEqual(Result.success, term.new(&lib.alloc.test_allocator, &value, 20, 5));
++    var limit: usize = 65536;
++    try testing.expectEqual(Result.success, term.set(value, .continuation_max_bytes, &limit));
++    return value;
++}
++fn write(t: term.Terminal, bytes: []const u8) void {
++    term.vt_write(t, bytes.ptr, bytes.len);
++}
++fn options(t: term.Terminal) api.Options {
++    const native = term.zigTerminal(t).?;
++    return .{ .engine_profile = .init(T.profile.engine_profile), .target_features = 1, .default_cursor_style = @intCast(@backingInt(native.cursor.default_style)), .default_cursor_blink = if (native.cursor.default_blink) |b| @intFromBool(b) else -1, .runtime_resize_pull_scrollback = @intFromBool(native.flags.resize_pull_scrollback), .target_scrollback_max_bytes = native.screens.get(.primary).?.pages.limits.bytes.explicit, .target_scrollback_max_rows = native.screens.get(.primary).?.pages.limits.lines.explicit, .runtime_image_storage_limit = if (@import("terminal_options").kitty_graphics) native.screens.active.kitty_images.total_limit else 0 };
++}
++fn exportOwned(t: term.Terminal) ![]u8 {
++    var o = options(t);
++    var needed: usize = 0;
++    var reason: u64 = 0;
++    const result = api.export_buf(t, &o, null, 0, &needed, &reason);
++    if (result != .out_of_space) {
++        const native = term.zigTerminal(t).?;
++        std.debug.print("export result={s} reason={x} title={s} pwd={s}\n", .{ @tagName(result), reason, native.getTitle() orelse "", native.getPwd() orelse "" });
++    }
++    try testing.expectEqual(Result.out_of_space, result);
++    const bytes = try testing.allocator.alloc(u8, needed);
++    errdefer testing.allocator.free(bytes);
++    try testing.expectEqual(Result.success, api.export_buf(t, &o, bytes.ptr, bytes.len, &needed, &reason));
++    return bytes;
++}
++fn snapshotOwned(t: term.Terminal) ![]u8 {
++    var n: usize = 0;
++    try testing.expectEqual(Result.out_of_space, snapshot.encode_buf(t, null, 0, &n));
++    const bytes = try testing.allocator.alloc(u8, n);
++    errdefer testing.allocator.free(bytes);
++    try testing.expectEqual(Result.success, snapshot.encode_buf(t, bytes.ptr, bytes.len, &n));
++    return bytes;
++}
++fn same(a: term.Terminal, b: term.Terminal) !void {
++    const x = term.zigTerminal(a).?;
++    const y = term.zigTerminal(b).?;
++    try testing.expectEqual(x.screens.active_key, y.screens.active_key);
++    try testing.expectEqualDeep(x.modes, y.modes);
++    try testing.expectEqual(x.previous_char, y.previous_char);
++    try testing.expectEqual(x.cursor.is_default, y.cursor.is_default);
++    try testing.expectEqual(x.flags.shell_redraws_prompt, y.flags.shell_redraws_prompt);
++    try testing.expectEqual(x.flags.resize_pull_scrollback, y.flags.resize_pull_scrollback);
++    try testing.expectEqualDeep(x.scrolling_region, y.scrolling_region);
++    try testing.expectEqualDeep(x.colors, y.colors);
++    try testing.expectEqualStrings(x.title.items, y.title.items);
++    try testing.expectEqualStrings(x.pwd.items, y.pwd.items);
++    try testing.expectEqual(x.flags.mouse_event, y.flags.mouse_event);
++    try testing.expectEqual(x.flags.mouse_format, y.flags.mouse_format);
++    try testing.expectEqual(x.flags.modify_other_keys_2, y.flags.modify_other_keys_2);
++    for (std.enums.values(@import("../ScreenSet.zig").Key)) |key| {
++        const left = x.screens.get(key);
++        const right = y.screens.get(key);
++        try testing.expectEqual(left != null, right != null);
++        if (left) |s| {
++            const d = right.?;
++            try testing.expectEqualDeep(s.saved_cursor, d.saved_cursor);
++            try testing.expectEqual(s.cursor.x, d.cursor.x);
++            try testing.expectEqual(s.cursor.y, d.cursor.y);
++            try testing.expectEqual(s.cursor.pending_wrap, d.cursor.pending_wrap);
++            try testing.expectEqualDeep(s.cursor.style, d.cursor.style);
++            try testing.expectEqual(s.cursor.cursor_style, d.cursor.cursor_style);
++            try testing.expectEqual(s.cursor.protected, d.cursor.protected);
++            try testing.expectEqual(s.protected_mode, d.protected_mode);
++            try testing.expectEqualDeep(s.charset, d.charset);
++            var f: T.formatter.ScreenFormatter = .init(s, .{ .emit = .vt, .unwrap = false, .trim = false });
++            var g: T.formatter.ScreenFormatter = .init(d, .{ .emit = .vt, .unwrap = false, .trim = false });
++            var first: std.Io.Writer.Allocating = .init(testing.allocator);
++            defer first.deinit();
++            var second: std.Io.Writer.Allocating = .init(testing.allocator);
++            defer second.deinit();
++            try f.format(&first.writer);
++            try g.format(&second.writer);
++            try testing.expectEqualStrings(first.written(), second.written());
++            var ls = s.kitty_keyboard;
++            var rs = d.kitty_keyboard;
++            for (0..9) |_| {
++                try testing.expectEqual(ls.current().int(), rs.current().int());
++                ls.pop(1);
++                rs.pop(1);
++            }
++        }
++    }
++}
++fn roundtrip(input: []const u8, suffix: []const u8) !void {
++    const source = try new();
++    defer term.free(source);
++    const target = try new();
++    defer term.free(target);
++    write(source, input);
++    const before = try snapshotOwned(source);
++    defer testing.allocator.free(before);
++    const bytes = try exportOwned(source);
++    defer testing.allocator.free(bytes);
++    const after = try snapshotOwned(source);
++    defer testing.allocator.free(after);
++    try testing.expectEqualSlices(u8, before, after);
++    write(target, bytes);
++    try same(source, target);
++    write(source, suffix);
++    write(target, suffix);
++    try same(source, target);
++}
++test "Shellfox full ANSI preserves saved cursor, history, styles and REP" {
++    try roundtrip("first\r\nsecond\r\nthird\r\nfourth\r\nfifth\r\nsixth\x1b[2;3H\x1b[31m\x1b7\x1b[4;7H\x1b[32mZ", "\x1b8!\x1b[2b");
++}
++test "Shellfox full ANSI preserves inactive primary and alternate saved cursors" {
++    try roundtrip("primary\x1b[2;2H\x1b7\x1b[?1049h\x1b[Halt\x1b[3;3H\x1b7\x1b[4;4Hz", "\x1b8A\x1b[?1049lB");
++    try roundtrip("primary\x1b[2;2H\x1b7\x1b[?47h\x1b[Halt\x1b[3;3H\x1b7\x1b[4;4Hz\x1b[?47l", "\x1b[?47h\x1b8A");
++}
++test "Shellfox full ANSI preserves saved mode bank, charsets and keyboard stack" {
++    try roundtrip("\x1b[?1h\x1b[?1s\x1b[?1l\x1b[>1u\x1b[>3u\x1b[>7u\x1b(0q\x1b7\x1b(Bx", "\x1b[?1r\x1b[<u\x1b8q");
++}
++test "Shellfox full ANSI handles reset policy and exact color override state on fresh targets" {
++    try roundtrip("\x1bcafter", "\x1b]133;A\x07prompt");
++    try roundtrip("\x1b]4;42;rgb:12/34/56\x07\x1b]10;rgb:ab/cd/ef\x07\x1b]0;title\x07\x1b]7;file:///tmp/fixture\x07text", "\x1b]104;42\x07\x1b]110\x07!");
++}
++test "Shellfox full ANSI preserves G1, origin margins, and nonblank pending wide wrap" {
++    try roundtrip("\x1b[2;4r\x1b[?6h\x1b[1;1H\x1b)0\x0eq\x1b7\x0f\x1b[?6l\x1b[5;1Hx", "\x1b8q");
++    try roundtrip("\x1b[2;2H\x1b7\x1b[5;1H123456789012345678界", "X\x1b8Y");
++}
++test "Shellfox full ANSI preserves effective mouse precedence, not just mode bits" {
++    try roundtrip("x\x1b[?1003h\x1b[?1000h\x1b[?1006h\x1b[?1005h", "y");
++    try roundtrip("x\x1b[?1000h\x1b[?1003h\x1b[?1003l", "y");
++}
++test "Shellfox full ANSI requires exact resize policy and preserves false and true resize suffixes" {
++    for ([_]bool{ false, true }) |pull| {
++        const source = try new();
++        defer term.free(source);
++        const target = try new();
++        defer term.free(target);
++        try testing.expectEqual(Result.success, term.set(source, .resize_pull_scrollback, &pull));
++        try testing.expectEqual(Result.success, term.set(target, .resize_pull_scrollback, &pull));
++        write(source, "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven");
++        var opts = options(source);
++        opts.runtime_resize_pull_scrollback = @intFromBool(!pull);
++        var byte: [1]u8 = .{0xa5};
++        var n: usize = 1;
++        var reason: u64 = 0;
++        try testing.expectEqual(Result.unsupported, api.export_buf(source, &opts, &byte, byte.len, &n, &reason));
++        try testing.expect(reason & T.Reason.defaults != 0);
++        try testing.expectEqual(@as(u8, 0xa5), byte[0]);
++        const bytes = try exportOwned(source);
++        defer testing.allocator.free(bytes);
++        write(target, bytes);
++        try same(source, target);
++        try testing.expectEqual(Result.success, term.resize(source, 20, 8, 0, 0));
++        try testing.expectEqual(Result.success, term.resize(target, 20, 8, 0, 0));
++        write(source, "\r\nafter");
++        write(target, "\r\nafter");
++        try same(source, target);
++    }
++}
++test "Shellfox full ANSI keeps unfinished UTF8 and CSI continuation last" {
++    try roundtrip("before\xe9\x9b", "\xaa!");
++    try roundtrip("before\x1b[38;2;1;", "2;3m!");
++}
++test "Shellfox full ANSI unsupported and output-budget failures never touch caller buffer" {
++    const t = try new();
++    defer term.free(t);
++    var o = options(t);
++    var bytes: [32]u8 = @splat(0xa5);
++    var n: usize = 99;
++    var reason: u64 = 0;
++    o.abi_version = 2;
++    try testing.expectEqual(Result.invalid_value, api.export_buf(t, &o, &bytes, bytes.len, &n, &reason));
++    try testing.expectEqual(@as(usize, 0), n);
++    o = options(t);
++    o.engine_profile = .init(@as([]const u8, "bad"));
++    try testing.expectEqual(Result.unsupported, api.export_buf(t, &o, &bytes, bytes.len, &n, &reason));
++    try testing.expect(reason & T.Reason.profile != 0);
++    o = options(t);
++    o.target_is_fresh = 0;
++    try testing.expectEqual(Result.unsupported, api.export_buf(t, &o, &bytes, bytes.len, &n, &reason));
++    try testing.expect(reason & T.Reason.defaults != 0);
++    o = options(t);
++    o.target = 1;
++    try testing.expectEqual(Result.unsupported, api.export_buf(t, &o, &bytes, bytes.len, &n, &reason));
++    try testing.expect(reason & T.Reason.profile != 0);
++    o = options(t);
++    o.max_output_bytes = 2;
++    try testing.expectEqual(Result.limit_exceeded, api.export_buf(t, &o, &bytes, bytes.len, &n, &reason));
++    for (bytes) |byte| try testing.expectEqual(@as(u8, 0xa5), byte);
++}
++test "Shellfox full ANSI export never replays source PTY or clipboard callbacks" {
++    const Probe = struct {
++        pty: usize = 0,
++        clipboard: usize = 0,
++        fn ptyWrite(_: term.Terminal, userdata: ?*anyopaque, _: [*]const u8, n: usize) callconv(.c) void {
++            const self: *@This() = @ptrCast(@alignCast(userdata.?));
++            self.pty += n;
++        }
++        fn clipboardWrite(_: term.Terminal, userdata: ?*anyopaque, _: *const term.ClipboardWrite) callconv(.c) void {
++            const self: *@This() = @ptrCast(@alignCast(userdata.?));
++            self.clipboard += 1;
++        }
++    };
++    const t = try new();
++    defer term.free(t);
++    var probe: Probe = .{};
++    try testing.expectEqual(Result.success, term.set(t, .userdata, &probe));
++    try testing.expectEqual(Result.success, term.set(t, .write_pty, @ptrCast(&Probe.ptyWrite)));
++    try testing.expectEqual(Result.success, term.set(t, .clipboard_write, @ptrCast(&Probe.clipboardWrite)));
++    write(t, "abc\x1b[6n\x1b]52;c;YQ==\x07\x1b[");
++    const before = probe;
++    const bytes = try exportOwned(t);
++    defer testing.allocator.free(bytes);
++    try testing.expect(probe.pty > 0);
++    try testing.expect(probe.clipboard > 0);
++    try testing.expectEqualDeep(before, probe);
++}
+diff --git a/src/terminal/shellfox_ansi/types.zig b/src/terminal/shellfox_ansi/types.zig
+new file mode 100644
+index 0000000..0d1cac6
+--- /dev/null
++++ b/src/terminal/shellfox_ansi/types.zig
+@@ -0,0 +1,71 @@
++const std = @import("std");
++const lib = @import("../lib.zig");
++const color = @import("../color.zig");
++pub const Terminal = @import("../Terminal.zig");
++pub const Screen = @import("../Screen.zig");
++pub const formatter = @import("../formatter.zig");
++pub const modes = @import("../modes.zig");
++pub const profile = @import("../shellfox_profile.zig");
++pub const max_output = 64 * 1024 * 1024;
++pub const Reason = struct {
++    pub const profile: u64 = 1 << 0;
++    pub const defaults: u64 = 1 << 1;
++    pub const graphics: u64 = 1 << 2;
++    pub const metadata: u64 = 1 << 3;
++    pub const modes: u64 = 1 << 4;
++    pub const charsets: u64 = 1 << 5;
++    pub const keyboard: u64 = 1 << 6;
++    pub const cursor: u64 = 1 << 7;
++    pub const rep: u64 = 1 << 8;
++    pub const semantics: u64 = 1 << 9;
++    pub const width: u64 = 1 << 10;
++    pub const continuation: u64 = 1 << 11;
++    pub const source_error: u64 = 1 << 12;
++};
++pub const Options = extern struct {
++    size: usize = @sizeOf(Options),
++    abi_version: u32 = 1,
++    target: u32 = 0,
++    target_features: u64 = 0,
++    engine_profile: lib.String = .init(@as([]const u8, "")),
++    max_output_bytes: usize = 16 * 1024 * 1024,
++    max_rows: usize = 65536,
++    max_cells: usize = 1024 * 1024,
++    max_continuation_bytes: usize = 65536,
++    default_foreground: ?*const color.RGB = null,
++    default_background: ?*const color.RGB = null,
++    default_cursor: ?*const color.RGB = null,
++    default_palette: ?[*]const color.RGB = null,
++    default_cursor_style: u32 = 1,
++    default_cursor_blink: i32 = 0,
++    runtime_resize_pull_scrollback: u32 = 1,
++    target_is_fresh: u8 = 1,
++    target_scrollback_max_bytes: usize = 0,
++    target_scrollback_max_rows: usize = 0,
++    runtime_image_storage_limit: u64 = 0,
++
++    pub fn valid(self: *const Options) bool {
++        if (self.size != @sizeOf(Options)) return false;
++        return self.abi_version == 1 and self.engine_profile.len <= 64 and self.target <= 1 and self.target_features & ~@as(u64, 1) == 0 and
++            self.max_output_bytes <= max_output and self.max_rows > 0 and self.max_rows <= 1024 * 1024 and
++            self.max_cells > 0 and self.max_cells <= 16 * 1024 * 1024 and self.max_continuation_bytes <= 65536 and
++            self.default_cursor_style <= 3 and self.default_cursor_blink >= -1 and self.default_cursor_blink <= 1 and
++            self.runtime_resize_pull_scrollback <= 1 and self.target_is_fresh <= 1;
++    }
++};
++pub const Repair = struct { x: u16, y: u16, scratch: bool };
++pub const Plan = struct { unsupported: u64 = 0, repair: ?Repair = null };
++pub fn safeOsc(value: []const u8) bool {
++    if (!std.unicode.utf8ValidateSlice(value)) return false;
++    for (value) |c| if (c < 0x20 or c == 0x7f or c == 0x9c) return false;
++    return true;
++}
++pub fn equalRgb(actual: ?color.RGB, declared: ?*const color.RGB) bool {
++    return std.meta.eql(actual, if (declared) |v| v.* else null);
++}
++pub fn transition(mode: modes.Mode) bool {
++    return switch (mode) {
++        .alt_screen_legacy, .alt_screen, .alt_screen_save_cursor_clear_enter, .save_cursor => true,
++        else => false,
++    };
++}
+diff --git a/src/terminal/shellfox_profile.zig b/src/terminal/shellfox_profile.zig
+new file mode 100644
+index 0000000..4f8dde5
+--- /dev/null
++++ b/src/terminal/shellfox_profile.zig
+@@ -0,0 +1,24 @@
++//! Shellfox additive ABI identity. Artifact authentication is external.
++const std = @import("std");
++const options = @import("terminal_options");
++pub const ansi_abi_version: u32 = 1;
++// The separately applied terminal-profile patch changes only this declaration.
++pub const terminal_profile_abi_version: u32 = 0;
++// The separately applied snapshot-budget patch changes only this declaration.
++pub const snapshot_budget_abi_version: u32 = 0;
++pub const engine_profile = options.shellfox_engine_profile;
++pub fn valid(value: []const u8) bool {
++    if (value.len != 64) return false;
++    for (value) |c| if (!((c >= '0' and c <= '9') or (c >= 'a' and c <= 'f'))) return false;
++    return true;
++}
++pub fn matches(value: []const u8) bool {
++    return valid(engine_profile) and std.mem.eql(u8, value, engine_profile);
++}
++test "Shellfox profile is a declared SHA256 identity, never authentication" {
++    const lower: [64]u8 = @splat('a');
++    const upper: [64]u8 = @splat('A');
++    try std.testing.expect(valid(&lower));
++    try std.testing.expect(!valid(&upper));
++    try std.testing.expect(!valid(""));
++}
+diff --git a/src/terminal/shellfox_unicode_v6.LICENSE b/src/terminal/shellfox_unicode_v6.LICENSE
+new file mode 100644
+index 0000000..4472336
+--- /dev/null
++++ b/src/terminal/shellfox_unicode_v6.LICENSE
+@@ -0,0 +1,21 @@
++Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
++Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
++Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/)
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
+diff --git a/src/terminal/shellfox_unicode_v6.zig b/src/terminal/shellfox_unicode_v6.zig
+new file mode 100644
+index 0000000..94c52ed
+--- /dev/null
++++ b/src/terminal/shellfox_unicode_v6.zig
+@@ -0,0 +1,198 @@
++// Copyright (c) 2019 The xterm.js authors. All rights reserved. MIT.
++// Ported from @xterm/xterm 6.0.0 UnicodeV6.ts, SHA256 9ebb3df126129de4250ef5c1730493b7b3f62b3593273dac0bbbe15ee0cc890b.
++// See the retained xterm LICENSE and provenance next to this patch.
++pub const profile = "xterm-6.0.0-unicode6";
++const bmp_combining = [_][2]u21{
++    .{ 0x300, 0x36f },
++    .{ 0x483, 0x486 },
++    .{ 0x488, 0x489 },
++    .{ 0x591, 0x5bd },
++    .{ 0x5bf, 0x5bf },
++    .{ 0x5c1, 0x5c2 },
++    .{ 0x5c4, 0x5c5 },
++    .{ 0x5c7, 0x5c7 },
++    .{ 0x600, 0x603 },
++    .{ 0x610, 0x615 },
++    .{ 0x64b, 0x65e },
++    .{ 0x670, 0x670 },
++    .{ 0x6d6, 0x6e4 },
++    .{ 0x6e7, 0x6e8 },
++    .{ 0x6ea, 0x6ed },
++    .{ 0x70f, 0x70f },
++    .{ 0x711, 0x711 },
++    .{ 0x730, 0x74a },
++    .{ 0x7a6, 0x7b0 },
++    .{ 0x7eb, 0x7f3 },
++    .{ 0x901, 0x902 },
++    .{ 0x93c, 0x93c },
++    .{ 0x941, 0x948 },
++    .{ 0x94d, 0x94d },
++    .{ 0x951, 0x954 },
++    .{ 0x962, 0x963 },
++    .{ 0x981, 0x981 },
++    .{ 0x9bc, 0x9bc },
++    .{ 0x9c1, 0x9c4 },
++    .{ 0x9cd, 0x9cd },
++    .{ 0x9e2, 0x9e3 },
++    .{ 0xa01, 0xa02 },
++    .{ 0xa3c, 0xa3c },
++    .{ 0xa41, 0xa42 },
++    .{ 0xa47, 0xa48 },
++    .{ 0xa4b, 0xa4d },
++    .{ 0xa70, 0xa71 },
++    .{ 0xa81, 0xa82 },
++    .{ 0xabc, 0xabc },
++    .{ 0xac1, 0xac5 },
++    .{ 0xac7, 0xac8 },
++    .{ 0xacd, 0xacd },
++    .{ 0xae2, 0xae3 },
++    .{ 0xb01, 0xb01 },
++    .{ 0xb3c, 0xb3c },
++    .{ 0xb3f, 0xb3f },
++    .{ 0xb41, 0xb43 },
++    .{ 0xb4d, 0xb4d },
++    .{ 0xb56, 0xb56 },
++    .{ 0xb82, 0xb82 },
++    .{ 0xbc0, 0xbc0 },
++    .{ 0xbcd, 0xbcd },
++    .{ 0xc3e, 0xc40 },
++    .{ 0xc46, 0xc48 },
++    .{ 0xc4a, 0xc4d },
++    .{ 0xc55, 0xc56 },
++    .{ 0xcbc, 0xcbc },
++    .{ 0xcbf, 0xcbf },
++    .{ 0xcc6, 0xcc6 },
++    .{ 0xccc, 0xccd },
++    .{ 0xce2, 0xce3 },
++    .{ 0xd41, 0xd43 },
++    .{ 0xd4d, 0xd4d },
++    .{ 0xdca, 0xdca },
++    .{ 0xdd2, 0xdd4 },
++    .{ 0xdd6, 0xdd6 },
++    .{ 0xe31, 0xe31 },
++    .{ 0xe34, 0xe3a },
++    .{ 0xe47, 0xe4e },
++    .{ 0xeb1, 0xeb1 },
++    .{ 0xeb4, 0xeb9 },
++    .{ 0xebb, 0xebc },
++    .{ 0xec8, 0xecd },
++    .{ 0xf18, 0xf19 },
++    .{ 0xf35, 0xf35 },
++    .{ 0xf37, 0xf37 },
++    .{ 0xf39, 0xf39 },
++    .{ 0xf71, 0xf7e },
++    .{ 0xf80, 0xf84 },
++    .{ 0xf86, 0xf87 },
++    .{ 0xf90, 0xf97 },
++    .{ 0xf99, 0xfbc },
++    .{ 0xfc6, 0xfc6 },
++    .{ 0x102d, 0x1030 },
++    .{ 0x1032, 0x1032 },
++    .{ 0x1036, 0x1037 },
++    .{ 0x1039, 0x1039 },
++    .{ 0x1058, 0x1059 },
++    .{ 0x1160, 0x11ff },
++    .{ 0x135f, 0x135f },
++    .{ 0x1712, 0x1714 },
++    .{ 0x1732, 0x1734 },
++    .{ 0x1752, 0x1753 },
++    .{ 0x1772, 0x1773 },
++    .{ 0x17b4, 0x17b5 },
++    .{ 0x17b7, 0x17bd },
++    .{ 0x17c6, 0x17c6 },
++    .{ 0x17c9, 0x17d3 },
++    .{ 0x17dd, 0x17dd },
++    .{ 0x180b, 0x180d },
++    .{ 0x18a9, 0x18a9 },
++    .{ 0x1920, 0x1922 },
++    .{ 0x1927, 0x1928 },
++    .{ 0x1932, 0x1932 },
++    .{ 0x1939, 0x193b },
++    .{ 0x1a17, 0x1a18 },
++    .{ 0x1b00, 0x1b03 },
++    .{ 0x1b34, 0x1b34 },
++    .{ 0x1b36, 0x1b3a },
++    .{ 0x1b3c, 0x1b3c },
++    .{ 0x1b42, 0x1b42 },
++    .{ 0x1b6b, 0x1b73 },
++    .{ 0x1dc0, 0x1dca },
++    .{ 0x1dfe, 0x1dff },
++    .{ 0x200b, 0x200f },
++    .{ 0x202a, 0x202e },
++    .{ 0x2060, 0x2063 },
++    .{ 0x206a, 0x206f },
++    .{ 0x20d0, 0x20ef },
++    .{ 0x302a, 0x302f },
++    .{ 0x3099, 0x309a },
++    .{ 0xa806, 0xa806 },
++    .{ 0xa80b, 0xa80b },
++    .{ 0xa825, 0xa826 },
++    .{ 0xfb1e, 0xfb1e },
++    .{ 0xfe00, 0xfe0f },
++    .{ 0xfe20, 0xfe23 },
++    .{ 0xfeff, 0xfeff },
++    .{ 0xfff9, 0xfffb },
++};
++const high_combining = [_][2]u21{
++    .{ 0x10a01, 0x10a03 },
++    .{ 0x10a05, 0x10a06 },
++    .{ 0x10a0c, 0x10a0f },
++    .{ 0x10a38, 0x10a3a },
++    .{ 0x10a3f, 0x10a3f },
++    .{ 0x1d167, 0x1d169 },
++    .{ 0x1d173, 0x1d182 },
++    .{ 0x1d185, 0x1d18b },
++    .{ 0x1d1aa, 0x1d1ad },
++    .{ 0x1d242, 0x1d244 },
++    .{ 0xe0001, 0xe0001 },
++    .{ 0xe0020, 0xe007f },
++    .{ 0xe0100, 0xe01ef },
++};
++
++fn contains(cp: u21, ranges: []const [2]u21) bool {
++    var low: usize = 0;
++    var high: usize = ranges.len;
++    while (low < high) {
++        const mid = low + (high - low) / 2;
++        if (cp < ranges[mid][0]) high = mid else if (cp > ranges[mid][1]) low = mid + 1 else return true;
++    }
++    return false;
++}
++pub fn width(cp: u21) u2 {
++    if (cp < 32) return 0;
++    if (cp < 127) return 1;
++    if (cp < 65536) {
++        if (cp < 0xa0 or contains(cp, &bmp_combining)) return 0;
++        if ((cp >= 0x1100 and cp < 0x1160) or cp == 0x2329 or cp == 0x232a or
++            (cp >= 0x2e80 and cp < 0xa4d0 and cp != 0x303f) or
++            (cp >= 0xac00 and cp < 0xd7a4) or (cp >= 0xf900 and cp < 0xfb00) or
++            (cp >= 0xfe10 and cp < 0xfe1a) or (cp >= 0xfe30 and cp < 0xfe70) or
++            (cp >= 0xff00 and cp < 0xff61) or (cp >= 0xffe0 and cp < 0xffe7)) return 2;
++        return 1;
++    }
++    if (contains(cp, &high_combining)) return 0;
++    if ((cp >= 0x20000 and cp <= 0x2fffd) or (cp >= 0x30000 and cp <= 0x3fffd)) return 2;
++    return 1;
++}
++pub fn validState(preceding: u32) bool {
++    return switch (preceding) {
++        0, 2, 3, 4, 5 => true,
++        else => false,
++    };
++}
++pub fn properties(cp: u21, preceding: u32) ?u32 {
++    if (!validState(preceding)) return null;
++    var current: u32 = width(cp);
++    const old = (preceding >> 1) & 3;
++    const join = current == 0 and old != 0;
++    if (join) current = old;
++    return (current << 1) | @intFromBool(join);
++}
++// UnicodeV6.charProperties joins only width-zero codepoints to a nonzero
++// preceding cell; it does not join emoji/RI sequences into modern graphemes.
++pub fn clusterWidth(base: u21, extra: []const u21) ?u2 {
++    const result = width(base);
++    if (result == 0) return null;
++    for (extra) |cp| if (width(cp) != 0) return null;
++    return result;
++}
+diff --git a/src/terminal/shellfox_unicode_v6_tests.zig b/src/terminal/shellfox_unicode_v6_tests.zig
+new file mode 100644
+index 0000000..9fb3e72
+--- /dev/null
++++ b/src/terminal/shellfox_unicode_v6_tests.zig
+@@ -0,0 +1,32 @@
++//! Exhaustive differential fingerprints from the pinned shipped JS provider.
++const std = @import("std");
++const width = @import("shellfox_unicode_v6.zig");
++fn digest(state: ?u32) [64]u8 {
++    var hash: std.crypto.hash.sha2.Sha256 = .init(.{});
++    var bytes: [4096]u8 = undefined;
++    var start: usize = 0;
++    while (start < 0x110000) : (start += bytes.len) {
++        const n = @min(bytes.len, 0x110000 - start);
++        for (bytes[0..n], start..) |*byte, cp| {
++            byte.* = @intCast(if (state) |value| width.properties(@intCast(cp), value).? else width.width(@intCast(cp)));
++        }
++        hash.update(bytes[0..n]);
++    }
++    var result: [32]u8 = undefined;
++    hash.final(&result);
++    return std.fmt.bytesToHex(result, .lower);
++}
++test "Shellfox shared UnicodeV6 all-codepoint widths match shipped xterm" {
++    try std.testing.expectEqualStrings("12dafc0567207c1a8fe7e03f76540242ad57184c50f459af4eeefb657218e432", &digest(null));
++}
++test "Shellfox shared UnicodeV6 all reachable preceding states match shipped charProperties" {
++    const references = [_][]const u8{
++        "9fc936c83d1f93d7a579fc697ae468533dfaf612c8dfdcc6c59790481f602a71",
++        "d559118286abe3c8a9759d5c08625918d7b3c5c5e05f664cc806113c7eb624fb",
++        "d559118286abe3c8a9759d5c08625918d7b3c5c5e05f664cc806113c7eb624fb",
++        "70294b542489bedce2f9d70aae4047658843958782d5f0534d364e35e40ad2b3",
++        "70294b542489bedce2f9d70aae4047658843958782d5f0534d364e35e40ad2b3",
++    };
++    for ([_]u32{ 0, 2, 3, 4, 5 }, references) |state, expected| try std.testing.expectEqualStrings(expected, &digest(state));
++    for ([_]u32{ 1, 6, 7, 8, 0xffffffff }) |invalid| try std.testing.expect(width.properties('a', invalid) == null);
++}

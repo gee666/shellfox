@@ -1,3 +1,4 @@
+import { registerEndpointRoot } from '../../tests/unit/endpoint-permission-model';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,7 +20,7 @@ vi.mock('electron', () => ({
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); electron.handlers.clear(); electron.lifecycle.clear(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 async function fixture() {
-  await mkdir('tmp', { recursive: true }); const directory = await mkdtemp(path.resolve('tmp/attached-ipc-'));
+  await mkdir('tmp', { recursive: true }); const directory = await mkdtemp(path.resolve('tmp/attached-ipc-')); registerEndpointRoot(directory, ['host']);
   const service = await embeddedFixture(), stopped = vi.fn(async () => {});
   const rpc = await startHostRpc({ userData: directory, service: service.service, mode: 'headless', shutdown: stopped });
   const client = await connectHostClient(directory), window = new BrowserWindow(), ready = vi.fn();

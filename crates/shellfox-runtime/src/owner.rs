@@ -1,0 +1,324 @@
+use crate::{delivery::Delivery, observers::ObserverHub, *};
+#[cfg(test)]
+#[path = "controller_tests.rs"]
+mod controller_tests;
+#[cfg(test)]
+#[path = "owner_event_tests.rs"]
+mod event_tests;
+#[cfg(test)]
+#[path = "owner_key_v2_tests.rs"]
+mod key_v2_tests;
+#[cfg(all(test, feature = "experimental-shellfox-native"))]
+#[path = "native_recovery_tests.rs"]
+mod native_recovery_tests;
+#[cfg(test)]
+#[path = "owner_recovery_audit_tests.rs"]
+mod recovery_audit_tests;
+#[cfg(test)]
+#[path = "owner_test_support.rs"]
+mod test_support;
+use shellfox_ghostty_vt::Terminal;
+use shellfox_terminal::{PtyConfig, PtySession};
+use std::{
+    collections::VecDeque,
+    sync::mpsc::{Receiver, SyncSender, TryRecvError},
+    time::{Duration, Instant},
+};
+
+#[path = "external_start.rs"]
+mod external_start;
+pub(crate) use external_start::{run as run_external, ExternalStartServices};
+pub(crate) struct OwnerServices {
+    #[cfg(feature = "experimental-shellfox-native")]
+    pub native: Option<crate::Native0RuntimeConfig>,
+    pub inspection: Option<inspection::InspectionPublisher>,
+    pub hooks: RuntimeHooks,
+    pub program_env: Option<shellfox_terminal::TrustedProgramEnv>,
+    pub launch: Arc<launch::LaunchState>,
+    pub launch_binding: shellfox_terminal::NativeLaunchBinding,
+}
+pub(crate) struct Owner {
+    pub identity: Identity,
+    pub limits: GridLimits,
+    pub terminal: Terminal,
+    #[cfg(feature = "experimental-shellfox-native")]
+    pub(crate) native_creation: Option<crate::recovery::Native0Creation>,
+    pub presentations: presentation::Presentations,
+    pub layouts: layout::Layouts,
+    pub pty: Option<PtySession>,
+    pub source_kind: SourceKind,
+    pub external: Option<external::ExternalOwner>,
+    pub delivery: Delivery,
+    pub observers: ObserverHub,
+    pub observers_first: bool,
+    pub phase: Phase,
+    pub shared: Arc<Shared>,
+    pub outgoing: VecDeque<Event>,
+    pub dirty: bool,
+    fatal: bool,
+    pub(crate) exit_sent: bool,
+    retry_at: Instant,
+    inspection: Option<inspection::InspectionPublisher>,
+    pub(crate) live_output: hooks::LiveOutput,
+}
+
+pub(crate) fn run(
+    identity: Identity,
+    config: PtyConfig,
+    limits: GridLimits,
+    incoming: Receiver<Request>,
+    events: SyncSender<Event>,
+    shared: Arc<Shared>,
+    services: OwnerServices,
+) {
+    #[cfg(feature = "experimental-shellfox-native")]
+    let created = match services.native {
+        Some(native) => crate::recovery::Native0Creation::create(config.cols, config.rows, native)
+            .map(|(terminal, creation)| (terminal, Some(creation))),
+        None => Terminal::new(config.cols, config.rows)
+            .map(|terminal| (terminal, None))
+            .map_err(RuntimeError::unavailable),
+    };
+    #[cfg(not(feature = "experimental-shellfox-native"))]
+    let created = Terminal::new(config.cols, config.rows).map_err(RuntimeError::unavailable);
+    let created = match created {
+        Ok(terminal) => terminal,
+        Err(error) => {
+            *shared.phase.lock().unwrap_or_else(|e| e.into_inner()) = Phase::Closed;
+            let _ = events.send(Event::Started(Err(error)));
+            return;
+        }
+    };
+    #[cfg(feature = "experimental-shellfox-native")]
+    let (terminal, native_creation) = created;
+    #[cfg(not(feature = "experimental-shellfox-native"))]
+    let terminal = created;
+    let mut owner = Owner {
+        identity,
+        limits,
+        terminal,
+        #[cfg(feature = "experimental-shellfox-native")]
+        native_creation,
+        presentations: presentation::Presentations::new(),
+        layouts: layout::Layouts::new(config.cols, config.rows),
+        pty: None,
+        source_kind: SourceKind::OwnedPty,
+        external: None,
+        delivery: Delivery::new(),
+        observers: ObserverHub::new(),
+        observers_first: false,
+        phase: Phase::Starting,
+        shared,
+        outgoing: VecDeque::new(),
+        dirty: true,
+        fatal: false,
+        exit_sent: false,
+        retry_at: Instant::now(),
+        inspection: services.inspection,
+        live_output: hooks::LiveOutput::new(services.hooks),
+    };
+    if owner.shared.abandoned.load(Ordering::Acquire) {
+        return;
+    }
+    let spawned = match services.program_env {
+        Some(environment) => {
+            PtySession::spawn_program_bound(config, environment, services.launch_binding)
+        }
+        None => PtySession::spawn_bound(config, services.launch_binding),
+    };
+    match spawned {
+        Ok(mut pty) => {
+            if let Some(evidence) = pty.take_launch_evidence() {
+                let _ = services.launch.bind(evidence);
+            }
+            if let Some(inspection) = &owner.inspection {
+                inspection.bind(pty.inspection_capability());
+            }
+            owner.pty = Some(pty);
+            owner.set_phase(Phase::Active, None);
+            owner.outgoing.push_front(Event::Started(Ok(())));
+        }
+        Err(error) => {
+            owner.pty = error.take_session();
+            if let Some(inspection) = &owner.inspection {
+                inspection.bind(
+                    owner
+                        .pty
+                        .as_ref()
+                        .ok_or(InspectionFailure::Unavailable)
+                        .and_then(PtySession::inspection_capability),
+                );
+            }
+            let failure = RuntimeError::unavailable(error);
+            owner.set_phase(
+                if owner.pty.is_some() {
+                    Phase::Draining
+                } else {
+                    Phase::Closed
+                },
+                Some(failure.message.clone()),
+            );
+            owner.fatal = owner.pty.is_some();
+            owner.outgoing.push_front(Event::Started(Err(failure)));
+        }
+    }
+    drive(owner, incoming, events);
+}
+fn drive(mut owner: Owner, incoming: Receiver<Request>, events: SyncSender<Event>) {
+    loop {
+        if owner.shared.abandoned.load(Ordering::Acquire) {
+            // No consumer remains. Cancellation may discard output, never ownership.
+            if owner.cleanup().is_ok() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        }
+        owner.flush(&events);
+        if owner.fatal {
+            if Instant::now() >= owner.retry_at {
+                let _ = owner.cleanup();
+                owner.retry_at = Instant::now() + Duration::from_millis(100);
+            }
+        } else {
+            owner.poll_output(16);
+        }
+        if owner.outgoing.len() < 2 {
+            match incoming.try_recv() {
+                Ok(request) => {
+                    let result = request
+                        .command
+                        .validate(owner.limits)
+                        .and_then(|_| owner.command(request.id, request.command));
+                    if let Err(error) = &result {
+                        if error.code == ErrorCode::Unavailable {
+                            owner.fail(error.clone());
+                        }
+                    }
+                    owner.outgoing.push_back(Event::Reply {
+                        id: request.id,
+                        result,
+                    });
+                }
+                Err(TryRecvError::Disconnected) => {
+                    owner.shared.abandoned.store(true, Ordering::Release)
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+        if owner.dirty && owner.shared.legacy_requested.load(Ordering::Acquire) {
+            if let Err(error) = owner.publish() {
+                // Optional presentation failure stops the display subscription,
+                // never destroys the authoritative parser or owned process.
+                owner
+                    .shared
+                    .legacy_requested
+                    .store(false, Ordering::Release);
+                owner.set_phase(owner.phase, Some(error.message));
+            }
+        }
+        owner.emit_events(&events);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+impl Owner {
+    pub(crate) fn set_phase(&mut self, phase: Phase, error: Option<String>) {
+        if self.phase == phase && error.is_none() {
+            return;
+        }
+        if phase == Phase::Closed {
+            if let Some(inspection) = &self.inspection {
+                inspection.stop();
+            }
+        }
+        self.phase = phase;
+        *self.shared.phase.lock().unwrap_or_else(|e| e.into_inner()) = phase;
+        // Status must stay bounded even if cleanup repeatedly fails.
+        self.outgoing
+            .retain(|event| !matches!(event, Event::Phase { .. }));
+        self.outgoing.push_back(Event::Phase { phase, error });
+    }
+    pub(crate) fn active(&self) -> Result<(), RuntimeError> {
+        if self.source_kind == SourceKind::ExternalBytes {
+            return Err(RuntimeError {
+                code: ErrorCode::Unsupported,
+                message: "External byte sources are read-only views.".into(),
+            });
+        }
+        if self.phase != Phase::Active {
+            return Err(RuntimeError {
+                code: ErrorCode::Closed,
+                message: "terminal is not active".into(),
+            });
+        }
+        Ok(())
+    }
+    pub(crate) fn write(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
+        self.active()?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        self.pty
+            .as_mut()
+            .ok_or_else(|| RuntimeError::unavailable("missing PTY"))?
+            .write(bytes)
+            .map_err(RuntimeError::unavailable)
+    }
+    pub(crate) fn replies(&mut self) -> Result<(), RuntimeError> {
+        let replies = self
+            .terminal
+            .drain_replies()
+            .map_err(RuntimeError::unavailable)?;
+        // Final output is parsed for display, but a retired PTY receives no replies.
+        if self.source_kind == SourceKind::OwnedPty && self.phase == Phase::Active {
+            self.write(&replies)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn publish(&mut self) -> Result<(), RuntimeError> {
+        let Some(lease) = self.delivery.lease() else {
+            return Ok(());
+        };
+        let screen = self.presentations.legacy(
+            &mut self.terminal,
+            self.identity,
+            self.delivery.current_sequence(),
+            self.limits,
+            lease,
+        )?;
+        *self
+            .shared
+            .screen
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(screen);
+        self.dirty = false;
+        Ok(())
+    }
+    pub(crate) fn cleanup(&mut self) -> Result<(), RuntimeError> {
+        if let Some(source) = &mut self.external {
+            source.close(false, false);
+        }
+        if let Some(pty) = self.pty.as_mut() {
+            pty.shutdown().map_err(RuntimeError::unavailable)?;
+        }
+        self.pty = None;
+        self.fatal = false;
+        self.set_phase(Phase::Closed, None);
+        Ok(())
+    }
+    pub(crate) fn fail(&mut self, error: RuntimeError) {
+        if let Some(source) = &mut self.external {
+            source.close(false, true);
+        }
+        self.fatal = true;
+        // No repeated parser operations after a poisoned engine.
+        self.dirty = false;
+        self.set_phase(Phase::Draining, Some(error.message));
+        if let Err(cleanup) = self.cleanup() {
+            self.set_phase(
+                Phase::Draining,
+                Some(format!("cleanup retained: {cleanup}")),
+            );
+        }
+    }
+}

@@ -97,6 +97,7 @@ it('routes discovered profiles and validated terminal methods without exposing a
   expect(await f.request('getTerminalProfiles', {})).toMatchObject({ ok: true, value: { lifetime: 'app-owned', shellSurvival: false } });
   expect(attachment).toMatchObject({ ok: true, value: { generation: tab.generation, control: 'owned' } });
   expect(await f.request('writeTerminal', { ...id, data: '\x03' })).toEqual({ ok: true, value: { written: true } }); expect(f.processes[0].write).toHaveBeenCalledWith('\x03');
+  for (const data of ['\0', 'A\0B']) { expect(await f.request('writeTerminal', { ...id, data })).toEqual({ ok: true, value: { written: true } }); expect(f.processes[0].write).toHaveBeenLastCalledWith(data); }
   expect(await f.request('resizeTerminal', { ...id, cols: 100, rows: 40 })).toEqual({ ok: true, value: { resized: true } });
   expect(await f.request('writeTerminal', { ...id, data: 'x', command: 'arbitrary' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   f.stop(); await f.service.dispose();

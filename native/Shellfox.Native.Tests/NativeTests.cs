@@ -21,12 +21,20 @@ public class NativeTests {
   Assert.False(Tracker.WmiCreationMatches(p.Identity,"not-a-date"));
  }
  [Fact] public void ExitedProcessWithRetainedHandleIsNotAlive(){
-  var shell=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows),"System32","WindowsPowerShell","v1.0","powershell.exe");
-  var start=new System.Diagnostics.ProcessStartInfo(shell){UseShellExecute=false,CreateNoWindow=true};
-  foreach(var arg in new[]{"-NoProfile","-NonInteractive","-Command","exit 0"})start.ArgumentList.Add(arg);
-  using var child=System.Diagnostics.Process.Start(start)!;var pid=child.Id;
-  Assert.True(child.WaitForExit(5000));
-  var error=Assert.Throws<NativeError>(()=>Windows.Process(pid));Assert.Equal("NOT_FOUND",error.Code);
+  var project=new DirectoryInfo(Environment.CurrentDirectory);
+  while(project!=null&&!File.Exists(Path.Combine(project.FullName,"native/Shellfox.Native.Tests/Shellfox.Native.Tests.csproj")))project=project.Parent;
+  if(project==null)throw new InvalidOperationException("Run inside the worktree.");
+  var scratch=Path.Combine(project.FullName,"tmp","native-process-identity-"+Guid.NewGuid().ToString("N"));
+  Directory.CreateDirectory(scratch);
+  try {
+   var shell=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"cmd.exe");
+   var start=new System.Diagnostics.ProcessStartInfo(shell){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=scratch};
+   start.Environment.Clear();
+   foreach(var arg in new[]{"/d","/c","exit 0"})start.ArgumentList.Add(arg);
+   using var child=System.Diagnostics.Process.Start(start)!;var pid=child.Id;
+   Assert.True(child.WaitForExit(5000));
+   var error=Assert.Throws<NativeError>(()=>Windows.Process(pid));Assert.Equal("NOT_FOUND",error.Code);
+  } finally {Directory.Delete(scratch,true);}
  }
  [Fact] public void ExactIdentityDoesNotRoundFileTime(){ Assert.False(Windows.Same(new(4,"134355986344672888"),new(4,"134355986344672889"))); }
  [Fact] public void OwnershipRetainedAfterIntermediateExit(){

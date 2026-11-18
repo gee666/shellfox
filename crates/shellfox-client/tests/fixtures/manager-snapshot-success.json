@@ -1,0 +1,127 @@
+{
+  "ok": true,
+  "value": {
+    "revision": 1,
+    "sessions": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "title": "Session 1",
+        "cwd": "C:\\projects\\same folder",
+        "adapterId": "embedded-pty",
+        "shellId": "pwsh",
+        "env": [],
+        "terminalLifetime": "app-owned",
+        "shellSurvival": false,
+        "createdAt": "2026-10-04T10:00:00.000Z",
+        "updatedAt": "2026-10-04T10:00:00.000Z",
+        "settledAt": null,
+        "pinnedAt": null,
+        "status": "waiting",
+        "activityStatus": "waiting",
+        "counts": {
+          "running": 0,
+          "waiting": 1,
+          "unknown": 0,
+          "error": 0,
+          "closed": 0,
+          "agents": 0
+        },
+        "canFocus": true,
+        "canAddTab": true,
+        "controlReason": null,
+        "error": null,
+        "tabs": [
+          {
+            "id": "00000000-0000-4000-9000-000000000001",
+            "sessionId": "00000000-0000-4000-8000-000000000001",
+            "title": "Shell 1",
+            "cwd": "C:\\projects\\same folder",
+            "ordinal": 1,
+            "createdAt": "2026-10-04T10:00:00.000Z",
+            "generation": "00000000-0000-4000-a000-000000000001",
+            "terminalKind": "embedded",
+            "profileId": "pwsh",
+            "exitCode": null,
+            "lifecycle": "open",
+            "status": "waiting",
+            "agents": 0,
+            "monitoringReason": null,
+            "error": null
+          }
+        ]
+      }
+    ],
+    "settings": {
+      "version": 1,
+      "terminalEnv": [],
+      "autoUpdate": true,
+      "accentColor": "#ec4899",
+      "backgroundColor": "#111016",
+      "adapterId": "embedded-pty",
+      "shellId": "pwsh",
+      "terminalProfileId": "pwsh",
+      "shellExecutable": null,
+      "historyPageSize": 10,
+      "sessionSettleHours": 24,
+      "sessionDeleteHours": 720,
+      "processRules": [
+        {
+          "id": "00000000-0000-4000-8000-000000000099",
+          "label": "Pi",
+          "enabled": true,
+          "executableBasenames": [
+            "node.exe"
+          ],
+          "executablePaths": [],
+          "scriptPathSuffixes": [
+            "pi/dist/cli.js"
+          ]
+        }
+      ]
+    },
+    "probe": {
+      "platform": "win32",
+      "arch": "x64",
+      "adapterId": "embedded-pty",
+      "available": true,
+      "terminalVersion": null,
+      "reasons": [],
+      "capabilities": {
+        "createWindow": true,
+        "addTab": true,
+        "focusWindow": true,
+        "processTracking": true,
+        "explorerContextMenu": true,
+        "activateTab": true,
+        "splitPane": false,
+        "attachExisting": false,
+        "closeTerminal": true,
+        "commandExitStatus": false,
+        "embeddedTerminal": true,
+        "terminalLifetime": "app-owned",
+        "shellSurvival": false
+      },
+      "shells": [
+        {
+          "id": "pwsh",
+          "available": true,
+          "executable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "reason": null
+        }
+      ]
+    },
+    "cli": {
+      "supported": true,
+      "installed": false,
+      "command": "shellfox start <path>",
+      "reason": null
+    },
+    "explorer": {
+      "supported": true,
+      "installed": false,
+      "folderItemInstalled": false,
+      "backgroundInstalled": false,
+      "reason": null
+    }
+  }
+}

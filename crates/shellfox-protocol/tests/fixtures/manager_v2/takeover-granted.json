@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "binding": {
+    "clientId": "20000000-0000-4000-8000-000000000001",
+    "ownerId": "10000000-0000-4000-8000-000000000001",
+    "connectionId": "40000000-0000-4000-8000-000000000001",
+    "profile": "manager-v2"
+  },
+  "ok": true,
+  "value": {
+    "kind": "attached",
+    "delivery": {
+      "tabId": "50000000-0000-4000-8000-000000000001",
+      "generation": "60000000-0000-4000-8000-000000000001",
+      "deliveryId": "70000000-0000-4000-8000-000000000002",
+      "deliveryEpoch": 9
+    },
+    "input": {
+      "tabId": "50000000-0000-4000-8000-000000000001",
+      "generation": "60000000-0000-4000-8000-000000000001",
+      "controlId": "a0000000-0000-4000-8000-000000000002",
+      "controlEpoch": 9
+    },
+    "inputState": "owned",
+    "layout": {
+      "tabId": "50000000-0000-4000-8000-000000000001",
+      "generation": "60000000-0000-4000-8000-000000000001",
+      "layoutId": "b0000000-0000-4000-8000-000000000002",
+      "layoutEpoch": 3
+    },
+    "recovery": {
+      "recoveryId": "80000000-0000-4000-8000-000000000002",
+      "format": "formatted-active-buffer-v1",
+      "encoding": "base64",
+      "data": "GBtj",
+      "lastSequence": 12,
+      "cols": 120,
+      "rows": 32,
+      "layoutRevision": 3
+    }
+  }
+}

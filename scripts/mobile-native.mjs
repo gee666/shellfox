@@ -38,6 +38,16 @@ export function bindingArgs(target, destination) {
   return ['bind', ...flags, '-trimpath', '-ldflags=-s -w', '-o', destination, '.'];
 }
 
+export function bindingEnvironment(target, inherited = env) {
+  if (!['android', 'ios'].includes(target)) throw new Error('Target must be android or ios.');
+  const build = { CGO_ENABLED: '1' };
+  if (target === 'android') {
+    // NDK 27 defaults to 4 KiB ELF alignment. Keep API 24 while supporting 16 KiB devices.
+    build.CGO_LDFLAGS = [inherited.CGO_LDFLAGS, '-Wl,-z,max-page-size=16384'].filter(Boolean).join(' ');
+  }
+  return build;
+}
+
 function capture(args, extra) {
   const result = spawnSync(go, args, { cwd: source, env: { ...env, ...extra }, encoding: 'utf8', timeout: 60_000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error(`Cannot collect native dependencies: ${result.error?.message ?? result.stderr}`);
@@ -113,7 +123,7 @@ export function main(args = process.argv.slice(2)) {
     // Match RN's NDK by default; ANDROID_NDK_HOME is the explicit override.
     const sdk = env.ANDROID_HOME || env.ANDROID_SDK_ROOT;
     const ndk = sdk && path.join(sdk, 'ndk', '27.1.12297006');
-    const buildEnv = { CGO_ENABLED: '1' };
+    const buildEnv = bindingEnvironment(target, env);
     if (target === 'android' && !env.ANDROID_NDK_HOME && ndk && existsSync(ndk)) buildEnv.ANDROID_NDK_HOME = ndk;
     rmSync(partial, { recursive: true, force: true });
     try {

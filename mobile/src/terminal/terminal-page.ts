@@ -65,7 +65,7 @@ function createTerminal(cols: number, rows: number, fontSize: number) {
   if (focused && !readOnly) term.focus();
   const keyboardEpoch = epoch;
   keyboard = new PageKeyboard(term, (data, userInitiated) => {
-    if (!readOnly && terminal === term && epoch === keyboardEpoch && !historical && data && !data.includes('\0')) {
+    if (!readOnly && terminal === term && epoch === keyboardEpoch && !historical && data) {
       send({ type: 'input', ...identity(), data, ...(userInitiated === false ? { userInitiated: false } : {}), ...(settledAt === undefined ? {} : { settledAt }) });
     }
   });

@@ -46,6 +46,13 @@ export async function terminalInputCases(t, { page, send, output, receivedInput 
     await expect.poll(() => receivedInput().slice(before)).toEqual([text]);
   };
 
+  await t.test('hardware and accessory Ctrl+Space each emit one NUL terminal byte', async () => {
+    await fresh(); const before = receivedInput().length;
+    await page.keyboard.press('Control+Space');
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['\u0000']);
+    await send({ type: 'key', event: { key: ' ', modifiers: { ctrl: true, alt: false, shift: false, meta: false, capsLock: false } } });
+    await expect.poll(() => receivedInput().slice(before)).toEqual(['\u0000', '\u0000']);
+  });
   await t.test('repeated Android 229 key events do not replay a whole phrase', async () => {
     await fresh(); const before = receivedInput().length;
     await edit({ data: "look this is typed twice. I didn't do it", keys: 2 });

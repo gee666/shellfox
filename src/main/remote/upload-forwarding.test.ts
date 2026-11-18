@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { failure, success } from '../../shared/contracts';
 import { connectHostClient } from '../../host/client';
 import { startHostRpc } from '../../host/rpc';
+import { registerEndpointRoot } from '../../../tests/unit/endpoint-permission-model';
 import { RemoteView } from './view';
 import { FakeRemoteHelper, remoteFixture } from './test-fixtures';
 import { TERMINAL_UPLOAD_CHUNK_BYTES } from '../../shared/terminal-upload-schemas';
@@ -38,6 +39,7 @@ it('forwards typed upload operations through a desktop/headless HostClient witho
   let reply: unknown = success({ uploadId: randomUUID(), chunkBytes: TERMINAL_UPLOAD_CHUNK_BYTES });
   const request = vi.fn(async () => reply);
   vi.spyOn(f.remote, 'createView').mockImplementation(() => ({ request, subscribe: () => () => {}, disconnect: async () => {}, deny: async () => {}, dispose: async () => {} }));
+  registerEndpointRoot(f.directory, ['host']);
   const rpc = await startHostRpc({ userData: f.directory, service: f.service, remote: f.remote, mode: 'headless', shutdown: async () => {} }); cleanups.push(() => rpc.close());
   const client = await connectHostClient(f.directory); cleanups.push(() => client.close());
   const input = { peerId: 'host', method: 'beginTerminalUpload' as const, payload: { ...terminal(), fileName: 'a', size: 0 } };

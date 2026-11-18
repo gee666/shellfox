@@ -11,8 +11,13 @@ const state = { enabled: false, hostname: 'shellfox', status: 'disabled', loginU
 beforeEach(() => { bridge.invoke.mockReset(); bridge.listeners.clear(); });
 it('keeps remote requests on their own channel and validates requests and responses', async () => {
   expect(await remoteApi.configure({ enabled: true, hostname: '../invalid' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
-  expect(await remoteApi.request({ peerId: 'host', method: 'writeTerminal', payload: { controlEpoch: 1, tabId: randomUUID(), generation: randomUUID(), data: '\0' } })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
+  const input = { peerId: 'host', method: 'writeTerminal' as const, payload: { controlEpoch: 1, tabId: randomUUID(), generation: randomUUID(), data: '' } };
+  expect(await remoteApi.request(input)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   expect(bridge.invoke).not.toHaveBeenCalled();
+  const nulInput = { ...input, payload: { ...input.payload, data: '\0' } };
+  bridge.invoke.mockResolvedValueOnce({ ok: true, value: { written: true } });
+  expect(await remoteApi.request(nulInput)).toEqual({ ok: true, value: { written: true } });
+  expect(bridge.invoke).toHaveBeenLastCalledWith('remote:request', { method: 'request', payload: nulInput });
   bridge.invoke.mockResolvedValueOnce({ ok: true, value: state });
   expect(await remoteApi.configure({ enabled: false, hostname: 'shellfox' })).toEqual({ ok: true, value: state });
   expect(bridge.invoke).toHaveBeenLastCalledWith('remote:request', { method: 'configure', payload: { enabled: false, hostname: 'shellfox' } });

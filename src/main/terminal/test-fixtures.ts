@@ -4,6 +4,7 @@ import type { SettingsDto, TerminalProfilesDto } from '../../shared/contracts';
 import type { RepositoryPort, SessionRecord, TabRecord, OperationRecord } from '../models';
 import { defaultSettings } from '../defaults';
 import type { PtyFactory, PtyProcess } from './backend';
+import { registerFixturePython } from '../../../tests/unit/fixture-python-model';
 export const profiles: TerminalProfilesDto = { profiles: [{ id: 'login-shell', label: 'Bash', environment: 'local', executable: '/bin/bash', args: ['-l', '-i'], distro: null, available: true }, { id: 'wsl:Ubuntu', label: 'Ubuntu', environment: 'wsl', executable: 'C:\\Windows\\System32\\wsl.exe', args: ['--distribution', 'Ubuntu', '--exec', '/bin/bash', '-l', '-i'], distro: 'Ubuntu', available: true }], defaultProfileId: 'login-shell', lifetime: 'app-owned', shellSurvival: false };
 export class FakePty implements PtyProcess {
   pid = 123; queuedInputBytes = vi.fn((): number | null => 0); write = vi.fn(); resize = vi.fn(); kill = vi.fn(() => this.exit(0));
@@ -14,6 +15,7 @@ export class FakePty implements PtyProcess {
   exit(exitCode: number, signal?: number) { for (const fn of [...this.exits]) fn({ exitCode, signal }); }
 }
 export function factoryFixture() {
+  registerFixturePython();
   const processes: FakePty[] = [];
   const factory: PtyFactory = vi.fn(() => { const p = new FakePty(); p.pid += processes.length; processes.push(p); return p; });
   return { factory, processes, options: { platform: 'win32' as NodeJS.Platform, factory, discover: async () => profiles, validateCwd: async (_profile: unknown, cwd: string) => cwd, terminateGuest: async (root: { pid: number }) => { processes.find(p => p.pid === root.pid)?.kill(); }, terminateUnix: async (root: { pid: number }) => { processes.find(p => p.pid === root.pid)?.kill(); } } };

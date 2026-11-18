@@ -26,7 +26,10 @@ it('exposes only validated filesystem methods and validates their response metad
 });
 it('rejects invalid input locally and validates main responses', async () => {
   const id = { tabId: randomUUID(), generation: randomUUID(), controlEpoch: 1 };
-  expect(await bridge.api!.writeTerminal!({ ...id, data: '\0' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } }); expect(bridge.invoke).not.toHaveBeenCalled();
+  expect(await bridge.api!.writeTerminal!({ ...id, data: '' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } }); expect(bridge.invoke).not.toHaveBeenCalled();
+  bridge.invoke.mockResolvedValueOnce({ ok: true, value: { written: true } });
+  expect(await bridge.api!.writeTerminal!({ ...id, data: '\0' })).toEqual({ ok: true, value: { written: true } });
+  expect(bridge.invoke).toHaveBeenLastCalledWith('manager:request', { version: 1, method: 'writeTerminal', payload: { ...id, data: '\0' } });
   bridge.invoke.mockResolvedValueOnce({ ok: true, value: { written: true, secret: 'bad' } }); expect(await bridge.api!.writeTerminal!({ ...id, data: '\x03' })).toMatchObject({ ok: false, error: { code: 'INTERNAL' } });
   bridge.invoke.mockResolvedValueOnce({ ok: true, value: { written: true } }); expect(await bridge.api!.writeTerminal!({ ...id, data: 'pwd\r' })).toEqual({ ok: true, value: { written: true } });
 });

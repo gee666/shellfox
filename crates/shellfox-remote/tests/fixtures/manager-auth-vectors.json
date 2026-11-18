@@ -1,0 +1,162 @@
+[
+  {
+    "name": "discover",
+    "path": "/v2/discover",
+    "body": "{}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000123",
+    "signature": "95cfa8c9cb7d6f8568e2bb632b01b6da42f7c0ab47e5923b549fdfb3b4a0adf7"
+  },
+  {
+    "name": "pair",
+    "path": "/v2/pair",
+    "body": "{\"version\":2,\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"attemptId\":\"30000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\",\"catalogMode\":\"complete\",\"deliveryFormat\":\"vt-bytes-base64-v1\",\"recoveryFormat\":\"formatted-active-buffer-v1\",\"inputFormat\":\"manager-input-v1\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000124",
+    "signature": "2d8345d290345d0df95cbdc772852241216de0526fd5c5cedfda9e314250dfff"
+  },
+  {
+    "name": "pair-repeat",
+    "path": "/v2/pair",
+    "body": "{\"version\":2,\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"attemptId\":\"30000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\",\"catalogMode\":\"complete\",\"deliveryFormat\":\"vt-bytes-base64-v1\",\"recoveryFormat\":\"formatted-active-buffer-v1\",\"inputFormat\":\"manager-input-v1\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000125",
+    "signature": "98e44ad425ae183d1016bac083d1996d7b66215f08146802875fb80297bd6151"
+  },
+  {
+    "name": "snapshot",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"getSnapshot\",\"payload\":{}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000126",
+    "signature": "fd54fd4bfbcccbb3cc0dd523aea97d146dfd64083da42a76d5a17168842248fc"
+  },
+  {
+    "name": "snapshot-repeat",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"getSnapshot\",\"payload\":{}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000127",
+    "signature": "787bf3750675c8aac8859a5cc7e18d1220d6256dfba3db045ae97427ff2466f2"
+  },
+  {
+    "name": "events",
+    "path": "/v2/events",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000128",
+    "signature": "31744585c3be75b0635da829c3197f3fc396991a2c67d9fcaaf22b94cd9154d2"
+  },
+  {
+    "name": "events-repeat",
+    "path": "/v2/events",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000129",
+    "signature": "f5eadd4a2da90f3f26c4e766f2c90793da3bf7342f61f74d7e3cc5b31a6adcfd"
+  },
+  {
+    "name": "withdraw",
+    "path": "/v2/disconnect",
+    "body": "{\"version\":2,\"kind\":\"attempt\",\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"attemptId\":\"30000000-0000-4000-8000-000000000001\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000130",
+    "signature": "a4bc841d02e9ce23cacd2b9738f663d2f8098c60c30276197cf7b06bdaa08290"
+  },
+  {
+    "name": "disconnect",
+    "path": "/v2/disconnect",
+    "body": "{\"version\":2,\"kind\":\"connection\",\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000131",
+    "signature": "3c912478d938b0f2329c6a2e3eb6451586ace9c3aafbd21fc0bf5b30bb884a3d"
+  },
+  {
+    "name": "wrong-client",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000099\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"getSnapshot\",\"payload\":{}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000132",
+    "signature": "b2bcafc21392bc71a893e664fb0f0305f60cd1514fa96b09d8b6af8150361913"
+  },
+  {
+    "name": "wrong-peer",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"getSnapshot\",\"payload\":{}}",
+    "peer": "eyJpZCI6Im4tb3RoZXIiLCJob3N0bmFtZSI6Im9mZmxpbmUifQ",
+    "timestamp": "1700000000133",
+    "signature": "112067b88633ac2c0ca2054352c484096a14a1cbee7c45544e74fc8db8688743"
+  },
+  {
+    "name": "wrong-owner",
+    "path": "/v2/pair",
+    "body": "{\"version\":2,\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"attemptId\":\"30000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000099\",\"profile\":\"manager-v2\",\"catalogMode\":\"complete\",\"deliveryFormat\":\"vt-bytes-base64-v1\",\"recoveryFormat\":\"formatted-active-buffer-v1\",\"inputFormat\":\"manager-input-v1\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000134",
+    "signature": "161d5380bca651ab547a7ba4db66188f88cdbf71a460e25f48e0a72bd5334768"
+  },
+  {
+    "name": "invalid-json",
+    "path": "/v2/request",
+    "body": "{",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000135",
+    "signature": "433d65fd5165c38bba7ab89760ec1f0ccd032def1853be05872a83f7c2a23212"
+  },
+  {
+    "name": "write",
+    "path": "/v2/request",
+    "body": "{\n  \"version\": 2,\n  \"binding\": {\n    \"clientId\": \"20000000-0000-4000-8000-000000000001\",\n    \"ownerId\": \"10000000-0000-4000-8000-000000000001\",\n    \"connectionId\": \"40000000-0000-4000-8000-000000000001\",\n    \"profile\": \"manager-v2\"\n  },\n  \"method\": \"writeTerminal\",\n  \"payload\": {\n    \"control\": {\n      \"tabId\": \"50000000-0000-4000-8000-000000000001\",\n      \"generation\": \"60000000-0000-4000-8000-000000000001\",\n      \"controlId\": \"a0000000-0000-4000-8000-000000000001\",\n      \"controlEpoch\": 7\n    },\n    \"inputId\": \"c0000000-0000-4000-8000-000000000001\",\n    \"hints\": {\n      \"userInitiated\": true,\n      \"activityHint\": true,\n      \"settledAt\": null\n    },\n    \"input\": {\n      \"kind\": \"paste\",\n      \"text\": \"typed\"\n    }\n  }\n}\n",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000136",
+    "signature": "e61104b7c33cb6280fc90c4f946396d1e951b09ef1bdd6943e5534c23eb56934"
+  },
+  {
+    "name": "rename",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"renameSession\",\"payload\":{\"sessionId\":\"00000000-0000-4000-8000-000000000001\",\"title\":\"renamed\"}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000137",
+    "signature": "1a42ae0e37b98c15d669965c4e7eb2d30429b50b117fac094184ed195dcf1c21"
+  },
+  {
+    "name": "pair-new-attempt",
+    "path": "/v2/pair",
+    "body": "{\"version\":2,\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"attemptId\":\"30000000-0000-4000-8000-000000000002\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\",\"catalogMode\":\"complete\",\"deliveryFormat\":\"vt-bytes-base64-v1\",\"recoveryFormat\":\"formatted-active-buffer-v1\",\"inputFormat\":\"manager-input-v1\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000140",
+    "signature": "4146afa001543b752455a992ea85967a2c202b095be93c13ae6a4e557bd8e389"
+  },
+  {
+    "name": "snapshot-new-connection",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000002\",\"profile\":\"manager-v2\"},\"method\":\"getSnapshot\",\"payload\":{}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000141",
+    "signature": "9265ba91dcc1f094a5cb78e76069a68037421fd294ceb6604b64c50c8ed68ebc"
+  },
+  {
+    "name": "write-key",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"writeTerminal\",\"payload\":{\"control\":{\"tabId\":\"50000000-0000-4000-8000-000000000001\",\"generation\":\"60000000-0000-4000-8000-000000000001\",\"controlId\":\"a0000000-0000-4000-8000-000000000001\",\"controlEpoch\":7},\"inputId\":\"c0000000-0000-4000-8000-000000000001\",\"hints\":{\"userInitiated\":true,\"activityHint\":true,\"settledAt\":null},\"input\":{\"kind\":\"key\",\"event\":{\"physical\":63,\"action\":\"press\",\"modifiers\":2,\"consumedModifiers\":0,\"text\":\"\",\"unshiftedCodepoint\":32,\"composing\":false}}}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000200",
+    "signature": "733bf4dea4193e550be7cb85e63dd1f247659d2ee99f7903e85f7cd41ae76917"
+  },
+  {
+    "name": "write-bytes",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"writeTerminal\",\"payload\":{\"control\":{\"tabId\":\"50000000-0000-4000-8000-000000000001\",\"generation\":\"60000000-0000-4000-8000-000000000001\",\"controlId\":\"a0000000-0000-4000-8000-000000000001\",\"controlEpoch\":7},\"inputId\":\"c0000000-0000-4000-8000-000000000001\",\"hints\":{\"userInitiated\":true,\"activityHint\":true,\"settledAt\":null},\"input\":{\"kind\":\"bytes\",\"encoding\":\"base64\",\"data\":\"gAD/DQ==\",\"origin\":\"key\"}}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000201",
+    "signature": "e7eb5c42193b62f6912c369f00d202d0c878c0e97f78ee31a77337b00a048fe9"
+  },
+  {
+    "name": "write-mouse",
+    "path": "/v2/request",
+    "body": "{\"version\":2,\"binding\":{\"clientId\":\"20000000-0000-4000-8000-000000000001\",\"ownerId\":\"10000000-0000-4000-8000-000000000001\",\"connectionId\":\"40000000-0000-4000-8000-000000000001\",\"profile\":\"manager-v2\"},\"method\":\"writeTerminal\",\"payload\":{\"control\":{\"tabId\":\"50000000-0000-4000-8000-000000000001\",\"generation\":\"60000000-0000-4000-8000-000000000001\",\"controlId\":\"a0000000-0000-4000-8000-000000000001\",\"controlEpoch\":7},\"inputId\":\"c0000000-0000-4000-8000-000000000001\",\"hints\":{\"userInitiated\":true,\"activityHint\":false},\"input\":{\"kind\":\"mouse\",\"event\":{\"action\":\"press\",\"button\":\"left\",\"modifiers\":{\"shift\":false,\"ctrl\":false,\"alt\":false,\"super\":false},\"xPx\":48.5,\"yPx\":27,\"anyButtonPressed\":true},\"geometry\":{\"recoveryId\":\"80000000-0000-4000-8000-000000000001\",\"layoutRevision\":3,\"cols\":120,\"rows\":32,\"cellWidthPx\":8,\"cellHeightPx\":16}}}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoib2ZmbGluZSJ9",
+    "timestamp": "1700000000202",
+    "signature": "b01cd7dd4bf63fc7aa3f2cc978f526a95e2e36680381884f987f7c778a331ebc"
+  }
+]

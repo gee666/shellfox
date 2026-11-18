@@ -4,6 +4,7 @@ import { remoteNetworkPeerSchema, remoteStatusSchema } from '../../src/shared/re
 
 const nativeSchema = z.object({
   start: z.custom<(hostname: string) => Promise<string>>((value) => typeof value === 'function'),
+  startWithControlServer: z.custom<(hostname:string,controlURL:string)=>Promise<string>>(value=>typeof value==='function').optional(),
   status: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
   peers: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
   hosts: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
@@ -27,6 +28,13 @@ export async function discoverHosts(): Promise<DiscoveredHosts> {
   return z
     .object({ peers: z.array(remoteNetworkPeerSchema).max(1000), discovering: z.boolean() }).strict()
     .parse(JSON.parse(await nativeNetwork.hosts()));
+}
+// Explicit Manager candidates only. This authentic same-owner map is not host
+// confirmation: ManagerV2 Discover must succeed before offering PAIR.
+export async function discoverManagerCandidates():Promise<DiscoveredHosts> {
+  const value=z.object({peers:z.array(remoteNetworkPeerSchema).max(1000)}).strict()
+    .parse(JSON.parse(await nativeNetwork.peers()));
+  return {peers:value.peers,discovering:false};
 }
 export async function networkPeers(): Promise<NetworkPeer[]> {
   return (await discoverHosts()).peers;

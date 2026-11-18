@@ -20,7 +20,7 @@ internal static class SelfTest
         env["CORECLR_ENABLE_PROFILING"] = "1"; env["CoReClR_PROFILER_PATH"] = env["COR_PROFILER_PATH"];
         env["DOTNET_STARTUP_HOOKS"] = "blocked"; env["COMPLUS_Version"] = "blocked";
         env["SHELLFOX_REVIEW_PROFILER_MARKER"] = marker; env["SHELLFOX_ENV_TEST"] = "kept";
-        var launch = Wire.Parse(JsonSerializer.SerializeToUtf8Bytes(new { type = "launch", cwd = Environment.CurrentDirectory, env, cols = 80, rows = 24 }));
+        var launch = Wire.Parse(Wire.Bytes(Wire.Object(("type", "launch"), ("cwd", Environment.CurrentDirectory), ("env", Wire.Environment(env)), ("cols", 80), ("rows", 24))));
         var block = ConPty.BuildEnvironment(launch.GetProperty("env"));
         foreach (var envName in env.Keys.Where(key => !ConPty.SafeEnvironmentName(key)))
             if (block.Contains(envName + "=", StringComparison.OrdinalIgnoreCase)) throw new Exception("Native CLR environment filter failed.");
@@ -36,7 +36,7 @@ internal static class SelfTest
             if (frame?.GetProperty("data").GetString() != apostrophes) throw new Exception("Apostrophe frame roundtrip failed.");
         }
         using (var rejected = new MemoryStream())
-        using (var tooLarge = JsonDocument.Parse(JsonSerializer.Serialize(new { type = "write", id = 1, data = new string('\x01', 50000) })))
+        using (var tooLarge = JsonDocument.Parse(Wire.Bytes(Wire.Object(("type", "write"), ("id", 1), ("data", new string('\x01', 50000))))))
         {
             try { await Wire.Send(rejected, tooLarge.RootElement, false, deadline.Token); throw new Exception("Accepted oversized serialized input."); }
             catch (InvalidDataException) { if (rejected.Length != 0) throw new Exception("Oversized frame was partially enqueued."); }
@@ -83,14 +83,14 @@ internal static class SelfTest
         terminal.Resize(Wire.Parse(Encoding.UTF8.GetBytes("{\"type\":\"resize\",\"cols\":100,\"rows\":500}")));
         foreach (var rows in new[] { 1, 501 })
         {
-            try { terminal.Resize(Wire.Parse(JsonSerializer.SerializeToUtf8Bytes(new { type = "resize", cols = 100, rows }))); throw new Exception("Accepted invalid rows."); }
+            try { terminal.Resize(Wire.Parse(Wire.Bytes(Wire.Object(("type", "resize"), ("cols", 100), ("rows", rows))))); throw new Exception("Accepted invalid rows."); }
             catch (InvalidDataException) { }
         }
         var ack = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         // Leave a hidden child behind the exiting root. Close must account for
         // this job member, not only the root shell PID.
         var command = "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile -Command Start-Sleep 120'; Write-Output ('SHELLFOX_' + 'PTY_OK雪🙂'); Write-Output ('SHELLFOX_SIZE_' + $Host.UI.RawUI.WindowSize.Width); Write-Output ('SHELLFOX_ROWS_' + $Host.UI.RawUI.WindowSize.Height); exit 17\r";
-        terminal.QueueInput(Wire.Parse(JsonSerializer.SerializeToUtf8Bytes(new { type = "write", id = 1, data = command })), value => { ack.TrySetResult(); return Task.CompletedTask; });
+        terminal.QueueInput(Wire.Parse(Wire.Bytes(Wire.Object(("type", "write"), ("id", 1), ("data", command)))), value => { ack.TrySetResult(); return Task.CompletedTask; });
         await ack.Task.WaitAsync(deadline.Token);
         await terminal.WaitForExit(deadline.Token);
         if (terminal.ExitCode != 17) throw new Exception($"PowerShell exit code not preserved: {terminal.ExitCode}. Captured: {output}");

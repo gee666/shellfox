@@ -1,3 +1,4 @@
+import { registerEndpointRoot } from '../../tests/unit/endpoint-permission-model';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
@@ -25,7 +26,7 @@ const cleanup: Array<() => Promise<unknown> | void> = [];
 afterEach(async () => { vi.restoreAllMocks(); vi.clearAllMocks(); for (const action of cleanup.splice(0).reverse()) await action(); });
 async function fixture() {
   await mkdir('tmp', { recursive: true });
-  const userData = await mkdtemp(path.resolve('tmp/cli-attach-'));
+  const userData = await mkdtemp(path.resolve('tmp/cli-attach-')); registerEndpointRoot(userData, ['host']);
   cleanup.push(() => rm(userData, { recursive: true, force: true }));
   const pty = factoryFixture(), repository = new MemoryRepository();
   const service = new EmbeddedSessionService(repository, new PtyBackend(pty.options), () => ({ setWatch() {}, dispose() {} }));

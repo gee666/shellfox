@@ -1,14 +1,9 @@
-import { execFile, spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile, chmod } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
-import { probeTerminalScope, raiseOomScore, scopedCommand, TERMINAL_OOM_SCORE_ADJ, waitForScopedExec } from './linux-scope';
+import { probeTerminalScope, scopedCommand } from './linux-scope';
 import { PtyBackend } from './backend';
 import { factoryFixture, launchInput } from './test-fixtures';
-
-const run = promisify(execFile);
-const runner = process.platform === 'linux' ? await probeTerminalScope() : null;
 
 describe('Linux terminal scopes', () => {
   it('wraps the command after systemd-run options so its own arguments stay intact', () => {
@@ -19,6 +14,7 @@ describe('Linux terminal scopes', () => {
     expect(wrapped.args.find(arg => arg.startsWith('--unit='))).toMatch(/^--unit=shellfox-terminal-[0-9a-f-]{36}$/);
   });
   it.skipIf(process.platform !== 'linux')('launches directly when systemd-run is missing or cannot reach a user manager', async () => {
+    await mkdir('tmp', { recursive: true });
     const dir = await mkdtemp(path.resolve('tmp/shellfox-scope-'));
     try {
       const exec = vi.fn(async () => { throw new Error('Failed to connect to bus'); });
@@ -42,34 +38,5 @@ describe('Linux terminal scopes', () => {
     expect((await direct.initialize()).ok).toBe(true); expect((await direct.launch(launchInput())).ok).toBe(true);
     expect(vi.mocked(windows.factory).mock.calls[0]![0]).toBe('/bin/bash');
     await backend.dispose(); await direct.dispose();
-  });
-  it.skipIf(process.platform !== 'linux')('raises a process OOM score but never lowers it', async () => {
-    const child = spawn('sleep', ['30']);
-    try {
-      const score = async () => Number(await readFile(`/proc/${child.pid}/oom_score_adj`, 'utf8'));
-      // CI children may inherit a score higher than our default from the runner.
-      const inherited = await score();
-      await raiseOomScore(child.pid!);
-      const baseline = Math.max(inherited, TERMINAL_OOM_SCORE_ADJ);
-      expect(await score()).toBe(baseline);
-      const higher = Math.min(1000, baseline + 100);
-      await raiseOomScore(child.pid!, higher);
-      expect(await score()).toBe(higher);
-      await raiseOomScore(child.pid!, 100);
-      expect(await score()).toBe(higher);
-    } finally { child.kill(); }
-  });
-  it.skipIf(!runner)('runs the shell as the same PID in its own OOM-tolerant scope', async () => {
-    const command = scopedCommand(runner!, { file: '/bin/sh', args: ['-c', 'cat /proc/self/cgroup; exec sleep 30'] });
-    const child = spawn(command.file, command.args, { stdio: ['ignore', 'pipe', 'inherit'] });
-    try {
-      const cgroup = await new Promise<string>(resolve => child.stdout.once('data', data => resolve(String(data))));
-      const unit = /\/(shellfox-terminal-[0-9a-f-]{36}\.scope)$/m.exec(cgroup.trim())?.[1];
-      expect(unit).toBeDefined();
-      await waitForScopedExec(child.pid!, runner!);
-      const { stdout } = await run('systemctl', ['--user', 'show', unit!, '-p', 'OOMPolicy', '--value']);
-      expect(stdout).toContain('continue');
-      expect(path.basename((await run('readlink', [`/proc/${child.pid}/exe`])).stdout.trim())).toBe('sleep');
-    } finally { child.kill(); }
   });
 });

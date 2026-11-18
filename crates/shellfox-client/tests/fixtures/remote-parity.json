@@ -1,0 +1,316 @@
+[
+  {
+    "method": "beginFileRead",
+    "payload": {
+      "sessionId": "40000000-0000-4000-8000-000000000001",
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "path": "notes.txt",
+      "assetPath": "style.css"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "transferId": "50000000-0000-4000-8000-000000000001",
+        "path": "/home/user/notes.txt",
+        "size": 3,
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kind": "text",
+        "mimeType": "text/plain",
+        "chunkBytes": 196608
+      }
+    }
+  },
+  {
+    "method": "readFileChunk",
+    "payload": {
+      "transferId": "50000000-0000-4000-8000-000000000001",
+      "offset": 0
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "offset": 3,
+        "data": "YWJj",
+        "eof": true
+      }
+    }
+  },
+  {
+    "method": "beginFileWrite",
+    "payload": {
+      "sessionId": "40000000-0000-4000-8000-000000000001",
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "path": "notes.txt",
+      "size": 3,
+      "mode": "replace",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "content": "text"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "transferId": "50000000-0000-4000-8000-000000000001",
+        "chunkBytes": 196608
+      }
+    }
+  },
+  {
+    "method": "writeFileChunk",
+    "payload": {
+      "transferId": "50000000-0000-4000-8000-000000000001",
+      "offset": 0,
+      "data": "YWJj"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "offset": 3
+      }
+    }
+  },
+  {
+    "method": "finishFileWrite",
+    "payload": {
+      "transferId": "50000000-0000-4000-8000-000000000001"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "path": "/home/user/notes.txt",
+        "size": 3,
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  },
+  {
+    "method": "cancelFileTransfer",
+    "payload": {
+      "transferId": "50000000-0000-4000-8000-000000000001"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "cancelled": true
+      }
+    }
+  },
+  {
+    "method": "writeImageFile",
+    "payload": {
+      "sessionId": "40000000-0000-4000-8000-000000000001",
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "path": "notes.txt",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "dataUrl": "data:image/png;base64,AQ=="
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "path": "notes.txt",
+        "size": 1,
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  },
+  {
+    "method": "readFileAsset",
+    "payload": {
+      "sessionId": "40000000-0000-4000-8000-000000000001",
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "path": "notes.txt",
+      "assetPath": "style.css"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "mimeType": "text/css",
+        "dataUrl": "data:text/css;base64,Ynt9",
+        "size": 3
+      }
+    }
+  },
+  {
+    "method": "getSessionStats",
+    "payload": {
+      "sessionId": "00000000-0000-4000-8000-000000000001"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "sessions": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "title": "Session 1",
+            "cwd": "C:\\projects\\same folder",
+            "adapterId": "embedded-pty",
+            "shellId": "pwsh",
+            "env": [],
+            "terminalLifetime": "app-owned",
+            "shellSurvival": false,
+            "createdAt": "2026-10-04T10:00:00.000Z",
+            "updatedAt": "2026-10-04T10:00:00.000Z",
+            "settledAt": null,
+            "pinnedAt": null,
+            "status": "waiting",
+            "activityStatus": "waiting",
+            "counts": {
+              "running": 0,
+              "waiting": 1,
+              "unknown": 0,
+              "error": 0,
+              "closed": 0,
+              "agents": 0
+            },
+            "canFocus": true,
+            "canAddTab": true,
+            "controlReason": null,
+            "error": null,
+            "tabs": [
+              {
+                "id": "00000000-0000-4000-9000-000000000001",
+                "sessionId": "00000000-0000-4000-8000-000000000001",
+                "title": "Shell 1",
+                "cwd": "C:\\projects\\same folder",
+                "ordinal": 1,
+                "createdAt": "2026-10-04T10:00:00.000Z",
+                "generation": "00000000-0000-4000-a000-000000000001",
+                "terminalKind": "embedded",
+                "profileId": "pwsh",
+                "exitCode": null,
+                "lifecycle": "open",
+                "status": "waiting",
+                "agents": 0,
+                "monitoringReason": null,
+                "error": null
+              }
+            ]
+          }
+        ],
+        "tabs": [
+          {
+            "tabId": "00000000-0000-4000-9000-000000000001",
+            "processes": [
+              {
+                "pid": 42,
+                "parentPid": 1,
+                "name": "shell",
+                "memoryBytes": null,
+                "elapsedSeconds": 0.5,
+                "domain": "host"
+              }
+            ],
+            "memoryBytes": 4096,
+            "elapsedSeconds": null
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "resolveDirectory",
+    "payload": {
+      "path": "\"relative directory\""
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "cwd": "/home/user"
+      }
+    }
+  },
+  {
+    "method": "createDirectory",
+    "payload": {
+      "path": "./new directory",
+      "sessionId": "40000000-0000-4000-8000-000000000001",
+      "tabId": "20000000-0000-4000-8000-000000000001"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "cwd": "/home/user/new directory"
+      }
+    }
+  },
+  {
+    "method": "completeDirectory",
+    "payload": {
+      "path": ""
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "matches": [
+          "/home/user/",
+          "/home/üser/"
+        ]
+      }
+    }
+  },
+  {
+    "method": "beginTerminalUpload",
+    "payload": {
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "generation": "30000000-0000-4000-8000-000000000001",
+      "controlEpoch": 1,
+      "fileName": "image.png",
+      "size": 3
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "uploadId": "50000000-0000-4000-8000-000000000001",
+        "chunkBytes": 196608
+      }
+    }
+  },
+  {
+    "method": "writeTerminalUpload",
+    "payload": {
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "generation": "30000000-0000-4000-8000-000000000001",
+      "controlEpoch": 1,
+      "uploadId": "50000000-0000-4000-8000-000000000001",
+      "offset": 0,
+      "data": "YWJj"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "offset": 3
+      }
+    }
+  },
+  {
+    "method": "finishTerminalUpload",
+    "payload": {
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "generation": "30000000-0000-4000-8000-000000000001",
+      "controlEpoch": 1,
+      "uploadId": "50000000-0000-4000-8000-000000000001"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "path": "/home/user/image.png",
+        "fileName": "image.png",
+        "size": 3
+      }
+    }
+  },
+  {
+    "method": "cancelTerminalUpload",
+    "payload": {
+      "tabId": "20000000-0000-4000-8000-000000000001",
+      "generation": "30000000-0000-4000-8000-000000000001",
+      "controlEpoch": 1,
+      "uploadId": "50000000-0000-4000-8000-000000000001"
+    },
+    "response": {
+      "ok": true,
+      "value": {
+        "cancelled": true
+      }
+    }
+  }
+]

@@ -10,7 +10,7 @@ import (
 )
 
 func TestOwnershipWindowsPrivateACLDoesNotChangeAppdataRoot(t *testing.T) {
-	dir := t.TempDir()
+	dir := ownershipTestRoot(t)
 	const information = windows.OWNER_SECURITY_INFORMATION | windows.GROUP_SECURITY_INFORMATION | windows.DACL_SECURITY_INFORMATION
 	before, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, information)
 	if err != nil {

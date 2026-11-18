@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "APPROVAL_REQUIRED",
+    "message": "Approve this device in Shellfox on the host first.",
+    "retryable": true
+  }
+}

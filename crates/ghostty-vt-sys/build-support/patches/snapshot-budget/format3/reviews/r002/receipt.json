@@ -1,0 +1,25 @@
+{
+  "status": "FROZEN DOC-ONLY R002 review draft READY for Cora/Maurice/Root cross-review; NOT ABI/wire/code approval",
+  "review_revision": 2,
+  "artifact": "REVIEW-CONTRACT.md",
+  "canonical_path": "crates/ghostty-vt-sys/build-support/patches/snapshot-budget/format3/REVIEW-CONTRACT.md",
+  "sha256": "962aac44ecfa91f845466cb90090e1d112e8d96ac87c9a058e201ba2091bafa1",
+  "byte_length": 92556,
+  "line_count": 1449,
+  "parent_review_sha256": "74fec8319be0255381272e12a060808e0403ed1757a7e22db4392da15e2cf895",
+  "parent_preserved_before_canonical_edits": true,
+  "candidate007_patch_sha256": "2744789f01fe726d01712f3de517787c89493abe687502781b21494691dfaa65",
+  "candidate007_source_sha256": "acb41921bfdf948f94ba73b1689ab54835853413334d683a641fad1a7854831f",
+  "inputs": {
+    "tmp/state3-capi-006-section-input.md": "abe9bb2607314fd75e1ee5d673aea32c04d614099e8bd294244028f2745f3eec",
+    "tmp/ghostty-profile/joint007-continuation-facts-002.md": "b4d58aa8099cf214761115c1cc9c2bef97857c77470d27d2c908b2190cfb697f",
+    "tmp/reagan-format3-r001-partial-review.md": "1a4158fcba1d76df44371b800a4057a55366b2f0c035dfb1973a1e34d0be3e3f",
+    "tmp/maurice-continuation-r6-001/receipt-001.json": "5d3b70fd4acf8f4a974daf5cdee9a5c7f2ef4ae89a1b410f9d628a06fa9f43ce",
+    "tmp/maurice-continuation-r6-001/README-001.md": "ca230be71bd40c2234bf1abd2263296b0d783852b9fffd662741531e0b2c5fad",
+    "tmp/maurice-continuation-r6-001/probe-002.zig": "6e88525945a779bd765479a300d901e24bed2b7a6ca34a753544f44bcfd4c3bb",
+    "tmp/maurice-continuation-r6-001/attempt-003.log": "bb6d4f3ba140149502403f0e52fa54683a212f6ebccc82da5551883c24041039"
+  },
+  "validation": "Read-only input/hash/byte-copy and wire/C layout ARITHMETIC checks only. No target C ABI/compiler test, native test rerun, decoder or Source3 factory implemented.",
+  "scope": "C1-C4 + scoped007 persistent loss + explicit schema2/56-byte runtime policy + qualified canonical-raw eligibility. Static conditional tracker argument excludes future backend-OOM timing/allocator history; current allocation/work/poison/cleanup strict. Numeric decoder/capacity/alias/effect/platform proofs remain open. R6 is one targeted body plus27 imported discovery blocks, not broad sufficiency.",
+  "next": "No moving in-place edits during cross-review. Corrections require new revision and SHA. Header/getter/install/codec/constructor/default code not approved."
+}

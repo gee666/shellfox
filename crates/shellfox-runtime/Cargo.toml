@@ -1,0 +1,21 @@
+[package]
+name = "shellfox-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[features]
+experimental-shellfox-native = ["shellfox-ghostty-vt/experimental-shellfox-native"]
+
+[dependencies]
+shellfox-core = { path = "../shellfox-core" }
+shellfox-terminal = { path = "../shellfox-terminal" }
+shellfox-ghostty-vt = { path = "../ghostty-vt" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
+
+[[bin]]
+name = "shellfox-runtime-fixture"
+path = "src/bin/fixture.rs"

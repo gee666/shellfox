@@ -35,6 +35,13 @@ function setup(delayed = false) {
 }
 
 describe('terminal stream ownership', () => {
+  it('forwards Ctrl+Space and embedded NUL with the current controller fence', async () => {
+    const f = setup(); await flush();
+    f.latest().input('\u0000', true); await flush();
+    f.latest().input('A\u0000B', true); await flush();
+    expect(f.api.writeTerminal).toHaveBeenNthCalledWith(1, { tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: '\u0000' });
+    expect(f.api.writeTerminal).toHaveBeenNthCalledWith(2, { tabId: tab.id, generation: tab.generation, controlEpoch: 1, data: 'A\u0000B' });
+  });
   it('does not replace a newer settlement event with an older attachment response', async () => {
     const f = setup(); await flush();
     const pending = deferred<Result<TerminalAttachmentDto>>();
@@ -283,9 +290,9 @@ describe('terminal stream ownership', () => {
     expect(fixture.api.acknowledgeTerminal).not.toHaveBeenCalled(); fixture.latest().callbacks.shift()!(); await flush();
     expect(fixture.api.acknowledgeTerminal).toHaveBeenCalledWith({ tabId: tab.id, generation, controlEpoch: 1, sequence: 1 });
   });
-  it('validates input byte bounds/NUL and serializes accepted input without automatic retry', async () => {
+  it('validates input byte bounds and serializes accepted input without automatic retry', async () => {
     const fixture = setup(); await flush();
-    fixture.latest().input('\0'); fixture.latest().input('界'.repeat(22000)); await flush(); expect(fixture.api.writeTerminal).not.toHaveBeenCalled();
+    fixture.latest().input('界'.repeat(22000)); await flush(); expect(fixture.api.writeTerminal).not.toHaveBeenCalled();
     const pending = deferred<Result<{ written: true }>>(); fixture.api.writeTerminal.mockReturnValueOnce(pending.promise);
     fixture.latest().input('one'); fixture.latest().input('two'); await flush(); expect(fixture.api.writeTerminal).toHaveBeenCalledTimes(1);
     pending.resolve(failure('INTERNAL', 'Input not confirmed')); await flush();

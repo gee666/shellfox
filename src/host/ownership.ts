@@ -13,7 +13,7 @@ export interface HostOwnership {
   release(): Promise<void>;
   onLost(listener: (error: Error) => void): () => void;
 }
-export interface HostOwnershipOptions extends HostResourceOptions { helperPath?: string }
+export interface HostOwnershipOptions extends HostResourceOptions { helperPath?: string; helperSha256?: string }
 const resultSchema = z.object({ locked: z.boolean() }).strict();
 /** The offline native helper holds flock/LockFileEx until our stdin pipe closes. */
 export async function acquireHostOwnership(userData: string, mode: HostMode = 'desktop', options: HostOwnershipOptions = {}): Promise<HostOwnership | null> {

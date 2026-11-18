@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+ "strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -65,58 +66,57 @@ func secureOwnershipHandle(handle windows.Handle, security *windows.SecurityAttr
 		nil, nil, dacl, nil)
 }
 
-func openOwnershipFile(directory string) (*os.File, error) {
-	root, err := openOwnershipHandle(directory, windows.FILE_READ_ATTRIBUTES, windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer windows.CloseHandle(root)
-	if err := validateOwnershipHandle(root, true); err != nil {
-		return nil, err
-	}
-	privatePath := filepath.Join(directory, ownershipDirectory)
-	dirSecurity, err := ownershipSecurity(true)
-	if err != nil {
-		return nil, err
-	}
-	name, err := windows.UTF16PtrFromString(privatePath)
-	if err != nil {
-		return nil, err
-	}
-	if err := windows.CreateDirectory(name, dirSecurity); err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-		return nil, err
-	}
-	private, err := openOwnershipHandle(privatePath, windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL|windows.WRITE_DAC,
-		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer windows.CloseHandle(private)
-	if err := validateOwnershipHandle(private, true); err != nil {
-		return nil, err
-	}
-	if err := secureOwnershipHandle(private, dirSecurity); err != nil {
-		return nil, err
-	}
-	fileSecurity, err := ownershipSecurity(false)
-	if err != nil {
-		return nil, err
-	}
-	path := filepath.Join(privatePath, ownershipFilename)
-	handle, err := openOwnershipHandle(path, windows.GENERIC_READ|windows.GENERIC_WRITE|windows.READ_CONTROL|windows.WRITE_DAC,
-		windows.OPEN_ALWAYS, windows.FILE_ATTRIBUTE_NORMAL, fileSecurity)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateOwnershipHandle(handle, false); err != nil {
-		windows.CloseHandle(handle)
-		return nil, err
-	}
-	if err := secureOwnershipHandle(handle, fileSecurity); err != nil {
-		windows.CloseHandle(handle)
-		return nil, err
-	}
-	return os.NewFile(uintptr(handle), path), nil
+func openOwnershipRoot(directory string)(*ownershipRoot,error) {
+ if !validPrivatePath(directory){return nil,os.ErrInvalid}
+ volume:=filepath.VolumeName(directory)
+ suffix:=strings.TrimPrefix(directory[len(volume):], `\`)
+ if suffix=="" {return nil,os.ErrInvalid}
+ paths:=[]string{volume+`\`}
+ parts:=strings.Split(suffix,`\`)
+ if len(parts)>256{return nil,os.ErrInvalid}
+ for _,part:=range parts {
+  if part=="" || part=="." || part==".." {return nil,os.ErrInvalid}
+  paths=append(paths,filepath.Join(paths[len(paths)-1],part))
+ }
+ files:=[]*os.File{}
+ for _,path:=range paths {
+  handle,err:=openOwnershipHandle(path,windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL,windows.OPEN_EXISTING,windows.FILE_FLAG_BACKUP_SEMANTICS,nil)
+  if err!=nil {for _,file:=range files{_ = file.Close()};return nil,err}
+  file:=os.NewFile(uintptr(handle),path)
+  if err:=validateOwnershipHandle(handle,true);err!=nil{_ = file.Close();for _,old:=range files{_ = old.Close()};return nil,err}
+  files=append(files,file)
+ }
+ return &ownershipRoot{file:files[len(files)-1],ancestors:files[:len(files)-1]},nil
+}
+func verifyOwnershipPrivate(handle windows.Handle,directory bool)error {
+ if err:=validateOwnershipHandle(handle,directory);err!=nil{return err}
+ user,err:=windows.GetCurrentProcessToken().GetTokenUser();if err!=nil{return err}
+ sd,err:=privateSecurityDescriptor(handle,user.User.Sid);if err!=nil{return err}
+ return checkPrivateDACL(sd,user.User.Sid)
+}
+func openOwnershipFileExpected(directory,expected string)(*os.File,error) {
+ root,err:=openOwnershipRoot(directory);if err!=nil{return nil,err};defer root.Close()
+ if err:=compareOwnershipIdentity(root.file,expected);err!=nil{return nil,err}
+ // Existing data and lock security is verified only. A contender must never
+ // rewrite a DACL, chmod a file, or replace an old private directory.
+ if err:=verifyOwnershipPrivate(windows.Handle(root.file.Fd()),true);err!=nil{return nil,err}
+ privatePath:=filepath.Join(directory,ownershipDirectory)
+ dirSecurity,err:=ownershipSecurity(true);if err!=nil{return nil,err}
+ name,err:=windows.UTF16PtrFromString(privatePath);if err!=nil{return nil,err}
+ if err:=windows.CreateDirectory(name,dirSecurity);err!=nil && !errors.Is(err,windows.ERROR_ALREADY_EXISTS){return nil,err}
+ private,err:=openOwnershipHandle(privatePath,windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL,windows.OPEN_EXISTING,windows.FILE_FLAG_BACKUP_SEMANTICS,nil)
+ if err!=nil{return nil,err};defer windows.CloseHandle(private)
+ if err:=verifyOwnershipPrivate(private,true);err!=nil{return nil,err}
+ path:=filepath.Join(privatePath,ownershipFilename)
+ handle,err:=openOwnershipHandle(path,windows.GENERIC_READ|windows.READ_CONTROL,windows.OPEN_EXISTING,windows.FILE_ATTRIBUTE_NORMAL,nil)
+ if errors.Is(err,windows.ERROR_FILE_NOT_FOUND) {
+  security,secErr:=ownershipSecurity(false);if secErr!=nil{return nil,secErr}
+  handle,err=openOwnershipHandle(path,windows.GENERIC_READ|windows.GENERIC_WRITE|windows.READ_CONTROL,windows.CREATE_NEW,windows.FILE_ATTRIBUTE_NORMAL,security)
+  if errors.Is(err,windows.ERROR_FILE_EXISTS) || errors.Is(err,windows.ERROR_ALREADY_EXISTS){handle,err=openOwnershipHandle(path,windows.GENERIC_READ|windows.READ_CONTROL,windows.OPEN_EXISTING,windows.FILE_ATTRIBUTE_NORMAL,nil)}
+ }
+ if err!=nil{return nil,err}
+ if err:=verifyOwnershipPrivate(handle,false);err!=nil{windows.CloseHandle(handle);return nil,err}
+ return os.NewFile(uintptr(handle),path),nil
 }
 
 func lockOwnershipFile(file *os.File) (bool, error) {

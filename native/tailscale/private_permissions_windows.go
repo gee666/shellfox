@@ -31,6 +31,11 @@ func validPrivatePlatformPath(path string) bool {
 }
 
 func privatePermissions(path string, directory, protect bool) error {
+	anchorPath:=path
+	if !directory {anchorPath=filepath.Dir(path)}
+	anchor,err:=openOwnershipRoot(anchorPath)
+	if err!=nil{return err}
+	defer anchor.Close()
 	access := uint32(windows.READ_CONTROL | windows.FILE_READ_ATTRIBUTES)
 	if protect {
 		access |= windows.WRITE_DAC

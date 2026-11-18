@@ -7,6 +7,7 @@ react {
     reactNativeDir = file("../../../node_modules/react-native")
     codegenDir = file("../../../node_modules/@react-native/codegen")
     cliFile = file("../../../node_modules/react-native/cli.js")
+    debuggableVariants = ["debug", "nativeFixture"]
     hermesCommand = file("../../../node_modules/hermes-compiler/hermesc/%OS-BIN%/hermesc" +
         (org.gradle.internal.os.OperatingSystem.current().isWindows() ? ".exe" : "")).absolutePath
     autolinkLibrariesWithApp()
@@ -24,20 +25,88 @@ if (releaseCode < 1) throw new GradleException("Mobile versionCode must be posit
 def signingKeys = ['STORE_FILE', 'STORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD']
 def upload = signingKeys.collectEntries { [(it): providers.gradleProperty("SHELLFOX_UPLOAD_${it}").orNull] }
 def hasUploadSigning = upload.values().every { it != null && !it.isEmpty() }
+def goAndroidDir = file(providers.gradleProperty("shellfoxGoAndroidDir")
+    .getOrElse("../../../tmp/mobile-native/android"))
+def shellfoxNode = {
+    def explicitNode = providers.gradleProperty("shellfoxNodeExecutable").orNull
+    def node = explicitNode == null ? react.nodeExecutableAndArgs.get() : [explicitNode]
+    if (node.isEmpty() || node.any { it == null || it.toString().trim().isEmpty() }) {
+        throw new GradleException("Configure a valid RN Node executable for artifact validation.")
+    }
+    node
+}
+def artifactValidator = file("../validate-rust-artifacts.mjs")
+def managerV2 = providers.gradleProperty("shellfoxManagerV2").getOrElse("false")
+if (!(managerV2 in ["true", "false"])) throw new GradleException("shellfoxManagerV2 must be true or false.")
+def nativeManager = managerV2 == "true"
+def rustAndroidDir = objects.directoryProperty()
+def configuredRustDir = providers.gradleProperty("shellfoxRustAndroidDir")
+if (configuredRustDir.isPresent()) rustAndroidDir.set(file(configuredRustDir.get()))
+else rustAndroidDir.set(providers.provider {
+    // The producer owns the default output path/selector; Gradle has no second
+    // hardcoded directory. This reads metadata only and never builds libraries.
+    def selected = providers.exec {
+        commandLine(shellfoxNode() + [artifactValidator.absolutePath, "--print-default-artifact-dir"])
+    }.standardOutput.asText.get().trim()
+    if (selected.isEmpty()) throw new GradleException("No complete Rust Android build-output directory selected.")
+    file(selected)
+})
+rustAndroidDir.finalizeValueOnRead()
+
+// Validate the selected files/declarations before native configuration/linking.
+// This does not replace the linker's actual symbol or runtime acceptance gates.
+def validateRustArtifacts = tasks.register("validateShellfoxRustArtifacts", Exec) {
+    doFirst {
+        def abis = providers.gradleProperty("reactNativeArchitectures")
+            .getOrElse("armeabi-v7a,arm64-v8a,x86,x86_64")
+        commandLine(shellfoxNode() + [artifactValidator.absolutePath,
+            "--artifact-dir", rustAndroidDir.get().asFile.absolutePath, "--abis", abis] +
+            (nativeManager ? ["--native002"] : []))
+    }
+}
+tasks.configureEach { task ->
+    if (task.name == "preBuild" || task.name.startsWith("configureCMake") || task.name.startsWith("buildCMake")) {
+        task.dependsOn(validateRustArtifacts)
+    }
+}
 
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
     namespace "com.shellfox.mobile"
-    sourceSets.main.assets.srcDirs += [file("../../../tmp/mobile-native/android/assets")]
+    testBuildType providers.gradleProperty("shellfoxAndroidTestBuildType").getOrElse("debug")
+    sourceSets.main.assets.srcDirs += [new File(goAndroidDir, "assets")]
+    sourceSets.androidTest.assets.srcDirs += [file("../../../crates/shellfox-client/tests/fixtures")]
+    externalNativeBuild {
+        cmake {
+            path file("src/main/jni/CMakeLists.txt")
+            version "3.22.1"
+        }
+    }
     defaultConfig {
         applicationId "com.shellfox.mobile"
+        buildConfigField "boolean", "SHELLFOX_MANAGER_V2", nativeManager.toString()
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         manifestPlaceholders = [usesCleartextTraffic: "false"]
         versionCode releaseCode
         versionName manifest.version
+        externalNativeBuild {
+            cmake {
+                arguments "-DSHELLFOX_RUST_ANDROID_DIR=" + rustAndroidDir.get().asFile.absolutePath,
+                    "-DSFM_ENABLE_MANAGER_V2=" + (nativeManager ? "ON" : "OFF")
+            }
+        }
+    }
+    testOptions {
+        unitTests.all {
+            def scratch = file("../../../tmp/android-rust-tests")
+            scratch.mkdirs()
+            systemProperty "java.io.tmpdir", scratch.absolutePath
+            systemProperty "maven.repo.local", new File(scratch, "maven").absolutePath
+        }
     }
     signingConfigs {
         debug {
@@ -59,6 +128,11 @@ android {
         debug {
             signingConfig signingConfigs.debug
             manifestPlaceholders = [usesCleartextTraffic: "true"]
+        }
+        nativeFixture {
+            initWith debug
+            applicationIdSuffix ".nativefixture"
+            matchingFallbacks = ['debug']
         }
         release {
             // Missing secrets never select the debug keystore.
@@ -93,9 +167,13 @@ gradle.taskGraph.whenReady { graph ->
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     implementation("com.facebook.react:react-android")
     implementation("androidx.core:core-ktx:1.16.0")
-    implementation(files("../../../tmp/mobile-native/android/shellfox-mobile.aar"))
+    implementation(files(new File(goAndroidDir, "shellfox-mobile.aar")))
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")
     } else {

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { AutomationRuns } from './automation';
 import { automationRequestSchemas, isAutomationMethod } from '../shared/automation-schemas';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -22,6 +23,16 @@ export interface HostRpcOptions extends Pick<ManagerContext, 'keepAwake' | 'ssh'
   shutdown(): Promise<void>; startedAt?: string; guard?(): void; drainTimeoutMs?: number;
 }
 export interface HostRpc { close(): Promise<void>; waitForStopReplies(): Promise<void> }
+interface RpcWork { task: Promise<void>; drain: boolean }
+
+async function withinDrainDeadline(task: Promise<void>, ms: number, pending: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([task, new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Host RPC shutdown could not confirm ${pending} before the deadline.`)), ms);
+    })]);
+  } finally { clearTimeout(timer); }
+}
 async function readBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = []; let bytes = 0;
   for await (const chunk of request) {
@@ -66,14 +77,18 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
     if (timer) clearTimeout(timer);
   }
   const startStop = () => stopTask ??= Promise.resolve().then(() => options.shutdown()).catch(error => { stopTask = undefined; throw error; });
-  const work = new Set<{ task: Promise<void>; drain: boolean }>();
+  const work = new Set<RpcWork>();
+  const updateRequest = new AsyncLocalStorage<RpcWork>();
   const server = createServer({ maxHeaderSize: 8192, requestTimeout: 30_000, headersTimeout: 10_000 }, (request, response) => {
-    const record = { task: Promise.resolve(), drain: true };
-    record.task = handle(request, response, record); work.add(record); void record.task.finally(() => work.delete(record));
+    const record = { task: Promise.resolve(), drain: !closing };
+    work.add(record);
+    record.task = handle(request, response, record);
+    const forget = () => { work.delete(record); };
+    void record.task.then(forget, forget);
   });
   server.maxConnections = 128; server.on('error', () => {});
   server.on('connection', socket => { sockets.add(socket); socket.once('close', () => { sockets.delete(socket); stopResponses.delete(socket); }); });
-  async function handle(request: IncomingMessage, response: ServerResponse, operation: { drain: boolean }): Promise<void> {
+  async function handle(request: IncomingMessage, response: ServerResponse, operation: RpcWork): Promise<void> {
     let requestId: string | undefined, client: RpcClient | undefined, countedClient = false;
     const abort = new AbortController(); response.on('close', () => abort.abort());
     const timedOut = () => { abort.abort(); request.destroy(); response.destroy(); };
@@ -91,6 +106,8 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
       operations++;
       try {
         const envelope = hostEnvelopeSchema.parse(await readBody(request)); requestId = envelope.requestId;
+        // A request already reading its body may reach dispatch after close fenced it.
+        if (closing) throw new Error('The host is shutting down.');
         const { method, payload } = envelope;
         // Parse payloads before creating client state or invoking any service method.
         hostRequestSchemas[method].parse(payload);
@@ -125,11 +142,10 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
         }
         else if (method.startsWith('remote.')) value = await remoteOperation(options.remote, client?.remote, method, payload);
         else if (client) {
-          // Update shutdown closes this listener from inside the request handler.
-          // Waiting for that same handler here would deadlock the committed update.
-          if (method === 'installUpdate') operation.drain = false;
           const manager = requestEnvelopeSchema.parse({ version: 1, method, payload });
-          value = await managerOperation({ ...options, delivery: client.delivery, clientId: client.id, valid: () => !!client && clients.has(client.id) }, manager.method, manager.payload);
+          const { id, delivery } = client;
+          const invoke = () => managerOperation({ ...options, delivery, clientId: id, valid: () => clients.has(id) }, manager.method, manager.payload);
+          value = await (method === 'installUpdate' ? updateRequest.run(operation, invoke) : invoke());
         } else throw new Error('Host client is required.');
         reply({ requestId, ok: true, value: parseHostResponse(method, value) });
         if (method === 'host.stop' && !hostRequestSchemas['host.stop'].parse(payload).wait) {
@@ -146,21 +162,64 @@ export async function startHostRpc(options: HostRpcOptions): Promise<HostRpc> {
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => { server.removeListener('error', reject); resolve(); }); });
     const address = server.address(); if (!address || typeof address === 'string') throw new Error('Host listener unavailable.');
     const remove = await publishPrivateEndpoint(options.userData, hostEndpointPath(options.userData), hostEndpointSchema, { version: 1, host: '127.0.0.1', port: address.port, secret, mode: options.mode });
-    let closed: Promise<void> | undefined;
-    return { waitForStopReplies, close: () => closed ??= (async () => {
-      await automation.close();
-      closing = true; const clientCleanup = clients.dispose(); for (const unsubscribe of unsubscribes) unsubscribe?.();
-      const stopped = new Promise<void>(resolve => server.close(() => resolve()));
-      for (const socket of sockets) if (!stopResponses.has(socket)) socket.destroy();
-      const drained = Promise.allSettled([...work].filter(operation => operation.drain).map(operation => operation.task));
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([drained, new Promise<void>(resolve => { timer = setTimeout(resolve, options.drainTimeoutMs ?? 30_000); timer.unref(); })]);
-      if (timer) clearTimeout(timer);
-      await clientCleanup;
-      // Waiting stop requests receive their final reply after the caller finishes DB/ownership cleanup.
-      if (!stopResponses.size) await stopped;
-      await remove();
-    })() };
+    const drainTimeout = options.drainTimeoutMs ?? 30_000;
+    let stopped: Promise<void> | undefined;
+    let listenerFailure: unknown;
+    let drained: Promise<void> | undefined;
+    let cleanup: Promise<void> | undefined;
+    let attempt: Promise<void> | undefined;
+    let selfClosingUpdate: RpcWork | undefined;
+
+    async function close(pending: Promise<void>): Promise<void> {
+      if (!stopped) {
+        stopped = new Promise<void>((resolve, reject) => {
+          if (!server.listening) { reject(new Error('The Host RPC listener state could not be confirmed.')); return; }
+          server.close(error => error ? reject(error) : resolve());
+        });
+        // Attach an observer even if request drain times out before we can join the listener.
+        void stopped.catch(error => { listenerFailure = error; });
+        for (const socket of sockets) if (!stopResponses.has(socket)) socket.destroy();
+      }
+      // An admitted stdin write can depend on the original supervisor shutting down.
+      // Start that shutdown behind the fence, then join both the worker and its handlers.
+      const workers = automation.close();
+      await Promise.all([
+        withinDrainDeadline(pending, drainTimeout, 'pending requests'),
+        withinDrainDeadline(workers, drainTimeout, 'automation exit'),
+      ]);
+      if (listenerFailure) throw listenerFailure;
+      if (server.listening) throw new Error('The Host RPC listener did not stop accepting connections.');
+      cleanup ??= (async () => {
+        for (const unsubscribe of unsubscribes) unsubscribe?.();
+        await clients.dispose();
+        // Waiting Stop replies depend on the caller closing its repository and ownership first.
+        if (!stopResponses.size) await stopped;
+        if (listenerFailure) throw listenerFailure;
+        await remove();
+      })();
+      await withinDrainDeadline(cleanup, drainTimeout, 'listener and client cleanup');
+    }
+
+    return { waitForStopReplies, close() {
+      const context = updateRequest.getStore();
+      const caller = context && work.has(context) ? context : undefined;
+      if (drained && caller && caller !== selfClosingUpdate) {
+        return Promise.reject(new Error('The host is already draining this update request.'));
+      }
+      if (!drained) {
+        closing = true;
+        selfClosingUpdate = caller;
+        // Exclude only an update that is closing its own handler. Other updates are ordinary work.
+        drained = Promise.all([...work].filter(record => record.drain && record !== caller).map(record => record.task)).then(() => {});
+      }
+      // Install the attempt before closing sockets. A timeout ends only this wait.
+      const pending = drained;
+      const current = attempt ??= Promise.resolve().then(() => close(pending)).finally(() => { attempt = undefined; });
+      const update = selfClosingUpdate?.task;
+      return update && caller !== selfClosingUpdate
+        ? current.then(() => withinDrainDeadline(update, drainTimeout, 'the original update request'))
+        : current;
+    } };
   } catch (error) {
     await automation.close(); await clients.dispose(); for (const unsubscribe of unsubscribes) unsubscribe?.(); server.closeAllConnections(); server.close(); throw error;
   }

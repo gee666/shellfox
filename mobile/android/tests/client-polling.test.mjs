@@ -1,0 +1,60 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const root=new URL('../../../',import.meta.url);
+const read=name=>fs.readFileSync(new URL(name,root),'utf8');
+test('Android polling uses one client lane and does not cancel an inflight poll to drain it',()=>{
+ const lane=read('mobile/android/app/src/main/java/com/shellfox/mobile/rust/ClientPollLane.kt');
+ const binding=read('mobile/android/app/src/main/java/com/shellfox/mobile/rust/ClientTerminalBindings.kt');
+ assert.doesNotMatch(lane,/cancelPoll|cancelOperation/);
+ assert.match(binding,/val poll = ClientPollLane/);
+ assert.match(binding,/client\.poll\.complete\(event\.getString\("operationId"\), event\.getInt\("status"\), success\)/);
+ assert.match(binding,/client\.poll\.advance\(.+ownerDrained\(client\)\)/);
+ assert.match(lane,/if \(status != 0\)[\s\S]*return \/\/ Unknown delivery outcome/);
+});
+test('Android module invalidation waits for actual client removal, never deadline callbacks',()=>{
+ const binding=read('mobile/android/app/src/main/java/com/shellfox/mobile/rust/ClientTerminalBindings.kt');
+ const owner=read('mobile/android/app/src/main/java/com/shellfox/mobile/rust/TerminalCoordinator.kt');
+ const release=binding.slice(binding.indexOf('  fun release(module:'),binding.indexOf('  private fun resizePending'));
+ assert.doesNotMatch(release,/remaining|callbacks|done\(/);
+ assert.match(release,/fun released\(module: Any\) = clients.values.none/);
+ assert.match(owner,/RetainedModuleRelease\(\{ ClientTerminalBindings.released\(module\) \}/);
+ assert.match(owner,/if \(release.advance\(\)\) retiring.remove\(module\)/);
+ const module=read('mobile/android/app/src/main/java/com/shellfox/mobile/ShellfoxRustClientModule.kt');
+ assert.match(module,/override fun invalidate\(\)[\s\S]*TerminalCoordinator.release\(this\)/);
+ assert.doesNotMatch(binding,/closing.completed \|\| android.os.SystemClock/);
+});
+test('iOS invalidation retains lifetime and pumps retired views until actual client removal',()=>{
+ const owner=read('mobile/ios/ShellfoxRust/SFOwner.mm');
+ const store=read('mobile/ios/ShellfoxRust/SFClientStore.mm');
+ const lifetime=owner.slice(owner.indexOf('- (void)retireLifetimes'),owner.indexOf('- (BOOL)enqueue:'));
+ assert.match(lifetime,/if \(lifetime.clients.count\) continue;[\s\S]*\[self close:identifier\]/);
+ assert.doesNotMatch(lifetime,/removeAllObjects/);
+ assert.match(owner,/!terminal.retiring && \(!terminal.visible/);
+ assert.match(owner,/if \(terminal.sink \|\| terminal.closeAttempted\) return SFM_BUSY/);
+ assert.match(store,/client.disconnectFinished && client.closeStatus == SFM_OK && !client.nativeCloseAttempted/);
+ assert.doesNotMatch(store,/client.closeStatus = SFM_BUSY/);
+ const start=store.slice(store.indexOf('- (void)startDisconnect:'),store.indexOf('- (void)finishClose:'));
+ assert.doesNotMatch(start,/dropBindings|unbind/);
+ const finish=store.slice(store.indexOf('- (void)finishClose:'),store.indexOf('- (SfmStatus)bind:'));
+ assert.match(finish,/if \(status == SFM_OK\)[\s\S]*dropBindings[\s\S]*_clients removeObject/);
+});
+test('the independently compiled iOS polling category uses declared accessors, not implementation-private ivars',()=>{
+ const polling=read('mobile/ios/ShellfoxRust/SFClientPolling.mm');
+ const header=read('mobile/ios/ShellfoxRust/SFClientStore.h');
+ assert.match(polling,/SFClientRecord \*client = \[self client:identifier\];/);
+ assert.doesNotMatch(polling,/\b_(?:clients|bindings|foreground)\b/);
+ assert.match(header,/- \(SFClientRecord \*\)client:\(NSString \*\)identifier;/);
+ assert.match(read('mobile/ios/ShellfoxRust/ShellfoxRustNative.podspec'),/source_files = '\*\.\{h,mm,inc\}'/);
+});
+test('iOS keeps its existing per-client poll slot through normal results and owner processing',()=>{
+ const polling=read('mobile/ios/ShellfoxRust/SFClientPolling.mm');
+ const store=read('mobile/ios/ShellfoxRust/SFClientStore.mm');
+ const manager=read('mobile/ios/ShellfoxRust/ShellfoxRustManagerMethods.inc');
+ assert.doesNotMatch(polling,/sfm_client_cancel|pollCancelRequested/);
+ assert.match(polling,/if \(\[event\[@"status"\] intValue\] != SFM_OK\)[\s\S]*return;[\s\S]*client\.pollOperation = nil/);
+ assert.match(polling,/\[self ownerDrained:client\]/);
+ assert.match(store,/progress\.accepted_sequence != progress\.consumed_sequence/);
+ assert.doesNotMatch(manager,/client\.pollOperation\s*=\s*nil/);
+ assert.match(polling,/if \(!client \|\| client\.closing\) return SFM_STALE/);
+});

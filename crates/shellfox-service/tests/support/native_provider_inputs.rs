@@ -1,0 +1,120 @@
+//! Explicit owned-test producer inputs. Never discovers or hashes current_exe.
+use anyhow::{Context, Result};
+use shellfox_service::{native_providers::*, system::*};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
+
+pub fn digest(hex: &str) -> Result<[u8; 32]> {
+    anyhow::ensure!(hex.len() == 64, "producer digest length");
+    let mut value = [0; 32];
+    for (index, byte) in value.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16)?;
+    }
+    Ok(value)
+}
+pub fn program(name: &str) -> Result<NativeProgramResource> {
+    let path = PathBuf::from(
+        std::env::var_os(format!("SHELLFOX_PROVIDER_{name}"))
+            .context("explicit producer program path required")?,
+    );
+    let hash = digest(&std::env::var(format!("SHELLFOX_PROVIDER_{name}_SHA256"))?)?;
+    #[cfg(windows)]
+    if name == "CLI" {
+        let dll = program("CLI_DLL")?;
+        anyhow::ensure!(
+            dll.path().parent() == path.parent()
+                && dll
+                    .path()
+                    .file_name()
+                    .is_some_and(|name| name == "ghostty-vt.dll"),
+            "CLI DLL must be its matching adjacent producer artifact"
+        );
+        let original = NativeProgramResource::from_pinned_file(path.clone(), hash)?;
+        return NativeProgramResource::from_trusted_producer(path, hash, Arc::new((original, dll)));
+    }
+    resource(path, hash)
+}
+pub fn resource(path: PathBuf, hash: [u8; 32]) -> Result<NativeProgramResource> {
+    NativeProgramResource::from_pinned_file(path, hash)
+}
+pub fn providers(
+    home: &Path,
+    helper: &Path,
+    helper_sha: [u8; 32],
+) -> Result<(NativeHostProviders, OpenRecorder)> {
+    let ssh = NativeSshResources::new(
+        NativeSshPrograms::new(program("SSH")?, program("KEYSCAN")?, program("CLI")?),
+        Some(resource(helper.to_owned(), helper_sha)?),
+    )?;
+    let opener = OpenRecorder::default();
+    let environment = Arc::new(Environment(home.to_owned()));
+    let files = Arc::new(NativeSystemFiles);
+    let backend = Arc::new(NativeSystemBackend::new(
+        SystemProviders {
+            environment: environment.clone(),
+            resources: Arc::new(NoInstallation),
+            files: files.clone(),
+            registry: Arc::new(NativeSystemRegistry),
+            opener: Arc::new(opener.clone()),
+            linux_discovery: Arc::new(NativeSystemLinuxDiscovery { environment, files }),
+        },
+        SystemInstallPolicy {
+            allow_user_install: false,
+            allow_open: true,
+        },
+    ));
+    Ok((NativeHostProviders::new(backend).with_ssh(ssh), opener))
+}
+struct Environment(PathBuf);
+impl SystemEnvironment for Environment {
+    fn platform(&self) -> SystemPlatform {
+        if cfg!(windows) {
+            SystemPlatform::Windows
+        } else if cfg!(target_os = "macos") {
+            SystemPlatform::Macos
+        } else {
+            SystemPlatform::Linux
+        }
+    }
+    fn home(&self) -> SystemResult<PathBuf> {
+        Ok(self.0.clone())
+    }
+    fn variable(&self, _: &str) -> Option<OsString> {
+        None
+    }
+}
+struct NoInstallation;
+fn no_install<T>() -> SystemResult<T> {
+    Err(shellfox_protocol::AppError {
+        code: shellfox_protocol::ErrorCode::Unsupported,
+        message: "Owned fixture is not a stable installed package".into(),
+        retryable: false,
+    })
+}
+impl SystemInstallResources for NoInstallation {
+    fn cli_plan(&self, _: SystemScope) -> SystemResult<CliInstallPlan> {
+        no_install()
+    }
+    fn desktop_launch(&self) -> SystemResult<DesktopLaunch> {
+        no_install()
+    }
+    fn validate_current(&self) -> SystemResult<()> {
+        no_install()
+    }
+}
+#[derive(Clone, Default)]
+pub struct OpenRecorder(Arc<Mutex<Vec<SystemOpenTarget>>>);
+impl SystemOpener for OpenRecorder {
+    fn open(&self, target: SystemOpenTarget) -> SystemResult<()> {
+        self.0.lock().expect("fixture recorder").push(target);
+        Ok(())
+    }
+}
+impl OpenRecorder {
+    pub fn count(&self) -> usize {
+        self.0.lock().expect("fixture recorder").len()
+    }
+}

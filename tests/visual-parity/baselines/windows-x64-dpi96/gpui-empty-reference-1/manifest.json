@@ -1,0 +1,89 @@
+{
+  "format": 1,
+  "status": "candidate-only-not-parity-accepted",
+  "engine": "actual GPUI owned window",
+  "platform": "win32",
+  "arch": "x64",
+  "dimensions": {
+    "width": 1200,
+    "height": 760
+  },
+  "identity": {
+    "pid": 40140,
+    "executable": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\target\\debug\\shellfox-gpui-experiment.exe",
+    "clientOrigin": {
+      "X": 72,
+      "Y": 95
+    },
+    "dwm": {
+      "Left": 71,
+      "Top": 64,
+      "Right": 1273,
+      "Bottom": 856
+    },
+    "focused": true,
+    "dpi": 96,
+    "client": {
+      "Left": 0,
+      "Top": 0,
+      "Right": 1200,
+      "Bottom": 760
+    },
+    "birth": "134390830484096165",
+    "window": {
+      "Left": 64,
+      "Top": 64,
+      "Right": 1280,
+      "Bottom": 863
+    },
+    "hwnd": "7867452"
+  },
+  "executableSha256": "75157969a5ccb7f456bb34319fced536a675ad6230b582109025344b00ead171",
+  "lockSha256": "1ce6d2d74bd6e7a771501c68cc9a13bb1107d28ab34ba07ebe6b56eb9fae96d3",
+  "birthMismatchGuard": true,
+  "states": [
+    {
+      "name": "01-empty",
+      "files": {
+        "client": "e5e88e86c039596bdf343a72013bb74aa28a2554c6fbd21a2281166f94039694",
+        "window": "bea98e415a70e40f60cd204164d96da6a364b082abb90eac43a967095d35d91c"
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390830484096165",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 40140,
+        "hwnd": "7867452"
+      }
+    }
+  ],
+  "missingStates": "All nonempty/menu/dialog/settings/editor states remain required, not skipped by comparator.",
+  "policy": {
+    "pixelTolerance": 0,
+    "masks": [],
+    "animations": "unaltered",
+    "terminalContent": "required, never masked"
+  }
+}

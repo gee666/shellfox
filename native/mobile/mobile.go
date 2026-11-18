@@ -1,5 +1,5 @@
 // Package mobile embeds an outbound-only Tailscale node for Shellfox clients.
-// Its string/error API is intentionally limited to gomobile-supported types.
+// Its string/error API and immutable request-result getters use only gomobile-supported types.
 package mobile
 
 import (
@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"shellfox.local/tailscale-helper/controlurl"
 	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/client/local"
 	"tailscale.com/tsnet"
@@ -33,6 +34,7 @@ type node struct {
 	polls      chan struct{}
 	directory  string
 	hostname   string
+	controlURL string
 	discovery  *hostDiscovery
 	transports transportPool
 	health     *nethealth.Monitor
@@ -42,13 +44,27 @@ type node struct {
 // Start opens the persistent node in an absolute, app-private directory.
 // It does not wait for login, advertise a service, or open an inbound listener.
 func Start(stateDirectory, hostname string) error {
+	return start(stateDirectory, hostname, "https://controlplane.tailscale.com")
+}
+
+// StartWithControlServer explicitly selects an isolated loopback control server.
+// The platform must supply separate app-private state; there is no global override.
+func StartWithControlServer(stateDirectory, hostname, controlURL string) error {
+	origin, err := controlurl.ParseLoopback(controlURL)
+	if err != nil {
+		return err
+	}
+	return start(stateDirectory, hostname, origin)
+}
+
+func start(stateDirectory, hostname, controlURL string) error {
 	if !filepath.IsAbs(stateDirectory) || !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$`).MatchString(hostname) {
 		return errors.New("Invalid state directory or hostname")
 	}
 	singleton.Lock()
 	defer singleton.Unlock()
 	if n := singleton.node; n != nil {
-		if n.directory == filepath.Clean(stateDirectory) && n.hostname == hostname {
+		if n.directory == filepath.Clean(stateDirectory) && n.hostname == hostname && n.controlURL == controlURL {
 			return nil
 		}
 		return errors.New("Network already started with another configuration")
@@ -64,7 +80,7 @@ func Start(stateDirectory, hostname string) error {
 		return err
 	}
 	s := &tsnet.Server{Dir: stateDirectory, Hostname: hostname, Store: store,
-		ControlURL: "https://controlplane.tailscale.com",
+		ControlURL: controlURL,
 		Logf:       func(string, ...interface{}) {}, UserLogf: func(string, ...interface{}) {}}
 	if err := s.Start(); err != nil {
 		_ = s.Close()
@@ -88,7 +104,7 @@ func Start(stateDirectory, hostname string) error {
 	n := &node{
 		server: s, client: client, ctx: ctx, cancel: cancel,
 		requests: make(chan struct{}, 12), polls: make(chan struct{}, 64),
-		directory: filepath.Clean(stateDirectory), hostname: hostname, discovery: newHostDiscovery(store),
+		directory: filepath.Clean(stateDirectory), hostname: hostname, controlURL: controlURL, discovery: newHostDiscovery(store),
 		health: monitor, healthDone: make(chan struct{}),
 	}
 	singleton.node = n

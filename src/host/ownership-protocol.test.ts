@@ -1,13 +1,13 @@
 import { ChildProcess, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { acquireHostOwnership } from './ownership';
 
-vi.mock('node:child_process', async original => {
-  const actual = await original<typeof import('node:child_process')>();
-  return { ...actual, spawn: vi.fn() };
+vi.mock('node:child_process', async () => {
+  const { unitChildProcess } = await import('../../tests/unit/app-process-model');
+  return { ...unitChildProcess, spawn: vi.fn(unitChildProcess.spawn) };
 });
 
 // ChildProcess exit precedes stdio close. Drive both events independently so
@@ -38,11 +38,13 @@ async function acquire(sequence: (child: ProtocolChild) => void) {
   const directory = await mkdtemp(path.resolve('tmp/ownership-protocol-'));
   directories.push(directory);
   const child = new ProtocolChild();
-  vi.mocked(spawn).mockImplementationOnce(() => {
+  const helperPath = path.join(directory, 'synthetic-helper'), canonical = await realpath(directory);
+  vi.mocked(spawn).mockImplementationOnce((file, args, options) => {
+    expect([file, args, options]).toEqual([helperPath, ['--ownership', canonical], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }]);
     queueMicrotask(() => sequence(child));
     return child;
   });
-  return acquireHostOwnership(directory, 'headless', { helperPath: path.join(directory, 'synthetic-helper') });
+  return acquireHostOwnership(directory, 'headless', { helperPath });
 }
 
 it('accepts a busy reply drained after process exit, including split stdout chunks', async () => {
@@ -85,12 +87,41 @@ it('still reports loss immediately at exit, before an active owner stdout closes
   helper.exit();
   expect(lost).toHaveBeenCalledOnce();
   expect(() => lock.assertOwned()).toThrow('ownership helper exited');
+  const late = vi.fn(); lock.onLost(late);
+  expect(late).toHaveBeenCalledExactlyOnceWith(lock.lost);
   helper.close();
   await lock.release();
+  expect(() => lock.assertOwned()).toThrow('ownership helper exited');
+  expect(spawn).toHaveBeenCalledOnce();
 });
 
 it('validates a drained reply rather than hiding malformed output behind process exit', async () => {
   await expect(acquire(child => {
     child.exit(); child.reply('{"locked":"no"}\n'); child.close();
   })).rejects.toThrow('Invalid Shellfox ownership helper response');
+});
+
+it('rejects a scripted missing helper after the synthetic child closes', async () => {
+  await expect(acquire(child => {
+    child.emit('error', Object.assign(new Error('missing fixture image'), { code: 'ENOENT' }));
+    child.close();
+  })).rejects.toThrow('ownership helper could not start');
+});
+
+it('times out the synthetic handshake and stays pending until the model closes', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+  let announce!: (child: ProtocolChild) => void;
+  const spawned = new Promise<ProtocolChild>(resolve => { announce = resolve; });
+  let settled = false;
+  const result = acquire(child => { child.stdin.removeAllListeners('finish'); announce(child); })
+    .then(() => { settled = true; return undefined; }, (error: unknown) => { settled = true; return error; });
+  try {
+    const child = await Promise.race([spawned, result.then(error => { throw error ?? new Error('Fixture closed before spawn'); })]);
+    try {
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(settled).toBe(false);
+    } finally { child.close(); }
+    expect(await result).toMatchObject({ message: 'Shellfox ownership helper timed out.' });
+    expect(spawn).toHaveBeenCalledOnce();
+  } finally { vi.useRealTimers(); }
 });

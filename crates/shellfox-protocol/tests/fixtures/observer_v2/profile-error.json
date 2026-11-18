@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "ok": false,
+  "error": {
+    "code": "UNSUPPORTED",
+    "message": "No mutually supported observer profile.",
+    "retryable": false,
+    "detail": {
+      "kind": "profileIncompatible"
+    }
+  }
+}

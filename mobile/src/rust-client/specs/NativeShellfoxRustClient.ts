@@ -1,0 +1,40 @@
+import type { TurboModule } from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
+
+export interface Spec extends TurboModule {
+  abiVersion(): number;
+  createTerminal(cols: number, rows: number): Promise<string>;
+  closeTerminal(terminalHandle: string): Promise<void>;
+  progress(terminalHandle: string): Promise<string>;
+  terminalInput(terminalHandle: string, json: string): Promise<void>;
+  configureTerminal(terminalHandle: string, json: string): Promise<void>;
+  createClient(peerId: string, clientId: string): Promise<string>;
+  connect(clientHandle: string): Promise<string>;
+  reconnect(clientHandle: string): Promise<string>;
+  poll(clientHandle: string): Promise<string>;
+  operation(clientHandle: string, json: string): Promise<string>;
+  cancel(clientHandle: string, operationId: string): Promise<void>;
+  bindTerminal(clientHandle: string, tabId: string, terminalHandle: string): Promise<void>;
+  unbindTerminal(clientHandle: string, terminalHandle: string): Promise<void>;
+  readEvent(clientHandle: string): Promise<string | null>;
+  closeClient(clientHandle: string): Promise<void>;
+  managerV2AbiVersion(): number;
+  createManagerV2Client(peerId: string, clientId: string): Promise<string>;
+  discoverManagerV2(clientHandle: string): Promise<string>;
+  pairManagerV2(clientHandle: string, attemptId: string): Promise<string>;
+  managerV2Operation(clientHandle: string, json: string): Promise<string>;
+  pollManagerV2(clientHandle: string): Promise<string>;
+  reconnectManagerV2(clientHandle: string, clientId: string): Promise<void>;
+  disconnectManagerV2(clientHandle: string): Promise<string>;
+  observerV2AbiVersion(): number;
+  clientProfile(clientHandle: string): Promise<string>;
+  createObserverV2Client(peerId: string, clientId: string): Promise<string>;
+  discoverObserverV2(clientHandle: string, offerLegacy: boolean): Promise<string>;
+  pairObserverV2(clientHandle: string, attemptId: string): Promise<string>;
+  observerV2Operation(clientHandle: string, json: string): Promise<string>;
+  pollObserverV2(clientHandle: string): Promise<string>;
+  reconnectObserverV2(clientHandle: string, clientId: string): Promise<void>;
+  disconnectObserverV2(clientHandle: string): Promise<string>;
+}
+
+export default TurboModuleRegistry.get<Spec>('NativeShellfoxRustClient');

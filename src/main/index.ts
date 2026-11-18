@@ -31,6 +31,7 @@ import { startHostRpc, type HostRpc } from '../host/rpc';
 import { RemoteService } from './remote/service';
 import { RemoteStore } from './remote/storage';
 import { RemoteHelper } from './remote/helper';
+import { hostNetworkHelper } from '../host/paths';
 import { installRemoteIpc } from './remote/ipc';
 import { hostname as systemHostname } from 'node:os';
 import { KeepAwake } from './keep-awake';
@@ -71,6 +72,7 @@ const nativePaths = (): NativeInit => ({
 // Startup can fail after the listener has published credentials. Normal quit
 // owns these resources only after run() finishes installing its lifecycle hooks.
 const startupCleanups: Array<() => void | Promise<void>> = [];
+let startupRpc: HostRpc | undefined;
 async function run(): Promise<void> {
   if (lifecycle) {
     try {
@@ -155,11 +157,12 @@ async function run(): Promise<void> {
   await service.files.initialize(app.getPath('userData'));
   await service.initialize(nativePaths()); ownership.assertOwned();
   const remoteHostname = ('shellfox-' + systemHostname().toLowerCase().replace(/[^a-z0-9-]/g, '-')).slice(0, 63).replace(/-+$/, '') || 'shellfox';
-  const remoteHelperName = 'shellfox-tailscale' + (process.platform === 'win32' ? '.exe' : '');
   const testRemoteHelper = __TEST_BUILD__ && process.env.SHELLFOX_TEST_REMOTE_HELPER && path.resolve(process.env.SHELLFOX_TEST_REMOTE_HELPER).startsWith(path.join(__PROJECT_ROOT__, 'tmp') + path.sep)
     ? path.resolve(process.env.SHELLFOX_TEST_REMOTE_HELPER) : null;
-  const remoteHelperPath = testRemoteHelper ?? (app.isPackaged ? path.join(process.resourcesPath, 'tailscale', remoteHelperName) : path.resolve('tmp/tailscale', process.platform + '-' + process.arch, remoteHelperName));
-  const remote = service instanceof EmbeddedSessionService ? new RemoteService(app.getPath('userData'), new RemoteStore(app.getPath('userData'), remoteHostname), new RemoteHelper(remoteHelperPath), service, remoteHostname) : null;
+  const remote = service instanceof EmbeddedSessionService ? new RemoteService(app.getPath('userData'), new RemoteStore(app.getPath('userData'), remoteHostname), new RemoteHelper(() => hostNetworkHelper({
+    packaged: app.isPackaged, resourcesPath: app.isPackaged ? process.resourcesPath : undefined,
+    ...(testRemoteHelper ? { helperPath: testRemoteHelper, helperSha256: process.env.SHELLFOX_TEST_REMOTE_HELPER_SHA256 } : {}),
+  })), service, remoteHostname) : null;
   if (remote) { startupCleanups.push(() => remote.dispose()); await remote.initialize(); }
   const keepAwake = new KeepAwake(powerSaveBlocker, { stateDir: app.getPath('userData') });
   startupCleanups.push(() => keepAwake.dispose());
@@ -221,6 +224,7 @@ async function run(): Promise<void> {
   let closingForUpdate = false;
   let closingForQuit = false;
   let quitApproved = false;
+  let quitCleanupStep: number | undefined;
   let cliStop: { resolve(): void; reject(error: Error): void } | undefined;
   const updateShutdown = new UpdateShutdown({
     confirm: onQuit => {
@@ -232,11 +236,11 @@ async function run(): Promise<void> {
       return service.closeForUpdate();
     },
     finish: async () => {
+      // The installer is already committed. If drain fails, stay open for a local quit retry, not a second install.
+      await hostRpc?.close();
       quitting = true;
-      // Commit is acknowledged. Never retry installation because final cleanup failed.
       try {
         await remote?.dispose();
-        await hostRpc?.close();
         await controlServer.dispose().catch(error => console.error('Control shutdown cleanup failed:', error));
         await service.dispose();
         if (updates instanceof SelfUpdater) await updates.dispose(true);
@@ -253,7 +257,7 @@ async function run(): Promise<void> {
       fetch: (url, init) => net.fetch(url, init), tempRoot: app.getPath('temp'),
       autoUpdate: () => repository.settings().autoUpdate,
       quitForUpdate: async (start, onQuit) => {
-        if (quitting || closingForUpdate || closingForQuit && !onQuit) return false;
+        if (quitting || quitCleanupStep !== undefined || closingForUpdate || closingForQuit && !onQuit) return false;
         closingForUpdate = true;
         try { return await updateShutdown.run(start, onQuit); }
         finally { closingForUpdate = false; }
@@ -271,6 +275,11 @@ async function run(): Promise<void> {
   const uninstallIpc = async () => { closeConfirmation.dispose(); uninstallRemoteIpc(); uninstallManagerIpc(); await uninstallDesktopFiles(); };
   startupCleanups.push(uninstallIpc);
   const quitGuard = new TerminalQuitGuard({ ownedTerminalCount, dispose: () => service.dispose() }, count => quitApproved || closeConfirmation.request('quit', count));
+  const quitCleanup = [
+    () => remote?.dispose(), () => controlServer.dispose(),
+    () => updates instanceof SelfUpdater ? updates.dispose() : undefined,
+    uninstallIpc, () => windowTracker.dispose(), () => repository.close(), () => ownership.release(),
+  ];
   // The CLI stop command and the OS approve quitting themselves; never prompt or install an update then.
   const uninstallSystemQuit = onSystemQuit(window, () => { quitApproved = true; closeConfirmation.settleForSystemQuit(); setImmediate(() => app.quit()); });
   startupCleanups.push(uninstallSystemQuit);
@@ -284,29 +293,30 @@ async function run(): Promise<void> {
     if (closingForUpdate || closingForQuit) return;
     closingForQuit = true;
     void updateShutdown.cancelPending().then(async () => {
+      if (quitCleanupStep !== undefined) return true;
       // Use the verified handoff before normal quit disposes the service and
       // deletes staged files. Cancellation or failure must not fall through.
       if (!quitApproved && updates instanceof SelfUpdater && await updates.installOnQuit() !== 'not-ready') return false;
       return quitGuard.request();
     }).then(async approved => {
       if (!approved || quitting) { closingForQuit = false; return; }
+      quitCleanupStep ??= 0;
+      await hostRpc?.close();
+      // Retry the incomplete step on the original resources, not already completed cleanup.
+      while (quitCleanupStep < quitCleanup.length) {
+        await quitCleanup[quitCleanupStep]();
+        quitCleanupStep++;
+      }
       quitting = true;
-      // Terminal disposal succeeded. Non-critical cleanup must not strand an
-      // open manager whose backend has already been irreversibly disposed.
-      try {
-        await remote?.dispose();
-        await hostRpc?.close();
-        await controlServer.dispose().catch(error => console.error('Control shutdown cleanup failed:', error));
-        if (updates instanceof SelfUpdater) await updates.dispose();
-        await uninstallIpc(); windowTracker.dispose(); repository.close(); await ownership.release();
-      } catch (error) { console.error('Quit cleanup failed:', error); }
       cliStop?.resolve(); cliStop = undefined; quitApproved = false;
       await hostRpc?.waitForStopReplies();
       app.quit();
-    }).catch(() => {
+    }).catch(error => {
       closingForQuit = false; quitting = false; quitApproved = false;
-      cliStop?.reject(new Error('Owned terminal shutdown failed.')); cliStop = undefined;
-      dialog.showErrorBox('Shutdown failed', 'The update or owned terminal shutdown could not finish safely. Shellfox is still open. Closed terminals must be reopened as fresh shells.');
+      const reason = error instanceof Error ? error.message : 'Shutdown could not be confirmed.';
+      cliStop?.reject(new Error(quitCleanupStep === undefined ? 'Owned terminal shutdown failed. ' + reason : reason));
+      cliStop = undefined;
+      dialog.showErrorBox('Shutdown failed', 'Shutdown could not be confirmed. Shellfox is still open. Retry quit after pending work finishes.');
     });
   });
   app.on('window-all-closed', () => app.quit());
@@ -316,13 +326,20 @@ async function run(): Promise<void> {
       desktop: (method, payload) => desktopRequest(method, payload, { window: hostWindow, updates, snapshot: () => service.getSnapshot(), sessionDirectory: id => service.repository.session(id)?.cwd ?? null }),
       shutdown: () => new Promise<void>((resolve, reject) => { cliStop = { resolve, reject }; quitApproved = true; app.quit(); }),
     });
-    startupCleanups.push(() => hostRpc?.close());
+    startupRpc = hostRpc;
   }
   // A visible desktop is also a ready CLI host, not a partially published endpoint.
   await window.loadFile(rendererFile);
-  startupCleanups.length = 0;
+  startupRpc = undefined; startupCleanups.length = 0;
 }
 void run().catch(async error => {
+  try { await startupRpc?.close(); }
+  catch (drainError) {
+    console.error('Startup shutdown could not drain Host RPC:', drainError);
+    dialog.showErrorBox('Shellfox', 'Startup failed and shutdown is unconfirmed. Retry quit after pending work finishes.');
+    return;
+  }
+  startupRpc = undefined;
   for (const cleanup of startupCleanups.splice(0).reverse()) {
     try { await cleanup(); } catch (cleanupError) { console.error('Startup shutdown cleanup failed:', cleanupError); }
   }

@@ -7,6 +7,7 @@ tmp/
 out/
 dist/
 build/
+/target/
 *.tsbuildinfo
 
 # Mobile toolchains and machine-local settings

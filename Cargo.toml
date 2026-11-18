@@ -1,0 +1,38 @@
+[workspace]
+members = [
+    "crates/ghostty-vt-sys",
+    "crates/ghostty-vt",
+    "crates/shellfox-terminal",
+    "crates/shellfox-desktop",
+    "crates/shellfox-core",
+    "crates/shellfox-host",
+    "crates/shellfox-runtime",
+    "crates/shellfox-files",
+    "crates/shellfox-protocol",
+    "crates/shellfox-transport",
+    "crates/shellfox-service",
+    "crates/shellfox-client",
+    "crates/shellfox-cli",
+    "crates/shellfox-mobile",
+    "crates/shellfox-ssh",
+    "crates/shellfox-remote",
+    "crates/shellfox-resources",
+]
+default-members = ["crates/ghostty-vt", "crates/shellfox-terminal"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.97.1"
+license = "MIT"
+
+[workspace.dependencies]
+shellfox-ghostty-vt = { path = "crates/ghostty-vt" }
+anyhow = "1"
+thiserror = "2"
+portable-pty = "=0.9.0"
+gpui = "=0.2.2"
+
+[patch.crates-io]
+portable-pty = { path = "vendor/portable-pty" }
+xattr = { path = "vendor/xattr-0.2.3" }

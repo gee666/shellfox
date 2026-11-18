@@ -1,0 +1,333 @@
+{
+  "version": 2,
+  "binding": {
+    "clientId": "20000000-0000-4000-8000-000000000001",
+    "ownerId": "10000000-0000-4000-8000-000000000001",
+    "connectionId": "40000000-0000-4000-8000-000000000001",
+    "profile": "observer-v2"
+  },
+  "ok": true,
+  "value": {
+    "revision": 7,
+    "coverage": {
+      "mode": "complete",
+      "entryCount": 3
+    },
+    "entries": [
+      {
+        "kind": "session",
+        "value": {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "title": "Session 1",
+          "facts": {
+            "cwd": {
+              "state": "known",
+              "value": "C:\\projects\\same folder"
+            },
+            "adapterId": {
+              "state": "known",
+              "value": "embedded-pty"
+            },
+            "shellId": {
+              "state": "known",
+              "value": "pwsh"
+            },
+            "createdAt": {
+              "state": "known",
+              "value": "2026-10-04T10:00:00.000Z"
+            },
+            "updatedAt": {
+              "state": "known",
+              "value": "2026-10-04T10:00:00.000Z"
+            },
+            "settledAt": {
+              "state": "known",
+              "value": null
+            },
+            "pinnedAt": {
+              "state": "known",
+              "value": null
+            },
+            "status": {
+              "state": "known",
+              "value": "waiting"
+            },
+            "activityStatus": {
+              "state": "known",
+              "value": "waiting"
+            },
+            "counts": {
+              "state": "known",
+              "value": {
+                "running": 0,
+                "waiting": 1,
+                "unknown": 0,
+                "error": 0,
+                "closed": 0,
+                "agents": 0
+              }
+            },
+            "env": {
+              "state": "known",
+              "value": []
+            },
+            "window": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "canFocus": {
+              "state": "known",
+              "value": true
+            },
+            "canAddTab": {
+              "state": "known",
+              "value": true
+            },
+            "controlReason": {
+              "state": "known",
+              "value": null
+            },
+            "error": {
+              "state": "known",
+              "value": null
+            },
+            "terminalLifetime": {
+              "state": "known",
+              "value": "app-owned"
+            },
+            "shellSurvival": {
+              "state": "known",
+              "value": false
+            }
+          },
+          "tabs": [
+            {
+              "id": "00000000-0000-4000-9000-000000000001",
+              "sessionId": "00000000-0000-4000-8000-000000000001",
+              "title": "Shell 1",
+              "sourceKind": {
+                "state": "known",
+                "value": "pty"
+              },
+              "facts": {
+                "cwd": {
+                  "state": "known",
+                  "value": "C:\\projects\\same folder"
+                },
+                "ordinal": {
+                  "state": "known",
+                  "value": 1
+                },
+                "createdAt": {
+                  "state": "known",
+                  "value": "2026-10-04T10:00:00.000Z"
+                },
+                "lifecycle": {
+                  "state": "known",
+                  "value": "open"
+                },
+                "status": {
+                  "state": "known",
+                  "value": "waiting"
+                },
+                "agents": {
+                  "state": "known",
+                  "value": 0
+                },
+                "monitoringReason": {
+                  "state": "known",
+                  "value": null
+                },
+                "error": {
+                  "state": "known",
+                  "value": null
+                },
+                "generation": {
+                  "state": "known",
+                  "value": "00000000-0000-4000-a000-000000000001"
+                },
+                "terminalKind": {
+                  "state": "known",
+                  "value": "embedded"
+                },
+                "profileId": {
+                  "state": "known",
+                  "value": "pwsh"
+                },
+                "exitCode": {
+                  "state": "known",
+                  "value": null
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "session",
+        "value": {
+          "id": "90000000-0000-4000-8000-000000000001",
+          "title": "Raw source",
+          "facts": {
+            "cwd": {
+              "state": "known",
+              "value": "/fixture"
+            },
+            "adapterId": {
+              "state": "notApplicable"
+            },
+            "shellId": {
+              "state": "notApplicable"
+            },
+            "createdAt": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "updatedAt": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "settledAt": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "pinnedAt": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "status": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "activityStatus": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "counts": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "env": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "window": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "canFocus": {
+              "state": "known",
+              "value": false
+            },
+            "canAddTab": {
+              "state": "known",
+              "value": false
+            },
+            "controlReason": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "error": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "terminalLifetime": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            },
+            "shellSurvival": {
+              "state": "unknown",
+              "reason": "notRecorded"
+            }
+          },
+          "tabs": [
+            {
+              "id": "50000000-0000-4000-8000-000000000001",
+              "sessionId": "90000000-0000-4000-8000-000000000001",
+              "title": "Raw source",
+              "sourceKind": {
+                "state": "known",
+                "value": "automationPipe"
+              },
+              "facts": {
+                "cwd": {
+                  "state": "known",
+                  "value": "/fixture"
+                },
+                "ordinal": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "createdAt": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "lifecycle": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "status": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "agents": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "monitoringReason": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "error": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "generation": {
+                  "state": "known",
+                  "value": "60000000-0000-4000-8000-000000000001"
+                },
+                "terminalKind": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                },
+                "profileId": {
+                  "state": "notApplicable"
+                },
+                "exitCode": {
+                  "state": "unknown",
+                  "reason": "notRecorded"
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "kind": "unavailable",
+        "sessionId": "a0000000-0000-4000-8000-000000000001",
+        "issues": [
+          {
+            "reason": "inconsistentMembership",
+            "fields": [
+              "runtime"
+            ]
+          }
+        ]
+      }
+    ],
+    "settings": {
+      "state": "unknown",
+      "reason": "pending"
+    },
+    "probe": {
+      "state": "unknown",
+      "reason": "unavailable"
+    },
+    "explorer": {
+      "state": "notApplicable"
+    },
+    "cli": {
+      "state": "notApplicable"
+    }
+  }
+}

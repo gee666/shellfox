@@ -1,0 +1,31 @@
+.session-target-menu { width: 224px; max-width: calc(100vw - 24px); }
+.session-target-caption { padding: 6px 8px 7px; color: var(--muted); font-size: 10px; letter-spacing: .04em; }
+.session-target-items { max-height: 280px; overflow: auto; scrollbar-width: thin; }
+.context-menu .session-target-item { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 7px 8px; border-radius: 3px; }
+.session-target-item > svg { flex: 0 0 15px; color: var(--muted); }
+.session-target-item > span:not(.machine-connection-dot) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.session-target-item small { display: block; margin-top: 3px; font-size: 10px; }
+.context-menu .session-target-item:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; background: var(--hover); }
+.context-menu .session-target-item[data-selected=true] > svg:last-child { color: var(--accent); }
+.session-target-item:disabled { opacity: .45; }
+.directory-machine { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; color: var(--fg); font-size: 11px; }
+.directory-machine svg { width: 13px; height: 13px; color: var(--muted); }
+.directory-machine small { margin-left: auto; font-size: 10px; }
+.directory-create-confirm { display: grid; gap: 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.directory-create-confirm strong { display: block; font-size: 12px; font-weight: 500; }
+.directory-create-confirm small { display: block; margin-top: 4px; font-size: 11px; }
+.directory-confirm-actions { display: flex; justify-content: flex-end; gap: 7px; }
+.directory-confirm-actions button { min-height: 28px; padding: 4px 10px; }
+.directory-confirm-actions .primary { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb), .08); }
+.directory-confirm-actions .primary:hover { background: rgba(var(--accent-rgb), .16); }
+.machine-connection-panel { display: flex; flex: 1; align-items: center; justify-content: center; flex-direction: column; gap: 10px; padding: 32px; text-align: center; color: var(--muted); }
+.machine-connection-panel h2 { margin: 0; color: var(--fg); font-size: 15px; font-weight: 500; }
+.machine-connection-panel p { max-width: 340px; font-size: 12px; line-height: 1.6; }
+.machine-connection-panel small { max-width: 340px; font-size: 11px; }
+.machine-connection-panel button { margin-top: 4px; padding: 5px 12px; }
+.machine-connection-emblem { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin-bottom: 4px; border: 1px solid var(--border); border-radius: 5px; }
+.machine-connection-emblem svg { width: 19px; height: 19px; }
+.machine-connection-emblem.pending { color: var(--accent); border-color: rgba(var(--accent-rgb), .4); }
+.sidebar-toolbar > button { position: relative; }
+.toolbar-request-count { position: absolute; right: 1px; top: 1px; display: flex; align-items: center; justify-content: center; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 6px; background: var(--accent); color: var(--on-accent); font-size: 9px; line-height: 1; }
+.toast .notice-action { align-self: center; flex: 0 0 auto; padding: 3px 7px; margin-left: 4px; color: var(--accent); font-size: 11px; }

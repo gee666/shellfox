@@ -1,0 +1,47 @@
+/* The xterm theme is derived in theme.ts and applied by TerminalRegistry.setTheme. */
+.terminal-workspace { position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.terminal-tab-strip { display: flex; align-items: center; flex: 0 0 30px; height: 30px; min-width: 0; background: var(--sidebar); border-bottom: 1px solid var(--border); }
+.terminal-tabs { display: flex; min-width: 0; overflow-x: auto; height: 30px; scrollbar-width: none; }
+.terminal-tabs::-webkit-scrollbar { display: none; }
+.terminal-tabs-windowed { flex: 1; overflow-anchor: none; }
+.terminal-tabs-windowed > .terminal-tab-item { box-sizing: border-box; }
+.terminal-tab-spacer { flex: 0 0 auto; pointer-events: none; }
+.terminal-tab-item { display: flex; align-items: center; flex: 0 0 auto; min-width: 90px; max-width: 180px; height: 30px; border-right: 1px solid var(--border); border-bottom: 2px solid transparent; }
+.terminal-tab-item.tab-drop-target { box-shadow: inset 2px 0 var(--accent); }
+.terminal-admin-badge { flex: 0 0 auto; margin-left: 5px; padding: 0 3px; border: 1px solid var(--muted); border-radius: 2px; color: var(--fg); font: 10px/14px Consolas, monospace; }
+.tab-rename { width: 130px; min-width: 0; height: 24px; margin: 0 4px; padding: 0 4px; font-size: 12px; }
+.terminal-tab-item.active { background: var(--panel); border-bottom-color: var(--accent); }
+.terminal-tab-item [role='tab'] { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; text-align: left; }
+.terminal-tab-item.active [role='tab'] { color: var(--fg); }
+.terminal-tab-item [role='tab']:hover { background: var(--row-hover); }
+.terminal-tab-item [role='tab'] > span:last-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.tab-close { width: 24px; height: 24px; margin-right: 2px; opacity: 0; }
+.tab-close svg { width: 12px; height: 12px; }
+.terminal-tab-item:hover .tab-close, .terminal-tab-item.active .tab-close, .terminal-tab-item:focus-within .tab-close { opacity: 1; }
+.new-terminal { width: 28px; height: 28px; margin: 0 4px; }
+.terminal-panel, .terminal-viewport { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.terminal-viewport { position: relative; }
+.terminal-host { position: relative; flex: 1; min-height: 0; min-width: 0; overflow: hidden; padding: 8px 2px 8px 8px; }
+.terminal-surface { width: 100%; height: 100%; overflow: hidden; }
+.terminal-surface .xterm { height: 100%; overflow: hidden; background: var(--bg); }
+/* xterm 6 scrolls through .xterm-scrollable-element. The retained viewport
+   hosts the overview ruler, but must not draw a second, native scrollbar. */
+.terminal-surface .xterm .xterm-viewport { overflow: hidden; background: transparent; }
+.terminal-surface .xterm .xterm-scrollable-element { overflow: hidden; }
+.terminal-surface .xterm .scrollbar.horizontal { display: none; }
+.terminal-buffer-note { position: absolute; z-index: 1; top: 8px; right: 12px; font-size: 11px; color: var(--muted); background: var(--bg); pointer-events: none; }
+.terminal-buffer-note { top: auto; bottom: 8px; }
+.terminal-reconnect { position: absolute; z-index: 1; top: 8px; right: 12px; }
+.terminal-loading { flex: 1; align-self: stretch; padding: 12px; color: var(--accent); font: 14px/20px 'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace; }
+.terminal-host[hidden] { display: none; }
+.terminal-control-blocked { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: var(--bg); color: var(--muted); font-size: 12px; }
+.terminal-loading-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; background: var(--bg); }
+.terminal-loading-dots > span { animation: terminal-dot 1.2s steps(2, end) infinite; }
+.terminal-loading-dots > span:nth-child(2) { animation-delay: .2s; }
+.terminal-loading-dots > span:nth-child(3) { animation-delay: .4s; }
+@keyframes terminal-dot { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+.terminal-brand { color: var(--accent); text-align: center; user-select: none; }
+.terminal-brand pre { margin: 0 0 26px; font: 8px/9px Consolas, 'DejaVu Sans Mono', monospace; white-space: pre; text-align: left; opacity: var(--brand-opacity); }
+.terminal-brand > span { font: 13px/20px Consolas, 'DejaVu Sans Mono', monospace; letter-spacing: 2px; opacity: var(--brand-label-opacity); }
+.terminal-empty-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .terminal-loading-dots > span { animation: none; } }

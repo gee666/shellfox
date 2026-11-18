@@ -6,8 +6,15 @@ describe('mobile terminal bridge protocol', () => {
     for (const value of ['{', 'null', JSON.stringify({ type: 'input', ...identity, data: 'x', command: 'eval' }),
       JSON.stringify({ type: 'resize', ...identity, cols: 501, rows: 24 }),
       JSON.stringify({ type: 'rendered', ...identity, ticket: -1 }),
-      JSON.stringify({ type: 'input', ...identity, data: '\0' }),
       JSON.stringify({ type: 'input', ...identity, data: 'é'.repeat(32769) }), 'x'.repeat(400001)]) expect(parsePageMessage(value)).toBeNull();
+  });
+  it('preserves Ctrl+Space NUL as bounded terminal input, not arbitrary bridge metadata', () => {
+    for (const data of ['\u0000', 'A\u0000B']) {
+      const message = { type: 'input', ...identity, data };
+      expect(parsePageMessage(JSON.stringify(message))).toEqual(message);
+    }
+    expect(parsePageMessage(JSON.stringify({ type: 'input', ...identity, data: '\u0000', binary: true }))).toBeNull();
+    expect(hostMessageSchema.safeParse({ type: 'paste', ...identity, data: '\u0000' }).success).toBe(false);
   });
   it('accepts IME input, resize, selection and render receipts', () => {
     const message = { type: 'input', ...identity, data: '日本語\r' };

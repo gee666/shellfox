@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.net.RouteInfo
+import java.net.InetAddress
 import mobile.Mobile
 import mobile.NetworkProvider
 import org.json.JSONArray
@@ -44,7 +46,7 @@ class AndroidNetworkProvider(context: Context) : NetworkProvider {
         .put("addresses", addresses))
     }
     val properties = connectivity.activeNetwork?.let { connectivity.getLinkProperties(it) }
-    val gateway = properties?.routes?.firstOrNull { it.isDefaultRoute && it.hasGateway() }?.gateway
+    val gateway = defaultGateway(properties?.routes.orEmpty())
     return JSONObject()
       .put("interfaces", interfaces)
       .put("defaultInterface", properties?.interfaceName ?: "")
@@ -52,3 +54,7 @@ class AndroidNetworkProvider(context: Context) : NetworkProvider {
       .toString()
   }
 }
+
+// RouteInfo.hasGateway requires API 29. This is its API-24-compatible predicate.
+internal fun defaultGateway(routes: List<RouteInfo>): InetAddress? =
+  routes.firstOrNull { it.isDefaultRoute && it.gateway?.isAnyLocalAddress == false }?.gateway

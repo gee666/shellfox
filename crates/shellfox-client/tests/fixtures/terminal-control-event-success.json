@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "value": {
+    "events": [
+      {
+        "type": "terminal",
+        "event": {
+          "type": "control",
+          "tabId": "20000000-0000-4000-8000-000000000001",
+          "generation": "30000000-0000-4000-8000-000000000001",
+          "control": "blocked",
+          "controlEpoch": 2
+        }
+      }
+    ]
+  }
+}

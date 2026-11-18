@@ -306,7 +306,7 @@ export class TerminalBridge {
   input(data: string, userInitiated = true, settledAt = this.settledAt): void {
     if (this.options.readOnly) return;
     const generation = this.generation, epoch = this.epoch, controlEpoch = this.controlEpoch;
-    if (!this.alive || !this.attached || !this.open || !generation || !data || data.includes('\0')) return;
+    if (!this.alive || !this.attached || !this.open || !generation || !data) return;
     const bytes = utf8Size(data);
     if (this.inputBytes + bytes > 65536) { this.report(new Error('Paste a smaller section of text.')); return; }
     if (userInitiated) this.options.onInput?.();

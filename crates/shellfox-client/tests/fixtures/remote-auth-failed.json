@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "AUTH_FAILED",
+    "message": "Unverified remote peer.",
+    "retryable": false
+  }
+}

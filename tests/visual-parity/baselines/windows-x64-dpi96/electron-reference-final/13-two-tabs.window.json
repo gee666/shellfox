@@ -1,0 +1,29 @@
+{
+  "clientOrigin": {
+    "X": 72,
+    "Y": 95
+  },
+  "dwm": {
+    "Left": 71,
+    "Top": 64,
+    "Right": 1273,
+    "Bottom": 856
+  },
+  "focused": true,
+  "dpi": 96,
+  "client": {
+    "Left": 0,
+    "Top": 0,
+    "Right": 1200,
+    "Bottom": 760
+  },
+  "birth": "134390839575751562",
+  "window": {
+    "Left": 64,
+    "Top": 64,
+    "Right": 1280,
+    "Bottom": 863
+  },
+  "pid": 33260,
+  "hwnd": "31917988"
+}

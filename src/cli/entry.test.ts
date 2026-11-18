@@ -1,3 +1,5 @@
+import { registerEndpointRoot } from '../../tests/unit/endpoint-permission-model';
+import { registerDirectoryDriveChecks } from '../../tests/unit/directory-drive-model';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -11,10 +13,11 @@ import { runShellfoxCli } from '../main/platform/shellfox-cli-entry';
 import { success } from '../shared/contracts';
 import type { HostRemoteService } from '../host/rpc';
 import type { RemoteState } from '../shared/remote-contracts';
+vi.mock('../main/control-stats', () => ({ createSessionStatsCollector: () => async () => [] }));
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); for (const action of cleanup.splice(0).reverse()) await action(); });
 async function fixture(mode: 'desktop' | 'headless' = 'headless', remote?: HostRemoteService) {
-  await mkdir('tmp', { recursive: true }); const userData = await mkdtemp(path.resolve('tmp/cli-entry-'));
+  await mkdir('tmp', { recursive: true }); const userData = await mkdtemp(path.resolve('tmp/cli-entry-')); registerEndpointRoot(userData, ['host', 'control']);
   cleanup.push(() => rm(userData, { recursive: true, force: true }));
   const pty = factoryFixture(), repository = new MemoryRepository();
   const service = new EmbeddedSessionService(repository, new PtyBackend(pty.options), () => ({ setWatch() {}, dispose() {} }));
@@ -38,7 +41,8 @@ describe.each(['desktop', 'headless'] as const)('%s-owned host CLI', mode => {
   it('creates and lists through canonical and alias namespaces without stealing desktop selection', async () => {
     const f = await fixture(mode), changes: unknown[] = [];
     f.service.subscribe(event => changes.push(event));
-    const created = await run(f.userData, ['session', 'create', '.']);
+    await registerDirectoryDriveChecks(f.userData, [f.userData]);
+    const created = await run(f.userData, ['session', 'create', f.userData]);
     expect(created.code).toBe(0); expect(created.value.ok).toBe(true); expect(created.stderr).toBe('');
     const id = created.value.value.id;
     const listed = await run(f.userData, ['sessions', 'list']);
@@ -49,7 +53,8 @@ describe.each(['desktop', 'headless'] as const)('%s-owned host CLI', mode => {
   }, 15000);
   it('requires --yes without prompting and supports validated generic methods', async () => {
     const f = await fixture(mode);
-    const created = await run(f.userData, ['sessions', 'create', '.', '--title', 'CLI project']);
+    await registerDirectoryDriveChecks(f.userData, [f.userData]);
+    const created = await run(f.userData, ['sessions', 'create', f.userData, '--title', 'CLI project']);
     const sessionId = created.value.value.id;
     const denied = await run(f.userData, ['api', 'deleteSession', '--input', JSON.stringify({ sessionId })]);
     expect(denied.code).toBe(2); expect(denied.value.error.code).toBe('VALIDATION'); expect(denied.stderr).toBe('');
@@ -85,8 +90,9 @@ it('uses local remote management and --host forwarding rather than local session
 }, 15000);
 it('targets current sessions locally, but an explicit ID always wins over the marker', async () => {
   const f = await fixture();
-  const first = await run(f.userData, ['session', 'create', '.']);
-  const second = await run(f.userData, ['session', 'create', '.']);
+  await registerDirectoryDriveChecks(f.userData, [f.userData, f.userData]);
+  const first = await run(f.userData, ['session', 'create', f.userData]);
+  const second = await run(f.userData, ['session', 'create', f.userData]);
   const marker = f.service.backend.live().find(terminal => terminal.sessionId === first.value.value.id)?.root.marker;
   if (!marker) throw new Error('Missing fixture marker');
   vi.stubEnv('SHELLFOX_TERMINAL_MARKER', marker);

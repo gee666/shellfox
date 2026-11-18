@@ -34,6 +34,16 @@ func enroll(ctx context.Context, client loginClient, key string) error {
 		return errors.New("Invalid enrollment key")
 	}
 	if key == "" {
+		// Match interactive tailscale up without replacing selected control/state
+		// or dropping unrelated preferences on the retained LocalAPI.
+		prefs, err := client.GetPrefs(ctx)
+		if err != nil || prefs == nil {
+			return errors.New("Cannot read network preferences")
+		}
+		prefs.WantRunning = true
+		if err := client.Start(ctx, ipn.Options{UpdatePrefs: prefs}); err != nil {
+			return errors.New("Cannot start network login")
+		}
 		if err := client.StartLoginInteractive(ctx); err != nil {
 			return errors.New("Cannot start login")
 		}

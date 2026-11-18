@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { afterEach, expect, it, vi } from 'vitest';
 import { HostClient } from '../../host/client';
 import { startHostRpc } from '../../host/rpc';
+import { registerEndpointRoot } from '../../../tests/unit/endpoint-permission-model';
 import type { RemoteEvent } from '../../shared/remote-contracts';
 import { FakeRemoteHelper, remoteFixture, signedHeaders } from './test-fixtures';
 
@@ -13,6 +14,7 @@ async function fixture() {
   const host = await remoteFixture(network, 'host'), client = await remoteFixture(network, 'client');
   cleanups.push(host.dispose, client.dispose);
   for (const node of [host, client]) {
+    registerEndpointRoot(node.directory, ['host']);
     const rpc = await startHostRpc({ userData: node.directory, mode: 'headless', service: node.service, remote: node.remote, shutdown: async () => {} });
     cleanups.push(() => rpc.close());
   }

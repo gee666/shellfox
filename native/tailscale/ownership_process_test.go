@@ -85,7 +85,7 @@ func (child *ownershipChild) wait(t *testing.T) {
 }
 
 func TestOwnershipMultiprocessContentionAndEOFRelease(t *testing.T) {
-	dir := t.TempDir()
+	dir := ownershipTestRoot(t)
 	owner := startOwnershipChild(t, dir, true)
 	path := filepath.Join(dir, ownershipDirectory, ownershipFilename)
 	before, err := os.Stat(path)
@@ -108,7 +108,7 @@ func TestOwnershipMultiprocessContentionAndEOFRelease(t *testing.T) {
 }
 
 func TestOwnershipProcessDeathReleasesKernelLock(t *testing.T) {
-	dir := t.TempDir()
+	dir := ownershipTestRoot(t)
 	owner := startOwnershipChild(t, dir, true)
 	if err := owner.command.Process.Kill(); err != nil {
 		t.Fatal(err)

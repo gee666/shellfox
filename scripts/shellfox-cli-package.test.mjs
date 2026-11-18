@@ -15,7 +15,7 @@ test('production CLI bundle and staged runtime execute custom commands from the 
   try {
     const buildScript = await readFile('scripts/build.mjs', 'utf8');
     assert.ok(buildScript.includes("import { buildShellfoxCli } from './shellfox-cli-build.mjs'"));
-    assert.ok(buildScript.includes("await buildShellfoxCli(output + '/cli')"));
+    assert.ok(buildScript.includes("await buildShellfoxCli(output + '/cli', helperBuild.sha256)"));
     const resources = path.join(root, 'resources', 'cli');
     await buildShellfoxCli(resources);
     const version = JSON.parse(await readFile('package.json', 'utf8')).version;

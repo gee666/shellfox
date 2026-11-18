@@ -4,8 +4,8 @@ import path from 'node:path';
 import { mkdir, mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { LinuxCliIntegration } from './linux-cli';
 import { LinuxFileMenus, thunarActions, nautilusExtension, nemoAction, dolphinMenu, fileManagerScript } from './linux-menus';
-vi.mock('node:child_process', async importOriginal => {
- const actual=await importOriginal<typeof import('node:child_process')>();
+vi.mock('node:child_process', async () => {
+ const actual=(await import('../../../tests/unit/app-process-model')).unitChildProcess;
  return {...actual,execFile:vi.fn(actual.execFile)};
 });
 afterEach(() => vi.resetAllMocks());
@@ -69,7 +69,7 @@ it('keeps unowned Thunar XML byte-for-byte and requires an action ownership comm
 });
 it('does not claim or change foreign menu files that mention the marker',async()=>{
  await mkdir(path.resolve('tmp'),{recursive:true});const home=await mkdtemp(path.resolve('tmp/linux-marker-'));
- const cli=new LinuxCliIntegration({executable:'/fake/app',home}),menus=new LinuxFileMenus(cli,{home,env:{},managers:['nemo']});
+ const cli=new LinuxCliIntegration({executable:'/fake/app',home}),menus=new LinuxFileMenus(cli,{home,env:{},managers:['nemo'],nautilusPython:false});
  try {
   const file=path.join(home,'.local/share/nemo/actions/shellfox.nemo_action');
   await mkdir(path.dirname(file),{recursive:true});const content='# Instructions refer to Shellfox/linux-v1\n[Nemo Action]\nName=Keep me\n';await writeFile(file,content);

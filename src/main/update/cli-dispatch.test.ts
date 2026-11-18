@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { dispatchDesktopLaunch, launchConfig } from '../platform/shellfox-cli-launch';
 import updateSh from './shellfox-update.sh';
 
-vi.mock('node:child_process', async importOriginal => ({ ...await importOriginal<typeof import('node:child_process')>(), spawn: vi.fn() }));
+vi.mock('node:child_process', async () => ({ ...(await import('../../../tests/unit/app-process-model')).unitChildProcess, spawn: vi.fn() }));
 afterEach(() => { vi.restoreAllMocks(); vi.resetAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 function configure(platform: string) {
   vi.stubGlobal('process', { ...process, platform });

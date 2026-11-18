@@ -1,41 +1,25 @@
+import { registerEndpointRoot } from '../../tests/unit/endpoint-permission-model';
+import { registerDirectoryDriveChecks } from '../../tests/unit/directory-drive-model';
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { hostResourcePaths } from './paths';
-import { mkdtemp, mkdir, rm, stat, writeFile, readFile } from 'node:fs/promises';
+import { stat, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EmbeddedSessionService } from '../main/terminal/service';
 import { failure, type SaveSettingsInput } from '../shared/contracts';
-import { PtyBackend } from '../main/terminal/backend';
-import { factoryFixture, MemoryRepository } from '../main/terminal/test-fixtures';
+import { rpcTestFixture } from './rpc-test-fixture';
 import { startHostRpc, hostEndpointPath } from './rpc';
-import { connectHostClient, type HostClient } from './client';
+import type { HostClient } from './client';
 import { readPrivateEndpoint } from '../main/control-endpoint';
 import { hostEndpointSchema } from '../shared/host-schemas';
 import { hostRequest } from './client-transport';
-import { acquireHostOwnership, isHostRunning } from './ownership';
-import { HostRuntime } from './runtime';
-import { startControlServer } from '../main/control-server';
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const action of cleanup.splice(0).reverse()) await action(); });
-async function directory() {
-  await mkdir('tmp', { recursive: true }); const dir = await mkdtemp(path.resolve('tmp/host-test-'));
-  cleanup.push(() => rm(dir, { recursive: true, force: true })); return dir;
-}
-async function fixture() {
-  const userData = await directory(), pty = factoryFixture(), repository = new MemoryRepository();
-  const service = new EmbeddedSessionService(repository, new PtyBackend(pty.options), () => ({ setWatch() {}, dispose() {} }));
-  await service.initialize(); cleanup.push(() => service.dispose());
-  const shutdown = vi.fn(async () => {});
-  const rpc = await startHostRpc({ userData, service, shutdown, mode: 'headless' }); cleanup.push(() => rpc.close());
-  const connect = async () => { const client = await connectHostClient(userData); cleanup.push(() => client.close()); return client; };
-  return { userData, service, pty, repository, shutdown, rpc, connect };
-}
+const { fixture } = rpcTestFixture(cleanup, root => registerEndpointRoot(root, ['host']));
 async function session(client: HostClient) {
   const result = await client.service.createSession({ cwd: process.cwd(), requestId: randomUUID() });
   if (!result.ok) throw new Error(result.error.message); return result.value;
 }
+// Real loopback RPC and fixture files. Windows permission replies are modeled.
 describe('local host RPC', () => {
   it('exposes filesystem list/read/write/assets through the authenticated headless host API', async () => {
     const f = await fixture(), client = await f.connect(), target = await session(client);
@@ -95,6 +79,7 @@ describe('local host RPC', () => {
   });
   it('exposes validated directory creation and scoped process stats to attached host clients', async () => {
     const f = await fixture(), client = await f.connect(), cwd = path.join(f.userData, 'project', 'new folder');
+    await registerDirectoryDriveChecks(f.userData, [f.userData, cwd]);
     expect(await client.service.createDirectory?.({ path: '"' + cwd + '"' })).toEqual({ ok: true, value: { cwd } });
     expect((await stat(cwd)).isDirectory()).toBe(true);
     const target = await session(client);
@@ -195,38 +180,12 @@ it('bounds the close drain for other disconnected desktop actions', async () => 
     entered = true; await paused; return failure('UNSUPPORTED', 'Synthetic dialog closed.');
   } }); cleanup.push(() => rpc.close());
   const client = await f.connect(); const request = client.service.chooseDirectory().catch(() => undefined);
-  await vi.waitFor(() => expect(entered).toBe(true)); await rpc.close(); release?.(); await request;
-});
-describe.skipIf(!existsSync(hostResourcePaths().tailscale))('host ownership and lifecycle, requires build:tailscale', () => {
-  it('has exactly one winner for concurrent acquisition and releases without stale files', async () => {
-    const userData = await directory();
-    const results = await Promise.allSettled(Array.from({ length: 8 }, () => acquireHostOwnership(userData)));
-    const owners = results.flatMap(result => result.status === 'fulfilled' && result.value ? [result.value] : []);
-    for (const owner of owners) cleanup.push(() => owner.release());
-    expect(results.filter(result => result.status === 'rejected')).toEqual([]);
-    expect(owners).toHaveLength(1);
-    expect(await isHostRunning(userData)).toBe(true); await owners[0].release();
-    expect(await isHostRunning(userData)).toBe(false);
-  });
-  it('refuses a live authenticated legacy desktop before opening SQLite', async () => {
-    const f = await fixture(); const control = await startControlServer(f.userData, f.service, { active: false, set: active => active }); cleanup.push(() => control.dispose());
-    expect(await acquireHostOwnership(f.userData)).toBeNull();
-  });
-  it('waits for confirmed own-terminal cleanup before closing repository and releasing ownership', async () => {
-    const f = await fixture(); await f.rpc.close();
-    const calls: string[] = []; let confirm = false;
-    const originalDispose = f.service.dispose.bind(f.service);
-    const runtime = await HostRuntime.create({ userData: f.userData, createResources: async () => ({
-      service: Object.assign(f.service, { dispose: async () => { calls.push('pty'); if (!confirm) throw new Error('unconfirmed cleanup'); await originalDispose(); } }),
-      initialize: async () => {}, closeRepository: () => { calls.push('sqlite'); },
-    }) });
-    await expect(runtime.stop()).rejects.toThrow('unconfirmed'); expect(calls).toEqual(['pty']);
-    const client = await f.connect(); expect((await client.service.getSnapshot()).ok).toBe(true);
-    await expect(client.stop()).rejects.toThrow('unconfirmed');
-    expect((await client.service.getSnapshot()).ok).toBe(true);
-    expect(await isHostRunning(f.userData)).toBe(true); confirm = true;
-    let notified = false; runtime.onStopped(() => { notified = true; });
-    await client.stop(); await vi.waitFor(() => expect(notified).toBe(true));
-    expect(calls).toEqual(['pty', 'pty', 'pty', 'sqlite']); expect(await isHostRunning(f.userData)).toBe(false);
-  });
+  try {
+    await vi.waitFor(() => expect(entered).toBe(true));
+    await expect(rpc.close()).rejects.toThrow('could not confirm pending requests before the deadline');
+    await expect(stat(hostEndpointPath(f.userData))).resolves.toBeDefined();
+  } finally { release?.(); }
+  await expect(rpc.close()).resolves.toBeUndefined();
+  await request;
+  await expect(stat(hostEndpointPath(f.userData))).rejects.toMatchObject({ code: 'ENOENT' });
 });

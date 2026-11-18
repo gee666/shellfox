@@ -3,17 +3,17 @@ import { AppState } from 'react-native';
 import { isAttachmentPickerOpen } from './attachment-picker-lifecycle';
 import { v4 as uuid } from 'uuid';
 import type { ManagerSnapshot } from '../../src/shared/contracts';
-import { RemoteClient, type ClientState } from './client/client';
+import { createHostClient, type HostClient, type ClientState } from './client/factory';
 import { RemoteClientError } from './client/protocol';
 import { isConnectionFailure } from './connection-status';
 import { NetworkRecovery } from './network-recovery';
-import { nativeNetwork, discoverHosts, networkStatus, type NetworkPeer, type NetworkStatus } from './network';
+import { nativeNetwork, discoverHosts, discoverManagerCandidates, networkStatus, type NetworkPeer, type NetworkStatus } from './network';
 import { defaultPreferences, loadPreferences, savePreferences, type Preferences } from './preferences';
 
-export interface MachineView { peer: NetworkPeer; client: RemoteClient; state: ClientState; snapshot: ManagerSnapshot | null; snapshotConnectionId: string | null; busyTabIds: Record<string, boolean> }
+export interface MachineView { peer: NetworkPeer; client: HostClient; state: ClientState; snapshot: ManagerSnapshot | null; snapshotConnectionId: string | null; busyTabIds: Record<string, boolean> }
 interface SnapshotRefresh { connectionId: string | null; promise: Promise<void>; next?: SnapshotRefresh }
 export const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Something went wrong.';
-export function useShellfox() {
+export function useShellfox(enableLegacyClients = true, controlURL?: string) {
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [ready, setReady] = useState(false);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
@@ -22,9 +22,9 @@ export function useShellfox() {
   const [network, setNetwork] = useState<NetworkStatus>({ status: 'starting', loginUrl: null, error: null });
   const [peers, setPeers] = useState<NetworkPeer[]>([]);
   const [machines, setMachines] = useState<MachineView[]>([]);
-  const [snapshotRequests, setSnapshotRequests] = useState(new Map<RemoteClient, string | null>());
+  const [snapshotRequests, setSnapshotRequests] = useState(new Map<HostClient, string | null>());
   const [error, setError] = useState<string | null>(null);
-  const clients = useRef(new Map<string, { client: RemoteClient; dispose: () => void }>());
+  const clients = useRef(new Map<string, { client: HostClient; dispose: () => void }>());
   const current = useRef(defaultPreferences);
   const disconnecting = useRef(new Set<string>());
   const cancelled = useRef(new Set<string>());
@@ -41,7 +41,7 @@ export function useShellfox() {
   const nextStart = useRef(0);
   const recovery = useRef(new NetworkRecovery());
   const pollNow = useRef<() => Promise<void>>(async () => {});
-  const refreshes = useRef(new WeakMap<RemoteClient, SnapshotRefresh>());
+  const refreshes = useRef(new WeakMap<HostClient, SnapshotRefresh>());
 
   const report = useCallback((cause: unknown) => {
     if (cause instanceof RemoteClientError && isConnectionFailure(cause.detail)) return;
@@ -62,7 +62,7 @@ export function useShellfox() {
     return work;
   }, []);
   const updatePreferences = useCallback((patch: Partial<Preferences>) => changePreferences(value => ({ ...value, ...patch })), [changePreferences]);
-  const readSnapshot = useCallback(async (client: RemoteClient) => {
+  const readSnapshot = useCallback(async (client: HostClient) => {
     const connectionId = client.getState().connectionId;
     setSnapshotRequests(requests => new Map(requests).set(client, connectionId));
     const result = await client.request('getSnapshot', {}).finally(() => {
@@ -83,7 +83,7 @@ export function useShellfox() {
     }
     else if (!isConnectionFailure(result.error)) report(new RemoteClientError(result.error));
   }, [report]);
-  const refresh = useCallback((client: RemoteClient): Promise<void> => {
+  const refresh = useCallback((client: HostClient): Promise<void> => {
     const connectionId = client.getState().connectionId;
     const previous = refreshes.current.get(client);
     const pending = previous?.connectionId === connectionId ? previous : undefined;
@@ -102,8 +102,9 @@ export function useShellfox() {
     return task.promise;
   }, [readSnapshot]);
   const ensureClient = useCallback((peer: NetworkPeer) => {
+    if (!enableLegacyClients) throw new Error('The legacy client is not selected.');
     const found = clients.current.get(peer.id); if (found) return found.client;
-    const client = new RemoteClient(peer.id, nativeNetwork, { createClientId: uuid });
+    const client = createHostClient(peer.id, nativeNetwork, { createClientId: uuid });
     const unsubState = client.subscribeState(state => {
       if (!alive.current) return;
       const denied = state.status === 'rejected' || state.status === 'awaiting-approval';
@@ -133,7 +134,7 @@ export function useShellfox() {
     clients.current.set(peer.id, { client, dispose: () => { unsubState(); unsubEvents(); client.stop(); } });
     setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null, snapshotConnectionId: null, busyTabIds: {} }]);
     return client;
-  }, [refresh]);
+  }, [refresh, enableLegacyClients]);
 
   const networkFailure = useCallback((message: string) => {
     const working = [...clients.current.values()].some(({ client }) => client.getState().status === 'connected');
@@ -159,7 +160,10 @@ export function useShellfox() {
       }
       await nativeStarting.current?.catch(() => {});
       if (!alive.current || attempt !== startAttempt.current) return;
-      const task = nativeNetwork.start(current.current.hostname);
+      const explicitStart=nativeNetwork.startWithControlServer;
+      const task = controlURL === undefined ? nativeNetwork.start(current.current.hostname)
+        : explicitStart ? explicitStart(current.current.hostname, controlURL)
+        : Promise.reject(new Error('This binary has no explicit control-server start API.'));
       nativeStarting.current = task;
       try { await task; } finally { if (nativeStarting.current === task) nativeStarting.current = null; }
       if (!alive.current || attempt !== startAttempt.current) return;
@@ -173,7 +177,7 @@ export function useShellfox() {
         nextStart.current = Date.now() + 1000;
       }
     } finally { if (starting.current === attempt) starting.current = null; }
-  }, [report, networkFailure]);
+  }, [report, networkFailure, controlURL]);
 
   useEffect(() => {
     alive.current = true;
@@ -193,7 +197,7 @@ export function useShellfox() {
           fastPoll.current = status.status === 'starting';
         }
         if (status.status === 'online') {
-          const discovery = await discoverHosts(); if (!valid()) return;
+          const discovery = await (enableLegacyClients ? discoverHosts() : discoverManagerCandidates()); if (!valid()) return;
           recovery.current.reset(); setNetwork(status);
           const found = discovery.peers; setPeers(found); setDiscovering(discovery.discovering);
           fastPoll.current = discovery.discovering;
@@ -203,7 +207,7 @@ export function useShellfox() {
             if (status !== 'rejected' && status !== 'disconnected' && status !== 'connected' && !found.some(peer => peer.id === client.peerId && peer.online)) client.suspend();
           }
           for (const peer of found) {
-            if (!peer.online || disconnecting.current.has(peer.id) || cancelled.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
+            if (!enableLegacyClients || !peer.online || disconnecting.current.has(peer.id) || cancelled.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
             const client = ensureClient(peer);
             if (client.getState().status !== 'rejected') client.connect();
           }
@@ -279,6 +283,19 @@ export function useShellfox() {
     if (alive.current && token === epoch.current) setNetwork(status);
     return status;
   }, []);
+  const stopNetwork = useCallback(async () => {
+    ++epoch.current; ++startAttempt.current; started.current = false; starting.current = null;
+    transitioning.current = true; recovery.current.reset();
+    for (const entry of clients.current.values()) entry.dispose();
+    clients.current.clear(); setMachines([]); setSnapshotRequests(new Map());
+    try {
+      await nativeStarting.current?.catch(() => {});
+      await nativeNetwork.stop();
+      const status = await networkStatus();
+      if (status.status !== 'disabled') throw new Error('Network stop was not confirmed.');
+      if (alive.current) {setReady(false);setNetwork(status);setPeers([]);setDiscovering(false);}
+    } finally {transitioning.current = false;}
+  }, []);
   const logout = useCallback(async () => {
     ++epoch.current; ++startAttempt.current; started.current = false; starting.current = null; transitioning.current = true; setReady(false);
     for (const entry of clients.current.values()) entry.dispose(); clients.current.clear(); setMachines([]); setPeers([]);
@@ -307,6 +324,6 @@ export function useShellfox() {
       || machines.length > 0 && machines.every(machine => !machine.snapshot && (
         machine.state.status === 'connecting' || machine.state.status === 'reconnecting'
         || machine.state.status === 'connected' && snapshotRequests.get(machine.client) === machine.state.connectionId))));
-  return { ready, preferencesLoaded, loading, network, peers, machines, preferences, error, setError, report, updatePreferences, connect, disconnect, login, logout, renameDevice, refresh, retryStart };
+  return { ready, preferencesLoaded, loading, network, peers, machines, preferences, error, setError, report, updatePreferences, connect, disconnect, login, logout, stopNetwork, renameDevice, refresh, retryStart };
 }
 export type ShellfoxModel = ReturnType<typeof useShellfox>;

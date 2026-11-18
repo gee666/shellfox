@@ -11,7 +11,7 @@ import (
 )
 
 func TestOwnershipExclusiveAndStableAcrossReopen(t *testing.T) {
-	dir := t.TempDir()
+	dir := ownershipTestRoot(t)
 	file, locked, err := acquireOwnership(dir)
 	if err != nil || !locked {
 		t.Fatalf("first ownership: %v", err)
@@ -43,7 +43,7 @@ func TestOwnershipExclusiveAndStableAcrossReopen(t *testing.T) {
 }
 
 func TestOwnershipEOFReleasesWithoutRemovingFile(t *testing.T) {
-	dir := t.TempDir()
+	dir := ownershipTestRoot(t)
 	input, parent := io.Pipe()
 	defer input.Close()
 	defer parent.Close()
@@ -78,7 +78,7 @@ func TestOwnershipEOFReleasesWithoutRemovingFile(t *testing.T) {
 }
 
 func TestOwnershipRejectsInvalidPathsWithoutLeakingThem(t *testing.T) {
-	dir := t.TempDir()
+	dir := ownershipTestRoot(t)
 	regular := filepath.Join(dir, "not-a-directory-DO-NOT-ECHO")
 	if err := os.WriteFile(regular, nil, 0600); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestOwnershipRejectsInvalidPathsWithoutLeakingThem(t *testing.T) {
 		}
 	}
 	for _, target := range []string{ownershipDirectory, filepath.Join(ownershipDirectory, ownershipFilename)} {
-		root := t.TempDir()
+		root := ownershipTestRoot(t)
 		path := filepath.Join(root, target)
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
@@ -114,11 +114,9 @@ func TestOwnershipRejectsInvalidPathsWithoutLeakingThem(t *testing.T) {
 func TestOwnershipRejectsSymlinksAndHardlinks(t *testing.T) {
 	for _, target := range []string{"root", "directory", "file", "hardlink"} {
 		t.Run(target, func(t *testing.T) {
-			base, outside := t.TempDir(), t.TempDir()
+			base, outside := ownershipTestRoot(t), ownershipTestRoot(t)
 			root := filepath.Join(base, "data")
-			if err := os.Mkdir(root, 0700); err != nil {
-				t.Fatal(err)
-			}
+			ownershipTestDirectory(t, root)
 			if target == "root" {
 				root = filepath.Join(base, "root-link")
 				if err := os.Symlink(outside, root); err != nil {
@@ -129,9 +127,7 @@ func TestOwnershipRejectsSymlinksAndHardlinks(t *testing.T) {
 					t.Skip("OS disallows symlink creation")
 				}
 			} else {
-				if err := os.Mkdir(filepath.Join(root, ownershipDirectory), 0700); err != nil {
-					t.Fatal(err)
-				}
+				ownershipTestDirectory(t, filepath.Join(root, ownershipDirectory))
 				external := filepath.Join(outside, "external")
 				if err := os.WriteFile(external, []byte("unchanged"), 0600); err != nil {
 					t.Fatal(err)

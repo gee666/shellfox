@@ -16,6 +16,7 @@ type fakeLogin struct {
 	starts, interactive int
 	got                 ipn.Options
 	fail                string
+	prefs               *ipn.Prefs
 }
 
 func (f *fakeLogin) StatusWithoutPeers(context.Context) (*ipnstate.Status, error) {
@@ -35,7 +36,10 @@ func (f *fakeLogin) GetPrefs(context.Context) (*ipn.Prefs, error) {
 	if f.fail == "prefs" {
 		return nil, errors.New("tskey" + "-auth-" + "synthetic-secret")
 	}
-	return &ipn.Prefs{}, nil
+	if f.prefs == nil {
+		f.prefs = &ipn.Prefs{}
+	}
+	return f.prefs, nil
 }
 func (f *fakeLogin) Start(_ context.Context, o ipn.Options) error {
 	f.starts++
@@ -64,12 +68,29 @@ func TestEnrollmentAndInteractiveLogin(t *testing.T) {
 		}
 	}
 	f := &fakeLogin{}
-	if err := enroll(context.Background(), f, ""); err != nil || f.interactive != 1 || f.starts != 0 {
+	if err := enroll(context.Background(), f, ""); err != nil || f.interactive != 1 || f.starts != 1 || f.got.AuthKey != "" || !f.got.UpdatePrefs.WantRunning {
 		t.Fatal("interactive login failed")
 	}
 	f = &fakeLogin{st: &ipnstate.Status{BackendState: "NeedsLogin", HaveNodeKey: true}}
 	if err := enroll(context.Background(), f, "tskey"+"-auth-"+"synthetic-secret"); err != nil || f.interactive != 1 {
 		t.Fatal("expired key not reauthenticated")
+	}
+}
+
+func TestInteractiveLoginPreservesPrefsAndRedactsFailures(t *testing.T) {
+	prefs := &ipn.Prefs{ControlURL: "http://127.0.0.1:1234", Hostname: "owned", ShieldsUp: true, RouteAll: false}
+	f := &fakeLogin{prefs: prefs}
+	if err := enroll(context.Background(), f, ""); err != nil {
+		t.Fatal(err)
+	}
+	if f.got.UpdatePrefs != prefs || !prefs.WantRunning || prefs.ControlURL != "http://127.0.0.1:1234" || prefs.Hostname != "owned" || !prefs.ShieldsUp || prefs.RouteAll {
+		t.Fatal("interactive login replaced preferences")
+	}
+	for _, phase := range []string{"prefs", "start", "interactive"} {
+		failed := &fakeLogin{fail: phase}
+		if err := enroll(context.Background(), failed, ""); err == nil || strings.Contains(err.Error(), "secret") {
+			t.Fatal("interactive failure exposed SDK detail")
+		}
 	}
 }
 

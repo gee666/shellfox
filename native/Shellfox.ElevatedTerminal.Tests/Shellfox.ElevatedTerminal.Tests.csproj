@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <Compile Include="../Shellfox.ElevatedTerminal/ConPty.cs" Link="ConPty.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/IsolatedLaunch.cs" Link="IsolatedLaunch.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/IsolatedPeerExit.cs" Link="IsolatedPeerExit.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/Wire.cs" Link="Wire.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/Watchdog.cs" Link="Watchdog.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/LocalPipe.cs" Link="LocalPipe.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/Power*.cs" Link="%(Filename)%(Extension)" />
+    <Compile Include="../Shellfox.ElevatedTerminal/PipeRun.cs" Link="PipeRun.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/PipeRunConfig.cs" Link="PipeRunConfig.cs" />
+  </ItemGroup>
+</Project>

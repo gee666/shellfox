@@ -1,0 +1,48 @@
+name: Ghostty experiment Windows checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/ghostty-experiment.yml
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - crates/**
+      - vendor/portable-pty/**
+  push:
+    branches: [experiment/ghostty-rust]
+    paths:
+      - .github/workflows/ghostty-experiment.yml
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - crates/**
+      - vendor/portable-pty/**
+
+permissions:
+  contents: read
+
+jobs:
+  windows-experiment:
+    name: Experimental Windows x86_64 MSVC build
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Use worktree Rust pin
+        run: rustup show
+      - name: Verify retained upstream inputs
+        run: node crates/ghostty-vt-sys/build-support/prepare.mjs verify
+      - name: Test preparation rules
+        run: node --test crates/ghostty-vt-sys/build-support/prepare.test.mjs
+      - name: Check workspace formatting
+        run: cargo fmt --all -- --check
+      - name: Test owned public ABI and build validation
+        run: cargo test --locked -p shellfox-ghostty-vt -p shellfox-ghostty-vt-sys --all-targets
+      - name: Test release ABI loading
+        run: cargo test --locked --release -p shellfox-ghostty-vt
+      - name: Lint wrapper and build validation
+        run: cargo clippy --locked -p shellfox-ghostty-vt -p shellfox-ghostty-vt-sys --all-targets -- -D warnings
+      - name: Check desktop integration
+        run: cargo check --locked -p shellfox-desktop

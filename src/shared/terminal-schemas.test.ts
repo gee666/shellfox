@@ -35,10 +35,10 @@ it('requires an exact positive control epoch for input, size and acknowledgement
     expect(requestSchemas[method].safeParse({ ...payload, controlEpoch: 1 }).success).toBe(true);
   }
 });
-it('bounds bytes, accepts literal VT output, and separates raw backend events from routed frames', () => {
+it('bounds bytes, accepts NUL terminal control data, and separates raw backend events from routed frames', () => {
   const id = identity(), controlled = { ...id, controlEpoch: 1 };
   expect(requestSchemas.writeTerminal.safeParse({ ...controlled, data: '雪'.repeat(22000) }).success).toBe(false);
-  expect(requestSchemas.writeTerminal.safeParse({ ...controlled, data: '\0' }).success).toBe(false);
+  expect(requestSchemas.writeTerminal.safeParse({ ...controlled, data: '\0' }).success).toBe(true);
   const raw = { type: 'data', ...id, sequence: 1, data: '\x1b[31m\0\r\n' };
   expect(terminalBackendEventSchema.safeParse(raw).success).toBe(true);
   expect(terminalEventSchema.safeParse(raw).success).toBe(false);

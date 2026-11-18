@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "status": "native-only-producer-checkpoint-not-final-acceptance",
+  "patchOrder": 2,
+  "patch": "0002-terminal-profile.patch",
+  "patchSha256": "e392021599b11c7f0c17cbca8ba0cb36649ecfa50d0c47f88cf46df9aee76eb1",
+  "requires": {
+    "patchOrder": 1,
+    "patch": "../ansi-export/0001-ansi-export.patch",
+    "patchSha256": "9844b8c9fd007347cb2bb55962e316cf4f50194b6e5e9fd8858a2afe706cfdd5",
+    "sharedUnicodeModule": "src/terminal/shellfox_unicode_v6.zig",
+    "sharedUnicodeModuleSha256": "2167c46bf05f2ecbb35a247f11216d44664b52c47c63bee86947823ddfa1fc90",
+    "sharedUnicodeAPI": "width / validState / properties(cp,preceding)?u32 / clusterWidth"
+  },
+  "upstream": {
+    "version": "vt-1.0.1",
+    "sourceSha256": "333dfce97641ef9b536bb9e08907ad86abaaada50e8f7417b70d9284adef37aa",
+    "depsSha256": "91a4e10960a52bf5bf4b15aa2a2cddaff8a89d6cd903d3055bda4fd17de3356d"
+  },
+  "checkpointHeaders": {
+    "ghostty/vt/shellfox_terminal_profile.h": "06fb609354abaffcf5e95864c812d8658e6e78e5bf4cbf78376e03dc0dd36967"
+  },
+  "state": {
+    "cType": "GhosttyShellfoxTerminalProfileState",
+    "zigType": "shellfox_terminal_profile.State",
+    "header": "include/ghostty/vt/shellfox_terminal_profile.h",
+    "abi": 1,
+    "fields": ["size_t size", "uint32_t abi_version", "uint32_t terminal_profile", "uint32_t preceding_join"],
+    "nativePrecedingJoin": 0,
+    "legacyLegalPrecedingJoin": [0, 2, 3, 4, 5],
+    "restore": "restoreStateBeforeContinuation(*Terminal,u32,?*const State,usize) Error!void"
+  },
+  "compiledABI": {
+    "terminal_profile_abi_version": 1,
+    "snapshot_budget_abi_version": 0,
+    "extensionFeatureBit": 4,
+    "nativeProfile": 0,
+    "legacyProfile": 1,
+    "legacyPublicAvailability": "explicitly unsupported; layout2 prototype/codec not complete"
+  },
+  "tested": {
+    "zigVersion": "0.17.0",
+    "zigWindowsArchiveSha256": "b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428",
+    "host": "Windows x86_64",
+    "target": "x86_64-windows-gnu",
+    "optimize": "ReleaseSafe",
+    "cpu": "baseline",
+    "testOnlyDeclaredProfile": "1111111111111111111111111111111111111111111111111111111111111111",
+    "actualPatch1Then2": true,
+    "selectedTests": 89,
+    "coreTests": 33,
+    "cTests": 56,
+    "nativeRawV1": "original versus Native constructor exact bytes, including Unicode and partial CSI",
+    "legacyWidthJoinOracle": "all codepoints0..0x10ffff and all reachable states; SHA256817ebb04d065be74f5c9c9f86940a9bda10931d27803bd1722e0415c5f1abeb3",
+    "publicCHeaderAndDllSmoke": "compiled and ran; checked sized State, Native ctor/getters, Legacy unsupported, common ABI1/feature4 and budgetABI0",
+    "testOnlyUnacceptedDllSha256": "6170ac61a3ae16ad3521aabb608d7cd253198f96de6e0045900fafbdd490ff9b",
+    "allUpstreamTests": "not yet run",
+    "canonicalArtifacts": "none; no staged official archives or producer wiring changed"
+  },
+  "finalAcceptedEngineProfile": null
+}

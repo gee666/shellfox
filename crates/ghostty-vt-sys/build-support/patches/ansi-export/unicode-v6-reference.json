@@ -1,0 +1,16 @@
+{
+  "package": "@xterm/xterm and @xterm/headless",
+  "version": "6.0.0",
+  "provider": "6",
+  "codepoints": 1114112,
+  "sourceSha256": "9ebb3df126129de4250ef5c1730493b7b3f62b3593273dac0bbbe15ee0cc890b",
+  "serviceSourceSha256": "77afcb70c5e5666f478ecdc51c70a7823b7bf8f30167139172addd5e1acc127e",
+  "widthSha256": "12dafc0567207c1a8fe7e03f76540242ad57184c50f459af4eeefb657218e432",
+  "propertiesSha256": {
+    "0": "9fc936c83d1f93d7a579fc697ae468533dfaf612c8dfdcc6c59790481f602a71",
+    "2": "d559118286abe3c8a9759d5c08625918d7b3c5c5e05f664cc806113c7eb624fb",
+    "3": "d559118286abe3c8a9759d5c08625918d7b3c5c5e05f664cc806113c7eb624fb",
+    "4": "70294b542489bedce2f9d70aae4047658843958782d5f0534d364e35e40ad2b3",
+    "5": "70294b542489bedce2f9d70aae4047658843958782d5f0534d364e35e40ad2b3"
+  }
+}

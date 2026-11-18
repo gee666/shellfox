@@ -1,0 +1,10 @@
+.file-sidebar { flex-basis: var(--file-sidebar-width, 420px); width: var(--file-sidebar-width, 420px); padding-left: 4px; }
+.file-width-resizer { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; z-index: 3; border-right: 1px solid var(--border); }
+.file-sidebar > .file-browser { flex: 0 0 var(--file-browser-height, 220px); height: var(--file-browser-height, 220px); min-height: 0; max-height: none; border-bottom: 0; }
+.file-sidebar > .file-browser-resizer { width: 100%; }
+.file-sidebar[data-narrow='true'], .file-sidebar[data-maximized='true'] { padding-left: 0; }
+.file-sidebar[data-narrow='true']:not([data-maximized='true']) .file-maximize-toggle { display: none; }
+/* Remove covered controls from tab navigation without changing the file subtree. */
+.app-shell:has(.workspace-content:not([hidden]) > .file-sidebar[data-maximized='true']:not([hidden])) > .sidebar,
+.app-shell:has(.workspace-content:not([hidden]) > .file-sidebar[data-maximized='true']:not([hidden])) > .sidebar-resizer,
+.workspace-content:has(> .file-sidebar[data-maximized='true']:not([hidden])) > .workspace-terminal-region { visibility: hidden; }

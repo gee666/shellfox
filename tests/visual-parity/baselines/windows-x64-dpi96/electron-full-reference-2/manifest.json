@@ -1,0 +1,1049 @@
+{
+  "format": 1,
+  "status": "recorded-not-parity-accepted",
+  "engine": "actual Electron BrowserWindow",
+  "platform": "win32",
+  "arch": "x64",
+  "dimensions": {
+    "width": 1200,
+    "height": 760
+  },
+  "identity": {
+    "pid": 43224,
+    "hwnd": "263784088",
+    "data": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tmp\\electron-parity-33306ff1-8b1d-478e-891a-a536583000cf\\user-data",
+    "executable": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\node_modules\\electron\\dist\\electron.exe",
+    "electron": "44.5.1",
+    "chrome": "152.0.7977.130",
+    "bounds": {
+      "x": 64,
+      "y": 64,
+      "width": 1216,
+      "height": 799
+    },
+    "contentBounds": {
+      "x": 72,
+      "y": 95,
+      "width": 1200,
+      "height": 760
+    },
+    "displays": [
+      {
+        "accelerometerSupport": "unknown",
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1080
+        },
+        "colorDepth": 24,
+        "colorSpace": "{primaries:BT709, transfer:SRGB, matrix:RGB, range:FULL}",
+        "depthPerComponent": 8,
+        "detected": true,
+        "displayFrequency": 60,
+        "id": 1741437006,
+        "internal": false,
+        "label": "24B2W1G5",
+        "maximumCursorSize": {
+          "width": 0,
+          "height": 0
+        },
+        "monochrome": false,
+        "nativeOrigin": {
+          "x": 0,
+          "y": 0
+        },
+        "rotation": 0,
+        "scaleFactor": 1,
+        "size": {
+          "width": 1920,
+          "height": 1080
+        },
+        "workArea": {
+          "x": 0,
+          "y": 0,
+          "width": 1920,
+          "height": 1032
+        },
+        "workAreaSize": {
+          "width": 1920,
+          "height": 1032
+        },
+        "touchSupport": "unknown"
+      }
+    ],
+    "launcherPid": 38548,
+    "clientOrigin": {
+      "X": 72,
+      "Y": 95
+    },
+    "dwm": {
+      "Left": 71,
+      "Top": 64,
+      "Right": 1273,
+      "Bottom": 856
+    },
+    "focused": true,
+    "dpi": 96,
+    "client": {
+      "Left": 0,
+      "Top": 0,
+      "Right": 1200,
+      "Bottom": 760
+    },
+    "birth": "134390826934957412",
+    "window": {
+      "Left": 64,
+      "Top": 64,
+      "Right": 1280,
+      "Bottom": 863
+    }
+  },
+  "source": {
+    "sourceHash": "0306836fce310432d0bef0c9dd0222ff4e36b9fd7eec3db520c899dc2d467c50",
+    "platform": "win32",
+    "arch": "x64",
+    "builtAt": "2026-11-13T22:21:45.904Z"
+  },
+  "git": "c8cafb86d3a3b1bae01c3e12ed13df4fb4636dfd",
+  "states": [
+    {
+      "name": "01-empty",
+      "files": {
+        "renderer": "2d27ae07c5f547a3f83175ef245ab595fa04ce20b1f93ef0601e344c641e25fe",
+        "window": "f059489f71ec14bb27a19a4ebfd329ed05d837e4c1ceb4b811812a6b07e255e3",
+        "client": "d4787e664dd9a3a737498d0213b95d98870b483bb70d588d86286ffe1840ef7e"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "02-new-session-dialog",
+      "files": {
+        "renderer": "4b4b0e553e9e85e932ccc1a70ab95f60409beeaefdc4eaf619049238b5ed39ef",
+        "window": "5a7cf086cc45ef8d90b5710a01c283957b3fbaf038cf8504d7c08bc387f360d7",
+        "client": "ece92b02de4d0ea219a9bb0fe0d37e6393bef746734ddc7e28b953086a6fc142"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "03-new-session-filled",
+      "files": {
+        "renderer": "cebfe0bcda671e0dfa0fc94ed8044bb89b0fa565253fde0045f2cfa315897bef",
+        "window": "75f156eddac0b71d39cf35535b2d1c3238d49f02686f6de1bb39db48058e8ce5",
+        "client": "cde5809862cf0a0be520a303c86bd8c2a123f07b46b2fcb262922860eee778b9"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "04-settings-general",
+      "files": {
+        "renderer": "171466aab64cbb3a0c012883c1895e38464f217e1d9e6a78571aaebf671dbc24",
+        "window": "4f0451c2e80c10b445fba113c5d99745d14974948a9245e839ca0a8c7367b619",
+        "client": "235e731760ec1c610761466dde02851ce0c2ebb6c75f555d1ad1c8606a240ed1"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "settings-terminals",
+      "files": {
+        "renderer": "84e82c3ed10aae2a71dd8d1be7c47d40bd567d325938b0fe9d4aa4b451f98311",
+        "window": "067c0c74efe95b5c944f093836ed97009a0dd80630ed642e591de689f5e821a9",
+        "client": "5b03fb14e4c65474592b87fe49a509b3173ea8ec65c9dcbb0dbad03a2c8f78a4"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "settings-agents",
+      "files": {
+        "renderer": "8b2ead1d545518f66a3e6bc22a1d3ff5a5f552c32eed59aeca63a7e4205034cd",
+        "window": "f4ca4241ae006e42d4359804ce843ed830c25ff4178fc75bc6dec69c002d297f",
+        "client": "16e89810876996468959a310afecc6998f2ce47df976678f01d27a3a3359bb78"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "settings-remote-access",
+      "files": {
+        "renderer": "9fb07d3aad6e2cf28f33fc778a39319ebff9148116faabb2d6500a1c91f9c007",
+        "window": "e61852dcd7232019fd634762305542321184dddd58ea4b0823b2b7a31ffa9a15",
+        "client": "6aad5ee3eab0663ca7363fc8e92b283157d496ea894e8f552c0a9afeb3b2e4a5"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "settings-ssh",
+      "files": {
+        "renderer": "a3ad1101e93c1b8b5a9aea78d98b86a8ce4079ba154dadc83f01410199a85592",
+        "window": "c0e3422ccdcac1f343a6f5de44c48d3b4fb8ecb8f053c7f282a91ead2cff2bb7",
+        "client": "a456e0dd774e87b92a1ef39c91567ab55f9a110c78aa40d21e54f30ef4f0f06a"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "05-session-context-menu",
+      "files": {
+        "renderer": "76fde8aaa0bcb4caa9e04ab561d408bf519ec23e472fd4b51317f1c5c5760a69",
+        "window": "5cdbc444769c07a98a2ab209865c42e87c4ce2c0bac58e791d23a8c861083a74",
+        "client": "2e4b6d444395c96a51122745c94f4afbf248163c5fe74e8c7b6eba7df6107c09"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "06-session-rename",
+      "files": {
+        "renderer": "30cb87fe72970a2d8838f203152cfc8b70a541517dd12ea9e6d4d26015cd1e6d",
+        "window": "9df4f518c6c4669d0607dd15dd7075302751a30fd475eca12f55e776033708bd",
+        "client": "19b12fca1cb052f4648d6022161e8e2db512906fa37202464649c9074b3c1eae"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "07-session-terminal",
+      "files": {
+        "renderer": "3f0c794ee2281f20a2f51745978a3ae11dfcbdb68cb35edb101a6c47f6c2d428",
+        "window": "7739f2527a89a814abe19ac3ff881095ce10f499d3154ed02fbf8c5af69dacc9",
+        "client": "3fee717abe4c3cd438a1b432432c4bf6f64101938132169ec9c00717764380d2"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "08-session-environment",
+      "files": {
+        "renderer": "130edad47c98a099c7f1acca4ac0b4ba27c660b94b585c0147d109ab64322e66",
+        "window": "c2f58b23df1fd92649fb8dd807844497a9969e900480904254c3ece5e52001be",
+        "client": "4efb5dc71f322e030f80cad1091741bd2a98688418b5eee5360f5cd07f852910"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "09-session-pinned",
+      "files": {
+        "renderer": "7488c373c5bee166ec361f8b4c480807e1dcb1f9bb55db0e1896dcc840e56f85",
+        "window": "1a608ed93b54c10986f03992fa254a24e81915c7016a42d7abc5e9e1353738df",
+        "client": "4f5a0371840b53d5fe5b52c43e73b8b2b003da7002299656cd4f2288ad8399ff"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "10-terminal-profile-menu",
+      "files": {
+        "renderer": "5522968ac363ba6025c16c2706a0d184702807860e6ac5fe5f173d1c3fcd2970",
+        "window": "7e757486ee14a585d99ab827f3fd6d886ca742c4d5ade9323f3a524631965ba2",
+        "client": "f6116f964b7bea7521259bbbbc560b12e5800e1933c262bf03f16c986cb44f07"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "11-terminal-context-menu",
+      "files": {
+        "renderer": "767b707aa609829c4b1439942af30367114e99b47321474a0e40afae79c7a235",
+        "window": "2f7e2f562fc59721ec9ba0b2b9a245245ecb772fe1a0c6de402ba2cc47a36dee",
+        "client": "44067e55fe71223c704503204f2558beb4596f6757e244ad947932b0676bde6c"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "12-terminal-rename",
+      "files": {
+        "renderer": "0c4aeb783d922e5d3fd029626e234ce14deeb903482f148bf6fa98f9fbf930d4",
+        "window": "a710a970d874d75a75d9a722315538300041a1826c376b09f277badc7d96bbeb",
+        "client": "d8315b5cbe5a26b2fc8921496a055d69990325534cbe4288e1fb2b15dc12b654"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    },
+    {
+      "name": "13-two-tabs",
+      "files": {
+        "renderer": "e58c7b34351d9e32ab48de980efb60f62f9ad009a734157bb55598eb96fb3f02",
+        "window": "7cf466ef8e05513febbd7d4b747cdc3d653faf29aa9b73a2107b83b669c586b2",
+        "client": "5a8864b2baf4c9c3c41d764c2a9b2f90a0508c0b93ef10742614d4786dfb87e4"
+      },
+      "viewport": {
+        "width": 1200,
+        "height": 760,
+        "dpr": 1
+      },
+      "window": {
+        "clientOrigin": {
+          "X": 72,
+          "Y": 95
+        },
+        "dwm": {
+          "Left": 71,
+          "Top": 64,
+          "Right": 1273,
+          "Bottom": 856
+        },
+        "focused": true,
+        "dpi": 96,
+        "client": {
+          "Left": 0,
+          "Top": 0,
+          "Right": 1200,
+          "Bottom": 760
+        },
+        "birth": "134390826934957412",
+        "window": {
+          "Left": 64,
+          "Top": 64,
+          "Right": 1280,
+          "Bottom": 863
+        },
+        "pid": 43224,
+        "hwnd": "263784088"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "action": "create session through folder dialog, rename",
+      "assertion": "session and first owned embedded tab persisted with stable UUIDs",
+      "state": {
+        "revision": 6,
+        "sessions": [
+          {
+            "id": "8079e288-3f2e-4d45-8822-8e74e9790bb6",
+            "title": "Parity project",
+            "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+            "adapterId": "embedded-pty",
+            "shellId": "pwsh",
+            "createdAt": "2026-11-13T22:31:41.388Z",
+            "updatedAt": "2026-11-13T22:31:42.860Z",
+            "settledAt": null,
+            "pinnedAt": null,
+            "status": "waiting",
+            "activityStatus": "waiting",
+            "counts": {
+              "running": 0,
+              "waiting": 1,
+              "unknown": 0,
+              "error": 0,
+              "closed": 0,
+              "agents": 0
+            },
+            "tabs": [
+              {
+                "id": "5a64febb-9432-4bc7-9385-bf1bd090e479",
+                "sessionId": "8079e288-3f2e-4d45-8822-8e74e9790bb6",
+                "title": "Parity shell",
+                "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+                "ordinal": 0,
+                "createdAt": "2026-11-13T22:31:41.389Z",
+                "lifecycle": "open",
+                "status": "waiting",
+                "agents": 0,
+                "monitoringReason": "The shell is alive; no matched agent process is running.",
+                "error": null,
+                "generation": "a888495d-338b-43a6-a326-c8ccd482e7b8",
+                "terminalKind": "embedded",
+                "profileId": "pwsh",
+                "exitCode": null
+              }
+            ],
+            "env": [],
+            "window": {
+              "state": "unsupported",
+              "canReopen": false,
+              "canRegister": false,
+              "reason": "Embedded tabs do not use native window ownership or external shell registration."
+            },
+            "canFocus": true,
+            "canAddTab": true,
+            "controlReason": "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands.",
+            "error": null,
+            "terminalLifetime": "app-owned",
+            "shellSurvival": false
+          }
+        ],
+        "settings": {
+          "version": 1,
+          "terminalEnv": [],
+          "autoUpdate": true,
+          "pythonPath": null,
+          "accentColor": "#ec4899",
+          "backgroundColor": "#111016",
+          "adapterId": "embedded-pty",
+          "shellId": "pwsh",
+          "shellExecutable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          "terminalProfileId": "pwsh",
+          "processRules": [
+            {
+              "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5870",
+              "label": "Pi",
+              "enabled": true,
+              "executableBasenames": [
+                "node.exe",
+                "node",
+                "nodejs",
+                "bun.exe",
+                "bun"
+              ],
+              "processNames": [
+                "pi",
+                "pi.exe"
+              ],
+              "executablePaths": [],
+              "scriptPathSuffixes": [
+                "@earendil-works/pi-coding-agent/dist/cli.js",
+                "@mariozechner/pi-coding-agent/dist/cli.js",
+                "@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+                "@mariozechner/pi-coding-agent/dist/bundle/cli.js"
+              ]
+            },
+            {
+              "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5871",
+              "label": "Claude",
+              "enabled": true,
+              "executableBasenames": [
+                "node.exe",
+                "node",
+                "nodejs",
+                "bun.exe",
+                "bun"
+              ],
+              "processNames": [
+                "claude",
+                "claude.exe"
+              ],
+              "executablePaths": [],
+              "scriptPathSuffixes": [
+                "@anthropic-ai/claude-code/cli.js"
+              ]
+            },
+            {
+              "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5872",
+              "label": "Codex",
+              "enabled": true,
+              "executableBasenames": [
+                "node.exe",
+                "node",
+                "nodejs",
+                "bun.exe",
+                "bun"
+              ],
+              "processNames": [
+                "codex",
+                "codex.exe"
+              ],
+              "executablePaths": [],
+              "scriptPathSuffixes": [
+                "@openai/codex/bin/codex.js"
+              ]
+            },
+            {
+              "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5874",
+              "label": "OpenCode",
+              "enabled": true,
+              "executableBasenames": [
+                "node.exe",
+                "node",
+                "nodejs",
+                "bun.exe",
+                "bun"
+              ],
+              "processNames": [
+                "opencode",
+                "opencode.exe"
+              ],
+              "executablePaths": [],
+              "scriptPathSuffixes": [
+                "opencode-ai/bin/opencode"
+              ]
+            }
+          ],
+          "historyPageSize": 10,
+          "sessionSettleHours": 24,
+          "sessionDeleteHours": 720
+        },
+        "probe": {
+          "platform": "win32",
+          "arch": "x64",
+          "adapterId": "embedded-pty",
+          "available": true,
+          "terminalVersion": null,
+          "capabilities": {
+            "createWindow": true,
+            "addTab": true,
+            "focusWindow": true,
+            "activateTab": true,
+            "splitPane": false,
+            "attachExisting": false,
+            "closeTerminal": true,
+            "commandExitStatus": false,
+            "processTracking": true,
+            "explorerContextMenu": true,
+            "embeddedTerminal": true,
+            "terminalLifetime": "app-owned",
+            "shellSurvival": false
+          },
+          "shells": [
+            {
+              "id": "pwsh",
+              "executable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+              "available": true,
+              "reason": null
+            },
+            {
+              "id": "windows-powershell",
+              "executable": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+              "available": true,
+              "reason": null
+            }
+          ],
+          "reasons": [
+            "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands."
+          ]
+        },
+        "explorer": {
+          "supported": true,
+          "installed": true,
+          "folderItemInstalled": true,
+          "backgroundInstalled": true,
+          "reason": "Windows 11: use Show more options (Shift+F10) in Explorer."
+        },
+        "cli": {
+          "supported": true,
+          "installed": true,
+          "command": "shellfox",
+          "reason": null
+        }
+      }
+    }
+  ],
+  "policy": {
+    "shell": "actual local PowerShell with safety-only -NoProfile, private HOME/AppData and fixed prompt/output fixture; no presentation/CSS changes",
+    "pixelTolerance": 0,
+    "masks": [],
+    "animations": "unaltered",
+    "terminalContent": "required, never masked",
+    "dynamicPolicy": "No user-approved dynamic exclusions. Repeated capture must prove determinism before acceptance."
+  }
+}

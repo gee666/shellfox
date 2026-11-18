@@ -5,6 +5,7 @@ import { PtyBackend } from './backend';
 import { EmbeddedSessionService } from './service';
 import { factoryFixture, MemoryRepository, profiles } from './test-fixtures';
 import { getProcessTrackingCapability, type ProcessTrackingCapability } from './tracking';
+import { registerFixturePython } from '../../../tests/unit/fixture-python-model';
 
 vi.mock('./tracking', async original => ({ ...await original<typeof import('./tracking')>(), getProcessTrackingCapability: vi.fn() }));
 const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -19,6 +20,7 @@ it.each([
 ] as const)('overlaps independent %s readiness, ignores old preference %s, %s finishes first', async (platform, enabled, first) => {
   Object.defineProperty(process, 'platform', { value: platform });
   const repository = new MemoryRepository(); repository.preference = enabled; repository.config.adapterId = 'windows-terminal'; repository.config.pythonPath = '/saved/python';
+  registerFixturePython('/saved/python');
   const saveCli = vi.fn(); Object.assign(repository, { cliPreference: () => enabled, saveCliPreference: saveCli });
   const discovery = deferred<TerminalProfilesDto>(), explorerDone = deferred<Result<ExplorerIntegrationDto>>(), cliDone = deferred<Result<CliIntegrationDto>>(), trackingDone = deferred<ProcessTrackingCapability>();
   const explorer = { get: vi.fn(() => explorerDone.promise), set: vi.fn(async () => success(explorerState(true))) };

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,20 +68,27 @@ export function probeHelper(executable, platform = process.platform, arch = proc
   return probe;
 }
 
-export function buildHelper(platform = process.platform, arch = process.arch) {
+export function buildHelperWithAnchor(platform = process.platform, arch = process.arch) {
   const target = helperTarget(platform, arch);
   mkdirSync(target.directory, { recursive: true });
   const executable = path.join(target.directory, target.basename), partial = executable + '.part';
   rmSync(partial, { force: true });
+  let sha256;
   try {
     go(['build', '-mod=readonly', '-trimpath', '-buildvcs=false', '-ldflags=-s -w', '-o', partial, '.'], target);
     chmodSync(partial, 0o755);
     if (platform === process.platform && arch === process.arch) probeHelper(partial, platform, arch);
     notices(target);
+    // Capture the freshly linked build output, not a mutable runtime/cache target.
+    sha256 = createHash('sha256').update(readFileSync(partial)).digest('hex');
     renameSync(partial, executable);
   } finally { rmSync(partial, { force: true }); }
   console.log(`[tailscale] ${platform}-${arch}: ${executable}`);
-  return executable;
+  return { executable, sha256 };
+}
+
+export function buildHelper(platform = process.platform, arch = process.arch) {
+  return buildHelperWithAnchor(platform, arch).executable;
 }
 
 async function testHelper() {

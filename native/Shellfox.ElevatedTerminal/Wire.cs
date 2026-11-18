@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Shellfox.ElevatedTerminal;
 
@@ -42,12 +43,32 @@ internal static class Wire
         if (bytes.Length != 0) throw new EndOfStreamException("Incomplete line.");
         return null;
     }
+    // Only DOM data enters serialization. No runtime type discovery or codegen,
+    // including in the NativeAOT profile. Call sites keep field order explicit.
+    internal static JsonObject Object(params (string Name, JsonNode? Value)[] fields)
+    {
+        var result = new JsonObject();
+        foreach (var field in fields) result.Add(field.Name, field.Value);
+        return result;
+    }
+    internal static JsonObject Environment(IEnumerable<KeyValuePair<string, string>> values)
+    {
+        var result = new JsonObject();
+        foreach (var value in values) result.Add(value.Key, value.Value);
+        return result;
+    }
+    internal static byte[] Bytes(object value) => value switch
+    {
+        JsonElement json => Utf8.GetBytes(json.GetRawText()),
+        JsonNode node => Utf8.GetBytes(node.ToJsonString()),
+        _ => throw new InvalidDataException("Expected explicit JSON data."),
+    };
     internal static async Task Send(Stream stream, object value, bool line, CancellationToken cancel)
     {
         // Forward validated JSON without re-escaping it. The default .NET
         // encoder turns each apostrophe into six bytes, unlike JSON.stringify,
         // and can inflate an accepted input frame beyond the wire limit.
-        var bytes = value is JsonElement json ? Utf8.GetBytes(json.GetRawText()) : JsonSerializer.SerializeToUtf8Bytes(value);
+        var bytes = Bytes(value);
         if (bytes.Length > MaxFrame) throw new InvalidDataException("Oversized message.");
         if (!line)
         {

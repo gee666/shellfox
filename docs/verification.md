@@ -1,6 +1,14 @@
 # Verification
 
-## Current review evidence
+## Unit and native test boundary
+
+`pnpm test:unit` uses [`vitest.config.ts`](../vitest.config.ts). It runs in-process desktop, headless, and mobile TypeScript contracts. Project `tmp/` files, loopback connections, and Vitest's own workers are allowed. App, helper, PTY, browser, and system-command launches are excluded or replaced with test doubles. A unit pass does not establish native ACL, ownership, or PTY behavior, or that no native addon was loaded.
+
+[`tests/config/integration-registry.ts`](../tests/config/integration-registry.ts) lists the exact held files, platforms, and reasons. Unit config also excludes `*.os.test.{ts,tsx}` and `*.e2e.test.{ts,tsx}`. `pnpm test:integration:owned` reports `OWNED_INTEGRATION_HOLD`; [`vitest.integration.config.ts`](../vitest.integration.config.ts) likewise refuses before importing tests. There is no launcher for these cases in the current config. A built helper or an environment flag does not authorize a run.
+
+A real run needs separate approval for the target OS, vetted binaries, fresh project `tmp/` fixtures, and an independent owner that retains original process handles or platform-equivalent ownership through launch, child and descendant shutdown, and confirmed exit. Ownership tests also need the unresolved Go3 original-root identity contract. Unknown exit or ownership stays on hold; do not recover it by PID or force cleanup. Results apply only to the OS and behavior actually exercised.
+
+## Earlier review evidence
 
 The host is Windows x64, Node 24.15.0 and Electron 44.5.1. The native Darwin supervisor and TypeScript backend/profile integration are implemented. The completed independent review fixed shell-birth tracking attestation and supervisor preparation/close races before the final packaging run; source stamps reject packages predating the reviewed sources. Native Darwin SDK/execution remains a separate verification gap.
 
@@ -21,9 +29,7 @@ Forced Windows node-pty source compilation still needs Visual Studio Spectre-mit
 
 ## What kernel evidence proves
 
-The opted-in `unix-close.test.ts` executes inside WSL Debian on this Windows host. It verifies HUP-ignoring background descendants are terminated through pidfds, unrelated PTYs/children survive, wrong birth and unknown orphan identities refuse, and exact proven orphan identities can close. Additional isolated PID/user/mount namespace checks cover SID reuse and post-commit interruption with survivors resumed.
-
-This is actual Linux kernel evidence, not mock rows. It is also not a target-native Linux node-pty/Electron package, a WSL xterm/IPC flow or Darwin supervision test. The normal full unit run intentionally skips this opt-in case.
+The real pidfd and namespace regression is now in `src/main/terminal/unix-close.os.test.ts` and remains on HOLD. The unit counterpart checks source and command contracts. Neither those checks nor the earlier WSL kernel run establishes target-native Linux packaging, WSL renderer behavior, or Darwin supervision.
 
 ## Repeatable commands
 
@@ -45,22 +51,14 @@ pnpm make
 
 Allow about 300 seconds for install, 120 for typecheck/storage/PTY, 180 for unit/kernel tests and 600 for build/package/make. Linux Electron commands require a graphical session or Xvfb. Linux/WSL profiles additionally require actual Python/proc/pidfd preflight before launch. `pnpm rebuild` prepares native addons separately. Set `SHELLFOX_BUILD_FROM_SOURCE=1` to request source compilation with the documented toolchain.
 
-Actual Linux/WSL kernel regression:
-
-```sh
-SHELLFOX_UNIX_TREE_TEST=1 pnpm exec vitest run src/main/terminal/unix-close.test.ts
-```
-
-On Windows this selects Debian when available, or an explicitly selected `SHELLFOX_UNIX_TREE_DISTRO`. It can start a WSL distro and creates only test-owned processes. Private namespace checks require working `unshare` support; failure is an error, not a silent skip. The CI Linux jobs enable this case too. Disposable Ubuntu runners install util-linux, permit private namespaces for the isolated fixture, and configure root-owned mode-4755 Electron sandbox helpers. They do not disable Chromium sandboxing. These configured-runner results are not proof of default clean-machine policies.
-
-macOS build/helper checks:
+macOS build/helper checks, separate from the held Vitest integration selection:
 
 ```sh
 pnpm build:terminal-native
 pnpm test:terminal-native
 ```
 
-These need the real SDK/architecture, not a Windows stub. CI additionally enables `SHELLFOX_DARWIN_SUPERVISOR_NATIVE=1 pnpm exec vitest run src/main/terminal/supervisor-native.test.ts` on both Darwin runners. This native case is skipped by the normal unit suite. See [macOS build/signing](macos.md).
+These need the real SDK/architecture, not a Windows stub. The real Darwin supervisor and PTY regression in `src/main/terminal/supervisor-native.os.test.ts` remains on HOLD. See [macOS build/signing](macos.md).
 
 ## Evidence levels
 

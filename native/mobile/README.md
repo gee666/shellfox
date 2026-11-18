@@ -39,9 +39,12 @@ Go exports:
 - `Status() (string, error)`, a JSON object with `status`, `loginUrl`, and `error`.
 - `Login(authKey) error`. Empty string starts browser login; an enrollment key must start with `tskey-auth-`.
 - `Peers() (string, error)`, JSON `{ "peers": [...] }`.
-- `Request(peerId, path, body) (string, error)`, raw JSON response text.
+- `Request(peerId, path, body) (string, error)`, unchanged raw JSON success text and generic non-2xx rejection.
+- `RequestWithStatus(peerId, path, body) (*RequestResult, error)`, additive source API. `RequestResult` has private fields and only `StatusCode() int` and `Body() string` getters. An actual HTTP response supplies its numeric status. A successful 2xx body is bounded, validated JSON with unchanged bytes; non-2xx bodies are empty. Validation, ownership-map, network and deadline failures return a nil result and error, never a fabricated status.
 - `Stop() error`, which preserves node identity.
 - `Logout() error`, which logs out and stops. Call `Start` again before another login. A failed logout is reported rather than claiming credentials were removed.
+
+`RequestWithStatus` and its result are not yet present in the staged v1 artifacts or native bridge contract. Java, Objective-C and C ABI consumers must wait for matching reviewed bindings and newly rebuilt/pinned artifacts on all supported mobile targets. Do not relabel the old artifacts or infer support from their existing version labels.
 
 `NativeModules.ShellfoxNetwork` exposes promise methods `start(hostname)`, `status()`, `login(authKey)`, `peers()`, `request(peerId, path, body)`, `stop()`, and `logout()`. Start and login resolve to status JSON text. Peers and request also resolve to JSON text; stop and logout resolve without a value. Native errors are intentionally generic. The renderer validates decoded JSON with shared schemas.
 
@@ -49,13 +52,15 @@ The native library shares health and bounded recovery code with `native/tailscal
 
 Login uses Tailscale's hosted coordination service. Open the validated `https://login.tailscale.com` URL from status in the system browser. Enrollment keys belong to the user, not an embedded app-wide credential. Tagged nodes and foreign-owner peers are excluded, so use an untagged user-owned enrollment. Host-side Shellfox approval remains required after Tailscale login.
 
-Requests resolve a stable peer ID against the current network map, require an online, untagged peer with the same nonzero owner, then dial its Tailscale address on fixed TCP port 52743. Only POST `/v1/pair`, `/v1/request`, `/v1/events`, and `/v1/disconnect` are allowed. No caller-supplied target address, port, method, headers, or redirect is accepted. Policy matches `native/tailscale/helper.go` and `bridge.go`.
+Requests resolve a stable peer ID against the current network map, require an online, untagged peer with the same nonzero owner, then dial its Tailscale address on fixed TCP port 52743. The exact POST allowlist is `/v1/discover`, `/v1/pair`, `/v1/request`, `/v1/events`, `/v1/disconnect`, plus `/v2/discover`, `/v2/pair`, `/v2/request`, `/v2/events`, `/v2/disconnect`. No aliases, suffixes or queries are accepted. No caller-supplied target address, port, method, headers, or redirect is accepted. Policy matches `native/tailscale/helper.go` and `bridge.go`.
 
-The current desktop host uses HTTP long-polling, not WebSockets. `/v1/events` holds a poll for up to 20 seconds. Go requests have a 30-second deadline, a 1 MiB JSON request limit, an 8 MiB JSON response limit, and a 16 KiB response-header limit. WireGuard encrypts the tailnet HTTP connection. No HTTP is sent through the platform fetch stack.
+The current desktop host uses HTTP long-polling, not WebSockets. The v1 and v2 event endpoints hold a poll for up to 20 seconds. Go requests have a 30-second deadline, a 1 MiB JSON request limit, an 8 MiB JSON response limit, and a 16 KiB response-header limit. WireGuard encrypts the tailnet HTTP connection. No HTTP is sent through the platform fetch stack.
 
 Each running node pools HTTP connections by the checked local and remote identities and target address. Ownership, tags and online status are checked on every request. Identity/address changes, unavailable ownership maps, stop and logout discard idle connections. Idle sockets expire after 15 seconds, before the helper's 30-second keep-alive deadline. Polls use independent connections while operations are active. POST bodies are not replayable, including after a stale pooled connection fails.
 
-Polls and operations have separate admission limits, 64 and 12. Saturated calls reject immediately instead of queuing terminal mutations beyond the JS timeout. Android uses zero-queue executors; iOS uses nonblocking semaphore admission and concurrent dispatch. These are resource limits, not a UI host-count limit. Stop/logout cancel in-flight requests. A timeout after the host has accepted a mutation is still an uncertain result; it is not transaction rollback or permission to retry a destructive action.
+Polls and operations have separate admission limits, 64 and 12. Both protocol versions share those same pools; only the two exact event paths classify as polls. Saturated calls reject immediately instead of queuing terminal mutations beyond the JS timeout. Android uses zero-queue executors; iOS uses nonblocking semaphore admission and concurrent dispatch. These are resource limits, not a UI host-count limit. Stop/logout cancel in-flight requests. A timeout after the host has accepted a mutation is still an uncertain result; it is not transaction rollback or permission to retry a destructive action.
+
+Neither transport API chooses a protocol fallback. Only the canonical shared client may select legacy v1 before pair/mutation admission, using the approved negotiation rules. A genuine HTTP404 from `/v2/discover` is distinct from an auth denial, timeout, malformed JSON or network failure; never parse English error text to invent that distinction. The existing 43 manager verb strings and v1 schemas remain unchanged. Network identity still does not grant host approval or terminal authority.
 
 ## Storage and mobile lifecycle
 

@@ -1,0 +1,1143 @@
+{
+  "viewport": {
+    "width": 1200,
+    "height": 760,
+    "dpr": 1
+  },
+  "title": "Shellfox v0.9.13",
+  "cssVariables": {
+    "--border": "#2c2a3a",
+    "--input-border": "#3b384d",
+    "--backdrop": "rgba(0, 0, 0, .53)",
+    "--panel": "#18171f",
+    "--fg": "#e5e4eb",
+    "--muted": "#a5a4ab",
+    "--on-accent": "#ffffff",
+    "--sidebar": "#15141b",
+    "--brand-opacity": ".72",
+    "--brand-label-opacity": ".6",
+    "--hover": "#312e3f",
+    "--placeholder": "#706f76",
+    "--accent": "#ec4899",
+    "--shadow": "rgba(0, 0, 0, .4)",
+    "--dot-settled": "#96734e",
+    "--dot-error": "#fc8397",
+    "--dot-running": "#4ade80",
+    "--row-hover": "#1c1a24",
+    "--surface": "#23212d",
+    "--input-bg": "#121117",
+    "--dot-shell": "#60a5fa",
+    "--accent-rgb": "236, 72, 153",
+    "--shadow-strong": "rgba(0, 0, 0, .53)",
+    "--bg": "#111016"
+  },
+  "elements": [
+    {
+      "selector": ":root",
+      "tag": "HTML",
+      "name": "\n    \n    \n    \n    \n    \n    \n    Shellfox v0.9.13\n    \n    \n  \n  \n    Local · 1Parity projectP:\\wo",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1200,
+        "height": 760
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "1200px",
+        "height": "760px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgb(17, 16, 22)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z\"></path><circle cx=\"8\" cy=\"7.5\" r=\"2.25\"></circle></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8.5 6.5 12 13 4\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2M6 10h5m-2-2 2 2-2 2\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".app-shell",
+      "tag": "DIV",
+      "name": "Local · 1Parity projectP:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixt",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 1200,
+        "height": 760
+      },
+      "styles": {
+        "display": "grid",
+        "gridTemplateColumns": "220px 4px 976px",
+        "width": "1200px",
+        "height": "760px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z\"></path><circle cx=\"8\" cy=\"7.5\" r=\"2.25\"></circle></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8.5 6.5 12 13 4\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2M6 10h5m-2-2 2 2-2 2\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".sidebar",
+      "tag": "ASIDE",
+      "name": "Session navigation",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 220,
+        "height": 760
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "220px",
+        "height": "760px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgb(21, 20, 27)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z\"></path><circle cx=\"8\" cy=\"7.5\" r=\"2.25\"></circle></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8.5 6.5 12 13 4\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".sidebar-toolbar",
+      "tag": "DIV",
+      "name": "",
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 220,
+        "height": 32
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "220px",
+        "height": "32px",
+        "padding": "0px 2px",
+        "gap": "4px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z\"></path><circle cx=\"8\" cy=\"7.5\" r=\"2.25\"></circle></svg>"
+      ]
+    },
+    {
+      "selector": ".sidebar-resizer",
+      "tag": "DIV",
+      "name": "Sidebar width",
+      "rect": {
+        "x": 220,
+        "y": 0,
+        "width": 4,
+        "height": 760
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "4px",
+        "height": "760px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgb(21, 20, 27)",
+        "border": "",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": ".session-section-toggle",
+      "tag": "BUTTON",
+      "name": "Local · 1",
+      "rect": {
+        "x": 0,
+        "y": 38.5,
+        "width": 216,
+        "height": 23
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "216px",
+        "height": "23px",
+        "padding": "4px 8px 4px 9px",
+        "gap": "6px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "11px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".session-row",
+      "tag": "DIV",
+      "name": "Parity projectP:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\proj",
+      "rect": {
+        "x": 0,
+        "y": 64,
+        "width": 220,
+        "height": 36
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "220px",
+        "height": "36px",
+        "padding": "4px 8px",
+        "gap": "8px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(236, 72, 153, 0.09)",
+        "border": "",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8.5 6.5 12 13 4\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".session-title",
+      "tag": "SPAN",
+      "name": "Parity project",
+      "rect": {
+        "x": 26,
+        "y": 68,
+        "width": 75.515625,
+        "height": 14
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "75.5156px",
+        "height": "14px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "14px",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": ".workspace",
+      "tag": "MAIN",
+      "name": "Workspace",
+      "rect": {
+        "x": 224,
+        "y": 0,
+        "width": 976,
+        "height": 760
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "976px",
+        "height": "760px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2M6 10h5m-2-2 2 2-2 2\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".terminal-tab-strip",
+      "tag": "DIV",
+      "name": "Parity shellParity shell",
+      "rect": {
+        "x": 224,
+        "y": 0,
+        "width": 976,
+        "height": 30
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "976px",
+        "height": "30px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgb(21, 20, 27)",
+        "border": "",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2M6 10h5m-2-2 2 2-2 2\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".terminal-tabs",
+      "tag": "DIV",
+      "name": "Terminals",
+      "rect": {
+        "x": 224,
+        "y": -0.5,
+        "width": 231.25,
+        "height": 30
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "231.25px",
+        "height": "30px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>",
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".terminal-tab-item",
+      "tag": "DIV",
+      "name": "Parity shell",
+      "rect": {
+        "x": 224,
+        "y": -0.5,
+        "width": 115.625,
+        "height": 30
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "115.625px",
+        "height": "30px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".terminal-tab-item",
+      "tag": "DIV",
+      "name": "Parity shell",
+      "rect": {
+        "x": 339.625,
+        "y": -0.5,
+        "width": 115.625,
+        "height": 30
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "115.625px",
+        "height": "30px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgb(24, 23, 31)",
+        "border": "",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>"
+      ]
+    },
+    {
+      "selector": ".terminal-host",
+      "tag": "DIV",
+      "name": "Interactive terminal",
+      "rect": {
+        "x": 224,
+        "y": 30,
+        "width": 976,
+        "height": 730
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "976px",
+        "height": "730px",
+        "padding": "8px 2px 8px 8px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": ".terminal-surface",
+      "tag": "DIV",
+      "name": "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG.xterm-dom-renderer-owner-2 .xterm-rows span { display: inline-block",
+      "rect": {
+        "x": 232,
+        "y": 38,
+        "width": 966,
+        "height": 714
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "966px",
+        "height": "714px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": ".context-menu",
+      "tag": "DIV",
+      "name": "Rename terminalMove leftMove right",
+      "rect": {
+        "x": 383,
+        "y": 13,
+        "width": 144,
+        "height": 94
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "144px",
+        "height": "94px",
+        "padding": "4px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgb(24, 23, 31)",
+        "border": "1px solid rgb(44, 42, 58)",
+        "borderRadius": "6px",
+        "boxShadow": "rgba(0, 0, 0, 0.4) 0px 8px 24px 0px",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Hide sessions",
+      "rect": {
+        "x": 2,
+        "y": 1.5,
+        "width": 24,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "24px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "New session",
+      "rect": {
+        "x": 126,
+        "y": 1.5,
+        "width": 28,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "28px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Keep awake",
+      "rect": {
+        "x": 158,
+        "y": 1.5,
+        "width": 28,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "28px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M1.5 8s2.5 3 6.5 3 6.5-3 6.5-3M4 10.2 3 12M8 11v2M12 10.2l1 1.8\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Settings",
+      "rect": {
+        "x": 190,
+        "y": 1.5,
+        "width": 28,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "28px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 2 .5-1h3L10 2l1.5 1 1.5-.2 1.5 2.6-.8 1.3v1.6l.8 1.3-1.5 2.6-1.5-.2-1.5 1-.5 1h-3L6 13l-1.5-1-1.5.2L1.5 9.6l.8-1.3V6.7l-.8-1.3L3 2.8l1.5.2L6 2Z\"></path><circle cx=\"8\" cy=\"7.5\" r=\"2.25\"></circle></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Local · 1",
+      "rect": {
+        "x": 0,
+        "y": 38.5,
+        "width": 216,
+        "height": 23
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "216px",
+        "height": "23px",
+        "padding": "4px 8px 4px 9px",
+        "gap": "6px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "11px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m6 3 5 5-5 5\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Select session Parity project",
+      "rect": {
+        "x": 26,
+        "y": 68,
+        "width": 158,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "158px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "0px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "14px",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9.5 2 14 6.5l-2.25.75-2.5 2.5.25 3L5.25 8.5l3-.25 2.5-2.5L9.5 2ZM6.75 9.25 2.5 13.5\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Settle session Parity project",
+      "rect": {
+        "x": 192,
+        "y": 68,
+        "width": 20,
+        "height": 24
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "20px",
+        "height": "24px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 8.5 6.5 12 13 4\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Parity shell. Double-click or F2 to rename. Drag or Alt+Arrow to reorder.",
+      "rect": {
+        "x": 224,
+        "y": -0.5,
+        "width": 88.625,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "88.625px",
+        "height": "28px",
+        "padding": "0px 8px",
+        "gap": "8px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Close terminal Parity shell",
+      "rect": {
+        "x": 312.625,
+        "y": 1.5,
+        "width": 24,
+        "height": 24
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "24px",
+        "height": "24px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "0"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Parity shell. Double-click or F2 to rename. Drag or Alt+Arrow to reorder.",
+      "rect": {
+        "x": 339.625,
+        "y": -0.5,
+        "width": 88.625,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "88.625px",
+        "height": "28px",
+        "padding": "0px 8px",
+        "gap": "8px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(28, 26, 36, 0.537)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "0px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Close terminal Parity shell",
+      "rect": {
+        "x": 428.25,
+        "y": 1.5,
+        "width": 24,
+        "height": 24
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "24px",
+        "height": "24px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m4 4 8 8M12 4l-8 8\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "New terminal",
+      "rect": {
+        "x": 459.25,
+        "y": 0.5,
+        "width": 28,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "28px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3v10M3 8h10\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Files",
+      "rect": {
+        "x": 1144,
+        "y": 0.5,
+        "width": 28,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "28px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Open terminal folder",
+      "rect": {
+        "x": 1172,
+        "y": 0.5,
+        "width": 28,
+        "height": 28
+      },
+      "styles": {
+        "display": "flex",
+        "gridTemplateColumns": "none",
+        "width": "28px",
+        "height": "28px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(165, 164, 171)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(165, 164, 171)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": [
+        "<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.25\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2 4h5l1.5 2H14v7H2V4Zm0 0V2.5h4L7.5 4H13v2M6 10h5m-2-2 2 2-2 2\"></path></svg>"
+      ]
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Rename terminal",
+      "rect": {
+        "x": 388,
+        "y": 18,
+        "width": 134,
+        "height": 28
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "134px",
+        "height": "28px",
+        "padding": "6px 8px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Move left",
+      "rect": {
+        "x": 388,
+        "y": 46,
+        "width": 134,
+        "height": 28
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "134px",
+        "height": "28px",
+        "padding": "6px 8px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "1"
+      },
+      "svg": []
+    },
+    {
+      "selector": "button",
+      "tag": "BUTTON",
+      "name": "Move right",
+      "rect": {
+        "x": 388,
+        "y": 74,
+        "width": 134,
+        "height": 28
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "134px",
+        "height": "28px",
+        "padding": "6px 8px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "0.4"
+      },
+      "svg": []
+    },
+    {
+      "selector": "textarea",
+      "tag": "TEXTAREA",
+      "name": "Terminal input",
+      "rect": {
+        "x": 322.265625,
+        "y": 70,
+        "width": 8.203125,
+        "height": 16
+      },
+      "styles": {
+        "display": "block",
+        "gridTemplateColumns": "none",
+        "width": "8.20312px",
+        "height": "16px",
+        "padding": "0px",
+        "gap": "normal",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "16px",
+        "color": "rgb(229, 228, 235)",
+        "backgroundColor": "rgb(18, 17, 23)",
+        "border": "0px none rgb(229, 228, 235)",
+        "borderRadius": "4px",
+        "boxShadow": "none",
+        "opacity": "0"
+      },
+      "svg": []
+    }
+  ]
+}

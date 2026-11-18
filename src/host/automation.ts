@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { launchAutomation } from './automation-launch';
+import { launchAutomation, requestAutomationStop } from './automation-launch';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
@@ -13,7 +13,8 @@ interface Run {
   input: AutomationStart; owner: string; child: ChildProcessWithoutNullStreams; dto: AutomationRun;
   frames: AutomationFrame[]; bytes: number; sequence: number; acknowledged: number; capturing: boolean; lastRead: number;
   history: string; listeners: Set<(data: string) => void>; exits: Set<(event: { exitCode: number }) => void>;
-  adapter: PtyProcess; inputEnded: boolean; stop?: Promise<void>;
+  adapter: PtyProcess; inputEnded: boolean; pendingWrites: Set<() => void>;
+  stopRequested: boolean; stopObservation?: Promise<void>;
 }
 export interface AutomationViewer {
   createAutomationTerminal?(input: { cwd: string; title?: string; requestId: string }, process: PtyProcess): Promise<Result<SessionDto>>;
@@ -43,31 +44,39 @@ export class AutomationRuns {
     if (!path.isAbsolute(input.cwd)) throw new Error('Automation cwd must be absolute.');
     const launch = launchAutomation(input, this.directory), child = launch.child;
     const dto: AutomationRun = { id: input.requestId, pid: child.pid ?? 0, executable: input.executable, cwd: input.cwd, title: (input.title ?? path.basename(input.executable)).slice(0, 200), state: 'running', exitCode: null, signal: null, sessionId: null, tabId: null };
-    const run: Run = { input, owner, child, dto, frames: [], bytes: 0, sequence: 0, acknowledged: 0, capturing: !input.detached, lastRead: Date.now(), history: '', listeners: new Set(), exits: new Set(), adapter: this.adapter(dto.id), inputEnded: input.detached };
+    const run: Run = { input, owner, child, dto, frames: [], bytes: 0, sequence: 0, acknowledged: 0, capturing: !input.detached, lastRead: Date.now(), history: '', listeners: new Set(), exits: new Set(), adapter: this.adapter(dto.id), inputEnded: input.detached, pendingWrites: new Set(), stopRequested: false };
     this.runs.set(dto.id, run);
     const decoders = { stdout: new StringDecoder('utf8'), stderr: new StringDecoder('utf8') };
     for (const stream of ['stdout', 'stderr'] as const) child[stream].on('data', (chunk: Buffer) => {
       this.display(run, decoders[stream].write(chunk));
       if (!run.capturing) return;
-      for (let offset = 0; offset < chunk.length; offset += 32768) {
-        const bytes = chunk.subarray(offset, offset + 32768);
+      // During stop, drain the pipes without pausing or growing the capture queue past credit.
+      const retain = run.stopRequested ? Math.min(chunk.length, Math.max(0, CREDIT - run.bytes)) : chunk.length;
+      for (let offset = 0; offset < retain; offset += 32768) {
+        const bytes = chunk.subarray(offset, Math.min(offset + 32768, retain));
         run.frames.push({ sequence: ++run.sequence, stream, data: bytes.toString('base64') }); run.bytes += bytes.length;
       }
-      if (run.bytes >= CREDIT) { child.stdout.pause(); child.stderr.pause(); }
+      if (!run.stopRequested && run.bytes >= CREDIT) { child.stdout.pause(); child.stderr.pause(); }
     });
     child.stdin.on('error', () => { run.inputEnded = true; });
     child.once('close', (code, signal) => {
       this.display(run, decoders.stdout.end() + decoders.stderr.end());
       const outcome = launch.outcome();
       dto.state = 'exited'; dto.exitCode = outcome ? outcome.code : code; dto.signal = outcome ? outcome.signal : signal;
+      for (const rejectWrite of run.pendingWrites) rejectWrite();
+      run.pendingWrites.clear();
       for (const listener of run.exits) listener({ exitCode: dto.exitCode ?? 1 });
     });
     try {
       await launch.ready;
       dto.pid = child.pid ?? 0;
-      if (input.detached) child.stdin.end();
+      if (input.detached && !run.stopRequested) child.stdin.end();
       return { ...dto };
-    } catch (error) { this.runs.delete(dto.id); throw error; }
+    } catch (error) {
+      // A shutdown already observing this child must not lose it on a late launch error.
+      if (!run.stopRequested) this.runs.delete(dto.id);
+      throw error;
+    }
   }
   list(): AutomationRun[] { return [...this.runs.values()].map(run => ({ ...run.dto })); }
   releaseOwner(owner: string): void {
@@ -93,10 +102,22 @@ export class AutomationRuns {
   }
   async write(id: string, data: string, eof: boolean, owner: string): Promise<{ accepted: true }> {
     const run = this.owned(id, owner);
-    if (run.inputEnded || run.dto.state !== 'running') throw new Error('The process stdin is closed.');
+    if (run.inputEnded || run.stopRequested || run.dto.state !== 'running') throw new Error('The process stdin is closed.');
     const bytes = Buffer.from(data, 'base64');
-    if (bytes.length) await new Promise<void>((resolve, reject) => { run.child.stdin.write(bytes, error => error ? reject(error) : resolve()); });
-    if (eof) { run.inputEnded = true; run.child.stdin.end(); }
+    if (bytes.length) await new Promise<void>((resolve, reject) => {
+      const closed = () => reject(new Error('The process closed before its stdin write was confirmed.'));
+      run.pendingWrites.add(closed);
+      try {
+        run.child.stdin.write(bytes, error => {
+          run.pendingWrites.delete(closed);
+          if (error) reject(error); else resolve();
+        });
+      } catch (error) { run.pendingWrites.delete(closed); reject(error); }
+    });
+    if (eof) {
+      if (run.inputEnded || run.stopRequested || run.dto.state !== 'running') throw new Error('The process stdin is closed.');
+      run.inputEnded = true; run.child.stdin.end();
+    }
     return { accepted: true };
   }
   private display(run: Run, text: string): void {
@@ -147,21 +168,21 @@ export class AutomationRuns {
   async stop(id: string): Promise<{ stopped: true }> {
     const run = this.get(id);
     if (run.dto.state === 'exited') return { stopped: true };
-    run.stop ??= (async () => {
-      if (process.platform === 'win32') {
-        // libuv holds the helper's process handle; killing it closes its native job.
-        if (!run.child.kill('SIGKILL') && run.child.exitCode === null && run.child.signalCode === null) throw new Error('Automation supervisor termination failed.');
-      } else if (run.child.exitCode === null && run.child.signalCode === null) {
-        // The live supervisor still owns this process-group identity.
-        try { process.kill(-run.dto.pid, 'SIGKILL'); } catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error; }
-      }
-      run.child.stdout.resume(); run.child.stderr.resume();
-      if (run.dto.state === 'running') await new Promise<void>((resolve, reject) => {
+    if (!run.stopRequested) {
+      // A failed or unacknowledged request is not permission to signal again.
+      run.stopRequested = true;
+      try { requestAutomationStop(run.child); }
+      finally { run.child.stdout.resume(); run.child.stderr.resume(); }
+    }
+    if (run.dto.state === 'running') {
+      run.stopObservation ??= new Promise<void>((resolve, reject) => {
+        const done = () => { clearTimeout(timer); resolve(); };
         const timer = setTimeout(() => { run.child.off('close', done); reject(new Error('Automation process exit was not confirmed.')); }, 10000);
-        const done = () => { clearTimeout(timer); resolve(); }; run.child.once('close', done);
-      });
-    })().catch(error => { run.stop = undefined; throw error; });
-    await run.stop; return { stopped: true };
+        run.child.once('close', done);
+      }).finally(() => { run.stopObservation = undefined; });
+      await run.stopObservation;
+    }
+    return { stopped: true };
   }
   async close(): Promise<void> {
     this.closing = true; clearInterval(this.lease);

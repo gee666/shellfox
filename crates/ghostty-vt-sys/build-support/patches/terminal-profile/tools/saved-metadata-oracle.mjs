@@ -1,0 +1,43 @@
+// Source-only evidence. No producer/ABI implementation, native-layout cast or GUI.
+import {createRequire} from 'node:module';
+import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {dirname,relative} from 'node:path';
+import {createHash} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
+const require=createRequire(import.meta.url),{Terminal}=require('@xterm/headless');
+const w=text=>({hex:Buffer.from(text).toString('hex')});
+export const savedMetadataCases=[
+ {name:'default-before-save-current-attrs-origin-charset',steps:[w('\x1b[31;44;1m\x1b(0\x1b[2;4r\x1b[?6h'),w('\x1b8'),w('q'),w('\x0fq')]},
+ {name:'saved-fg-bg-flags-protection',steps:[w('\x1b[31;44;1m\x1b[1"q\x1b7'),w('\x1b[0;32;43;3m\x1b[0"q'),w('\x1b8'),w('X')]},
+ {name:'saved-basic-RGB-and-known-flags',steps:[w('\x1b[1;2;3;5;7;8;9;53;38;2;12;34;56;48;2;90;100;110m\x1b7'),w('\x1b[0m'),w('\x1b8'),w('X')]},
+ {name:'saved-DEC-effective-map-does-not-restore-bank-or-selector',steps:[w('\x1b(0\x1b7'),w('\x1b(A\x1b)A\x0e'),w('\x1b8'),w('q'),w('\x0e#')]},
+ {name:'saved-undefined-charset-does-not-restore-current-G1',steps:[w('\x1b7'),w('\x1b)0\x0e'),w('\x1b8'),w('q'),w('\x0eq')]},
+ {name:'saved-UK-and-current-G0-DEC',steps:[w('\x1b(A\x1b7'),w('\x1b(0'),w('\x1b8'),w('#'),w('\x0fq')]},
+ {name:'extended-save-red-curly-current-green-double',steps:[w('\x1b[4:3;58:2::200:10:20m\x1b7'),w('\x1b[4:2;58:2::10:200:30m'),w('\x1b8'),w('X')]},
+ {name:'saved-extended-flag-current-payload-reset',steps:[w('\x1b[4:3;58:2::200:10:20m\x1b7'),w('\x1b[0m'),w('\x1b8'),w('X')]},
+ {name:'saved-basic-current-latent-extended-payload',steps:[w('\x1b[31m\x1b7'),w('\x1b[4:3;58:2::10:200:30m'),w('\x1b8'),w('X'),w('\x1b[4mY')]},
+ {name:'saved-URL-A-current-URL-B',steps:[w('\x1b]8;;https://example.invalid/A\x1b\\\x1b7'),w('\x1b]8;;https://example.invalid/B\x1b\\'),w('\x1b8'),w('X')]},
+ {name:'saved-basic-current-latent-URL-B',steps:[w('\x1b7'),w('\x1b]8;;https://example.invalid/B\x1b\\'),w('\x1b8'),w('X'),w('\x1b[4mY')]},
+ {name:'per-buffer-saved-attrs-charset-and-ALT-clear',steps:[w('\x1b[31m\x1b(0\x1b7'),w('\x1b[?47h\x1b[32m\x1b(A\x1b7'),w('\x1b[34m\x1b(B\x1b8#'),w('\x1b[?47l\x1b8q'),w('\x1b[?47h\x1b8#')]},
+ {name:'save-origin-on-restore-uses-current-origin-off',steps:[w('\x1b[2;4r\x1b[?6h\x1b[2;2H\x1b7'),w('\x1b[?6l'),w('\x1b8'),w('X')]},
+ {name:'save-origin-off-restore-uses-current-origin-on',steps:[w('\x1b[2;4r\x1b[1;2H\x1b7'),w('\x1b[?6h'),w('\x1b8'),w('X')]},
+ {name:'restore-does-not-restore-wrap-reverse-or-insert-modes',steps:[w('\x1b[31mAB\x1b7'),w('\x1b[?7l\x1b[?45h\x1b[4h\x1b[32m'),w('\x1b8'),w('X')]},
+ {name:'DECSTR-replaces-active-saved-attrs-and-charset',steps:[w('\x1b[31;44;1m\x1b(0\x1b7'),w('\x1b[!p'),w('\x1b[32m\x1b(A'),w('\x1b8q')]},
+ {name:'RIS-recreates-both-saved-banks',steps:[w('\x1b[31m\x1b(0\x1b7\x1b[?47h\x1b[32m\x1b(A\x1b7'),w('\x1bc'),w('\x1b[34m\x1b(0\x1b8q')]},
+ {name:'palette16-and-palette256-remain-distinct-source-modes',steps:[w('\x1b[31m\x1b7'),w('\x1b[38;5;1m'),w('\x1b8X')]},
+ {name:'stock-French-needs-source-equivalence-not-ASCII',steps:[w('\x1b(R\x1b7'),w('\x1b(B'),w('\x1b8@')]},
+ {name:'synthetic-global-fallback-DEC',synthetic:true,steps:[w('\x1b7'),{inject:'global-fallback-DEC'},w('\x1b8q')]},
+ {name:'synthetic-unknown-saved-charset-map',synthetic:true,steps:[{inject:'custom-current-map'},w('\x1b7'),w('\x1b(B'),w('\x1b8q')]},
+];
+const sha=b=>createHash('sha256').update(b).digest('hex');
+function canonicalMap(value){return value===undefined?null:Object.keys(value).sort().map(key=>[key,value[key]]);}
+async function calibrate(){const t=new Terminal({cols:12,rows:4,allowProposedApi:true}),known=[];try{for(const [kind,designator]of [['Undefined','B'],['DecSpecial','0'],['Uk','A'],['Dutch','4'],['Finnish','C'],['French','R'],['FrenchCanadian','Q'],['German','K'],['Italian','Y'],['NorwegianDanish','E'],['Spanish','Z'],['Swedish','H'],['Swiss','=']]){const seq=`\x1b(${designator}`;await new Promise(done=>t.write(seq,done));const value=t._core._charsetService.charset;known.push({kind,value,map:canonicalMap(value)});}for(const [kind,id]of [['Finnish','5'],['NorwegianDanish','6'],['Swedish','7']]){await new Promise(done=>t.write(`\x1b(${id}`,done));if(JSON.stringify(canonicalMap(t._core._charsetService.charset))!==JSON.stringify(known.find(c=>c.kind===kind).map))throw Error('Shipped charset alias changed');}return known;}finally{t.dispose();}}
+function attr(a,t){const ext=a.extended;return {fg:a.fg>>>0,bg:a.bg>>>0,storedExtended:ext._ext>>>0,effectiveExtended:ext.ext>>>0,urlId:ext.urlId,latentUri:ext.urlId?(t._core._oscLinkService.getLinkData(ext.urlId)?.uri??null):null,hasExtended:!!a.hasExtendedAttrs(),underlineStyle:a.getUnderlineStyle(),isUnderline:!!a.isUnderline(),underlineColorMode:a.getUnderlineColorMode()>>>24,underlineColor:a.getUnderlineColor(),protected:!!a.isProtected(),extendedStyle:ext.underlineStyle,extendedColor:ext.underlineColor>>>0,variant:ext.underlineVariantOffset};}
+function charset(value,known){const map=canonicalMap(value),key=JSON.stringify(map),match=known.find(item=>JSON.stringify(item.map)===key);return {kind:match?.kind??'UnknownMap',mapSha256:sha(key),...(match?{}:{map})};}
+function buffer(t,b,known){return {x:b.x,y:b.y,base:b.ybase,lineCount:b.lines.length,savedX:b.savedX,savedBufferY:b.savedY,savedAttr:attr(b.savedCurAttrData,t),savedCharset:charset(b.savedCharset,known),rows:Array.from({length:b.lines.length},(_,y)=>{const line=b.lines.get(y);return {wrapped:line.isWrapped,cells:Array.from({length:line.length},(_,x)=>{const cell=line.loadCell(x,t.buffer.active.getNullCell()),a=attr(cell,t);return {text:cell.getChars(),width:cell.getWidth(),attr:a,activeUri:a.hasExtended?a.latentUri:null};})};}),copy:Array.from({length:b.lines.length},(_,y)=>b.lines.get(y).translateToString(true)).join('\n').trimEnd()};}
+export async function collectSavedMetadataOracle(){const known=await calibrate(),cases=[];for(const fixture of savedMetadataCases){const t=new Terminal({cols:12,rows:4,scrollback:8,allowProposedApi:true});try{if(t._core.unicodeService.activeVersion!=='6')throw Error('Unicode provider changed');const entry={...fixture,steps:[]};for(const original of fixture.steps){const step={...original};if(step.hex!==undefined)await new Promise(done=>t.write(Buffer.from(step.hex,'hex'),done));else if(step.inject==='global-fallback-DEC')t._core._inputHandler._savedCharset=known.find(c=>c.kind==='DecSpecial').value;else if(step.inject==='custom-current-map')t._core._charsetService.charset={q:'!'};else throw Error('Unknown labeled synthetic input');
+ const service=t._core._bufferService,handler=t._core._inputHandler,charsets=t._core._charsetService;
+ step.expected={active:service.buffer===service.buffers.alt?'alternate':'primary',currentAttr:attr(handler.getAttrData(),t),charset:{effective:charset(charsets.charset,known),glevel:charsets.glevel,banks:Array.from({length:4},(_,i)=>charset(charsets._charsets[i],known)),fallbackPropertyPresent:Object.hasOwn(handler,'_savedCharset'),fallback:charset(handler._savedCharset,known)},modes:{...t._core.coreService.decPrivateModes,insert: t._core.coreService.modes.insertMode},join:handler._parser.precedingJoinState,primary:buffer(t,service.buffers.normal,known),alternate:buffer(t,service.buffers.alt,known)};entry.steps.push(step);}cases.push(entry);}finally{t.dispose();}}
+ const files=[require.resolve('@xterm/headless'),'node_modules/@xterm/headless/package.json','node_modules/@xterm/xterm/src/common/InputHandler.ts','node_modules/@xterm/xterm/src/common/buffer/AttributeData.ts','node_modules/@xterm/xterm/src/common/buffer/Constants.ts','node_modules/@xterm/xterm/src/common/buffer/Buffer.ts','node_modules/@xterm/xterm/src/common/buffer/BufferSet.ts','node_modules/@xterm/xterm/src/common/services/CharsetService.ts','node_modules/@xterm/xterm/src/common/data/Charsets.ts'];
+ return {status:'source-only-saved-metadata-blocker-evidence-not-state3-producer-proof',knownCharsets:known.map(({kind,map})=>({kind,map,mapSha256:sha(JSON.stringify(map))})),sourceHashes:files.map(path=>({path:relative(process.cwd(),path).replaceAll('\\','/'),sha256:sha(readFileSync(path))})),summary:{cases:cases.length,cuts:cases.reduce((n,c)=>n+c.steps.length,0),syntheticCases:cases.filter(c=>c.synthetic).length},cases};}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){const output=process.argv[2];if(!output)throw Error('usage: node saved-metadata-oracle.mjs tmp/.../oracle.json');const data=await collectSavedMetadataOracle();mkdirSync(dirname(output),{recursive:true});writeFileSync(output,JSON.stringify(data,null,2)+'\n');console.log(JSON.stringify(data.summary));}

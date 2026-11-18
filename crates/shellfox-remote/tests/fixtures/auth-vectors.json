@@ -1,0 +1,66 @@
+[
+  {
+    "name": "discover",
+    "path": "/v1/discover",
+    "body": "{}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "d25d31596057ab011e8beacd8a8ade09e27532de405ceeb155d41d4a7fb8457d"
+  },
+  {
+    "name": "pair",
+    "path": "/v1/pair",
+    "body": "{\"clientId\":\"11111111-1111-4111-8111-111111111111\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "da7fc3b6e57fef0d6a1ad0a8a280d133d1a8b5232fcb0e01e98dab13bab4ab71"
+  },
+  {
+    "name": "snapshot",
+    "path": "/v1/request",
+    "body": "{\"clientId\":\"11111111-1111-4111-8111-111111111111\",\"method\":\"getSnapshot\",\"payload\":{}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "403f87318700b8761524bd211d226fbc6a0b41b530fd68333bb58d31fbf2c53e"
+  },
+  {
+    "name": "events",
+    "path": "/v1/events",
+    "body": "{\"clientId\":\"11111111-1111-4111-8111-111111111111\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "2f61b9c2cbba965c636903b49e9e50882eb712ada0d7bd3a899b3f206d4a93c7"
+  },
+  {
+    "name": "disconnect",
+    "path": "/v1/disconnect",
+    "body": "{\"clientId\":\"11111111-1111-4111-8111-111111111111\"}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "68149b7fe157b79167263f19d75e74fe1dfebfb7010278ded4bada3e3f6dc4fc"
+  },
+  {
+    "name": "privileged",
+    "path": "/v1/request",
+    "body": "{\"clientId\":\"11111111-1111-4111-8111-111111111111\",\"method\":\"updateSettings\",\"payload\":{}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "ec0149d519b3f25348eed19d9e8ecbb5f7475764a575ba7ec59bff520a10bc83"
+  },
+  {
+    "name": "invalid-json",
+    "path": "/v1/request",
+    "body": "{",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "897ced2d0f4224d4c039dd3bd179fdfbf338da52be33b4a03fdee098109bdd86"
+  },
+  {
+    "name": "write",
+    "path": "/v1/request",
+    "body": "{\"clientId\":\"11111111-1111-4111-8111-111111111111\",\"method\":\"renameSession\",\"payload\":{\"sessionId\":\"11111111-1111-4111-8111-111111111111\",\"title\":\"other\"}}",
+    "peer": "eyJpZCI6Im4tcGVlciIsImhvc3RuYW1lIjoibXkgbGFwdG9wIn0",
+    "timestamp": "1700000000123",
+    "signature": "1b0aa51b21f72ac1706d9d36cfd71ca955236968ff0b6a2efa36118fbd59043c"
+  }
+]

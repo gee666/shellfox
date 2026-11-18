@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ spawn: vi.fn() }));
-vi.mock('node:child_process', async original => ({ ...await original<typeof import('node:child_process')>(), spawn: mocks.spawn }));
+vi.mock('node:child_process', async () => ({ ...(await import('../../../tests/unit/app-process-model')).unitChildProcess, spawn: mocks.spawn }));
 import { WindowsElevatedPty, elevatedHelperPath, launchElevatedPty, elevatedLauncherEnvironment } from './windows-elevated';
 const processes: { kill(): void }[] = [];
 const children: EventEmitter[] = [];
@@ -42,6 +42,14 @@ it('authenticates readiness and preserves UTF-8 split across output frames', asy
   for (const data of [utf8.subarray(0, 2), utf8.subarray(2, 5), utf8.subarray(5)]) f.message({ type: 'data', data: data.toString('base64') });
   expect(output.join('')).toBe('雪🙂\x1b[31m');
   f.message({ type: 'exit', exitCode: 17 }); await f.pty.closeConfirmed();
+});
+it('frames terminal NUL with explicit UTF-8 byte credit and preserves following bytes', async () => {
+  const f = fixture(); f.ready(); await f.pty.whenReady();
+  f.pty.write('A\u0000B');
+  expect(JSON.parse(f.sent.at(-1)!)).toEqual({ type: 'write', id: 1, data: 'A\u0000B' });
+  expect(f.pty.queuedInputBytes()).toBe(3);
+  f.message({ type: 'ack', id: 1 }); expect(f.pty.queuedInputBytes()).toBe(0);
+  f.message({ type: 'exit', exitCode: 0 }); await f.pty.closeConfirmed();
 });
 it('bounds outstanding input until exact ordered acknowledgements arrive', async () => {
   const f = fixture(); f.ready(); await f.pty.whenReady();

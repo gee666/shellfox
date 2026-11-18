@@ -1,0 +1,2460 @@
+--- a/src/terminal/c/main.zig
++++ b/src/terminal/c/main.zig
+@@ -249,6 +249,9 @@
+ pub const terminal_grid_ref_track = terminal.grid_ref_track;
+ pub const terminal_point_from_grid_ref = terminal.point_from_grid_ref;
+ 
++pub const shellfox_snapshot_format2_encode_buf = @import("shellfox_snapshot_format2.zig").encode_buf;
++pub const shellfox_snapshot_format2_decode_buf = @import("shellfox_snapshot_format2.zig").decode_buf;
++
+ pub const shellfox_snapshot_budget_decode_buf = @import("shellfox_snapshot_budget.zig").decode_buf;
+ pub const shellfox_snapshot_budget_encode_buf = @import("shellfox_snapshot_budget_encode.zig").encode_buf;
+ 
+@@ -310,6 +313,7 @@
+     _ = size_report;
+     _ = snapshot;
+     _ = @import("shellfox_snapshot_budget.zig");
++    _ = @import("shellfox_snapshot_format2.zig");
+     _ = @import("shellfox_snapshot_budget_encode.zig");
+     _ = shellfox_ansi;
+     _ = style;
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -374,6 +374,8 @@
+         @export(&c.snapshot_decoder_ready, .{ .name = "ghostty_snapshot_decoder_ready" });
+         @export(&c.snapshot_decoder_next, .{ .name = "ghostty_snapshot_decoder_next" });
+         @export(&c.snapshot_decoder_decode, .{ .name = "ghostty_snapshot_decoder_decode" });
++        @export(&c.shellfox_snapshot_format2_encode_buf, .{ .name = "ghostty_shellfox_snapshot_format2_encode_buf" });
++        @export(&c.shellfox_snapshot_format2_decode_buf, .{ .name = "ghostty_shellfox_snapshot_format2_decode_buf" });
+         @export(&c.shellfox_snapshot_budget_decode_buf, .{ .name = "ghostty_shellfox_snapshot_budget_decode_buf" });
+         @export(&c.shellfox_snapshot_budget_encode_buf, .{ .name = "ghostty_shellfox_snapshot_budget_encode_buf" });
+         @export(&c.kitty_graphics_get, .{ .name = "ghostty_kitty_graphics_get" });
+--- /dev/null
++++ b/include/ghostty/vt/shellfox_snapshot_format2.h
+@@ -0,0 +1,90 @@
++/* Experimental format2 ABI. Native002 and original public APIs are unchanged. */
++#ifndef GHOSTTY_VT_SHELLFOX_SNAPSHOT_FORMAT2_H
++#define GHOSTTY_VT_SHELLFOX_SNAPSHOT_FORMAT2_H
++#include <ghostty/vt/terminal.h>
++#include <ghostty/vt/shellfox_terminal_profile.h>
++#ifdef __cplusplus
++extern "C" {
++#endif
++#define GHOSTTY_SHELLFOX_FORMAT2_ABI 1u
++#define GHOSTTY_SHELLFOX_FORMAT2_VERSION 2u
++#define GHOSTTY_SHELLFOX_FORMAT2_WIRE_PROFILE 2u
++#define GHOSTTY_SHELLFOX_FORMAT2_LAYOUT_ABI 2u
++/* Default build returns UNSUPPORTED. Only builtin tests or a distinct explicit
++ * shellfox-experimental-format2 build enable this prototype. This does not
++ * enable public Legacy construction or imply application/profile acceptance.
++ * Exact size/ABI/identity/profile/layout checks. All budgets finite, zero=zero.
++ * Source preflight proves ALL page nodes resident before any profile/layout
++ * accessor; compressed sources are refused without restoration/mutation.
++ * Concrete style/link aliases reject before native reference increments.
++ * Managed map/table work is conservatively prepaid from native capacities.
++ * Compatibility, the SOLE canonical Profile State and explicit runtime config
++ * are inside the single SFOXSN2 blob, without native padding/pointers/size_t.
++ */
++typedef struct {
++  size_t size;
++  uint32_t abi_version;
++  uint32_t format_version;
++  uint32_t wire_profile;
++  uint32_t layout_abi;
++  uint32_t terminal_profile;
++  uint32_t flags;
++  uint32_t runtime_resize_pull_scrollback;
++  GhosttyString engine_profile;
++  uint64_t max_encoded_bytes;
++  uint64_t max_allocation_bytes;
++  uint64_t max_work_units;
++  uint64_t max_physical_slots;
++  uint64_t max_rows;
++  uint64_t max_text_scalars;
++  uint64_t max_text_bytes;
++  uint64_t max_continuation_bytes;
++  uint32_t max_pages;
++  uint32_t max_records;
++  uint32_t max_visible_columns;
++  uint32_t max_backing_columns;
++  uint32_t max_visible_rows;
++  uint32_t max_pixel_width;
++  uint32_t max_pixel_height;
++  uint32_t reserved;
++} GhosttyShellfoxSnapshotFormat2Options;
++typedef struct {
++  size_t size;
++  uint32_t abi_version;
++  uint32_t reserved;
++  uint64_t source_offset;
++  uint64_t heap_bytes;
++  uint64_t mapped_bytes;
++  uint64_t work_units;
++  uint64_t physical_slots;
++  uint64_t text_scalars;
++} GhosttyShellfoxSnapshotFormat2Report;
++/* Exclusive source ownership for entire call. No source feed/query/switch,
++ * effects callback, source mutation or separate metadata getter. Private charged
++ * staging; no output buffer writes on failure, out_written=0. Caller capacity
++ * exhaustion returns OUT_OF_SPACE; encoded/continuation policy exhaustion
++ * returns LIMIT_EXCEEDED. Slow-integrity/unsupported builds are unsupported.
++ * Disjoint outputs
++ * must not alias source-owned memory. The scope bounds cumulative OS-rounded
++ * heap/pool/direct reservations, not process RSS or later live-input allocations.
++ */
++GHOSTTY_API GhosttyResult ghostty_shellfox_snapshot_format2_encode_buf(
++    GhosttyTerminal source, const GhosttyShellfoxSnapshotFormat2Options *options,
++    uint8_t *output, size_t capacity, size_t *out_written,
++    GhosttyShellfoxSnapshotFormat2Report *report);
++/* Input/options/identity immutable throughout. All framing/layout/count/text/
++ * work/alloc limits checked before native restore. Core fresh token stages
++ * profile/layout, restores captured join before continuation, verifies after.
++ * FINISH/exact EOF required. No partial terminal; *out=NULL on error. Free a
++ * successful owned result with ghostty_terminal_free. Destination is passive.
++ * No raw1 fallback, new-cell invalid-CP normalization, callback restoration,
++ * images/decompression or public Legacy availability follows from these APIs.
++ */
++GHOSTTY_API GhosttyResult ghostty_shellfox_snapshot_format2_decode_buf(
++    const uint8_t *input, size_t length,
++    const GhosttyShellfoxSnapshotFormat2Options *options,
++    GhosttyTerminal *out, GhosttyShellfoxSnapshotFormat2Report *report);
++#ifdef __cplusplus
++}
++#endif
++#endif
+--- /dev/null
++++ b/src/terminal/c/shellfox_snapshot_format2.zig
+@@ -0,0 +1,109 @@
++//! Experimental additive format2 C boundary. Normal Legacy availability is OFF.
++const std = @import("std");
++const lib = @import("../lib.zig");
++const ct = @import("terminal.zig");
++const Result = @import("result.zig").Result;
++const codec = @import("../shellfox_snapshot_format2/codec.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const schema = @import("../shellfox_snapshot_format2/options.zig");
++pub const Options = schema.Options;
++pub const Report = schema.Report;
++fn configuration(o: ?*const Options, report: ?*Report) !Options {
++    const ptr = o orelse return error.InvalidOptions;
++    if (ptr.size != @sizeOf(Options)) return error.InvalidOptions;
++    if (report) |r| {
++        if (r.size != @sizeOf(Report) or r.abi_version != 1 or r.reserved != 0) return error.InvalidOptions;
++        r.* = .{};
++    }
++    try schema.validate(ptr.*);
++    return ptr.*;
++}
++fn map(err: anyerror, scope: *const guard.Scope) Result {
++    if (scope.exceeded) return .limit_exceeded;
++    if (scope.allocation_failed) return .out_of_memory;
++    return switch (err) {
++        error.OutOfMemory => .out_of_memory,
++        error.OutOfSpace => .out_of_space,
++        error.LimitExceeded, error.EncodedLimitExceeded, error.ContinuationLimitExceeded => .limit_exceeded,
++        error.UnsupportedProfile, error.UnsupportedVersion, error.UnsupportedLayoutABI, error.UnsupportedFlags, error.UnsupportedPrefix, error.UnsupportedRecord => .unsupported,
++        else => .invalid_value,
++    };
++}
++fn publishReport(report: ?*Report, scope: guard.Scope, offset: usize) void {
++    if (report) |r| {
++        r.source_offset = offset;
++        r.heap_bytes = scope.heap_bytes;
++        r.mapped_bytes = scope.mapped_bytes;
++        r.work_units = scope.work;
++    }
++}
++pub fn encode_buf(source: ct.Terminal, options_: ?*const Options, output: ?[*]u8, capacity: usize, written_: ?*usize, report: ?*Report) callconv(lib.calling_conv) Result {
++    const written = written_ orelse return .invalid_value;
++    written.* = 0;
++    if (comptime !lib.feature(.snapshot) or !codec.supported_build) return .unsupported;
++    if (!codec.enabled()) return .unsupported;
++    const o = configuration(options_, report) catch |err| return if (err == error.UnsupportedProfile) .unsupported else .invalid_value;
++    const ptr = output orelse return .invalid_value;
++    var scope: guard.Scope = .{ .max_bytes = o.max_allocation_bytes, .max_work = o.max_work_units };
++    if (!guard.enter(&scope)) return .unsupported;
++    defer guard.leave();
++    defer publishReport(report, scope, 0);
++    const body = codec.encode(source, o, &scope, capacity) catch |err| {
++        return map(err, &scope);
++    };
++    defer body.deinit();
++    if (scope.failed()) return map(error.OutOfMemory, &scope);
++    if (report) |r| {
++        r.physical_slots = body.totals.physical_slots;
++        r.text_scalars = body.totals.text_scalars;
++    }
++    @memcpy(ptr[0..body.len], body.bytes());
++    written.* = body.len;
++    return .success;
++}
++pub fn decode_buf(input: ?[*]const u8, len: usize, options_: ?*const Options, out_: ?*ct.Terminal, report: ?*Report) callconv(lib.calling_conv) Result {
++    const out = out_ orelse return .invalid_value;
++    out.* = null;
++    if (comptime !lib.feature(.snapshot) or !codec.supported_build) return .unsupported;
++    if (!codec.enabled()) return .unsupported;
++    const o = configuration(options_, report) catch |err| return if (err == error.UnsupportedProfile) .unsupported else .invalid_value;
++    const bytes: []const u8 = if (input) |p| p[0..len] else if (len == 0) &.{} else return .invalid_value;
++    var scope: guard.Scope = .{ .max_bytes = o.max_allocation_bytes, .max_work = o.max_work_units };
++    if (!guard.enter(&scope)) return .unsupported;
++    defer guard.leave();
++    var offset: usize = 0;
++    defer publishReport(report, scope, offset);
++    const decoded = codec.decode(bytes, o, &scope) catch |err| {
++        return map(err, &scope);
++    };
++    if (scope.failed()) {
++        ct.free(decoded.terminal);
++        return map(error.OutOfMemory, &scope);
++    }
++    offset = len;
++    if (report) |r| {
++        r.physical_slots = decoded.totals.physical_slots;
++        r.text_scalars = decoded.totals.text_scalars;
++    }
++    out.* = decoded.terminal;
++    return .success;
++}
++
++test "format2 review unsupported builds refuse before source or allocation" {
++    if (comptime codec.supported_build) return error.SkipZigTest;
++    var out: ct.Terminal = null;
++    var written: usize = 99;
++    try std.testing.expectEqual(Result.unsupported, encode_buf(null, null, null, 0, &written, null));
++    try std.testing.expectEqual(@as(usize, 0), written);
++    try std.testing.expectEqual(Result.unsupported, decode_buf(null, 0, null, &out, null));
++    try std.testing.expectEqual(@as(ct.Terminal, null), out);
++}
++
++test {
++    _ = @import("../shellfox_snapshot_format2/framing_tests.zig");
++    _ = @import("../shellfox_snapshot_format2/codec_tests.zig");
++    _ = @import("../shellfox_snapshot_format2/matrix_tests.zig");
++    _ = @import("../shellfox_snapshot_format2/failure_tests.zig");
++    _ = @import("../shellfox_snapshot_format2/review_tests.zig");
++    _ = @import("../shellfox_snapshot_format2/managed_review_tests.zig");
++}
+--- /dev/null
++++ b/src/shellfox_format2_framing_tests.zig
+@@ -0,0 +1,6 @@
++//! Standalone framing proof. No canonical layout implementation is substituted.
++test {
++    _ = @import("terminal/shellfox_snapshot_format2/envelope.zig");
++    _ = @import("terminal/shellfox_snapshot_format2/framing_tests.zig");
++    _ = @import("terminal/shellfox_snapshot_format2/resources.zig");
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/cell.zig
+@@ -0,0 +1,106 @@
++//! Pointer-free strict cell2 values, never raw-v1 words or invalid-CP sentinels.
++const std = @import("std");
++const page = @import("../page.zig");
++const layout = @import("../shellfox_cell_layout2.zig");
++const wire = @import("../snapshot/io.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++pub const Value = struct {
++    kind: u8,
++    wide: u8,
++    override: u8,
++    flags: u8,
++    content: u32,
++    style: u16,
++    link: u16,
++    suffix: []const u8,
++};
++pub fn scalar(cp: u32) !u21 {
++    if (cp > 0x10ffff or (cp >= 0xd800 and cp <= 0xdfff)) return error.InvalidScalar;
++    return @intCast(cp);
++}
++pub fn base(value: Value) !page.Cell {
++    if (value.kind > 3 or value.wide > 3 or value.override > 2 or value.flags & 0xf8 != 0 or
++        (value.kind == 1 and value.content == 0))
++        return error.InvalidCell;
++    const semantic = std.enums.fromInt(page.Cell.SemanticContent, @as(u2, @truncate(value.flags >> 1))) orelse
++        return error.InvalidCell;
++    var result: page.Cell = .{ .protected = value.flags & 1 != 0, .semantic_content = semantic };
++    switch (value.kind) {
++        0, 1 => {
++            result.content.codepoint.data = try scalar(value.content);
++            result.content_tag = if (value.kind == 1) .codepoint_grapheme else .codepoint;
++        },
++        2 => {
++            if (value.content > 255) return error.InvalidCell;
++            result.content_tag = .bg_color_palette;
++            result.content = .{ .color_palette = .{ .data = @intCast(value.content) } };
++        },
++        3 => {
++            if (value.content > 0xffffff) return error.InvalidCell;
++            result.content_tag = .bg_color_rgb;
++            result.content = .{ .color_rgb = .{ .r = @truncate(value.content), .g = @truncate(value.content >> 8), .b = @truncate(value.content >> 16) } };
++        },
++        else => unreachable,
++    }
++    try layout.restoreCellLayoutBeforeContinuation(&result, value.wide, value.override);
++    return result;
++}
++pub fn read(r: *std.Io.Reader) !Value {
++    var value: Value = .{
++        .kind = try r.takeByte(),
++        .wide = try r.takeByte(),
++        .override = try r.takeByte(),
++        .flags = try r.takeByte(),
++        .content = try wire.readInt(r, u32),
++        .style = try wire.readInt(r, u16),
++        .link = try wire.readInt(r, u16),
++        .suffix = &.{},
++    };
++    const count = try wire.readInt(r, u16);
++    if (try wire.readInt(r, u16) != 0 or count > page.grapheme_max_len or
++        (value.kind == 1) != (count > 0)) return error.InvalidCell;
++    value.suffix = try r.take(@as(usize, count) * 4);
++    _ = try base(value);
++    for (0..count) |i| _ = try scalar(std.mem.readInt(u32, value.suffix[i * 4 ..][0..4], .little));
++    try guard.chargeWork(1 + @as(u64, count));
++    return value;
++}
++pub fn encode(w: *std.Io.Writer, p: *const page.Page, cell: *const page.Cell) !void {
++    const shape = try layout.cellLayout(cell.*, 1);
++    try w.writeByte(@intCast(@backingInt(cell.content_tag)));
++    try w.writeByte(shape.native_wide);
++    try w.writeByte(shape.semantic_override);
++    try w.writeByte(@as(u8, @intFromBool(cell.protected)) | (@as(u8, @intCast(@backingInt(cell.semantic_content))) << 1));
++    const content: u32 = switch (cell.content_tag) {
++        .codepoint, .codepoint_grapheme => cell.codepoint(),
++        .bg_color_palette => cell.content.color_palette.data,
++        .bg_color_rgb => @as(u32, cell.content.color_rgb.r) | (@as(u32, cell.content.color_rgb.g) << 8) | (@as(u32, cell.content.color_rgb.b) << 16),
++    };
++    try wire.writeInt(w, u32, content);
++    try wire.writeInt(w, u16, cell.style_id);
++    if (cell.hyperlink) try @import("work.zig").sourceLookups(p, 1);
++    try wire.writeInt(w, u16, if (cell.hyperlink) p.lookupHyperlink(cell) orelse return error.InvalidCell else 0);
++    if (cell.hasGrapheme()) try @import("work.zig").sourceLookups(p, 1);
++    const suffix = if (cell.hasGrapheme()) p.lookupGrapheme(cell) orelse return error.InvalidCell else &.{};
++    if (suffix.len > page.grapheme_max_len) return error.InvalidCell;
++    try wire.writeInt(w, u16, @intCast(suffix.len));
++    try wire.writeInt(w, u16, 0);
++    for (suffix) |cp| try wire.writeInt(w, u32, cp);
++    try guard.chargeWork(1 + suffix.len);
++}
++pub fn materialize(value: Value, p: *page.Page, row: *page.Row, cell: *page.Cell, style: u16, link: u16) !void {
++    var initial = try base(value);
++    initial.content_tag = if (value.kind == 1) .codepoint else initial.content_tag;
++    initial.style_id = style;
++    cell.* = initial;
++    if (style != 0) {
++        p.styles.use(p.memory, style);
++        row.styled = true;
++    }
++    for (0..value.suffix.len / 4) |i| try p.appendGrapheme(row, cell, try scalar(std.mem.readInt(u32, value.suffix[i * 4 ..][0..4], .little)));
++    if (link != 0) {
++        p.hyperlink_set.use(p.memory, link);
++        try p.setHyperlink(row, cell, link);
++    }
++    try layout.restoreCellLayoutBeforeContinuation(cell, value.wide, value.override);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/codec.zig
+@@ -0,0 +1,270 @@
++const std = @import("std");
++const ct = @import("../c/terminal.zig");
++const native_snapshot = @import("../snapshot/main.zig");
++const continuation = @import("../snapshot/continuation.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const layout = @import("../shellfox_cell_layout2.zig");
++const profile = @import("../shellfox_terminal_profile.zig");
++const Key = @import("../ScreenSet.zig").Key;
++const PageList = @import("../PageList.zig");
++const options = @import("options.zig");
++const envelope = @import("envelope.zig");
++const record = @import("record.zig");
++const resources = @import("resources.zig");
++const term = @import("terminal.zig");
++const screens = @import("screen.zig");
++const pages = @import("page.zig");
++pub const Options = options.Options;
++pub const supported_build = @import("../c/shellfox_snapshot_budget.zig").supported_build;
++pub fn enabled() bool {
++    return supported_build and @import("../shellfox_layout2_gate.zig").enabled();
++}
++
++pub const Body = struct {
++    allocation: []u8,
++    len: usize,
++    totals: record.Totals,
++    pub fn bytes(self: Body) []const u8 {
++        return self.allocation[0..self.len];
++    }
++    pub fn deinit(self: Body) void {
++        guard.heapAllocator().free(self.allocation);
++    }
++};
++const Admitted = struct {
++    compatibility: options.Compatibility,
++    terminal: term.View,
++    screens: [2]screens.View,
++    screen_count: usize,
++    continuation: []const u8,
++    totals: record.Totals,
++};
++fn frameLimits(o: Options) record.Limits {
++    return .{ .encoded_bytes = o.max_encoded_bytes, .records = o.max_records, .pages = o.max_pages, .screens = 2 };
++}
++fn tally(o: Options, scope: *guard.Scope) resources.Tally {
++    return .{ .scope = scope, .limits = .{ .pages = o.max_pages, .rows = o.max_rows, .visible_columns = o.max_visible_columns, .backing_columns = o.max_backing_columns, .physical_slots = o.max_physical_slots, .text_scalars = o.max_text_scalars, .text_bytes = o.max_text_bytes } };
++}
++fn admit(bytes: []const u8, o: Options, scope: *guard.Scope) !Admitted {
++    var reader = try record.Reader.init(bytes, o.layout_abi, frameLimits(o), scope);
++    var count = tally(o, scope);
++    var result: Admitted = undefined;
++    result.screen_count = 0;
++    result.continuation = &.{};
++    var rows: u64 = 0;
++    var page_count: u32 = 0;
++    var pending: ?pages.Description = null;
++    var routed: u8 = 0;
++    while (try reader.next()) |frame| switch (frame.tag) {
++        .compatibility => result.compatibility = try options.decodeCompatibility(frame.payload, o),
++        .terminal => result.terminal = try term.parse(frame.payload, o, &count),
++        .screen_layout => {
++            if (result.screen_count > 0 and (rows != result.screens[result.screen_count - 1].layout.total_rows or
++                page_count != result.screens[result.screen_count - 1].pages)) return error.InvalidScreen;
++            if (result.screen_count >= 2) return error.InvalidScreen;
++            const view = try screens.parse(frame.payload, o, &count);
++            const bit: u8 = @as(u8, 1) << @as(u3, @intCast(@backingInt(view.key)));
++            if (routed & bit != 0 or view.layout.visible_cols != result.terminal.header.columns or
++                view.layout.rows != result.terminal.header.rows or
++                (view.key == .primary and view.layout.physical_cols != view.layout.visible_cols)) return error.InvalidScreen;
++            routed |= bit;
++            result.screens[result.screen_count] = view;
++            result.screen_count += 1;
++            rows = 0;
++            page_count = 0;
++        },
++        .page_layout => {
++            const view = result.screens[result.screen_count - 1];
++            pending = try pages.describe(frame.payload, view.layout.visible_cols, &count);
++            if (pending.?.cols != view.layout.physical_cols) return error.InvalidPage;
++            const row_start = rows;
++            rows = std.math.add(u64, rows, pending.?.rows) catch return error.LimitExceeded;
++            const cursor_row = view.layout.total_rows - view.layout.rows + view.layout.cursor.y;
++            if (cursor_row >= row_start and cursor_row < rows) try screens.restoreWork(pending.?.capacity, view);
++            page_count += 1;
++        },
++        .page_cells => try pages.decodeCells(frame.payload, pending orelse return error.InvalidPage, null, null, &count),
++        .continuation => {
++            if (frame.payload.len > o.max_continuation_bytes) return error.LimitExceeded;
++            try scope.chargeWork(std.math.mul(u64, frame.payload.len, frame.payload.len) catch return error.LimitExceeded);
++            try continuation.validate(.{ .bytes = frame.payload });
++            result.continuation = frame.payload;
++        },
++        .finish => {
++            if (rows != result.screens[result.screen_count - 1].layout.total_rows or
++                page_count != result.screens[result.screen_count - 1].pages or
++                result.screen_count != result.terminal.header.screen_count or routed & 1 == 0 or
++                routed & (@as(u8, 1) << @as(u3, @intCast(@backingInt(result.terminal.header.active_screen_key)))) == 0)
++                return error.InvalidScreen;
++            result.totals = .{ .records = reader.records, .pages = count.pages, .physical_slots = count.physical_slots, .text_scalars = count.text_scalars };
++            try reader.verifyTotals(result.totals);
++        },
++    };
++    if (reader.phase != .complete) return error.MissingFinish;
++    return result;
++}
++fn emit(w: *std.Io.Writer, tag: record.Tag, payload: []const u8, records: *u64) !void {
++    try record.write(w, tag, payload);
++    records.* += 1;
++}
++pub const OutputError = error{ OutOfSpace, EncodedLimitExceeded, ContinuationLimitExceeded };
++pub fn outputFailure(o: Options, capacity: usize) OutputError {
++    return if (capacity < o.max_encoded_bytes) error.OutOfSpace else error.EncodedLimitExceeded;
++}
++pub fn encode(source: ct.Terminal, o: Options, scope: *guard.Scope, capacity: usize) !Body {
++    return encodeStaged(source, o, scope, capacity) catch |err| {
++        if (err == error.WriteFailed) {
++            if (scope.failed()) return error.OutOfMemory;
++            return outputFailure(o, capacity);
++        }
++        return err;
++    };
++}
++fn encodeStaged(source: ct.Terminal, o: Options, scope: *guard.Scope, capacity: usize) !Body {
++    if (!enabled() or !guard.isActive()) return error.UnsupportedProfile;
++    try options.validate(o);
++    const t = ct.zigTerminal(source) orelse return error.InvalidTerminal;
++    try @import("source.zig").requireResident(t, o);
++    try @import("source.zig").validationWork(t);
++    if (!ct.budgetRawV1ConfigSupported(source) or t.flags.resize_pull_scrollback != (o.runtime_resize_pull_scrollback == 1))
++        return error.UnsupportedProfile;
++    const state = try profile.capture(t);
++    try profile.validateState(&state, o.terminal_profile);
++    try profile.applyRestored(t, state.terminal_profile, std.math.cast(usize, o.max_physical_slots) orelse return error.LimitExceeded);
++    _ = try layout.validateLayout(t, state.terminal_profile, .{ .max_cells = std.math.cast(usize, o.max_physical_slots) orelse return error.LimitExceeded, .max_rows = std.math.cast(usize, o.max_rows) orelse return error.LimitExceeded });
++    const alloc = guard.heapAllocator();
++    const cap = @min(capacity, std.math.cast(usize, o.max_encoded_bytes) orelse return error.LimitExceeded);
++    if (cap < envelope.len) return outputFailure(o, capacity);
++    const stage = try alloc.alloc(u8, cap);
++    errdefer alloc.free(stage);
++    const scratch = try alloc.alloc(u8, cap);
++    defer alloc.free(scratch);
++    var output: std.Io.Writer = .fixed(stage);
++    try output.writeAll(&try envelope.encode(.{ .layout_abi = layout.version, .encoded_len = envelope.len }));
++    var records: u64 = 0;
++    var count = tally(o, scope);
++    var w: std.Io.Writer = .fixed(scratch);
++    try options.encodeCompatibility(&w, o, state);
++    try emit(&output, .compatibility, w.buffered(), &records);
++    w = .fixed(scratch);
++    try term.encode(&w, t);
++    _ = try term.parse(w.buffered(), o, &count);
++    try emit(&output, .terminal, w.buffered(), &records);
++    for ([_]Key{ .primary, .alternate }) |key| if (t.screens.get(key)) |s| {
++        var n = s.pages.pages.first;
++        var pc: u32 = 0;
++        while (n) |node| : (n = node.next) {
++            if (node.pageIfResident() == null) return error.UnsupportedProfile;
++            pc += 1;
++            if (pc > o.max_pages) return error.LimitExceeded;
++        }
++        w = .fixed(scratch);
++        try screens.encode(&w, t, key, pc);
++        const view = try screens.parse(w.buffered(), o, &count);
++        try emit(&output, .screen_layout, w.buffered(), &records);
++        n = s.pages.pages.first;
++        while (n) |node| : (n = node.next) {
++            const p = node.pageIfResident() orelse return error.UnsupportedProfile;
++            w = .fixed(scratch);
++            try pages.encodeLayout(&w, s, p);
++            _ = try pages.describe(w.buffered(), view.layout.visible_cols, &count);
++            const payload_len = w.buffered().len;
++            const layout_start = output.end + record.header_len;
++            try emit(&output, .page_layout, w.buffered(), &records);
++            const desc = try pages.describe(output.buffered()[layout_start..][0..payload_len], view.layout.visible_cols, null);
++            w = .fixed(scratch);
++            try pages.encodeCells(&w, p);
++            try pages.decodeCells(w.buffered(), desc, null, null, &count);
++            try emit(&output, .page_cells, w.buffered(), &records);
++        }
++    };
++    w = .fixed(scratch[0..@min(scratch.len, std.math.cast(usize, o.max_continuation_bytes) orelse return error.LimitExceeded)]);
++    ct.continuationWriteIo(source, &w) catch |err| switch (err) {
++        error.WriteFailed => {
++            if (scope.failed()) return error.OutOfMemory;
++            if (o.max_continuation_bytes <= scratch.len) return error.ContinuationLimitExceeded;
++            return outputFailure(o, capacity);
++        },
++        error.ContinuationDisabled => {
++            const empty = try ct.continuationAllocIo(source, alloc, true);
++            defer alloc.free(empty);
++            if (empty.len != 0) return error.InvalidContinuation;
++        },
++        else => return err,
++    };
++    try emit(&output, .continuation, w.buffered(), &records);
++    const totals: record.Totals = .{ .records = records + 1, .pages = count.pages, .physical_slots = count.physical_slots, .text_scalars = count.text_scalars };
++    try emit(&output, .finish, &totals.encode(), &records);
++    @memcpy(stage[0..envelope.len], &try envelope.encode(.{ .layout_abi = layout.version, .encoded_len = output.end }));
++    const checked = try admit(stage[0..output.end], o, scope);
++    const after = try profile.capture(t);
++    if (after.terminal_profile != state.terminal_profile or after.preceding_join != state.preceding_join) return error.IncompatibleState;
++    if (scope.failed()) return error.OutOfMemory;
++    return .{ .allocation = stage, .len = output.end, .totals = checked.totals };
++}
++
++fn restoreScreen(bytes: []const u8, o: Options, scope: *guard.Scope, t: *ct.ZigTerminal, view: screens.View, meta: term.View) !void {
++    const alloc = guard.heapAllocator();
++    var builder = try PageList.Builder.init(alloc, .{ .cols = view.layout.physical_cols, .rows = view.layout.rows, .max_size = if (view.key == .alternate) 0 else if (meta.header.max_scrollback_bytes) |n| std.math.cast(usize, n) orelse return error.LimitExceeded else null, .max_lines = if (view.key == .alternate) 0 else if (meta.header.max_scrollback_rows) |n| std.math.cast(usize, n) orelse return error.LimitExceeded else null });
++    defer builder.deinit();
++    var reader = try record.Reader.init(bytes, o.layout_abi, frameLimits(o), scope);
++    var matching = false;
++    while (try reader.next()) |frame| switch (frame.tag) {
++        .screen_layout => matching = (try screens.parse(frame.payload, o, null)).key == view.key,
++        .page_layout => if (matching) {
++            const d = try pages.describe(frame.payload, view.layout.visible_cols, null);
++            const p = try builder.allocatePage(d.capacity);
++            p.size = .{ .cols = d.cols, .rows = d.rows };
++        },
++        else => {},
++    };
++    try screens.attach(t, view, try builder.finish());
++    const s = t.screens.get(view.key).?;
++    var node = s.pages.pages.first;
++    reader = try record.Reader.init(bytes, o.layout_abi, frameLimits(o), scope);
++    var d: ?pages.Description = null;
++    matching = false;
++    while (try reader.next()) |frame| switch (frame.tag) {
++        .screen_layout => matching = (try screens.parse(frame.payload, o, null)).key == view.key,
++        .page_layout => if (matching) {
++            d = try pages.describe(frame.payload, view.layout.visible_cols, null);
++        },
++        .page_cells => if (matching) {
++            const current = node orelse return error.InvalidPage;
++            try pages.decodeCells(frame.payload, d orelse return error.InvalidPage, s, current.pageAssumeResident(), null);
++            node = current.next;
++        },
++        else => {},
++    };
++    if (node != null) return error.InvalidPage;
++    try screens.finish(s, view);
++}
++pub const Restored = struct { terminal: ct.Terminal, totals: record.Totals };
++pub fn decode(bytes: []const u8, o: Options, scope: *guard.Scope) !Restored {
++    if (!enabled() or !guard.isActive()) return error.UnsupportedProfile;
++    try options.validate(o);
++    const checked = try admit(bytes, o, scope);
++    var fresh = try term.fresh(checked.terminal);
++    defer fresh.deinit();
++    const t = try fresh.terminal();
++    t.flags.resize_pull_scrollback = checked.compatibility.resize_pull;
++    for (checked.screens[0..checked.screen_count]) |view| try restoreScreen(bytes, o, scope, t, view, checked.terminal);
++    t.screens.switchTo(checked.terminal.header.active_screen_key);
++    try fresh.installProfileState(&checked.compatibility.state, .{ .max_cells = std.math.cast(usize, o.max_physical_slots) orelse return error.LimitExceeded, .max_rows = std.math.cast(usize, o.max_rows) orelse return error.LimitExceeded });
++    const alloc = guard.heapAllocator();
++    const tail = try alloc.dupe(u8, checked.continuation);
++    var tail_transferred = false;
++    errdefer if (!tail_transferred) alloc.free(tail);
++    var decoded: native_snapshot.Decoded = .{ .terminal = try fresh.takeForContinuation(), .continuation = if (tail.len == 0) .ground else .{ .bytes = tail }, .history_rows = .init(.{}) };
++    tail_transferred = true;
++    defer decoded.deinit(alloc);
++    const result = try ct.fromDecoded(alloc, .init, &decoded, std.math.cast(usize, o.max_continuation_bytes) orelse return error.LimitExceeded);
++    errdefer ct.free(result);
++    const restored = ct.zigTerminal(result).?;
++    const state = try profile.capture(restored);
++    if (state.terminal_profile != checked.compatibility.state.terminal_profile or
++        state.preceding_join != checked.compatibility.state.preceding_join or !ct.budgetRawV1ConfigSupported(result)) return error.IncompatibleState;
++    _ = try layout.validateLayout(restored, state.terminal_profile, .{ .max_cells = std.math.cast(usize, o.max_physical_slots) orelse return error.LimitExceeded, .max_rows = std.math.cast(usize, o.max_rows) orelse return error.LimitExceeded });
++    if (scope.failed()) return error.OutOfMemory;
++    return .{ .terminal = result, .totals = checked.totals };
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/codec_tests.zig
+@@ -0,0 +1,77 @@
++const std = @import("std");
++const testing = std.testing;
++const api = @import("../c/shellfox_snapshot_format2.zig");
++const ct = @import("../c/terminal.zig");
++const lib = @import("../lib.zig");
++const layout = @import("../shellfox_cell_layout2.zig");
++const profile = @import("../shellfox_terminal_profile.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const raw = @import("../snapshot/main.zig");
++const Result = @import("../c/result.zig").Result;
++
++pub fn options() api.Options {
++    return .{ .engine_profile = lib.String.init(@as([]const u8, @import("../shellfox_profile.zig").engine_profile)), .runtime_resize_pull_scrollback = 1, .max_encoded_bytes = 4 * 1024 * 1024, .max_allocation_bytes = 256 * 1024 * 1024, .max_work_units = 1000000000000000, .max_physical_slots = 1000000, .max_rows = 100000, .max_text_scalars = 1000000, .max_text_bytes = 4 * 1024 * 1024, .max_continuation_bytes = 4096, .max_pages = 1024, .max_records = 4096, .max_visible_columns = 4096, .max_backing_columns = 4096, .max_visible_rows = 4096, .max_pixel_width = 65535, .max_pixel_height = 65535 };
++}
++pub fn source() !ct.Terminal {
++    return sourceSized(8, 3);
++}
++pub fn sourceSized(cols: u16, rows: u16) !ct.Terminal {
++    var scope: guard.Scope = .{ .max_bytes = 256 * 1024 * 1024, .max_work = 1000000000000 };
++    try testing.expect(guard.enter(&scope));
++    defer guard.leave();
++    var fresh = try layout.newFreshRestore(.{ .cols = cols, .rows = rows, .default_modes = .{ .grapheme_cluster = false }, .kitty_image_storage_limit = 0, .max_scrollback_bytes = 16 * 1024 * 1024 });
++    defer fresh.deinit();
++    const state: profile.State = .{ .terminal_profile = 1, .preceding_join = 0 };
++    try fresh.installProfileState(&state, .{ .max_cells = 1000000, .max_rows = 100000 });
++    var decoded: raw.Decoded = .{ .terminal = try fresh.takeForContinuation(), .continuation = .ground, .history_rows = .init(.{}) };
++    defer decoded.deinit(guard.heapAllocator());
++    return ct.fromDecoded(guard.heapAllocator(), .init, &decoded, 4096);
++}
++test "format2 generate owned public boundary fixture when requested" {
++    const path = testing.environ.getAlloc(testing.allocator, "SHELLFOX_FORMAT2_FIXTURE") catch |err| switch (err) {
++        error.EnvironmentVariableMissing => return error.SkipZigTest,
++        else => return err,
++    };
++    defer testing.allocator.free(path);
++    const t = try source();
++    defer ct.free(t);
++    const prefix = "primary\x1b[?1049hABCDEF\x1b[0m\xcc\x81";
++    ct.vt_write(t, prefix, prefix.len);
++    try testing.expectEqual(Result.success, ct.resize(t, 4, 5, 0, 0));
++    const pending = "\x1b[38;2;";
++    ct.vt_write(t, pending, pending.len);
++    const bytes = try testing.allocator.alloc(u8, 1024 * 1024);
++    defer testing.allocator.free(bytes);
++    const o = options();
++    var len: usize = 0;
++    try testing.expectEqual(Result.success, api.encode_buf(t, &o, bytes.ptr, bytes.len, &len, null));
++    try std.Io.Dir.cwd().writeFile(testing.io, .{ .sub_path = path, .data = bytes[0..len] });
++}
++
++test "format2 codec actual canonical source body restore and suffix" {
++    const original = try source();
++    defer ct.free(original);
++    const prefix = "A\x1b[0m\xcc\x81\r\nhello\x1b[38;2;";
++    ct.vt_write(original, prefix, prefix.len);
++    var bytes: [65536]u8 = undefined;
++    var len: usize = 0;
++    const o = options();
++    try testing.expectEqual(Result.success, api.encode_buf(original, &o, &bytes, bytes.len, &len, null));
++    var restored: ct.Terminal = null;
++    try testing.expectEqual(Result.success, api.decode_buf(&bytes, len, &o, &restored, null));
++    defer ct.free(restored);
++    const suffix = "12;34;56m!";
++    ct.vt_write(original, suffix, suffix.len);
++    ct.vt_write(restored, suffix, suffix.len);
++    const a = ct.zigTerminal(original).?;
++    const b = ct.zigTerminal(restored).?;
++    const at = try a.plainString(testing.allocator);
++    defer testing.allocator.free(at);
++    const bt = try b.plainString(testing.allocator);
++    defer testing.allocator.free(bt);
++    try testing.expectEqualStrings(at, bt);
++    const ac = try profile.capture(a);
++    const bc = try profile.capture(b);
++    try testing.expectEqual(ac.preceding_join, bc.preceding_join);
++    try testing.expectEqual(a.screens.active.cursor.x, b.screens.active.cursor.x);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/compare_tests.zig
+@@ -0,0 +1,83 @@
++const std = @import("std");
++const testing = std.testing;
++const ct = @import("../c/terminal.zig");
++const layout = @import("../shellfox_cell_layout2.zig");
++const profile = @import("../shellfox_terminal_profile.zig");
++const NativePage = @import("../page.zig").Page;
++const Cell = @import("../page.zig").Cell;
++const Style = @import("../style.zig").Style;
++
++fn cell(a: *const NativePage, ac: *const Cell, b: *const NativePage, bc: *const Cell) !void {
++    try testing.expectEqual(try layout.cellLayout(ac.*, 1), try layout.cellLayout(bc.*, 1));
++    try testing.expectEqual(ac.content_tag, bc.content_tag);
++    try testing.expectEqual(ac.protected, bc.protected);
++    try testing.expectEqual(ac.semantic_content, bc.semantic_content);
++    switch (ac.content_tag) {
++        .codepoint, .codepoint_grapheme => try testing.expectEqual(ac.codepoint(), bc.codepoint()),
++        .bg_color_palette => try testing.expectEqual(ac.content.color_palette.data, bc.content.color_palette.data),
++        .bg_color_rgb => try testing.expectEqual(ac.content.color_rgb, bc.content.color_rgb),
++    }
++    const as: Style = if (ac.style_id == 0) .{} else a.styles.get(a.memory, ac.style_id).*;
++    const bs: Style = if (bc.style_id == 0) .{} else b.styles.get(b.memory, bc.style_id).*;
++    try testing.expect(as.eql(bs));
++    try testing.expectEqualSlices(u21, a.lookupGrapheme(ac) orelse &.{}, b.lookupGrapheme(bc) orelse &.{});
++    const al = a.lookupHyperlink(ac);
++    const bl = b.lookupHyperlink(bc);
++    try testing.expectEqual(al == null, bl == null);
++    if (al) |id| {
++        const av = a.hyperlink_set.get(a.memory, id);
++        const bv = b.hyperlink_set.get(b.memory, bl.?);
++        try testing.expectEqualStrings(av.uri.slice(a.memory), bv.uri.slice(b.memory));
++        try testing.expectEqual(std.meta.activeTag(av.id), std.meta.activeTag(bv.id));
++        switch (av.id) {
++            .implicit => |value| try testing.expectEqual(value, bv.id.implicit),
++            .explicit => |value| try testing.expectEqualStrings(value.slice(a.memory), bv.id.explicit.slice(b.memory)),
++        }
++    }
++}
++pub fn terminals(first: ct.Terminal, second: ct.Terminal) !void {
++    const a = ct.zigTerminal(first).?;
++    const b = ct.zigTerminal(second).?;
++    try testing.expectEqual(a.cols, b.cols);
++    try testing.expectEqual(a.rows, b.rows);
++    const ast = try profile.capture(a);
++    const bst = try profile.capture(b);
++    try testing.expectEqual(ast.terminal_profile, bst.terminal_profile);
++    try testing.expectEqual(ast.preceding_join, bst.preceding_join);
++    try testing.expectEqual(a.screens.active_key, b.screens.active_key);
++    try testing.expectEqual(a.flags.shell_redraws_prompt, b.flags.shell_redraws_prompt);
++    try testing.expectEqual(a.flags.resize_pull_scrollback, b.flags.resize_pull_scrollback);
++    for ([_]@import("../ScreenSet.zig").Key{ .primary, .alternate }) |key| {
++        const av = try layout.screenLayout(a, key);
++        const bv = try layout.screenLayout(b, key);
++        try testing.expectEqual(av, bv);
++        const as = a.screens.get(key) orelse continue;
++        const bs = b.screens.get(key).?;
++        try testing.expectEqual(as.saved_cursor, bs.saved_cursor);
++        try testing.expect(as.cursor.style.eql(bs.cursor.style));
++        try testing.expectEqual(as.charset, bs.charset);
++        var ai = as.pages.rowIterator(.right_down, .{ .screen = .{} }, null);
++        var bi = bs.pages.rowIterator(.right_down, .{ .screen = .{} }, null);
++        while (ai.next()) |ap| {
++            const bp = bi.next() orelse return error.TestUnexpectedResult;
++            const ar = ap.rowAndCell().row;
++            const br = bp.rowAndCell().row;
++            const ag = ap.node.pageAssumeResident();
++            const bg = bp.node.pageAssumeResident();
++            try testing.expectEqual(try layout.rowBackingCols(as, ag, ar), try layout.rowBackingCols(bs, bg, br));
++            try testing.expectEqual(ar.wrap, br.wrap);
++            try testing.expectEqual(ar.wrap_continuation, br.wrap_continuation);
++            try testing.expectEqual(ar.semantic_prompt, br.semantic_prompt);
++            const ac = ag.getCells(ar);
++            const bc = bg.getCells(br);
++            try testing.expectEqual(ac.len, bc.len);
++            for (ac, bc) |*avc, *bvc| try cell(ag, avc, bg, bvc);
++        }
++        try testing.expect(bi.next() == null);
++    }
++    const at = try a.plainString(testing.allocator);
++    defer testing.allocator.free(at);
++    const bt = try b.plainString(testing.allocator);
++    defer testing.allocator.free(bt);
++    try testing.expectEqualStrings(at, bt);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/envelope.zig
+@@ -0,0 +1,82 @@
++//! Format2 discriminator. Checked before records, cells or native allocation.
++const std = @import("std");
++
++pub const magic: [8]u8 = .{ 'S', 'F', 'O', 'X', 'S', 'N', '2', 0 };
++pub const version: u16 = 2;
++pub const wire_profile: u32 = 2;
++pub const len: usize = 32;
++
++pub const Error = error{
++    InvalidMagic,
++    Truncated,
++    UnsupportedVersion,
++    UnsupportedPrefix,
++    UnsupportedProfile,
++    UnsupportedLayoutABI,
++    UnsupportedFlags,
++    EncodedLengthMismatch,
++    LimitExceeded,
++};
++
++pub const Header = struct {
++    layout_abi: u32,
++    encoded_len: u64,
++};
++
++pub fn encode(header: Header) Error![len]u8 {
++    if (header.layout_abi == 0) return error.UnsupportedLayoutABI;
++    if (header.encoded_len < len) return error.EncodedLengthMismatch;
++    var bytes: [len]u8 = @splat(0);
++    @memcpy(bytes[0..8], &magic);
++    std.mem.writeInt(u16, bytes[8..10], version, .little);
++    std.mem.writeInt(u16, bytes[10..12], len, .little);
++    std.mem.writeInt(u32, bytes[12..16], wire_profile, .little);
++    std.mem.writeInt(u32, bytes[16..20], header.layout_abi, .little);
++    std.mem.writeInt(u64, bytes[24..32], header.encoded_len, .little);
++    return bytes;
++}
++
++/// This is prefix admission only. It does not claim record/layout validity.
++/// expected_layout_abi comes from the actual compiled canonical core contract.
++pub fn decode(bytes: []const u8, expected_layout_abi: u32, max_encoded_bytes: u64) Error!Header {
++    if (bytes.len > max_encoded_bytes) return error.LimitExceeded;
++    if (bytes.len < len) return error.Truncated;
++    if (!std.mem.eql(u8, bytes[0..8], &magic)) return error.InvalidMagic;
++    if (std.mem.readInt(u16, bytes[8..10], .little) != version) return error.UnsupportedVersion;
++    if (std.mem.readInt(u16, bytes[10..12], .little) != len) return error.UnsupportedPrefix;
++    if (std.mem.readInt(u32, bytes[12..16], .little) != wire_profile) return error.UnsupportedProfile;
++    const layout_abi = std.mem.readInt(u32, bytes[16..20], .little);
++    if (layout_abi == 0 or expected_layout_abi == 0 or layout_abi != expected_layout_abi)
++        return error.UnsupportedLayoutABI;
++    if (std.mem.readInt(u32, bytes[20..24], .little) != 0) return error.UnsupportedFlags;
++    const encoded_len = std.mem.readInt(u64, bytes[24..32], .little);
++    if (encoded_len != bytes.len) return error.EncodedLengthMismatch;
++    return .{ .layout_abi = layout_abi, .encoded_len = encoded_len };
++}
++
++test "format2 prefix golden and no raw1 discriminator reuse" {
++    const expected = "SFOXSN2\x00\x02\x00\x20\x00\x02\x00\x00\x00" ++
++        "\x04\x03\x02\x01\x00\x00\x00\x00\x20\x00\x00\x00\x00\x00\x00\x00";
++    const header = try encode(.{ .layout_abi = 0x01020304, .encoded_len = len });
++    try std.testing.expectEqualSlices(u8, expected, &header);
++    try std.testing.expectEqual(@as(u32, 0x01020304), (try decode(&header, 0x01020304, len)).layout_abi);
++    var raw1: std.Io.Reader = .fixed(&header);
++    try std.testing.expectError(error.InvalidMagic, @import("../snapshot/envelope.zig").decode(&raw1));
++    var old: [len]u8 = @splat(0);
++    @memcpy(old[0..8], "GHOSTSNP");
++    std.mem.writeInt(u16, old[8..10], 1, .little);
++    try std.testing.expectError(error.InvalidMagic, decode(&old, 0x01020304, len));
++}
++
++test "format2 prefix truncation versions ABI flags and exact length" {
++    const header = try encode(.{ .layout_abi = 7, .encoded_len = len });
++    for (0..len) |size| try std.testing.expectError(error.Truncated, decode(header[0..size], 7, len));
++    try std.testing.expectError(error.LimitExceeded, decode(&header, 7, len - 1));
++    try std.testing.expectError(error.UnsupportedLayoutABI, decode(&header, 0, len));
++    try std.testing.expectError(error.UnsupportedLayoutABI, decode(&header, 8, len));
++    inline for (.{ 8, 10, 12, 16, 20, 24 }) |offset| {
++        var changed = header;
++        changed[offset] ^= 1;
++        if (decode(&changed, 7, len)) |_| return error.TestUnexpectedResult else |_| {}
++    }
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/failure_tests.zig
+@@ -0,0 +1,83 @@
++const std = @import("std");
++const testing = std.testing;
++const api = @import("../c/shellfox_snapshot_format2.zig");
++const ct = @import("../c/terminal.zig");
++const fixtures = @import("codec_tests.zig");
++const crc = @import("../../crc32c.zig").Crc32c;
++const Result = @import("../c/result.zig").Result;
++fn find(bytes: []const u8, tag: u16) !usize {
++    var offset: usize = 32;
++    while (offset < bytes.len) {
++        if (std.mem.readInt(u16, bytes[offset..][0..2], .little) == tag) return offset;
++        offset += 10 + std.mem.readInt(u32, bytes[offset + 2 ..][0..4], .little);
++    }
++    return error.MissingRecord;
++}
++fn repair(bytes: []u8, offset: usize) void {
++    const size = std.mem.readInt(u32, bytes[offset + 2 ..][0..4], .little);
++    var hash = crc.init();
++    hash.update(bytes[offset..][0..6]);
++    hash.update(bytes[offset + 10 ..][0..size]);
++    std.mem.writeInt(u32, bytes[offset + 6 ..][0..4], hash.final(), .little);
++}
++fn refuse(bytes: []const u8, o: api.Options, expected: Result) !api.Report {
++    var output: ct.Terminal = null;
++    var report: api.Report = .{};
++    try testing.expectEqual(expected, api.decode_buf(bytes.ptr, bytes.len, &o, &output, &report));
++    try testing.expect(output == null);
++    try testing.expect(report.heap_bytes + report.mapped_bytes <= o.max_allocation_bytes);
++    try testing.expect(report.work_units <= o.max_work_units);
++    return report;
++}
++test "format2 codec malformed cells layouts truncations FINISH and budgets are atomic" {
++    const source = try fixtures.source();
++    defer ct.free(source);
++    ct.vt_write(source, "A", 1);
++    const o = fixtures.options();
++    var original: [65536]u8 = undefined;
++    var len: usize = 0;
++    try testing.expectEqual(Result.success, api.encode_buf(source, &o, &original, original.len, &len, null));
++    for (0..len) |cut| _ = try refuse(original[0..cut], o, .invalid_value);
++    var changed = original;
++    changed[len] = 1;
++    std.mem.writeInt(u64, changed[24..32], len + 1, .little);
++    _ = try refuse(changed[0 .. len + 1], o, .invalid_value);
++    const page = try find(original[0..len], 0x2005);
++    const first = page + 10 + 4; // No tables in this plain fixture.
++    inline for (.{ 1, 2, 3, 4, 8 }) |field| {
++        changed = original;
++        switch (field) {
++            1 => changed[first + 1] = 4,
++            2 => changed[first + 2] = 3,
++            3 => changed[first + 3] = 255,
++            4 => std.mem.writeInt(u32, changed[first + 4 ..][0..4], 0x110000, .little),
++            8 => std.mem.writeInt(u16, changed[first + 8 ..][0..2], 1, .little),
++            else => unreachable,
++        }
++        repair(changed[0..len], page);
++        const failed = try refuse(changed[0..len], o, .invalid_value);
++        try testing.expectEqual(@as(u64, 0), failed.heap_bytes + failed.mapped_bytes);
++    }
++    inline for (.{ "max_physical_slots", "max_rows", "max_pages", "max_records", "max_backing_columns", "max_text_scalars", "max_text_bytes", "max_work_units" }) |field| {
++        var reduced = o;
++        @field(reduced, field) = 0;
++        const failed = try refuse(original[0..len], reduced, .limit_exceeded);
++        try testing.expectEqual(@as(u64, 0), failed.heap_bytes + failed.mapped_bytes);
++    }
++    var output: ct.Terminal = null;
++    var report: api.Report = .{};
++    try testing.expectEqual(Result.success, api.decode_buf(&original, len, &o, &output, &report));
++    ct.free(output);
++    const total = report.heap_bytes + report.mapped_bytes;
++    var boundary: u64 = 0;
++    while (boundary < total) : (boundary += 65536) {
++        var reduced = o;
++        reduced.max_allocation_bytes = boundary;
++        _ = try refuse(original[0..len], reduced, .limit_exceeded);
++    }
++    var buffer: [64]u8 = @splat(0xa5);
++    len = 99;
++    try testing.expectEqual(Result.out_of_space, api.encode_buf(source, &o, &buffer, 1, &len, null));
++    try testing.expectEqual(@as(usize, 0), len);
++    for (buffer) |value| try testing.expectEqual(@as(u8, 0xa5), value);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/framing_tests.zig
+@@ -0,0 +1,135 @@
++const std = @import("std");
++const testing = std.testing;
++const envelope = @import("envelope.zig");
++const record = @import("record.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const Crc32c = @import("../../crc32c.zig").Crc32c;
++
++const limits: record.Limits = .{ .encoded_bytes = 4096, .records = 16, .pages = 2, .screens = 2 };
++const totals: record.Totals = .{ .records = 7, .pages = 1, .physical_slots = 2, .text_scalars = 3 };
++const Fixture = struct {
++    bytes: [4096]u8,
++    len: usize,
++    finish_offset: usize,
++};
++
++// Opaque payloads deliberately test framing only, not a fake core/layout API.
++fn fixture() !Fixture {
++    var result: Fixture = undefined;
++    var writer: std.Io.Writer = .fixed(&result.bytes);
++    try writer.writeAll(&try envelope.encode(.{ .layout_abi = 7, .encoded_len = envelope.len }));
++    try record.write(&writer, .compatibility, "metadata");
++    try record.write(&writer, .terminal, "terminal");
++    try record.write(&writer, .screen_layout, "screen");
++    try record.write(&writer, .page_layout, "page");
++    try record.write(&writer, .page_cells, "opaque");
++    try record.write(&writer, .continuation, "");
++    result.finish_offset = writer.end;
++    try record.write(&writer, .finish, &totals.encode());
++    result.len = writer.end;
++    @memcpy(result.bytes[0..envelope.len], &try envelope.encode(.{ .layout_abi = 7, .encoded_len = result.len }));
++    return result;
++}
++
++fn scope() guard.Scope {
++    return .{ .max_bytes = 0, .max_work = 1000000 };
++}
++
++fn drain(reader: *record.Reader) !void {
++    while (try reader.next()) |_| {}
++}
++
++fn repair(bytes: []u8, offset: usize) void {
++    const header = bytes[offset..][0..record.header_len];
++    const size = std.mem.readInt(u32, header[2..6], .little);
++    var crc = Crc32c.init();
++    crc.update(header[0..6]);
++    crc.update(bytes[offset + record.header_len ..][0..size]);
++    std.mem.writeInt(u32, header[6..10], crc.final(), .little);
++}
++
++test "format2 framing strict complete stream and measured FINISH" {
++    const source = try fixture();
++    var budget = scope();
++    var reader = try record.Reader.init(source.bytes[0..source.len], 7, limits, &budget);
++    try drain(&reader);
++    try reader.verifyTotals(totals);
++    try testing.expectEqual(source.len, reader.offset);
++    try testing.expectEqual(totals.records, reader.records);
++    try testing.expectEqual(@as(u64, 0), budget.heap_bytes + budget.mapped_bytes);
++    try testing.expect(budget.work > envelope.len);
++    var wrong = totals;
++    wrong.physical_slots += 1;
++    try testing.expectError(error.InvalidFinish, reader.verifyTotals(wrong));
++    try testing.expectError(error.ReaderFailed, reader.next());
++}
++
++test "format2 framing rejects every record truncation without allocations" {
++    const source = try fixture();
++    for (envelope.len..source.len) |len| {
++        var shortened = source;
++        std.mem.writeInt(u64, shortened.bytes[24..32], len, .little);
++        var budget = scope();
++        var reader = try record.Reader.init(shortened.bytes[0..len], 7, limits, &budget);
++        try testing.expectError(error.Truncated, drain(&reader));
++        try testing.expectEqual(@as(u64, 0), budget.heap_bytes + budget.mapped_bytes);
++    }
++}
++
++test "format2 framing rejects corruption unknown tags and invalid ordering" {
++    const source = try fixture();
++    var damaged = source;
++    damaged.bytes[envelope.len + record.header_len] ^= 1;
++    var budget = scope();
++    var reader = try record.Reader.init(damaged.bytes[0..damaged.len], 7, limits, &budget);
++    try testing.expectError(error.InvalidChecksum, reader.next());
++    damaged = source;
++    std.mem.writeInt(u16, damaged.bytes[envelope.len..][0..2], 65535, .little);
++    budget = scope();
++    reader = try record.Reader.init(damaged.bytes[0..damaged.len], 7, limits, &budget);
++    try testing.expectError(error.UnsupportedRecord, reader.next());
++    damaged = source;
++    std.mem.writeInt(u16, damaged.bytes[envelope.len..][0..2], @backingInt(record.Tag.terminal), .little);
++    repair(damaged.bytes[0..damaged.len], envelope.len);
++    budget = scope();
++    reader = try record.Reader.init(damaged.bytes[0..damaged.len], 7, limits, &budget);
++    try testing.expectError(error.InvalidOrder, reader.next());
++}
++
++test "format2 framing refuses trailing bytes and false FINISH counts" {
++    const source = try fixture();
++    var damaged = source;
++    damaged.bytes[damaged.len] = 0;
++    damaged.len += 1;
++    std.mem.writeInt(u64, damaged.bytes[24..32], damaged.len, .little);
++    var budget = scope();
++    var reader = try record.Reader.init(damaged.bytes[0..damaged.len], 7, limits, &budget);
++    try testing.expectError(error.TrailingBytes, drain(&reader));
++    damaged = source;
++    damaged.bytes[damaged.finish_offset + record.header_len] ^= 1;
++    repair(damaged.bytes[0..damaged.len], damaged.finish_offset);
++    budget = scope();
++    reader = try record.Reader.init(damaged.bytes[0..damaged.len], 7, limits, &budget);
++    try testing.expectError(error.InvalidFinish, drain(&reader));
++}
++
++test "format2 framing deterministic work and count refusal" {
++    const source = try fixture();
++    var budget = scope();
++    budget.max_work = 0;
++    try testing.expectError(error.OutOfMemory, record.Reader.init(source.bytes[0..source.len], 7, limits, &budget));
++    try testing.expect(budget.exceeded);
++    budget = scope();
++    budget.max_work = envelope.len + record.header_len + 2 * 8 - 1;
++    var reader = try record.Reader.init(source.bytes[0..source.len], 7, limits, &budget);
++    try testing.expectError(error.OutOfMemory, reader.next());
++    try testing.expect(budget.exceeded);
++    inline for (.{ "records", "pages", "screens" }) |key| {
++        var reduced = limits;
++        @field(reduced, key) = 0;
++        budget = scope();
++        reader = try record.Reader.init(source.bytes[0..source.len], 7, reduced, &budget);
++        try testing.expectError(error.LimitExceeded, drain(&reader));
++        try testing.expectEqual(@as(u64, 0), budget.heap_bytes + budget.mapped_bytes);
++    }
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/managed_review_tests.zig
+@@ -0,0 +1,121 @@
++const std = @import("std");
++const testing = std.testing;
++const api = @import("../c/shellfox_snapshot_format2.zig");
++const ct = @import("../c/terminal.zig");
++const fixtures = @import("codec_tests.zig");
++const crc = @import("../../crc32c.zig").Crc32c;
++const Result = @import("../c/result.zig").Result;
++fn find(bytes: []const u8, tag: u16) !usize {
++    var pos: usize = 32;
++    while (pos < bytes.len) {
++        if (std.mem.readInt(u16, bytes[pos..][0..2], .little) == tag) return pos;
++        pos += 10 + std.mem.readInt(u32, bytes[pos + 2 ..][0..4], .little);
++    }
++    return error.MissingRecord;
++}
++fn repair(bytes: []u8, pos: usize) void {
++    const n = std.mem.readInt(u32, bytes[pos + 2 ..][0..4], .little);
++    var h = crc.init();
++    h.update(bytes[pos..][0..6]);
++    h.update(bytes[pos + 10 ..][0..n]);
++    std.mem.writeInt(u32, bytes[pos + 6 ..][0..4], h.final(), .little);
++}
++test "format2 review whole blob concrete aliases refuse before native allocation" {
++    const t = try fixtures.source();
++    defer ct.free(t);
++    ct.vt_write(t, "A", 1);
++    const o = fixtures.options();
++    var source: [65536]u8 = undefined;
++    var length: usize = 0;
++    try testing.expectEqual(Result.success, api.encode_buf(t, &o, &source, source.len, &length, null));
++    const at = try find(source[0..length], 0x2005);
++    const old_length = std.mem.readInt(u32, source[at + 2 ..][0..4], .little);
++    inline for (.{ false, true }) |link| {
++        var output: [65536]u8 = undefined;
++        @memcpy(output[0 .. at + 10], source[0 .. at + 10]);
++        var writer: std.Io.Writer = .fixed(output[at + 10 ..]);
++        const io = @import("../snapshot/io.zig");
++        try io.writeInt(&writer, u16, if (link) 0 else 128);
++        try io.writeInt(&writer, u16, if (link) 128 else 0);
++        for (1..129) |id| {
++            try io.writeInt(&writer, u16, @intCast(id));
++            if (link) try @import("../snapshot/hyperlink.zig").encode(.{ .id = .{ .implicit = 7 }, .uri = "alias" }, &writer) else try @import("../snapshot/style.zig").encode(.{ .flags = .{ .bold = true } }, &writer);
++        }
++        try writer.writeAll(source[at + 14 ..][0 .. old_length - 4]);
++        const next = at + 10 + writer.end;
++        const tail = source[at + 10 + old_length .. length];
++        @memcpy(output[next..][0..tail.len], tail);
++        const len = next + tail.len;
++        std.mem.writeInt(u32, output[at + 2 ..][0..4], @intCast(writer.end), .little);
++        std.mem.writeInt(u64, output[24..32], len, .little);
++        repair(output[0..len], at);
++        var result: ct.Terminal = null;
++        var report: api.Report = .{};
++        try testing.expectEqual(Result.invalid_value, api.decode_buf(&output, len, &o, &result, &report));
++        try testing.expect(result == null);
++        try testing.expectEqual(@as(u64, 0), report.heap_bytes + report.mapped_bytes);
++    }
++}
++
++test "format2 review managed cleanup covers tables graphemes cursor links and both screens" {
++    const t = try fixtures.source();
++    defer ct.free(t);
++    const prefix = "\x1b[31m\x1b]8;id=p;https://example.invalid/p\x1b\\A\xcc\x81\xcc\x80\x1b7" ++
++        "\x1b[?1049h\x1b[44m\x1b]8;id=a;https://example.invalid/a\x1b\\BC\xcc\x81\x1b7";
++    ct.vt_write(t, prefix, prefix.len);
++    var bytes: [65536]u8 = undefined;
++    var len: usize = 0;
++    const o = fixtures.options();
++    try testing.expectEqual(Result.success, api.encode_buf(t, &o, &bytes, bytes.len, &len, null));
++    var result: ct.Terminal = null;
++    var report: api.Report = .{};
++    try testing.expectEqual(Result.success, api.decode_buf(&bytes, len, &o, &result, &report));
++    try @import("compare_tests.zig").terminals(t, result);
++    ct.free(result);
++    const total = report.heap_bytes + report.mapped_bytes;
++    var budget: u64 = 0;
++    while (budget < total) : (budget += 65536) {
++        var small = o;
++        small.max_allocation_bytes = budget;
++        result = null;
++        try testing.expectEqual(Result.limit_exceeded, api.decode_buf(&bytes, len, &small, &result, &report));
++        try testing.expect(result == null);
++    }
++    // Force a late managed-table failure after terminal and screen allocation.
++    const at = try find(bytes[0..len], 0x2004);
++    var changed = bytes;
++    // Page-layout fixed fields: logical/capacity dimensions, style/link hints,
++    // then grapheme bytes at14. This preserves framing and payload semantics.
++    std.mem.writeInt(u32, changed[at + 10 + 14 ..][0..4], 0, .little);
++    repair(changed[0..len], at);
++    result = null;
++    try testing.expect(api.decode_buf(&changed, len, &o, &result, &report) != .success);
++    try testing.expect(result == null);
++}
++
++test "format2 review capacity dependent work refuses high sparse capacity before alloc" {
++    const t = try fixtures.source();
++    defer ct.free(t);
++    const prefix = "A\xcc\x81\xcc\x80";
++    ct.vt_write(t, prefix, prefix.len);
++    var bytes: [65536]u8 = undefined;
++    var len: usize = 0;
++    const o = fixtures.options();
++    try testing.expectEqual(Result.success, api.encode_buf(t, &o, &bytes, bytes.len, &len, null));
++    const at = try find(bytes[0..len], 0x2004);
++    var larger = bytes;
++    std.mem.writeInt(u16, larger[at + 10 + 8 ..][0..2], 32768, .little); // style capacity
++    std.mem.writeInt(u32, larger[at + 10 + 18 ..][0..4], 64 * 1024 * 1024, .little); // string capacity
++    repair(larger[0..len], at);
++    var measured: api.Report = .{};
++    var result: ct.Terminal = null;
++    try testing.expectEqual(Result.success, api.decode_buf(&bytes, len, &o, &result, &measured));
++    ct.free(result);
++    var low = o;
++    low.max_work_units = measured.work_units;
++    result = null;
++    var report: api.Report = .{};
++    try testing.expectEqual(Result.limit_exceeded, api.decode_buf(&larger, len, &low, &result, &report));
++    try testing.expect(result == null);
++    try testing.expectEqual(@as(u64, 0), report.heap_bytes + report.mapped_bytes);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/matrix_tests.zig
+@@ -0,0 +1,61 @@
++const std = @import("std");
++const testing = std.testing;
++const api = @import("../c/shellfox_snapshot_format2.zig");
++const ct = @import("../c/terminal.zig");
++const fixtures = @import("codec_tests.zig");
++const compare = @import("compare_tests.zig");
++const Result = @import("../c/result.zig").Result;
++const Step = struct { hex: ?[]const u8 = null, resize: ?[2]u16 = null };
++const Case = struct { name: []const u8, cols: u16, rows: u16, steps: []Step };
++fn apply(t: ct.Terminal, step: Step) !void {
++    if (step.hex) |hex| {
++        const bytes = try testing.allocator.alloc(u8, hex.len / 2);
++        defer testing.allocator.free(bytes);
++        _ = try std.fmt.hexToBytes(bytes, hex);
++        ct.vt_write(t, bytes.ptr, bytes.len);
++    }
++    if (step.resize) |size| try testing.expectEqual(Result.success, ct.resize(t, size[0], size[1], 0, 0));
++}
++test "format2 codec physical hidden storage edit reflow and live suffix matrix" {
++    // The exact published P4 oracle cases, without duplicating its parser/table.
++    const parsed = try std.json.parseFromSlice([]Case, testing.allocator, @embedFile("../shellfox_cell_layout2_cases.json"), .{ .ignore_unknown_fields = true });
++    defer parsed.deinit();
++    const bytes = try testing.allocator.alloc(u8, 1024 * 1024);
++    defer testing.allocator.free(bytes);
++    const o = fixtures.options();
++    var cuts: usize = 0;
++    for (parsed.value) |case| {
++        const original = try fixtures.sourceSized(case.cols, case.rows);
++        defer ct.free(original);
++        var previous: ct.Terminal = null;
++        defer ct.free(previous);
++        for (case.steps, 0..) |step, index| {
++            try apply(original, step);
++            if (previous != null) {
++                try apply(previous, step);
++                compare.terminals(original, previous) catch |err| {
++                    std.debug.print("format2 suffix {s} cut{d}: {s}\n", .{ case.name, index, @errorName(err) });
++                    return err;
++                };
++                ct.free(previous);
++                previous = null;
++            }
++            var len: usize = 0;
++            const encoded = api.encode_buf(original, &o, bytes.ptr, bytes.len, &len, null);
++            if (encoded != .success) std.debug.print("format2 encode {s} cut{d}\n", .{ case.name, index });
++            try testing.expectEqual(Result.success, encoded);
++            const decoded = api.decode_buf(bytes.ptr, len, &o, &previous, null);
++            if (decoded != .success) std.debug.print("format2 decode {s} cut{d}\n", .{ case.name, index });
++            try testing.expectEqual(Result.success, decoded);
++            compare.terminals(original, previous) catch |err| {
++                std.debug.print("format2 roundtrip {s} cut{d}: {s}\n", .{ case.name, index, @errorName(err) });
++                return err;
++            };
++            cuts += 1;
++        }
++        ct.vt_write(original, "!", 1);
++        ct.vt_write(previous, "!", 1);
++        try compare.terminals(original, previous);
++    }
++    try testing.expect(cuts >= 214);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/options.zig
+@@ -0,0 +1,92 @@
++const std = @import("std");
++const lib = @import("../lib.zig");
++const identity = @import("../shellfox_profile.zig");
++const layout = @import("../shellfox_cell_layout2.zig");
++const profile = @import("../shellfox_terminal_profile.zig");
++const wire = @import("../snapshot/io.zig");
++
++pub const Options = extern struct {
++    size: usize = @sizeOf(Options),
++    abi_version: u32 = 1,
++    format_version: u32 = 2,
++    wire_profile: u32 = 2,
++    layout_abi: u32 = layout.version,
++    terminal_profile: u32 = profile.LegacyXterm6,
++    flags: u32 = 0,
++    runtime_resize_pull_scrollback: u32,
++    engine_profile: lib.String,
++    max_encoded_bytes: u64,
++    max_allocation_bytes: u64,
++    max_work_units: u64,
++    max_physical_slots: u64,
++    max_rows: u64,
++    max_text_scalars: u64,
++    max_text_bytes: u64,
++    max_continuation_bytes: u64,
++    max_pages: u32,
++    max_records: u32,
++    max_visible_columns: u32,
++    max_backing_columns: u32,
++    max_visible_rows: u32,
++    max_pixel_width: u32,
++    max_pixel_height: u32,
++    reserved: u32 = 0,
++};
++pub const Report = extern struct {
++    size: usize = @sizeOf(Report),
++    abi_version: u32 = 1,
++    reserved: u32 = 0,
++    source_offset: u64 = 0,
++    heap_bytes: u64 = 0,
++    mapped_bytes: u64 = 0,
++    work_units: u64 = 0,
++    physical_slots: u64 = 0,
++    text_scalars: u64 = 0,
++};
++pub fn validate(o: Options) !void {
++    if (identity.terminal_profile_abi_version != profile.abi_version or identity.snapshot_budget_abi_version != 1)
++        return error.UnsupportedProfile;
++    if (o.size != @sizeOf(Options)) return error.InvalidOptions;
++    if (o.abi_version != 1 or o.format_version != 2 or o.wire_profile != 2 or
++        o.layout_abi != layout.version or o.terminal_profile != profile.LegacyXterm6 or
++        o.flags != 0 or o.reserved != 0 or o.runtime_resize_pull_scrollback > 1)
++        return error.UnsupportedProfile;
++    if (o.engine_profile.len != 64 or @intFromPtr(o.engine_profile.ptr) == 0 or
++        !identity.matches(o.engine_profile.ptr[0..64])) return error.UnsupportedProfile;
++}
++
++pub const Compatibility = struct {
++    state: profile.State,
++    resize_pull: bool,
++};
++// Exact fixed-width State fields, never native size_t/padding/pointers.
++pub fn encodeCompatibility(w: *std.Io.Writer, o: Options, state: profile.State) !void {
++    try validate(o);
++    try profile.validateState(&state, o.terminal_profile);
++    try w.writeAll(o.engine_profile.ptr[0..64]);
++    try wire.writeInt(w, u32, 0x00010001);
++    try wire.writeInt(w, u32, state.abi_version);
++    try wire.writeInt(w, u32, state.terminal_profile);
++    try wire.writeInt(w, u32, state.preceding_join);
++    try wire.writeInt(w, u32, o.runtime_resize_pull_scrollback);
++    try wire.writeInt(w, u64, 0); // Legacy live image storage explicitly disabled.
++    try wire.writeInt(w, u32, 0); // Direct-only image IO, no image decode.
++}
++pub fn decodeCompatibility(bytes: []const u8, o: Options) !Compatibility {
++    try validate(o);
++    if (bytes.len != 96 or !std.mem.eql(u8, bytes[0..64], o.engine_profile.ptr[0..64]))
++        return error.UnsupportedProfile;
++    var r: std.Io.Reader = .fixed(bytes[64..]);
++    if (try wire.readInt(&r, u32) != 0x00010001) return error.UnsupportedProfile;
++    const state: profile.State = .{
++        .abi_version = try wire.readInt(&r, u32),
++        .terminal_profile = try wire.readInt(&r, u32),
++        .preceding_join = try wire.readInt(&r, u32),
++    };
++    try profile.validateState(&state, o.terminal_profile);
++    const resize = try wire.readInt(&r, u32);
++    if (resize != o.runtime_resize_pull_scrollback or resize > 1 or
++        try wire.readInt(&r, u64) != 0 or try wire.readInt(&r, u32) != 0)
++        return error.UnsupportedProfile;
++    return .{ .state = state, .resize_pull = resize == 1 };
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/page.zig
+@@ -0,0 +1,124 @@
++const std = @import("std");
++const native = @import("../page.zig");
++const Screen = @import("../Screen.zig");
++const layout = @import("../shellfox_cell_layout2.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const wire = @import("../snapshot/io.zig");
++const cells = @import("cell.zig");
++const tables = @import("tables.zig");
++const resources = @import("resources.zig");
++
++pub const Description = struct {
++    cols: u16,
++    rows: u16,
++    capacity: native.Capacity,
++    row_data: []const u8,
++};
++pub fn describe(bytes: []const u8, visible: u16, tally: ?*resources.Tally) !Description {
++    var r: std.Io.Reader = .fixed(bytes);
++    const cols = try wire.readInt(&r, u16);
++    const rows = try wire.readInt(&r, u16);
++    const cap: native.Capacity = .{
++        .cols = try wire.readInt(&r, u16),
++        .rows = try wire.readInt(&r, u16),
++        .styles = try wire.readInt(&r, u16),
++        .hyperlink_bytes = try wire.readInt(&r, u16),
++        .hyperlink_cells = try wire.readInt(&r, u16),
++        .grapheme_bytes = try wire.readInt(&r, u32),
++        .string_bytes = try wire.readInt(&r, u32),
++    };
++    if (cols == 0 or rows == 0 or cap.cols < cols or cap.rows < rows or cap.cols > 4096 or
++        @as(u64, cap.rows) * cap.cols > guard.max_page_cells or cap.grapheme_bytes > 64 * 1024 * 1024 or
++        cap.string_bytes > 64 * 1024 * 1024) return error.LimitExceeded;
++    const row_data = try r.take(@as(usize, rows) * 4);
++    if (r.bufferedLen() != 0) return error.InvalidPage;
++    if (tally) |t| try t.page(visible, cols, rows);
++    for (0..rows) |y| {
++        const value = row_data[y * 4 ..][0..4];
++        const backing = std.mem.readInt(u16, value[0..2], .little);
++        if (backing < visible or backing > cols or value[2] & 0xf0 != 0 or value[3] != 0 or
++            std.enums.fromInt(@FieldType(native.Row, "semantic_prompt"), @as(u2, @truncate(value[2] >> 2))) == null)
++            return error.InvalidRow;
++        if (tally) |t| try t.row(visible, cols, backing);
++    }
++    try guard.chargeWork(@as(u64, cap.rows) * cap.cols);
++    return .{ .cols = cols, .rows = rows, .capacity = cap, .row_data = row_data };
++}
++pub fn encodeLayout(w: *std.Io.Writer, s: *const Screen, p: *const native.Page) !void {
++    try wire.writeInt(w, u16, p.size.cols);
++    try wire.writeInt(w, u16, p.size.rows);
++    try wire.writeInt(w, u16, p.capacity.cols);
++    try wire.writeInt(w, u16, p.capacity.rows);
++    try wire.writeInt(w, u16, p.capacity.styles);
++    try wire.writeInt(w, u16, p.capacity.hyperlink_bytes);
++    try wire.writeInt(w, u16, p.capacity.hyperlink_cells);
++    try wire.writeInt(w, u32, p.capacity.grapheme_bytes);
++    try wire.writeInt(w, u32, p.capacity.string_bytes);
++    for (0..p.size.rows) |y| {
++        const row = p.getRow(y);
++        if (row.kitty_virtual_placeholder) return error.UnsupportedProfile;
++        try wire.writeInt(w, u16, try layout.rowBackingCols(s, p, row));
++        try w.writeByte(@as(u8, @intFromBool(row.wrap)) | (@as(u8, @intFromBool(row.wrap_continuation)) << 1) |
++            (@as(u8, @intCast(@backingInt(row.semantic_prompt))) << 2));
++        try w.writeByte(0);
++    }
++}
++pub fn encodeCells(w: *std.Io.Writer, p: *const native.Page) !void {
++    try tables.encode(w, p);
++    for (0..p.size.rows) |y| for (p.getCells(p.getRow(y))) |*cell| try cells.encode(w, p, cell);
++}
++
++/// Run with target=null during complete preallocation admission; materialize
++/// only after the whole envelope passed and the screen geometry was staged.
++pub fn decodeCells(bytes: []const u8, d: Description, s: ?*Screen, target: ?*native.Page, tally: ?*resources.Tally) !void {
++    var r: std.Io.Reader = .fixed(bytes);
++    const capacity_bytes = native.Page.layout(d.capacity).total_size;
++    var refs = try tables.decode(&r, target, tally, capacity_bytes);
++    defer refs.deinit();
++    if (target) |p| {
++        p.pauseIntegrityChecks(true);
++        defer p.pauseIntegrityChecks(false);
++        try fill(&r, d, s.?, p, &refs, tally);
++        refs.releaseStaging(p);
++    } else try fill(&r, d, null, null, &refs, tally);
++    if (r.bufferedLen() != 0) return error.InvalidPage;
++}
++fn fill(r: *std.Io.Reader, d: Description, screen: ?*Screen, target: ?*native.Page, refs: *tables.Decoded, tally: ?*resources.Tally) !void {
++    for (0..d.rows) |y| {
++        const meta = d.row_data[y * 4 ..][0..4];
++        const backing = std.mem.readInt(u16, meta[0..2], .little);
++        if (target) |p| {
++            const row = p.getRow(y);
++            row.wrap = meta[2] & 1 != 0;
++            row.wrap_continuation = meta[2] & 2 != 0;
++            row.semantic_prompt = std.enums.fromInt(@FieldType(native.Row, "semantic_prompt"), @as(u2, @truncate(meta[2] >> 2))) orelse return error.InvalidRow;
++            try layout.restoreRowBackingBeforeContinuation(screen.?, p, row, backing);
++        }
++        var pending_wide = false;
++        for (0..d.cols) |x| {
++            const value = try cells.read(r);
++            if ((value.style != 0 and !refs.style_seen.isSet(value.style)) or
++                (value.link != 0 and !refs.link_seen.isSet(value.link))) return error.InvalidReference;
++            const capacity_bytes = native.Page.layout(d.capacity).total_size;
++            // Prepay native maps/bitmap scans before materialization, including
++            // in the allocation-free admission pass. Core layout is validated
++            // again before and after continuation, with managed suffix lookups.
++            try @import("work.zig").managed(capacity_bytes, value.suffix.len / 4, value.link != 0);
++            try @import("work.zig").native(capacity_bytes, 2, 8 + value.suffix.len);
++            const probe = try cells.base(value);
++            if (x >= backing and (!probe.isZero() or value.style != 0 or value.link != 0 or value.suffix.len != 0)) {
++                return error.InvalidPadding;
++            }
++            if ((probe.wide == .spacer_tail) != pending_wide or
++                (probe.wide == .wide and x + 1 >= d.cols) or
++                (probe.wide == .spacer_head and (x + 1 != d.cols or meta[2] & 1 == 0))) return error.InvalidWideCell;
++            pending_wide = probe.wide == .wide;
++            for (0..value.suffix.len / 4) |i| {
++                const cp = try cells.scalar(std.mem.readInt(u32, value.suffix[i * 4 ..][0..4], .little));
++                if (@import("../shellfox_unicode_v6.zig").width(cp) != 0) return error.InvalidCell;
++            }
++            if (tally) |t| try t.text(@as(u64, @intFromBool(value.kind <= 1 and value.content != 0)) + value.suffix.len / 4, @as(u64, @intFromBool(value.kind <= 1 and value.content != 0)) * 4 + value.suffix.len);
++            if (target) |p| try cells.materialize(value, p, p.getRow(y), &p.getCells(p.getRow(y))[x], if (value.style == 0) 0 else refs.styles[value.style], if (value.link == 0) 0 else refs.links[value.link]);
++        }
++    }
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/record.zig
+@@ -0,0 +1,163 @@
++//! Strict format2 framing. Payload semantics belong to the canonical codec.
++const std = @import("std");
++const envelope = @import("envelope.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const Crc32c = @import("../../crc32c.zig").Crc32c;
++
++pub const header_len: usize = 10;
++pub const Tag = enum(u16) {
++    compatibility = 0x2001,
++    terminal = 0x2002,
++    screen_layout = 0x2003,
++    page_layout = 0x2004,
++    page_cells = 0x2005,
++    continuation = 0x2006,
++    finish = 0x2007,
++};
++
++pub const Totals = struct {
++    records: u64,
++    pages: u64,
++    physical_slots: u64,
++    text_scalars: u64,
++
++    pub fn encode(self: Totals) [32]u8 {
++        var bytes: [32]u8 = undefined;
++        std.mem.writeInt(u64, bytes[0..8], self.records, .little);
++        std.mem.writeInt(u64, bytes[8..16], self.pages, .little);
++        std.mem.writeInt(u64, bytes[16..24], self.physical_slots, .little);
++        std.mem.writeInt(u64, bytes[24..32], self.text_scalars, .little);
++        return bytes;
++    }
++
++    pub fn decode(bytes: []const u8) error{InvalidFinish}!Totals {
++        if (bytes.len != 32) return error.InvalidFinish;
++        return .{
++            .records = std.mem.readInt(u64, bytes[0..8], .little),
++            .pages = std.mem.readInt(u64, bytes[8..16], .little),
++            .physical_slots = std.mem.readInt(u64, bytes[16..24], .little),
++            .text_scalars = std.mem.readInt(u64, bytes[24..32], .little),
++        };
++    }
++};
++
++pub const Limits = struct {
++    encoded_bytes: u64,
++    records: u64,
++    pages: u64,
++    screens: u32,
++};
++
++pub const Frame = struct { tag: Tag, payload: []const u8 };
++pub const Reader = struct {
++    bytes: []const u8,
++    offset: usize = envelope.len,
++    scope: *guard.Scope,
++    limits: Limits,
++    records: u64 = 0,
++    pages: u64 = 0,
++    screens: u32 = 0,
++    screen_has_page: bool = false,
++    pending_cells: bool = false,
++    totals: ?Totals = null,
++    phase: enum { compatibility, terminal, layouts, finish, complete, failed } = .compatibility,
++
++    pub fn init(bytes: []const u8, layout_abi: u32, limits: Limits, scope: *guard.Scope) !Reader {
++        _ = try envelope.decode(bytes, layout_abi, limits.encoded_bytes);
++        try scope.chargeWork(envelope.len);
++        return .{ .bytes = bytes, .scope = scope, .limits = limits };
++    }
++
++    pub fn next(self: *Reader) !?Frame {
++        if (self.phase == .failed) return error.ReaderFailed;
++        if (self.phase == .complete) return null;
++        errdefer self.phase = .failed;
++        if (self.records >= self.limits.records) return error.LimitExceeded;
++        if (self.bytes.len - self.offset < header_len) return error.Truncated;
++        const header = self.bytes[self.offset..][0..header_len];
++        const raw_tag = std.mem.readInt(u16, header[0..2], .little);
++        const tag = std.enums.fromInt(Tag, raw_tag) orelse return error.UnsupportedRecord;
++        const size: usize = std.mem.readInt(u32, header[2..6], .little);
++        if (size > self.bytes.len - self.offset - header_len) return error.Truncated;
++        try self.scope.chargeWork(header_len + 2 * @as(u64, size));
++        const payload = self.bytes[self.offset + header_len ..][0..size];
++        var crc = Crc32c.init();
++        crc.update(header[0..6]);
++        crc.update(payload);
++        if (crc.final() != std.mem.readInt(u32, header[6..10], .little)) return error.InvalidChecksum;
++        self.records += 1;
++        self.offset += header_len + size;
++        try self.route(tag, payload);
++        return .{ .tag = tag, .payload = payload };
++    }
++
++    fn route(self: *Reader, tag: Tag, payload: []const u8) !void {
++        switch (self.phase) {
++            .compatibility => {
++                if (tag != .compatibility) return error.InvalidOrder;
++                self.phase = .terminal;
++            },
++            .terminal => {
++                if (tag != .terminal) return error.InvalidOrder;
++                self.phase = .layouts;
++            },
++            .layouts => switch (tag) {
++                .screen_layout => {
++                    if (self.pending_cells or (self.screens > 0 and !self.screen_has_page)) return error.InvalidOrder;
++                    if (self.screens >= self.limits.screens) return error.LimitExceeded;
++                    self.screens += 1;
++                    self.screen_has_page = false;
++                },
++                .page_layout => {
++                    if (self.screens == 0 or self.pending_cells) return error.InvalidOrder;
++                    if (self.pages >= self.limits.pages) return error.LimitExceeded;
++                    self.pages += 1;
++                    self.pending_cells = true;
++                },
++                .page_cells => {
++                    if (!self.pending_cells) return error.InvalidOrder;
++                    self.pending_cells = false;
++                    self.screen_has_page = true;
++                },
++                .continuation => {
++                    if (self.screens == 0 or self.pending_cells or !self.screen_has_page) return error.InvalidOrder;
++                    self.phase = .finish;
++                },
++                else => return error.InvalidOrder,
++            },
++            .finish => {
++                if (tag != .finish) return error.InvalidOrder;
++                const total = try Totals.decode(payload);
++                if (total.records != self.records or total.pages != self.pages) return error.InvalidFinish;
++                if (self.offset != self.bytes.len) return error.TrailingBytes;
++                self.totals = total;
++                self.phase = .complete;
++            },
++            .complete, .failed => return error.ReaderFailed,
++        }
++    }
++
++    /// Must be called with measured canonical payload totals before publication.
++    pub fn verifyTotals(self: *Reader, actual: Totals) !void {
++        errdefer self.phase = .failed;
++        if (self.phase != .complete) return error.MissingFinish;
++        const declared = self.totals orelse return error.MissingFinish;
++        if (actual.records != declared.records or actual.pages != declared.pages or
++            actual.physical_slots != declared.physical_slots or actual.text_scalars != declared.text_scalars)
++            return error.InvalidFinish;
++    }
++};
++
++/// Writes only into a caller-selected private stage, never a public artifact.
++pub fn write(writer: *std.Io.Writer, tag: Tag, payload: []const u8) !void {
++    const size = std.math.cast(u32, payload.len) orelse return error.LimitExceeded;
++    var header: [header_len]u8 = undefined;
++    std.mem.writeInt(u16, header[0..2], @backingInt(tag), .little);
++    std.mem.writeInt(u32, header[2..6], size, .little);
++    var crc = Crc32c.init();
++    crc.update(header[0..6]);
++    crc.update(payload);
++    std.mem.writeInt(u32, header[6..10], crc.final(), .little);
++    try writer.writeAll(&header);
++    try writer.writeAll(payload);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/resources.zig
+@@ -0,0 +1,117 @@
++//! Count admission only. Canonical layout validation remains Cora-owned.
++const std = @import("std");
++const guard = @import("../snapshot_budget_guard.zig");
++
++pub const Limits = struct {
++    pages: u64,
++    rows: u64,
++    visible_columns: u64,
++    backing_columns: u64,
++    physical_slots: u64,
++    text_scalars: u64,
++    text_bytes: u64,
++};
++
++pub const Tally = struct {
++    limits: Limits,
++    scope: *guard.Scope,
++    pages: u64 = 0,
++    rows: u64 = 0,
++    physical_slots: u64 = 0,
++    text_scalars: u64 = 0,
++    text_bytes: u64 = 0,
++
++    /// Admit actual physical stride, not visible width or sum of row lengths.
++    /// The core must independently validate which geometry is legal.
++    pub fn page(self: *Tally, visible_columns: u64, physical_columns: u64, rows: u64) !void {
++        if (visible_columns == 0 or physical_columns == 0 or rows == 0) return error.InvalidDimensions;
++        if (visible_columns > physical_columns) return error.InvalidDimensions;
++        if (visible_columns > self.limits.visible_columns or physical_columns > self.limits.backing_columns)
++            return error.LimitExceeded;
++        const slots = std.math.mul(u64, physical_columns, rows) catch return error.LimitExceeded;
++        // Native per-page refcounts remain u16, including temporary/cursor refs.
++        if (slots > guard.max_page_cells) return error.LimitExceeded;
++        const pages_next = std.math.add(u64, self.pages, 1) catch return error.LimitExceeded;
++        const rows_next = std.math.add(u64, self.rows, rows) catch return error.LimitExceeded;
++        const slots_next = std.math.add(u64, self.physical_slots, slots) catch return error.LimitExceeded;
++        if (pages_next > self.limits.pages or rows_next > self.limits.rows or slots_next > self.limits.physical_slots)
++            return error.LimitExceeded;
++        const work = std.math.add(u64, slots, rows) catch return error.LimitExceeded;
++        try self.scope.chargeWork(work);
++        self.pages = pages_next;
++        self.rows = rows_next;
++        self.physical_slots = slots_next;
++    }
++
++    /// Check explicit resolved row backing length. Padding is still physical
++    /// storage already charged by page(), even when outside this row length.
++    pub fn row(self: *Tally, visible_columns: u64, physical_columns: u64, backing_columns: u64) !void {
++        if (visible_columns == 0 or backing_columns < visible_columns or backing_columns > physical_columns)
++            return error.InvalidRowLength;
++        try self.scope.chargeWork(1);
++    }
++
++    /// Includes owned text from hidden cells and every managed table/string.
++    /// Scalars/UTF encoding/reference validity are checked by the real codec.
++    pub fn text(self: *Tally, scalars: u64, bytes: u64) !void {
++        const scalars_next = std.math.add(u64, self.text_scalars, scalars) catch return error.LimitExceeded;
++        const bytes_next = std.math.add(u64, self.text_bytes, bytes) catch return error.LimitExceeded;
++        if (scalars_next > self.limits.text_scalars or bytes_next > self.limits.text_bytes)
++            return error.LimitExceeded;
++        const work = std.math.add(u64, scalars, bytes) catch return error.LimitExceeded;
++        try self.scope.chargeWork(work);
++        self.text_scalars = scalars_next;
++        self.text_bytes = bytes_next;
++    }
++};
++
++fn testTally(scope: *guard.Scope) Tally {
++    return .{
++        .scope = scope,
++        .limits = .{ .pages = 2, .rows = 6, .visible_columns = 8, .backing_columns = 16, .physical_slots = 48, .text_scalars = 16, .text_bytes = 64 },
++    };
++}
++
++test "format2 resources charge hidden stride and ragged row padding" {
++    var scope: guard.Scope = .{ .max_bytes = 0, .max_work = 1000 };
++    var tally = testTally(&scope);
++    try tally.page(4, 8, 3);
++    try tally.row(4, 8, 8);
++    try tally.row(4, 8, 4);
++    try tally.row(4, 8, 6);
++    try std.testing.expectEqual(@as(u64, 24), tally.physical_slots);
++    try std.testing.expectEqual(@as(u64, 30), scope.work);
++    try tally.text(2, 8);
++    try std.testing.expectEqual(@as(u64, 2), tally.text_scalars);
++    try std.testing.expectEqual(@as(u64, 8), tally.text_bytes);
++    try std.testing.expectEqual(@as(u64, 0), scope.heap_bytes + scope.mapped_bytes);
++    tally.limits.physical_slots = 24;
++    try std.testing.expectError(error.LimitExceeded, tally.page(4, 8, 1));
++    try std.testing.expectEqual(@as(u64, 24), tally.physical_slots);
++}
++
++test "format2 resources reject hidden amplification invalid rows and overflow" {
++    var scope: guard.Scope = .{ .max_bytes = 0, .max_work = 1000 };
++    var tally = testTally(&scope);
++    try std.testing.expectError(error.LimitExceeded, tally.page(1, 16, 4));
++    try std.testing.expectEqual(@as(u64, 0), tally.pages);
++    try std.testing.expectEqual(@as(u64, 0), scope.work);
++    try std.testing.expectError(error.InvalidRowLength, tally.row(4, 8, 3));
++    try std.testing.expectError(error.InvalidRowLength, tally.row(4, 8, 9));
++    tally.limits.backing_columns = std.math.maxInt(u64);
++    try std.testing.expectError(error.LimitExceeded, tally.page(1, std.math.maxInt(u64), 2));
++    try std.testing.expectError(error.LimitExceeded, tally.text(std.math.maxInt(u64), 1));
++    try tally.text(16, 64);
++    try std.testing.expectError(error.LimitExceeded, tally.text(1, 0));
++    try std.testing.expectError(error.LimitExceeded, tally.text(0, 1));
++}
++
++test "format2 resources deterministic work refusal is nonallocating" {
++    var scope: guard.Scope = .{ .max_bytes = 0, .max_work = 26 };
++    var tally = testTally(&scope);
++    try std.testing.expectError(error.OutOfMemory, tally.page(4, 8, 3));
++    try std.testing.expect(scope.exceeded);
++    try std.testing.expectEqual(@as(u64, 0), tally.pages);
++    try std.testing.expectEqual(@as(u64, 0), tally.physical_slots);
++    try std.testing.expectEqual(@as(u64, 0), scope.heap_bytes + scope.mapped_bytes);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/review_tests.zig
+@@ -0,0 +1,123 @@
++const std = @import("std");
++const testing = std.testing;
++const api = @import("../c/shellfox_snapshot_format2.zig");
++const ct = @import("../c/terminal.zig");
++const fixtures = @import("codec_tests.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const profile = @import("../shellfox_terminal_profile.zig");
++const Result = @import("../c/result.zig").Result;
++
++fn digest(t: ct.Terminal) u64 {
++    var hash = std.hash.Wyhash.init(0);
++    const native = ct.zigTerminal(t).?;
++    for ([_]@import("../ScreenSet.zig").Key{ .primary, .alternate }) |key| if (native.screens.get(key)) |s| {
++        var n = s.pages.pages.first;
++        while (n) |node| : (n = node.next) switch (node.data) {
++            .compressed => |data| hash.update(data.encoded),
++            .resident => |data| hash.update(data.memory),
++        };
++    };
++    return hash.final();
++}
++test "format2 review resident preflight refuses compressed source without mutation" {
++    const t = try fixtures.source();
++    defer ct.free(t);
++    const control = try fixtures.source();
++    defer ct.free(control);
++    const text = "abcdefgh\r\n";
++    for (0..12000) |_| {
++        ct.vt_write(t, text, text.len);
++        ct.vt_write(control, text, text.len);
++    }
++    const native = ct.zigTerminal(t).?;
++    if (native.compress(.full) == .unsupported) return error.SkipZigTest;
++    for (0..64) |_| {
++        if (native.compress(.full) == .complete) break;
++    }
++    const before = native.screens.get(.primary).?.pages.memoryUsage();
++    try testing.expect(before.compressed_pages > 0);
++    const state = try profile.capture(native);
++    const data = digest(t);
++    var buffer: [65536]u8 = @splat(0xa5);
++    var written: usize = 99;
++    const o = fixtures.options();
++    try testing.expectEqual(Result.unsupported, api.encode_buf(t, &o, &buffer, buffer.len, &written, null));
++    try testing.expectEqual(@as(usize, 0), written);
++    for (buffer) |byte| try testing.expectEqual(@as(u8, 0xa5), byte);
++    try testing.expectEqual(before, native.screens.get(.primary).?.pages.memoryUsage());
++    try testing.expectEqual(data, digest(t));
++    try testing.expectEqual(state, try profile.capture(native));
++    // Only after proving refusal unchanged may a deliberate control comparison
++    // rehydrate pages. The same future suffix must still behave identically.
++    const suffix = "\x1b[2;1HZ\r\n";
++    ct.vt_write(t, suffix, suffix.len);
++    ct.vt_write(control, suffix, suffix.len);
++    var pages = native.screens.get(.primary).?.pages.pages.first;
++    while (pages) |node| : (pages = node.next) _ = node.page();
++    try @import("compare_tests.zig").terminals(t, control);
++}
++
++test "format2 review distinct concrete table aliases reject before native refs" {
++    const tables = @import("tables.zig");
++    const wire = @import("../snapshot/io.zig");
++    const style = @import("../snapshot/style.zig");
++    const links = @import("../snapshot/hyperlink.zig");
++    inline for (.{ false, true }) |link_alias| {
++        var scope: guard.Scope = .{ .max_bytes = 16 * 1024 * 1024, .max_work = 1000000000000000 };
++        try testing.expect(guard.enter(&scope));
++        defer guard.leave();
++        var target = try @import("../page.zig").Page.init(.{ .cols = 8, .rows = 3, .styles = 128, .hyperlink_bytes = 1024, .hyperlink_cells = 64, .string_bytes = 2048 });
++        defer target.deinit();
++        var buffer: [16384]u8 = undefined;
++        var writer: std.Io.Writer = .fixed(&buffer);
++        try wire.writeInt(&writer, u16, if (link_alias) 0 else 256);
++        try wire.writeInt(&writer, u16, if (link_alias) 256 else 0);
++        for (1..257) |id| {
++            try wire.writeInt(&writer, u16, @intCast(id));
++            if (link_alias) try links.encode(.{ .id = .{ .implicit = 7 }, .uri = "same" }, &writer) else try style.encode(.{ .flags = .{ .bold = true } }, &writer);
++        }
++        const before_heap = scope.heap_bytes;
++        var r: std.Io.Reader = .fixed(writer.buffered());
++        if (link_alias) try testing.expectError(error.NoncanonicalHyperlinkAlias, tables.decode(&r, &target, null, target.memory.len)) else try testing.expectError(error.NoncanonicalStyleAlias, tables.decode(&r, &target, null, target.memory.len));
++        try testing.expectEqual(before_heap, scope.heap_bytes);
++        try testing.expectEqual(@as(usize, 0), target.styles.count());
++        try testing.expectEqual(@as(usize, 0), target.hyperlink_set.count());
++    }
++}
++
++test "format2 review writer errors distinguish capacity encoded and continuation limits" {
++    const t = try fixtures.source();
++    defer ct.free(t);
++    const prefix = "\x1b]2;unfinished";
++    ct.vt_write(t, prefix, prefix.len);
++    const o = fixtures.options();
++    var full: [65536]u8 = undefined;
++    var length: usize = 0;
++    try testing.expectEqual(Result.success, api.encode_buf(t, &o, &full, full.len, &length, null));
++    var output: [65536]u8 = @splat(0xa5);
++    for ([_]usize{ 33, 80, length / 2, length - 1 }) |cap| {
++        var written: usize = 99;
++        try testing.expectEqual(Result.out_of_space, api.encode_buf(t, &o, &output, cap, &written, null));
++        try testing.expectEqual(@as(usize, 0), written);
++        for (output) |byte| try testing.expectEqual(@as(u8, 0xa5), byte);
++    }
++    inline for (.{ "max_encoded_bytes", "max_continuation_bytes" }) |field| {
++        var reduced = o;
++        @field(reduced, field) = if (std.mem.eql(u8, field, "max_encoded_bytes")) length - 1 else 1;
++        var written: usize = 99;
++        try testing.expectEqual(Result.limit_exceeded, api.encode_buf(t, &reduced, &output, output.len, &written, null));
++        try testing.expectEqual(@as(usize, 0), written);
++        for (output) |byte| try testing.expectEqual(@as(u8, 0xa5), byte);
++    }
++    inline for (.{ false, true }) |continuation_limit| {
++        var reduced = o;
++        if (continuation_limit) reduced.max_continuation_bytes = 1 else reduced.max_encoded_bytes = length - 1;
++        var scope: guard.Scope = .{ .max_bytes = reduced.max_allocation_bytes, .max_work = reduced.max_work_units };
++        try testing.expect(guard.enter(&scope));
++        defer guard.leave();
++        if (continuation_limit) try testing.expectError(error.ContinuationLimitExceeded, @import("codec.zig").encode(t, reduced, &scope, output.len)) else try testing.expectError(error.EncodedLimitExceeded, @import("codec.zig").encode(t, reduced, &scope, output.len));
++    }
++    var exact: usize = 0;
++    try testing.expectEqual(Result.success, api.encode_buf(t, &o, &output, length, &exact, null));
++    try testing.expectEqual(length, exact);
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/screen.zig
+@@ -0,0 +1,197 @@
++const std = @import("std");
++const Terminal = @import("../Terminal.zig");
++const Screen = @import("../Screen.zig");
++const PageList = @import("../PageList.zig");
++const Key = @import("../ScreenSet.zig").Key;
++const layout = @import("../shellfox_cell_layout2.zig");
++const meta = @import("../snapshot/screen.zig");
++const wire = @import("../snapshot/io.zig");
++const links = @import("../snapshot/hyperlink.zig");
++const tables = @import("tables.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const Options = @import("options.zig").Options;
++
++pub const View = struct {
++    key: Key,
++    layout: layout.ScreenLayout,
++    pages: u32,
++    header: meta.Header,
++    saved: ?meta.SavedCursor,
++    link: ?@import("../hyperlink.zig").Hyperlink,
++    seen: bool,
++    next_image: u32,
++    next_placement: u32,
++};
++fn putCursor(w: *std.Io.Writer, c: layout.CursorLayout) !void {
++    try wire.writeInt(w, u16, c.physical_x);
++    try wire.writeInt(w, u16, c.y);
++    try w.writeByte(@intFromBool(c.pending_wrap));
++    try w.writeByte(c.virtual_overflow);
++    try wire.writeInt(w, u16, 0);
++}
++fn getCursor(r: *std.Io.Reader, cols: u16, rows: u16) !layout.CursorLayout {
++    const x = try wire.readInt(r, u16);
++    const y = try wire.readInt(r, u16);
++    const pending = try r.takeByte();
++    const overflow = try r.takeByte();
++    if (try wire.readInt(r, u16) != 0 or pending > 1 or overflow > 1 or x >= cols or y >= rows or
++        (overflow == 1 and (pending != 1 or x != cols - 1))) return error.InvalidCursor;
++    return .{ .physical_x = x, .y = y, .pending_wrap = pending == 1, .virtual_overflow = @intCast(overflow) };
++}
++fn header(s: *const Screen, key: Key, pages: u32) !meta.Header {
++    var keyboard: meta.KittyKeyboard = .{ .index = s.kitty_keyboard.idx };
++    for (s.kitty_keyboard.flags, &keyboard.flags) |from, *to| to.* = .{
++        .disambiguate = from.disambiguate,
++        .report_events = from.report_events,
++        .report_alternates = from.report_alternates,
++        .report_all = from.report_all,
++        .report_associated = from.report_associated,
++    };
++    return .{
++        .key = key,
++        .page_count = std.math.cast(u16, pages) orelse return error.LimitExceeded,
++        .history_rows = s.pages.total_rows - s.pages.rows,
++        .cursor_x = s.cursor.x,
++        .cursor_y = s.cursor.y,
++        .cursor_style = s.cursor.cursor_style,
++        .cursor_flags = .{ .pending_wrap = s.cursor.pending_wrap, .protected = s.cursor.protected, .semantic_content = s.cursor.semantic_content, .semantic_content_clear_eol = s.cursor.semantic_content_clear_eol },
++        .cursor_pen = s.cursor.style,
++        .hyperlink_implicit_id = s.cursor.hyperlink_implicit_id,
++        .charset = s.charset,
++        .protected_mode = s.protected_mode,
++        .kitty_keyboard = keyboard,
++        .semantic_click = s.semantic_prompt.click,
++        .saved_cursor_present = s.saved_cursor != null,
++    };
++}
++pub fn encode(w: *std.Io.Writer, t: *const Terminal, key: Key, pages: u32) !void {
++    const s = t.screens.get(key) orelse return error.InvalidScreen;
++    const state = (try layout.screenLayout(t, key)) orelse return error.InvalidScreen;
++    try wire.writeInt(w, u16, @intCast(@backingInt(key)));
++    try wire.writeInt(w, u16, state.visible_cols);
++    try wire.writeInt(w, u16, state.physical_cols);
++    try wire.writeInt(w, u16, state.rows);
++    try wire.writeInt(w, u64, state.total_rows);
++    try wire.writeInt(w, u32, pages);
++    try putCursor(w, state.cursor);
++    try w.writeByte(@intFromBool(state.saved_cursor != null));
++    if (state.saved_cursor) |saved| try putCursor(w, saved);
++    try (try header(s, key, pages)).encode(w);
++    if (s.saved_cursor) |saved| try (meta.SavedCursor{
++        .x = saved.x,
++        .y = saved.y,
++        .pen = saved.style,
++        .flags = .{ .protected = saved.protected, .pending_wrap = saved.pending_wrap, .origin = saved.origin },
++        .charset = saved.charset,
++    }).encode(w);
++    try meta.encodeCursorHyperlink(if (s.cursor.hyperlink) |link| link.* else null, w);
++    try w.writeByte(@intFromBool(s.semantic_prompt.seen));
++    if (comptime @import("terminal_options").kitty_graphics) {
++        try wire.writeInt(w, u32, s.kitty_images.next_image_id);
++        try wire.writeInt(w, u32, s.kitty_images.next_internal_placement_id);
++    } else {
++        try wire.writeInt(w, u32, 0);
++        try wire.writeInt(w, u32, 0);
++    }
++}
++pub fn parse(bytes: []const u8, o: Options, tally: ?*@import("resources.zig").Tally) !View {
++    var r: std.Io.Reader = .fixed(bytes);
++    const key = std.enums.fromInt(Key, std.math.cast(@typeInfo(Key).@"enum".tag_type, try wire.readInt(&r, u16)) orelse return error.InvalidScreen) orelse return error.InvalidScreen;
++    const visible = try wire.readInt(&r, u16);
++    const physical = try wire.readInt(&r, u16);
++    const rows = try wire.readInt(&r, u16);
++    const total_rows = try wire.readInt(&r, u64);
++    const pages = try wire.readInt(&r, u32);
++    if (visible < 2 or physical < visible or visible > o.max_visible_columns or physical > o.max_backing_columns or
++        rows == 0 or rows > o.max_visible_rows or total_rows < rows or total_rows > o.max_rows or pages == 0 or pages > o.max_pages)
++        return error.LimitExceeded;
++    const current = try getCursor(&r, visible, rows);
++    const present = try r.takeByte();
++    if (present > 1) return error.InvalidCursor;
++    const saved_layout = if (present == 1) try getCursor(&r, visible, rows) else null;
++    const start = r.seek;
++    const h = try meta.Header.decode(&r);
++    var canonical: [meta.Header.len]u8 = undefined;
++    var writer: std.Io.Writer = .fixed(&canonical);
++    try h.encode(&writer);
++    if (!std.mem.eql(u8, &canonical, bytes[start..r.seek]) or h.key != key or h.page_count != pages or
++        h.history_rows != total_rows - rows or h.cursor_x != current.physical_x or h.cursor_y != current.y or
++        h.cursor_flags.pending_wrap != current.pending_wrap or h.saved_cursor_present != (present == 1)) return error.InvalidScreen;
++    const saved = if (h.saved_cursor_present) blk: {
++        const saved_start = r.seek;
++        const value = try meta.SavedCursor.decode(&r);
++        var buf: [meta.SavedCursor.len]u8 = undefined;
++        var sw: std.Io.Writer = .fixed(&buf);
++        try value.encode(&sw);
++        if (!std.mem.eql(u8, &buf, bytes[saved_start..r.seek]) or value.x != saved_layout.?.physical_x or
++            value.y != saved_layout.?.y or value.flags.pending_wrap != saved_layout.?.pending_wrap) return error.InvalidCursor;
++        break :blk value;
++    } else null;
++    const link_kind = try r.peekByte();
++    const link = if (link_kind == 0) blk: {
++        r.toss(1);
++        break :blk null;
++    } else try tables.readLink(&r);
++    if (tally) |t| if (link) |l| try t.text(0, l.uri.len + if (l.id == .explicit) l.id.explicit.len else @as(usize, 0));
++    const seen = try r.takeByte();
++    if (seen > 1) return error.InvalidScreen;
++    const next_image = try wire.readInt(&r, u32);
++    const next_placement = try wire.readInt(&r, u32);
++    if (r.bufferedLen() != 0) return error.InvalidScreen;
++    return .{ .key = key, .layout = .{ .visible_cols = visible, .physical_cols = physical, .rows = rows, .total_rows = std.math.cast(usize, total_rows) orelse return error.LimitExceeded, .cursor = current, .saved_cursor = saved_layout }, .pages = pages, .header = h, .saved = saved, .link = link, .seen = seen == 1, .next_image = next_image, .next_placement = next_placement };
++}
++pub fn attach(t: *Terminal, view: View, pages: PageList) !void {
++    const alloc = guard.heapAllocator();
++    var owned_pages = pages;
++    var transferred = false;
++    errdefer if (!transferred) owned_pages.deinit();
++    const c = view.layout.cursor;
++    const pin = try owned_pages.trackPin(owned_pages.pin(.{ .active = .{ .x = c.physical_x, .y = c.y } }) orelse return error.InvalidCursor);
++    const rc = pin.rowAndCell();
++    const h = view.header;
++    var result: Screen = .{
++        .io = @import("../lib.zig").TinyIo.init.io(),
++        .alloc = alloc,
++        .pages = owned_pages,
++        .no_scrollback = view.key == .alternate or t.screens.get(.primary).?.no_scrollback,
++        .cursor = .{ .x = c.physical_x, .y = c.y, .cursor_style = h.cursor_style, .protected = h.cursor_flags.protected, .style = h.cursor_pen, .hyperlink_implicit_id = h.hyperlink_implicit_id, .semantic_content = h.cursor_flags.semantic_content, .semantic_content_clear_eol = h.cursor_flags.semantic_content_clear_eol, .page_pin = pin, .page_row = rc.row, .page_cell = rc.cell },
++        .saved_cursor = if (view.saved) |s| .{ .x = s.x, .y = s.y, .style = s.pen, .protected = s.flags.protected, .pending_wrap = s.flags.pending_wrap, .origin = s.flags.origin, .charset = s.charset } else null,
++        .charset = h.charset,
++        .protected_mode = h.protected_mode,
++        .semantic_prompt = .{ .seen = view.seen, .click = h.semantic_click },
++    };
++    result.kitty_keyboard.idx = @intCast(h.kitty_keyboard.index);
++    for (h.kitty_keyboard.flags, &result.kitty_keyboard.flags) |from, *to| to.* = .{
++        .disambiguate = from.disambiguate,
++        .report_events = from.report_events,
++        .report_alternates = from.report_alternates,
++        .report_all = from.report_all,
++        .report_associated = from.report_associated,
++    };
++    const slot = try t.screens.getInit(result.io, alloc, view.key, .{ .cols = view.layout.physical_cols, .rows = view.layout.rows, .kitty_image_storage_limit = 0 });
++    slot.deinit();
++    slot.* = result;
++    transferred = true;
++    if (comptime @import("terminal_options").kitty_graphics) {
++        slot.kitty_images.setLimit(slot.io, alloc, slot, 0);
++        slot.kitty_images.next_image_id = view.next_image;
++        slot.kitty_images.next_internal_placement_id = view.next_placement;
++    }
++    try layout.restoreScreenLayoutBeforeContinuation(t, view.key, &view.layout);
++}
++pub fn restoreWork(capacity: @import("../page.zig").Capacity, view: View) !void {
++    const slots = std.math.mul(u64, capacity.cols, capacity.rows) catch return error.LimitExceeded;
++    const bytes: u64 = if (view.link) |l| l.uri.len + if (l.id == .explicit) l.id.explicit.len else @as(usize, 0) else 0;
++    // A full cursor table can grow/split and copy managed cells. Bound all
++    // capacity slots, numeric map probes and variable link comparisons.
++    try @import("work.zig").native(@import("../page.zig").Page.layout(capacity).total_size, std.math.add(u64, slots, 1) catch return error.LimitExceeded, std.math.add(u64, bytes, 17) catch return error.LimitExceeded);
++}
++pub fn finish(s: *Screen, view: View) !void {
++    try restoreWork(s.cursor.page_pin.node.pageAssumeResident().capacity, view);
++    try s.manualStyleUpdate();
++    if (view.link) |value| {
++        if (value.id == .implicit) s.cursor.hyperlink_implicit_id = value.id.implicit;
++        try s.startHyperlink(value.uri, if (value.id == .explicit) value.id.explicit else null);
++        s.cursor.hyperlink_implicit_id = view.header.hyperlink_implicit_id;
++    }
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/source.zig
+@@ -0,0 +1,33 @@
++//! Resident-only source admission. Must precede every profile/layout accessor.
++const std = @import("std");
++const Terminal = @import("../Terminal.zig");
++const Key = @import("../ScreenSet.zig").Key;
++const guard = @import("../snapshot_budget_guard.zig");
++const Options = @import("options.zig").Options;
++const work = @import("work.zig");
++
++pub fn requireResident(t: *const Terminal, o: Options) !void {
++    var count: u64 = 0;
++    // Do not call node.page(), any profile/layout validator or content getter.
++    for ([_]Key{ .primary, .alternate }) |key| if (t.screens.get(key)) |s| {
++        var node = s.pages.pages.first;
++        while (node) |current| : (node = current.next) {
++            try guard.chargeWork(1);
++            count = std.math.add(u64, count, 1) catch return error.LimitExceeded;
++            if (count > o.max_pages) return error.LimitExceeded;
++            if (current.pageIfResident() == null) return error.UnsupportedProfile;
++        }
++    };
++}
++/// ALL nodes already proved resident. Prepay the native validators' numeric
++/// grapheme/map lookups and bounded suffix traversal before invoking them.
++pub fn validationWork(t: *const Terminal) !void {
++    for ([_]Key{ .primary, .alternate }) |key| if (t.screens.get(key)) |s| {
++        var node = s.pages.pages.first;
++        while (node) |current| : (node = current.next) {
++            const p = current.pageIfResident() orelse return error.UnsupportedProfile;
++            const slots = std.math.mul(u64, p.size.cols, p.size.rows) catch return error.LimitExceeded;
++            try work.native(p.memory.len, slots, 24 + (@import("../page.zig").grapheme_max_len + 1) * 4);
++        }
++    };
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/tables.zig
+@@ -0,0 +1,152 @@
++const std = @import("std");
++const page = @import("../page.zig");
++const hyperlink = @import("../hyperlink.zig");
++const style = @import("../snapshot/style.zig");
++const links = @import("../snapshot/hyperlink.zig");
++const wire = @import("../snapshot/io.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++
++pub fn readLink(r: *std.Io.Reader) !hyperlink.Hyperlink {
++    const kind = try r.takeByte();
++    const id: hyperlink.Hyperlink.Id = switch (kind) {
++        1 => .{ .implicit = try wire.readInt(r, u32) },
++        2 => .{ .explicit = try r.take(try wire.readInt(r, u32)) },
++        else => return error.InvalidHyperlink,
++    };
++    const uri = try r.take(try wire.readInt(r, u32));
++    if (uri.len == 0 or (id == .explicit and id.explicit.len == 0)) return error.InvalidHyperlink;
++    try guard.chargeWork(uri.len + if (id == .explicit) id.explicit.len else @as(usize, 0));
++    return .{ .id = id, .uri = uri };
++}
++pub fn strictStyle(r: *std.Io.Reader) !@import("../style.zig").Style {
++    const encoded = try r.take(style.len);
++    const parsed = style.parseOrNull(encoded[0..style.len]) orelse return error.InvalidStyle;
++    var buffer: [style.len]u8 = undefined;
++    var w: std.Io.Writer = .fixed(&buffer);
++    try style.encode(parsed, &w);
++    if (!std.mem.eql(u8, encoded, &buffer)) return error.InvalidStyle;
++    return parsed;
++}
++
++fn sameLink(a: hyperlink.Hyperlink, b: hyperlink.Hyperlink) !bool {
++    const bytes = std.math.add(u64, a.uri.len, b.uri.len) catch return error.LimitExceeded;
++    const ids = std.math.add(u64, if (a.id == .explicit) a.id.explicit.len else 0, if (b.id == .explicit) b.id.explicit.len else 0) catch return error.LimitExceeded;
++    try guard.chargeWork(std.math.add(u64, bytes, ids) catch return error.LimitExceeded);
++    if (std.meta.activeTag(a.id) != std.meta.activeTag(b.id)) return false;
++    const equal_id = switch (a.id) {
++        .implicit => |id| id == b.id.implicit,
++        .explicit => |id| std.mem.eql(u8, id, b.id.explicit),
++    };
++    return equal_id and std.mem.eql(u8, a.uri, b.uri);
++}
++/// Complete canonicality pass before ANY native reference increment. Distinct
++/// wire IDs cannot alias a native deduplicated entry and accumulate staging refs.
++fn canonical(r: *std.Io.Reader) !void {
++    try guard.chargeWork(16384);
++    var styles: std.StaticBitSet(65536) = .empty;
++    var hyperlinks: std.StaticBitSet(65536) = .empty;
++    const count = try wire.readInt(r, u16);
++    const link_count = try wire.readInt(r, u16);
++    const style_bytes = r.buffered();
++    for (0..count) |i| {
++        const id = try wire.readInt(r, u16);
++        if (id == 0 or styles.isSet(id)) return error.InvalidStyle;
++        styles.set(id);
++        const value = try strictStyle(r);
++        if (value.default()) return error.InvalidStyle;
++        for (0..i) |j| {
++            try guard.chargeWork(style.len);
++            var prior: std.Io.Reader = .fixed(style_bytes[j * (style.len + 2) + 2 ..][0..style.len]);
++            if (value.eql(try strictStyle(&prior))) return error.NoncanonicalStyleAlias;
++        }
++    }
++    const link_bytes = r.buffered();
++    for (0..link_count) |i| {
++        const id = try wire.readInt(r, u16);
++        if (id == 0 or hyperlinks.isSet(id)) return error.InvalidHyperlink;
++        hyperlinks.set(id);
++        const value = try readLink(r);
++        var prior: std.Io.Reader = .fixed(link_bytes);
++        for (0..i) |_| {
++            _ = try wire.readInt(&prior, u16);
++            if (try sameLink(value, try readLink(&prior))) return error.NoncanonicalHyperlinkAlias;
++        }
++    }
++}
++
++pub const Decoded = struct {
++    style_seen: std.StaticBitSet(65536) = .empty,
++    link_seen: std.StaticBitSet(65536) = .empty,
++    styles: []u16 = &.{},
++    links: []u16 = &.{},
++    alloc: std.mem.Allocator,
++    pub fn deinit(self: *Decoded) void {
++        self.alloc.free(self.styles);
++        self.alloc.free(self.links);
++    }
++    pub fn releaseStaging(self: *Decoded, p: *page.Page) void {
++        var it = self.style_seen.iterator(.{});
++        while (it.next()) |id| p.styles.release(p.memory, self.styles[id]);
++        it = self.link_seen.iterator(.{});
++        while (it.next()) |id| p.hyperlink_set.release(p.memory, self.links[id]);
++    }
++};
++pub fn decode(r: *std.Io.Reader, target: ?*page.Page, tally: ?*@import("resources.zig").Tally, capacity_bytes: u64) !Decoded {
++    var check: std.Io.Reader = .fixed(r.buffered());
++    try canonical(&check);
++    const alloc = guard.heapAllocator();
++    try guard.chargeWork(16384); // Both fixed encoded-ID presence bitsets.
++    var result: Decoded = .{ .alloc = alloc };
++    errdefer result.deinit();
++    const count = try wire.readInt(r, u16);
++    const link_count = try wire.readInt(r, u16);
++    if (target != null) {
++        result.styles = try alloc.alloc(u16, 65536);
++        result.links = try alloc.alloc(u16, 65536);
++        @memset(result.styles, 0);
++        @memset(result.links, 0);
++    }
++    for (0..count) |_| {
++        const id = try wire.readInt(r, u16);
++        if (id == 0 or result.style_seen.isSet(id)) return error.InvalidStyle;
++        result.style_seen.set(id);
++        const value = try strictStyle(r);
++        if (value.default()) return error.InvalidStyle;
++        try @import("work.zig").native(capacity_bytes, 1, style.len);
++        if (target) |p| result.styles[id] = try p.styles.add(p.memory, value);
++        try guard.chargeWork(style.len);
++    }
++    for (0..link_count) |_| {
++        const id = try wire.readInt(r, u16);
++        if (id == 0 or result.link_seen.isSet(id)) return error.InvalidHyperlink;
++        result.link_seen.set(id);
++        const value = try readLink(r);
++        if (tally) |t| try t.text(0, value.uri.len + if (value.id == .explicit) value.id.explicit.len else @as(usize, 0));
++        const bytes = std.math.add(u64, value.uri.len, if (value.id == .explicit) value.id.explicit.len else 0) catch return error.LimitExceeded;
++        try @import("work.zig").native(capacity_bytes, 1, std.math.add(u64, bytes, 1) catch return error.LimitExceeded);
++        if (target) |p| result.links[id] = try p.insertHyperlink(value);
++    }
++    return result;
++}
++pub fn encode(w: *std.Io.Writer, p: *const page.Page) !void {
++    try wire.writeInt(w, u16, std.math.cast(u16, p.styles.count()) orelse return error.LimitExceeded);
++    try wire.writeInt(w, u16, std.math.cast(u16, p.hyperlink_set.count()) orelse return error.LimitExceeded);
++    var styles = p.styles.iterator(p.memory);
++    while (styles.next()) |entry| {
++        try wire.writeInt(w, u16, entry.id);
++        try style.encode(entry.value_ptr.*, w);
++        try guard.chargeWork(style.len);
++    }
++    var it = p.hyperlink_set.iterator(p.memory);
++    while (it.next()) |entry| {
++        const value = entry.value_ptr;
++        try wire.writeInt(w, u16, entry.id);
++        try links.encode(.{
++            .uri = value.uri.slice(p.memory),
++            .id = switch (value.id) {
++                .implicit => |id| .{ .implicit = id },
++                .explicit => |id| .{ .explicit = id.slice(p.memory) },
++            },
++        }, w);
++    }
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/terminal.zig
+@@ -0,0 +1,107 @@
++//! Typed terminal metadata only. Never invokes the raw-v1 cell decoder.
++const std = @import("std");
++const Terminal = @import("../Terminal.zig");
++const native = @import("../snapshot/terminal.zig");
++const raw_record = @import("../snapshot/record.zig");
++const colors = @import("../color.zig");
++const wire = @import("../snapshot/io.zig");
++const guard = @import("../snapshot_budget_guard.zig");
++const Options = @import("options.zig").Options;
++
++pub const View = struct {
++    header: native.Header,
++    tabstops: []const u8,
++    original: []const u8,
++    mask: []const u8,
++    overrides: []const u8,
++    pwd: []const u8,
++    title: []const u8,
++};
++pub fn encode(w: *std.Io.Writer, t: *const Terminal) !void {
++    // Reuse the unchanged metadata serializer, strip its record framing.
++    var scratch: std.Io.Writer.Allocating = .init(guard.heapAllocator());
++    defer scratch.deinit();
++    var records: raw_record.Writer = .init(guard.heapAllocator(), &scratch.writer);
++    defer records.deinit();
++    try native.encode(t, &records);
++    if (scratch.written().len < raw_record.Header.len) return error.InvalidTerminal;
++    try w.writeAll(scratch.written()[raw_record.Header.len..]);
++}
++pub fn parse(bytes: []const u8, o: Options, tally: ?*@import("resources.zig").Tally) !View {
++    var r: std.Io.Reader = .fixed(bytes);
++    const header = try native.Header.decode(&r);
++    var canonical: [native.Header.len]u8 = undefined;
++    var writer: std.Io.Writer = .fixed(&canonical);
++    try header.encode(&writer);
++    if (bytes.len < canonical.len or !std.mem.eql(u8, &canonical, bytes[0..canonical.len])) return error.InvalidTerminal;
++    if (header.columns < 2 or header.columns > o.max_visible_columns or header.rows == 0 or
++        header.rows > o.max_visible_rows or header.width_px > o.max_pixel_width or header.height_px > o.max_pixel_height)
++        return error.LimitExceeded;
++    if (header.default_modes.grapheme_cluster or header.current_modes.grapheme_cluster or header.saved_modes.grapheme_cluster or
++        header.status_display != .main) return error.UnsupportedProfile;
++    const tabstops = try r.take((@as(usize, header.columns) + 7) / 8);
++    if (header.columns % 8 != 0 and tabstops[tabstops.len - 1] >> @as(u3, @intCast(header.columns % 8)) != 0)
++        return error.InvalidTerminal;
++    const original = try r.take(256 * 3);
++    const mask = try r.take(32);
++    var count: usize = 0;
++    for (mask) |byte| count += @popCount(byte);
++    const overrides = try r.take(count * 3);
++    const pwd = try r.take(try wire.readInt(&r, u32));
++    const title = try r.take(try wire.readInt(&r, u32));
++    if (r.bufferedLen() != 0) return error.InvalidTerminal;
++    if (tally) |t| try t.text(0, pwd.len + title.len);
++    return .{ .header = header, .tabstops = tabstops, .original = original, .mask = mask, .overrides = overrides, .pwd = pwd, .title = title };
++}
++fn rgb(bytes: []const u8) colors.RGB {
++    return .{ .r = bytes[0], .g = bytes[1], .b = bytes[2] };
++}
++pub fn fresh(view: View) !@import("../shellfox_cell_layout2.zig").FreshRestore {
++    const h = view.header;
++    const alloc = guard.heapAllocator();
++    var original: colors.Palette = undefined;
++    for (&original, 0..) |*value, i| value.* = rgb(view.original[i * 3 ..][0..3]);
++    var palette = try colors.DynamicPalette.init(alloc, original);
++    errdefer palette.deinit(alloc);
++    var j: usize = 0;
++    for (0..256) |i| if (view.mask[i / 8] & (@as(u8, 1) << @as(u3, @intCast(i % 8))) != 0) {
++        palette.set(@intCast(i), rgb(view.overrides[j..][0..3]));
++        j += 3;
++    };
++    var result = try @import("../shellfox_cell_layout2.zig").newFreshRestore(.{
++        .cols = h.columns,
++        .rows = h.rows,
++        .max_scrollback_bytes = if (h.max_scrollback_bytes) |n| std.math.cast(usize, n) orelse return error.LimitExceeded else null,
++        .max_scrollback_lines = if (h.max_scrollback_rows) |n| std.math.cast(usize, n) orelse return error.LimitExceeded else null,
++        .colors = .{ .background = h.background, .foreground = h.foreground, .cursor = h.cursor_color, .palette = palette },
++        .default_modes = h.default_modes,
++        .default_cursor_style = h.cursor_default_style,
++        .default_cursor_blink = h.cursor_default_blink,
++        .kitty_image_storage_limit = 0,
++    });
++    // Ownership of palette was transferred by the actual fresh factory.
++    palette = .default;
++    errdefer result.deinit();
++    const t = try result.terminal();
++    t.width_px = h.width_px;
++    t.height_px = h.height_px;
++    t.scrolling_region = .{ .top = h.scrolling_region_top, .bottom = h.scrolling_region_bottom, .left = h.scrolling_region_left, .right = h.scrolling_region_right };
++    t.previous_char = h.previous_codepoint;
++    t.cursor = .{ .is_default = h.cursor_is_default, .default_style = h.cursor_default_style, .default_blink = h.cursor_default_blink };
++    t.modes = .{ .values = h.current_modes, .saved = h.saved_modes, .default = h.default_modes };
++    t.flags.shell_redraws_prompt = h.shell_redraw;
++    t.flags.modify_other_keys_2 = h.modify_other_keys_2;
++    t.flags.mouse_event = h.mouse_event;
++    t.flags.mouse_format = h.mouse_format;
++    t.flags.mouse_shift_capture = if (h.mouse_shift_capture) |v| if (v) .true else .false else .null;
++    t.flags.password_input = h.password_input;
++    t.mouse_shape = h.mouse_shape;
++    try t.setPwd(view.pwd);
++    try t.setTitle(view.title);
++    var stops = try @import("../Tabstops.zig").init(alloc, h.columns, 0);
++    errdefer stops.deinit(alloc);
++    for (0..h.columns) |i| if (view.tabstops[i / 8] & (@as(u8, 1) << @as(u3, @intCast(i % 8))) != 0) stops.set(i);
++    t.tabstops.deinit(alloc);
++    t.tabstops = stops;
++    return result;
++}
+--- /dev/null
++++ b/src/terminal/shellfox_snapshot_format2/work.zig
+@@ -0,0 +1,32 @@
++//! Conservative prepayment for native capacity-dependent managed operations.
++const std = @import("std");
++const guard = @import("../snapshot_budget_guard.zig");
++const Page = @import("../page.zig").Page;
++
++pub fn product(capacity: u64, operations: u64, comparison_bytes: u64) !u64 {
++    return std.math.mul(u64, std.math.mul(u64, capacity, operations) catch return error.LimitExceeded, comparison_bytes) catch return error.LimitExceeded;
++}
++pub fn native(capacity: u64, operations: u64, comparison_bytes: u64) !void {
++    try guard.chargeWork(try product(capacity, operations, comparison_bytes));
++}
++/// Page memory bounds every native table/bitmap capacity in that page. Numeric
++/// map keys are at most8 bytes. Appending can scan/copy the bounded old suffix.
++pub fn sourceLookups(p: *const Page, operations: u64) !void {
++    try native(p.memory.len, operations, 8);
++}
++pub fn managed(capacity: u64, suffix_count: u64, has_link: bool) !void {
++    try native(capacity, suffix_count, 8 + (@import("../page.zig").grapheme_max_len + 1) * 4);
++    if (has_link) try native(capacity, 1, 8);
++}
++
++test "format2 work capacity products are checked and prepaid" {
++    const testing = std.testing;
++    try testing.expectEqual(@as(u64, 480), try product(20, 3, 8));
++    try testing.expectError(error.LimitExceeded, product(std.math.maxInt(u64), 2, 1));
++    var scope: guard.Scope = .{ .max_bytes = 0, .max_work = 479 };
++    try testing.expect(guard.enter(&scope));
++    defer guard.leave();
++    try testing.expectError(error.OutOfMemory, native(20, 3, 8));
++    try testing.expect(scope.exceeded);
++    try testing.expectEqual(@as(u64, 0), scope.work);
++}

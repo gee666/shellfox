@@ -542,7 +542,7 @@ export class TerminalRegistry {
   }
   private input(entry: Entry, data: string, userInitiated?: boolean) {
     const generation = entry.state.generation, controlEpoch = entry.state.controlEpoch; const api = this.api;
-    if (entry.readOnly || !api || controlEpoch === null || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data || data.includes('\0')) return;
+    if (entry.readOnly || !api || controlEpoch === null || this.entries.get(entry.id) !== entry || (!entry.visible && (userInitiated === true || !entry.writing)) || entry.state.phase !== 'open' || !generation || !data) return;
     // xterm emits device replies while parsing output, including hidden replay.
     const userOperation = entry.visible && (userInitiated ?? !entry.writing);
     const settledAt = entry.settledAt;

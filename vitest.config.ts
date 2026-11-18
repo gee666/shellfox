@@ -1,5 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { defineConfig } from 'vitest/config';
-// Update scripts are imported as text (esbuild uses the same 'text' loader).
-const textAssets = { name: 'text-assets', enforce: 'pre' as const, transform: (_code: string, id: string) => /\.(sh|ps1)(\?.*)?$/.test(id) ? { code: 'export default ' + JSON.stringify(readFileSync(id.replace(/\?.*$/, ''), 'utf8')) + ';', map: null } : null };
-export default defineConfig({ plugins: [textAssets], cacheDir: 'tmp/build-cache/vitest', test: { include: ['src/**/*.test.{ts,tsx}', 'tests/unit/**/*.test.ts', 'mobile/src/**/*.test.{ts,tsx}'], environment: 'node', maxWorkers: 2, server: { deps: { external: ['react-native'] } } } });
+import { configDefaults, defineConfig } from 'vitest/config';
+import { textAssets } from './tests/config/text-assets';
+import { unitExcludes } from './tests/config/integration-registry';
+// In-process app contracts. Fixture file/loopback I/O is not native ACL acceptance.
+export default defineConfig({ plugins: [textAssets], cacheDir: 'tmp/build-cache/vitest', test: {
+  include: ['src/**/*.test.{ts,tsx}', 'tests/unit/**/*.test.ts', 'mobile/src/**/*.test.{ts,tsx}'],
+  exclude: [...configDefaults.exclude, ...unitExcludes], setupFiles: ['tests/unit/setup-app-boundary.ts'],
+  environment: 'node', maxWorkers: 2, server: { deps: { external: ['react-native'] } },
+} });

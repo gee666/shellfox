@@ -1,0 +1,68 @@
+use super::super::{Backend, TerminalView};
+use super::Pending;
+use gpui::{Context, KeyUpEvent, Window};
+use shellfox_ghostty_vt::KeyEvent;
+use shellfox_runtime::Command;
+
+impl TerminalView {
+    pub fn send_key(&mut self, event: KeyEvent) {
+        if self.failed || self.closing {
+            return;
+        }
+        if let Some(lease) = self.lease {
+            self.submit(Command::Key { lease, event }, Pending::Applied);
+        } else if matches!(self.backend, Backend::Attached(_)) {
+            self.reject("Terminal control is not ready; input was not accepted");
+        }
+    }
+
+    pub(in crate::app) fn physical_key_up(
+        &mut self,
+        event: &KeyUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let key = crate::input::physical_key(&event.keystroke.key);
+        if let Some(release) = self.outbox.key_release(key) {
+            // Modifiers may have been released before this physical key.
+            self.send_key(release);
+            cx.stop_propagation();
+        } else {
+            self.key_up(event, window, cx);
+        }
+    }
+
+    pub(in crate::app) fn cancel_pointer(&mut self, cx: &mut Context<Self>) {
+        self.selection_drag.finish();
+        self.link_press = None;
+        if self.failed || self.closing {
+            return;
+        }
+        if let Err(error) = self.cancel_held_input(true) {
+            self.reject(error);
+        }
+        self.flush_outbox();
+        cx.notify();
+    }
+
+    pub(in crate::app) fn cancel_input(&mut self, cx: &mut Context<Self>) {
+        if !self.outbox.has_held()
+            && !self.selection_drag.active()
+            && self.link_press.is_none()
+            && self.clipboard_keys == 0
+        {
+            return;
+        }
+        self.selection_drag.finish();
+        self.link_press = None;
+        self.clipboard_keys = 0;
+        if self.failed || self.closing {
+            return;
+        }
+        if let Err(error) = self.cancel_held_input(false) {
+            self.reject(error);
+        }
+        self.flush_outbox();
+        cx.notify();
+    }
+}

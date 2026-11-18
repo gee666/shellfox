@@ -1,0 +1,1094 @@
+{
+  "format": "shellfox-rust-supplemental-licenses-v1",
+  "dependencies": [
+    {
+      "name": "blade-graphics",
+      "version": "0.7.1",
+      "license": "MIT",
+      "crateChecksum": "e71cfb73b98eb9f58ee84048aa1bdf4e7497fd20c141b57523499fa066b48fed",
+      "repository": "https://github.com/kvark/blade",
+      "commit": "88b6c64cd7a32dd933acc4e5266808a07143ce84",
+      "cratePath": "blade-graphics",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "blade-graphics-0.7.1/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/kvark/blade/88b6c64cd7a32dd933acc4e5266808a07143ce84/LICENSE",
+          "sha256": "8e9e23a134d00ae1760811ca60482b2e98b2db9154ffda66e58791796aa24ca1",
+          "gitBlob": "8d8caa9025867a4d58247b7c92c206ddb079ec24",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "blade-macros",
+      "version": "0.3.0",
+      "license": "MIT",
+      "crateChecksum": "27142319e2f4c264581067eaccb9f80acccdde60d8b4bf57cc50cd3152f109ca",
+      "repository": "https://github.com/kvark/blade",
+      "commit": "875b9c87e15e83ed48414c094f9a2b3fb189925d",
+      "cratePath": "blade-macros",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "blade-macros-0.3.0/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/kvark/blade/875b9c87e15e83ed48414c094f9a2b3fb189925d/LICENSE",
+          "sha256": "8e9e23a134d00ae1760811ca60482b2e98b2db9154ffda66e58791796aa24ca1",
+          "gitBlob": "8d8caa9025867a4d58247b7c92c206ddb079ec24",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "blade-util",
+      "version": "0.3.0",
+      "license": "MIT",
+      "crateChecksum": "3a6be3a82c001ba7a17b6f8e413ede5d1004e6047213f8efaf0ffc15b5c4904c",
+      "repository": "https://github.com/kvark/blade",
+      "commit": "23e378613440513e1045f4e0f7c5979e67645d3b",
+      "cratePath": "blade-util",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "blade-util-0.3.0/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/kvark/blade/23e378613440513e1045f4e0f7c5979e67645d3b/LICENSE",
+          "sha256": "8e9e23a134d00ae1760811ca60482b2e98b2db9154ffda66e58791796aa24ca1",
+          "gitBlob": "8d8caa9025867a4d58247b7c92c206ddb079ec24",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "convert_case",
+      "version": "0.4.0",
+      "license": "MIT",
+      "crateChecksum": "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e",
+      "repository": "https://github.com/rutrum/convert-case",
+      "commit": "300d9eef9e8c970e15f324afbc3df8b6a4ebbf71",
+      "cratePath": "",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "convert_case-0.4.0/Cargo.toml",
+          "upstreamPath": "Cargo.toml",
+          "url": "https://raw.githubusercontent.com/rutrum/convert-case/300d9eef9e8c970e15f324afbc3df8b6a4ebbf71/Cargo.toml",
+          "sha256": "5f821f7641c67da8a4e0eb2ebf994f5ba88ad811a3529cb91017d26c8075aea2",
+          "gitBlob": "b33270638eaaf309ae4947fb4fa1f87c960823c9",
+          "role": "declaration"
+        },
+        {
+          "file": "convert_case-0.4.0/README.md",
+          "upstreamPath": "README.md",
+          "url": "https://raw.githubusercontent.com/rutrum/convert-case/300d9eef9e8c970e15f324afbc3df8b6a4ebbf71/README.md",
+          "sha256": "e2c239f152b34058cca9848c12a357eabd4af3df9d97bac11cfdcdd09f612b72",
+          "gitBlob": "706bb1f4aaddd9c2f8b3ab87c168003e7184ed7e",
+          "role": "declaration"
+        },
+        {
+          "file": "convert_case-0.4.0/ccase__README.md",
+          "upstreamPath": "ccase/README.md",
+          "url": "https://raw.githubusercontent.com/rutrum/convert-case/300d9eef9e8c970e15f324afbc3df8b6a4ebbf71/ccase/README.md",
+          "sha256": "8076c9ab21a80d98d2d301a12e414325f3ce4e4b65f9cedf154a8308305cc8bb",
+          "gitBlob": "37a1115318bf11953ad3d6578818fc5879fb1ac7",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "The exact published source commit has no full license text. Do not substitute a license template or invent copyright attribution."
+    },
+    {
+      "name": "dtor-proc-macro",
+      "version": "0.0.5",
+      "license": "Apache-2.0 OR MIT",
+      "crateChecksum": "7454e41ff9012c00d53cf7f475c5e3afa3b91b7c90568495495e8d9bf47a1055",
+      "repository": "https://github.com/mmastrac/rust-ctor",
+      "commit": "b05136ac964049a1ee29de763d0b119c42258567",
+      "cratePath": "dtor-proc-macro",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "dtor-proc-macro-0.0.5/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/mmastrac/rust-ctor/b05136ac964049a1ee29de763d0b119c42258567/LICENSE-APACHE",
+          "sha256": "a8ad31b1c3f40dca5a84119351b8fa8ddc868edd77fad8a8ebf6d8f2d16fa4ae",
+          "gitBlob": "5c304d1a4a7b439f767990bf1360d3283e45d0ee",
+          "role": "license-text"
+        },
+        {
+          "file": "dtor-proc-macro-0.0.5/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/mmastrac/rust-ctor/b05136ac964049a1ee29de763d0b119c42258567/LICENSE-MIT",
+          "sha256": "bccaa8b6c09f94e81f06696e179dbe058464bbdfbc823b6d49cada1d71e84ac3",
+          "gitBlob": "e662c7862164f4dfb47bd395c151b6f94d5ea1c2",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "dtor",
+      "version": "0.0.6",
+      "license": "Apache-2.0 OR MIT",
+      "crateChecksum": "97cbdf2ad6846025e8e25df05171abfb30e3ababa12ee0a0e44b9bbe570633a8",
+      "repository": "https://github.com/mmastrac/rust-ctor",
+      "commit": "e8c8b4a82de72311a5257db0502ced728081e745",
+      "cratePath": "dtor",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "dtor-0.0.6/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/mmastrac/rust-ctor/e8c8b4a82de72311a5257db0502ced728081e745/LICENSE-APACHE",
+          "sha256": "a8ad31b1c3f40dca5a84119351b8fa8ddc868edd77fad8a8ebf6d8f2d16fa4ae",
+          "gitBlob": "5c304d1a4a7b439f767990bf1360d3283e45d0ee",
+          "role": "license-text"
+        },
+        {
+          "file": "dtor-0.0.6/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/mmastrac/rust-ctor/e8c8b4a82de72311a5257db0502ced728081e745/LICENSE-MIT",
+          "sha256": "bccaa8b6c09f94e81f06696e179dbe058464bbdfbc823b6d49cada1d71e84ac3",
+          "gitBlob": "e662c7862164f4dfb47bd395c151b6f94d5ea1c2",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "gpu-alloc-ash",
+      "version": "0.7.1",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "643756f08ef6def813c776199e4766596395a4c6530373c9a4374a64de2f53a1",
+      "repository": "https://github.com/zakarumych/gpu-alloc",
+      "commit": "7ddd1fe576fcfc503347eb97e476a47581479f22",
+      "cratePath": "ash",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "gpu-alloc-ash-0.7.1/COPYING",
+          "upstreamPath": "COPYING",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/7ddd1fe576fcfc503347eb97e476a47581479f22/COPYING",
+          "sha256": "12121dfa588677007848ab922a45a1e3248868f6ff063598fceb3141d7897314",
+          "gitBlob": "1787983c037783b8855a688f5d9c0b6a2ec30b40",
+          "role": "license-text"
+        },
+        {
+          "file": "gpu-alloc-ash-0.7.1/license__APACHE",
+          "upstreamPath": "license/APACHE",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/7ddd1fe576fcfc503347eb97e476a47581479f22/license/APACHE",
+          "sha256": "58317934bf818c379e4215fad7e8dfb6812edff32c9557b8b039343f69711e08",
+          "gitBlob": "690245e2787c89e4332ff4c674112bea22dc41e3",
+          "role": "license-text"
+        },
+        {
+          "file": "gpu-alloc-ash-0.7.1/license__MIT",
+          "upstreamPath": "license/MIT",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/7ddd1fe576fcfc503347eb97e476a47581479f22/license/MIT",
+          "sha256": "f774bf68151714985324d90adbd59e8f271b7ba518608d871b6ba16464692879",
+          "gitBlob": "3746e3bb20fc30b6f07688c561b87ee1eb7a439d",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "gpu-alloc-types",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "b2bbed164dd10ed526c2e4fe3e721ca4a71c61730e5aafac6844b417b3227058",
+      "repository": "https://github.com/zakarumych/gpu-alloc",
+      "commit": "7ddd1fe576fcfc503347eb97e476a47581479f22",
+      "cratePath": "types",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "gpu-alloc-types-0.3.1/COPYING",
+          "upstreamPath": "COPYING",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/7ddd1fe576fcfc503347eb97e476a47581479f22/COPYING",
+          "sha256": "12121dfa588677007848ab922a45a1e3248868f6ff063598fceb3141d7897314",
+          "gitBlob": "1787983c037783b8855a688f5d9c0b6a2ec30b40",
+          "role": "license-text"
+        },
+        {
+          "file": "gpu-alloc-types-0.3.1/license__APACHE",
+          "upstreamPath": "license/APACHE",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/7ddd1fe576fcfc503347eb97e476a47581479f22/license/APACHE",
+          "sha256": "58317934bf818c379e4215fad7e8dfb6812edff32c9557b8b039343f69711e08",
+          "gitBlob": "690245e2787c89e4332ff4c674112bea22dc41e3",
+          "role": "license-text"
+        },
+        {
+          "file": "gpu-alloc-types-0.3.1/license__MIT",
+          "upstreamPath": "license/MIT",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/7ddd1fe576fcfc503347eb97e476a47581479f22/license/MIT",
+          "sha256": "f774bf68151714985324d90adbd59e8f271b7ba518608d871b6ba16464692879",
+          "gitBlob": "3746e3bb20fc30b6f07688c561b87ee1eb7a439d",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "gpu-alloc",
+      "version": "0.6.2",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "45cf04b2726f02df5508c6de726acdc90cdf97ac771a9a0ffd8ba10a6e696bf9",
+      "repository": "https://github.com/zakarumych/gpu-alloc",
+      "commit": "61020bdcb4eb04fca6bbf748aeb9570e859236e0",
+      "cratePath": "gpu-alloc",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "gpu-alloc-0.6.2/COPYING",
+          "upstreamPath": "COPYING",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/61020bdcb4eb04fca6bbf748aeb9570e859236e0/COPYING",
+          "sha256": "12121dfa588677007848ab922a45a1e3248868f6ff063598fceb3141d7897314",
+          "gitBlob": "1787983c037783b8855a688f5d9c0b6a2ec30b40",
+          "role": "license-text"
+        },
+        {
+          "file": "gpu-alloc-0.6.2/license__APACHE",
+          "upstreamPath": "license/APACHE",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/61020bdcb4eb04fca6bbf748aeb9570e859236e0/license/APACHE",
+          "sha256": "58317934bf818c379e4215fad7e8dfb6812edff32c9557b8b039343f69711e08",
+          "gitBlob": "690245e2787c89e4332ff4c674112bea22dc41e3",
+          "role": "license-text"
+        },
+        {
+          "file": "gpu-alloc-0.6.2/license__MIT",
+          "upstreamPath": "license/MIT",
+          "url": "https://raw.githubusercontent.com/zakarumych/gpu-alloc/61020bdcb4eb04fca6bbf748aeb9570e859236e0/license/MIT",
+          "sha256": "f774bf68151714985324d90adbd59e8f271b7ba518608d871b6ba16464692879",
+          "gitBlob": "3746e3bb20fc30b6f07688c561b87ee1eb7a439d",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "hexf-parse",
+      "version": "0.2.1",
+      "license": "CC0-1.0",
+      "crateChecksum": "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df",
+      "repository": "https://github.com/lifthrasiir/hexf",
+      "commit": "4225763d744183d720f575ae96d04161b4d08ea0",
+      "cratePath": "parse",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "hexf-parse-0.2.1/README.md",
+          "upstreamPath": "README.md",
+          "url": "https://raw.githubusercontent.com/lifthrasiir/hexf/4225763d744183d720f575ae96d04161b4d08ea0/README.md",
+          "sha256": "425cb6fae64b193ab5342094774bc66b7d7b9276c7c43d9ac7ccca7063f4ed5b",
+          "gitBlob": "dfd660183c18f9cfac8968d0d64dd380abc2077e",
+          "role": "declaration"
+        },
+        {
+          "file": "hexf-parse-0.2.1/parse__Cargo.toml",
+          "upstreamPath": "parse/Cargo.toml",
+          "url": "https://raw.githubusercontent.com/lifthrasiir/hexf/4225763d744183d720f575ae96d04161b4d08ea0/parse/Cargo.toml",
+          "sha256": "4a56dbdbc12054fd33b7a2634a45cbbe6fe12f5e6f4081002cbfa527f7220c70",
+          "gitBlob": "2833f557b25322ab20cc78254e057f132c6e6a0e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "The exact published source commit has no full license text. Do not substitute a license template or invent copyright attribution."
+    },
+    {
+      "name": "lyon_algorithms",
+      "version": "1.0.22",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "f3a6b9d4e8b48acd531fbf1241ad9b270df6e60b6b92bdea1469f4f40899d805",
+      "repository": "https://github.com/nical/lyon",
+      "commit": "db98d26a1a90076a7a894262dcb51117eef643c8",
+      "cratePath": "crates/algorithms",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "lyon_algorithms-1.0.22/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-APACHE",
+          "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06",
+          "gitBlob": "47f4fd0e8982271e9b7662380fae36a1ac007cf1",
+          "role": "license-text"
+        },
+        {
+          "file": "lyon_algorithms-1.0.22/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-MIT",
+          "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e",
+          "gitBlob": "e6d4b179949c58d7a4143d661ccdfecabcebcf54",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "lyon_geom",
+      "version": "1.0.20",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "d82dd26aa4dc0b5b70b9115de59824842bcb43cf4a28e1b1e6d0ad148c93f93e",
+      "repository": "https://github.com/nical/lyon",
+      "commit": "db98d26a1a90076a7a894262dcb51117eef643c8",
+      "cratePath": "crates/geom",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "lyon_geom-1.0.20/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-APACHE",
+          "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06",
+          "gitBlob": "47f4fd0e8982271e9b7662380fae36a1ac007cf1",
+          "role": "license-text"
+        },
+        {
+          "file": "lyon_geom-1.0.20/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-MIT",
+          "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e",
+          "gitBlob": "e6d4b179949c58d7a4143d661ccdfecabcebcf54",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "lyon_path",
+      "version": "1.0.19",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "5c463f9c428b7fc5ec885dcd39ce4aa61e29111d0e33483f6f98c74e89d8621e",
+      "repository": "https://github.com/nical/lyon",
+      "commit": "56219c95c658d4f39de7b190d98e57d5773ba241",
+      "cratePath": "crates/path",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "lyon_path-1.0.19/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-APACHE",
+          "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06",
+          "gitBlob": "47f4fd0e8982271e9b7662380fae36a1ac007cf1",
+          "role": "license-text"
+        },
+        {
+          "file": "lyon_path-1.0.19/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-MIT",
+          "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e",
+          "gitBlob": "e6d4b179949c58d7a4143d661ccdfecabcebcf54",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "lyon_tessellation",
+      "version": "1.0.23",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "fd4872650e70dc907dd4f7ebc449d7d657a0d2658e423b2e724970870bbbf75b",
+      "repository": "https://github.com/nical/lyon",
+      "commit": "db98d26a1a90076a7a894262dcb51117eef643c8",
+      "cratePath": "crates/tessellation",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "lyon_tessellation-1.0.23/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-APACHE",
+          "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06",
+          "gitBlob": "47f4fd0e8982271e9b7662380fae36a1ac007cf1",
+          "role": "license-text"
+        },
+        {
+          "file": "lyon_tessellation-1.0.23/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-MIT",
+          "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e",
+          "gitBlob": "e6d4b179949c58d7a4143d661ccdfecabcebcf54",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "lyon",
+      "version": "1.0.19",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "bd0578bdecb7d6d88987b8b2b1e3a4e2f81df9d0ece1078623324a567904e7b7",
+      "repository": "https://github.com/nical/lyon",
+      "commit": "56219c95c658d4f39de7b190d98e57d5773ba241",
+      "cratePath": "crates/lyon",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "lyon-1.0.19/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-APACHE",
+          "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06",
+          "gitBlob": "47f4fd0e8982271e9b7662380fae36a1ac007cf1",
+          "role": "license-text"
+        },
+        {
+          "file": "lyon-1.0.19/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-MIT",
+          "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e",
+          "gitBlob": "e6d4b179949c58d7a4143d661ccdfecabcebcf54",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "mac",
+      "version": "0.1.1",
+      "license": "MIT/Apache-2.0",
+      "crateChecksum": "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4",
+      "repository": "https://github.com/reem/rust-mac.git",
+      "commit": "66afc663b68a65633ea165c742b5a9c6734581c2",
+      "cratePath": "",
+      "provenance": "Exact upstream tag 0.1.1 commit; Cargo.toml, README and all src files byte-match the checksum-locked crate",
+      "files": [
+        {
+          "file": "mac-0.1.1/Cargo.toml",
+          "upstreamPath": "Cargo.toml",
+          "url": "https://raw.githubusercontent.com/reem/rust-mac/66afc663b68a65633ea165c742b5a9c6734581c2/Cargo.toml",
+          "sha256": "6d465c5e5a4b3e197049e9fb7393b2f996c1c654e6ded700afce046fac2f7969",
+          "gitBlob": "ff284cd96553dc6b4d1ec7f4e0e5a7066ce930ba",
+          "role": "declaration"
+        },
+        {
+          "file": "mac-0.1.1/README.md",
+          "upstreamPath": "README.md",
+          "url": "https://raw.githubusercontent.com/reem/rust-mac/66afc663b68a65633ea165c742b5a9c6734581c2/README.md",
+          "sha256": "8edb7a912d295acf1e1cfeafdd19a6813a63b301c7bbfda3c67f65509bd8d8cc",
+          "gitBlob": "8669166f6ef2b0c7029cb2d5ba042ac885e20081",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "The exact published source commit has no full license text. Do not substitute a license template or invent copyright attribution.",
+      "sourceComparison": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "6d465c5e5a4b3e197049e9fb7393b2f996c1c654e6ded700afce046fac2f7969"
+        },
+        {
+          "path": "README.md",
+          "sha256": "8edb7a912d295acf1e1cfeafdd19a6813a63b301c7bbfda3c67f65509bd8d8cc"
+        },
+        {
+          "path": "src/cfg.rs",
+          "sha256": "63e9c4da8b0f588c6af1e157e626044fc1fb52757348aa466d08d69795335f33"
+        },
+        {
+          "path": "src/format.rs",
+          "sha256": "3c528949cdde598d3ddc5abea31b136ca256c7bb3932e053c5ff6e49775579a3"
+        },
+        {
+          "path": "src/inspect.rs",
+          "sha256": "cf039cc721daa177b13d6b432589ceef3bdfa6078af3f71c34c28d2eca68d0c3"
+        },
+        {
+          "path": "src/lib.rs",
+          "sha256": "f9c7705196f71dcabb4cfe1636f1b71b6362abb7eac70ddaa6e05cf9a0683dee"
+        },
+        {
+          "path": "src/matches.rs",
+          "sha256": "1ef2b80946cc5e3cd15e20a22f62b832066d2e2445881191741a83abe80e7566"
+        },
+        {
+          "path": "src/mem.rs",
+          "sha256": "f74d9172bb136b370c33fa524aae3543cf37815eeacf1d862b29b3c8c32a6aee"
+        },
+        {
+          "path": "src/syntax_ext.rs",
+          "sha256": "5c938b44d7aaa0f47eef495f4a42f1f91cd11fb0d1b20915786085b77e1db284"
+        },
+        {
+          "path": "src/test.rs",
+          "sha256": "895fc0aed7f5f3863025b85de4d01c2551bed51778ca8846920be7febff837ac"
+        }
+      ]
+    },
+    {
+      "name": "naga",
+      "version": "25.0.1",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "2b977c445f26e49757f9aca3631c3b8b836942cb278d69a92e7b80d3b24da632",
+      "repository": "https://github.com/gfx-rs/wgpu/tree/trunk/naga",
+      "commit": "060a779fc5f56560215ea84bda70278cbbd31e72",
+      "cratePath": "naga",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "naga-25.0.1/LICENSE.APACHE",
+          "upstreamPath": "LICENSE.APACHE",
+          "url": "https://raw.githubusercontent.com/gfx-rs/wgpu/060a779fc5f56560215ea84bda70278cbbd31e72/LICENSE.APACHE",
+          "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+          "gitBlob": "d9a10c0d8e868ebf8da0b3dc95bb0be634c34bfe",
+          "role": "license-text"
+        },
+        {
+          "file": "naga-25.0.1/LICENSE.MIT",
+          "upstreamPath": "LICENSE.MIT",
+          "url": "https://raw.githubusercontent.com/gfx-rs/wgpu/060a779fc5f56560215ea84bda70278cbbd31e72/LICENSE.MIT",
+          "sha256": "c7fea58d1cfe49634cd92e54fc10a9d871f4b275321a4cd8c09e449122caaeb4",
+          "gitBlob": "4699691b8ed37738afcbcd591c91f7759472c3d0",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "profiling-procmacros",
+      "version": "1.0.18",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb",
+      "repository": "https://github.com/aclysma/profiling",
+      "commit": "8271551172eb6fa4cba47369aedd93790c623df9",
+      "cratePath": "profiling-procmacros",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "profiling-procmacros-1.0.18/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-APACHE",
+          "sha256": "10d30a673cd5e9349bdc02aeb48f14b3386d27d0da32df8f0a555d4aa16aa551",
+          "gitBlob": "139dce95d473c201a8561ef17536314d8b8cda65",
+          "role": "license-text"
+        },
+        {
+          "file": "profiling-procmacros-1.0.18/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT",
+          "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333",
+          "gitBlob": "6a84e059ad8b43e03c2b06bc2af4dc1d8442808d",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "profiling",
+      "version": "1.0.18",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5",
+      "repository": "https://github.com/aclysma/profiling",
+      "commit": "8271551172eb6fa4cba47369aedd93790c623df9",
+      "cratePath": "profiling",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "profiling-1.0.18/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-APACHE",
+          "sha256": "10d30a673cd5e9349bdc02aeb48f14b3386d27d0da32df8f0a555d4aa16aa551",
+          "gitBlob": "139dce95d473c201a8561ef17536314d8b8cda65",
+          "role": "license-text"
+        },
+        {
+          "file": "profiling-1.0.18/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT",
+          "sha256": "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333",
+          "gitBlob": "6a84e059ad8b43e03c2b06bc2af4dc1d8442808d",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "seahash",
+      "version": "4.1.0",
+      "license": "MIT",
+      "crateChecksum": "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b",
+      "repository": "https://gitlab.redox-os.org/redox-os/seahash",
+      "commit": "94b632aeac099031c373599313d5b5f0acbbaec0",
+      "cratePath": "",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "seahash-4.1.0/Cargo.toml",
+          "upstreamPath": "Cargo.toml",
+          "url": "https://gitlab.redox-os.org/redox-os/seahash/-/raw/94b632aeac099031c373599313d5b5f0acbbaec0/Cargo.toml",
+          "sha256": "dd213de338ca98b7ef7a2562bcf4e4214d215d1a8277750a6a72b4e809c8d0dd",
+          "gitBlob": "70505b2e1801019eb6068204091fc526ce5db3ac",
+          "role": "declaration"
+        },
+        {
+          "file": "seahash-4.1.0/README.md",
+          "upstreamPath": "README.md",
+          "url": "https://gitlab.redox-os.org/redox-os/seahash/-/raw/94b632aeac099031c373599313d5b5f0acbbaec0/README.md",
+          "sha256": "38357210ef69a97bf9858ff22661cb1c2384179f5e6b73143cb33193e36c6473",
+          "gitBlob": "db664b102872a984e22904837ae3984ab42c0b71",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "The exact published source commit has no full license text. Do not substitute a license template or invent copyright attribution."
+    },
+    {
+      "name": "simd_helpers",
+      "version": "0.1.0",
+      "license": "MIT",
+      "crateChecksum": "95890f873bec569a0362c235787f3aca6e1e887302ba4840839bcc6459c42da6",
+      "repository": "https://github.com/lu-zero/simd_helpers",
+      "commit": "ca1a2f84aa386d758e98f8a609d990263932fb85",
+      "cratePath": "",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "simd_helpers-0.1.0/Cargo.toml",
+          "upstreamPath": "Cargo.toml",
+          "url": "https://raw.githubusercontent.com/lu-zero/simd_helpers/ca1a2f84aa386d758e98f8a609d990263932fb85/Cargo.toml",
+          "sha256": "b41497677a5498040f2eb3fc089e3c2c38c413dca64f41dc57a115e26480461d",
+          "gitBlob": "17ab16390dd3d9dd00d5bf3c0227d086d0476232",
+          "role": "declaration"
+        },
+        {
+          "file": "simd_helpers-0.1.0/README.md",
+          "upstreamPath": "README.md",
+          "url": "https://raw.githubusercontent.com/lu-zero/simd_helpers/ca1a2f84aa386d758e98f8a609d990263932fb85/README.md",
+          "sha256": "e672b974ba905441c8eee630f10bc351f4e8e462c99d178b334ae3e48d8ca7f5",
+          "gitBlob": "f608520d22eec3bfe0b204d00aae2ff05021f4a6",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "The exact published source commit has no full license text. Do not substitute a license template or invent copyright attribution."
+    },
+    {
+      "name": "spirv",
+      "version": "0.3.0+sdk-1.3.268.0",
+      "license": "Apache-2.0",
+      "crateChecksum": "eda41003dc44290527a59b13432d4a0379379fa074b70174882adfbdfd917844",
+      "repository": "https://github.com/gfx-rs/rspirv",
+      "commit": "e91a5debc10c395b36db7721dfff6326d697a1e2",
+      "cratePath": "spirv",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "spirv-0.3.0+sdk-1.3.268.0/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/gfx-rs/rspirv/e91a5debc10c395b36db7721dfff6326d697a1e2/LICENSE",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "gitBlob": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "stacksafe-macro",
+      "version": "0.1.4",
+      "license": "Apache-2.0",
+      "crateChecksum": "172175341049678163e979d9107ca3508046d4d2a7c6682bee46ac541b17db69",
+      "repository": "https://github.com/fast/stacksafe",
+      "commit": "a5c029b7d3a5fe6771ecd79266b6e21313cfa174",
+      "cratePath": "stacksafe-macro",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "stacksafe-macro-0.1.4/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/fast/stacksafe/a5c029b7d3a5fe6771ecd79266b6e21313cfa174/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "gitBlob": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "stacksafe",
+      "version": "0.1.4",
+      "license": "Apache-2.0",
+      "crateChecksum": "1d9c1172965d317e87ddb6d364a040d958b40a1db82b6ef97da26253a8b3d090",
+      "repository": "https://github.com/fast/stacksafe",
+      "commit": "a5c029b7d3a5fe6771ecd79266b6e21313cfa174",
+      "cratePath": "stacksafe",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "stacksafe-0.1.4/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/fast/stacksafe/a5c029b7d3a5fe6771ecd79266b6e21313cfa174/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "gitBlob": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "svg_fmt",
+      "version": "0.4.5",
+      "license": "MIT/Apache-2.0",
+      "crateChecksum": "0193cc4331cfd2f3d2011ef287590868599a2f33c3e69bc22c1a3d3acf9e02fb",
+      "repository": "https://github.com/nical/rust_debug",
+      "commit": "93f414cd572b5c2781df93dbdc068ed13443d05a",
+      "cratePath": "svg_fmt",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "svg_fmt-0.4.5/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/nical/rust_debug/93f414cd572b5c2781df93dbdc068ed13443d05a/LICENSE",
+          "sha256": "7e98bed7f100747aaae7d82ab94fbe6b76fd6b84b09a3aaa413bff8196d0fbb1",
+          "gitBlob": "9ad7b40bcf7bb89a9866e5e2e8fdb370fb528e36",
+          "role": "license-text"
+        }
+      ],
+      "selectedLicense": "MIT"
+    },
+    {
+      "name": "taffy",
+      "version": "0.9.0",
+      "license": "MIT",
+      "crateChecksum": "a13e5d13f79d558b5d353a98072ca8ca0e99da429467804de959aa8c83c9a004",
+      "repository": "https://github.com/DioxusLabs/taffy",
+      "commit": "599b1b7d7410d97e13bafc4c01fbe6d7a9cf060a",
+      "cratePath": "",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "taffy-0.9.0/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/DioxusLabs/taffy/599b1b7d7410d97e13bafc4c01fbe6d7a9cf060a/LICENSE.md",
+          "sha256": "a7083ef3dd41a65eeb2162c2c091b0082e2724fb4c6ed029b363c7840d244ecd",
+          "gitBlob": "d45edd34912e6f6339bdce580c0c6c0300c4f6f6",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "zune-inflate",
+      "version": "0.2.54",
+      "license": "MIT OR Apache-2.0 OR Zlib",
+      "crateChecksum": "73ab332fe2f6680068f3582b16a24f90ad7096d5d39b974d1c0aff0125116f02",
+      "repository": "https://github.com/etemesi254/zune-image",
+      "commit": "69502ce83fdfecdd0beefd677e2abb3781b29d98",
+      "cratePath": "zune-inflate",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "zune-inflate-0.2.54/LICENSE-ZLIB",
+          "upstreamPath": "LICENSE-ZLIB",
+          "url": "https://raw.githubusercontent.com/etemesi254/zune-image/69502ce83fdfecdd0beefd677e2abb3781b29d98/LICENSE-ZLIB",
+          "sha256": "7fa429541e55b1509909e058f2d21a37467e4958ec713b357f6e0cf9dc4ee352",
+          "gitBlob": "582ec653390adaf4893b71f3e113a6ac4d392463",
+          "role": "license-text"
+        },
+        {
+          "file": "zune-inflate-0.2.54/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/etemesi254/zune-image/69502ce83fdfecdd0beefd677e2abb3781b29d98/LICENSE.md",
+          "sha256": "e870d7fd7819a9f0453c62798cb52ae95d148a8c91dc2de1d983f997143c72de",
+          "gitBlob": "ee9ce454f54f6dfd13d10218af4178f07497fde0",
+          "role": "declaration"
+        }
+      ],
+      "selectedLicense": "Zlib"
+    },
+    {
+      "name": "block",
+      "version": "0.1.6",
+      "license": "MIT",
+      "crateChecksum": "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a",
+      "repository": "http://github.com/SSheldon/rust-block",
+      "commit": "47178790cfc9d4a8b092051d8b413b78bd31254a",
+      "cratePath": "",
+      "provenance": "Upstream release tag or HEAD; crate/source comparison required",
+      "files": [],
+      "unresolvedReason": "No full license text at the recorded source snapshot; any later grant or canonical terms require review, not fabricated copyright."
+    },
+    {
+      "name": "block2",
+      "version": "0.6.2",
+      "license": "MIT",
+      "crateChecksum": "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "b4167b582b2f75f9a1be75495c41b765344fd03c",
+      "cratePath": "crates/block2",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "block2-0.6.2/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "leak",
+      "version": "0.1.2",
+      "license": "Apache-2.0 OR MIT",
+      "crateChecksum": "bd100e01f1154f2908dfa7d02219aeab25d0b9c7fa955164192e3245255a0c73",
+      "repository": "https://github.com/jmesmon/leak.git",
+      "commit": "4cc418b7f5ccaa4010aa31fa9b146a45bef5c480",
+      "cratePath": "",
+      "provenance": "Upstream release tag or HEAD; crate/source comparison required",
+      "files": [],
+      "unresolvedReason": "No full license text at the recorded source snapshot; any later grant or canonical terms require review, not fabricated copyright."
+    },
+    {
+      "name": "leaky-cow",
+      "version": "0.1.1",
+      "license": "MIT / Apache-2.0",
+      "crateChecksum": "40a8225d44241fd324a8af2806ba635fc7c8a7e9a7de4d5cf3ef54e71f5926fc",
+      "repository": "https://github.com/notriddle/rust-leaky-cow",
+      "commit": "74e94437d9d800bd0bb993fdbbb7e138374a320d",
+      "cratePath": "",
+      "provenance": "Upstream release tag or HEAD; crate/source comparison required",
+      "files": [],
+      "unresolvedReason": "No full license text at the recorded source snapshot; any later grant or canonical terms require review, not fabricated copyright."
+    },
+    {
+      "name": "malloc_buf",
+      "version": "0.0.6",
+      "license": "MIT",
+      "crateChecksum": "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb",
+      "repository": "https://github.com/SSheldon/malloc_buf",
+      "commit": "a7811e5f4c6f9685dd57ad9bfe34e9bf6b0ba4f9",
+      "cratePath": "",
+      "provenance": "Upstream release tag or HEAD; crate/source comparison required",
+      "files": [],
+      "unresolvedReason": "No full license text at the recorded source snapshot; any later grant or canonical terms require review, not fabricated copyright."
+    },
+    {
+      "name": "objc2",
+      "version": "0.6.5",
+      "license": "MIT",
+      "crateChecksum": "08849bbd4767dfae9457696856ae1c84fe4e0281bbe4a7abff2d0e06fb7981f8",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "d7d2fa23ceaa5e6096c923b081040e5d81b3b9df",
+      "cratePath": "crates/objc2",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "objc2-0.6.5/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "objc2-app-kit",
+      "version": "0.3.2",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "crateChecksum": "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "cratePath": "framework-crates/objc2-app-kit",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "objc2-app-kit-0.3.2/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "objc2-core-foundation",
+      "version": "0.3.2",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "crateChecksum": "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "cratePath": "framework-crates/objc2-core-foundation",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "objc2-core-foundation-0.3.2/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "objc2-encode",
+      "version": "4.1.0",
+      "license": "MIT",
+      "crateChecksum": "ef25abbcd74fb2609453eb695bd2f860d389e457f67dc17cafc8b8cbc89d0c33",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "8d214f5477365ffcbcbb7de058c86ed9a518efb7",
+      "cratePath": "crates/objc2-encode",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "objc2-encode-4.1.0/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "objc2-foundation",
+      "version": "0.3.2",
+      "license": "MIT",
+      "crateChecksum": "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "cratePath": "framework-crates/objc2-foundation",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "objc2-foundation-0.3.2/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "objc2-metal",
+      "version": "0.3.2",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "crateChecksum": "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "cratePath": "framework-crates/objc2-metal",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "objc2-metal-0.3.2/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "objc2-quartz-core",
+      "version": "0.3.2",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "crateChecksum": "96c1358452b371bf9f104e21ec536d37a650eb10f7ee379fff67d2e08d537f1f",
+      "repository": "https://github.com/madsmtm/objc2",
+      "commit": "7b1abfd750a2cacaea71d6a56ecfb83cb7de560b",
+      "cratePath": "framework-crates/objc2-quartz-core",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "objc2-quartz-core-0.3.2/LICENSE.md",
+          "upstreamPath": "LICENSE.md",
+          "url": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54",
+          "gitBlob": "540ae4c81adb5f64a9f61e222b688880da24300e",
+          "role": "declaration"
+        }
+      ],
+      "unresolvedReason": "Upstream LICENSE.md is a declaration and links to external terms, not a full license text. It also flags Apple SDK derived-work licensing for review."
+    },
+    {
+      "name": "pathfinder_geometry",
+      "version": "0.5.1",
+      "license": "MIT/Apache-2.0",
+      "crateChecksum": "0b7b7e7b4ea703700ce73ebf128e1450eb69c3a8329199ffbfb9b2a0418e5ad3",
+      "repository": "https://github.com/servo/pathfinder",
+      "commit": "a5e98fac00f433fe2ff4b2135383d82491b8bfc5",
+      "cratePath": "geometry",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json; recorded upstream commit returned HTTP422 from git tree API and raw LICENSE returned404",
+      "unresolvedReason": "Recorded exact upstream commit is unavailable. No license text substituted from another release.",
+      "files": []
+    },
+    {
+      "name": "pathfinder_simd",
+      "version": "0.5.6",
+      "license": "MIT OR Apache-2.0",
+      "crateChecksum": "4500030c302e4af1d423f36f3b958d1aecb6c04184356ed5a833bf6b60435777",
+      "repository": "https://github.com/servo/pathfinder",
+      "commit": "6c3c0466f451c5bd2007087728cd168798cd64e8",
+      "cratePath": "simd",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "pathfinder_simd-0.5.6/LICENSE-APACHE",
+          "upstreamPath": "LICENSE-APACHE",
+          "url": "https://raw.githubusercontent.com/servo/pathfinder/6c3c0466f451c5bd2007087728cd168798cd64e8/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "gitBlob": "16fe87b06e802f094b3fbb0894b137bca2b16ef1",
+          "role": "license-text"
+        },
+        {
+          "file": "pathfinder_simd-0.5.6/LICENSE-MIT",
+          "upstreamPath": "LICENSE-MIT",
+          "url": "https://raw.githubusercontent.com/servo/pathfinder/6c3c0466f451c5bd2007087728cd168798cd64e8/LICENSE-MIT",
+          "sha256": "0621878e61f0d0fda054bcbe02df75192c28bde1ecc8289cbd86aeba2dd72720",
+          "gitBlob": "25597d5838fa4cd7ff5c3c2bb1d1b4c3731eda7f",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "wayland-protocols-plasma",
+      "version": "0.2.0",
+      "license": "MIT",
+      "crateChecksum": "23803551115ff9ea9bce586860c5c5a971e360825a0309264102a9495a5ff479",
+      "repository": "https://github.com/smithay/wayland-rs",
+      "commit": "ea4c856cca609bf658cc7945ffa7e4b4aa268171",
+      "cratePath": "wayland-protocols-plasma",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "wayland-protocols-plasma-0.2.0/LICENSE.txt",
+          "upstreamPath": "LICENSE.txt",
+          "url": "https://raw.githubusercontent.com/smithay/wayland-rs/ea4c856cca609bf658cc7945ffa7e4b4aa268171/LICENSE.txt",
+          "sha256": "1cb6f4dee8c649f175736380495f0af0c753c87f22d50931692968bb24bf2161",
+          "gitBlob": "0ee195727d4de25b1c9ea4b826fb200dd0460a37",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "xim-ctext",
+      "version": "0.3.0",
+      "license": "MIT",
+      "crateChecksum": "2ac61a7062c40f3c37b6e82eeeef835d5cc7824b632a72784a89b3963c33284c",
+      "repository": "https://github.com/Riey/xim-rs",
+      "commit": "65f77e44524ba487285a63aac4080faf2c05b4ed",
+      "cratePath": "xim-ctext",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "xim-ctext-0.3.0/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/Riey/xim-rs/65f77e44524ba487285a63aac4080faf2c05b4ed/LICENSE",
+          "sha256": "efa1224931b98468f5005f77285457f8d2eab0a77a15941aa10abbab1ae9a74e",
+          "gitBlob": "122b7734602689689ba95a48f5277d66f767e83c",
+          "role": "license-text"
+        }
+      ]
+    },
+    {
+      "name": "xim-parser",
+      "version": "0.2.2",
+      "license": "MIT",
+      "crateChecksum": "5dcee45f89572d5a65180af3a84e7ddb24f5ea690a6d3aa9de231281544dd7b7",
+      "repository": "https://github.com/Riey/xim-rs",
+      "commit": "7300de35a111de2df1a694bf70454532a8419685",
+      "cratePath": "xim-parser",
+      "provenance": "Cargo checksum-verified .crate .cargo_vcs_info.json",
+      "files": [
+        {
+          "file": "xim-parser-0.2.2/LICENSE",
+          "upstreamPath": "LICENSE",
+          "url": "https://raw.githubusercontent.com/Riey/xim-rs/7300de35a111de2df1a694bf70454532a8419685/LICENSE",
+          "sha256": "efa1224931b98468f5005f77285457f8d2eab0a77a15941aa10abbab1ae9a74e",
+          "gitBlob": "122b7734602689689ba95a48f5277d66f767e83c",
+          "role": "license-text"
+        }
+      ]
+    }
+  ]
+}

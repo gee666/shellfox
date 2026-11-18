@@ -1,10 +1,8 @@
-import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { acquireHostOwnership } from './ownership';
-import { hostResourcePaths } from './paths';
 import { runHost } from './runtime';
 import { EmbeddedSessionService } from '../main/terminal/service';
 import { PtyBackend } from '../main/terminal/backend';
@@ -13,7 +11,8 @@ import { factoryFixture, MemoryRepository } from '../main/terminal/test-fixtures
 vi.mock('node:child_process', async original => { const actual = await original<typeof import('node:child_process')>(); return { ...actual, spawn: vi.fn(actual.spawn) }; });
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const action of cleanup.splice(0).reverse()) await action(); });
-describe.skipIf(!existsSync(hostResourcePaths().tailscale))('native ownership helper, requires build:tailscale', () => {
+// Native ownership is selected only by the separately held integration registry.
+describe('native ownership helper, requires build:tailscale', () => {
   it('reports unexpected helper death and lets the OS release the lock', async () => {
     await mkdir('tmp', { recursive: true }); const userData = await mkdtemp(path.resolve('tmp/ownership-loss-'));
     cleanup.push(() => rm(userData, { recursive: true, force: true }));

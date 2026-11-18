@@ -31,4 +31,5 @@ it('validates native status events independently of command replies and isolates
   expect(listener).toHaveBeenLastCalledWith({ status: 'error', loginUrl: null, error: 'Tailscale helper stopped.' });
   await expect(helper.command('status', {})).rejects.toThrow('Disable and re-enable');
   expect(mocks.spawn).toHaveBeenCalledOnce();
+  child.emit('close', 1);
 });

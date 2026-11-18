@@ -1,0 +1,20 @@
+//! Portable Shellfox metadata contracts. This crate cannot launch local processes.
+mod approval_store;
+mod error;
+mod ids;
+mod model;
+mod preferences;
+mod settings;
+mod settings_env;
+mod settings_rules;
+mod settings_upgrade;
+mod settings_validation;
+pub mod validation;
+pub use approval_store::*;
+pub use error::*;
+pub use ids::*;
+pub use model::*;
+pub use preferences::*;
+pub use settings::*;
+pub use settings_env::{normalize_env, validate_env};
+pub use settings_rules::*;

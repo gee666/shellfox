@@ -121,7 +121,8 @@ export const requestSchemas = {
   getTerminalProfiles: empty,
   attachTerminal: z.object({ tabId: idSchema, afterSequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(), generation: idSchema.optional() }).strict(),
   takeTerminalControl: z.object(terminalIdentity).strict(),
-  writeTerminal: z.object({ ...terminalControlIdentity, data: z.string().min(1).max(65536).refine(s => !s.includes('\u0000') && utf8Size(s) <= 65536), userInitiated: z.boolean().optional(), settledAt: timestampSchema.nullable().optional() }).strict(),
+  // Ctrl+Space is NUL terminal data, not a C string terminator.
+  writeTerminal: z.object({ ...terminalControlIdentity, data: z.string().min(1).max(65536).refine(s => utf8Size(s) <= 65536), userInitiated: z.boolean().optional(), settledAt: timestampSchema.nullable().optional() }).strict(),
   resizeTerminal: z.object({ ...terminalControlIdentity, cols: z.number().int().min(2).max(500), rows: z.number().int().min(2).max(500) }).strict(),
   closeTab: z.object(terminalIdentity).strict(),
   renameTab: z.object({ sessionId: idSchema, tabId: idSchema, title: titleSchema }).strict(),

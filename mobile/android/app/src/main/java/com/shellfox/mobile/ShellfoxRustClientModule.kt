@@ -1,0 +1,168 @@
+package com.shellfox.mobile
+
+import com.facebook.react.bridge.LifecycleEventListener
+import com.facebook.react.bridge.Promise
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.module.annotations.ReactModule
+import com.shellfox.mobile.rust.ClientBindings
+import com.shellfox.mobile.rust.ClientProfile
+import com.shellfox.mobile.rust.ClientTerminalBindings
+import com.shellfox.mobile.rust.NativeCallException
+import com.shellfox.mobile.rust.nativeCode
+import com.shellfox.mobile.rust.NativeInputBusy
+import com.shellfox.mobile.rust.NativeInputStale
+import com.shellfox.mobile.rust.RustBindings
+import com.shellfox.mobile.rust.NativeGoTransport
+import com.shellfox.mobile.rust.TerminalCoordinator
+
+@ReactModule(name = NativeShellfoxRustClientSpec.NAME)
+class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfoxRustClientSpec(context), LifecycleEventListener {
+  init { NativeGoTransport.initialize(context); context.addLifecycleEventListener(this) }
+  override fun onHostResume() { TerminalCoordinator.foreground(this, true) }
+  override fun onHostPause() { TerminalCoordinator.foreground(this, false) }
+  override fun onHostDestroy() { TerminalCoordinator.foreground(this, false) }
+  @Volatile private var stopped = false
+  override fun abiVersion(): Double = try { RustBindings.abiVersion().toDouble() } catch (_: LinkageError) { 0.0 }
+
+  override fun managerV2AbiVersion(): Double = try { ClientBindings.managerAbiVersion().toDouble() } catch (_: LinkageError) { 0.0 }
+  override fun createManagerV2Client(peerId: String, clientId: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.create(this,peerId,clientId,ClientProfile.MANAGER_V2)
+  }
+  override fun discoverManagerV2(clientHandle:String,promise:Promise) = afterPoll(clientHandle,promise) { ClientTerminalBindings.discoverManager(this,clientHandle) }
+  override fun pairManagerV2(clientHandle:String,attemptId:String,promise:Promise) = afterPoll(clientHandle,promise) { ClientTerminalBindings.pairManager(this,clientHandle,attemptId) }
+  override fun managerV2Operation(clientHandle:String,json:String,promise:Promise) = afterPoll(clientHandle,promise) { ClientTerminalBindings.managerOperation(this,clientHandle,3,json) }
+  override fun pollManagerV2(clientHandle:String,promise:Promise) = run(promise) { ClientTerminalBindings.managerOperation(this,clientHandle,2) }
+  override fun reconnectManagerV2(clientHandle:String,clientId:String,promise:Promise) = afterPoll(clientHandle,promise) { ClientTerminalBindings.reconnectManager(this,clientHandle,clientId); null }
+  override fun disconnectManagerV2(clientHandle:String,promise:Promise) = afterPoll(clientHandle,promise) { ClientTerminalBindings.managerOperation(this,clientHandle,4) }
+
+  override fun observerV2AbiVersion(): Double = try { ClientBindings.observerAbiVersion().toDouble() }
+    catch (_: LinkageError) { 0.0 }
+  override fun clientProfile(clientHandle: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.profile(this, clientHandle)
+  }
+  override fun createObserverV2Client(peerId: String, clientId: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.create(this, peerId, clientId, ClientProfile.OBSERVER_V2)
+  }
+  override fun discoverObserverV2(clientHandle: String, offerLegacy: Boolean, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.discoverObserver(this, clientHandle, offerLegacy)
+  }
+  override fun pairObserverV2(clientHandle: String, attemptId: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.pairObserver(this, clientHandle, attemptId)
+  }
+  override fun observerV2Operation(clientHandle: String, json: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.observerOperation(this, clientHandle, 3, json)
+  }
+  override fun pollObserverV2(clientHandle: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.observerOperation(this, clientHandle, 2)
+  }
+  override fun reconnectObserverV2(clientHandle: String, clientId: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.reconnectObserver(this, clientHandle, clientId); null
+  }
+  override fun disconnectObserverV2(clientHandle: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.observerOperation(this, clientHandle, 4)
+  }
+
+  override fun createTerminal(cols: Double, rows: Double, promise: Promise) {
+    if (unavailable(promise)) return
+    TerminalCoordinator.create(this, cols, rows) { value, error -> result(promise, value, error) }
+  }
+  override fun closeTerminal(terminalHandle: String, promise: Promise) {
+    if (unavailable(promise)) return
+    TerminalCoordinator.close(this, terminalHandle) { result(promise, null, it) }
+  }
+  override fun progress(terminalHandle: String, promise: Promise) {
+    if (unavailable(promise)) return
+    TerminalCoordinator.progress(this, terminalHandle) { value, error -> result(promise, value, error) }
+  }
+  override fun terminalInput(terminalHandle: String, json: String, promise: Promise) = run(promise) {
+    TerminalCoordinator.typedInput(this, terminalHandle, json); null
+  }
+  override fun configureTerminal(terminalHandle: String, json: String, promise: Promise) = run(promise) {
+    TerminalCoordinator.configure(this, terminalHandle, json); null
+  }
+  override fun createClient(peerId: String, clientId: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.create(this, peerId, clientId)
+  }
+  override fun connect(clientHandle: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.start(this, clientHandle, 0)
+  }
+  override fun reconnect(clientHandle: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.start(this, clientHandle, 1)
+  }
+  override fun poll(clientHandle: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.start(this, clientHandle, 2)
+  }
+  override fun operation(clientHandle: String, json: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.start(this, clientHandle, 3, json)
+  }
+  override fun cancel(clientHandle: String, operationId: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.cancel(this, clientHandle, operationId); null
+  }
+  override fun bindTerminal(clientHandle: String, tabId: String, terminalHandle: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.bind(this, clientHandle, tabId, terminalHandle); null
+  }
+  override fun unbindTerminal(clientHandle: String, terminalHandle: String, promise: Promise) = afterPoll(clientHandle,promise) {
+    ClientTerminalBindings.unbind(this, clientHandle, terminalHandle); null
+  }
+  override fun readEvent(clientHandle: String, promise: Promise) = run(promise) {
+    ClientTerminalBindings.readEvent(this, clientHandle)
+  }
+  override fun closeClient(clientHandle: String, promise: Promise) {
+    if (unavailable(promise)) return
+    TerminalCoordinator.execute({ result(promise, null, "BUSY") }) {
+      try { ClientTerminalBindings.close(this, clientHandle) { result(promise, null, it) } }
+      catch (_: Exception) { result(promise, null, "ENGINE") }
+      catch (_: LinkageError) { result(promise, null, "UNAVAILABLE") }
+    }
+  }
+
+  private fun unavailable(promise: Promise): Boolean {
+    if (stopped) promise.reject("RUST_STOPPED", "Native client is unavailable.")
+    return stopped
+  }
+  private fun afterPoll(client: String, promise: Promise, action: () -> String?) {
+    if (unavailable(promise)) return
+    TerminalCoordinator.execute({ result(promise, null, "BUSY") }) {
+      try {
+        ClientTerminalBindings.afterPoll(this, client, {
+          if (stopped) throw NativeCallException(3)
+          action()
+        }) { value, error ->
+          val code = when (error) {
+            null -> null
+            is NativeCallException -> nativeCode(error.status)
+            is NativeInputBusy -> "BUSY"
+            is NativeInputStale -> "STALE"
+            is IllegalArgumentException -> "INVALID"
+            else -> "ENGINE"
+          }
+          result(promise, value, code)
+        }
+      } catch (error: NativeCallException) { result(promise, null, nativeCode(error.status)) }
+      catch (_: Exception) { result(promise, null, "ENGINE") }
+    }
+  }
+  private fun run(promise: Promise, action: () -> String?) {
+    if (unavailable(promise)) return
+    TerminalCoordinator.execute({ result(promise, null, "BUSY") }) {
+      if (stopped) { result(promise, null, "STOPPED"); return@execute }
+      try { promise.resolve(action()) }
+      catch (_: NativeInputBusy) { result(promise, null, "BUSY") }
+      catch (_: NativeInputStale) { result(promise, null, "STALE") }
+      catch (error: NativeCallException) { result(promise, null, nativeCode(error.status)) }
+      catch (_: IllegalArgumentException) { result(promise, null, "INVALID") }
+      catch (_: Exception) { result(promise, null, "ENGINE") }
+      catch (_: LinkageError) { result(promise, null, "UNAVAILABLE") }
+    }
+  }
+  private fun result(promise: Promise, value: String?, error: String?) {
+    if (error == null) promise.resolve(value)
+    else promise.reject("RUST_$error", "Native client operation failed.")
+  }
+  override fun invalidate() {
+    stopped = true
+    reactApplicationContext.removeLifecycleEventListener(this)
+    TerminalCoordinator.release(this)
+    super.invalidate()
+  }
+}

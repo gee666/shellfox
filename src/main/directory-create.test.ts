@@ -2,12 +2,14 @@ import path from 'node:path';
 import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { afterEach, expect, it } from 'vitest';
 import { createDirectory, resolveDirectory } from './directory-prompt';
+import { registerDirectoryDriveChecks } from '../../tests/unit/directory-drive-model';
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 it('creates all parents using the same quoted path normalization as resolveDirectory', async () => {
   await mkdir('tmp', { recursive: true }); const root = await mkdtemp(path.resolve('tmp/create-directory-')); directories.push(root);
   const target = path.join(root, 'one', 'two', 'new folder'), input = '"' + target + '"';
+  await registerDirectoryDriveChecks(root, [root, root, target, target, target, target]);
   expect(await resolveDirectory({ path: input })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
   expect(await createDirectory({ path: input })).toEqual({ ok: true, value: { cwd: target } });
   expect((await stat(target)).isDirectory()).toBe(true);

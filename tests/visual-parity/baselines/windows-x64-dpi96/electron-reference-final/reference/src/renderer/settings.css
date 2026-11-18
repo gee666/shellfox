@@ -1,0 +1,34 @@
+.settings-page .settings-header { height: 36px; flex-basis: 36px; }
+.settings-header h2 { display: flex; align-items: baseline; gap: 10px; }
+.settings-header h2 small { font-size: 10px; font-weight: 400; }
+.settings-tabs { display: flex; flex: 0 0 auto; gap: 12px; min-height: 34px; padding: 0 20px; overflow-x: auto; border-bottom: 1px solid var(--border); scrollbar-width: thin; }
+.settings-tabs [role='tab'] { position: relative; flex: 0 0 auto; padding: 7px 2px 8px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 12px; }
+.settings-tabs [role='tab']:hover { color: var(--fg); }
+.settings-tabs [role='tab'][aria-selected='true'] { color: var(--fg); box-shadow: inset 0 -2px var(--accent); }
+.settings-tab-error { margin-left: 5px; color: var(--dot-error); }
+.settings-tab-count { margin-left: 5px; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; font-size: 9px; color: var(--accent); }
+.remote-revoke-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+.remote-peer-row .remote-device-id { overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; font-family: 'Cascadia Code', Consolas, 'DejaVu Sans Mono', monospace; }
+.settings-page .settings-body { padding: 22px 24px 36px; max-width: 720px; }
+.settings-body [role='tabpanel'][hidden] { display: none; }
+.settings-body [role='tabpanel'] > section + section, .settings-body .remote-settings > section + section { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 22px; }
+.settings-page .settings-body h3 { font-size: 12px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); margin-bottom: 10px; }
+.settings-page .settings-body h4 { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+.settings-page .settings-hint { max-width: 540px; font-size: 11px; line-height: 17px; }
+.settings-control-note { margin-top: 7px; }
+.settings-page .settings-body input:not([type='color']), .settings-page .settings-body select { height: 28px; border-radius: 3px; }
+.settings-page .settings-body button:not(.toggle):not(.swatch):not(.icon-button):not(.text-button) { min-height: 26px; border-radius: 3px; }
+.settings-page .swatch { width: 22px; height: 22px; border-radius: 4px; }
+.settings-page .swatches { gap: 9px; }
+.settings-page .swatches + .settings-hint { margin-top: 10px; margin-bottom: 0; }
+.settings-page .session-settings label { max-width: 400px; min-height: 32px; margin-top: 4px; }
+.settings-page .session-settings input { width: 86px; text-align: right; }
+.settings-page .settings-body [aria-label='Default shell'], .settings-page .settings-body [aria-label='Python path'] { max-width: 380px; display: block; }
+.settings-page .agent-rule { padding: 9px 0; }
+.settings-page .agent-row { gap: 10px; }
+.settings-page .agent-copy small { font-size: 10px; }
+.settings-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.settings-body .settings-section-heading h3 { margin: 0; }
+.settings-empty { padding: 10px 0; font-size: 11px; color: var(--muted); }
+.settings-primary { border-color: var(--accent); }
+@media (max-width: 560px) { .settings-tabs { padding: 0 12px; gap: 10px; } .settings-page .settings-body { padding: 18px 14px 28px; } }

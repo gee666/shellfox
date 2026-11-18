@@ -1,0 +1,64 @@
+//! Shared resource-input builder. Inputs are validated by the trusted native
+//! producer, never inferred from the running executable or a renderer request.
+use shellfox_service::{
+    native_providers::{NativeHostProviders, NativeSshResources},
+    system::{NativeSystemBackend, SystemInstallPolicy, SystemInstallResources},
+};
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct ApplicationProviderResources {
+    installation: Arc<dyn SystemInstallResources>,
+    policy: SystemInstallPolicy,
+    ssh: Option<NativeSshResources>,
+}
+impl ApplicationProviderResources {
+    /// Consume only the existing portable format with an EXTERNAL trusted build
+    /// digest. No native-bundle identity coercion or runtime self-hash fallback.
+    pub fn from_portable_manifest(
+        path: &std::path::Path,
+        expected_digest: [u8; 32],
+        policy: SystemInstallPolicy,
+    ) -> anyhow::Result<Self> {
+        let installation =
+            shellfox_service::native_providers::portable_install_resources(path, expected_digest)?;
+        Ok(Self::new(installation, policy))
+    }
+    /// Stable package producers supply ConfiguredSystemResources here. Private
+    /// acceptance resources must not masquerade as an installed package.
+    pub fn new(installation: Arc<dyn SystemInstallResources>, policy: SystemInstallPolicy) -> Self {
+        Self {
+            installation,
+            policy,
+            ssh: None,
+        }
+    }
+    pub fn with_ssh(mut self, ssh: NativeSshResources) -> Self {
+        self.ssh = Some(ssh);
+        self
+    }
+    pub fn build(&self, interactive_session: bool) -> NativeHostProviders {
+        let system = Arc::new(NativeSystemBackend::native(
+            self.installation.clone(),
+            self.policy,
+            interactive_session,
+        ));
+        let providers = NativeHostProviders::new(system);
+        match &self.ssh {
+            Some(ssh) => providers.with_ssh(ssh.clone()),
+            None => providers,
+        }
+    }
+}
+impl std::fmt::Debug for ApplicationProviderResources {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApplicationProviderResources")
+            .field("policy", &self.policy)
+            .field("ssh_configured", &self.ssh.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+#[path = "native_app_providers_tests.rs"]
+mod tests;

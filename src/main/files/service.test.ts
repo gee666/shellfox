@@ -2,7 +2,7 @@ import path from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, writeFile, readdir, rm, symlink } from 'node:fs/promises';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import type { Result } from '../../shared/contracts';
 import { FILE_INLINE_PREVIEW_BYTES as FILE_IMAGE_BYTES, FILE_INLINE_IMAGE_WRITE_BYTES as FILE_IMAGE_WRITE_BYTES, FILE_LIST_LIMIT, FILE_INLINE_TEXT_BYTES as FILE_TEXT_BYTES } from '../../shared/file-schemas';
 import { FileService } from './service';
@@ -44,9 +44,13 @@ it('serializes competing views and checks authorization again before an atomic s
   const saves = await Promise.all([f.service.write({ ...f.input, revision: read.revision, text: 'first' }), f.service.write({ ...f.input, revision: read.revision, text: 'second' })]);
   expect(saves.filter(result => result.ok)).toHaveLength(1);
   expect(saves.filter(result => !result.ok)).toMatchObject([{ error: { code: 'FILE_CONFLICT' } }]);
+  const winner = saves[0].ok ? 'first' : 'second';
   const next = value(await f.service.read(f.input));
-  expect(await f.service.write({ ...f.input, revision: next.revision, text: 'unauthorized' }, () => false)).toMatchObject({ ok: false, error: { code: 'ACCESS_DENIED' } });
-  expect(await readFile(path.join(f.root, 'a.txt'), 'utf8')).toBe('first');
+  expect(next).toMatchObject({ kind: 'text', text: winner });
+  const canCommit = vi.fn(() => false);
+  expect(await f.service.write({ ...f.input, revision: next.revision, text: 'unauthorized' }, canCommit)).toMatchObject({ ok: false, error: { code: 'ACCESS_DENIED' } });
+  expect(canCommit).toHaveBeenCalledOnce();
+  expect(await readFile(path.join(f.root, 'a.txt'), 'utf8')).toBe(winner);
   expect(await readdir(f.root)).toEqual(['a.txt']);
 });
 it('bounds lists and reports kinds without following links or recursively enumerating', async () => {

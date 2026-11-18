@@ -1,3 +1,4 @@
+import { registerEndpointRoot } from '../../tests/unit/endpoint-permission-model';
 import { createServer } from 'node:net';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
@@ -8,7 +9,7 @@ import { legacyHostIsRunning } from './legacy-owner';
 
 const cleanup: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const action of cleanup.splice(0).reverse()) await action(); });
-async function directory() { await mkdir('tmp', { recursive: true }); const dir = await mkdtemp(path.resolve('tmp/legacy-owner-')); cleanup.push(() => rm(dir, { force: true, recursive: true })); return dir; }
+async function directory() { await mkdir('tmp', { recursive: true }); const dir = await mkdtemp(path.resolve('tmp/legacy-owner-')); registerEndpointRoot(dir, ['control']); cleanup.push(() => rm(dir, { force: true, recursive: true })); return dir; }
 it('allows absent endpoints and explicitly refused stale listener ports', async () => {
   const dir = await directory(); expect(await legacyHostIsRunning(dir)).toBe(false);
   const server = createServer(); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"shellfox.local/tailscale-helper/controlurl"
 	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn/ipnstate"
@@ -22,6 +23,15 @@ import (
 )
 
 const servicePort = "52743"
+const defaultControlURL = "https://controlplane.tailscale.com"
+
+func controlURL(value string) (string, error) {
+	if value == "" {
+		return defaultControlURL, nil
+	}
+	return controlurl.ParseLoopback(value)
+}
+
 const bodyLimit = 1024 * 1024
 const responseLimit = 8 * 1024 * 1024
 const requestTimeout = 30 * time.Second
@@ -33,6 +43,7 @@ type startConfig struct {
 	BackendURL     string `json:"backendUrl"`
 	BackendSecret  string `json:"backendSecret"`
 	ProxySecret    string `json:"proxySecret"`
+	ControlURL     string `json:"controlUrl,omitempty"`
 }
 
 type networkStatus = nethealth.Status
@@ -56,6 +67,9 @@ type helper struct {
 }
 
 func (c startConfig) validate() (*url.URL, error) {
+	if _, err := controlURL(c.ControlURL); err != nil {
+		return nil, err
+	}
 	if !filepath.IsAbs(c.StateDirectory) || !regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$`).MatchString(c.Hostname) {
 		return nil, errors.New("State directory must be absolute and hostname must be a DNS label")
 	}
@@ -112,6 +126,10 @@ func (h *helper) start(c startConfig) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	control, err := controlURL(c.ControlURL)
+	if err != nil {
+		return nil, err
+	}
 	if err := prepareState(c.StateDirectory); err != nil {
 		return nil, err
 	}
@@ -120,7 +138,7 @@ func (h *helper) start(c startConfig) (interface{}, error) {
 		return nil, err
 	}
 	s := &tsnet.Server{Dir: c.StateDirectory, Hostname: c.Hostname, Store: state,
-		ControlURL: "https://controlplane.tailscale.com", Ephemeral: false,
+		ControlURL: control, Ephemeral: false,
 		UserLogf: func(string, ...interface{}) {}, Logf: func(string, ...interface{}) {}}
 	h.server = s
 	fail := func(phase string) (interface{}, error) {

@@ -1,0 +1,53 @@
+[package]
+name = "shellfox-desktop"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[[bin]]
+name = "shellfox-gpui-experiment"
+path = "src/main.rs"
+
+[[test]]
+name = "host-client"
+path = "src/host_client_test_root.rs"
+
+[[test]]
+name = "accessibility"
+path = "src/accessibility_test_root.rs"
+
+[features]
+experimental-shellfox-native = ["shellfox-service/experimental-shellfox-native", "shellfox-ghostty-vt/experimental-shellfox-native", "shellfox-mobile/experimental-shellfox-native"]
+
+[dependencies]
+anyhow = "1"
+gpui = "=0.2.2"
+url = "2"
+accesskit = "=0.25.2"
+raw-window-handle = "=0.6.2"
+shellfox-host = { path = "../shellfox-host" }
+shellfox-core = { path = "../shellfox-core" }
+shellfox-protocol = { path = "../shellfox-protocol" }
+shellfox-client = { path = "../shellfox-client" }
+shellfox-mobile = { path = "../shellfox-mobile" }
+serde_json = "1"
+shellfox-service = { path = "../shellfox-service" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+shellfox-runtime = { path = "../shellfox-runtime" }
+shellfox-files = { path = "../shellfox-files" }
+shellfox-ghostty-vt = { path = "../ghostty-vt" }
+shellfox-terminal = { path = "../shellfox-terminal" }
+
+[target.'cfg(windows)'.dependencies]
+accesskit_windows = "=0.35.2"
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+accesskit_macos = "=0.27.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+accesskit_unix = "=0.24.1"
+
+[dev-dependencies]
+tempfile = "3"

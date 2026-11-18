@@ -1,0 +1,113 @@
+name: Rust portable platform acceptance
+
+# Deliberately manual. This workflow never publishes, installs or signs an app.
+on:
+  workflow_dispatch:
+    inputs:
+      build_native_packages:
+        description: Build and smoke native artifacts. False runs packaging rules only.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: ${{ matrix.platform }}-${{ matrix.arch }} Rust checks
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: win32, arch: x64, target: x86_64-pc-windows-msvc }
+          - { runner: windows-11-arm, platform: win32, arch: arm64, target: aarch64-pc-windows-msvc }
+          - { runner: ubuntu-24.04, platform: linux, arch: x64, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, target: aarch64-unknown-linux-gnu }
+          - { runner: macos-15-intel, platform: darwin, arch: x64, target: x86_64-apple-darwin }
+          - { runner: macos-15, platform: darwin, arch: arm64, target: aarch64-apple-darwin }
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.1
+          architecture: ${{ matrix.arch }}
+      - name: Packaging rules, no native acceptance claim
+        run: node --test scripts/rust-package.test.mjs scripts/rust-package-resource.test.mjs
+      - name: Native runner and Rust pin
+        if: inputs.build_native_packages
+        run: |
+          mkdir -p tmp
+          node -e "if(process.platform !== '${{ matrix.platform }}' || process.arch !== '${{ matrix.arch }}') throw new Error('Wrong native runner architecture')"
+          rustup set default-host '${{ matrix.target }}'
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+          rustup show
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: inputs.build_native_packages
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Active Windows helper project-local supported .NET LTS
+        if: inputs.build_native_packages && matrix.platform == 'win32'
+        run: |
+          node scripts/dotnet-sdk.mjs provision
+          node --input-type=module -e 'import { acquireNugetSnapshot } from "./scripts/rust-package-resource-inventory.mjs"; import fs from "node:fs"; import path from "node:path"; const file = path.resolve("tmp/dotnet10/evidence/nuget10-snapshot.json"); fs.writeFileSync(file, JSON.stringify(await acquireNugetSnapshot("10.0"), null, 2)); fs.appendFileSync(process.env.GITHUB_ENV, "SHELLFOX_NUGET_VULNERABILITY_SNAPSHOT=" + file + "\n");'
+      - uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
+        if: inputs.build_native_packages && matrix.platform == 'win32'
+        with:
+          arch: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
+      - name: Linux GPUI compile and link prerequisites
+        if: inputs.build_native_packages && matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev
+      - name: Native resource handle and producer contract tests
+        if: inputs.build_native_packages
+        run: |
+          cargo test --locked -p shellfox-resources --all-targets
+          cargo test --locked -p shellfox-resources --test bundle producer::node_manifest_matches_the_rust_contract -- --ignored
+          cargo clippy --locked -p shellfox-resources --all-targets -- -D warnings
+      - name: Project-local pinned advisory tool and database
+        if: inputs.build_native_packages
+        run: |
+          cargo install cargo-audit --locked --version 0.22.2 --root tmp/rust-package-tools --target-dir tmp/rust-package-audit-build
+          node -e "require('fs').appendFileSync(process.env.GITHUB_PATH, require('path').resolve('tmp/rust-package-tools/bin') + '\\n')"
+          node scripts/rust-package-security.mjs fetch-db
+        timeout-minutes: 20
+      - name: Pinned Ghostty and Zig preparation
+        if: inputs.build_native_packages
+        run: node scripts/rust-package-prereqs.mjs
+        timeout-minutes: 35
+      - name: Headless release artifact, dependency boundary and isolated archive smoke
+        if: inputs.build_native_packages
+        run: node scripts/rust-package.mjs headless
+        timeout-minutes: 25
+      - name: Desktop release artifact and non-window isolated archive smoke
+        if: inputs.build_native_packages
+        run: node scripts/rust-package.mjs desktop
+        timeout-minutes: 35
+      - name: Retain failed audit reports without publishing a package
+        if: failure() && inputs.build_native_packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-audit-failure-${{ matrix.platform }}-${{ matrix.arch }}
+          path: tmp/rust-package-reports/
+          if-no-files-found: ignore
+      - name: Retain only successful experimental archives and evidence
+        if: inputs.build_native_packages && success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-portable-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            tmp/rust-package-artifacts/*.zip
+            tmp/rust-package-artifacts/*.tar.gz
+            tmp/rust-package-artifacts/*.sha256
+            tmp/rust-package-artifacts/*.acceptance.json
+          if-no-files-found: error

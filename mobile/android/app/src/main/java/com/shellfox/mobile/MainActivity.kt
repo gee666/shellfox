@@ -1,5 +1,6 @@
 package com.shellfox.mobile
 
+import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -18,5 +19,16 @@ class MainActivity : ReactActivity() {
    * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
-      DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+      object : DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled) {
+        override fun getLaunchOptions(): Bundle? {
+          val selection = intent.getStringExtra("shellfoxProfileSelection") ?: return null
+          require(BuildConfig.SHELLFOX_MANAGER_V2 && selection.toByteArray(Charsets.UTF_8).size <= 2048) {
+            "This binary cannot select the Manager profile"
+          }
+          return Bundle().apply {
+            putString("shellfoxProfileSelection", selection)
+            intent.getStringExtra("shellfoxControlURL")?.let { require(it.toByteArray(Charsets.UTF_8).size <= 2048); putString("shellfoxControlURL", it) }
+          }
+        }
+      }
 }

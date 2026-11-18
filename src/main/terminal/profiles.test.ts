@@ -14,13 +14,17 @@ describe('discovered native shell profiles', () => {
     expect(missing.profiles.every(p => !p.available && !p.canTerminateDescendants)).toBe(true);
   });
   it('does not permit macOS launch when the bundled supervisor is missing or fails preflight', async () => {
-    const d = await discoverProfiles({ platform: 'darwin', env: {}, loginShell: '/bin/zsh', exists: async () => true, canonical: async p => p });
+    const run = vi.fn(async () => { throw new Error('No fixture supervisor'); });
+    const d = await discoverProfiles({ platform: 'darwin', env: {}, loginShell: '/bin/zsh', exists: async () => true, canonical: async p => p,
+      supervisorOptions: { packaged: false, projectRoot: '/fixture' }, run });
+    expect(run).toHaveBeenCalledExactlyOnceWith(expect.any(String), ['--capabilities']);
     expect(d.defaultProfileId).toBeNull(); expect(d.profiles[0]).toMatchObject({ available: false, canTerminateDescendants: false, unavailableReason: expect.stringContaining('macOS') });
   });
   it('prefers installed PowerShell and falls back to Windows PowerShell', async () => {
-    const both = await discoverProfiles({ platform: 'win32', env: {}, exists: async p => p.endsWith('pwsh.exe') || p.endsWith('powershell.exe') });
+    const administratorCapability = async () => ({ available: false, reason: 'No fixture administrator helper' });
+    const both = await discoverProfiles({ platform: 'win32', env: {}, administratorCapability, exists: async p => p.endsWith('pwsh.exe') || p.endsWith('powershell.exe') });
     expect(both.defaultProfileId).toBe('pwsh'); expect(both.profiles.map(p => p.id)).toEqual(['pwsh', 'windows-powershell', 'administrator-powershell']);
-    const fallback = await discoverProfiles({ platform: 'win32', env: {}, exists: async p => p.endsWith('powershell.exe') }); expect(fallback.defaultProfileId).toBe('windows-powershell');
+    const fallback = await discoverProfiles({ platform: 'win32', env: {}, administratorCapability, exists: async p => p.endsWith('powershell.exe') }); expect(fallback.defaultProfileId).toBe('windows-powershell');
   });
   it('probes the administrator helper without UAC and never makes it the default', async () => {
     const probe = vi.fn(async () => ({ available: true, reason: null }));

@@ -5,12 +5,14 @@ import { afterEach } from 'vitest';
 import { RemoteHost } from './host';
 import { embeddedFixture, identity, signedHeaders } from './test-fixtures';
 import { responseSchemas } from '../../shared/remote-schemas';
+import { registerFixtureUploadRoot } from '../../../tests/unit/upload-permission-model';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 export async function uploadFixture(maxBytes?: number) {
   await mkdir('tmp', { recursive: true }); const directory = await mkdtemp(path.resolve('tmp/upload-test-'));
   const root = path.join(directory, 'uploads'), f = await embeddedFixture(), secret = 'upload-test';
+  registerFixtureUploadRoot(root);
   let approved = true;
   const host = new RemoteHost(f.service, secret, () => approved, () => {}, undefined, undefined, { root, maxBytes });
   const url = await host.listen(), clientId = randomUUID();

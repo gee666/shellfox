@@ -1,0 +1,683 @@
+[
+  {
+    "action": "create session through folder dialog, rename",
+    "assertion": "session and first owned embedded tab persisted with stable UUIDs",
+    "state": {
+      "revision": 6,
+      "sessions": [
+        {
+          "id": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+          "title": "Parity project",
+          "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+          "adapterId": "embedded-pty",
+          "shellId": "pwsh",
+          "createdAt": "2026-11-13T22:32:28.366Z",
+          "updatedAt": "2026-11-13T22:32:29.760Z",
+          "settledAt": null,
+          "pinnedAt": null,
+          "status": "waiting",
+          "activityStatus": "waiting",
+          "counts": {
+            "running": 0,
+            "waiting": 1,
+            "unknown": 0,
+            "error": 0,
+            "closed": 0,
+            "agents": 0
+          },
+          "tabs": [
+            {
+              "id": "22a82df2-91a3-4b0e-9337-e53414ec91c7",
+              "sessionId": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+              "title": "Parity shell",
+              "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+              "ordinal": 0,
+              "createdAt": "2026-11-13T22:32:28.366Z",
+              "lifecycle": "open",
+              "status": "waiting",
+              "agents": 0,
+              "monitoringReason": "The shell is alive; no matched agent process is running.",
+              "error": null,
+              "generation": "74d7aa27-6185-42fd-bbf1-969a818c8670",
+              "terminalKind": "embedded",
+              "profileId": "pwsh",
+              "exitCode": null
+            }
+          ],
+          "env": [],
+          "window": {
+            "state": "unsupported",
+            "canReopen": false,
+            "canRegister": false,
+            "reason": "Embedded tabs do not use native window ownership or external shell registration."
+          },
+          "canFocus": true,
+          "canAddTab": true,
+          "controlReason": "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands.",
+          "error": null,
+          "terminalLifetime": "app-owned",
+          "shellSurvival": false
+        }
+      ],
+      "settings": {
+        "version": 1,
+        "terminalEnv": [],
+        "autoUpdate": true,
+        "pythonPath": null,
+        "accentColor": "#ec4899",
+        "backgroundColor": "#111016",
+        "adapterId": "embedded-pty",
+        "shellId": "pwsh",
+        "shellExecutable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "terminalProfileId": "pwsh",
+        "processRules": [
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5870",
+            "label": "Pi",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "pi",
+              "pi.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@earendil-works/pi-coding-agent/dist/cli.js",
+              "@mariozechner/pi-coding-agent/dist/cli.js",
+              "@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+              "@mariozechner/pi-coding-agent/dist/bundle/cli.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5871",
+            "label": "Claude",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "claude",
+              "claude.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@anthropic-ai/claude-code/cli.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5872",
+            "label": "Codex",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "codex",
+              "codex.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@openai/codex/bin/codex.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5874",
+            "label": "OpenCode",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "opencode",
+              "opencode.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "opencode-ai/bin/opencode"
+            ]
+          }
+        ],
+        "historyPageSize": 10,
+        "sessionSettleHours": 24,
+        "sessionDeleteHours": 720
+      },
+      "probe": {
+        "platform": "win32",
+        "arch": "x64",
+        "adapterId": "embedded-pty",
+        "available": true,
+        "terminalVersion": null,
+        "capabilities": {
+          "createWindow": true,
+          "addTab": true,
+          "focusWindow": true,
+          "activateTab": true,
+          "splitPane": false,
+          "attachExisting": false,
+          "closeTerminal": true,
+          "commandExitStatus": false,
+          "processTracking": true,
+          "explorerContextMenu": true,
+          "embeddedTerminal": true,
+          "terminalLifetime": "app-owned",
+          "shellSurvival": false
+        },
+        "shells": [
+          {
+            "id": "pwsh",
+            "executable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+            "available": true,
+            "reason": null
+          },
+          {
+            "id": "windows-powershell",
+            "executable": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "available": true,
+            "reason": null
+          }
+        ],
+        "reasons": [
+          "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands."
+        ]
+      },
+      "explorer": {
+        "supported": true,
+        "installed": true,
+        "folderItemInstalled": true,
+        "backgroundInstalled": true,
+        "reason": "Windows 11: use Show more options (Shift+F10) in Explorer."
+      },
+      "cli": {
+        "supported": true,
+        "installed": true,
+        "command": "shellfox",
+        "reason": null
+      }
+    }
+  },
+  {
+    "action": "add terminal, rename selected tab",
+    "assertion": "two distinct live embedded tab UUIDs, title Build",
+    "state": {
+      "revision": 12,
+      "sessions": [
+        {
+          "id": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+          "title": "Parity project",
+          "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+          "adapterId": "embedded-pty",
+          "shellId": "pwsh",
+          "createdAt": "2026-11-13T22:32:28.366Z",
+          "updatedAt": "2026-11-13T22:32:34.058Z",
+          "settledAt": null,
+          "pinnedAt": "2026-11-13T22:32:31.082Z",
+          "status": "waiting",
+          "activityStatus": "waiting",
+          "counts": {
+            "running": 0,
+            "waiting": 2,
+            "unknown": 0,
+            "error": 0,
+            "closed": 0,
+            "agents": 0
+          },
+          "tabs": [
+            {
+              "id": "22a82df2-91a3-4b0e-9337-e53414ec91c7",
+              "sessionId": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+              "title": "Parity shell",
+              "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+              "ordinal": 0,
+              "createdAt": "2026-11-13T22:32:28.366Z",
+              "lifecycle": "open",
+              "status": "waiting",
+              "agents": 0,
+              "monitoringReason": "The shell is alive; no matched agent process is running.",
+              "error": null,
+              "generation": "74d7aa27-6185-42fd-bbf1-969a818c8670",
+              "terminalKind": "embedded",
+              "profileId": "pwsh",
+              "exitCode": null
+            },
+            {
+              "id": "7f5a5ce5-e4a1-42be-bc63-5dd6c8ad1ed3",
+              "sessionId": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+              "title": "Build",
+              "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+              "ordinal": 1,
+              "createdAt": "2026-11-13T22:32:32.183Z",
+              "lifecycle": "open",
+              "status": "waiting",
+              "agents": 0,
+              "monitoringReason": "The shell is alive; no matched agent process is running.",
+              "error": null,
+              "generation": "bfd93a66-b082-4d01-8b90-3ee33143abb5",
+              "terminalKind": "embedded",
+              "profileId": "pwsh",
+              "exitCode": null
+            }
+          ],
+          "env": [],
+          "window": {
+            "state": "unsupported",
+            "canReopen": false,
+            "canRegister": false,
+            "reason": "Embedded tabs do not use native window ownership or external shell registration."
+          },
+          "canFocus": true,
+          "canAddTab": true,
+          "controlReason": "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands.",
+          "error": null,
+          "terminalLifetime": "app-owned",
+          "shellSurvival": false
+        }
+      ],
+      "settings": {
+        "version": 1,
+        "terminalEnv": [],
+        "autoUpdate": true,
+        "pythonPath": null,
+        "accentColor": "#ec4899",
+        "backgroundColor": "#111016",
+        "adapterId": "embedded-pty",
+        "shellId": "pwsh",
+        "shellExecutable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "terminalProfileId": "pwsh",
+        "processRules": [
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5870",
+            "label": "Pi",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "pi",
+              "pi.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@earendil-works/pi-coding-agent/dist/cli.js",
+              "@mariozechner/pi-coding-agent/dist/cli.js",
+              "@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+              "@mariozechner/pi-coding-agent/dist/bundle/cli.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5871",
+            "label": "Claude",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "claude",
+              "claude.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@anthropic-ai/claude-code/cli.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5872",
+            "label": "Codex",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "codex",
+              "codex.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@openai/codex/bin/codex.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5874",
+            "label": "OpenCode",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "opencode",
+              "opencode.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "opencode-ai/bin/opencode"
+            ]
+          }
+        ],
+        "historyPageSize": 10,
+        "sessionSettleHours": 24,
+        "sessionDeleteHours": 720
+      },
+      "probe": {
+        "platform": "win32",
+        "arch": "x64",
+        "adapterId": "embedded-pty",
+        "available": true,
+        "terminalVersion": null,
+        "capabilities": {
+          "createWindow": true,
+          "addTab": true,
+          "focusWindow": true,
+          "activateTab": true,
+          "splitPane": false,
+          "attachExisting": false,
+          "closeTerminal": true,
+          "commandExitStatus": false,
+          "processTracking": true,
+          "explorerContextMenu": true,
+          "embeddedTerminal": true,
+          "terminalLifetime": "app-owned",
+          "shellSurvival": false
+        },
+        "shells": [
+          {
+            "id": "pwsh",
+            "executable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+            "available": true,
+            "reason": null
+          },
+          {
+            "id": "windows-powershell",
+            "executable": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "available": true,
+            "reason": null
+          }
+        ],
+        "reasons": [
+          "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands."
+        ]
+      },
+      "explorer": {
+        "supported": true,
+        "installed": true,
+        "folderItemInstalled": true,
+        "backgroundInstalled": true,
+        "reason": "Windows 11: use Show more options (Shift+F10) in Explorer."
+      },
+      "cli": {
+        "supported": true,
+        "installed": true,
+        "command": "shellfox",
+        "reason": null
+      }
+    }
+  },
+  {
+    "action": "open/edit/save notes.txt",
+    "assertion": "actual disk bytes equal edited UTF-8 content",
+    "shaPolicy": "fixture restored after capture"
+  },
+  {
+    "action": "request deletion then cancel",
+    "assertion": "session and both terminal generations retained",
+    "state": {
+      "revision": 12,
+      "sessions": [
+        {
+          "id": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+          "title": "Parity project",
+          "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+          "adapterId": "embedded-pty",
+          "shellId": "pwsh",
+          "createdAt": "2026-11-13T22:32:28.366Z",
+          "updatedAt": "2026-11-13T22:32:34.058Z",
+          "settledAt": null,
+          "pinnedAt": "2026-11-13T22:32:31.082Z",
+          "status": "waiting",
+          "activityStatus": "waiting",
+          "counts": {
+            "running": 0,
+            "waiting": 2,
+            "unknown": 0,
+            "error": 0,
+            "closed": 0,
+            "agents": 0
+          },
+          "tabs": [
+            {
+              "id": "22a82df2-91a3-4b0e-9337-e53414ec91c7",
+              "sessionId": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+              "title": "Parity shell",
+              "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+              "ordinal": 0,
+              "createdAt": "2026-11-13T22:32:28.366Z",
+              "lifecycle": "open",
+              "status": "waiting",
+              "agents": 0,
+              "monitoringReason": "The shell is alive; no matched agent process is running.",
+              "error": null,
+              "generation": "74d7aa27-6185-42fd-bbf1-969a818c8670",
+              "terminalKind": "embedded",
+              "profileId": "pwsh",
+              "exitCode": null
+            },
+            {
+              "id": "7f5a5ce5-e4a1-42be-bc63-5dd6c8ad1ed3",
+              "sessionId": "b4653d05-3d3b-41ec-9818-a3de9ecabe44",
+              "title": "Build",
+              "cwd": "P:\\workshop\\Windows_Worshop\\oira666\\shellfox-ghostti\\tests\\visual-parity\\fixtures\\project",
+              "ordinal": 1,
+              "createdAt": "2026-11-13T22:32:32.183Z",
+              "lifecycle": "open",
+              "status": "waiting",
+              "agents": 0,
+              "monitoringReason": "The shell is alive; no matched agent process is running.",
+              "error": null,
+              "generation": "bfd93a66-b082-4d01-8b90-3ee33143abb5",
+              "terminalKind": "embedded",
+              "profileId": "pwsh",
+              "exitCode": null
+            }
+          ],
+          "env": [],
+          "window": {
+            "state": "unsupported",
+            "canReopen": false,
+            "canRegister": false,
+            "reason": "Embedded tabs do not use native window ownership or external shell registration."
+          },
+          "canFocus": true,
+          "canAddTab": true,
+          "controlReason": "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands.",
+          "error": null,
+          "terminalLifetime": "app-owned",
+          "shellSurvival": false
+        }
+      ],
+      "settings": {
+        "version": 1,
+        "terminalEnv": [],
+        "autoUpdate": true,
+        "pythonPath": null,
+        "accentColor": "#ec4899",
+        "backgroundColor": "#111016",
+        "adapterId": "embedded-pty",
+        "shellId": "pwsh",
+        "shellExecutable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "terminalProfileId": "pwsh",
+        "processRules": [
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5870",
+            "label": "Pi",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "pi",
+              "pi.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@earendil-works/pi-coding-agent/dist/cli.js",
+              "@mariozechner/pi-coding-agent/dist/cli.js",
+              "@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+              "@mariozechner/pi-coding-agent/dist/bundle/cli.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5871",
+            "label": "Claude",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "claude",
+              "claude.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@anthropic-ai/claude-code/cli.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5872",
+            "label": "Codex",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "codex",
+              "codex.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "@openai/codex/bin/codex.js"
+            ]
+          },
+          {
+            "id": "f919fb1a-fb03-4a93-8b9b-1cde465d5874",
+            "label": "OpenCode",
+            "enabled": true,
+            "executableBasenames": [
+              "node.exe",
+              "node",
+              "nodejs",
+              "bun.exe",
+              "bun"
+            ],
+            "processNames": [
+              "opencode",
+              "opencode.exe"
+            ],
+            "executablePaths": [],
+            "scriptPathSuffixes": [
+              "opencode-ai/bin/opencode"
+            ]
+          }
+        ],
+        "historyPageSize": 10,
+        "sessionSettleHours": 24,
+        "sessionDeleteHours": 720
+      },
+      "probe": {
+        "platform": "win32",
+        "arch": "x64",
+        "adapterId": "embedded-pty",
+        "available": true,
+        "terminalVersion": null,
+        "capabilities": {
+          "createWindow": true,
+          "addTab": true,
+          "focusWindow": true,
+          "activateTab": true,
+          "splitPane": false,
+          "attachExisting": false,
+          "closeTerminal": true,
+          "commandExitStatus": false,
+          "processTracking": true,
+          "explorerContextMenu": true,
+          "embeddedTerminal": true,
+          "terminalLifetime": "app-owned",
+          "shellSurvival": false
+        },
+        "shells": [
+          {
+            "id": "pwsh",
+            "executable": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+            "available": true,
+            "reason": null
+          },
+          {
+            "id": "windows-powershell",
+            "executable": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            "available": true,
+            "reason": null
+          }
+        ],
+        "reasons": [
+          "Terminals run while their owning Shellfox host runs. Disconnecting a client does not stop them; stopping the host ends them. Restarting does not restore commands."
+        ]
+      },
+      "explorer": {
+        "supported": true,
+        "installed": true,
+        "folderItemInstalled": true,
+        "backgroundInstalled": true,
+        "reason": "Windows 11: use Show more options (Shift+F10) in Explorer."
+      },
+      "cli": {
+        "supported": true,
+        "installed": true,
+        "command": "shellfox",
+        "reason": null
+      }
+    }
+  }
+]

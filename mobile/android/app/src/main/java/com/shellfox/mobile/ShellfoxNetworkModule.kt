@@ -1,6 +1,5 @@
 package com.shellfox.mobile
 
-import android.os.PowerManager
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -83,6 +82,18 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
   }
 
   @ReactMethod
+  fun startWithControlServer(hostname: String, controlURL: String, promise: Promise) = submit(control, promise, start = true) {
+    val originBytes = controlURL.toByteArray(Charsets.UTF_8)
+    require(originBytes.size <= 2048)
+    // State isolation only, never a URL validator or authority stamp.
+    val stateId = java.security.MessageDigest.getInstance("SHA-256").digest(originBytes)
+      .take(16).joinToString("") { (it.toInt() and 255).toString(16).padStart(2, '0') }
+    val directory = File(reactApplicationContext.noBackupFilesDir, "shellfox-tailscale-loopback-$stateId")
+    Mobile.startWithControlServer(directory.absolutePath, hostname, controlURL)
+    Mobile.status()
+  }
+
+  @ReactMethod
   fun status(promise: Promise) = submit(control, promise) { Mobile.status() }
 
   @ReactMethod
@@ -98,15 +109,15 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
   fun hosts(promise: Promise) = submit(requests, promise) { Mobile.hosts() }
 
   @ReactMethod
-  fun request(peerId: String, path: String, body: String, promise: Promise) = submit(if (path == "/v1/events") polls else requests, promise) {
-    // Finish a foreground-started approval POST across screen-off. Never keep an idle client awake.
-    val wakeLock = if (path == "/v1/pair") {
-      reactApplicationContext.getSystemService(PowerManager::class.java)
-        ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Shellfox:PairApproval")
-        ?.apply { acquire(35_000L) }
-    } else null
-    try { Mobile.request(peerId, path, body) }
-    finally { if (wakeLock?.isHeld == true) wakeLock.release() }
+  fun request(peerId: String, path: String, body: String, promise: Promise) {
+    val endpoint = MobileEndpoint.fromPath(path)
+    if (endpoint == null) {
+      promise.reject("NETWORK_ERROR", "Network operation failed.")
+      return
+    }
+    submit(if (endpoint.isPoll) polls else requests, promise) {
+      withPairApprovalWakeLock(reactApplicationContext, path, 35_000L) { Mobile.request(peerId, path, body) }
+    }
   }
 
   @ReactMethod

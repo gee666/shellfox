@@ -1,10 +1,12 @@
+import { registerEndpointRoot } from '../../tests/unit/endpoint-permission-model';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, chmod, stat, writeFile, rename, unlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createConnection, createServer, type Socket } from 'node:net';
 import { startControlServer, handleControlRequest, type ControlServer } from './control-server';
 import { requestControl } from './control-client';
+import { assertControlPermissions } from './control-permission.assertions';
 import { controlEndpointPath, CONTROL_REQUEST_BYTES, CONTROL_TIMEOUT_MS } from './control-protocol';
 import { publishControlEndpoint } from './control-endpoint';
 import { EmbeddedSessionService } from './terminal/service';
@@ -31,7 +33,7 @@ async function raw(payload: string, halfClose = false): Promise<string> {
 describe('authenticated live control transport', () => {
   beforeAll(async () => {
     const root = path.join(process.cwd(), 'tmp'); await mkdir(root, { recursive: true });
-    directory = await mkdtemp(path.join(root, 'control-test-'));
+    directory = await mkdtemp(path.join(root, 'control-test-')); registerEndpointRoot(directory, ['control']);
     const f = factoryFixture();
     service = new EmbeddedSessionService(new MemoryRepository(), new PtyBackend(f.options), () => ({ setWatch() {}, dispose() {} }));
     await service.initialize();
@@ -166,21 +168,8 @@ describe('authenticated live control transport', () => {
     }
   });
   it('publishes private endpoint credentials and refuses unsafe permissions', async () => {
-    const file = controlEndpointPath(directory);
-    if (process.platform === 'win32') {
-      // Replace with an inherited, unprotected file. Client must fail closed.
-      const backup = file + '.backup', inherited = file + '.inherited';
-      await writeFile(inherited, JSON.stringify(endpoint)); await rename(file, backup); await rename(inherited, file);
-      try { await expect(requestControl(directory, { action: 'list' })).rejects.toThrow('unsafe'); }
-      finally { await unlink(file); await rename(backup, file); }
-      expect((await requestControl(directory, { action: 'list' })).sessions).toHaveLength(1);
-    } else {
-      expect((await stat(file)).mode & 0o777).toBe(0o600);
-      expect((await stat(path.dirname(file))).mode & 0o777).toBe(0o700);
-      await chmod(file, 0o644);
-      try { await expect(requestControl(directory, { action: 'list' })).rejects.toThrow('unsafe'); }
-      finally { await chmod(file, 0o600); }
-    }
+    // Windows exercises the permission protocol model; Unix checks real fixture modes.
+    await assertControlPermissions(directory, endpoint);
   }, 15000);
   it('rejects malformed, oversized or non-loopback endpoint files before connecting', async () => {
     const file = controlEndpointPath(directory), original = await readFile(file, 'utf8');
@@ -217,7 +206,7 @@ describe('authenticated live control transport', () => {
 
 it('the client rejects invalid responses and times out unresponsive endpoints', async () => {
   const root = path.join(process.cwd(), 'tmp'); await mkdir(root, { recursive: true });
-  const dir = await mkdtemp(path.join(root, 'control-client-'));
+  const dir = await mkdtemp(path.join(root, 'control-client-')); registerEndpointRoot(dir, ['control']);
   const sockets = new Set<Socket>();
   let reply = '{"ok":true,"response":{"unknown":true}}\n';
   let connected: (() => void) | undefined;
@@ -244,7 +233,7 @@ it('the client rejects invalid responses and times out unresponsive endpoints', 
 
 it('does not remove credentials published by a newer server', async () => {
   const root = path.join(process.cwd(), 'tmp'); await mkdir(root, { recursive: true });
-  const dir = await mkdtemp(path.join(root, 'control-replacement-'));
+  const dir = await mkdtemp(path.join(root, 'control-replacement-')); registerEndpointRoot(dir, ['control']);
   const a = { version: 1, host: '127.0.0.1', port: 1234, secret: 'a'.repeat(64) };
   const remove = await publishControlEndpoint(dir, a);
   try {

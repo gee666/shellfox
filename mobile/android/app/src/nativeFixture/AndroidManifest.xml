@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" tools:node="remove" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+    <application android:name="com.shellfox.mobile.NativeFixtureApplication"
+        android:label="Shellfox native fixture" tools:replace="android:name,android:label">
+        <activity android:name="com.shellfox.mobile.MainActivity" tools:node="remove" />
+        <provider android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates" tools:node="remove" />
+    </application>
+</manifest>

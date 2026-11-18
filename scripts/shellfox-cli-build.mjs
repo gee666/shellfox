@@ -5,6 +5,7 @@ import { stageSshRuntime } from './ssh-runtime.mjs';
 import { stageNodeNativeModules } from './node-runtime-native.mjs';
 import { root, runNode } from './common.mjs';
 import { writeHeadlessSupport } from './headless-support.mjs';
+import { buildHelperWithAnchor } from './tailscale.mjs';
 
 /** Static bash/zsh completion files, installed system-wide by the Debian package. */
 export async function writeCompletionFiles(directory) {
@@ -21,13 +22,13 @@ export async function writeCompletionFiles(directory) {
 }
 
 /** The same standalone CLI bundle and resources are used by builds and package smoke tests. */
-export async function buildShellfoxCli(output) {
+export async function buildShellfoxCli(output, helperSha256 = buildHelperWithAnchor().sha256) {
   const version = JSON.parse(await readFile('package.json', 'utf8')).version;
   await build({ bundle: true, platform: 'node', format: 'cjs', target: 'node24',
     external: ['electron', 'better-sqlite3', 'node-pty', 'cpu-features', '*.node'],
     loader: { '.sh': 'text', '.ps1': 'text' }, sourcemap: false, minifySyntax: true, logLevel: 'info',
     entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: path.join(output, 'main', 'cli.cjs'),
-    define: { __SHELLFOX_VERSION__: JSON.stringify(version) } });
+    define: { __SHELLFOX_VERSION__: JSON.stringify(version), __TAILSCALE_HELPER_SHA256__: JSON.stringify(helperSha256) } });
   await writeCompletionFiles(path.join(output, 'completion'));
   await rm(path.join(output, 'util'), { recursive: true, force: true });
   if (process.platform === 'win32') {

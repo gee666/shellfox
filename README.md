@@ -219,7 +219,7 @@ Or call the helper without installing a shim:
 & .\tmp\build-test\cli\cli-runtime\node.exe .\tmp\build-test\cli\main\cli.cjs --user-data "$PWD\tmp\ssh-dev" ssh
 ```
 
-`pnpm test:unit src/main/ssh` uses an in-process SSH server and real PTYs/shims. `SHELLFOX_SSH_TEST_WSL=1 pnpm test:unit src/main/ssh/client.e2e.test.ts` also tests the Windows Node interop path in Debian. Fixtures cover authentication, host trust/refusal, control bytes, resize, single-connection loss/exit codes, and many short keepalive intervals with replies stalled beyond ssh2's default deadline. macOS and ARM64 execution remain unverified.
+`pnpm test:unit src/main/ssh` runs in-process SSH fixtures with synthetic credentials and a loopback server. The real PTY, shim, and WSL scenarios are excluded and remain on HOLD. See the [unit and native test boundary](docs/verification.md#unit-and-native-test-boundary).
 
 ## Storage, tracking and security
 

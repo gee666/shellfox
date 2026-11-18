@@ -1,0 +1,19 @@
+[package]
+name = "shellfox-protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+local-host = []
+
+[dependencies]
+shellfox-core = { path = "../shellfox-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+regex = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+tokio-util = { version = "0.7", features = ["rt"] }

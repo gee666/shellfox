@@ -6,7 +6,7 @@ import { root, run, runNode } from './common.mjs';
 import { stageNodeRuntime, nodeVersion } from './node-runtime.mjs';
 import { stageNodeNativeModules } from './node-runtime-native.mjs';
 import { sourceDigest } from './source-digest.mjs';
-import { buildHelper, helperTarget } from './tailscale.mjs';
+import { buildHelperWithAnchor, helperTarget } from './tailscale.mjs';
 import { darwinHelpers } from './terminal-native-helpers.mjs';
 import { writeHeadlessSupport } from './headless-support.mjs';
 import { headlessInventory } from './headless-inventory.mjs';
@@ -32,11 +32,12 @@ export async function buildHeadless() {
   mkdirSync(path.join(output, 'app/node_modules'), { recursive: true });
   const node = await stageNodeRuntime(path.join(output, 'bin'));
   const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+  const helperBuild = buildHelperWithAnchor();
   const result = await build({ bundle: true, platform: 'node', format: 'cjs', target: 'node24', metafile: true,
     external: ['better-sqlite3', 'node-pty', 'cpu-features', '*.node'],
     loader: { '.sh': 'text', '.ps1': 'text' }, sourcemap: false, minifySyntax: true,
     entryPoints: ['src/main/platform/shellfox-cli-entry.ts'], outfile: path.join(output, 'app/main.cjs'),
-    define: { __SHELLFOX_VERSION__: JSON.stringify(manifest.version) },
+    define: { __SHELLFOX_VERSION__: JSON.stringify(manifest.version), __TAILSCALE_HELPER_SHA256__: JSON.stringify(helperBuild.sha256) },
     plugins: [{ name: 'no-headless-ui', setup(builder) {
       builder.onResolve({ filter: /^(electron|react|react-dom|@xterm\/xterm|@xterm\/addon-fit)(\/|$)/ }, args => ({ errors: [{ text: 'Headless code must not import ' + args.path }] }));
     } }],
@@ -53,7 +54,6 @@ export async function buildHeadless() {
     mkdirSync(path.join(resources, 'terminal-native'), { recursive: true });
     for (const { basename } of darwinHelpers) copyFileSync(path.join(root, 'tmp/terminal-native', `darwin-${process.arch}`, basename), path.join(resources, 'terminal-native', basename));
   }
-  buildHelper();
   cpSync(helperTarget().directory, path.join(resources, 'tailscale'), { recursive: true });
   // ssh2 resolves ../util from the bundle's directory, as in the desktop CLI.
   if (process.platform === 'win32') {

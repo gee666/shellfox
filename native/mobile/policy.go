@@ -9,7 +9,8 @@ import (
 )
 
 // Keep these restrictions aligned with native/tailscale/helper.go and bridge.go.
-// Mobile never accepts a URL, port, IP address, method, or caller-supplied headers.
+// Peer requests never accept a URL, port, IP address, method, or caller-supplied
+// headers. Explicit loopback control-server startup is a separate validated API.
 const servicePort = "52743"
 const bodyLimit = 1024 * 1024
 const responseLimit = 8 * 1024 * 1024
@@ -23,10 +24,15 @@ type peer struct {
 
 func allowedPath(path string) bool {
 	switch path {
-	case "/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect":
+	case "/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect",
+		"/v2/discover", "/v2/pair", "/v2/request", "/v2/events", "/v2/disconnect":
 		return true
 	}
 	return false
+}
+
+func isEventPath(path string) bool {
+	return path == "/v1/events" || path == "/v2/events"
 }
 
 func tailnetAddress(ip netip.Addr) bool {

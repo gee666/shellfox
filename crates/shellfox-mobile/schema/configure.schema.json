@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Shellfox mobile terminal configuration v1",
+  "description": "UTF-8 JSON at most16384 bytes. Native renderer applies selection/cursor/background colors only after Rust validation succeeds. Reset preserves parser colors and native renderer retains its config.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "foreground",
+    "background"
+  ],
+  "properties": {
+    "foreground": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "background": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "cursor": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "palette": {
+      "anyOf": [
+        {
+          "type": "array",
+          "minItems": 256,
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "selectionBackground": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "selectionForeground": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    }
+  }
+}

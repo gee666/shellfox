@@ -40,6 +40,22 @@
     "@types/react": "19.2.14",
     "typescript": "5.9.3"
   },
+  "codegenConfig": {
+    "name": "ShellfoxRustSpecs",
+    "type": "all",
+    "jsSrcsDir": "./src/rust-client/specs",
+    "android": {
+      "javaPackageName": "com.shellfox.mobile"
+    },
+    "ios": {
+      "componentProvider": {
+        "ShellfoxRustTerminal": "ShellfoxRustTerminalComponentView"
+      },
+      "modulesProvider": {
+        "NativeShellfoxRustClient": "ShellfoxRustClient"
+      }
+    }
+  },
   "engines": {
     "node": ">=22.11.0"
   }

@@ -116,6 +116,8 @@ export async function runHost(options: HostRuntimeOptions): Promise<void> {
     }); };
     for (const signal of signals) process.on(signal, stop);
     runtime.onStopped(error => { cleanup(); if (readyError || error || runtime.ownership.lost) reject(readyError ?? error ?? runtime.ownership.lost); else resolve(); });
-    try { options.onReady?.(runtime.status()); } catch (error) { readyError = error; void runtime.stop().catch(reject); }
+    // A failed stop does not settle the foreground command or let its CLI exit
+    // while the original shutdown is still pending. Keep the signal retry path.
+    try { options.onReady?.(runtime.status()); } catch (error) { readyError = error; stop(); }
   });
 }
