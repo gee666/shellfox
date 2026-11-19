@@ -4,7 +4,7 @@ use std::fs;
 
 #[test]
 fn imports_stable_ids_and_rejects_incompatible_records() {
-    let root = tempfile::tempdir().unwrap();
+    let root = crate::tests::scratch();
     let host = Host::open(root.path()).unwrap();
     let mut report = Report::default();
     import_approvals(&host, br#"{"version":1,"approvals":[{"peerId":"n-phone","hostname":"Phone","approvedAt":"2026-11-18T00:00:00.000Z"},{"peerId":"n-legacy","hostname":"Legacy","approvedAt":"invalid"}]}"#, &mut report).unwrap();
@@ -17,7 +17,7 @@ fn imports_stable_ids_and_rejects_incompatible_records() {
 
 #[test]
 fn imports_electron_write_formats_once_without_changing_source_files() {
-    let root = tempfile::tempdir().unwrap();
+    let root = crate::tests::scratch();
     let electron = root.path().join("Shellfox");
     let data = electron.join("rust-v1/host");
     let control = data.join("rust-service-v1");

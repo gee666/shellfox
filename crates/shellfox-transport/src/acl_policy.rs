@@ -105,8 +105,9 @@ mod tests {
     fn macos_checks_native_acl_and_clears_only_the_held_resource() -> io::Result<()> {
         let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
         fs::create_dir_all(&base)?;
-        let dir = Scratch(base.join(format!("mac-acl-{}", std::process::id())));
-        fs::create_dir(&dir.0)?;
+        let path = base.join(format!("mac-acl-{}", std::process::id()));
+        fs::create_dir(&path)?;
+        let dir = Scratch(path);
         let held = fs::File::open(&dir.0)?;
         verify(&held, false)?;
         assert!(Command::new("/bin/chmod")

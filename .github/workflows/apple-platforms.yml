@@ -64,6 +64,14 @@ jobs:
       - name: Check desktop, including the wry/WKWebView HTML preview
         run: cargo check --locked -p shellfox-desktop
         timeout-minutes: 25
+      - name: Check the Go helper's native ACL query
+        working-directory: native/tailscale
+        run: |
+          mkdir -p ../../tmp/go-cache ../../tmp/go-mod ../../tmp/go-work
+          GOCACHE="$GITHUB_WORKSPACE/tmp/go-cache" GOMODCACHE="$GITHUB_WORKSPACE/tmp/go-mod" \
+            GOTMPDIR="$GITHUB_WORKSPACE/tmp/go-work" CGO_ENABLED=0 \
+            go test -mod=readonly -run '^TestOwnershipDarwin' -count=1 -timeout=20s .
+        timeout-minutes: 10
       - name: Install JavaScript test fixtures
         run: pnpm install --frozen-lockfile --ignore-scripts
         timeout-minutes: 10
