@@ -10,6 +10,7 @@
 		E07142FC40CC4B0DAFA00001 /* ShellfoxNetwork.mm in Sources */ = {isa = PBXBuildFile; fileRef = E07142FC40CC4B0DAFA00003 /* ShellfoxNetwork.mm */; };
 		E07142FC40CC4B0DAFA00002 /* ShellfoxUpdates.mm in Sources */ = {isa = PBXBuildFile; fileRef = E07142FC40CC4B0DAFA00004 /* ShellfoxUpdates.mm */; };
 		0C80B921A6F3F58F76C31292 /* libPods-ShellfoxMobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-ShellfoxMobile.a */; };
+		2D16E6881FA4F8E400B85C8A /* PhotosUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2D16E6891FA4F8E400B85C8A /* PhotosUI.framework */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		761780EF2CA45674006654EF /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EE2CA45674006654EF /* SceneDelegate.swift */; };
@@ -32,6 +33,7 @@
 		761780EE2CA45674006654EF /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SceneDelegate.swift; path = ShellfoxMobile/SceneDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = ShellfoxMobile/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		2D16E6891FA4F8E400B85C8A /* PhotosUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = PhotosUI.framework; path = System/Library/Frameworks/PhotosUI.framework; sourceTree = SDKROOT; };
 		A531F0000000000000000002 /* ShellfoxDownloads.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ShellfoxMobile/ShellfoxDownloads.mm; sourceTree = "<group>"; };
 		E07142FC40CC4B0DAFA00006 /* ShellfoxFiles.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ShellfoxMobile/ShellfoxFiles.mm; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -42,6 +44,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0C80B921A6F3F58F76C31292 /* libPods-ShellfoxMobile.a in Frameworks */,
+				2D16E6881FA4F8E400B85C8A /* PhotosUI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -69,6 +72,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
+				2D16E6891FA4F8E400B85C8A /* PhotosUI.framework */,
 				5DCACB8F33CDC322A6C60F78 /* libPods-ShellfoxMobile.a */,
 			);
 			name = Frameworks;

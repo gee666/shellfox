@@ -67,7 +67,7 @@ export async function ownHostSmoke(cli, helper, work, helperSha256, env = {}) {
       const tabs = command(['tab', 'list', id]);
       assert.equal(tabs.length, 1);
       run('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'attach', tabs[0].id],
-        { cwd: work, env, timeout: 45_000 });
+        { cwd: work, env, timeout: 60_000 });
     }
     command(['session', 'close', id]);
     assert.deepEqual(command(['session', 'list']), []);

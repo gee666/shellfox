@@ -107,6 +107,10 @@ test('all iOS slices and Pods retain the installed RN minimum', () => {
   const versions = [...read('mobile/ios/ShellfoxMobile.xcodeproj/project.pbxproj').matchAll(/IPHONEOS_DEPLOYMENT_TARGET = ([^;]+);/g)];
   assert.ok(versions.length > 0 && versions.every(m => m[1] === '15.1'));
 });
+test('the app links the PhotosUI picker used by the file module', () => {
+  assert.match(read('mobile/ios/ShellfoxMobile/ShellfoxFiles.mm'), /#import <PhotosUI\/PhotosUI\.h>/);
+  assert.match(read('mobile/ios/ShellfoxMobile.xcodeproj/project.pbxproj'), /PhotosUI\.framework in Frameworks \*\/,/);
+});
 test('runtime Pod linker settings come from actual rustc output, not guessed frameworks', () => {
   const link = nativeLinkSettings('note: native-static-libs: -lSystem -lc -liconv -framework CoreFoundation -lc\n');
   assert.deepEqual(link, { libraries: ['System', 'c', 'iconv'], frameworks: ['CoreFoundation'] });
