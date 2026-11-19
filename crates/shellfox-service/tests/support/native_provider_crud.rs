@@ -107,7 +107,7 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
             .any(|row| row.id == id && row.name == "updated-owned-only"));
         use shellfox_service::local::{LocalClient, SshRead, SshReadReply};
         let local = LocalClient::connect(&home, &helper, digest).await?;
-        let profiles = local.request(&SshRead::List).await?;
+        let profiles = local.request(&SshRead::List {}).await?;
         ensure!(!serde_json::to_string(&profiles)?.contains("isolated-cli-fixture"));
         ensure!(matches!(profiles, SshReadReply::Profiles(rows) if rows.iter().any(|row| row.id == id && row.has_password)));
         let SshReadReply::Connection(Some(profile)) = local.request(&SshRead::Connection { id }).await? else {

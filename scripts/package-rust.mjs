@@ -121,7 +121,10 @@ function macos(app, artifacts, sign) {
     run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
   }
   run('/usr/bin/ditto', ['-c', '-k', '--keepParent', app, path.join(artifacts, `${stem}.zip`)]);
-  run('/usr/bin/hdiutil', ['create', '-volname', 'Shellfox', '-format', 'UDZO', '-srcfolder', app, path.join(artifacts, `${stem}.dmg`)]);
+  const volume = path.join(path.dirname(app), 'disk-image');
+  mkdirSync(volume);
+  renameSync(app, path.join(volume, path.basename(app)));
+  run('/usr/bin/hdiutil', ['create', '-volname', 'Shellfox', '-format', 'UDZO', '-srcfolder', volume, path.join(artifacts, `${stem}.dmg`)]);
 }
 
 export async function packageRust({ output = path.join(scratchRoot, 'rust-installers'), testId } = {}) {

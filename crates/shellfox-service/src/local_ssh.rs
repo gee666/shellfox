@@ -15,7 +15,7 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
 pub enum SshRead {
-    List,
+    List {},
     Connection { id: Uuid },
 }
 impl Validate for SshRead {
@@ -151,7 +151,7 @@ pub fn read_ssh_profiles(
 ) -> Result<SshReadReply> {
     let store = directory.map(|directory| ProfileStore::new(directory.clone()));
     match request {
-        SshRead::List => Ok(SshReadReply::Profiles(
+        SshRead::List {} => Ok(SshReadReply::Profiles(
             store
                 .map(|s| s.list_for_cli())
                 .transpose()?

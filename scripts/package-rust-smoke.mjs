@@ -30,7 +30,16 @@ try {
     run('/usr/bin/ditto', ['-x', '-k', path.join(directory, `${stem}.zip`), extracted]);
     const app = path.join(extracted, 'Shellfox.app');
     run('/usr/bin/plutil', ['-lint', path.join(app, 'Contents/Info.plist')]);
-    run('/usr/bin/hdiutil', ['verify', path.join(directory, `${stem}.dmg`)]);
+    const image = path.join(directory, `${stem}.dmg`);
+    const mount = path.join(work, 'disk image');
+    mkdirSync(mount);
+    run('/usr/bin/hdiutil', ['attach', '-readonly', '-nobrowse', '-noautoopen', '-mountpoint', mount, image]);
+    try {
+      const diskApp = path.join(mount, 'Shellfox.app');
+      assert.equal(fileHash(path.join(diskApp, 'Contents/MacOS/Shellfox')), fileHash(path.join(app, 'Contents/MacOS/Shellfox')));
+    } finally {
+      run('/usr/bin/hdiutil', ['detach', mount]);
+    }
     if (process.env.SHELLFOX_MAC_UNSIGNED !== '1') {
       run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
     }

@@ -98,7 +98,7 @@ mod tests {
         let method = super::super::SshRead::METHOD;
         assert!(matches!(
             PrivateRequest::decode(envelope(method, r#"{"action":"list"}"#).as_bytes()),
-            Ok((_, PrivateRequest::SshRead(super::super::SshRead::List)))
+            Ok((_, PrivateRequest::SshRead(super::super::SshRead::List {})))
         ));
         for bad in [
             r#"{"action":"save"}"#,

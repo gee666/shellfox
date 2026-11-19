@@ -274,7 +274,7 @@ impl Store {
         }
     }
     async fn list(&self) -> Result<Vec<ProfileDto>> {
-        match self.read(SshRead::List).await? {
+        match self.read(SshRead::List {}).await? {
             SshReadReply::Profiles(profiles) => Ok(profiles),
             _ => bail!("Invalid SSH profile list."),
         }
