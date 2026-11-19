@@ -82,17 +82,16 @@ const sim = (...args) => command('xcrun', ['simctl', ...args]);
 let control, host, tests;
 let installed = false;
 try {
+  control = child(path.join(lane, 'testcontrol'), [port]);
+  await until('loopback Tailscale control plane HTTP readiness', 30_000, async () => {
+    live(control, 'Control plane');
+    try {
+      const ready = await fetch(`${controlURL}/_shellfox_ci_ready`, { redirect: 'error', signal: AbortSignal.timeout(750) });
+      return ready.status === 204 && ready.headers.get('X-Shellfox-Fixture') === 'testcontrol';
+    } catch { return false; }
+  });
   if (simulator.state !== 'Booted') sim('boot', simulator.udid);
   command('xcrun', ['simctl', 'bootstatus', simulator.udid, '-b'], { timeout: 180_000 });
-  control = child(path.join(lane, 'testcontrol'), [port]);
-  try {
-    await until('loopback Tailscale control plane', 20_000, () => {
-      live(control, 'Control plane');
-      return control.output.split(/\r?\n/).includes(`SHELLFOX_TESTCONTROL_READY ${controlURL}`);
-    });
-  } catch (error) {
-    throw new Error(`Control fixture did not report its loopback listener. Output: ${JSON.stringify(control.output)}`, { cause: error });
-  }
   host = child(cli, [...flags, 'host', 'serve']);
   await until('empty isolated Rust host', 30_000, () => {
     live(host, 'Rust host');

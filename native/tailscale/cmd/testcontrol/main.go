@@ -3,13 +3,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"tailscale.com/derp/derpserver"
 	"tailscale.com/tailcfg"
@@ -33,11 +36,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	controlURL := "http://" + listener.Addr().String()
+	fmt.Fprintln(os.Stderr, "Bound loopback control listener:", controlURL)
 	relay := derpserver.New(key.NewNode(), logger.Discard)
 	defer relay.Close()
 	derp := httptest.NewTLSServer(derpserver.Handler(relay))
 	defer derp.Close()
+	fmt.Fprintln(os.Stderr, "Started loopback DERP relay")
 	control := &testcontrol.Server{
+		ExplicitBaseURL:  controlURL,
 		AllNodesSameUser: true,
 		Logf:             logger.Discard,
 		DERPMap: &tailcfg.DERPMap{Regions: map[tailcfg.DERPRegionID]*tailcfg.DERPRegion{1: {
@@ -47,15 +54,21 @@ func main() {
 			}},
 		}}},
 	}
-	server := httptest.NewUnstartedServer(control)
-	_ = server.Listener.Close()
-	server.Listener = listener
-	control.HTTPTestServer = server
-	server.Start()
-	defer server.Close()
-	fmt.Println("SHELLFOX_TESTCONTROL_READY", server.URL)
+	mux := http.NewServeMux()
+	mux.Handle("/", control)
+	mux.HandleFunc("GET /_shellfox_ci_ready", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Shellfox-Fixture", "testcontrol")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	<-ctx.Done()
-	server.CloseClientConnections()
+	go func() {
+		<-ctx.Done()
+		_ = server.Close()
+	}()
+	if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
