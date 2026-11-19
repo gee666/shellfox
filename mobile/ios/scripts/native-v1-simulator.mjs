@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileHash, root, run, scratchRoot } from '../../../scripts/rust-package-common.mjs';
@@ -114,10 +114,21 @@ try {
   // Leave the waiting-for-approval UI on screen before approving the exact pending peer.
   await delay(3_000);
   local('host', 'network', 'peer', pending.id, 'approve');
+  await until('the active PTY outage marker', 180_000, () => {
+    live(tests, 'Native v1 UI test');
+    return existsSync(path.join(project, '.ios-outage-ready'));
+  });
+  // Withdraw the real embedded host listener while the simulator is attached.
+  // The local host and its PTY stay running throughout the outage.
+  await delay(750);
+  assert.equal(local('host', 'network', 'off').enabled, false);
+  await delay(12_000);
+  live(tests, 'Native v1 UI test');
+  assert.equal(local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci').enabled, true);
   await until('native v1 UI tests to finish', 12 * 60_000, () => tests.finished);
   assert.equal(tests.status, 0, tests.output);
   assert.match(readFileSync(fixture, 'utf8'), /saved-from-ios/, 'Rust host did not commit the simulator file save');
-  console.log('Native v1 simulator connected, paired, attached, echoed, resized, reattached, and saved to the isolated Rust host.');
+  console.log('Native v1 simulator connected, paired, attached, echoed, resized, recovered from a real outage, reattached after backgrounding, and saved to the isolated Rust host.');
 } finally {
   if (installed) {
     try { sim('io', simulator.udid, 'screenshot', path.join(evidence, 'last-screen.png')); } catch { /* Preserve the original failure. */ }

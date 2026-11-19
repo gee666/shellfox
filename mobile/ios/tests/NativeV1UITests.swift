@@ -47,6 +47,21 @@ final class NativeV1UITests: XCTestCase {
     XCTAssertGreaterThan(landscape.columns, portrait.columns)
     screenshot("03-native-resized-landscape")
 
+    let connection = app.descendants(matching: .any)["connection-status"].firstMatch
+    wait("connected before the outage") { connection.exists && connection.label == "Connection connected" }
+    app.typeText("printf ready > .ios-outage-ready\n")
+    wait("the attached simulator observed real host loss") {
+      connection.exists && ["Connection disconnected", "Connection reconnecting..."].contains(connection.label)
+    }
+    screenshot("04-native-host-offline")
+    wait("the same session reconnects to the restored host", timeout: 75) {
+      connection.exists && connection.label == "Connection connected" && terminal.exists
+    }
+    focusKeyboard(app, terminal: terminal)
+    app.typeText("printf '%s%s:%s\\n' SF_ IOS_RECONNECTED \"$SFX_CI_TOKEN\"\n")
+    wait("the same PTY after network reconnect") { self.value(terminal).contains("SF_IOS_RECONNECTED:retained") }
+    screenshot("05-native-reconnected")
+
     XCUIDevice.shared.press(.home)
     wait("app entered background") {
       app.state == .runningBackground || app.state == .runningBackgroundSuspended
@@ -56,7 +71,7 @@ final class NativeV1UITests: XCTestCase {
     focusKeyboard(app, terminal: terminal)
     app.typeText("printf '%s%s:%s\\n' SF_ IOS_RESUMED \"$SFX_CI_TOKEN\"\n")
     wait("retained PTY after foreground reattach") { self.value(terminal).contains("SF_IOS_RESUMED:retained") }
-    screenshot("04-native-reattached")
+    screenshot("06-native-foreground-reattached")
 
     XCUIDevice.shared.orientation = .portrait
     let files = app.buttons["Files"]
@@ -77,7 +92,7 @@ final class NativeV1UITests: XCTestCase {
     wait("file is ready to save") { save.exists && save.isEnabled }
     save.tap()
     wait("file saved") { save.exists && !save.isEnabled && save.label != "Saving" }
-    screenshot("05-native-file-saved")
+    screenshot("07-native-file-saved")
   }
 
   private func focusKeyboard(_ app: XCUIApplication, terminal: XCUIElement) {

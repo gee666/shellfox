@@ -9,31 +9,56 @@
 @implementation SFClientDeferredCall
 @end
 
+static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *status) {
+  id value = work(status);
+  uint64_t operation = 0;
+  if (*status == SFM_OK && [value isKindOfClass:NSString.class] && SFParseId(value, &operation))
+    [client.mutations addObject:value];
+  return value;
+}
+
 @implementation SFClientStore (Polling)
-- (void)whenDrained:(NSString *)identifier work:(SFClientDeferredWork)work done:(SFClientDeferredDone)done {
+- (void)whenDrained:(NSString *)identifier admission:(SFClientAdmission)admission
+              work:(SFClientDeferredWork)work done:(SFClientDeferredDone)done {
   SFClientRecord *client = [self client:identifier];
   if (!client || client.closing) { done(nil, SFM_STALE); return; }
-  if (client.pollFailure != SFM_OK) { done(nil, client.pollFailure); return; }
+  if (client.pollFailure != SFM_OK) {
+    BOOL teardown = admission == SFClientAdmissionV1RetireView || admission == SFClientAdmissionV1Reconnect;
+    if (client.profile != SFM_CLIENT_PROFILE_V1 || !teardown) {
+      done(nil, client.pollFailure); return;
+    }
+    // Unbind is local. Reconnect fences the generation in Rust. Neither
+    // operation treats an uncertain poll as a successful delivery drain.
+    SfmStatus status = SFM_OK;
+    id value = RunWork(client, work, &status);
+    if (status == SFM_OK && admission == SFClientAdmissionV1Reconnect)
+      [self clearFailedPollAfterV1Fence:client];
+    done(value, status);
+    return;
+  }
   if (client.pendingCalls.count >= 8) { done(nil, SFM_BUSY); return; }
   SFClientDeferredCall *call = [SFClientDeferredCall new];
   call.epoch = client.authorityEpoch; call.work = work; call.done = done;
   [client.pendingCalls addObject:call];
-  // Wait for the original normal result. Cancellation aborts the SDK future
-  // and is not proof that a delivery result was processed.
-
+  // Wait for the original normal result. Canceling does not drain delivery.
 }
 - (void)drainClient:(SFClientRecord *)client {
-  while (!client.closing && !client.pollOperation && !client.mutations.count &&
+  while (!client.closing && client.pollFailure == SFM_OK && !client.pollOperation && !client.mutations.count &&
     [self ownerDrained:client] && client.pendingCalls.count) {
     SFClientDeferredCall *call = client.pendingCalls.firstObject;
     [client.pendingCalls removeObjectAtIndex:0];
     if (call.epoch != client.authorityEpoch) { call.done(nil, SFM_STALE); continue; }
-    SfmStatus status = SFM_OK; id value = call.work(&status);
-    uint64_t operation = 0;
-    if (status == SFM_OK && [value isKindOfClass:NSString.class] && SFParseId(value, &operation))
-      [client.mutations addObject:value];
+    SfmStatus status = SFM_OK;
+    id value = RunWork(client, call.work, &status);
     call.done(value, status);
   }
+}
+- (void)clearFailedPollAfterV1Fence:(SFClientRecord *)client {
+  if (client.profile != SFM_CLIENT_PROFILE_V1 || client.pollFailure == SFM_OK) return;
+  client.pollOperation = nil;
+  client.pollFailure = SFM_OK;
+  client.polling = NO;
+  client.authorityEpoch++;
 }
 - (void)retirePending:(SFClientRecord *)client {
   client.polling = NO; client.authorityEpoch++;
@@ -92,7 +117,7 @@
   BOOL denied = [result[@"ok"] isKindOfClass:NSNumber.class] && ![result[@"ok"] boolValue];
   NSDictionary *error = [result[@"error"] isKindOfClass:NSDictionary.class] ? result[@"error"] : @{};
   NSString *errorCode = denied ? ([error[@"code"] isKindOfClass:NSString.class] ? error[@"code"] : @"remote") : @"";
-  client.polling = [connection[@"status"] isEqual:@"connected"];
+  client.polling = client.pollFailure == SFM_OK && [connection[@"status"] isEqual:@"connected"];
   NSString *key;
   if (observer) {
     id binding = connection[@"binding"];

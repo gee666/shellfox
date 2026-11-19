@@ -193,10 +193,10 @@ jobs:
             -destination 'generic/platform=iOS Simulator' -derivedDataPath tmp/ios-fixture-derived \
             ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build-for-testing
         timeout-minutes: 25
-      - name: Connect, approve, attach, echo, rotate, reattach and save on iPad simulator
+      - name: Native v1 pairing, PTY, rotation, live outage, foreground recovery and file save
         if: ${{ !cancelled() && steps.ui-app.outcome == 'success' }}
         run: node mobile/ios/scripts/native-v1-simulator.mjs
-        timeout-minutes: 18
+        timeout-minutes: 22
       - name: Export UI screenshots from the XCTest result
         if: always()
         run: |

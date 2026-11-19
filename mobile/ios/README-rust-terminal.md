@@ -94,7 +94,7 @@ The standalone header contract can also be syntax-checked from an x64 MSVC devel
 
 ## Native v1 simulator smoke
 
-`Apple platform acceptance` on `experiment/ghostty-rust` builds a separate simulator bundle with the regular app code. The runner launches it with `--shellfox-native-v1 --shellfox-control-url` against a loopback Tailscale test control plane and a Rust CLI host. The test approves the simulator through the host CLI, checks shell input and output, rotates an iPad and checks the new PTY size, backgrounds and reattaches to the same shell, and verifies a file edited in the app changed on disk. The run uploads the XCTest result and screenshots in `ios-simulator-results`. It does not change the default iOS terminal or use a real tailnet or signing identity.
+`Apple platform acceptance` on `experiment/ghostty-rust` builds a separate simulator bundle with the regular app code. The runner launches it with `--shellfox-native-v1 --shellfox-control-url` against a loopback Tailscale test control plane and a Rust CLI host. The test approves the simulator through the host CLI and checks shell input, output and PTY size before and after iPad rotation. It stops and restarts the real host network listener, proves the attached session reconnects to the same shell, then backgrounds and foregrounds the app. It also checks that a file edit made in the app changed the host file on disk. The run uploads the XCTest result and screenshots in `ios-simulator-results`. It does not change the default iOS terminal or use a real tailnet or signing identity.
 
 ## Verification status
 

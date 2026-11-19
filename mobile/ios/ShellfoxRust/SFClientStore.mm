@@ -121,10 +121,14 @@
   return SFM_OK;
 }
 - (void)startDisconnect:(SFClientRecord *)client {
-  if (client.disconnectOperation || client.pollOperation || client.mutations.count || ![self ownerDrained:client]) return;
+  BOOL failedV1 = client.profile == SFM_CLIENT_PROFILE_V1 && client.pollFailure != SFM_OK;
+  if (client.disconnectOperation || (client.pollOperation && !failedV1) || client.mutations.count || ![self ownerDrained:client]) return;
   uint64_t operation = 0;
   SfmStatus status = [client functions].disconnect(client.handle, &operation);
-  if (status == SFM_OK) client.disconnectOperation = SFDecimal(operation);
+  if (status == SFM_OK) {
+    [self clearFailedPollAfterV1Fence:client];
+    client.disconnectOperation = SFDecimal(operation);
+  }
   else if (status != SFM_BUSY) { client.disconnectFinished = YES; client.closeStatus = status; }
 }
 - (void)finishClose:(SFClientRecord *)client {
@@ -283,6 +287,7 @@
   SFTerminal *terminal = [[SFOwner shared] terminal:identifier];
   if (!client || client.closing || !terminal) return SFM_STALE;
   if (client.profile != SFM_CLIENT_PROFILE_V1 || terminal.deliveryOnly) return SFM_INVALID;
+  if (client.pollFailure != SFM_OK) return client.pollFailure;
   uint64_t operation = 0;
   return sfm_client_terminal_write_ex(client.handle, terminal.handle, (const uint8_t *)bytes.bytes, bytes.length, hint, &operation);
 }
@@ -308,12 +313,14 @@
   if (terminal.hostEncoding) return sfm_manager_v2_terminal_resize(client.handle, terminal.handle, columns, rows, &operation);
 #endif
   if (client.profile != SFM_CLIENT_PROFILE_V1) return SFM_INVALID;
+  if (client.pollFailure != SFM_OK) return client.pollFailure;
   return sfm_client_terminal_resize(client.handle, terminal.handle, columns, rows, &operation);
 }
 - (SfmStatus)consumedTerminal:(NSString *)identifier sequence:(uint64_t)sequence {
   SFClientRecord *client = _clients[_bindings[identifier]];
   SFTerminal *terminal = [[SFOwner shared] terminal:identifier];
   if (!client || !terminal) return SFM_STALE;
+  if (client.profile == SFM_CLIENT_PROFILE_V1 && client.pollFailure != SFM_OK) return client.pollFailure;
   return [client functions].consumed(client.handle, terminal.handle);
 }
 - (SfmStatus)recoveryReady:(NSString *)identifier ready:(uint8_t *)ready {

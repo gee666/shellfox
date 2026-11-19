@@ -77,7 +77,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
       if (actual == SFM_OK) resolve(NSNull.null);
       else reject(@"RUST_CLOSE", @"Native terminal close failed.", nil);
     };
-    if (bound) [[SFClientStore shared] whenDrained:bound work:work done:done];
+    if (bound) [[SFClientStore shared] whenDrained:bound admission:SFClientAdmissionV1RetireView work:work done:done];
     else { SfmStatus actual = SFM_OK; id value = work(&actual); done(value, actual); }
     return nil;
   } resolve:^(id ignored) {} reject:reject];
@@ -144,12 +144,12 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
     return identifier;
   } resolve:resolve reject:reject];
 }
-- (void)afterPoll:(NSString *)identifier work:(SFClientDeferredWork)work
+- (void)afterPoll:(NSString *)identifier admission:(SFClientAdmission)admission work:(SFClientDeferredWork)work
           resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   [self submit:^id(SfmStatus *status) {
     SFClientRecord *original = [self ownedClient:identifier];
     if (!original) { *status = SFM_STALE; return nil; }
-    [[SFClientStore shared] whenDrained:identifier work:^id(SfmStatus *actual) {
+    [[SFClientStore shared] whenDrained:identifier admission:admission work:^id(SfmStatus *actual) {
       if (self->_lifetime->invalidated.load() || [self ownedClient:identifier] != original) { *actual = SFM_STALE; return nil; }
       return work(actual);
     } done:^(id value, SfmStatus actual) {
@@ -171,7 +171,8 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 }
 - (void)start:(NSString *)identifier function:(SfmStatus (*)(SfmClientHandle, uint64_t *))function
       resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self afterPoll:identifier work:^id(SfmStatus *status) {
+  SFClientAdmission admission = function == sfm_client_reconnect ? SFClientAdmissionV1Reconnect : SFClientAdmissionOrdinary;
+  [self afterPoll:identifier admission:admission work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
     if (client.profile != SFM_CLIENT_PROFILE_V1) { *status = SFM_INVALID; return nil; }
@@ -192,7 +193,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 - (void)operation:(NSString *)identifier json:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   NSData *bytes = [json dataUsingEncoding:NSUTF8StringEncoding];
   if (!bytes || bytes.length > SFM_CLIENT_MAX_REQUEST_BYTES) { reject(@"RUST_INVALID", @"Request is too large.", nil); return; }
-  [self afterPoll:identifier work:^id(SfmStatus *status) {
+  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
     if (client.profile != SFM_CLIENT_PROFILE_V1) { *status = SFM_INVALID; return nil; }
@@ -220,7 +221,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 - (void)bindTerminal:(NSString *)identifier tabId:(NSString *)tabId terminalHandle:(NSString *)terminalId
              resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   if (tabId.length > 64) { reject(@"RUST_INVALID", @"Invalid tab ID.", nil); return; }
-  [self afterPoll:identifier work:^id(SfmStatus *status) {
+  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     if (![self ownedClient:identifier] || ![self ownsTerminal:terminalId]) { *status = SFM_STALE; return nil; }
     *status = [[SFClientStore shared] bind:identifier tab:tabId terminal:terminalId];
     return nil;
@@ -228,7 +229,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 }
 - (void)unbindTerminal:(NSString *)identifier terminalHandle:(NSString *)terminalId
                resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self afterPoll:identifier work:^id(SfmStatus *status) {
+  [self afterPoll:identifier admission:SFClientAdmissionV1RetireView work:^id(SfmStatus *status) {
     if (![self ownedClient:identifier] || ![self ownsTerminal:terminalId]) { *status = SFM_STALE; return nil; }
     *status = [[SFClientStore shared] unbind:identifier terminal:terminalId];
     return nil;
@@ -276,7 +277,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 }
 - (void)observerOperation:(NSString *)identifier action:(SfmStatus (^)(SfmClientHandle, uint64_t *))action
                   resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self afterPoll:identifier work:^id(SfmStatus *status) {
+  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
     if (client.profile != SFM_CLIENT_PROFILE_OBSERVER_V2) { *status = SFM_INVALID; return nil; }
@@ -310,7 +311,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 - (void)reconnectObserverV2:(NSString *)identifier clientId:(NSString *)clientId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   NSData *bytes = [clientId dataUsingEncoding:NSUTF8StringEncoding];
   if (bytes.length != 36) { reject(@"RUST_INVALID", @"Invalid client ID.", nil); return; }
-  [self afterPoll:identifier work:^id(SfmStatus *status) {
+  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
     if (client.profile != SFM_CLIENT_PROFILE_OBSERVER_V2) { *status = SFM_INVALID; return nil; }

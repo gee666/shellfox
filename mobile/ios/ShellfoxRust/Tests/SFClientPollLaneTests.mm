@@ -1,0 +1,64 @@
+#import <XCTest/XCTest.h>
+#import "SFClientStore.h"
+
+@interface SFPollFixtureStore : SFClientStore
+@property(nonatomic, strong) SFClientRecord *fixture;
+@end
+@implementation SFPollFixtureStore
+- (SFClientRecord *)client:(NSString *)identifier { return [identifier isEqual:@"1"] ? self.fixture : nil; }
+@end
+
+@interface SFClientPollLaneTests : XCTestCase
+@end
+@implementation SFClientPollLaneTests
+- (SFPollFixtureStore *)storeWithFailedPoll:(uint32_t)profile {
+  SFPollFixtureStore *store = [SFPollFixtureStore new];
+  store.fixture = [SFClientRecord new]; store.fixture.profile = profile;
+  store.fixture.polling = YES; store.fixture.pollOperation = @"19";
+  [store completed:@{@"operationId": @"19", @"status": @(SFM_ENGINE)} client:store.fixture];
+  XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
+  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
+  return store;
+}
+- (void)testFailedV1PollAllowsOnlyLocalRetirementAndAcceptedReconnectFence {
+  SFPollFixtureStore *store = [self storeWithFailedPoll:SFM_CLIENT_PROFILE_V1];
+  [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
+    XCTFail(@"Ordinary work entered an uncertain poll lane"); return nil;
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
+
+  __block BOOL retired = NO;
+  [store whenDrained:@"1" admission:SFClientAdmissionV1RetireView work:^id(SfmStatus *status) {
+    retired = YES; return nil;
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
+  XCTAssertTrue(retired);
+  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
+  XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
+
+  [store whenDrained:@"1" admission:SFClientAdmissionV1Reconnect work:^id(SfmStatus *status) {
+    *status = SFM_BUSY; return nil;
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_BUSY); }];
+  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
+  XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
+
+  NSUInteger oldEpoch = store.fixture.authorityEpoch;
+  [store whenDrained:@"1" admission:SFClientAdmissionV1Reconnect work:^id(SfmStatus *status) {
+    return @"20";
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
+  XCTAssertNil(store.fixture.pollOperation);
+  XCTAssertEqual(store.fixture.pollFailure, SFM_OK);
+  XCTAssertEqual(store.fixture.authorityEpoch, oldEpoch + 1);
+  XCTAssertTrue([store.fixture.mutations containsObject:@"20"]);
+  XCTAssertFalse(store.fixture.polling);
+}
+- (void)testFailedObserverPollDoesNotAdmitV1TeardownOrReconnect {
+  SFPollFixtureStore *store = [self storeWithFailedPoll:SFM_CLIENT_PROFILE_OBSERVER_V2];
+  const SFClientAdmission attempts[] = {SFClientAdmissionV1RetireView, SFClientAdmissionV1Reconnect};
+  for (SFClientAdmission admission : attempts) {
+    [store whenDrained:@"1" admission:admission work:^id(SfmStatus *status) {
+      XCTFail(@"V1 bypass affected observer delivery"); return nil;
+    } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
+  }
+  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
+  XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
+}
+@end
