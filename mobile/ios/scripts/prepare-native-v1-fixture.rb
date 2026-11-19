@@ -15,7 +15,9 @@ tests.build_configurations.each do |config|
   config.build_settings.update(
     'GENERATE_INFOPLIST_FILE' => 'YES',
     'PRODUCT_BUNDLE_IDENTIFIER' => 'com.shellfox.mobile.iosnativev1fixture.tests',
+    'PRODUCT_NAME' => '$(TARGET_NAME)',
     'SWIFT_VERSION' => '5.0',
+    'TARGETED_DEVICE_FAMILY' => '1,2',
     'TEST_TARGET_NAME' => app.name,
   )
 end
