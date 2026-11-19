@@ -137,6 +137,8 @@ fn explicit_close_and_leader_exit_clean_up_original_and_double_forked_groups() {
             connection.is_some()
         });
         let mut stream = connection.unwrap();
+        // Darwin accept can inherit the listener's nonblocking mode.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();

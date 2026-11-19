@@ -37,6 +37,7 @@ test('installed RN generated ObjC selectors have native implementations', () => 
   const implemented = selectors(source, '\\{');
   for (const selector of selectors(protocol, ';')) assert.ok(implemented.includes(selector), `Missing ${selector}`);
   assert.match(source, /make_shared<facebook::react::NativeShellfoxRustClientSpecJSI>/);
+  assert.doesNotMatch(source, /\[self afterPoll:\w+ work:/);
   assert.match(header, /NSNumber \*\)abiVersion/);
 });
 test('installed RN providers resolve the actual native classes', () => {

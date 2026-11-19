@@ -79,6 +79,11 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
                     .find(|p| p.available && matches!(p.environment, ProfileEnvironment::Local))
             })
             .context("No actual available local catalog profile")?;
+        #[cfg(target_os = "macos")]
+        ensure!(
+            selected.can_terminate_descendants == Some(false),
+            "Darwin offers best-effort cleanup, not containment"
+        );
         let request_id = SessionId::new();
         let snapshot = client
             .execute(NativeAction::Metadata(HostRequest::CreateSession(

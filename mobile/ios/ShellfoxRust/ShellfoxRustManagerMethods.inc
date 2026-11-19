@@ -11,7 +11,7 @@
   [self submit:^id(SfmStatus *status){NSString *identifier=nil;*status=[[SFClientStore shared] createManagerPeer:peer clientId:identity result:&identifier];if(identifier)[self->_lifetime.clients addObject:identifier];return identifier;} resolve:resolve reject:reject];
 }
 - (void)managerOperation:(NSString *)identifier action:(SfmStatus (^)(SfmClientHandle,uint64_t *))action resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self afterPoll:identifier work:^id(SfmStatus *status){SFClientRecord *client=[self ownedClient:identifier];if(!client){*status=SFM_STALE;return nil;}if(client.profile!=SFM_CLIENT_PROFILE_MANAGER_V2){*status=SFM_INVALID;return nil;}uint64_t op=0;*status=action(client.handle,&op);if(*status==SFM_OK)[client.explicitOperations addObject:SFDecimal(op)];return SFDecimal(op);} resolve:resolve reject:reject];
+  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status){SFClientRecord *client=[self ownedClient:identifier];if(!client){*status=SFM_STALE;return nil;}if(client.profile!=SFM_CLIENT_PROFILE_MANAGER_V2){*status=SFM_INVALID;return nil;}uint64_t op=0;*status=action(client.handle,&op);if(*status==SFM_OK)[client.explicitOperations addObject:SFDecimal(op)];return SFDecimal(op);} resolve:resolve reject:reject];
 }
 - (void)discoverManagerV2:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   [self managerOperation:identifier action:^SfmStatus(SfmClientHandle client,uint64_t *op){
@@ -56,7 +56,7 @@
 }
 - (void)reconnectManagerV2:(NSString *)identifier clientId:(NSString *)identity resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   NSData *bytes=[identity dataUsingEncoding:NSUTF8StringEncoding];if(bytes.length!=36){reject(@"RUST_INVALID",@"Invalid client ID.",nil);return;}
-  [self afterPoll:identifier work:^id(SfmStatus *status){SFClientRecord *client=[self ownedClient:identifier];if(!client){*status=SFM_STALE;return nil;}if(client.profile!=SFM_CLIENT_PROFILE_MANAGER_V2){*status=SFM_INVALID;return nil;}
+  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status){SFClientRecord *client=[self ownedClient:identifier];if(!client){*status=SFM_STALE;return nil;}if(client.profile!=SFM_CLIENT_PROFILE_MANAGER_V2){*status=SFM_INVALID;return nil;}
 #ifdef SFM_ENABLE_MANAGER_V2
     *status=sfm_manager_v2_reconnect(client.handle,(const uint8_t *)bytes.bytes,bytes.length);if(*status==SFM_OK){client.polling=NO;client.authorityEpoch++;}
 #else

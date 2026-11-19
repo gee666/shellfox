@@ -132,16 +132,38 @@ jobs:
           node scripts/mobile-terminal.mjs
           node --test mobile/ios/scripts/contracts.test.mjs
         timeout-minutes: 10
+      - name: Identify the Xcode SDK
+        id: sdk
+        run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 2
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        id: ios-frameworks
+        with:
+          path: |
+            tmp/mobile-rust/ios/
+            tmp/mobile-native/ios/
+            tmp/ios-rust-build/*-link.txt
+          key: apple-ios-frameworks-v1-${{ runner.arch }}-${{ steps.sdk.outputs.key }}-${{ hashFiles('Cargo.*', 'rust-toolchain.toml', 'crates/**', 'vendor/**', 'native/mobile/**', 'native/tailscale/**', 'mobile/ios/scripts/build-rust.mjs', 'scripts/mobile-native.mjs', 'scripts/rust-package-prereqs.mjs', 'package.json') }}
       - name: Build Rust static libraries for device and simulator
+        if: steps.ios-frameworks.outputs.cache-hit != 'true'
         run: |
           rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
           node mobile/ios/scripts/build-rust.mjs --fetch-zig
         timeout-minutes: 35
       - name: Build embedded Go transport
+        if: steps.ios-frameworks.outputs.cache-hit != 'true'
         run: |
           node scripts/mobile-native.mjs setup
           node scripts/mobile-native.mjs build ios
         timeout-minutes: 25
+      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        if: steps.ios-frameworks.outputs.cache-hit != 'true'
+        with:
+          path: |
+            tmp/mobile-rust/ios/
+            tmp/mobile-native/ios/
+            tmp/ios-rust-build/*-link.txt
+          key: ${{ steps.ios-frameworks.outputs.cache-primary-key }}
       - name: Install Pods with the native XCTest target
         id: pods
         working-directory: mobile/ios

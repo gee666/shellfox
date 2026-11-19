@@ -59,7 +59,7 @@ impl NativeFactsDiscovery {
         // The !Send engine is created and dropped entirely on this discovery thread.
         let engine = shellfox_ghostty_vt::Terminal::new(1, 1).is_ok();
         let supervisor_present = self.supervisor.is_file();
-        let supervised_platform = cfg!(any(windows, target_os = "linux"));
+        let supervised_platform = cfg!(any(windows, target_os = "linux", target_os = "macos"));
         let backend = supervised_platform && supervisor_present && engine;
         let mut profiles = Vec::new();
         let mut shells = Vec::new();
@@ -121,7 +121,8 @@ impl NativeFactsDiscovery {
                 distro: None,
                 available,
                 unavailable_reason: Some(reason),
-                can_terminate_descendants: Some(available),
+                // Darwin sweeps same-session jobs but cannot contain a new session.
+                can_terminate_descendants: Some(available && !cfg!(target_os = "macos")),
                 elevation: None,
             });
         }
