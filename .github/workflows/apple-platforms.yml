@@ -76,8 +76,15 @@ jobs:
         run: pnpm install --frozen-lockfile --ignore-scripts
         timeout-minutes: 10
       - name: Workspace tests
-        run: cargo test --locked --workspace --all-targets --no-fail-fast
+        id: workspace-tests
+        shell: bash
+        run: cargo test --locked --workspace --all-targets --no-fail-fast 2>&1 | tee tmp/apple-workspace-tests.log
         timeout-minutes: 45
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure() && steps.workspace-tests.outcome == 'failure'
+        with:
+          name: macos-workspace-failure-${{ matrix.arch }}
+          path: tmp/apple-workspace-tests.log
       - name: Build desktop and CLI and package .app and .dmg
         id: package
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
@@ -143,12 +150,19 @@ jobs:
         run: pod install
         timeout-minutes: 15
       - name: Build unsigned simulator application
+        id: simulator-app
+        shell: bash
         run: |
           xcodebuild -workspace mobile/ios/ShellfoxMobile.xcworkspace \
             -scheme ShellfoxMobile -sdk iphonesimulator -configuration Debug \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath tmp/ios-derived \
-            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build
+            ARCHS=arm64 CODE_SIGNING_ALLOWED=NO build 2>&1 | tee tmp/ios-app-build.log
         timeout-minutes: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure() && steps.simulator-app.outcome == 'failure'
+        with:
+          name: ios-simulator-build-failure
+          path: tmp/ios-app-build.log
       - name: Run native contracts on an available iPhone simulator
         run: |
           simulator=$(xcrun simctl list devices booted available -j | node -e '

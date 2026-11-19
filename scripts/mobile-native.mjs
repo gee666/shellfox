@@ -84,6 +84,18 @@ function notices(directory, target) {
   copyFileSync(path.join(source, 'NOTICE-AUDIT.md'), path.join(noticePath, 'NOTICE-AUDIT.md'));
 }
 
+export function normalizeIOSHeaders(framework) {
+  // Only the generated Foundation preamble changes. Enabling C++ modules for
+  // Go's @import would also modularize the RN prebuilt C++ headers twice.
+  for (const entry of readdirSync(framework, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.objc.h')) continue;
+    const file = path.join(entry.parentPath, entry.name);
+    const original = readFileSync(file, 'utf8');
+    const updated = original.replace(/^@import Foundation;[ \t]*$/gm, '#import <Foundation/Foundation.h>');
+    if (updated !== original) writeFileSync(file, updated);
+  }
+}
+
 function iosPod(directory) {
   const { version } = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   copyFileSync(path.join(root, 'LICENSE'), path.join(directory, 'LICENSE'));
@@ -130,6 +142,7 @@ export function main(args = process.argv.slice(2)) {
     rmSync(partial, { recursive: true, force: true });
     try {
       run(gomobile, bindingArgs(target, partial), buildEnv, 900_000);
+      if (target === 'ios') normalizeIOSHeaders(partial);
       notices(directory, target);
       if (target === 'ios') iosPod(directory);
       rmSync(destination, { recursive: true, force: true });

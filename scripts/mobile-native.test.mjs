@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
-import { bindingArgs, bindingEnvironment, main, mobileVersion } from './mobile-native.mjs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { bindingArgs, bindingEnvironment, main, mobileVersion, normalizeIOSHeaders } from './mobile-native.mjs';
 
 test('Android targets match the app universal 64-bit APK and minimum SDK', () => {
   const args = bindingArgs('android', '/repo/tmp/mobile-native/android/shellfox-mobile.aar');
@@ -39,6 +41,22 @@ test('iOS binds both device and simulator without changing Mobile framework name
   assert.ok(args.includes('-target=ios,iossimulator'));
   assert.ok(args.includes('-iosversion=15.1'));
   assert.equal(args[args.indexOf('-o') + 1], '/repo/tmp/mobile-native/ios/.staging/Mobile.xcframework');
+});
+
+test('iOS Go headers use a textual Foundation import without changing declarations', () => {
+  const directory = mkdtempSync(fileURLToPath(new URL('../tmp/go-ios-headers-', import.meta.url)));
+  try {
+    const simulator = path.join(directory, 'ios-arm64-simulator/Mobile.framework/Headers');
+    mkdirSync(simulator, { recursive: true });
+    const generated = path.join(simulator, 'Mobile.objc.h');
+    const umbrella = path.join(simulator, 'Mobile.h');
+    const declaration = 'FOUNDATION_EXPORT NSString* MobileStatus(NSError** error);\n';
+    writeFileSync(generated, `@import Foundation;\n${declaration}`);
+    writeFileSync(umbrella, '#import "Mobile.objc.h"\n');
+    normalizeIOSHeaders(directory);
+    assert.equal(readFileSync(generated, 'utf8'), `#import <Foundation/Foundation.h>\n${declaration}`);
+    assert.equal(readFileSync(umbrella, 'utf8'), '#import "Mobile.objc.h"\n');
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 const readSource = file => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')

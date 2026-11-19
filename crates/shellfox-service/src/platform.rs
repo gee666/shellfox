@@ -5,6 +5,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use tokio::io::{AsyncRead, AsyncWrite};
 
+#[cfg(target_os = "macos")]
+#[path = "platform_darwin.rs"]
+mod darwin;
+
 pub(crate) trait Stream: AsyncRead + AsyncWrite + Unpin + Send {
     fn verify_peer(&self) -> Result<()>;
 }
@@ -23,9 +27,15 @@ impl Stream for tokio::net::windows::named_pipe::NamedPipeClient {
 #[cfg(unix)]
 impl Stream for tokio::net::UnixStream {
     fn verify_peer(&self) -> Result<()> {
-        // A fresh socketpair reports our own effective UID without global IDs.
-        let (own, _) = tokio::net::UnixStream::pair()?;
-        if self.peer_cred()?.uid() != own.peer_cred()?.uid() {
+        #[cfg(target_os = "macos")]
+        let same_user = darwin::peer_uid(self)? == rustix::process::geteuid().as_raw();
+        #[cfg(not(target_os = "macos"))]
+        let same_user = {
+            // A fresh socketpair reports our effective UID without global IDs.
+            let (own, _) = tokio::net::UnixStream::pair()?;
+            self.peer_cred()?.uid() == own.peer_cred()?.uid()
+        };
+        if !same_user {
             bail!("Local socket peer has a different user.");
         }
         Ok(())
@@ -203,13 +213,7 @@ fn verify_socket_parent(directory: &Path, original: &std::fs::File) -> Result<()
 impl Listener {
     pub fn bind_verified(directory: &Path, original: std::fs::File) -> Result<Self> {
         use std::os::unix::fs::PermissionsExt;
-        let id = uuid::Uuid::new_v4();
-        // macOS passes the full path to bind(2), with only 104 bytes in sun_path.
-        // The directory is already private; the leaf only avoids stale names.
-        #[cfg(target_os = "macos")]
-        let leaf = format!("s{}", &id.simple().to_string()[..8]);
-        #[cfg(not(target_os = "macos"))]
-        let leaf = format!("{id}.sock");
+        let leaf = format!("{}.sock", uuid::Uuid::new_v4());
         let path = directory.join(&leaf);
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let (held_directory, kernel_path) =
@@ -219,6 +223,9 @@ impl Listener {
             verify_socket_parent(directory, &original)?;
             (original, path.clone())
         };
+        #[cfg(target_os = "macos")]
+        let socket = darwin::bind(&held_directory, std::ffi::OsStr::new(&leaf))?;
+        #[cfg(not(target_os = "macos"))]
         let socket = tokio::net::UnixListener::bind(&kernel_path)?;
         std::fs::set_permissions(&kernel_path, std::fs::Permissions::from_mode(0o600))?;
         Ok(Self {
@@ -273,6 +280,10 @@ pub(crate) async fn connect_verified(
     {
         bail!("Local socket changed while anchoring its private parent.");
     }
+    #[cfg(target_os = "macos")]
+    let stream: LocalStream = Box::new(darwin::connect(original, kernel_path.file_name()
+        .ok_or_else(|| anyhow::anyhow!("Socket leaf missing"))?).await?);
+    #[cfg(not(target_os = "macos"))]
     let stream: LocalStream = Box::new(tokio::net::UnixStream::connect(kernel_path).await?);
     #[cfg(any(target_os = "linux", target_os = "android"))]
     drop(held_directory);

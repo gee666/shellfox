@@ -147,9 +147,7 @@ test('both native carriers use exact routes and preserve real HTTP status withou
   assert.deepEqual([...new Set(goPolicy)].sort(), expected);
   const transport = read('mobile/ios/ShellfoxRust/SFGoTransport.mm');
   assert.match(transport, /@implementation SFGoHTTPResponse[\s\S]*?@end\s*@interface SFGoRequest/);
-  const spec = read('mobile/ios/ShellfoxRust/ShellfoxRustNative.podspec');
-  assert.match(spec, /'CLANG_ENABLE_MODULES' => 'YES'/);
-  assert.match(spec, /-fcxx-modules/);
+  assert.doesNotMatch(read('mobile/ios/ShellfoxRust/ShellfoxRustNative.podspec'), /-fcxx-modules/);
   const legacy = read('mobile/ios/ShellfoxMobile/ShellfoxNetwork.mm');
   for (const text of [transport, legacy]) {
     assert.match(text, /SFNetworkPathPoll\(path\)/);
