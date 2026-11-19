@@ -21,7 +21,18 @@ pub(super) fn project(
                 ));
             }
             if runtime.source_kind == Some(shellfox_runtime::SourceKind::ExternalBytes) {
-                return Err(incompatible("V1 cannot represent a read-only external byte source. Use observer-v2."));
+                let exit_code = runtime.automation_exit_code.ok_or_else(|| {
+                    incompatible("No completed non-elevated automation replay is available.")
+                })?;
+                return Ok(TabFacts {
+                    created_at,
+                    lifecycle: wire::TabLifecycle::Closed,
+                    observation: ObservationFacts::Exited,
+                    generation: Some(runtime.identity.generation),
+                    terminal_kind: Some(wire::TerminalKind::Embedded),
+                    error: None,
+                    exit_code: Some(Some(exit_code)),
+                });
             }
             let (lifecycle, observation, error) = runtime_state(runtime)?;
             (
@@ -133,6 +144,7 @@ mod acknowledgement_tests {
             identity: shellfox_runtime::Identity { session_id: Default::default(), tab_id: Default::default(), generation: Default::default() },
             phase: Phase::Draining,
             source_kind: None,
+            automation_exit_code: None,
             startup: StartupEvidence::Failed {
                 sanitized_error: AppError { code: wire::ErrorCode::LaunchFailed, message: "Owned terminal startup failed.".into(), retryable: true },
                 acknowledged: false,

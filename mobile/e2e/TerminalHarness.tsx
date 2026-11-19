@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { success, type TerminalEvent } from '../../src/shared/contracts';
-import { TerminalView } from '../src/terminal/TerminalView';
+import { WebViewTerminalView } from '../src/terminal/WebViewTerminalView';
 import type { MobileTerminalApi, SubscribeTerminal } from '../src/terminal/bridge';
 import { DirectoryHarness } from './DirectoryHarness';
 import { fixtureUploads } from './UploadHarness';
@@ -56,7 +56,7 @@ export default function TerminalHarness() {
     <Text style={{ color: '#ffffff', fontSize: 10 }}>{status}</Text>
     <Text style={{ color: '#ffffff', fontSize: 10 }}>{delivery}</Text>
     <Text accessibilityLabel={uploadStatus} style={{ color: '#ffffff', fontSize: 10 }}>{uploadStatus}</Text>
-    {mounted && <TerminalView {...fixture} uploadApi={uploadApi} tabId={tabId} fontSize={14} connectionEpoch="fixture"
+    {mounted && <WebViewTerminalView {...fixture} uploadApi={uploadApi} tabId={tabId} fontSize={14} connectionEpoch="fixture"
       onError={error => setStatus(`ERROR ${error.message}`)} />}
   </View></SafeAreaProvider>;
 }

@@ -21,13 +21,18 @@ class MainActivity : ReactActivity() {
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       object : DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled) {
         override fun getLaunchOptions(): Bundle? {
-          val selection = intent.getStringExtra("shellfoxProfileSelection") ?: return null
-          require(BuildConfig.SHELLFOX_MANAGER_V2 && selection.toByteArray(Charsets.UTF_8).size <= 2048) {
-            "This binary cannot select the Manager profile"
-          }
+          val selection = intent.getStringExtra("shellfoxProfileSelection")
+          if (selection != null) {
+            require(BuildConfig.SHELLFOX_MANAGER_V2 && selection.toByteArray(Charsets.UTF_8).size <= 2048) {
+              "This binary cannot select the Manager profile"
+            }
+          } else if (!BuildConfig.SHELLFOX_LOOPBACK_FIXTURE) return null
           return Bundle().apply {
-            putString("shellfoxProfileSelection", selection)
-            intent.getStringExtra("shellfoxControlURL")?.let { require(it.toByteArray(Charsets.UTF_8).size <= 2048); putString("shellfoxControlURL", it) }
+            if (selection != null) putString("shellfoxProfileSelection", selection)
+            intent.getStringExtra("shellfoxControlURL")?.let {
+              require(it.toByteArray(Charsets.UTF_8).size <= 2048)
+              putString("shellfoxControlURL", it) // The Go transport validates the loopback origin.
+            }
           }
         }
       }

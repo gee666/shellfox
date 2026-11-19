@@ -62,6 +62,7 @@ pub enum ErrorCode {
     StaleLayout,
     Unsupported,
     Unavailable,
+    AdministratorStartup(shellfox_terminal::elevated::AdapterError),
     Closed,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]

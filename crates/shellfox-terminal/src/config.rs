@@ -1,9 +1,9 @@
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use crate::environment::has_nul;
 use crate::{EnvironmentPolicy, ShellProfileId};
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use anyhow::{ensure, Context, Result};
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use portable_pty::{CommandBuilder, PtySize};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -15,8 +15,8 @@ pub struct PtyCommand {
     pub args: Vec<OsString>,
 }
 
-/// Local preserves account privilege transitions such as sudo. NonElevating
-/// certifies Linux no_new_privs inheritance for remote-eligible sources.
+/// Linux NonElevating requires inherited no_new_privs. macOS checks the
+/// original executable and credentials and does not constrain future execs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum UnixPrivilegeMode {
     #[default]
@@ -65,7 +65,7 @@ impl PtyConfig {
         }
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     pub(crate) fn validate(&self) -> Result<()> {
         size(self.cols, self.rows)?;
         ensure!(
@@ -119,14 +119,14 @@ impl PtyConfig {
         crate::environment::validate_extra(&self.env)
     }
 
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     pub(crate) fn builder(&self, argv: &[OsString]) -> Result<CommandBuilder> {
         let mut command = CommandBuilder::from_argv(argv.to_vec());
         command.env_clear();
         command.cwd(crate::environment::lookup_path(self.cwd.clone()));
         #[cfg(windows)]
         use crate::environment_paths as paths;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         use crate::unix::environment as paths;
         for (key, value) in paths::build(
             &self.isolation_root,
@@ -142,7 +142,7 @@ impl PtyConfig {
     }
 }
 
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 pub(crate) fn size(cols: u16, rows: u16) -> Result<PtySize> {
     ensure!(
         cols > 0 && rows > 0 && cols <= i16::MAX as u16 && rows <= i16::MAX as u16,

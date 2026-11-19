@@ -203,7 +203,13 @@ fn verify_socket_parent(directory: &Path, original: &std::fs::File) -> Result<()
 impl Listener {
     pub fn bind_verified(directory: &Path, original: std::fs::File) -> Result<Self> {
         use std::os::unix::fs::PermissionsExt;
-        let leaf = format!("{}.sock", uuid::Uuid::new_v4());
+        let id = uuid::Uuid::new_v4();
+        // macOS passes the full path to bind(2), with only 104 bytes in sun_path.
+        // The directory is already private; the leaf only avoids stale names.
+        #[cfg(target_os = "macos")]
+        let leaf = format!("s{}", &id.simple().to_string()[..8]);
+        #[cfg(not(target_os = "macos"))]
+        let leaf = format!("{id}.sock");
         let path = directory.join(&leaf);
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let (held_directory, kernel_path) =

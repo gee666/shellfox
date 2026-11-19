@@ -79,6 +79,7 @@ pub struct Root {
     pub(crate) failures: HashMap<TabId, StartupError>,
     pub(crate) settings_panel: Option<Entity<crate::settings::SettingsPanel>>,
     pub(crate) files: Option<crate::files::Files>,
+    pub(crate) html_preview: crate::files::text_preview::html::Surface,
     pub(crate) retained_files: Vec<crate::files::Files>,
     pub(crate) fixture: Option<Entity<TerminalView>>,
     pub(crate) run_dir: PathBuf,

@@ -81,7 +81,7 @@ async function setup(){
   const discovery=client.discover();await tick();await discovery;const pairing=client.pair(ATTEMPT);await tick();await pairing;
   const opening=client.openTerminal(TAB,false,{foreground:'#ffffff',background:'#000000'});await tick(250);const surface=await opening;
   const driver:NativeViewDriver={open:vi.fn(async()=>surface)};
-  const props={driver,tabId:TAB,fontSize:14,connectionEpoch:client.getState().binding?.connectionId??'missing'};
+  const props={driver,tabId:TAB,fontSize:14,showKeyboardDiagnostics:true,connectionEpoch:client.getState().binding?.connectionId??'missing'};
   const rendered=render(<RustTerminalView {...props}/>);await tick();state('ready');
   const binding=client.getState().binding,identity=surface.getIdentity(),terminal=screen.getByLabelText('Native terminal');
   expect(binding).not.toBeNull();expect(identity).not.toBeNull();

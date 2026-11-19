@@ -80,6 +80,25 @@ fn posix_policy_rejects_wrong_factory_stage_missing_or_mixed_evidence() {
     assert!(!exact_posix_normal(&facts, 1000));
 }
 #[test]
+fn darwin_policy_requires_the_same_nonroot_original_pty_account() {
+    let mut facts = LaunchPrivilegeFacts {
+        basis: LaunchEvidenceBasis::OriginalDarwinCredentials { uid: 501 },
+        posix: None,
+        ..posix()
+    };
+    assert!(exact_darwin_normal(&facts, 501));
+    assert!(!exact_darwin_normal(&facts, 502));
+    assert!(!exact_darwin_normal(&facts, 0));
+    facts.stage = LaunchEvidenceStage::BeforeRawGoConfirmedReady;
+    assert!(!exact_darwin_normal(&facts, 501));
+    facts.stage = LaunchEvidenceStage::BeforePublicPtyReady;
+    facts.posix = posix().posix;
+    assert!(!exact_darwin_normal(&facts, 501));
+    facts.posix = None;
+    facts.basis = LaunchEvidenceBasis::OriginalDarwinCredentials { uid: 0 };
+    assert!(!exact_darwin_normal(&facts, 0));
+}
+#[test]
 fn elevated_and_unavailable_facts_stay_local_only() {
     let mut facts = posix();
     facts.privilege = LaunchPrivilege::Elevated;

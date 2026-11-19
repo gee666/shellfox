@@ -35,7 +35,7 @@ impl RemoteService<'_> {
                 .service
                 .terminals
                 .values()
-                .map(|t| crate::facts_capture::terminal(&self.service.activity.owner, t))
+                .map(|t| crate::facts_capture::terminal(self.service, t))
                 .collect(),
             creation_facts: self
                 .service
@@ -129,6 +129,9 @@ impl RemoteService<'_> {
             .iter()
             .find(|s| s.id == input.session_id)
             .ok_or_else(missing)?;
+        if session.tabs.iter().any(crate::automation_replay::is_automation_tab) {
+            return Err(failure(ErrorCode::Unsupported, "Automation views cannot open shell tabs."));
+        }
         let profile = match input.profile_id {
             Some(id) => ProfileId::new(id).map_err(host_error)?,
             None => self.default_v1_profile()?,
@@ -173,7 +176,8 @@ impl RemoteService<'_> {
         if let Some(tab) = session
             .tabs
             .iter()
-            .find(|t| t.state != TabState::Archived && !private.contains(&t.id))
+            .find(|t| t.state != TabState::Archived && !private.contains(&t.id)
+                && !crate::automation_replay::is_automation_tab(t))
         {
             self.start_remote_tab(tab)?;
         }

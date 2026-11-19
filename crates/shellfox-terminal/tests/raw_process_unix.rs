@@ -174,7 +174,7 @@ fn canceled_partial_raw_write_never_becomes_success_or_known_closed() {
     assert_eq!(collect(&mut process).2, 137);
 }
 #[test]
-fn raw_sealed_facts_are_honest_posix_raw_local_not_windows_or_pty() {
+fn raw_sealed_facts_prove_same_account_non_elevating_launch() {
     use shellfox_terminal::launch_privilege::*;
     let fixture = Fixture::new();
     let (binding, verifier) = new_launch_binding();
@@ -190,13 +190,10 @@ fn raw_sealed_facts_are_honest_posix_raw_local_not_windows_or_pty() {
         LaunchEvidenceBasis::OriginalPinnedPosixCredentials
     );
     assert_eq!(facts.stage, LaunchEvidenceStage::BeforeRawGoConfirmedReady);
-    assert_eq!(facts.privilege, LaunchPrivilege::Unknown);
-    assert_eq!(
-        facts.unknown,
-        Some(LaunchUnknownReason::UnrestrictedPosixLaunch)
-    );
+    assert_eq!(facts.privilege, LaunchPrivilege::Normal);
+    assert!(facts.unknown.is_none());
     assert!(facts.token.is_none());
-    assert_eq!(facts.posix.unwrap().uid, unsafe { libc::getuid() });
+    assert!(facts.posix.unwrap().is_non_elevating_account(unsafe { libc::getuid() }));
     process.request_stop().unwrap();
     assert_eq!(collect(&mut process).2, 137);
 }

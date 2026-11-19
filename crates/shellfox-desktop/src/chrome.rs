@@ -49,6 +49,7 @@ impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_file_source(cx);
         self.sidebar_ui.visibility.begin_frame();
+        self.html_preview.begin_frame();
         let resize_root = cx.entity();
         let motion = gpui::canvas(
             |_, _, _| (),
@@ -115,7 +116,13 @@ impl Render for Root {
                     ),
             );
         }
-        content = content.children(self.render_new_session_menu(palette, window, cx));
+        let new_session_menu = self.render_new_session_menu(palette, window, cx);
+        self.html_preview.end_frame(
+            self.closing_window || self.settings || self.dialog.is_some() || new_session_menu.is_some()
+                || self.session_menu.is_some() || self.profile_menu.is_some() || self.tab_menu.is_some()
+                || self.files.as_ref().is_some_and(|files| files.pending_file_action.is_some()),
+        );
+        content = content.children(new_session_menu);
         if self.session_menu.is_some() {
             content = content.child(self.render_session_menu(palette, window, cx));
         }

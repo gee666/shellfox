@@ -1,7 +1,7 @@
 use super::Owner;
 use crate::{ErrorCode, Event, Phase, RuntimeError};
 use shellfox_terminal::{elevated as helper, PtyConfig};
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 
 pub(crate) struct ElevatedPty {
     session: helper::Session,
@@ -47,10 +47,25 @@ impl ElevatedPty {
             .map_err(RuntimeError::unavailable)
     }
     fn poll(&mut self) -> Result<Option<helper::Event>, RuntimeError> {
-        self.session
-            .poll(self.generation)
-            .map_err(RuntimeError::unavailable)
+        self.session.poll(self.generation).map_err(|error| {
+            if self.session.identity().is_none() {
+                startup_error(error)
+            } else {
+                RuntimeError::unavailable(error)
+            }
+        })
     }
+}
+
+fn startup_error(error: helper::AdapterError) -> RuntimeError {
+    RuntimeError {
+        code: ErrorCode::AdministratorStartup(error),
+        message: error.to_string(),
+    }
+}
+
+fn administrator_diagnostic(message: impl std::fmt::Display) {
+    let _ = writeln!(std::io::stderr().lock(), "Administrator PowerShell: {message}");
 }
 
 fn command_error(error: helper::AdapterError) -> RuntimeError {
@@ -83,7 +98,7 @@ impl Owner {
             pending_size: None,
         });
         if let Some(error) = failure {
-            self.administrator_failed(RuntimeError::unavailable(error));
+            self.administrator_failed(startup_error(error));
         }
     }
 
@@ -107,6 +122,7 @@ impl Owner {
                         }
                     }
                     self.set_phase(Phase::Active, None);
+                    administrator_diagnostic("READY");
                     self.outgoing.push_front(Event::Started(Ok(())));
                     Ok(())
                 }
@@ -124,7 +140,11 @@ impl Owner {
                     continue;
                 }
                 Ok(Some(helper::Event::Failed(error))) if self.phase != Phase::Draining => {
-                    Err(RuntimeError::unavailable(error))
+                    Err(if self.phase == Phase::Starting {
+                        startup_error(error)
+                    } else {
+                        RuntimeError::unavailable(error)
+                    })
                 }
                 Ok(Some(_)) => Ok(()),
                 Ok(None) => break,
@@ -139,6 +159,7 @@ impl Owner {
 
     fn administrator_failed(&mut self, error: RuntimeError) {
         if self.phase == Phase::Starting {
+            administrator_diagnostic(&error);
             self.outgoing.push_front(Event::Started(Err(error.clone())));
         }
         self.fail(error);

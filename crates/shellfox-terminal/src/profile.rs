@@ -96,14 +96,14 @@ impl ShellProfile {
                 include_str!("powershell-init.ps1"),
             ],
             ShellProfileId::Cmd => &["/D", "/Q"],
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             ShellProfileId::LoginShell
             | ShellProfileId::Bash
             | ShellProfileId::Sh
             | ShellProfileId::Zsh
             | ShellProfileId::Fish => {
                 anyhow::ensure!(
-                    linux_executable(program),
+                    unix_executable(program),
                     "shell is not executable: {}",
                     program.display()
                 );
@@ -151,16 +151,20 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
                 unavailable_reason: Some("Unix login shells require a platform process-tree supervisor.") },
         ])
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use ShellProfileId::*;
         let installed = [(Bash, "Bash"), (Sh, "sh"), (Zsh, "Zsh"), (Fish, "Fish")]
             .into_iter()
             .filter_map(|(id, label)| {
-                let executable = ["/bin", "/usr/bin", "/usr/local/bin"]
-                    .into_iter()
+                let dirs = if cfg!(target_os = "macos") {
+                    &["/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"][..]
+                } else {
+                    &["/bin", "/usr/bin", "/usr/local/bin"][..]
+                };
+                let executable = dirs.iter()
                     .map(|dir| Path::new(dir).join(id.as_str()))
-                    .find(|path| linux_executable(path))?;
+                    .find(|path| unix_executable(path))?;
                 Some(ShellProfile {
                     id,
                     label,
@@ -170,8 +174,9 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
             })
             .collect::<Vec<_>>();
         // Keep the persisted default ID, even when its executable is also listed by name.
-        let executable = installed
-            .first()
+        let executable = installed.iter()
+            .find(|profile| cfg!(target_os = "macos") && profile.id == Zsh)
+            .or_else(|| installed.first())
             .and_then(|profile| profile.executable.clone());
         let default = ShellProfile {
             id: LoginShell,
@@ -183,7 +188,7 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
         };
         Ok(std::iter::once(default).chain(installed).collect())
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         Ok([(ShellProfileId::LoginShell, "Login shell"), (ShellProfileId::Pwsh, "PowerShell"),
             (ShellProfileId::WindowsPowerShell, "Windows PowerShell"), (ShellProfileId::Cmd, "Command Prompt"),
@@ -192,8 +197,8 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn linux_executable(path: &Path) -> bool {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn unix_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata()
         .is_ok_and(|info| info.is_file() && info.permissions().mode() & 0o111 != 0)

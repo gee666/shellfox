@@ -1,6 +1,9 @@
 use super::*;
 use crate::wsl_files_ipc::{self as wire, Reply, Request};
 use std::{fs, io, os::unix::fs::DirBuilderExt, path::PathBuf};
+#[path = "wsl_guest_transfer.rs"]
+mod transfer;
+use crate::{TransferActor, TransferReply, TransferRequest};
 
 pub fn serve_wsl_files(mut input: impl io::Read, mut output: impl io::Write) -> io::Result<()> {
     // SAFETY: these Linux calls take no pointers and have no side effects.
@@ -22,6 +25,8 @@ pub fn serve_wsl_files(mut input: impl io::Read, mut output: impl io::Write) -> 
         service: Arc::new(FileService::local_desktop(Access::ReadWrite)),
         opened: None,
         journal: None,
+        transfer_actor: TransferActor::new("verified-wsl-connection".into(), Uuid::new_v4())
+            .map_err(io::Error::other)?,
     };
     wire::write(
         &mut output,
@@ -44,25 +49,22 @@ struct GuestEditor {
     service: Arc<FileService>,
     opened: Option<HeldEditor>,
     journal: Option<GuestJournal>,
+    transfer_actor: TransferActor,
 }
 
 impl GuestEditor {
     fn handle(&mut self, request: Request, bytes: Vec<u8>) -> Result<(Reply, Vec<u8>)> {
-        if !bytes.is_empty() && !matches!(request, Request::Save(_) | Request::SaveImage(_)) {
+        if !bytes.is_empty() && !matches!(request, Request::Save(_) | Request::SaveImage(_)
+            | Request::Transfer(TransferRequest::Write(_)) | Request::WriteInline(_) | Request::WriteImageInline(_)) {
             return Err(bad_payload());
         }
         let reply = match request {
             Request::List(location) => Reply::List(self.list(&location)?),
             Request::Open(location) => {
                 self.opened = None;
-                let (editor, mut document) = HeldEditor::open(&self.service, &location)?;
-                let bytes = match &mut document {
-                    ReadResult::Text { text, .. } => std::mem::take(text).into_bytes(),
-                    ReadResult::Image { bytes, .. } => std::mem::take(bytes),
-                    ReadResult::Binary { .. } => Vec::new(),
-                };
+                let (editor, document) = HeldEditor::open(&self.service, &location)?;
                 self.opened = Some(editor);
-                return Ok((Reply::Document(document), bytes));
+                return Ok(document_packet(document));
             }
             Request::Save(mut input) => {
                 if !input.text.is_empty() || bytes.len() as u64 > TRANSFER_TEXT_BYTES {
@@ -106,6 +108,27 @@ impl GuestEditor {
                 self.service
                     .stat(&self.service.browser_existing(&location)?)?,
             ),
+            Request::Transfer(request) => return self.transfer(request, bytes),
+            Request::ReadInline(location) => {
+                let location = self.service.browser_existing(&location)?;
+                return Ok(document_packet(self.service.read_file(&location)?));
+            }
+            Request::WriteInline(mut input) => {
+                if !input.text.is_empty() || bytes.len() as u64 > TRANSFER_TEXT_BYTES { return Err(bad_payload()); }
+                input.text = String::from_utf8(bytes).map_err(|_| bad_payload())?;
+                Reply::Saved(self.service.write_text(&input)?)
+            }
+            Request::AssetInline(mut input) => {
+                input.path = self.service.browser_existing(&Location { path: input.path })?.path;
+                let mut asset = self.service.read_asset(&input)?;
+                let bytes = std::mem::take(&mut asset.bytes);
+                return Ok((Reply::Asset(asset), bytes));
+            }
+            Request::WriteImageInline(mut input) => {
+                if !input.bytes.is_empty() { return Err(bad_payload()); }
+                input.bytes = bytes;
+                Reply::Saved(self.service.write_image(&input)?)
+            }
         };
         Ok((reply, Vec::new()))
     }
@@ -130,6 +153,25 @@ impl GuestEditor {
         }
         Ok(())
     }
+}
+
+impl Drop for GuestEditor {
+    fn drop(&mut self) {
+        if let Some(journal) = &mut self.journal {
+            if let Ok(mut registry) = journal.backend.registry.lock() {
+                registry.cancel_actor(self.transfer_actor.owner());
+            }
+        }
+    }
+}
+
+fn document_packet(mut document: ReadResult) -> (Reply, Vec<u8>) {
+    let bytes = match &mut document {
+        ReadResult::Text { text, .. } => std::mem::take(text).into_bytes(),
+        ReadResult::Image { bytes, .. } => std::mem::take(bytes),
+        ReadResult::Binary { .. } => Vec::new(),
+    };
+    (Reply::Document(document), bytes)
 }
 
 fn bad_payload() -> FileError {

@@ -29,10 +29,11 @@ pub fn choose_font(window: &Window, preferred: &str, font_size: f32) -> Result<(
         "font size must be between 8 and 40 pixels"
     );
     let names = window.text_system().all_font_names();
-    let family = std::iter::once(preferred)
-        .filter(|family| !family.is_empty() && *family != "monospace")
-        .chain(["Cascadia Code", "Consolas", "DejaVu Sans Mono", "Menlo", "Liberation Mono"])
-        .find(|candidate| names.iter().any(|name| name.eq_ignore_ascii_case(candidate)))
+    #[cfg(target_os = "linux")]
+    let monospace = crate::linux_fontconfig::monospace();
+    #[cfg(not(target_os = "linux"))]
+    let monospace = None;
+    let family = monospace_family(&names, preferred, monospace)
         .context("no supported monospace font found; install Cascadia Code, Consolas, Menlo or DejaVu Sans Mono")?;
     let font = font(family.to_owned());
     let id = window.text_system().resolve_font(&font);
@@ -47,6 +48,16 @@ pub fn choose_font(window: &Window, preferred: &str, font_size: f32) -> Result<(
         "font has invalid cell metrics"
     );
     Ok((font, width, height))
+}
+
+fn monospace_family<'a>(names: &'a [String], preferred: &str, monospace: Option<&str>) -> Option<&'a str> {
+    std::iter::once(preferred)
+        .filter(|family| !family.is_empty() && *family != "monospace")
+        .chain(["Cascadia Code", "Consolas", "DejaVu Sans Mono"])
+        .chain(monospace)
+        .chain(["Menlo", "Liberation Mono"])
+        .find_map(|candidate| names.iter().find(|name| name.eq_ignore_ascii_case(candidate)))
+        .map(String::as_str)
 }
 
 fn terminal_line_height(ascent: f32, descent: f32, scale: f32) -> f32 {
@@ -108,6 +119,17 @@ mod tests {
         assert!(paints_glyph(first));
         assert!(screen.cells[1].invisible);
         assert!(!paints_glyph(&screen.cells[1]));
+    }
+
+    #[test]
+    fn monospace_alias_follows_the_explicit_terminal_font_stack() {
+        let mut fonts = ["Liberation Mono", "JetBrainsMono Nerd Font", "DejaVu Sans Mono"].map(String::from).to_vec();
+        let alias = Some("JetBrainsMono Nerd Font");
+        assert_eq!(monospace_family(&fonts, "liberation mono", alias), Some("Liberation Mono"));
+        assert_eq!(monospace_family(&fonts, "monospace", alias), Some("DejaVu Sans Mono"));
+        fonts.pop();
+        assert_eq!(monospace_family(&fonts, "monospace", alias), alias);
+        assert_eq!(monospace_family(&fonts, "monospace", Some("Missing")), Some("Liberation Mono"));
     }
 
     #[test]

@@ -56,6 +56,10 @@ pub(crate) fn checked<T: serde::Serialize + Validate>(
         )
     })
 }
+pub fn require_full_account(actor: &Actor, path: &str) -> Result<(), AppError> {
+    capability(actor, path).map(|_| ())
+}
+
 /// Call while Actor::with_authorized holds the owner commit guard.
 pub fn list(actor: &Actor, path: &str) -> Result<serde_json::Value, AppError> {
     let capability = capability(actor, path)?;
@@ -63,6 +67,10 @@ pub fn list(actor: &Actor, path: &str) -> Result<serde_json::Value, AppError> {
         .browser_existing(&files::Location { path: path.into() })
         .map_err(file_error)?;
     let result = capability.list(&location).map_err(file_error)?;
+    list_value(result)
+}
+
+pub fn list_value(result: files::FileList) -> Result<serde_json::Value, AppError> {
     checked(wire::files::FileList {
         path: result.path,
         parent_path: result.parent_path,
@@ -89,6 +97,10 @@ pub fn read(actor: &Actor, path: &str) -> Result<serde_json::Value, AppError> {
         .browser_existing(&files::Location { path: path.into() })
         .map_err(file_error)?;
     let result = capability.read_file(&location).map_err(file_error)?;
+    read_value(result)
+}
+
+pub fn read_value(result: files::ReadResult) -> Result<serde_json::Value, AppError> {
     checked(match result {
         files::ReadResult::Text {
             path,

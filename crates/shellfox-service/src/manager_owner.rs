@@ -143,6 +143,8 @@ pub(super) fn handle(
 fn disconnect(state: &mut RemoteState, service: &mut Service, id: m::Id) -> Result<(), AppError> {
     // Invalidate the whole connection BEFORE any bounded cleanup admission.
     if let Some(view) = state.manager_views.entries.get_mut(&id) {
+        #[cfg(windows)]
+        state.wsl_transfers.cancel_actor(view.connection.actor());
         for source in view.sources.values_mut() {
             source.revoked = true;
             service.manager_v2_mailboxes.revoke(

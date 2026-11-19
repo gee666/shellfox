@@ -25,12 +25,12 @@ impl Field {
         if range.start > range.end || self.text.len() - range.len() + text.len() > limit {
             return None;
         }
-        let title_limit: Option<usize> = if self.session_title {
+        let title_limit = if self.session_title {
             Some(160)
         } else {
             self.compact.then_some(200)
         };
-        let text = if let Some(limit) = title_limit {
+        let text = if let Some(limit) = self.max_utf16_units.or(title_limit) {
             let retained = self.text[..range.start].encode_utf16().count()
                 + self.text[range.end..].encode_utf16().count();
             let capacity = limit.saturating_sub(retained);
@@ -61,9 +61,7 @@ impl Field {
                 ..history::normalized_offset(&self.text, inserted.end);
             self.text = self.text.replace("\r\n", "\n").replace('\r', "\n");
         }
-        if let Some(before) = before
-            && before.text.as_ref() != self.text
-        {
+        if let Some(before) = before.filter(|before| before.text.as_ref() != self.text) {
             self.history.record(before, typed.then_some(inserted.end));
         }
         self.refresh_snapshot();

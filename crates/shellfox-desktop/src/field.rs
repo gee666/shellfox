@@ -51,6 +51,7 @@ pub struct Field {
     compact: bool,
     session_title: bool,
     settings_input: bool,
+    max_utf16_units: Option<usize>,
     number_kind: Option<NumberKind>,
     wrap_width: Option<f32>,
     wrap_layout: Option<wrap::WrapLayout>,
@@ -97,6 +98,7 @@ impl Field {
             compact: false,
             session_title: false,
             settings_input: false,
+            max_utf16_units: None,
             number_kind: None,
             wrap_width: None,
             wrap_layout: None,
@@ -147,6 +149,10 @@ impl Field {
             }
         });
         field
+    }
+
+    pub(crate) fn limit_utf16(&mut self, units: usize) {
+        self.max_utf16_units = Some(units);
     }
 
     pub(crate) fn tab_title(text: String, cx: &mut App) -> Entity<Self> {

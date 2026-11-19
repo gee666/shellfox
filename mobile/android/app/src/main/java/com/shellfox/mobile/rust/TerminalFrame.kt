@@ -13,6 +13,22 @@ internal data class TerminalFrame(
     cells.subList(row * cols, (row + 1) * cols).joinToString("") { if (it.width == 0) "" else it.text.ifEmpty { " " } }.trimEnd()
   }
 
+  fun fileLinkRow(x: Int, y: Int): Pair<String, Int>? {
+    val row = cells.subList(y * cols, (y + 1) * cols)
+    val text = StringBuilder()
+    var offset = 0
+    var lastGlyph = 0
+    row.forEachIndexed { column, cell ->
+      if (cell.width != 0) {
+        lastGlyph = text.length
+        text.append(cell.text.ifEmpty { " " })
+      }
+      if (column == x) offset = lastGlyph
+      if (text.length > 8192) return null
+    }
+    return text.toString().trimEnd() to offset
+  }
+
   companion object {
     fun decode(bytes: ByteArray): TerminalFrame {
       require(bytes.size in 24..16 * 1024 * 1024)

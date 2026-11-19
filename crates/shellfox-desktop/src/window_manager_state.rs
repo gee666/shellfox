@@ -137,6 +137,10 @@ pub(crate) fn restore_size_only(saved: Option<WindowState>, primary: &Monitor) -
         ..state
     });
     let mut restored = restore_bounds(saved, &[], primary)?;
+    // Wayland may accept an oversized client surface without constraining it.
+    // Keep the client-side caption and controls on the output.
+    restored.width = restored.width.min(primary.work_area.width).max(MIN_WIDTH);
+    restored.height = restored.height.min(primary.work_area.height).max(MIN_HEIGHT);
     restored.origin = None;
     Ok(restored)
 }

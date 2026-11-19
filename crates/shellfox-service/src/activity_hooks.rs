@@ -249,7 +249,7 @@ impl Service {
             .filter(|terminal| {
                 crate::facts_membership::contains(&snapshot, terminal.runtime.identity())
             })
-            .map(|terminal| crate::facts_capture::terminal(&self.activity.owner, terminal))
+            .map(|terminal| crate::facts_capture::terminal(self, terminal))
             .collect();
         #[cfg(windows)]
         self.activity.publisher.set_wsl_profiles(self.catalog.wsl.cache.current());

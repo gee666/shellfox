@@ -88,6 +88,7 @@ android {
     defaultConfig {
         applicationId "com.shellfox.mobile"
         buildConfigField "boolean", "SHELLFOX_MANAGER_V2", nativeManager.toString()
+        buildConfigField "boolean", "SHELLFOX_LOOPBACK_FIXTURE", "false"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
@@ -152,6 +153,7 @@ android {
             initWith preview
             applicationIdSuffix ".terminaltest"
             matchingFallbacks = ['release']
+            buildConfigField "boolean", "SHELLFOX_LOOPBACK_FIXTURE", "true"
         }
     }
 }

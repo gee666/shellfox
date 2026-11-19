@@ -1,7 +1,7 @@
 //! Executable discovery and writable state are deliberately separate.
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 use anyhow::{ensure, Result};
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
@@ -48,7 +48,7 @@ fn pnpm_installation(configured: Option<PathBuf>, local_app_data: Option<PathBuf
         })
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 pub(crate) fn validated_directories(paths: impl IntoIterator<Item = PathBuf>) -> Vec<PathBuf> {
     let mut result: Vec<PathBuf> = Vec::new();
     for path in paths {
@@ -69,7 +69,7 @@ pub(crate) fn validated_directories(paths: impl IntoIterator<Item = PathBuf>) ->
 // PowerShell script authorization and Windows PowerShell path providers reject
 // verbatim paths. Keep canonical identity, but use ordinary DOS/UNC spelling
 // for command lookup, cwd and environment paths.
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 pub(crate) fn lookup_path(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
@@ -102,7 +102,7 @@ pub(crate) fn lookup_path(path: PathBuf) -> PathBuf {
     }
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 fn same_path(a: &Path, b: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -114,7 +114,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 pub(crate) fn protected(key: &OsStr) -> bool {
     let name = key.to_string_lossy().to_ascii_uppercase();
     name.starts_with("PI_")
@@ -172,7 +172,7 @@ pub(crate) fn protected(key: &OsStr) -> bool {
         .contains(&name.as_str())
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 pub(crate) fn validate_extra(env: &BTreeMap<OsString, OsString>) -> Result<()> {
     for (key, value) in env {
         ensure!(
@@ -191,7 +191,7 @@ pub(crate) fn validate_extra(env: &BTreeMap<OsString, OsString>) -> Result<()> {
     Ok(())
 }
 
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 pub(crate) fn has_nul(value: &OsStr) -> bool {
     #[cfg(windows)]
     {

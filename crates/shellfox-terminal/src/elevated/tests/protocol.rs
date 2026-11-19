@@ -43,6 +43,24 @@ fn malformed_duplicate_unknown_and_oversized_frames_fail_closed() {
 }
 
 #[test]
+fn startup_error_keeps_only_known_diagnostics_and_never_confirms_cleanup() {
+    for (code, message, expected) in [
+        ("cancelled", "Windows administrator approval was denied or dismissed.", AdapterError::ApprovalDenied),
+        ("failed", "Elevated helper started but failed at creating the PowerShell ConPTY.", AdapterError::StartupFailed(StartupStage::CreatePowerShell)),
+        ("failed", "Elevated helper started but failed at reading private-input.", AdapterError::HelperFailed),
+        ("failed", "Windows administrator approval was denied or dismissed.", AdapterError::HelperFailed),
+    ] {
+        let (mut channel, io) = start();
+        send(&io, json!({"type":"error", "code":code, "message":message}));
+        assert_eq!(channel.poll(generation()).unwrap(), Some(Event::Failed(expected)));
+        assert!(!channel.cleanup_confirmed());
+        assert!(!expected.to_string().contains("private-input"));
+        eof(&io);
+        assert_eq!(channel.poll(generation()), Err(AdapterError::CleanupUnconfirmed));
+    }
+}
+
+#[test]
 fn cleanup_proof_is_distinct_from_transport_eof_and_not_revoked_by_trailing_garbage() {
     let (mut channel, io) = active();
     send(&io, json!({"type":"exit", "exitCode":17}));

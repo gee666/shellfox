@@ -1,4 +1,4 @@
-#![cfg(windows)]
+#![cfg(any(windows, target_os = "macos"))]
 mod support;
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
@@ -20,7 +20,7 @@ use std::{
 };
 
 #[test]
-fn owned_host_cmd_input_takeover_disconnect_and_stop() -> Result<()> {
+fn owned_host_pty_input_takeover_disconnect_and_stop() -> Result<()> {
     let (helper, digest) = dev_helper::helper()?;
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -115,7 +115,7 @@ async fn exercise(
                 request_id: SessionId::new(),
                 title: Some("CLI owned-host test".into()),
                 cwd: cwd.to_str().context("Test path must be UTF-8.")?.into(),
-                profile_id: ProfileId::new("cmd")?,
+                profile_id: ProfileId::new(if cfg!(windows) { "cmd" } else { "login-shell" })?,
             },
         })
         .await?
@@ -230,9 +230,11 @@ async fn send_marker(
     let suffix = SessionId::new().to_string();
     let marker = format!("SHELLFOX_CLI_TYPED_{suffix}");
     // The expected contiguous marker does not occur in echoed input text.
-    let command = format!(
-        "set SF_E2E_A=SHELLFOX_CLI_TYPED_\rset SF_E2E_B={suffix}\recho %SF_E2E_A%%SF_E2E_B%\r"
-    );
+    let command = if cfg!(windows) {
+        format!("set SF_E2E_A=SHELLFOX_CLI_TYPED_\rset SF_E2E_B={suffix}\recho %SF_E2E_A%%SF_E2E_B%\r")
+    } else {
+        format!("printf '%s%s\\n' SHELLFOX_CLI_TYPED_ '{suffix}'\r")
+    };
     done(
         client
             .execute(Request::Input {
@@ -280,7 +282,7 @@ async fn send_marker(
         );
         ensure!(
             Instant::now() < deadline,
-            "Typed cmd marker was not returned by live Poll."
+            "Typed PTY marker was not returned by live Poll."
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }

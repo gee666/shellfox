@@ -105,6 +105,9 @@ pub(super) fn add(
     input: wire::AddTab,
 ) -> Result<serde_json::Value, AppError> {
     let session = target(state, service, input.session_id)?;
+    if session.tabs.iter().any(crate::automation_replay::is_automation_tab) {
+        return Err(failure(ErrorCode::Unsupported, "Automation views cannot open shell tabs."));
+    }
     let profile = match input.profile_id {
         Some(value) => shellfox_core::ProfileId::new(value).map_err(host_error)?,
         None => {
@@ -167,7 +170,8 @@ pub(super) fn activate(
     if let Some(tab) = session
         .tabs
         .iter()
-        .find(|tab| tab.state != shellfox_core::TabState::Archived)
+        .find(|tab| tab.state != shellfox_core::TabState::Archived
+            && !crate::automation_replay::is_automation_tab(tab))
     {
         if !service.terminals.contains_key(&tab.id) {
             ensure_launch_profile(state, tab.profile_id.as_str())?;

@@ -2,6 +2,7 @@ use super::input::Input;
 use super::*;
 use crate::{
     raw_process::RawStream,
+    UnixPrivilegeMode,
     unix::{cgroup::Cgroup, startup::Gate},
 };
 use anyhow::ensure;
@@ -39,10 +40,18 @@ impl RawProcess {
         let group = Cgroup::create()?;
         let gate = Gate::new()?;
         let runner = crate::unix::private::helper_path(Path::new("/usr/bin/systemd-run"))?;
+        // Match the ordinary shareable PTY: the pinned supervisor and the
+        // target it execs must not gain privileges at exec time.
+        let uid = unsafe { libc::getuid() };
+        let mode = if binding.is_some() && uid != 0 && uid == unsafe { libc::geteuid() } {
+            UnixPrivilegeMode::NonElevating
+        } else {
+            UnixPrivilegeMode::Local
+        };
         let arguments = crate::unix::linux::scope::scope_arguments(
             &crate::unix::linux::scope::fresh_nonce()?,
             &supervisor,
-            &gate.raw_arguments(),
+            &gate.raw_arguments(mode),
         )?;
         let (reaper, incoming) = mpsc::sync_channel::<Inner>(1);
         std::thread::Builder::new()
@@ -116,6 +125,7 @@ impl RawProcess {
                         binding,
                         inner.child.id(),
                         inner.pidfd.as_ref().context("Original raw pidfd missing")?,
+                        mode,
                     )?);
                 }
                 Ok(())

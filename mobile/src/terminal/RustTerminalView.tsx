@@ -8,7 +8,7 @@ import { nativeTerminalStateSchema } from '../rust-client/native-events';
 import type { NativeLayoutPresentation, NativeViewDriver, NativeViewSession } from '../rust-client/native-terminal';
 import { useTheme } from '../theme';
 import { Button } from '../ui';
-import type { TerminalViewProps } from './TerminalView';
+import type { TerminalViewProps } from './terminal-view-props';
 import type { TerminalBridgeState } from './bridge';
 import { terminalFontSize, utf8Size, type TerminalKey } from './protocol';
 import { TerminalKeys } from './TerminalKeys';
@@ -19,14 +19,14 @@ import { useTerminalAttachment } from './useTerminalAttachment';
 import {useOwnedKeyboardMode} from './useOwnedKeyboardMode';
 import { sameUploadIdentity } from './upload';
 import { TerminalOperationError } from './errors';
+import { nativeFileLink } from './native-file-link';
 import {focusFeedbackSchema,focusActionNotice,isFocusFeedback,type FocusActionObservation} from './focus-feedback';
 import {retirementNotice} from './keyboard-retirement';
 
-/** Loaded only after explicit engine selection and native capability validation. */
 export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, fontSize,
   modifierReleaseDelayMs = 1000, connectionEpoch, takeoverIntent, onTakeoverIntentConsumed,
-  onError, onState,
-}: Omit<TerminalViewProps, 'api' | 'subscribeTerminal'> & { driver: NativeViewDriver }) {
+  onError, onState, onFileOpen, showKeyboardDiagnostics = false,
+}: Omit<TerminalViewProps, 'api' | 'subscribeTerminal'> & { driver: NativeViewDriver; showKeyboardDiagnostics?: boolean }) {
   const { colors, palette } = useTheme();
   const insets = useSafeAreaInsets();
   const container = useRef<React.ComponentRef<typeof View>>(null);
@@ -69,7 +69,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
       setFocusObservation(null);setNativeReady(false); view?.nativeState('recovering'); reset(); invalidateAttachment();
       if (!retainKeyboard) clearKeyboardMode(true,'bridge_non_attached',presentation?.kind==='layoutRetired'?presentation.outcome:undefined);
     } else if (view) layoutKeyboardFinished(view, presentation);
-    if (next === 'blocked') { setSelecting(false); setSelection(''); }
+    if (next !== 'attached') { setSelecting(false); setSelection(''); }
     callbacks.current.onState?.(next);
   }, [reset, invalidateAttachment, clearKeyboardMode, layoutKeyboardPending, layoutKeyboardFinished]);
 
@@ -138,6 +138,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
             const value = event.nativeEvent;
             if (value.terminalHandle !== session.handle || current.current !== session) return;
             if(isFocusFeedback(value)){
+              if (!showKeyboardDiagnostics) return;
               const feedback=focusFeedbackSchema.safeParse(value);
               if(feedback.success)setFocusObservation(previous=>previous?{...previous,snapshot:feedback.data.focusResult}:null);
               return; // Action feedback is never parser readiness or an ACK.
@@ -148,7 +149,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
             session.nativeState(next); setNativeReady(next === 'ready');
             if (next === 'ready') readyKeyboardMode(session);
             else {
-              setFocusObservation(null); reset(); invalidateAttachment();
+              setFocusObservation(null); setSelection(''); reset(); invalidateAttachment();
               if (!retainKeyboard) clearKeyboardMode(true,parsed.success?'native_state_not_retained':'native_readiness_invalid',undefined,session);
             }
             if (!parsed.success) report(new Error('Invalid native terminal readiness.'));
@@ -156,10 +157,17 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
           onInput={(event) => { if (inputEnabled && event.nativeEvent.terminalHandle === session.handle) activity(); }}
           onSelection={(event) => {
             const value = event.nativeEvent;
-            if (value.terminalHandle !== session.handle) return;
+            if (blocked || value.terminalHandle !== session.handle || current.current !== session) return;
             if (utf8Size(value.text) > 65536) { report(new Error('Native selection exceeds limit.')); return; }
             setSelection(value.text);
           }}
+          onFileLink={onFileOpen && !blocked ? ({ nativeEvent }) => {
+            if (current.current !== session || !nativeReady || (state !== 'attached' && !(state === 'closed' && readOnly))) return;
+            const target = nativeFileLink(nativeEvent, session.handle);
+            if (!target) return;
+            clearKeyboardMode(true, 'selection_close');
+            onFileOpen(target);
+          } : undefined}
           onError={(event) => {
             if (event.nativeEvent.terminalHandle === session.handle && current.current === session) {
               setFocusObservation(null);session.nativeState('closed'); setNativeReady(false); reset(); invalidateAttachment();
@@ -167,7 +175,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
             }
           }}
         />}
-        {!blocked && actionNotice && <View pointerEvents="none" style={[styles.focusNotice,{backgroundColor:colors.bg}]}><Text style={{color:colors.muted}}>{actionNotice}</Text></View>}
+        {!blocked && showKeyboardDiagnostics && actionNotice && <View pointerEvents="none" style={[styles.focusNotice,{backgroundColor:colors.bg}]}><Text style={{color:colors.muted}}>{actionNotice}</Text></View>}
         {blocked && <View style={[styles.blocked, { backgroundColor: colors.bg }]}>
           <Text style={{ color: colors.muted, textAlign: 'center' }}>Another client is controlling this terminal</Text>
           {!readOnly && <Button title={taking ? 'Taking...' : 'Take it'} disabled={taking} onPress={() => {
@@ -180,14 +188,14 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
         bottomInset={keyboardVisible || specialKeyboard ? 0 : insets.bottom}
         control={modifiers.ctrl} selecting={selecting} selection={selection}
         onControl={() => toggle('ctrl')} onSelect={() => {
-          setSelecting((value) => !value); clearKeyboardMode(true,'selection_close');
+          setSelecting((value) => !value); setSelection(''); clearKeyboardMode(true,'selection_close');
         }} onKey={sendKey} systemKeyboard={keyboardVisible || keyboardMode === 'system'}
         specialKeyboard={keyboardMode === 'special'} onKeyboard={() => {
           const next = keyboardMode === 'system' || keyboardVisible ? 'closed' : 'system';
           // Receipt of this JS branch only. A later snapshot is not causally
           // correlated without a token, and HIDE need not yield one.
           const intent=next==='system'?'show':'hide';
-          if(chooseKeyboardMode(next,intent))setFocusObservation({intent,snapshot:null});
+          if (chooseKeyboardMode(next, intent) && showKeyboardDiagnostics) setFocusObservation({ intent, snapshot: null });
         }} onSpecialKeyboard={() => {
           const next = keyboardMode === 'special' ? 'closed' : 'special';
           chooseKeyboardMode(next); if (next === 'special') Keyboard.dismiss();

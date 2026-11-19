@@ -27,7 +27,7 @@ pub(super) fn project(service: &Service, tab: &shellfox_core::Tab) -> Result<v2:
     let mut source_kind = unknown();
     if let Some(terminal) = terminal {
         let runtime = &terminal.runtime;
-        let evidence = crate::facts_capture::terminal(&service.activity.owner, terminal);
+        let evidence = crate::facts_capture::terminal(service, terminal);
         source_kind = crate::remote_v2::source_kind(Some(&evidence));
         facts.generation = known(Some(id(runtime.identity().generation)?));
         if runtime.source_kind() == shellfox_runtime::SourceKind::OwnedPty {
@@ -74,6 +74,7 @@ pub(super) fn project(service: &Service, tab: &shellfox_core::Tab) -> Result<v2:
             if let Some(code) = service.completed_automation_exit_code(terminal) {
                 facts.lifecycle = known(wire::TabLifecycle::Closed);
                 facts.exit_code = known(Some(code));
+                facts.agents = known(0);
                 facts.monitoring_reason = known(Some("Completed automation replay.".into()));
             } else {
                 facts.monitoring_reason = known(Some(

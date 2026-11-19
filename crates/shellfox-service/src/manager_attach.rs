@@ -101,6 +101,10 @@ pub(super) fn attach(
         }
         return unavailable(input.tab_id, m::UnavailableReason::FactsUnavailable);
     };
+    let replay_only = terminal.runtime.source_kind() == shellfox_runtime::SourceKind::ExternalBytes;
+    if replay_only && takeover {
+        return Err(failure(ErrorCode::AccessDenied, "Automation replay is read-only."));
+    }
     let view_id = connection.binding().connection_id;
     let view = state
         .manager_views
@@ -127,7 +131,7 @@ pub(super) fn attach(
     let viewer = service.allocate_viewer_id().map_err(|_| native_error())?;
     let mut input_state = m::InputState::NotReady;
     let mut controller = None;
-    if matches!(input.control, m::ControlRequest::IfFree) {
+    if !replay_only && matches!(input.control, m::ControlRequest::IfFree) {
         if takeover {
             service.manager_v2_mailboxes.revoke_controllers(identity);
         }

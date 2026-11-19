@@ -22,6 +22,26 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
     std::clamp(floor(point.y / cell.height), 0.0, double(view->_frame->rows - 1)));
 }
 
+static void FileLinkRow(SFTerminalView *view, CGPoint point) {
+  if (!view->_frame || !view.fileLink) return;
+  const auto &frame = *view->_frame;
+  CGPoint cell = CellPoint(view, point);
+  NSMutableString *row = [NSMutableString new];
+  NSUInteger lastGlyph = 0;
+  int offset = 0;
+  for (size_t x = 0; x < frame.cols; ++x) {
+    const auto &glyph = frame.cells[size_t(cell.y) * frame.cols + x];
+    if (glyph.width) {
+      lastGlyph = row.length;
+      NSString *text = [[NSString alloc] initWithBytes:glyph.text.data() length:glyph.text.size() encoding:NSUTF8StringEncoding];
+      [row appendString:text.length ? text : @" "];
+    }
+    if (row.length > 8192) return;
+    if (x == size_t(cell.x)) offset = int(lastGlyph);
+  }
+  view.fileLink(row, offset);
+}
+
 @implementation SFTerminalView (Touch)
 - (void)installGestures {
   UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap:)];
@@ -35,9 +55,10 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
 }
 - (void)tap:(UITapGestureRecognizer *)gesture {
   [self selectAt:CGPointZero to:CGPointZero kind:0];
+  CGPoint point = [gesture locationInView:self];
+  if (!self.selecting) FileLinkRow(self, point);
   if (!self.inputReady) { [self focusInputForAction:SFFocusSurface attempt:NO]; return; }
   [self focusInputForAction:SFFocusSurface attempt:YES];
-  CGPoint point = [gesture locationInView:self];
   CGSize cell = _painter.cellSize;
   NSUInteger modifiers = self.modifiers, binding = _binding;
   __weak SFTerminalView *weakSelf = self;
@@ -205,6 +226,13 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
     if (sfm_terminal_hyperlink(terminal.handle, (uint16_t)cell.x, (uint16_t)cell.y,
       CopyText, &text) != SFM_OK || text.failed || text.data.length > 4096) return;
     NSString *value = [[NSString alloc] initWithData:text.data encoding:NSUTF8StringEncoding];
+    if ([value.lowercaseString hasPrefix:@"file:"]) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        SFTerminalView *view = weakSelf;
+        if (view && view->_binding == binding && view.window && view.fileLink) view.fileLink(value, -1);
+      });
+      return;
+    }
     NSURLComponents *parts = value ? [NSURLComponents componentsWithString:value] : nil;
     NSString *scheme = parts.scheme.lowercaseString;
     if ((!([scheme isEqual:@"http"] || [scheme isEqual:@"https"])) ||

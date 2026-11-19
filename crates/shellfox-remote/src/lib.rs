@@ -25,6 +25,7 @@ pub use manager_connection::{
 pub use observer_connection::{ObserverConnection, ObserverOperation, ObserverOwnerRequest};
 #[cfg(test)]
 mod test_support;
+pub mod transfer_bridge;
 mod transfers;
 pub use transfers::RemoteTransfers;
 

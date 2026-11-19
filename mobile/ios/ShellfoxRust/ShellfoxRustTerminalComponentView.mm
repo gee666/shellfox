@@ -58,6 +58,14 @@ using namespace facebook::react;
       emitter->onSelection({view->_terminal.terminalHandle.UTF8String ?: "",
         utf8.length ? std::string((const char *)utf8.bytes, utf8.length) : std::string()});
     };
+    _terminal.fileLink = ^(NSString *text, int offset) {
+      ShellfoxRustTerminalComponentView *view = weakSelf;
+      if (!view || !view->_eventEmitter) return;
+      auto emitter = std::static_pointer_cast<const ShellfoxRustTerminalEventEmitter>(view->_eventEmitter);
+      NSData *utf8 = [text dataUsingEncoding:NSUTF8StringEncoding];
+      if (utf8.length) emitter->onFileLink({view->_terminal.terminalHandle.UTF8String ?: "",
+        std::string((const char *)utf8.bytes, utf8.length), offset});
+    };
     _terminal.failed = ^(SfmStatus status) {
       ShellfoxRustTerminalComponentView *view = weakSelf;
       if (!view || !view->_eventEmitter) return;

@@ -25,6 +25,9 @@ mod creation_profile;
 mod dispatcher;
 #[path = "remote_files.rs"]
 mod files;
+#[cfg(windows)]
+#[path = "remote_wsl_files.rs"]
+mod wsl_files;
 #[path = "manager_owner.rs"]
 mod manager;
 #[path = "remote_v2_manager.rs"]
@@ -35,6 +38,8 @@ mod privacy;
 mod stats;
 #[path = "remote_v1_delivery.rs"]
 mod v1_delivery;
+#[path = "remote_v1_replay.rs"]
+mod v1_replay;
 #[path = "remote_v1_launch.rs"]
 mod v1_launch;
 #[path = "remote_v1_privilege.rs"]
@@ -88,6 +93,7 @@ struct View {
     visible: Vec<SessionId>,
     controller: u64,
     terminals: HashMap<shellfox_core::TabId, v1_delivery::Delivery>,
+    replays: HashMap<shellfox_core::TabId, v1_replay::Replay>,
 }
 impl View {
     fn detach_terminals(self, service: &mut Service) {
@@ -102,6 +108,8 @@ pub struct RemoteState {
     pub home: Option<wire::Directory>,
     views: HashMap<String, View>,
     transfers: Option<shellfox_remote::RemoteTransfers>,
+    #[cfg(windows)]
+    wsl_transfers: wsl_files::Transfers,
     observer_views: observer::ObserverViews,
     manager_views: manager::ManagerViews,
     manager_uploads: Option<shellfox_remote::terminal_upload::UploadInbox>,
@@ -120,6 +128,8 @@ impl RemoteState {
             home,
             views: HashMap::new(),
             transfers: None,
+            #[cfg(windows)]
+            wsl_transfers: Default::default(),
             observer_views: observer::ObserverViews::default(),
             manager_views: manager::ManagerViews::default(),
             manager_uploads: None,
@@ -221,15 +231,18 @@ impl ServiceHost for RemoteService<'_> {
                     failure(ErrorCode::Internal, "Terminal controller could not be allocated.")
                 })?;
                 if let Some(previous) = self.state.views.insert(
-                    key,
+                    key.clone(),
                     View {
                         epoch: actor.view_epoch(),
                         revision,
                         visible: vec![],
                         controller,
                         terminals: HashMap::new(),
+                        replays: HashMap::new(),
                     },
                 ) {
+                    #[cfg(windows)]
+                    self.state.wsl_transfers.cancel_view(&key, previous.epoch);
                     self.state.visibility_dirty |= !previous.visible.is_empty();
                     previous.detach_terminals(self.service);
                 }
@@ -246,6 +259,8 @@ impl ServiceHost for RemoteService<'_> {
                         self.state.visibility_dirty |= !view.visible.is_empty();
                         view.detach_terminals(self.service);
                     }
+                    #[cfg(windows)]
+                    self.state.wsl_transfers.cancel_actor(&actor);
                     if let Some(transfers) = &mut self.state.transfers {
                         transfers.cancel_actor(&key(&actor));
                     }

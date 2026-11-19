@@ -63,6 +63,7 @@ fn idle_sorts_above_working_when_both_hosts_facts_contain_a_live_agent() {
             phase: Phase::Active,
             startup: StartupEvidence::Confirmed,
             source_kind: None,
+            automation_exit_code: None,
             observation: Some(Observation {
                 root: RootState::Alive,
                 agents: 1,

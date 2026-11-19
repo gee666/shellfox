@@ -10,9 +10,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-#[path = "wsl_files_process.rs"]
-mod process;
-use process::Worker;
+use shellfox_service::wsl_files_worker::Worker;
 
 pub(crate) struct WslBackend {
     pub(super) scope: WslBrowserScope,

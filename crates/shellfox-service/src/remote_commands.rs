@@ -49,6 +49,10 @@ impl RemoteService<'_> {
         actor: &Actor,
         command: RemoteCommand,
     ) -> Result<serde_json::Value, AppError> {
+        #[cfg(windows)]
+        if let Some(value) = self.route_wsl_file(actor, &command)? {
+            return Ok(value);
+        }
         use RemoteCommand::*;
         match command {
             GetSnapshot(_) => {

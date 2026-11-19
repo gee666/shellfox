@@ -73,7 +73,7 @@ function makeDriver(){
 async function fixture(){
   const host=makeDriver();
   let props={driver:host.driver,tabId:'20000000-0000-4000-8000-000000000001',connectionEpoch:'original',readOnly:false};
-  const element=()=><RustTerminalView {...props} fontSize={14}/>;
+  const element=()=><RustTerminalView {...props} fontSize={14} showKeyboardDiagnostics/>;
   const rendered=render(element());
   const flush=async()=>{await act(async()=>{await Promise.resolve();await Promise.resolve();});};
   await flush();

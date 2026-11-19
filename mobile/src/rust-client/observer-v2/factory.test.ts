@@ -3,14 +3,13 @@ import { createProfileClient } from './factory';
 import { ObserverTestNative, CLIENT } from './test-native';
 import { TestTransport } from '../../client/test-fixtures';
 import { RemoteClient } from '../../client/client';
-import { setMobileClientEngine } from '../../client/factory';
 
 const registry = vi.hoisted(() => ({ get: vi.fn(), enforcing: vi.fn(), view: vi.fn() }));
 vi.mock('react-native', () => ({ TurboModuleRegistry: { get: registry.get, getEnforcing: registry.enforcing },
   UIManager: { hasViewManagerConfig: registry.view } }));
 const options = { createClientId: () => CLIENT };
 beforeEach(() => {
-  vi.clearAllMocks(); setMobileClientEngine({ engine: 'webview-transition' });
+  vi.clearAllMocks();
   registry.get.mockReturnValue(null); registry.view.mockReturnValue(false);
   registry.enforcing.mockImplementation(() => { throw new Error('No enforcing module on an old binary.'); });
 });

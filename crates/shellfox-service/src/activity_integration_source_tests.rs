@@ -75,6 +75,7 @@ fn malformed_publication_and_publisher_drop_invalidate_old_sources() {
                 identity,
                 phase: Phase::Active,
                 source_kind: None,
+                automation_exit_code: None,
                 startup: crate::activity_integration::StartupEvidence::Pending,
                 observation: None,
                 busy: false,

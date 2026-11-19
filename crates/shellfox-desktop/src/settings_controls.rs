@@ -52,6 +52,7 @@ pub(super) fn focus_outline(
     focus: FocusHandle,
     color: gpui::Hsla,
     radius: f32,
+    outset: f32,
 ) -> impl IntoElement {
     gpui::canvas(
         |_, _, _| (),
@@ -69,7 +70,7 @@ pub(super) fn focus_outline(
         },
     )
     .absolute()
-    .inset_0()
+    .inset(px(-outset))
 }
 
 pub(super) fn section(p: Palette) -> gpui::Div {
@@ -102,7 +103,12 @@ impl SettingsPanel {
         let key_enabled = enabled.clone();
         let key_action = action.clone();
         let handles_space = matches!(action, Action::Profiles);
-        let outline = self.keyboard_focus && allowed && !matches!(action, Action::ToggleUpdates);
+        let checkbox = matches!(action, Action::ToggleUpdates);
+        let switch = matches!(
+            action,
+            Action::ToggleAgent(_) | Action::Remote(remote::Operation::ToggleEnabled)
+        );
+        let outline = self.keyboard_focus && allowed && !checkbox;
         let click_focus = focus.clone();
         let element = div()
             .id(gpui::SharedString::from(id))
@@ -143,7 +149,7 @@ impl SettingsPanel {
                     if key_enabled.get()
                         && matches!(event.keystroke.key.as_str(), "enter" | "space")
                     {
-                        if event.keystroke.key == "enter" {
+                        if event.keystroke.key == "enter" && !checkbox {
                             panel.act(key_action.clone(), window, cx);
                         }
                         window.prevent_default();
@@ -153,7 +159,8 @@ impl SettingsPanel {
             )
             .when(!label.is_empty(), |element| element.child(label))
             .when(outline, |element| {
-                element.child(focus_outline(focus.clone(), p.accent, 3.))
+                let (radius, outset) = if switch { (10., 3.) } else { (3., 0.) };
+                element.child(focus_outline(focus.clone(), p.accent, radius, outset))
             });
         semantic_control::Control::new(element, semantic, enabled).tab_focus(focus)
     }
@@ -213,7 +220,7 @@ impl SettingsPanel {
                     .flex_shrink_0()
                     .rounded_full()
                     .when(checked, |style| style.ml(px(12.)))
-                    .bg(if checked { gpui::white() } else { p.muted }),
+                    .bg(if checked { p.on_accent() } else { p.muted }),
             )
     }
     pub(super) fn act(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {

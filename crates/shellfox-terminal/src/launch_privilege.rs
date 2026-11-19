@@ -19,6 +19,8 @@ pub enum LaunchEvidenceBasis {
     OriginalPinnedChildToken,
     ReviewedSupervisorPrimaryTokenInheritance,
     OriginalPinnedPosixCredentials,
+    /// Same real, effective and saved UID at macOS PTY launch. No claim about later execs.
+    OriginalDarwinCredentials { uid: u32 },
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchEvidenceStage {
@@ -62,6 +64,14 @@ pub struct PosixLaunchFacts {
     pub ambient_caps: u64,
     pub no_new_privs: bool,
 }
+impl PosixLaunchFacts {
+    pub fn is_non_elevating_account(&self, uid: u32) -> bool {
+        uid != 0
+            && [self.uid, self.euid, self.saved_uid, self.fs_uid] == [uid; 4]
+            && [self.effective_caps, self.permitted_caps, self.inheritable_caps, self.ambient_caps] == [0; 4]
+            && self.no_new_privs
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LaunchPrivilegeFacts {
     pub privilege: LaunchPrivilege,
@@ -98,6 +108,22 @@ pub fn new_launch_binding() -> (NativeLaunchBinding, LaunchBindingVerifier) {
         LaunchBindingVerifier(seal),
     )
 }
+#[cfg(target_os = "macos")]
+pub(crate) fn capture_darwin(binding: NativeLaunchBinding, uid: u32) -> NativeLaunchEvidence {
+    NativeLaunchEvidence {
+        seal: binding.0,
+        facts: LaunchPrivilegeFacts {
+            privilege: if uid == 0 { LaunchPrivilege::Elevated } else { LaunchPrivilege::Normal },
+            purpose: LaunchFactoryPurpose::OwnedPtyProgram,
+            basis: LaunchEvidenceBasis::OriginalDarwinCredentials { uid },
+            stage: LaunchEvidenceStage::BeforePublicPtyReady,
+            token: None,
+            posix: None,
+            unknown: None,
+        },
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[path = "launch_privilege_posix.rs"]
 mod posix;

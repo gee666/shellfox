@@ -1,11 +1,11 @@
-//! PTY sessions with owned Windows Job and Linux cgroup-v2 boundaries.
+//! PTY sessions with Windows Jobs, Linux cgroups, and macOS session cleanup.
 mod config;
 pub mod elevated;
 mod environment;
 #[cfg(windows)]
 mod environment_paths;
 mod error;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 mod input;
 pub mod inspection;
 #[cfg(windows)]
@@ -16,7 +16,7 @@ pub use launch_privilege::{NativeLaunchBinding, NativeLaunchEvidence};
 mod output;
 mod profile;
 pub mod raw_process;
-#[cfg(any(windows, target_os = "linux", test))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 mod reader;
 #[cfg(windows)]
 mod runtime;
@@ -30,7 +30,7 @@ pub use test_support::StartupFault;
 mod session;
 #[cfg(windows)]
 mod supervisor;
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod unsupported;
 #[cfg(windows)]
 mod windows;
@@ -46,9 +46,11 @@ pub use profile::{
 };
 #[cfg(windows)]
 pub use session::PtySession;
+#[cfg(target_os = "macos")]
+pub use unix::darwin_session::PtySession;
 #[cfg(target_os = "linux")]
 pub use unix::session::PtySession;
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 pub use unsupported::PtySession;
 
 /// Call before initializing any GUI or starting threads.

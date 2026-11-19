@@ -90,6 +90,9 @@ impl Root {
         };
         let id = draft.id;
         draft.busy = Some(mode);
+        if picked {
+            draft.missing = None;
+        }
         draft.completion.dismiss();
         draft.error = None;
         cx.spawn_in(window, async move |root, cx| {
@@ -230,18 +233,23 @@ impl Root {
                     return;
                 }
                 draft.busy = None;
-                draft.missing = None;
-                draft.path.read(cx).focus(window);
                 match result {
                     Ok(Some(path)) => {
                         if let Some(path) = path.to_str() {
+                            cx.notify();
                             root.submit_directory(None, Some(path.to_owned()), window, cx);
-                        } else {
-                            draft.error = Some("Choose an accessible local directory".into());
+                            return;
                         }
+                        draft.error = Some("Choose an accessible local directory".into());
                     }
                     Ok(None) => {}
-                    _ => draft.error = Some("Choose an accessible local directory".into()),
+                    Err(_) => draft.error = Some("Choose an accessible local directory".into()),
+                }
+                // Canceling the picker doesn't change the path awaiting confirmation.
+                if draft.missing.is_some() {
+                    draft.keep_editing.focus(window);
+                } else {
+                    draft.path.read(cx).focus(window);
                 }
                 cx.notify();
             });

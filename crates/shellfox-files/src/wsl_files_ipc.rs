@@ -1,12 +1,12 @@
 //! Private, length-delimited stdio for one local WSL Files worker. No listener.
 use crate::{
     AssetRequest, FileAsset, FileError, FileList, FileStat, ImageWrite, Location, ReadResult,
-    WriteResult, WriteText, LIST_BYTES, TRANSFER_IMAGE_BYTES,
+    TransferReply, TransferRequest, WriteResult, WriteText, LIST_BYTES, TRANSFER_IMAGE_BYTES,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::io::{self, Read, Write};
 
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 const META_BYTES: usize = LIST_BYTES + 4096;
 const BODY_BYTES: usize = TRANSFER_IMAGE_BYTES as usize;
 
@@ -25,6 +25,11 @@ pub enum Request {
     Asset(AssetRequest),
     CreateDirectory(Location),
     Stat(Location),
+    Transfer(TransferRequest),
+    ReadInline(Location),
+    WriteInline(WriteText),
+    AssetInline(AssetRequest),
+    WriteImageInline(ImageWrite),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -41,6 +46,7 @@ pub enum Reply {
     Saved(WriteResult),
     Asset(FileAsset),
     Stat(FileStat),
+    Transfer(TransferReply),
     Error(FileError),
 }
 

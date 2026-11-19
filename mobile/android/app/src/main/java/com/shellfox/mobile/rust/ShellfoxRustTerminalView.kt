@@ -262,22 +262,35 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
   }
   private fun mouseX(x: Float) = x / renderer.cellWidth * renderer.cellWidth.toInt().coerceAtLeast(1)
   private fun mouseY(y: Float) = y / renderer.cellHeight * renderer.cellHeight.toInt().coerceAtLeast(1)
-  fun point(x: Float, y: Float): Pair<Int, Int> {
-    val frame = sink?.frames?.acquire()
-    return Pair((x / renderer.cellWidth).toInt().coerceIn(0, (frame?.cols ?: 1) - 1),
+  val cellHeight: Float get() = renderer.cellHeight
+  fun point(x: Float, y: Float, frame: TerminalFrame? = sink?.frames?.acquire()) =
+    Pair((x / renderer.cellWidth).toInt().coerceIn(0, (frame?.cols ?: 1) - 1),
       (y / renderer.cellHeight).toInt().coerceIn(0, (frame?.rows ?: 1) - 1))
+  fun fileLinkAt(x: Float, y: Float) {
+    val frame = sink?.frames?.acquire() ?: return
+    val point = point(x, y, frame)
+    fun open(text: String, offset: Int) {
+      if (text.isNotBlank() && text.length <= 8192) emit("topFileLink", Arguments.createMap().apply {
+        putString("terminalHandle", terminalHandle); putString("text", text); putInt("offset", offset)
+      })
+    }
+    if (frame.cells[point.second * frame.cols + point.first].flags and 256 != 0) {
+      hyperlink(point) { open(it, -1) }
+    } else frame.fileLinkRow(point.first, point.second)?.let { (text, offset) -> open(text, offset) }
   }
   fun select(kind: Int, start: Pair<Int, Int>, end: Pair<Int, Int> = start) {
     sink?.let { TerminalCoordinator.select(terminalHandle, it, kind, start.first, start.second, end.first, end.second) }
   }
   fun copy(done: (String) -> Unit) {
     val active = sink ?: return
-    TerminalCoordinator.copy(terminalHandle, active) { text -> post { if (sink === active) done(text) } }
+    val reset = active.inputReset
+    TerminalCoordinator.copy(terminalHandle, active) { text -> post { if (sink === active && active.inputReset === reset) done(text) } }
   }
   fun hyperlink(point: Pair<Int, Int>, done: (String) -> Unit) {
     val active = sink ?: return
+    val reset = active.inputReset
     TerminalCoordinator.hyperlink(terminalHandle, active, point.first, point.second) { uri ->
-      post { if (sink === active) done(uri) }
+      post { if (sink === active && active.inputReset === reset) done(uri) }
     }
   }
   fun paste(text: String) {

@@ -18,6 +18,7 @@ name = "accessibility"
 path = "src/accessibility_test_root.rs"
 
 [features]
+test-settings-browser = []
 experimental-shellfox-native = ["shellfox-service/experimental-shellfox-native", "shellfox-ghostty-vt/experimental-shellfox-native", "shellfox-mobile/experimental-shellfox-native"]
 
 [dependencies]
@@ -33,6 +34,9 @@ icu_decimal = { version = "2.4.0", features = ["alloc"] }
 icu_locale = "2.4.0"
 sys-locale = "0.3.2"
 percent-encoding = "2"
+base64 = "0.22"
+lol_html = "2"
+regex = "1"
 tree-sitter-highlight = "0.27.2"
 tree-sitter-javascript = "0.25.0"
 tree-sitter-typescript = "0.23.2"
@@ -69,6 +73,9 @@ shellfox-files = { path = "../shellfox-files" }
 shellfox-ghostty-vt = { path = "../ghostty-vt" }
 shellfox-terminal = { path = "../shellfox-terminal" }
 
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+wry = { version = "=0.57.3", default-features = false, features = ["os-webview"] }
+
 [target.'cfg(windows)'.dependencies]
 accesskit_windows = "=0.35.2"
 winreg = "0.56"
@@ -88,6 +95,9 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSColorSampler", "NSColorSpace", "NSColor", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "block2", "objc2-core-foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+wry = "=0.57.3"
+gtk = "0.18"
+webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 accesskit_unix = "=0.24.1"
 ashpd = { version = "=0.12.3", default-features = false, features = ["async-std", "raw_handle", "wayland"] }
 yeslogic-fontconfig-sys = { version = "6", features = ["dlopen"] }

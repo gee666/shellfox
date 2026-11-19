@@ -4,6 +4,7 @@ import { isAttachmentPickerOpen } from './attachment-picker-lifecycle';
 import { v4 as uuid } from 'uuid';
 import type { ManagerSnapshot } from '../../src/shared/contracts';
 import { createHostClient, type HostClient, type ClientState } from './client/factory';
+import { createNativeV1Client } from './rust-client/create-v1-client';
 import { RemoteClientError } from './client/protocol';
 import { isConnectionFailure } from './connection-status';
 import { NetworkRecovery } from './network-recovery';
@@ -13,7 +14,7 @@ import { defaultPreferences, loadPreferences, savePreferences, type Preferences 
 export interface MachineView { peer: NetworkPeer; client: HostClient; state: ClientState; snapshot: ManagerSnapshot | null; snapshotConnectionId: string | null; busyTabIds: Record<string, boolean> }
 interface SnapshotRefresh { connectionId: string | null; promise: Promise<void>; next?: SnapshotRefresh }
 export const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Something went wrong.';
-export function useShellfox(enableLegacyClients = true, controlURL?: string) {
+export function useShellfox(enableV1Clients = true, controlURL?: string, nativeV1 = false) {
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [ready, setReady] = useState(false);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
@@ -116,9 +117,10 @@ export function useShellfox(enableLegacyClients = true, controlURL?: string) {
     return task.promise;
   }, [readSnapshot]);
   const ensureClient = useCallback((peer: NetworkPeer) => {
-    if (!enableLegacyClients) throw new Error('The legacy client is not selected.');
+    if (!enableV1Clients) throw new Error('The V1 client is not selected.');
     const found = clients.current.get(peer.id); if (found) return found.client;
-    const client = createHostClient(peer.id, nativeNetwork, { createClientId: uuid });
+    const options = { createClientId: uuid };
+    const client = nativeV1 ? createNativeV1Client(peer.id, options) : createHostClient(peer.id, nativeNetwork, options);
     const unsubState = client.subscribeState(state => {
       if (!alive.current) return;
       const denied = state.status === 'rejected' || state.status === 'awaiting-approval';
@@ -148,7 +150,7 @@ export function useShellfox(enableLegacyClients = true, controlURL?: string) {
     clients.current.set(peer.id, { client, dispose: () => { unsubState(); unsubEvents(); client.stop(); } });
     setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null, snapshotConnectionId: null, busyTabIds: {} }]);
     return client;
-  }, [refresh, enableLegacyClients]);
+  }, [refresh, enableV1Clients, nativeV1]);
 
   const networkFailure = useCallback((message: string) => {
     const working = [...clients.current.values()].some(({ client }) => client.getState().status === 'connected');
@@ -211,7 +213,7 @@ export function useShellfox(enableLegacyClients = true, controlURL?: string) {
           fastPoll.current = status.status === 'starting';
         }
         if (status.status === 'online') {
-          const discovery = await (enableLegacyClients ? discoverHosts() : discoverManagerCandidates()); if (!valid()) return;
+          const discovery = await (enableV1Clients ? discoverHosts() : discoverManagerCandidates()); if (!valid()) return;
           recovery.current.reset(); setNetwork(status);
           const found = discovery.peers; setPeers(found); setDiscovering(discovery.discovering);
           fastPoll.current = discovery.discovering;
@@ -221,7 +223,7 @@ export function useShellfox(enableLegacyClients = true, controlURL?: string) {
             if (status !== 'rejected' && status !== 'disconnected' && status !== 'connected' && !found.some(peer => peer.id === client.peerId && peer.online)) client.suspend();
           }
           for (const peer of found) {
-            if (!enableLegacyClients || !peer.online || disconnecting.current.has(peer.id) || cancelled.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
+            if (!enableV1Clients || !peer.online || disconnecting.current.has(peer.id) || cancelled.current.has(peer.id) || !current.current.remembered.includes(peer.id)) continue;
             const client = ensureClient(peer);
             if (client.getState().status !== 'rejected') client.connect();
           }

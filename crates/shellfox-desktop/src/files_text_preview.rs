@@ -7,16 +7,20 @@ mod markdown;
 mod markdown_image;
 #[path = "files_svg.rs"]
 mod svg;
+#[path = "files_html_preview.rs"]
+pub(crate) mod html;
 
 #[derive(Clone, Copy)]
 enum Kind {
     Markdown,
     Svg,
+    Html,
 }
 
 enum Content {
     Markdown(markdown::Markdown, markdown::Images),
     Svg(Arc<Image>),
+    Html(html::HtmlPreview),
     Error,
 }
 
@@ -33,6 +37,7 @@ impl TextPreview {
         let kind = match extension.to_ascii_lowercase().as_str() {
             "md" | "mdx" | "markdown" | "mdown" | "mkd" => Kind::Markdown,
             "svg" => Kind::Svg,
+            "html" | "htm" | "xhtml" => Kind::Html,
             _ => return None,
         };
         Some(Self {
@@ -43,6 +48,10 @@ impl TextPreview {
         })
     }
 
+    pub fn available(&self, surface: &html::Surface, window: &gpui::Window) -> bool {
+        !matches!(self.kind, Kind::Html) || surface.available(window)
+    }
+
     pub fn render(
         &self,
         path: &str,
@@ -50,6 +59,7 @@ impl TextPreview {
         text: Arc<str>,
         palette: Palette,
         window: &gpui::Window,
+        surface: &html::Surface,
         cx: &mut Context<Root>,
     ) -> AnyElement {
         let mut cache = self.cached.borrow_mut();
@@ -62,6 +72,7 @@ impl TextPreview {
                     Content::Markdown(markdown::Markdown::parse(&text), Default::default())
                 }
                 Kind::Svg => svg::rasterize(&text).map_or(Content::Error, Content::Svg),
+                Kind::Html => Content::Html(html::HtmlPreview::load(backend.clone(), path.to_owned(), text.clone(), cx)),
             };
             *cache = Some((text, parsed));
         }
@@ -75,6 +86,7 @@ impl TextPreview {
                 .child(markdown.render(path, backend, images, palette, window, cx))
                 .into_any_element(),
             Some(Content::Svg(image)) => render_image(image.clone()),
+            Some(Content::Html(html)) => html.render(surface, palette),
             _ => div()
                 .p(px(8.))
                 .text_color(palette.muted)

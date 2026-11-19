@@ -41,6 +41,12 @@ async fn fixture(
     (feed, task)
 }
 
+#[test]
+fn product_version_is_newer_than_the_installed_electron_release() {
+    let version = Version::parse(env!("SHELLFOX_VERSION")).unwrap();
+    assert!(version > Version::new(0, 9, 15));
+}
+
 #[tokio::test]
 async fn verifies_size_and_digest_from_loopback_feed() {
     let scratch = tempfile::tempdir().unwrap();

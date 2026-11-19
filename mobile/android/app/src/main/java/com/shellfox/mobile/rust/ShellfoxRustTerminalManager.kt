@@ -29,6 +29,7 @@ internal class ShellfoxRustTerminalManager : SimpleViewManager<ShellfoxRustTermi
   override fun getExportedCustomDirectEventTypeConstants(): Map<String, Any> = mapOf(
     "topInput" to mapOf("registrationName" to "onInput"),
     "topSelection" to mapOf("registrationName" to "onSelection"),
+    "topFileLink" to mapOf("registrationName" to "onFileLink"),
     "topState" to mapOf("registrationName" to "onState"),
     "topError" to mapOf("registrationName" to "onError"),
   )

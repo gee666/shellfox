@@ -71,6 +71,22 @@ jobs:
       - name: Native mobile tests
         run: pnpm test:mobile:native
         timeout-minutes: 10
+      - name: Build Android Rust and Ghostty libraries
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          zig_manifest=./crates/ghostty-vt-sys/build-support/zig-0.17.0.json
+          zig_url=$(node -p "require('$zig_manifest').hosts['x86_64-linux'].url")
+          zig_sha=$(node -p "require('$zig_manifest').hosts['x86_64-linux'].sha256")
+          curl --fail --location --max-time 120 "$zig_url" --output tmp/zig.tar.xz
+          printf '%s  %s\n' "$zig_sha" tmp/zig.tar.xz | sha256sum -c -
+          mkdir -p tmp/zig
+          tar -xJf tmp/zig.tar.xz --strip-components=1 -C tmp/zig
+          targets=(aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android)
+          rustup target add "${targets[@]}"
+          for target in "${targets[@]}"; do cargo fetch --locked --target "$target"; done
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.1.12297006"
+          node crates/shellfox-mobile/build-mobile.mjs build-android --zig "$PWD/tmp/zig/zig"
       - name: Build and verify signed stable APK
         run: node scripts/mobile-build.mjs
         timeout-minutes: 40
@@ -158,7 +174,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           bash .github/scripts/setup-ubuntu-apt.sh
-          sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev
+          sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev libwebkit2gtk-4.1-dev
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
       - uses: pnpm/action-setup@v4

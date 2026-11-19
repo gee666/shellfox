@@ -56,8 +56,8 @@ it('is unsupported without a keep-awake controller', async () => {
 });
 it('opens only http(s) links in the system browser', async () => {
   const { window, event, service } = fixture(); installIpc(window, url, service);
-  expect(await call(event, 'openExternal', { url: 'https://example.com/a b' })).toEqual({ ok: true, value: { opened: true } });
-  expect(state.openExternal).toHaveBeenCalledExactlyOnceWith('https://example.com/a%20b');
+  expect(await call(event, 'openExternal', { url: 'https://login.tailscale.com/a/p5 test' })).toEqual({ ok: true, value: { opened: true } });
+  expect(state.openExternal).toHaveBeenCalledExactlyOnceWith('https://login.tailscale.com/a/p5%20test');
   for (const bad of ['javascript:alert(1)', 'file:///etc/passwd', 'notaurl', 'https://' + 'a'.repeat(2050)]) {
     expect(await call(event, 'openExternal', { url: bad })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   }

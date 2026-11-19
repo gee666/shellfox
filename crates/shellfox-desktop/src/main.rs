@@ -47,6 +47,8 @@ mod tab_activity;
 mod terminal_semantics;
 mod theme;
 mod ui_font;
+#[cfg(target_os = "linux")]
+mod linux_fontconfig;
 mod update;
 mod update_view;
 pub mod window_manager;

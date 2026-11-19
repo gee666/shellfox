@@ -1,6 +1,6 @@
 use super::{RawCommand, FLAG};
 use crate::unix::{
-    production_supervisor::{install_close_handlers, CLOSE},
+    production_supervisor::{apply_privilege_policy, install_close_handlers, CLOSE},
     startup::peer,
 };
 use anyhow::{ensure, Context, Result};
@@ -46,6 +46,8 @@ fn enter(mut args: impl Iterator<Item = std::ffi::OsString>) -> Result<u32> {
         .to_str()
         .context("Invalid raw parent")?
         .parse()?;
+    let policy = args.next().context("Missing raw launch policy")?;
+    apply_privilege_policy(&policy)?;
     ensure!(
         args.next().is_none()
             && unsafe { libc::getppid() } == parent as libc::pid_t

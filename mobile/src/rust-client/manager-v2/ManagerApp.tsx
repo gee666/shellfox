@@ -42,7 +42,7 @@ function ManagerScreen({model,engine}:{model:ReturnType<typeof useShellfox>;engi
     <View style={styles.header}><Button title="Back" subtle onPress={()=>setTab(null)}/><Text style={styles.title}>Terminal</Text><Button title="Stop network" subtle disabled={busy} onPress={stop}/></View>
     <RustTerminalView key={`${peerId}/${tab.id}/${host.state.binding?.connectionId}`} driver={driver} tabId={tab.id}
       readOnly={tab.readOnly} fontSize={model.preferences.fontSize} modifierReleaseDelayMs={model.preferences.modifierReleaseDelayMs}
-      connectionEpoch={host.state.binding?.connectionId??''} onError={model.report}/>
+      connectionEpoch={host.state.binding?.connectionId??''} onError={model.report} showKeyboardDiagnostics/>
   </View>;
   return <View style={styles.page}>
     <View style={styles.header}><Button title="Hosts" subtle onPress={()=>{setPeer(null);setTab(null);}}/><Text style={styles.title}>Manager</Text><Button title="Stop network" subtle disabled={busy||!model.ready} onPress={stop}/></View>

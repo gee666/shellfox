@@ -164,6 +164,7 @@ impl Root {
                     title.to_string(),
                     div()
                         .when(!quitting || self.dialog_locked(), |card| card.track_focus(&self.modal_focus))
+                        .capture_key_up(cx.listener(Self::directory_key_up))
                         .on_key_down(cx.listener(|root, event: &gpui::KeyDownEvent, window, cx| {
                             if matches!(root.dialog, Some(Dialog::Create(_))) {
                                 root.directory_key(event, window, cx);

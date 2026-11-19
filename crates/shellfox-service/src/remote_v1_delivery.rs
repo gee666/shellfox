@@ -45,6 +45,27 @@ impl Utf8Stream {
     }
 }
 
+pub(super) fn snapshot_chunks(
+    tab_id: TabId,
+    generation: shellfox_core::Generation,
+    text: &str,
+) -> Vec<wire::TerminalData> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < text.len() {
+        let end = text.floor_char_boundary((start + 16384).min(text.len()));
+        chunks.push(wire::TerminalData {
+            kind: wire::DataTag::Data,
+            tab_id,
+            generation,
+            sequence: chunks.len() as u64 + 1,
+            data: text[start..end].to_owned(),
+        });
+        start = end;
+    }
+    chunks
+}
+
 impl Delivery {
     pub fn snapshot(
         lease: Attachment,
@@ -54,19 +75,7 @@ impl Delivery {
     ) -> (Self, Vec<wire::TerminalData>) {
         let mut utf8 = Utf8Stream::default();
         let text = utf8.decode(data);
-        let mut chunks = Vec::new();
-        let mut start = 0;
-        while start < text.len() {
-            let end = text.floor_char_boundary((start + 16384).min(text.len()));
-            chunks.push(wire::TerminalData {
-                kind: wire::DataTag::Data,
-                tab_id,
-                generation: lease.generation,
-                sequence: chunks.len() as u64 + 1,
-                data: text[start..end].to_owned(),
-            });
-            start = end;
-        }
+        let chunks = snapshot_chunks(tab_id, lease.generation, &text);
         let wire_sent = chunks.len() as u64;
         (
             Self {

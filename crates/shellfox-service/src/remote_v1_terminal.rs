@@ -44,6 +44,14 @@ impl RemoteService<'_> {
         }) {
             return Err(lost());
         }
+        if runtime.is_some_and(|t| t.runtime.source_kind() == SourceKind::ExternalBytes)
+            || crate::automation_replay::is_automation_tab(saved)
+        {
+            if takeover {
+                return Err(super::v1_replay::read_only());
+            }
+            return self.attach_automation_replay(actor, session, tab);
+        }
         if runtime.is_none() {
             if saved.state == TabState::Archived {
                 return Err(lost());
@@ -66,12 +74,7 @@ impl RemoteService<'_> {
         }
         let generation = runtime.runtime.identity().generation;
         let view = self.state.views.get_mut(&key(actor)).ok_or_else(lost)?;
-        if !view.terminals.contains_key(&tab) && view.terminals.len() >= 16 {
-            return Err(failure(
-                ErrorCode::Validation,
-                "Detach an unused terminal before attaching another.",
-            ));
-        }
+        view.check_capacity(tab)?;
         let offer = match self.service.attach_manager(tab, view.controller, takeover) {
             Ok(offer) => offer,
             Err(error) if matches!(error.downcast_ref::<GrantFailure>(), Some(GrantFailure::Rejected(error)) if error.code == shellfox_runtime::ErrorCode::ControlRequired) =>
@@ -134,6 +137,7 @@ impl RemoteService<'_> {
         })();
         match projection {
             Ok((delivery, result)) => {
+                view.replays.remove(&tab);
                 view.terminals.insert(tab, delivery);
                 Ok(result)
             }
@@ -151,11 +155,11 @@ impl RemoteService<'_> {
         generation: Generation,
         epoch: u64,
     ) -> Result<Attachment, AppError> {
-        let lease = self
-            .state
-            .views
-            .get(&key(actor))
-            .and_then(|view| view.terminals.get(&tab))
+        let view = self.state.views.get(&key(actor)).ok_or_else(lost)?;
+        if view.replays.contains_key(&tab) {
+            return Err(super::v1_replay::read_only());
+        }
+        let lease = view.terminals.get(&tab)
             .map(|d| &d.lease)
             .filter(|lease| lease.generation == generation && lease.epoch == epoch)
             .ok_or_else(lost)?;
@@ -213,6 +217,12 @@ impl RemoteService<'_> {
                 checked(wire::Resized { resized: true })
             }
             RemoteCommand::AcknowledgeTerminal(input) => {
+                if let Some(replay) = self.state.views.get(&key(actor))
+                    .and_then(|view| view.replays.get(&input.tab_id))
+                {
+                    replay.acknowledge(self.service, &input)?;
+                    return checked(wire::Acknowledged { acknowledged: true });
+                }
                 self.terminal_lease(actor, input.tab_id, input.generation, input.control_epoch)?;
                 self.state
                     .views
@@ -224,6 +234,12 @@ impl RemoteService<'_> {
             }
             RemoteCommand::DetachTerminal(input) => {
                 let view = self.state.views.get_mut(&key(actor)).ok_or_else(lost)?;
+                if let Some(replay) = view.replays.get(&input.tab_id) {
+                    if replay.generation() != input.generation {
+                        return Err(lost());
+                    }
+                    view.replays.remove(&input.tab_id);
+                }
                 if let Some(delivery) = view.terminals.get(&input.tab_id) {
                     if delivery.lease.generation != input.generation {
                         return Err(lost());

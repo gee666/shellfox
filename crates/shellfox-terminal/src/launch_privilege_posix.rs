@@ -24,19 +24,8 @@ pub(crate) fn capture(
         "original POSIX controller exited"
     );
     let current = unsafe { libc::getuid() };
-    let same_account = current != 0
-        && facts.uid == current
-        && facts.euid == current
-        && facts.saved_uid == current
-        && facts.fs_uid == current;
-    let caps_clear = facts.effective_caps == 0
-        && facts.permitted_caps == 0
-        && facts.inheritable_caps == 0
-        && facts.ambient_caps == 0;
     let certified = mode == crate::UnixPrivilegeMode::NonElevating
-        && same_account
-        && caps_clear
-        && facts.no_new_privs;
+        && facts.is_non_elevating_account(current);
     ensure!(
         mode != crate::UnixPrivilegeMode::NonElevating || certified,
         "non-elevating POSIX launch did not establish same-account capability-free no_new_privs"
@@ -62,10 +51,9 @@ pub(crate) fn capture_raw(
     binding: NativeLaunchBinding,
     pid: u32,
     pidfd: &File,
+    mode: crate::UnixPrivilegeMode,
 ) -> Result<NativeLaunchEvidence> {
-    // Raw automation retains ordinary account behavior; it never borrows PTY
-    // eligibility or pretends to have a Windows primary-token inheritance proof.
-    let mut evidence = capture(binding, pid, pidfd, crate::UnixPrivilegeMode::Local)?;
+    let mut evidence = capture(binding, pid, pidfd, mode)?;
     evidence.facts.purpose = LaunchFactoryPurpose::RawProgram;
     evidence.facts.stage = LaunchEvidenceStage::BeforeRawGoConfirmedReady;
     Ok(evidence)

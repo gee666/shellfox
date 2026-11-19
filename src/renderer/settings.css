@@ -16,7 +16,10 @@
 .settings-page .settings-body h4 { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
 .settings-page .settings-hint { max-width: 540px; font-size: 11px; line-height: 17px; }
 .settings-control-note { margin-top: 7px; }
-.settings-page .settings-body input:not([type='color']), .settings-page .settings-body select { height: 28px; border-radius: 3px; }
+.settings-page .settings-body input:not([type='color'], [type='checkbox']), .settings-page .settings-body select { height: 28px; border-radius: 3px; }
+.settings-page .update-preference { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; cursor: pointer; }
+.settings-page .update-preference input { width: 13px; height: 13px; flex: 0 0 13px; margin: 0; cursor: inherit; }
+.settings-page .update-preference input:focus-visible, .settings-page .toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .settings-page .settings-body button:not(.toggle):not(.swatch):not(.icon-button):not(.text-button) { min-height: 26px; border-radius: 3px; }
 .settings-page .swatch { width: 22px; height: 22px; border-radius: 4px; }
 .settings-page .swatches { gap: 9px; }

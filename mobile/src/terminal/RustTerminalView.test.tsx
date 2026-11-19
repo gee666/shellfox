@@ -71,7 +71,7 @@ async function setup(readOnly = false, native = new TestNative(), ready = true) 
   if (!driver) throw new Error('Native driver is missing.');
   const onError = vi.fn();
   const rendered = render(<RustTerminalView driver={driver} api={client.terminalApi} subscribeTerminal={client.subscribeTerminal}
-    tabId={ids.tab} fontSize={14} connectionEpoch="epoch1" modifierReleaseDelayMs={500} readOnly={readOnly} onError={onError} />);
+    tabId={ids.tab} fontSize={14} connectionEpoch="epoch1" modifierReleaseDelayMs={500} readOnly={readOnly} onError={onError} showKeyboardDiagnostics />);
   await tick();
   if (ready) fireEvent.click(screen.getByRole('button', { name: 'Native state ready' }));
   return { ...rendered, client, native, onError };

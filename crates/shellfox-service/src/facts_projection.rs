@@ -104,12 +104,21 @@ fn project_session(
     header
         .validate()
         .map_err(|_| unavailable("Session metadata is invalid."))?;
-    let creation = source.creation_facts.get(&session.id).ok_or_else(|| {
-        incompatible("V1 requires recorded session creation adapter/shell facts. Use observer-v2; no settings/first-tab backfill is allowed.")
-    })?;
-    creation
-        .validate()
-        .map_err(|_| unavailable("Persisted session creation facts are invalid."))?;
+    let replay = session.tabs.iter().filter(|tab| !private.contains(&tab.id)).any(|tab| {
+        source.terminals.iter().any(|terminal| terminal.identity.session_id == session.id
+            && terminal.identity.tab_id == tab.id && terminal.automation_exit_code.is_some())
+    });
+    let (adapter_id, shell_id) = if replay {
+        // The legacy wire format requires these fields. Match Electron's
+        // automation DTO without recording a shell that was never started.
+        (wire::AdapterId::EmbeddedPty, wire::ShellId::LoginShell)
+    } else {
+        let creation = source.creation_facts.get(&session.id).ok_or_else(|| {
+            incompatible("V1 requires recorded session creation adapter/shell facts. Use observer-v2; no settings/first-tab backfill is allowed.")
+        })?;
+        creation.validate().map_err(|_| unavailable("Persisted session creation facts are invalid."))?;
+        (adapter(creation.adapter_id), shell(creation.shell_id))
+    };
     let tab_facts: HashMap<_, _> = session
         .tabs
         .iter()
@@ -126,7 +135,7 @@ fn project_session(
         .terminals
         .iter()
         .any(|terminal| terminal.identity.session_id == session.id);
-    let embedded = creation.adapter_id == shellfox_core::SettingsAdapter::EmbeddedPty;
+    let embedded = matches!(adapter_id, wire::AdapterId::EmbeddedPty);
     let startup_error = session
         .tabs
         .iter()
@@ -138,12 +147,12 @@ fn project_session(
         })
         .cloned();
     let facts = SessionFacts {
-        adapter_id: adapter(creation.adapter_id),
-        shell_id: shell(creation.shell_id),
+        adapter_id,
+        shell_id,
         window: None,
         can_focus: embedded,
-        can_add_tab: embedded,
-        control_reason: None,
+        can_add_tab: embedded && !replay,
+        control_reason: replay.then(|| "Automation replay is read-only.".into()),
         error: startup_error,
         terminal_lifetime: owned.then_some(wire::TerminalLifetime::AppOwned),
         shell_survival: owned.then_some(false),

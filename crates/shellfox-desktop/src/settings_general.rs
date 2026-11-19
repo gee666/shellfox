@@ -5,7 +5,7 @@ use super::{
 };
 
 const UPDATE_CHECKBOX_ID: &str = "automatic-updates";
-const UPDATE_CHECKBOX_SIZE: f32 = 28.;
+const UPDATE_CHECKBOX_SIZE: f32 = 13.;
 
 fn update_checkmark(dark: bool) -> impl IntoElement {
     gpui::canvas(
@@ -40,15 +40,23 @@ fn update_checkbox_glyph(p: Palette, checked: bool, focus: Option<FocusHandle>) 
             gpui::rgb(if p.dark { 0x3b3b3b } else { 0xffffff })
         })
         .when(!checked, |style| {
-            style.border_1().border_color(gpui::rgb(if p.dark {
-                0xacacac
-            } else {
-                0x767676
-            }))
+            style
+                .border_1()
+                .border_color(gpui::rgb(if p.dark { 0xacacac } else { 0x767676 }))
+                .group_hover(UPDATE_CHECKBOX_ID, move |style| {
+                    style.border_color(gpui::rgb(if p.dark { 0xdbdbdb } else { 0x4f4f4f }))
+                })
         })
-        .when(checked, |style| style.child(update_checkmark(p.dark)))
+        .when(checked, |style| {
+            style
+                .group_hover(UPDATE_CHECKBOX_ID, move |style| {
+                    style.bg(gpui::rgb(if p.dark { 0xd1e6ff } else { 0x005cc8 }))
+                })
+                .child(update_checkmark(p.dark))
+        })
         .when_some(focus, |glyph, focus| {
-            glyph.child(controls::focus_outline(focus, p.accent, 2.))
+            let outset = if checked { 2. } else { 3. };
+            glyph.child(controls::focus_outline(focus, p.accent, 0., outset))
         })
 }
 
@@ -74,33 +82,37 @@ impl SettingsPanel {
             return div().into_any_element();
         };
         let p = self.palette;
-        // Chromium centers a 28 px glyph in a full-width input. Keep the hit
-        // area but draw keyboard focus around the glyph, not the entire row.
-        let row_height = px(UPDATE_CHECKBOX_SIZE + 6.);
         let check = self
             .bare_button(UPDATE_CHECKBOX_ID, "", Action::ToggleUpdates, cx)
             .role(crate::accessibility::Role::CheckBox)
             .pressed(settings.auto_update)
-            .w_full()
-            .h(row_height)
-            .min_h(row_height)
+            .group(UPDATE_CHECKBOX_ID)
+            .h(px(20.))
+            .min_h(px(20.))
             .p_0()
-            .ml(px(4.))
+            .gap(px(6.))
             .border_0()
-            .bg(gpui::transparent_black())
-            .hover(|style| style.bg(gpui::transparent_black()));
+            .bg(gpui::transparent_black());
         let focus = self
             .controls
             .get(UPDATE_CHECKBOX_ID)
             .filter(|_| self.keyboard_focus)
             .cloned();
-        let check = check.child(update_checkbox_glyph(p, settings.auto_update, focus));
-        let updates=div().child(controls::heading("Updates")).child(check)
-            .child(div().id("automatic-updates-label").text_size(px(13.)).line_height(px(17.)).cursor_pointer().on_click(cx.listener(|panel,_,window,cx| {
-                if let Some(focus) = panel.controls.get(UPDATE_CHECKBOX_ID) { focus.focus(window); }
-                panel.act(Action::ToggleUpdates,window,cx);
-            })).child("Automatic updates"))
-            .child(controls::hint("Download new versions automatically and install when you quit. Turn off to update manually.",p).mb_0());
+        let check = check
+            .child(update_checkbox_glyph(p, settings.auto_update, focus))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .line_height(px(17.))
+                    .child("Automatic updates"),
+            );
+        let updates = div()
+            .child(controls::heading("Updates"))
+            .child(div().flex().child(check))
+            .child(controls::hint(
+                "Download new versions automatically and install when you quit. Turn off to update manually.",
+                p,
+            ).mb_0());
         let accent = self.swatches(api::ColorKind::Accent, &ACCENTS, &settings.accent_color, cx);
         let background = self.swatches(
             api::ColorKind::Background,
@@ -300,9 +312,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_checkbox_glyph_measures_28_px_in_both_states() {
+    fn update_checkbox_glyph_keeps_native_size_in_both_states() {
         let palette = Palette::new("#ec4899", "#111016");
-        let edge = Some(px(28.).into());
+        let edge = Some(px(13.).into());
         for checked in [true, false] {
             let mut glyph = update_checkbox_glyph(palette, checked, None);
             let style = glyph.style();

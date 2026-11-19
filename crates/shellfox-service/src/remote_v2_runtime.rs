@@ -22,18 +22,16 @@ fn exact_posix_normal(facts: &LaunchPrivilegeFacts, owner: u32) -> bool {
         && facts.basis == LaunchEvidenceBasis::OriginalPinnedPosixCredentials
         && facts.token.is_none()
         && facts.unknown.is_none()
+        && facts.posix.is_some_and(|p| p.is_non_elevating_account(owner))
+}
+#[cfg(any(target_os = "macos", test))]
+fn exact_darwin_normal(facts: &LaunchPrivilegeFacts, owner: u32) -> bool {
+    original_program_normal(facts)
         && owner != 0
-        && facts.posix.is_some_and(|p| {
-            p.uid == owner
-                && p.euid == owner
-                && p.saved_uid == owner
-                && p.fs_uid == owner
-                && p.effective_caps == 0
-                && p.permitted_caps == 0
-                && p.inheritable_caps == 0
-                && p.ambient_caps == 0
-                && p.no_new_privs
-        })
+        && facts.basis == (LaunchEvidenceBasis::OriginalDarwinCredentials { uid: owner })
+        && facts.token.is_none()
+        && facts.posix.is_none()
+        && facts.unknown.is_none()
 }
 fn accepted_launch(facts: &LaunchPrivilegeFacts) -> bool {
     if local_only_reason(facts).is_some() || !original_program_normal(facts) {
@@ -52,6 +50,11 @@ fn accepted_launch(facts: &LaunchPrivilegeFacts) -> bool {
             {
                 false
             }
+        }
+        #[cfg(target_os = "macos")]
+        LaunchEvidenceBasis::OriginalDarwinCredentials { .. } => {
+            let owner = rustix::process::getuid().as_raw();
+            owner == rustix::process::geteuid().as_raw() && exact_darwin_normal(facts, owner)
         }
         _ => false,
     }
@@ -79,11 +82,11 @@ pub(in crate::remote) fn effective_policy(service: &Service, identity: Identity)
     if !matches!(terminal.startup, Some(Ok(()))) {
         return None;
     }
-    let facts = terminal.runtime.launch_privilege_facts();
-    if !accepted_launch(&facts) {
-        return None;
-    }
-    Some(epoch)
+    let eligible = match terminal.runtime.source_kind() {
+        shellfox_runtime::SourceKind::OwnedPty => accepted_launch(&terminal.runtime.launch_privilege_facts()),
+        shellfox_runtime::SourceKind::ExternalBytes => service.remote_automation_exit_code(terminal).is_some(),
+    };
+    eligible.then_some(epoch)
 }
 pub(super) fn acknowledge(
     service: &mut Service,

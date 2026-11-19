@@ -29,9 +29,22 @@ class SceneDelegate: RCTDefaultReactNativeFactoryDelegate, UIWindowSceneDelegate
     reactNativeFactory?.devMenuConfiguration = devMenuConfiguration
     #endif
 
+    var initialProperties: [String: Any] = [:]
+    #if targetEnvironment(simulator)
+    let arguments = ProcessInfo.processInfo.arguments
+    if arguments.contains("--shellfox-native-v1") {
+      initialProperties["shellfoxNativeV1"] = true
+      if let option = arguments.firstIndex(of: "--shellfox-control-url"),
+         arguments.indices.contains(option + 1), arguments[option + 1].utf8.count <= 2048 {
+        initialProperties["shellfoxControlURL"] = arguments[option + 1]
+      }
+    }
+    #endif
+
     reactNativeFactory?.startReactNative(
       withModuleName: "ShellfoxMobile",
       in: window,
+      initialProperties: initialProperties,
       connectionOptions: connectionOptions
     )
   }

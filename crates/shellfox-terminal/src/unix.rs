@@ -1,10 +1,16 @@
 //! Unix lifecycle contracts and native ownership adapters.
 //!
-//! Linux production sessions require cgroup v2 delegation and an original child
-//! controller. Darwin remains gated pending its native ownership prerequisite.
+//! Linux isolates sessions with cgroup v2. Darwin uses an original session
+//! leader and best-effort cleanup within its session ID.
 #[cfg(target_os = "linux")]
 mod cgroup;
-#[cfg(target_os = "linux")]
+#[cfg(target_os = "macos")]
+mod darwin_io;
+#[cfg(target_os = "macos")]
+mod darwin_process;
+#[cfg(target_os = "macos")]
+pub(crate) mod darwin_session;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) mod environment;
 mod lifecycle;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -26,8 +32,7 @@ mod tree;
 pub use lifecycle::{Lifecycle, Ownership, Phase};
 pub use protocol::{Capability, ControlCommand, ControlIdentity, SupervisorStatus};
 
-// Native fixtures exercise the real PTY adapter without changing the production
-// unsupported-platform gate. A cross-check alone cannot justify that change.
+// Explicit fixtures for the separate native supervisor adapters.
 #[cfg(all(
     feature = "test-support",
     any(target_os = "linux", target_os = "macos")

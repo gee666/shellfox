@@ -69,6 +69,18 @@ impl From<&TerminalSourceFacts> for NativeTabActivity {
     }
 }
 impl crate::Service {
+    fn local_administrator_startup_error(&self, identity: shellfox_runtime::Identity) -> Option<String> {
+        let terminal = self.terminals.get(&identity.tab_id)?;
+        if terminal.runtime.identity() != identity {
+            return None;
+        }
+        let error = terminal.startup.as_ref()?.as_ref().err()?;
+        match error.code {
+            shellfox_runtime::ErrorCode::AdministratorStartup(detail) => Some(detail.to_string()),
+            _ => None,
+        }
+    }
+
     pub(crate) fn desktop_tab_activity(&self) -> Vec<NativeTabActivity> {
         read_source(&self.source_facts_watch())
             .into_iter()
@@ -85,6 +97,13 @@ impl crate::Service {
                     .iter()
                     .map(|terminal| {
                         let mut activity = NativeTabActivity::from(terminal);
+                        // The public facts keep generic startup errors. Local desktop
+                        // diagnostics can display the launcher's fixed error codes.
+                        if activity.error.is_some() {
+                            if let Some(detail) = self.local_administrator_startup_error(terminal.identity) {
+                                activity.error = Some(detail);
+                            }
+                        }
                         if following.contains(&activity.tab) {
                             activity.process_title = self
                                 .terminals

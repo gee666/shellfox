@@ -1,11 +1,13 @@
 //! One mapper for immutable evidence from the current registered Runtime.
 use crate::{
-    activity_integration::{OwnerActivity, StartupEvidence, TerminalSourceFacts},
+    Service,
+    activity_integration::{StartupEvidence, TerminalSourceFacts},
     terminals::OwnedTerminal,
 };
-pub(crate) fn terminal(owner: &OwnerActivity, terminal: &OwnedTerminal) -> TerminalSourceFacts {
-    let mut facts = owner.terminal_facts(terminal.runtime.identity(), terminal.runtime.phase());
+pub(crate) fn terminal(service: &Service, terminal: &OwnedTerminal) -> TerminalSourceFacts {
+    let mut facts = service.activity.owner.terminal_facts(terminal.runtime.identity(), terminal.runtime.phase());
     facts.source_kind = Some(terminal.runtime.source_kind());
+    facts.automation_exit_code = service.remote_automation_exit_code(terminal);
     facts.startup = terminal
         .startup
         .as_ref()

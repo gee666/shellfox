@@ -55,13 +55,15 @@ impl Root {
             );
         }
         if let Some(path) = path {
-            document = document.child(file_toolbar(files, path, palette, cx));
+            let preview = files.editor.as_ref().and_then(|editor| editor.text_preview.as_ref())
+                .filter(|preview| preview.available(&self.html_preview, window));
+            document = document.child(file_toolbar(files, path, preview, palette, cx));
         }
         if let Some(editor) = &files.editor {
             if let Some(preview) = editor
                 .text_preview
                 .as_ref()
-                .filter(|preview| preview.showing)
+                .filter(|preview| preview.showing && preview.available(&self.html_preview, window))
             {
                 return document
                     .child(preview.render(
@@ -70,6 +72,7 @@ impl Root {
                         editor.text.read(cx).snapshot_text(),
                         palette,
                         window,
+                        &self.html_preview,
                         cx,
                     ))
                     .into_any_element();
@@ -140,7 +143,13 @@ impl Root {
     }
 }
 
-fn file_toolbar(files: &Files, path: &str, palette: Palette, cx: &mut Context<Root>) -> gpui::Div {
+fn file_toolbar(
+    files: &Files,
+    path: &str,
+    preview: Option<&crate::files::text_preview::TextPreview>,
+    palette: Palette,
+    cx: &mut Context<Root>,
+) -> gpui::Div {
     let dirty = files.editor.as_ref().is_some_and(|editor| editor.dirty(cx))
         || files
             .image_editor
@@ -219,12 +228,7 @@ fn file_toolbar(files: &Files, path: &str, palette: Palette, cx: &mut Context<Ro
             )
         })
         .when(
-            files.editor.as_ref().is_some_and(|editor| {
-                editor
-                    .text_preview
-                    .as_ref()
-                    .is_none_or(|preview| !preview.showing)
-            }),
+            files.editor.is_some() && preview.is_none_or(|preview| !preview.showing),
             |bar| {
                 bar.child(
                     control("wrap-file-lines", "wrap", palette)
@@ -273,16 +277,10 @@ fn file_toolbar(files: &Files, path: &str, palette: Palette, cx: &mut Context<Ro
                 )
             },
         )
-        .when_some(
-            files
-                .editor
-                .as_ref()
-                .and_then(|editor| editor.text_preview.as_ref()),
-            |bar, preview| {
-                bar.child(preview_button(false, preview.showing, palette, cx))
-                    .child(preview_button(true, preview.showing, palette, cx))
-            },
-        )
+        .when_some(preview, |bar, preview| {
+            bar.child(preview_button(false, preview.showing, palette, cx))
+                .child(preview_button(true, preview.showing, palette, cx))
+        })
 }
 
 fn preview_button(

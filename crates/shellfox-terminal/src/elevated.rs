@@ -23,6 +23,7 @@ mod stdio;
 mod stdio_workers;
 #[cfg(test)]
 mod tests;
+mod startup_stage;
 mod transport;
 mod wire;
 
@@ -43,5 +44,6 @@ pub use resource::{TrustedHash, VerifiedHelper};
 pub use session::{Session, StartError};
 #[cfg(any(windows, test, feature = "test-support"))]
 pub use stdio::{reap_retained_launchers, Observation};
+pub use startup_stage::StartupStage;
 pub use transport::{HelperFrame, HelperIo};
 pub use wire::{AdapterError, Birth, ProcessIdentity, MAX_FRAME, MAX_INPUT};

@@ -48,12 +48,16 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
   override fun onDown(event: MotionEvent): Boolean = true
   override fun onSingleTapUp(event: MotionEvent): Boolean {
     if (selecting) return true
-    if (mode != null) finish() else { view.pointer(event.x, event.y); clicked = true }
+    if (mode != null) finish() else {
+      view.fileLinkAt(event.x, event.y)
+      view.pointer(event.x, event.y)
+      clicked = true
+    }
     return true
   }
   override fun onScroll(first: MotionEvent?, current: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
     if (anchor != null) return true
-    accumulatedScroll += distanceY / (20f * view.resources.displayMetrics.density)
+    accumulatedScroll += distanceY / view.cellHeight
     val rows = accumulatedScroll.toInt()
     if (rows != 0) {
       accumulatedScroll -= rows
@@ -103,6 +107,7 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
       override fun onDestroyActionMode(action: ActionMode) {
         mode = null; anchor = null; link = null
         view.select(0, Pair(0, 0))
+        view.selectionChanged()
         view.parent?.requestDisallowInterceptTouchEvent(false)
       }
     }, ActionMode.TYPE_FLOATING)

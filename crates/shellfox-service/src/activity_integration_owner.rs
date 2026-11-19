@@ -247,6 +247,7 @@ impl OwnerActivity {
             identity,
             phase,
             source_kind: None,
+            automation_exit_code: None,
             startup: super::StartupEvidence::Pending,
             observation,
             busy,

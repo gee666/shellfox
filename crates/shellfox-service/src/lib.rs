@@ -38,6 +38,7 @@ mod manager_retire;
 mod native_metadata_fixture;
 mod owner;
 mod owner_automation;
+mod automation_replay;
 #[cfg(windows)]
 mod pipe_identity;
 mod platform;
@@ -63,6 +64,8 @@ pub fn dispatch_supervisor_entry() -> anyhow::Result<Option<u32>> {
 #[cfg(test)]
 mod stop_admission_tests;
 pub mod system;
+#[cfg(windows)]
+pub mod wsl_files_worker;
 mod terminals;
 #[cfg(test)]
 mod tests;

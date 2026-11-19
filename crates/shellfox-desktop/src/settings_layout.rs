@@ -26,20 +26,21 @@ impl Render for SettingsPanel {
                 Category::Ssh => self.ssh_page(window, cx),
             }
         };
-        if std::mem::take(&mut self.restore_environment_focus)
-            && self.category == Category::Terminals
-            && let Some(trigger) = self.controls.get("all-terminal-environment")
-        {
-            trigger.focus(window);
+        let restore_environment_focus = std::mem::take(&mut self.restore_environment_focus);
+        if restore_environment_focus && self.category == Category::Terminals {
+            if let Some(trigger) = self.controls.get("all-terminal-environment") {
+                trigger.focus(window);
+            }
         }
-        if let Some(id) = self.ssh.focus_control.take()
-            && self.category == Category::Ssh
-            && let Some(focus) = self
-                .controls
-                .get(&id)
-                .or_else(|| self.controls.get("add-ssh"))
-        {
-            focus.focus(window);
+        let ssh_focus = self.ssh.focus_control.take();
+        if self.category == Category::Ssh {
+            if let Some(focus) = ssh_focus.as_ref().and_then(|id| {
+                self.controls
+                    .get(id)
+                    .or_else(|| self.controls.get("add-ssh"))
+            }) {
+                focus.focus(window);
+            }
         }
         let body = self.semantic_element(
             &format!("panel/{}", self.category.label()),
@@ -76,6 +77,7 @@ impl Render for SettingsPanel {
                     element.child(controls::focus_outline(
                         self.tab_focus[index].clone(),
                         p.accent,
+                        0.,
                         0.,
                     ))
                 })
@@ -173,6 +175,7 @@ impl Render for SettingsPanel {
                     self.close_focus.clone(),
                     p.accent,
                     4.,
+                    0.,
                 ))
             })
             .on_key_down(

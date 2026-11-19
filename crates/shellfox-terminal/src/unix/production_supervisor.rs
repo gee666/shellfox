@@ -35,6 +35,18 @@ pub(super) fn install_close_handlers() -> Result<()> {
     Ok(())
 }
 
+pub(super) fn apply_privilege_policy(policy: &std::ffi::OsStr) -> Result<()> {
+    match policy.to_str() {
+        Some("local") => (),
+        Some("non-elevating") => ensure!(
+            unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } == 0,
+            "cannot establish non-elevating POSIX launch"
+        ),
+        _ => anyhow::bail!("invalid POSIX launch policy"),
+    }
+    Ok(())
+}
+
 pub(crate) fn entry() -> Result<Option<u32>> {
     let mut args = std::env::args_os().skip(1);
     if args.next().as_deref() != Some(std::ffi::OsStr::new(super::startup::FLAG)) {
@@ -57,16 +69,7 @@ pub(crate) fn entry() -> Result<Option<u32>> {
         .context("invalid PTY parent")?
         .parse()?;
     let policy = args.next().context("missing POSIX launch policy")?;
-    match policy.to_str() {
-        Some("local") => (),
-        Some("non-elevating") => {
-            ensure!(
-                unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } == 0,
-                "cannot establish non-elevating POSIX launch"
-            );
-        }
-        _ => anyhow::bail!("invalid POSIX launch policy"),
-    }
+    apply_privilege_policy(&policy)?;
     let program = PathBuf::from(args.next().context("missing PTY program")?);
     ensure!(
         program.is_absolute()

@@ -33,6 +33,12 @@ pub(super) fn peer(stream: &UnixStream) -> Result<libc::ucred> {
     );
     Ok(credentials)
 }
+fn privilege_argument(mode: crate::UnixPrivilegeMode) -> &'static str {
+    match mode {
+        crate::UnixPrivilegeMode::Local => "local",
+        crate::UnixPrivilegeMode::NonElevating => "non-elevating",
+    }
+}
 impl Gate {
     pub fn new() -> Result<Self> {
         let name = format!("shellfox-{}", super::private::random_token()?);
@@ -45,15 +51,11 @@ impl Gate {
         command: &crate::PtyCommand,
         mode: crate::UnixPrivilegeMode,
     ) -> Vec<std::ffi::OsString> {
-        let policy = match mode {
-            crate::UnixPrivilegeMode::Local => "local",
-            crate::UnixPrivilegeMode::NonElevating => "non-elevating",
-        };
         let mut args = vec![
             FLAG.into(),
             self.name.clone().into(),
             std::process::id().to_string().into(),
-            policy.into(),
+            privilege_argument(mode).into(),
             command.program.clone(),
         ];
         args.extend_from_slice(&command.args);
@@ -66,11 +68,12 @@ impl Gate {
     ) -> Result<UnixStream> {
         self.release_payload(pid, &[], before_go)
     }
-    pub fn raw_arguments(&self) -> Vec<std::ffi::OsString> {
+    pub fn raw_arguments(&self, mode: crate::UnixPrivilegeMode) -> Vec<std::ffi::OsString> {
         vec![
             super::raw::FLAG.into(),
             self.name.clone().into(),
             std::process::id().to_string().into(),
+            privilege_argument(mode).into(),
         ]
     }
     pub fn release_raw(

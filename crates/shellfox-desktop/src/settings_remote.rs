@@ -66,9 +66,11 @@ pub(super) struct RemoteView {
 }
 impl RemoteView {
     pub fn new(cx: &mut App) -> Self {
+        let hostname = Field::settings_input(None, cx);
+        hostname.update(cx, |field, _| field.limit_utf16(63));
         let view = Self {
             state: None,
-            hostname: Field::settings_input(None, cx),
+            hostname,
             auth: Field::password(cx),
             login_address: Field::new("", cx),
             pending: false,

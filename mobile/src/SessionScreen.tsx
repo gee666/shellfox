@@ -14,7 +14,7 @@ import { ConnectionStatus } from './ConnectionStatus';
 import { TerminalOperationError } from './terminal/errors';
 import type { TerminalBridgeState } from './terminal/bridge';
 import { isConnectionFailure } from './connection-status';
-import { RemoteClientError } from './client';
+import { RemoteClientError } from './client/protocol';
 import { FolderButton } from './FileTransferBar';
 import type { FileOpenRequest } from './file-browser-types';
 

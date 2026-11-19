@@ -1,4 +1,6 @@
 use super::*;
+use shellfox_protocol::{ErrorCode, Validate};
+
 fn fixture(permission: ViewPermission) -> (tempfile::TempDir, Actor, RemoteTransfers) {
     let (scratch, actor) = crate::test_support::actor(permission);
     let transfers =

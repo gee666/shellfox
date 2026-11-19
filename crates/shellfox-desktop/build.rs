@@ -1,15 +1,10 @@
 #[path = "../product_version.rs"]
 mod product_version;
-#[cfg(windows)]
-mod wsl_files_asset;
 
 fn main() {
     let _version = product_version::export();
     #[cfg(windows)]
-    {
-        embed_windows_icon(&_version);
-        wsl_files_asset::embed();
-    }
+    embed_windows_icon(&_version);
 }
 
 #[cfg(windows)]

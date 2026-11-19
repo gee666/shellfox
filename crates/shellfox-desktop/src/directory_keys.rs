@@ -1,7 +1,23 @@
 use super::*;
-use gpui::KeyDownEvent;
+use gpui::{KeyDownEvent, KeyUpEvent};
 
 impl Root {
+    pub(crate) fn directory_key_up(
+        &mut self,
+        event: &KeyUpEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.dialog, Some(Dialog::Create(_)))
+            && matches!(event.keystroke.key.as_str(), "enter" | "space")
+        {
+            // The key-down can move focus to Keep editing before key-up.
+            // Don't let GPUI click the newly focused button on release.
+            window.prevent_default();
+            cx.stop_propagation();
+        }
+    }
+
     pub(crate) fn directory_key(
         &mut self,
         event: &KeyDownEvent,
@@ -17,6 +33,11 @@ impl Root {
         let input = draft.path.read(cx).edit_focus().is_focused(window);
         let shift = event.keystroke.modifiers.shift;
         let key = event.keystroke.key.as_str();
+        if event.is_held && (key == "enter" || key == "space" && !input) {
+            window.prevent_default();
+            cx.stop_propagation();
+            return;
+        }
         match key {
             "escape" => {
                 if input && !draft.matches(cx).is_empty() {
@@ -90,9 +111,13 @@ impl Root {
                 }
                 draft.scroll.scroll_to_item(draft.active());
             }
-            "enter" if draft.browse.is_focused(window) => self.browse_directory(window, cx),
-            "enter" if draft.keep_editing.is_focused(window) => self.dismiss_directory(window, cx),
-            "enter" if draft.create_missing.is_focused(window) => {
+            "enter" | "space" if draft.browse.is_focused(window) => {
+                self.browse_directory(window, cx)
+            }
+            "enter" | "space" if draft.keep_editing.is_focused(window) => {
+                self.dismiss_directory(window, cx)
+            }
+            "enter" | "space" if draft.create_missing.is_focused(window) => {
                 self.submit_directory(Some(Busy::Creating), None, window, cx)
             }
             "enter" if input => {

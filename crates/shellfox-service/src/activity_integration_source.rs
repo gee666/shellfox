@@ -13,6 +13,8 @@ pub struct TerminalSourceFacts {
     pub phase: Phase,
     /// Actual registered Runtime kind. Policy-only captures have no such proof.
     pub source_kind: Option<shellfox_runtime::SourceKind>,
+    /// A completed published automation replay with sealed normal launch evidence.
+    pub automation_exit_code: Option<i64>,
     pub startup: super::StartupEvidence,
     pub observation: Option<Observation>,
     pub busy: bool,

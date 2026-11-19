@@ -125,6 +125,9 @@ impl Service {
         {
             return None;
         }
+        if self.remote_automation_exit_code(terminal).is_some() {
+            return Some(self.factory_policy.revision);
+        }
         terminal
             .source_share
             .eligible_revision

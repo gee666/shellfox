@@ -60,6 +60,8 @@ pub(super) fn handle(
                 .collect::<Vec<_>>();
             for previous_id in replaced {
                 if let Some(view) = state.observer_views.entries.get_mut(&previous_id) {
+                    #[cfg(windows)]
+                    state.wsl_transfers.cancel_actor(view.connection.actor());
                     runtime::detach_all(service, view)?;
                 }
                 state.observer_views.entries.remove(&previous_id);
@@ -91,6 +93,8 @@ pub(super) fn handle(
         }
         ObserverOperation::Disconnect => {
             if let Some(view) = state.observer_views.entries.get_mut(&id) {
+                #[cfg(windows)]
+                state.wsl_transfers.cancel_actor(view.connection.actor());
                 runtime::detach_all(service, view)?;
             }
             state.observer_views.entries.remove(&id);
@@ -155,8 +159,10 @@ pub(super) fn handle(
 fn tab_visible(state: &RemoteState, service: &Service, tab: &shellfox_core::Tab) -> bool {
     if super::privacy::elevated_profile(tab.profile_id.as_str()) || service.terminals.get(&tab.id).is_some_and(|terminal| {
         terminal.runtime.identity().session_id == tab.session_id
-            && terminal.runtime.launch_privilege_facts().privilege
+            && (terminal.runtime.launch_privilege_facts().privilege
                 == shellfox_runtime::LaunchPrivilege::Elevated
+                || terminal.runtime.source_kind() == shellfox_runtime::SourceKind::ExternalBytes
+                    && super::v1_privilege::explicitly_elevated(&terminal.runtime.launch_privilege_facts()))
     }) {
         return false;
     }

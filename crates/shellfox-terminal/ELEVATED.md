@@ -10,7 +10,10 @@ as Electron does. Only a fresh local add-tab action can start it. Remote clients
 cannot list or attach to the tab. This mode loads the account's PowerShell
 profile but does not pass session environment overrides to the elevated shell.
 Shellfox does not set a consent deadline. Windows controls the prompt, and the
-helper bounds pipe setup and ConPTY startup after approval.
+launcher bounds the authenticated handshake through `ready` after approval.
+A Windows consent cancellation is reported separately from a post-approval
+startup failure. The local desktop and host stderr report the failed stage
+without including paths, environment values or terminal input.
 
 The separate isolated factory uses `probe-isolated` and `launch-isolated`.
 It still requires an explicit, manifest-bound `NoDynamicCodeLoad` review from

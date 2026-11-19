@@ -6,6 +6,15 @@ fn dispatch(url: &str, open: impl FnOnce(&str)) -> anyhow::Result<()> {
     open(&validated);
     Ok(())
 }
+fn open_login_url(url: &str, cx: &App) {
+    #[cfg(all(debug_assertions, feature = "test-settings-browser"))]
+    if std::env::args_os().any(|arg| arg == "--ui-acceptance") {
+        eprintln!("settings test opener: {url}");
+        return;
+    }
+    cx.open_url(url);
+}
+
 impl SettingsPanel {
     pub(super) fn dispatch_login_browser(&mut self, serial: u64, cx: &mut Context<Self>) {
         if self.operations.frozen() || !self.remote.login.is_current(serial) {
@@ -17,7 +26,7 @@ impl SettingsPanel {
             .url
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("No current sign-in address."))
-            .and_then(|url| dispatch(url, |url| cx.open_url(url)));
+            .and_then(|url| dispatch(url, |url| open_login_url(url, cx)));
         if result.is_err() {
             self.remote.login.browser_failed();
         }
@@ -39,10 +48,8 @@ mod tests {
             assert!(dispatch(url, |url| calls.push(url.to_owned())).is_err());
         }
         assert!(calls.is_empty());
-        dispatch("https://login.example.invalid/owned", |url| {
-            calls.push(url.to_owned())
-        })
-        .unwrap();
-        assert_eq!(calls, ["https://login.example.invalid/owned"]);
+        let login_url = "https://login.tailscale.com/a/p5-test-only";
+        dispatch(login_url, |url| calls.push(url.to_owned())).unwrap();
+        assert_eq!(calls, [login_url]);
     }
 }

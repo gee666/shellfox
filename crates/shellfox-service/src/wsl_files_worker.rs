@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail, ensure};
 use shellfox_core::WslLaunchAccount;
-use shellfox_files::wsl_files_ipc::{self as wire, Reply, Request};
+use shellfox_files::{CHUNK_BYTES, TransferReply, TransferRequest, wsl_files_ipc::{self as wire, Reply, Request}};
 use shellfox_terminal::wsl::OsWsl;
 use std::{
     io::{BufReader, Write},
@@ -15,14 +15,14 @@ type ReplyPacket = (Reply, Vec<u8>);
 const WORKER: Option<&[u8]> = include!(concat!(env!("OUT_DIR"), "/wsl-files-asset.rs"));
 const BOOTSTRAP: &str = include_str!("wsl_files_bootstrap.py");
 
-pub(super) struct Worker {
+pub struct Worker {
     child: Option<Child>,
     requests: Option<SyncSender<(Request, Vec<u8>)>>,
     replies: Receiver<Result<ReplyPacket>>,
 }
 
 impl Worker {
-    pub(super) fn start(distro: &str, account: &WslLaunchAccount) -> Result<Self> {
+    pub fn start(distro: &str, account: &WslLaunchAccount) -> Result<Self> {
         let executable = WORKER.context("This Windows build lacks the WSL Files helper. Install a current Shellfox build for your Windows architecture.")?;
         let machine = match std::env::consts::ARCH {
             "x86_64" => "x86_64",
@@ -114,13 +114,33 @@ impl Worker {
         Ok(worker)
     }
 
-    pub(super) fn exchange(&self, request: Request, bytes: Vec<u8>) -> Result<ReplyPacket> {
+    pub fn exchange(&self, request: Request, bytes: Vec<u8>) -> Result<ReplyPacket> {
         self.requests
             .as_ref()
             .context("WSL Files closed")?
             .try_send((request, bytes))
             .map_err(|_| anyhow::anyhow!("Could not send request to WSL Files"))?;
         self.receive(Duration::from_secs(30))
+    }
+
+    pub(crate) fn transfer(&self, mut request: TransferRequest) -> Result<TransferReply> {
+        let bytes = match &mut request {
+            TransferRequest::Write(input) => std::mem::take(&mut input.data),
+            _ => Vec::new(),
+        };
+        let (reply, bytes) = self.exchange(Request::Transfer(request), bytes)?;
+        let mut reply = match reply {
+            Reply::Transfer(reply) => reply,
+            Reply::Error(error) if bytes.is_empty() => return Err(error.into()),
+            _ => bail!("Invalid WSL transfer response"),
+        };
+        match &mut reply {
+            TransferReply::Chunk(chunk) if chunk.data.is_empty() && bytes.len() <= CHUNK_BYTES => chunk.data = bytes,
+            TransferReply::Chunk(_) => bail!("Invalid WSL transfer chunk"),
+            _ if !bytes.is_empty() => bail!("Unexpected WSL transfer payload"),
+            _ => {}
+        }
+        Ok(reply)
     }
 
     fn receive(&self, limit: Duration) -> Result<ReplyPacket> {

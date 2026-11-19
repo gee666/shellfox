@@ -41,8 +41,13 @@ describe.each(BACKGROUNDS)('palette on background %s', background => {
     expect(bg).toBe(background.toLowerCase());
     expect(palette.terminal.background).toBe(background.toLowerCase());
   });
-  it('keeps status colors visible', () => {
+  it('keeps status colors visible and idle green independently of the accent', () => {
     for (const name of ['--dot-shell', '--dot-running', '--dot-error', '--dot-settled']) expect(contrastRatio(palette.vars[name]!, bg)).toBeGreaterThanOrEqual(3);
+    const idle = palette.vars['--dot-running']!;
+    expect(idle).toBe(derivePalette('#0000ff', bg).vars['--dot-running']);
+    expect(idle).not.toBe(palette.vars['--dot-error']);
+    const [red, green, blue] = [1, 3, 5].map(index => parseInt(idle.slice(index, index + 2), 16));
+    expect(green!).toBeGreaterThan(Math.max(red!, blue!));
   });
   it('derives distinguishable surfaces in the right direction', () => {
     const sign = palette.scheme === 'dark' ? 1 : -1;

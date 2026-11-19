@@ -41,6 +41,7 @@ impl Root {
             failures: HashMap::new(),
             settings_panel: None,
             files: None,
+            html_preview: crate::files::text_preview::html::Surface::new(&options.run_dir),
             retained_files: Vec::new(),
             fixture: None,
             run_dir: options.run_dir,

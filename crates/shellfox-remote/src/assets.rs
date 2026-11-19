@@ -23,6 +23,10 @@ pub fn read(actor: &Actor, input: &wire::ReadFileAsset) -> Result<serde_json::Va
             asset_path: input.asset_path.clone(),
         })
         .map_err(file_ops::file_error)?;
+    asset_value(asset)
+}
+
+pub fn asset_value(asset: files::FileAsset) -> Result<serde_json::Value, AppError> {
     file_ops::checked(wire::FileAsset {
         data_url: data_url(&asset.mime_type, &asset.bytes)?,
         mime_type: asset.mime_type,
@@ -32,6 +36,16 @@ pub fn read(actor: &Actor, input: &wire::ReadFileAsset) -> Result<serde_json::Va
 /// Called inside the owner approval commit guard. Shared FileService validates
 /// the image bytes, revision and publication, not just the declared MIME type.
 pub fn write(actor: &Actor, input: &wire::WriteImageFile) -> Result<serde_json::Value, AppError> {
+    let input = decode_image_write(input)?;
+    let result = file_ops::capability(actor, &input.path)?.write_image(&input).map_err(file_ops::file_error)?;
+    file_ops::checked(wire::files::FileWriteResult {
+        path: result.path,
+        size: result.size,
+        revision: result.revision,
+    })
+}
+
+pub fn decode_image_write(input: &wire::WriteImageFile) -> Result<files::ImageWrite, AppError> {
     input
         .validate()
         .map_err(|_| error(ErrorCode::Validation, "Invalid image write.", false))?;
@@ -52,17 +66,10 @@ pub fn write(actor: &Actor, input: &wire::WriteImageFile) -> Result<serde_json::
                 .map_err(|_| error(ErrorCode::Validation, "Invalid image base64.", false))?,
         );
     }
-    let result = file_ops::capability(actor, &input.path)?
-        .write_image(&files::ImageWrite {
-            path: input.path.clone(),
-            revision: input.revision.clone(),
-            mime_type: mime.into(),
-            bytes,
-        })
-        .map_err(file_ops::file_error)?;
-    file_ops::checked(wire::files::FileWriteResult {
-        path: result.path,
-        size: result.size,
-        revision: result.revision,
+    Ok(files::ImageWrite {
+        path: input.path.clone(),
+        revision: input.revision.clone(),
+        mime_type: mime.into(),
+        bytes,
     })
 }

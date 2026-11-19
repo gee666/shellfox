@@ -16,6 +16,8 @@
     <Compile Include="../Shellfox.ElevatedTerminal/Wire.cs" Link="Wire.cs" />
     <Compile Include="../Shellfox.ElevatedTerminal/Watchdog.cs" Link="Watchdog.cs" />
     <Compile Include="../Shellfox.ElevatedTerminal/LocalPipe.cs" Link="LocalPipe.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/Launcher.cs" Link="Launcher.cs" />
+    <Compile Include="../Shellfox.ElevatedTerminal/StartupStage.cs" Link="StartupStage.cs" />
     <Compile Include="../Shellfox.ElevatedTerminal/Power*.cs" Link="%(Filename)%(Extension)" />
     <Compile Include="../Shellfox.ElevatedTerminal/PipeRun.cs" Link="PipeRun.cs" />
     <Compile Include="../Shellfox.ElevatedTerminal/PipeRunConfig.cs" Link="PipeRunConfig.cs" />

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHostClient, setMobileClientEngine, mobileClientEngine } from './factory';
+import { createHostClient } from './factory';
+import { createHostClient as createAndroidHostClient } from './factory.android';
 import { RemoteClient } from './client';
 import { RustHostClient } from '../rust-client/rust-host-client';
 import { TestNative } from '../rust-client/test-native';
@@ -12,21 +13,29 @@ vi.mock('react-native', () => ({
 }));
 const options = { createClientId: () => ids.client };
 beforeEach(() => {
-  vi.clearAllMocks(); setMobileClientEngine({ engine: 'webview-transition' });
+  vi.clearAllMocks();
   registry.get.mockReturnValue(null); registry.view.mockReturnValue(false);
   registry.enforcing.mockImplementation(() => { throw new Error('Old binary must not enforce native modules.'); });
 });
 
-describe('explicit mobile engine transition', () => {
-  it('keeps the existing client as the explicit default without probing native modules', () => {
+describe('mobile terminal engine', () => {
+  it('keeps iOS on the existing client without probing native modules', () => {
     const transport = new TestTransport();
-    expect(mobileClientEngine()).toEqual({ engine: 'webview-transition' });
     expect(createHostClient('node_123', transport, options)).toBeInstanceOf(RemoteClient);
     expect(registry.get).not.toHaveBeenCalled(); expect(registry.enforcing).not.toHaveBeenCalled();
     expect(transport.request).not.toHaveBeenCalled();
   });
 
-  it('does not adopt after only an Android compile or silently fall back when Rust was chosen', () => {
+  it('defaults Android to the Rust V1 client without silently falling back', () => {
+    const transport = new TestTransport();
+    expect(() => createAndroidHostClient('node_123', transport, options)).toThrow('no compatible Rust client');
+    registry.get.mockReturnValue(new TestNative());
+    registry.view.mockReturnValue(true);
+    expect(createAndroidHostClient('node_123', transport, options)).toBeInstanceOf(RustHostClient);
+    expect(transport.request).not.toHaveBeenCalled();
+  });
+
+  it('does not bypass the acceptance gate for an explicit profile selection', () => {
     expect(() => createHostClient('node_123', new TestTransport(), options, {
       engine: 'rust-native', accepted: { android: true, ios: false },
     })).toThrow('Android and iOS acceptance');

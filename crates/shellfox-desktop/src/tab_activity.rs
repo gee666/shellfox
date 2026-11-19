@@ -71,19 +71,12 @@ impl Root {
     }
 
     pub(crate) fn tab_agent_state(&self, tab: &Tab, cx: &gpui::App) -> AgentState {
-        if self.failures.contains_key(&tab.id)
+        let view_failed = self.failures.contains_key(&tab.id)
             || self
                 .views
                 .get(&tab.id)
-                .is_some_and(|view| view.read(cx).is_failed())
-        {
-            AgentState::Error
-        } else {
-            self.tab_activity
-                .states
-                .get(&tab.id)
-                .map_or(AgentState::Shell, |state| state.dot)
-        }
+                .is_some_and(|view| view.read(cx).is_failed());
+        local_dot(self.tab_activity.states.get(&tab.id), view_failed)
     }
 
     pub(crate) fn tab_status_label(&self, id: TabId, state: AgentState) -> String {
@@ -92,8 +85,7 @@ impl Root {
             AgentState::Running => "Agent idle".into(),
             AgentState::Busy => "Agent working".into(),
             AgentState::Settled => "Settled".into(),
-            AgentState::Error => self.failures.get(&id).map(|error| error.message.as_str())
-                .or_else(|| self.tab_activity.states.get(&id)?.error.as_deref())
+            AgentState::Error => self.local_tab_error_text(id)
                 .map_or_else(|| "Error".into(), |message| format!("Error: {message}")),
         }
     }
@@ -125,13 +117,18 @@ impl Root {
             .tabs
             .iter()
             .filter(|tab| tab.state != TabState::Archived)
-            .find_map(|tab| {
-                let state = self.tab_activity.states.get(&tab.id);
-                self.failures
-                    .get(&tab.id)
-                    .map(|error| error.message.clone())
-                    .or_else(|| state.and_then(|state| state.error.clone()))
-            })
+            .find_map(|tab| self.local_tab_error_text(tab.id))
+            .map(str::to_owned)
+    }
+
+    fn local_tab_error_text(&self, id: TabId) -> Option<&str> {
+        let host = self.tab_activity.states.get(&id);
+        host.and_then(|state| state.error.as_deref()).or_else(|| {
+            if active_agent(host) {
+                return None;
+            }
+            self.failures.get(&id).map(|error| error.message.as_str())
+        })
     }
 
     pub(crate) fn session_has_error(&self, session: &Session, cx: &gpui::App) -> bool {
@@ -171,6 +168,22 @@ impl Root {
     }
 }
 
+fn active_agent(activity: Option<&NativeTabActivity>) -> bool {
+    activity.is_some_and(|state| {
+        !state.closed && state.error.is_none() && matches!(state.dot, AgentState::Running | AgentState::Busy)
+    })
+}
+
+fn local_dot(activity: Option<&NativeTabActivity>, view_failed: bool) -> AgentState {
+    // An attachment can fail while the host still owns a live agent. The view
+    // handles reconnect separately; its failure isn't the agent's status.
+    if view_failed && !active_agent(activity) {
+        AgentState::Error
+    } else {
+        activity.map_or(AgentState::Shell, |state| state.dot)
+    }
+}
+
 fn tab_is_viewable(state: TabState, profile: &str, activity: Option<&NativeTabActivity>) -> bool {
     state != TabState::Archived
         && (profile == shellfox_service::AUTOMATION_PROFILE_ID
@@ -207,6 +220,28 @@ mod tests {
     }
 
     #[test]
+    fn a_view_failure_does_not_override_live_agent_status() {
+        let mut live = NativeTabActivity {
+            tab: TabId::new(),
+            generation: shellfox_core::Generation::new(),
+            dot: AgentState::Running,
+            has_agents: true,
+            closed: false,
+            error: None,
+            process_title: None,
+        };
+        assert_eq!(local_dot(Some(&live), true), AgentState::Running);
+        live.dot = AgentState::Busy;
+        assert_eq!(local_dot(Some(&live), true), AgentState::Busy);
+        live.closed = true;
+        assert_eq!(local_dot(Some(&live), true), AgentState::Error);
+        live.dot = AgentState::Error;
+        live.error = Some("Terminal startup failed.".into());
+        assert_eq!(local_dot(Some(&live), false), AgentState::Error);
+        assert_eq!(local_dot(None, true), AgentState::Error);
+    }
+
+    #[test]
     fn an_active_shell_pulses_only_for_detected_active_agents() {
         let mut source = TerminalSourceFacts {
             identity: Identity {
@@ -217,6 +252,7 @@ mod tests {
             phase: Phase::Active,
             startup: StartupEvidence::Confirmed,
             source_kind: None,
+            automation_exit_code: None,
             observation: Some(Observation {
                 root: RootState::Alive,
                 agents: 0,

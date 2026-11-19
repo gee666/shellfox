@@ -69,6 +69,7 @@ fn source(creation: bool, observation: Option<Observation>) -> SourceFacts {
             },
             phase: Phase::Active,
             source_kind: Some(shellfox_runtime::SourceKind::OwnedPty),
+            automation_exit_code: None,
             startup: StartupEvidence::from_started(&Ok(())),
             observation,
             busy: false,
@@ -149,6 +150,31 @@ fn targeted_legacy_collection_ignores_unrelated_unknown_birth_but_complete_inven
         "target scope never filters or mutates the complete snapshot"
     );
 }
+#[test]
+fn legacy_projects_completed_automation_without_inventing_persisted_shell_facts() {
+    let mut source = source(false, None);
+    let session = &mut source.snapshot.sessions[0];
+    session.tabs[0].profile_id = ProfileId::new("automation-pipe").unwrap();
+    let facts = &mut source.terminals[0];
+    facts.source_kind = Some(shellfox_runtime::SourceKind::ExternalBytes);
+    facts.automation_exit_code = Some(7);
+    let generation = facts.identity.generation;
+    let session = &source.snapshot.sessions[0];
+    let projected = project_owned_session_facts(&source).unwrap();
+    let dto = adapter::session_dto(session, &projected[&session.id]).unwrap();
+    assert!(matches!(dto.adapter_id, wire::AdapterId::EmbeddedPty));
+    assert!(matches!(dto.shell_id, wire::ShellId::LoginShell));
+    assert!(!dto.can_add_tab);
+    assert_eq!(dto.counts.closed, 1);
+    let tab = &dto.tabs[0];
+    assert!(matches!(tab.lifecycle, wire::TabLifecycle::Closed));
+    assert_eq!(tab.exit_code, Some(Some(7)));
+    assert_eq!(tab.generation, Some(generation));
+    assert!(source.creation_facts.is_empty());
+    source.terminals[0].automation_exit_code = None;
+    assert!(project_owned_session_facts(&source).is_err());
+}
+
 #[test]
 fn only_actual_observation_counts_agents_and_sink_failure_is_reported_unknown() {
     let observation = Observation {

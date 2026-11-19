@@ -86,6 +86,19 @@ mod tests {
     }
 
     #[test]
+    fn idle_stays_green_after_importing_an_electron_accent() {
+        let green: Hsla = gpui::rgb(0x4ade80).into();
+        for background in ["#111016", "#ffffff", "#777777", "#00ff00"] {
+            let pink = Palette::new("#ec4899", background);
+            let blue = Palette::new("#0075ff", background);
+            let idle = status_color(AgentState::Running, pink);
+            assert_eq!(idle, status_color(AgentState::Running, blue));
+            assert_ne!(idle, status_color(AgentState::Error, pink));
+            assert!((idle.h - green.h).abs() < 0.01);
+        }
+    }
+
+    #[test]
     fn pulse_matches_css_easing_and_returns_to_the_original_size() {
         for (phase, expected) in [
             (0., 0.),

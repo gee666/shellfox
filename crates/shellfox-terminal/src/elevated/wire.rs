@@ -1,3 +1,4 @@
+use super::startup_stage::{DENIED, StartupStage, WAIT_CANCELLED};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::{fmt, num::NonZeroU32};
@@ -21,6 +22,9 @@ pub enum AdapterError {
     Transport,
     CleanupUnconfirmed,
     Cancelled,
+    ApprovalDenied,
+    ApprovalWaitCancelled,
+    StartupFailed(StartupStage),
     HelperFailed,
     IsolatedModeUnavailable,
     LoaderPolicyRequired,
@@ -39,6 +43,9 @@ impl fmt::Display for AdapterError {
             Self::Transport => "administrator helper channel failed; cleanup is unconfirmed",
             Self::CleanupUnconfirmed => "administrator Job cleanup is unconfirmed",
             Self::Cancelled => "administrator approval was cancelled or timed out",
+            Self::ApprovalDenied => DENIED,
+            Self::ApprovalWaitCancelled => WAIT_CANCELLED,
+            Self::StartupFailed(stage) => return stage.fmt(f),
             Self::HelperFailed => "administrator helper failed",
             Self::IsolatedModeUnavailable => "legacy administrator helper cannot suppress account profiles; use verified isolated mode",
             Self::LoaderPolicyRequired => "managed helper loader review is not granted; real administrator launch remains unavailable",
@@ -135,10 +142,13 @@ pub(crate) fn decode(line: &[u8]) -> Result<Message, AdapterError> {
                 return Err(AdapterError::InvalidProtocol);
             }
             // A compromised helper cannot put input, environment or secrets in
-            // user-visible errors. Retain only the closed error-code vocabulary.
-            Message::Error(match code {
-                ErrorCode::Cancelled => AdapterError::Cancelled,
-                ErrorCode::Failed => AdapterError::HelperFailed,
+            // user-visible errors. Accept only fixed, known startup diagnostics.
+            Message::Error(match (code, message.as_str()) {
+                (ErrorCode::Cancelled, DENIED) => AdapterError::ApprovalDenied,
+                (ErrorCode::Cancelled, WAIT_CANCELLED) => AdapterError::ApprovalWaitCancelled,
+                (ErrorCode::Cancelled, _) => AdapterError::Cancelled,
+                (ErrorCode::Failed, message) => StartupStage::from_message(message)
+                    .map_or(AdapterError::HelperFailed, AdapterError::StartupFailed),
             })
         }
     })

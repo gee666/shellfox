@@ -87,6 +87,19 @@ fn wayland_restores_size_and_maximize_without_importing_an_x11_origin() {
 }
 
 #[test]
+fn wayland_clamps_default_and_saved_bounds_to_the_logical_output() {
+    let monitor = Monitor {
+        work_area: Rect { x: 0, y: 0, width: 1200, height: 760 },
+        ..primary()
+    };
+    let restored = RestoredBounds {
+        origin: None, width: 1200, height: 760, maximized: false,
+    };
+    assert_eq!(restore_size_only(None, &monitor).unwrap(), restored);
+    assert_eq!(restore_size_only(Some(saved()), &monitor).unwrap(), restored);
+}
+
+#[test]
 fn mixed_dpi_restore_clamps_detached_bounds_in_primary_work_area_dips() {
     let primary = Monitor {
         work_area: Rect { x: 0, y: 0, width: 1536, height: 832 },

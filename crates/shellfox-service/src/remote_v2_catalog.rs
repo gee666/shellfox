@@ -95,8 +95,9 @@ fn project(state: &RemoteState, service: &Service, session: &shellfox_core::Sess
             })
         })
         .unwrap_or_else(|| birth.missing(session.id));
-    let control_reason = if matches!(adapter_id, Fact::NotApplicable) {
-        "Automation replay is local-only."
+    let automation = matches!(adapter_id, Fact::NotApplicable);
+    let control_reason = if automation {
+        "Automation replay is read-only."
     } else {
         "observer-v2 provides read-only delivery on the canonical grid."
     };
@@ -135,7 +136,7 @@ fn project(state: &RemoteState, service: &Service, session: &shellfox_core::Sess
             env: known(session.env.clone()),
             window: unknown(),
             can_focus: known(false),
-            can_add_tab: unknown(),
+            can_add_tab: if automation { known(false) } else { unknown() },
             control_reason: known(Some(control_reason.into())),
             error: startup_error.map(|error| known(Some(error))).unwrap_or_else(unknown),
             terminal_lifetime: unknown(),
