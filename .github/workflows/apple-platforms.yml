@@ -83,12 +83,13 @@ jobs:
 
   ios:
     if: github.ref == 'refs/heads/experiment/ghostty-rust'
-    name: iOS app and native contracts on arm64 simulator
+    name: iOS app, native contracts and native v1 simulator
     runs-on: macos-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple-ios/target
       CARGO_BUILD_JOBS: '4'
+      CARGO_PROFILE_DEV_DEBUG: '0'
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -117,6 +118,7 @@ jobs:
           node scripts/mobile-native.mjs build ios
         timeout-minutes: 25
       - name: Install Pods with the native XCTest target
+        id: pods
         working-directory: mobile/ios
         env:
           SHELLFOX_IOS_NATIVE_TESTS: '1'
@@ -148,6 +150,43 @@ jobs:
             -resultBundlePath tmp/ios-native-tests.xcresult -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=NO test
         timeout-minutes: 25
+      - name: Build isolated Rust host and loopback testcontrol
+        id: ui-host
+        if: ${{ !cancelled() && steps.pods.outcome == 'success' }}
+        run: |
+          mkdir -p tmp/lane-apple-ios
+          node scripts/rust-package-prereqs.mjs
+          node scripts/tailscale.mjs build
+          (cd native/tailscale && go build -mod=readonly -o ../../tmp/lane-apple-ios/testcontrol ./cmd/testcontrol)
+        timeout-minutes: 25
+      - name: Build the Rust headless CLI
+        id: ui-cli
+        if: ${{ !cancelled() && steps.ui-host.outcome == 'success' }}
+        run: cargo build --locked -p shellfox-cli --bin shellfox-cli
+        timeout-minutes: 20
+      - name: Build unsigned native v1 UI fixture
+        id: ui-app
+        if: ${{ !cancelled() && steps.ui-cli.outcome == 'success' }}
+        run: |
+          ruby -e 'require "xcodeproj"' || gem install xcodeproj --version 1.27.0 --no-document
+          ruby mobile/ios/scripts/prepare-native-v1-fixture.rb
+          xcodebuild -workspace mobile/ios/ShellfoxMobile.xcworkspace \
+            -scheme ShellfoxNativeV1UI -sdk iphonesimulator -configuration Release \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath tmp/ios-fixture-derived \
+            CODE_SIGNING_ALLOWED=NO build-for-testing
+        timeout-minutes: 25
+      - name: Connect, approve, attach, echo, rotate, reattach and save on iPad simulator
+        if: ${{ !cancelled() && steps.ui-app.outcome == 'success' }}
+        run: node mobile/ios/scripts/native-v1-simulator.mjs
+        timeout-minutes: 18
+      - name: Export UI screenshots from the XCTest result
+        if: always()
+        run: |
+          if [ -d tmp/ios-native-v1-results/native-v1.xcresult ]; then
+            xcrun xcresulttool export attachments --path tmp/ios-native-v1-results/native-v1.xcresult \
+              --output-path tmp/ios-native-v1-results/screenshots
+          fi
+        timeout-minutes: 3
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -155,6 +194,7 @@ jobs:
           path: |
             tmp/ios-derived/Build/Products/Debug-iphonesimulator/ShellfoxMobile.app
             tmp/ios-native-tests.xcresult
+            tmp/ios-native-v1-results/
             tmp/ios-rust-build/*-link.txt
           if-no-files-found: ignore
       - name: Remove Cargo build directory

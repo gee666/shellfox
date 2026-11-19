@@ -77,16 +77,16 @@
   _readOnly = value;
   _input.editable = self.inputReady;
   if (value) { [_input cancelComposition]; [_input resignFirstResponder]; }
-  else if (self.inputReady && self.focused) [self focusInputForAction:SFFocusReadiness attempt:YES];
+  else if (self.inputReady && self.keyboardRequested) [self focusInputForAction:SFFocusReadiness attempt:YES];
   [self withTerminal:^(SFTerminal *terminal) {
     terminal.readOnly = value;
     if (!value && !terminal.recovering)
       [[SFOwner shared] resize:terminal.identifier columns:terminal.viewportColumns rows:terminal.viewportRows];
   }];
 }
-- (void)setFocused:(BOOL)value {
-  if (_focused == value) return;
-  _focused = value;
+- (void)setKeyboardRequested:(BOOL)value {
+  if (_keyboardRequested == value) return;
+  _keyboardRequested = value;
   if (value && self.inputReady) [self focusInputForAction:SFFocusKeyboard attempt:YES];
   else { [_input cancelComposition]; [_input resignFirstResponder];
     if (value) [self focusInputForAction:SFFocusKeyboard attempt:NO];
@@ -187,7 +187,7 @@
   if (ready != _parserReady) {
     _parserReady = ready; _input.editable = self.inputReady;
     if (!ready) { [_input cancelComposition]; [_input resignFirstResponder]; }
-    else if (self.focused && self.inputReady) [self focusInputForAction:SFFocusReadiness attempt:YES];
+    else if (self.keyboardRequested && self.inputReady) [self focusInputForAction:SFFocusReadiness attempt:YES];
     if (self.stateChanged) self.stateChanged(ready ? @"ready" : @"recovering");
   }
   auto appearance = _mailbox->appearance();

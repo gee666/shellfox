@@ -80,7 +80,7 @@ using namespace facebook::react;
 - (void)updateProps:(const Props::Shared &)props oldProps:(const Props::Shared &)oldProps {
   const auto &next = *std::static_pointer_cast<const ShellfoxRustTerminalProps>(props);
   _terminal.readOnly = next.readOnly;
-  _terminal.focused = next.focused;
+  _terminal.keyboardRequested = next.focused;
   _terminal.selecting = next.selecting;
   _terminal.modifiers = next.modifiers;
   _terminal.fontSize = next.fontSize > 0 ? next.fontSize : 14;
@@ -97,7 +97,7 @@ using namespace facebook::react;
   [_terminal detach];
   _terminal.terminalHandle = @"";
   _terminal.modifiers = 0;
-  _terminal.focused = NO;
+  _terminal.keyboardRequested = NO;
   _terminal.selecting = NO;
   [super prepareForRecycle];
 }

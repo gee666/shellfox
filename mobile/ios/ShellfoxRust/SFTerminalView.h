@@ -15,7 +15,7 @@
 }
 @property(nonatomic, copy) NSString *terminalHandle;
 @property(nonatomic) BOOL readOnly;
-@property(nonatomic) BOOL focused;
+@property(nonatomic) BOOL keyboardRequested;
 @property(nonatomic) BOOL selecting;
 @property(nonatomic, readonly) BOOL inputReady;
 @property(nonatomic) NSInteger modifiers;
