@@ -35,10 +35,13 @@ it('streams mobile file previews and edits through the paired host with shared v
   expect(await client.files.write({ ...location, text: 'saved', revision })).toMatchObject({ ok: true });
   expect(await client.files.readAsset({ ...location, assetPath: 'styles.css' })).toMatchObject({ ok: true });
   expect(await client.files.writeImage({ ...location, dataUrl: 'data:image/png;base64,YQ==', revision })).toMatchObject({ ok: true });
-  const methods = transport.calls('/v1/request').map(body => JSON.parse(body).method);
+  const requests = transport.calls('/v1/request').map(body => JSON.parse(body));
+  const methods = requests.map(({ method }) => method);
   expect(methods).toContain('beginFileRead'); expect(methods).toContain('writeFileChunk');
   expect(methods).not.toContain('readFile'); expect(methods).not.toContain('writeImageFile');
-  expect(JSON.parse(transport.calls('/v1/request')[0]).payload).toEqual(location);
+  const starts = requests.filter(({ method }) => ['listFiles', 'beginFileRead', 'beginFileWrite'].includes(method));
+  expect(starts).toHaveLength(5);
+  for (const { payload } of starts) expect(payload).toMatchObject(location);
 });
 it('keeps host conflicts visible and rejects oversized/invalid edits before sending', async () => {
   transport.operation = async () => JSON.stringify(failure('FILE_CONFLICT', 'Changed on host. Reload first.'));

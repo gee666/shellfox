@@ -32,7 +32,7 @@ pub mod incoming;
 mod secret;
 #[cfg(feature = "host-auth")]
 pub use secret::Secret;
-#[cfg(feature = "helper")]
+#[cfg(all(feature = "helper", target_os = "macos"))]
 mod acl_policy;
 #[cfg(feature = "helper")]
 mod native_admission;
@@ -65,6 +65,8 @@ pub use preparation::{
 };
 #[cfg(all(feature = "helper", unix))]
 pub use unix_acl::verify_held_acl;
+#[cfg(all(feature = "helper", target_os = "macos"))]
+pub use unix_acl::{tighten_held_acl, verify_held_traversal_acl};
 #[cfg(feature = "helper")]
 mod permissions;
 #[cfg(feature = "helper")]

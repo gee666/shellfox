@@ -90,7 +90,14 @@ impl V1Binding {
     }
 
     pub async fn v1_snapshot(&self) -> Result<ManagerSnapshot> {
-        self.v1_execute(&GetSnapshot {}).await
+        let connection = self.state().connection_id;
+        let mut reply = self.v1_reply_with_connection(connection, &GetSnapshot {}).await?;
+        // A publication or exit can invalidate an in-flight catalog read.
+        // Refresh once, only on the same view. Mutations are never retried.
+        if matches!(&reply, Reply::Failure(error) if error.code == shellfox_protocol::ErrorCode::TargetLost) {
+            reply = self.v1_reply_with_connection(connection, &GetSnapshot {}).await?;
+        }
+        value(reply)
     }
 
     /// Sends one typed command against this binding. Mutations are never retried.

@@ -37,7 +37,9 @@ fn normal_raw_launch(facts: &LaunchPrivilegeFacts) -> bool {
             let owner = rustix::process::getuid();
             owner == rustix::process::geteuid()
                 && facts.token.is_none()
-                && facts.posix.is_some_and(|p| p.is_non_elevating_account(owner.as_raw()))
+                && facts
+                    .posix
+                    .is_some_and(|p| p.is_non_elevating_account(owner.as_raw()))
         }
         _ => false,
     }

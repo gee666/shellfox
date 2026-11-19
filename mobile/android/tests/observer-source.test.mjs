@@ -7,6 +7,7 @@ const read = path => readFileSync(new URL(path, root), 'utf8');
 const kotlin = name => read(`mobile/android/app/src/main/java/com/shellfox/mobile/${name}.kt`);
 const rustKotlin = name => kotlin(`rust/${name}`);
 const cpp = read('mobile/android/app/src/main/cpp/client_jni.cpp');
+const profiles = read('mobile/android/app/src/main/cpp/client_profile_ops.h');
 const header = read('crates/shellfox-mobile/include/shellfox_mobile_client.h');
 const contract = JSON.parse(read('crates/shellfox-protocol/tests/fixtures/observer_v2/contract.json'));
 
@@ -38,8 +39,10 @@ test('observer transport carries actual status; legacy completion stays distinct
   assert.match(transport, /ClientBindings\.completeHttp\(/);
   assert.match(transport, /else ClientBindings\.complete\(/);
   assert.doesNotMatch(transport, /404|error\.message|catch[^\n]*Authentication/);
-  assert.match(cpp, /ctx\.profile == SFM_CLIENT_PROFILE_OBSERVER_V2 \? "requestHttp" : "request"/);
-  assert.match(cpp, /sfm_observer_v2_complete_http\(/);
+  assert.match(cpp, /client_ops::statusTransport\(ctx\.profile\) \? "requestHttp" : "request"/);
+  assert.match(cpp, /client_ops::completeHttp\(ctx\.profile,/);
+  assert.match(profiles, /profile==SFM_CLIENT_PROFILE_OBSERVER_V2\|\|profile==SFM_CLIENT_PROFILE_MANAGER_V2/);
+  assert.match(profiles, /profile==SFM_CLIENT_PROFILE_OBSERVER_V2\)return sfm_observer_v2_complete_http\(/);
   assert.match(cpp, /sfm_client_complete\(/);
   assert.doesNotMatch(cpp, /path.*(?:startsWith|strncmp|404)/);
   const reply = rustKotlin('NativeHttpReply');
@@ -72,9 +75,10 @@ test('additive profile API matches header constants and never claims server gran
 test('observer engine binding has native-consumption credit and no local parser fit', () => {
   for (const method of ['bind_terminal', 'unbind_terminal', 'terminal_reset_ticket', 'terminal_reset_grid',
     'terminal_reset_done', 'terminal_recovery_ready', 'terminal_consumed']) {
-    assert.match(cpp, new RegExp(`sfm_observer_v2_${method}\\(`));
+    assert.match(profiles, new RegExp(`\\bsfm_observer_v2_${method}\\b`));
   }
-  assert.match(cpp, /sfm_observer_v2_bind_terminal\(handle, data\.data\(\), data\.size\(\), terminal\)/);
+  assert.match(profiles, /profile==SFM_CLIENT_PROFILE_OBSERVER_V2\)return &observer/);
+  assert.match(cpp, /client_ops::forProfile\(profile\)->bind\(handle,data\.data\(\),data\.size\(\),terminal\)/);
   const owner = rustKotlin('TerminalCoordinator');
   const resize = owner.slice(owner.indexOf('fun resize('), owner.indexOf('fun input('));
   assert.match(resize, /!entry\.recovering && entry\.profile\.allowsHostLayoutApi/);

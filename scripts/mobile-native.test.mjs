@@ -119,7 +119,7 @@ test('mobile uses the shared local health module and runs its tests', () => {
   const runner = readFileSync(new URL('./mobile-native.mjs', import.meta.url), 'utf8');
   assert.match(module, /shellfox\.local\/tailscale-helper v0\.0\.0/);
   assert.match(module, /replace shellfox\.local\/tailscale-helper => \.\.\/tailscale/);
-  assert.match(runner, /'\.\/\.\.\.', 'shellfox\.local\/tailscale-helper\/nethealth'/);
+  assert.match(runner, /runGoTests\(\{[^}]*\benv: \{ \.\.\.env, CGO_ENABLED: '0' \}, testTimeout: '60s',\s+packages: \['\.\/\.\.\.', 'shellfox\.local\/tailscale-helper\/nethealth'\]/);
 });
 
 test('unknown targets and CLI commands fail before executing external tools', () => {

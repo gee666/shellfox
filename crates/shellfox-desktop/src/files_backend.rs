@@ -53,6 +53,10 @@ impl Root {
     }
 
     pub(crate) fn peer_file_backend(&self) -> anyhow::Result<(DocumentBackend, Option<String>)> {
+        self.peer_file_backend_for(true)
+    }
+
+    pub(super) fn peer_file_backend_for(&self, use_tab: bool) -> anyhow::Result<(DocumentBackend, Option<String>)> {
         use crate::root::{
             peer::metadata::PeerApi,
             source::{PeerCycle, sessions},
@@ -65,21 +69,29 @@ impl Root {
             peer: peer.clone(),
             generation: state.cycle,
         };
-        let cwd = state.snapshot.as_ref().and_then(|snapshot| {
-            let session =
-                sessions(snapshot).find(|session| Some(session.id) == state.selected_session)?;
-            session
-                .tabs
-                .iter()
-                .find(|tab| Some(tab.id) == state.selected_tab)
-                .and_then(|tab| tab.facts.cwd.known())
-                .or_else(|| session.facts.cwd.known())
-                .cloned()
-        });
+        let session = state.snapshot.as_ref().filter(|_| use_tab)
+            .and_then(|snapshot| sessions(snapshot).find(|session| Some(session.id) == state.selected_session));
+        let tab = session.and_then(|session| session.tabs.iter().find(|tab| Some(tab.id) == state.selected_tab));
+        let mut cwd = tab.and_then(|tab| tab.facts.cwd.known())
+            .or_else(|| session.and_then(|session| session.facts.cwd.known())).cloned();
+        let scope = match (session, tab) {
+            (Some(session), Some(tab)) => {
+                let profile = tab.facts.profile_id.known().and_then(Option::as_deref);
+                match profile.filter(|profile| *profile == "wsl" || profile.starts_with("wsl:")) {
+                    Some(profile) => {
+                        let guest = shellfox_files::WslBrowserScope::for_tab(cwd.as_deref().unwrap_or("/"), profile)?;
+                        cwd = Some(guest.guest_cwd().to_owned());
+                        Some(PeerFileScope { session: session.id.to_string().parse()?, tab: tab.id.to_string().parse()?, guest })
+                    }
+                    None => None,
+                }
+            }
+            _ => None,
+        };
         let backend = match self.peer_api(&cycle)? {
-            PeerApi::Legacy(binding) => DocumentBackend::legacy(binding)?,
+            PeerApi::Legacy(binding) => DocumentBackend::legacy(binding, scope)?,
             PeerApi::Manager(connection, admission) => {
-                DocumentBackend::peer(connection, admission)?
+                DocumentBackend::peer(connection, admission, scope)?
             }
         };
         Ok((backend, cwd))

@@ -254,10 +254,15 @@ impl Root {
             return;
         };
         *nav = next;
+        let selection = |root: &Self| root.peers.selected_peer().map(|(peer, state)| {
+            (peer.clone(), state.selected_session, state.selected_tab)
+        });
+        let previous = selection(self);
         if let Err(error) = self.peers.select(&cycle, session, tab) {
             self.error = Some(error.to_string());
         } else {
             self.reveal_peer_session(&cycle, session);
+            if selection(self) != previous { self.follow_peer_file_tab(cx); }
             self.ensure_peer_terminal(window, cx);
         }
         cx.notify();

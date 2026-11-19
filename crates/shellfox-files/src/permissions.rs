@@ -55,30 +55,27 @@ fn copy_acl(previous: &File, stage: &File) -> Result<()> {
     use std::{ffi::c_void, os::fd::AsRawFd};
     // Darwin's ACL API has no portable libc declaration. These signatures match sys/acl.h.
     unsafe extern "C" {
-        fn acl_get_fd_np(fd: i32, kind: i32) -> *mut c_void;
-        fn acl_set_fd_np(fd: i32, acl: *mut c_void, kind: i32) -> i32;
+        fn acl_get_fd(fd: i32) -> *mut c_void;
+        fn acl_set_fd(fd: i32, acl: *mut c_void) -> i32;
         fn acl_free(acl: *mut c_void) -> i32;
-        fn acl_delete_fd_np(fd: i32, kind: i32) -> i32;
+        fn acl_init(count: i32) -> *mut c_void;
     }
-    const ACL_TYPE_EXTENDED: i32 = 0x100;
-    // SAFETY: previous is live, and acl is released exactly once after setting on the live stage.
+    // SAFETY: descriptors are live, and acl is freed once after applying it to the stage.
     unsafe {
-        let acl = acl_get_fd_np(previous.as_raw_fd(), ACL_TYPE_EXTENDED);
+        let mut acl = acl_get_fd(previous.as_raw_fd());
         if acl.is_null() {
             let error = std::io::Error::last_os_error();
-            if error.raw_os_error() == Some(libc::ENOENT) {
-                if acl_delete_fd_np(stage.as_raw_fd(), ACL_TYPE_EXTENDED) == 0 {
-                    return Ok(());
-                }
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() == Some(libc::ENOENT) {
-                    return Ok(());
-                }
+            if error.raw_os_error() != Some(libc::ENOENT) {
                 return Err(error.into());
             }
-            return Err(error.into());
+            // Darwin's delete-by-descriptor call returns ENOTSUP. Set an empty
+            // ACL so a stage cannot retain grants the original did not have.
+            acl = acl_init(0);
+            if acl.is_null() {
+                return Err(std::io::Error::last_os_error().into());
+            }
         }
-        let result = acl_set_fd_np(stage.as_raw_fd(), acl, ACL_TYPE_EXTENDED);
+        let result = acl_set_fd(stage.as_raw_fd(), acl);
         let error = std::io::Error::last_os_error();
         acl_free(acl);
         if result != 0 {

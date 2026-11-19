@@ -13,6 +13,9 @@ const PROC_UID_ONLY: u32 = 4;
 const PROC_FLAG_PSUGID: u32 = 0x2000;
 const MAX_PIDS: usize = 65_536;
 
+#[link(name = "proc")]
+extern "C" {}
+
 pub(super) fn exit_queue() -> io::Result<File> {
     let fd = unsafe { libc::kqueue() };
     if fd < 0 {
@@ -194,12 +197,17 @@ impl Leader {
         // A shell may create more process groups in the same session for job
         // control. Include reparented same-session members. An independent
         // setsid can escape this best-effort sweep; this is not containment.
-        let children =
-            list_pids(|buf, size| unsafe { libc::proc_listchildpids(self.sid, buf, size) });
-        let same_uid = list_pids(|buf, size| unsafe {
-            libc::proc_listpids(PROC_UID_ONLY, self.uid, buf, size)
+        let mut pids = list_pids(|buf, size| {
+            // The convenience API returns PID count; proc_listpids returns bytes.
+            unsafe { libc::proc_listchildpids(self.sid, buf, size) }
+                .saturating_mul(size_of::<Pid>() as libc::c_int)
         });
-        for pid in children.into_iter().chain(same_uid) {
+        pids.extend(list_pids(|buf, size| unsafe {
+            libc::proc_listpids(PROC_UID_ONLY, self.uid, buf, size)
+        }));
+        pids.sort_unstable();
+        pids.dedup();
+        for pid in pids {
             if pid <= 1 || pid == self.sid || unsafe { libc::getsid(pid) } != self.sid {
                 continue;
             }
@@ -265,7 +273,11 @@ fn signal(target: Pid, signal: libc::c_int) -> io::Result<()> {
         return Ok(());
     }
     let error = io::Error::last_os_error();
-    if error.raw_os_error() == Some(libc::ESRCH) {
+    // Darwin can return EPERM for a group with only the unreaped zombie. A
+    // live leader still has to exit; same-session members are checked below.
+    if error.raw_os_error() == Some(libc::ESRCH)
+        || target < -1 && error.raw_os_error() == Some(libc::EPERM)
+    {
         Ok(())
     } else {
         Err(error)

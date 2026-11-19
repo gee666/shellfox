@@ -24,6 +24,13 @@ class TerminalFrameTest {
     assertEquals(2, frame.cells[0].width)
     assertEquals(0, frame.cells[1].width)
   }
+  @Test fun locatesFileLinksByUtf16OffsetAfterWideGlyphs() {
+    val cell = TerminalCell("🦊", 0, 0, 0, 2)
+    val frame = TerminalFrame(4, 1, 0, 0, true, listOf(cell, cell.copy(text = "", width = 0),
+      cell.copy(text = "", width = 1), cell.copy(text = "/", width = 1)))
+    assertEquals("🦊 /" to 0, frame.fileLinkRow(1, 0))
+    assertEquals("🦊 /" to 3, frame.fileLinkRow(3, 0))
+  }
   @Test fun rejectsTruncatedInvalidUtf8AndTrailingFrames() {
     for (invalid in listOf(fixture().copyOf(12), fixture(byteArrayOf(0xc0.toByte())), fixture() + byteArrayOf(0))) {
       assertThrows(Exception::class.java) { TerminalFrame.decode(invalid) }

@@ -32,7 +32,13 @@ Linux builds a fresh isolated environment, preserving no inherited hooks, accoun
 
 The agreed boundary excludes hostile same-account or administrator interference, including intentional cgroup migration. Ordinary detached descendants do not escape by changing process groups or sessions.
 
-Darwin/iOS remain explicitly unsupported by production PtySession until a native descendant boundary and real platform acceptance are available. The old test-only Darwin adapter is not treated as that acceptance. Windows Job/controller behavior is unchanged.
+## macOS
+
+The production macOS path opens the same portable-pty master/slave pair. The launched shell starts its own session and group. The host checks the initial executable's set-ID bits and the unreaped shell's real, effective and saved credentials before exposing it. A normal, same-account launch can be shared after approval. Unlike Linux `NonElevating`, this check does not restrict future execs or certify `no_new_privs`.
+
+On close or a `kqueue` exit notification, the host sends HUP and TERM to the original process group, then KILL if needed. It also sweeps same-user processes with the original session ID, including reparented jobs in other groups. A descendant that creates a new session can escape this best-effort cleanup. macOS has no cgroup-equivalent boundary here.
+
+The iOS app is a remote client, not a local PTY host. Windows Job behavior is unchanged.
 
 ## Focused tests
 

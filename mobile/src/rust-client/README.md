@@ -1,30 +1,15 @@
 # Rust-backed mobile presentation
 
-The existing `useShellfox` model now calls `client/factory.ts`. Its default is
-explicitly `webview-transition`, which constructs the unchanged TypeScript
-remote client and WebView terminal. Module detection never changes that choice.
+`useShellfox` uses the native V1 client on Android through `client/factory.android.ts`.
+`TerminalView.android.tsx` uses the Ghostty Fabric view without a WebView fallback.
+The same screens still handle sessions, files, settings and approval. Embedded Go
+owns authenticated tailnet transport. The factory checks the Rust module ABI,
+required methods and Fabric registration before connecting.
 
-The alternate `rust-native` path constructs `RustHostClient`, which implements
-the same public client interface and inherits the existing `RemoteOperations`.
-Sessions, files, settings, discovery, approval presentation and background
-lifecycle reuse the current React Native screens. Embedded Go still owns the
-authenticated remote request pipe. The Rust path never falls back to direct
-JavaScript networking, a local host, helper process or PTY.
-
-## Selecting an engine
-
-`setMobileClientEngine(selection)` is an explicit application configuration
-entry point for newly created clients. Do not change it behind a connected view.
-The Rust choice must include acceptance evidence for Android and iOS. The factory
-also checks module ABI, required methods and Fabric registration. Missing support
-throws a reason for the existing UI error path. It never switches to a WebView
-after a user has selected Rust. Until both platforms pass acceptance, leave the
-default transition selection in place.
-
-No module lookup, pairing, polling, credentials or native engine creation occurs
-when constructing a transition client. Native components load lazily only for a
-registered Rust terminal binding, so old binaries do not import an enforcing
-native component during startup.
+On iOS, the WebView stays the default until the native V1 simulator check passes.
+To exercise the native V1 path on a simulator, launch with `--shellfox-native-v1`.
+For an isolated tailnet pass `--shellfox-control-url http://127.0.0.1:<port>` too.
+ManagerV2 remains a separate experimental build and launch profile.
 
 ## Native client and terminal flow
 
@@ -63,9 +48,8 @@ return UNSUPPORTED. The UI shows that failure and does not switch engines or
 invent restoration. Full-state recovery and native platform parity remain
 acceptance requirements, not claims established by source integration.
 
-Native drawing, IME, OS minimums, selection, file-link navigation, settlement
-races, ordered input under load, recovery geometry, reconnect and lifecycle
-cleanup still need platform/runtime evidence before adoption.
+Run device checks for drawing, IME, selection, file links, resize and reconnect.
+JavaScript and C ABI fixtures do not exercise those platform interactions.
 
 Focused checks include the factory, RustHostClient, RustTerminalView, existing
 TerminalView, SessionScreen and useShellfox suites. Test native modules use

@@ -158,6 +158,7 @@ fn unix_permissions(path: &Path, kind: PrivatePathKind, protect: bool) -> Result
     {
         return Err(HelperError::PermissionDenied);
     }
+    #[cfg(not(target_os = "macos"))]
     crate::unix_acl::verify_acl(&fd)?;
     if protect {
         fs::fchmod(
@@ -165,7 +166,11 @@ fn unix_permissions(path: &Path, kind: PrivatePathKind, protect: bool) -> Result
             Mode::from_raw_mode(if directory { 0o700 } else { 0o600 }),
         )
         .map_err(|_| HelperError::PermissionDenied)?;
+        #[cfg(target_os = "macos")]
+        crate::unix_acl::tighten_held_acl(&fd)?;
     }
+    #[cfg(target_os = "macos")]
+    crate::unix_acl::verify_acl(&fd)?;
     let info = fs::fstat(&fd).map_err(|_| HelperError::PermissionDenied)?;
     if info.st_mode & if directory { 0o077 } else { 0o177 } != 0 {
         return Err(HelperError::PermissionDenied);

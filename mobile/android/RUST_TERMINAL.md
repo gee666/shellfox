@@ -1,6 +1,6 @@
 # Native Rust terminal on Android
 
-This is a Fabric view and TurboModule implementation for React Native 0.88. It is not a WebView. Native adoption is still gated by Android and iOS acceptance. The transitional terminal and its dependencies remain in place. Additive observer-v2 source work and its separate gates are recorded in [OBSERVER_V2.md](OBSERVER_V2.md); the earlier V1 artifact evidence below must not be relabeled as V2.
+Android uses the Rust V1 client and Ghostty Fabric terminal by default, with the same Sessions and Files screens. It uses official libghostty-vt 1.0.1 and works with V1 hosts. The `shellfoxManagerV2` build flag and launch profile still select the separate Native002 experiment. iOS keeps its WebView default pending its simulator run.
 
 ## Ownership and data path
 
@@ -26,7 +26,7 @@ Rust's borrowed frame is copied before its callback returns. A bounded immutable
 
 `TerminalInputConnection` keeps UTF-16 marked text separate from committed text. It commits once, handles codepoint-aware deletion, keeps partial UTF-16 preedit out of committed UTF-8, and rejects edits from retired connections. Cursor-anchor updates expose marked-text selection and insertion geometry to the IME without exposing the terminal transcript. Hardware input preserves press/repeat/release and consumed AltGr modifiers. Focus loss releases held keys. Reset discards old-generation held keys. IME newline/tab and accessory keys use typed Ghostty events, not hand-built escapes. Sticky modifiers are a coarse prop.
 
-Touch scroll uses native scrollback, or Ghostty mouse encoding when mouse tracking is active. Long press and selection drag use Rust selection APIs. Clipboard copy stays native. OSC 8 links come from Rust lookup, require a menu action, and permit only HTTP/HTTPS without embedded credentials. There is no visible-text URL substitute. Focus/selecting props and bounded user-selected text events support the existing RN controls.
+Touch scroll uses native scrollback, or Ghostty mouse encoding when mouse tracking is active. Long press and selection drag use Rust selection APIs. Tapping a file path or an OSC 8 file link opens it on the current host through Files. The long-press menu opens OSC 8 web links only over HTTP/HTTPS and rejects embedded credentials.
 
 Accessibility exposes terminal text and editing/copy/scroll actions. This is basic single-node access, not validated screen-reader parity. Background views keep bounded parsing/credit alive without copying frames; the RN host-client scheduler owns suspension and generation-fenced reconnect.
 
@@ -43,16 +43,17 @@ SHELLFOX_GO="<absolute project-local Go 1.27.3 executable>" node scripts/mobile-
 
 It produces `tmp/mobile-native/android/shellfox-mobile.aar` and notices. The canonical script appends `-Wl,-z,max-page-size=16384` to Android `CGO_LDFLAGS`, preserving caller flags. It never adds that ELF option to iOS Mach-O builds. A rebuild with the caller's CGO flags unset passed Android's 16 KiB check, and NDK readelf reported `0x4000` alignment for both packaged ABIs. Eight Node build-plan regressions pass. No global Go tools or Android app installation is required.
 
-The JNI link requires fresh, canonical API-24 Rust static libraries, with their matching static Ghostty dependency bundled by Cargo:
+Before running Gradle, set `ANDROID_NDK_HOME` to the pinned NDK and build the API-24 Rust libraries with the pinned Zig 0.17.0. Install the Rust Android targets and fetch Cargo dependencies first.
 
-```text
-tmp/mobile-rust/android/arm64-v8a/libshellfox_mobile.a
-tmp/mobile-rust/android/x86_64/libshellfox_mobile.a
+```sh
+node crates/shellfox-mobile/build-mobile.mjs build-android --zig /path/to/zig
 ```
 
-Override the directory with `-PshellfoxRustAndroidDir=<directory>`. Build these from the final Cargo lockfile, headers and source. Exploratory archives built with copied-header workarounds are not accepted inputs. Missing archives fail CMake explicitly. `src/main/jni/CMakeLists.txt` retains RN's generated component registration and app setup; the separate JNI library links with undefined symbols forbidden and 16 KiB page alignment.
+Gradle reads the resulting build directory under `tmp/mobile-rust-produced/android`. Use `-PshellfoxRustAndroidDir=<directory>` for an isolated build. The separate JNI library links with undefined symbols forbidden and 16 KiB page alignment. The APK ships `arm64-v8a` and `x86_64`.
 
 ## Verification
+
+To run the real app against a test tailnet, build `:app:assembleTerminalTest` with the normal `mobile/index.js` entry. Install `com.shellfox.mobile.terminaltest` only on the test emulator. Use `adb reverse` for the loopback control and DERP ports, and pass `--es shellfoxControlURL http://127.0.0.1:<control-port>` when starting `com.shellfox.mobile.terminaltest/com.shellfox.mobile.MainActivity`. The Go library validates the loopback origin and uses separate state. The normal V1 app build does not accept this launch extra.
 
 Run from the repository root. Keep `GRADLE_USER_HOME` under project `tmp/` when invoking the wrapper. Each shell invocation needs an outer timeout.
 

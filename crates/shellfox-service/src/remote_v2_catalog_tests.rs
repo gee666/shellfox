@@ -45,7 +45,7 @@ fn policy_eligibility_without_actual_native_normal_evidence_is_never_effective_d
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
     service.install_observer_factory_policy(crate::native_sharing::NativeFactoryPolicy::ExistingManagerStandardCatalog).unwrap();
-    assert!(service.observer_delivery_policy(identity).is_some());
+    assert!(service.observer_delivery_policy(identity).is_none());
     assert_eq!(service.terminals[&identity.tab_id].runtime.launch_privilege_facts().privilege, shellfox_runtime::LaunchPrivilege::Unknown);
     assert!(runtime::effective_policy(&service, identity).is_none());
 }

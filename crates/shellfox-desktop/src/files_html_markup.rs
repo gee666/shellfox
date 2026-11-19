@@ -1,7 +1,7 @@
 use lol_html::{HtmlRewriter, Settings, element, text};
 use std::collections::BTreeMap;
 
-use super::relative_asset;
+use super::{MAX_DOCUMENT, relative_asset};
 
 #[derive(Default)]
 pub(super) struct References {
@@ -93,14 +93,20 @@ fn visit_attributes(
         }
     }
     if let Some(srcset) = element.get_attribute("srcset") {
-        let candidates = srcset.split(',').filter_map(|candidate| {
+        let mut candidates = String::new();
+        for candidate in srcset.split(',') {
             let mut parts = candidate.split_ascii_whitespace();
-            let path = relative_asset(parts.next()?, "")?;
-            let data = asset(path, false)?;
-            if data == "data:," { return None; }
-            Some(parts.next().map_or(data.clone(), |part| format!("{data} {part}")))
-        }).collect::<Vec<_>>();
-        element.set_attribute("srcset", &attribute(&candidates.join(", ")))?;
+            let Some(path) = parts.next().and_then(|value| relative_asset(value, "")) else { continue; };
+            let Some(data) = asset(path, false).filter(|data| data != "data:,") else { continue; };
+            let descriptor = parts.next().unwrap_or_default();
+            if candidates.len() + data.len() + descriptor.len() + 3 > MAX_DOCUMENT {
+                return Err(std::io::Error::other("Preview assets exceed the document size limit.").into());
+            }
+            if !candidates.is_empty() { candidates.push_str(", "); }
+            candidates.push_str(&data);
+            if !descriptor.is_empty() { candidates.push(' '); candidates.push_str(descriptor); }
+        }
+        element.set_attribute("srcset", &attribute(&candidates))?;
     }
     Ok(())
 }

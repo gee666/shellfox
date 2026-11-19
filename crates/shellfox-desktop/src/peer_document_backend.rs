@@ -29,14 +29,23 @@ enum Origin<T: OutboundTransport> {
     Legacy(Arc<V1Binding>, u64),
 }
 
+#[derive(Clone)]
+pub(crate) struct FileScope {
+    pub session: wire::SessionId,
+    pub tab: wire::TabId,
+    pub guest: shellfox_files::WslBrowserScope,
+}
+
 pub(crate) struct PeerDocumentBackend<T: OutboundTransport = Transport> {
     origin: Origin<T>,
+    pub scope: Option<FileScope>,
     saves: Mutex<BTreeMap<String, SaveState>>,
 }
 impl<T: OutboundTransport> PeerDocumentBackend<T> {
     pub fn new(
         connection: Arc<PeerConnection<T>>,
         admission: SourceAdmission,
+        scope: Option<FileScope>,
     ) -> Result<Arc<Self>> {
         admission.check()?;
         ensure!(
@@ -45,17 +54,23 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
         );
         Ok(Arc::new(Self {
             origin: Origin::Manager(connection, admission),
+            scope,
             saves: Mutex::new(BTreeMap::new()),
         }))
     }
-    pub fn legacy(binding: Arc<V1Binding>) -> Result<Arc<Self>> {
+    pub fn legacy(binding: Arc<V1Binding>, scope: Option<FileScope>) -> Result<Arc<Self>> {
         let connection_id = binding.state().connection_id;
         binding.with_connection(connection_id, || ())?;
         Ok(Arc::new(Self {
             origin: Origin::Legacy(binding, connection_id),
+            scope,
             saves: Mutex::new(BTreeMap::new()),
         }))
     }
+    pub fn ids(&self) -> (Option<wire::SessionId>, Option<wire::TabId>) {
+        self.scope.as_ref().map_or((None, None), |scope| (Some(scope.session), Some(scope.tab)))
+    }
+
     pub fn check(&self) -> Result<()> {
         self.commit_if_current(|| ())
     }
@@ -100,11 +115,21 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
             .matches)
     }
     pub async fn list(&self, path: &str) -> Result<FileList> {
+        let (session_id, tab_id) = self.ids();
+        let host_home;
+        let path = if self.scope.is_none() && (path == "~" || path.starts_with("~/")) {
+            let home = self.home().await?;
+            host_home = if let Some(tail) = path.strip_prefix("~/") {
+                let sep = if home.contains('\\') { '\\' } else { '/' };
+                format!("{}{sep}{}", home.trim_end_matches(['/', '\\']), tail.replace('/', &sep.to_string()))
+            } else { home };
+            &host_home
+        } else { path };
         wire::files::path(path).map_err(|_| anyhow!("Invalid peer folder path."))?;
         let list = self
             .execute(&wire::ListFiles {
-                session_id: None,
-                tab_id: None,
+                session_id,
+                tab_id,
                 path: path.into(),
             })
             .await?;
@@ -131,11 +156,12 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
         })
     }
     pub async fn create_directory(&self, path: &str) -> Result<FileList> {
+        let (session_id, tab_id) = self.ids();
         let created = self
             .execute(&wire::CreateDirectory {
                 path: path.into(),
-                session_id: None,
-                tab_id: None,
+                session_id,
+                tab_id,
             })
             .await?;
         self.list(&created.cwd).await

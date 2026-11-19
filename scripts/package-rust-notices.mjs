@@ -10,6 +10,9 @@ export function packageNotices(resources, target) {
   const sections = [readFileSync(output, 'utf8')];
   const seen = new Map();
   for (const dep of audit.dependencies) {
+    if (dep.license?.includes('MPL-2.0') && dep.source?.startsWith('registry+')) {
+      sections.push(`${dep.name} ${dep.version} source: https://crates.io/crates/${dep.name}/${dep.version}`);
+    }
     for (const file of dep.licenseFiles) {
       if (file.role !== 'license-text') continue;
       const firstPath = seen.get(file.sha256);

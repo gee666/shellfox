@@ -43,7 +43,8 @@ func TestStartIsIdempotentOnlyForSameConfiguration(t *testing.T) {
 	directory := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	singleton.node = &node{ctx: ctx, cancel: cancel, directory: filepath.Clean(directory), hostname: "phone"}
+	singleton.node = &node{ctx: ctx, cancel: cancel, directory: filepath.Clean(directory), hostname: "phone",
+		controlURL: "https://controlplane.tailscale.com"}
 	defer func() { singleton.node = nil }()
 	if err := Start(directory, "phone"); err != nil {
 		t.Fatal(err)
@@ -53,6 +54,9 @@ func TestStartIsIdempotentOnlyForSameConfiguration(t *testing.T) {
 	}
 	if err := Start(t.TempDir(), "phone"); err == nil {
 		t.Fatal("directory changed without restart")
+	}
+	if err := StartWithControlServer(directory, "phone", "http://127.0.0.1:58006"); err == nil {
+		t.Fatal("control server changed without restart")
 	}
 }
 

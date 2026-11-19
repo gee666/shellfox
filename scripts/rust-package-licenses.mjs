@@ -51,7 +51,7 @@ export function supplementalLicense(pkg, locked, destination) {
 export function standardLicense(expression, authors = []) {
   const options = (expression ?? '').trim().split(/\s+OR\s+|\s*\/\s*/);
   if (!options.every(option => /^[a-z\d.-]+$/i.test(option))) return null;
-  const id = ['Apache-2.0', 'MIT', 'CC0-1.0'].find(candidate => options.includes(candidate));
+  const id = ['Apache-2.0', 'MIT', 'CC0-1.0', 'MPL-2.0'].find(candidate => options.includes(candidate));
   if (!id) return null;
   let text = readFileSync(path.join(texts, 'spdx', id + '.txt'), 'utf8');
   if (id === 'MIT' && authors.length) {

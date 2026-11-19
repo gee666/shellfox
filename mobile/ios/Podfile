@@ -6,6 +6,9 @@ require Pod::Executable.execute_command('node', ['-p',
   )', __dir__]).strip
 
 platform :ios, min_ios_version_supported
+if ENV['SHELLFOX_IOS_NATIVE_TESTS'] == '1'
+  install! 'cocoapods', :share_schemes_for_development_pods => ['ShellfoxRustNative']
+end
 prepare_react_native_project!
 
 linkage = ENV['USE_FRAMEWORKS']

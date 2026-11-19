@@ -23,7 +23,10 @@ pub fn encode(key: KeyEvent) -> Input {
     }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
-    if key.code == KeyCode::Char('\u{1d}') || (ctrl && key.code == KeyCode::Char(']')) {
+    // Crossterm's Unix parser represents the legacy 0x1d byte as Ctrl+5.
+    if key.code == KeyCode::Char('\u{1d}')
+        || (ctrl && (key.code == KeyCode::Char(']') || cfg!(unix) && key.code == KeyCode::Char('5')))
+    {
         return Input::Detach;
     }
     if key
@@ -134,6 +137,12 @@ mod tests {
             key(KeyCode::Char(']'), KeyModifiers::NONE),
             Input::Bytes(vec![b']'])
         );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn unix_group_separator_decoded_by_crossterm_detaches() {
+        assert_eq!(key(KeyCode::Char('5'), KeyModifiers::CONTROL), Input::Detach);
+        assert_eq!(key(KeyCode::Char('5'), KeyModifiers::NONE), Input::Bytes(vec![b'5']));
     }
     #[test]
     fn unicode_alt_and_navigation_keys() {

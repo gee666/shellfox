@@ -57,11 +57,13 @@ internal class TerminalTouch(private val view: ShellfoxRustTerminalView) : Gestu
   }
   override fun onScroll(first: MotionEvent?, current: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
     if (anchor != null) return true
+    val start = first ?: current
+    if (kotlin.math.abs(current.y - start.y) <= kotlin.math.abs(current.x - start.x)) return false
     accumulatedScroll += distanceY / view.cellHeight
     val rows = accumulatedScroll.toInt()
     if (rows != 0) {
       accumulatedScroll -= rows
-      view.scroll(rows, current.x, current.y)
+      view.scroll(rows, start.x, start.y)
       view.parent?.requestDisallowInterceptTouchEvent(true)
     }
     return true

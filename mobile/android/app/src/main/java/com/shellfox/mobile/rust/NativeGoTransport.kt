@@ -85,7 +85,10 @@ internal object NativeGoTransport {
           }
         } catch (_: NativeResponseTooLarge) { finish(4) }
         catch (_: NativeInvalidHttpReply) { finish(6) }
-        catch (_: Exception) { finish(3) }
+        catch (error: Exception) {
+          if (com.shellfox.mobile.BuildConfig.SHELLFOX_LOOPBACK_FIXTURE) android.util.Log.i("ShellfoxFixture", "$route: ${error.message}")
+          finish(3)
+        }
       }
       if (call.finished.get()) call.work?.cancel(true)
     } catch (_: RejectedExecutionException) { finish(3) }

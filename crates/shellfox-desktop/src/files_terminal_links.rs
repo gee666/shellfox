@@ -49,7 +49,7 @@ impl Root {
             };
             path
         };
-        self.select_local_file_scope(backend, cx);
+        self.select_file_scope(backend, cx);
         let position = target.line.map(|line| SourcePosition {
             line,
             column: target.column,

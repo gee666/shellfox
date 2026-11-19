@@ -47,7 +47,8 @@ impl From<RemoteResources> for RemoteBootResources {
 impl RemoteBootResources {
     /// Read-only OS hostname query, not a guessed package/install identity.
     pub fn planned_for_current_host(state_directory: PathBuf) -> anyhow::Result<Self> {
-        Self::planned(state_directory, native_hostname()?)
+        let hostname = native_hostname().unwrap_or_default();
+        Self::planned(state_directory, default_hostname(&hostname))
     }
     /// No filesystem queries, creation, permissions, node or helper startup.
     pub fn planned(state_directory: PathBuf, hostname: String) -> anyhow::Result<Self> {
@@ -171,6 +172,21 @@ impl RemoteHostSetup {
         Ok(())
     }
 }
+fn default_hostname(hostname: &str) -> String {
+    let lowercase = hostname.to_lowercase();
+    let suffix = lowercase.encode_utf16().map(|unit| match unit {
+        0x30..=0x39 | 0x61..=0x7a => char::from_u32(u32::from(unit)).unwrap_or('-'),
+        _ => '-',
+    });
+    "shellfox-"
+        .chars()
+        .chain(suffix)
+        .take(63)
+        .collect::<String>()
+        .trim_end_matches('-')
+        .to_owned()
+}
+
 fn native_hostname() -> anyhow::Result<String> {
     #[cfg(windows)]
     {
@@ -207,6 +223,19 @@ fn native_hostname() -> anyhow::Result<String> {
     #[cfg(not(any(windows, unix)))]
     anyhow::bail!("OS hostname query unsupported");
 }
+#[cfg(test)]
+mod tests {
+    use super::default_hostname;
+
+    #[test]
+    fn default_hostname_matches_electron_dns_label() {
+        assert_eq!(default_hostname("WORK.STATION"), "shellfox-work-station");
+        assert_eq!(default_hostname("desk🦊01-"), "shellfox-desk--01");
+        assert_eq!(default_hostname("---"), "shellfox");
+        assert_eq!(default_hostname(&"A".repeat(70)).len(), 63);
+    }
+}
+
 fn unavailable() -> AppError {
     failure(
         ErrorCode::NativeUnavailable,

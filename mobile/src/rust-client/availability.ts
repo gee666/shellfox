@@ -8,11 +8,15 @@ export type NativeAvailability =
   | Readonly<{ available: true; native: Spec }>
   | Readonly<{ available: false; reason: string }>;
 
-export function nativeAvailability(selection?: EngineSelection): NativeAvailability {
-  if (selection?.engine === 'webview-transition') return { available: false, reason: 'WebView transition selected.' };
-  if (selection && (!selection.accepted.android || !selection.accepted.ios)) {
+export function nativeAvailability(selection: EngineSelection): NativeAvailability {
+  if (selection.engine === 'webview-transition') return { available: false, reason: 'WebView transition selected.' };
+  if (!selection.accepted.android || !selection.accepted.ios) {
     return { available: false, reason: 'Native terminals require Android and iOS acceptance.' };
   }
+  return probeNativeClient();
+}
+
+export function probeNativeClient(): NativeAvailability {
   try {
     const native = TurboModuleRegistry.get<Spec>('NativeShellfoxRustClient');
     if (!native || native.abiVersion() !== 1) return { available: false, reason: 'This binary has no compatible Rust client.' };

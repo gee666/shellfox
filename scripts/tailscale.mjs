@@ -5,6 +5,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './common.mjs';
+import { runGoTests } from './go-test.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 export const helperProtocolVersion = 2;
@@ -146,7 +147,7 @@ export function buildHelper(platform = process.platform, arch = process.arch) {
 
 function testHelper() {
   const target = helperTarget();
-  go(['test', '-mod=readonly', '-count=1', './...'], target);
+  runGoTests({ go: process.env.SHELLFOX_GO || 'go', cwd: source, env: goEnvironment(target), packages: ['./...'] });
   const { executable } = ensureDevelopmentHelper();
   // Exercise framing with an invalid startup configuration, never a real enrollment.
   // Build only synthetic marker values; never put live or revoked credentials in fixtures.

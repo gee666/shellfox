@@ -100,6 +100,10 @@ impl Service {
         if origin.profile.is_none() {
             return Ok(None);
         }
+        self.native0_creation()
+    }
+    #[cfg(feature = "experimental-shellfox-native")]
+    pub(crate) fn native0_creation(&self) -> Result<Option<shellfox_runtime::Native0RuntimeConfig>> {
         match self.factory_policy.policy {
             NativeFactoryPolicy::ExistingManagerNative0Catalog {
                 configuration,
@@ -125,8 +129,8 @@ impl Service {
         {
             return None;
         }
-        if self.remote_automation_exit_code(terminal).is_some() {
-            return Some(self.factory_policy.revision);
+        if terminal.runtime.source_kind() == shellfox_runtime::SourceKind::ExternalBytes {
+            return self.remote_automation_exit_code(terminal).map(|_| self.factory_policy.revision);
         }
         terminal
             .source_share

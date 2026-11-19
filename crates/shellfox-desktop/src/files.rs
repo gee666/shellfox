@@ -4,7 +4,7 @@ use shellfox_files::{EditorCancellation, FileList};
 use std::sync::Arc;
 #[path = "document_backend.rs"]
 mod backend;
-pub(crate) use backend::DocumentBackend;
+pub(crate) use backend::{DocumentBackend, PeerFileScope};
 #[path = "files_completion.rs"]
 pub(crate) mod completion;
 #[path = "files_editor.rs"]
@@ -156,6 +156,12 @@ impl Root {
     }
     fn active_file_tab(&self, backend: &DocumentBackend) -> bool {
         backend.wsl_tab().is_none_or(|tab| self.selected_tab() == Some(tab))
+            && backend.peer_file_scope().is_none_or(|scope| {
+                self.peers.selected_peer().is_some_and(|(_, state)| {
+                    state.selected_session.is_some_and(|id| id.to_string() == scope.session.to_string())
+                        && state.selected_tab.is_some_and(|id| id.to_string() == scope.tab.to_string())
+                })
+            })
     }
     pub(crate) fn files_result_current(&self, epoch: u64, backend: &DocumentBackend) -> bool {
         same_ui_source(
@@ -184,8 +190,8 @@ impl Root {
     }
     pub(crate) fn toggle_files(&mut self, cx: &mut Context<Self>) {
         self.sync_file_source(cx);
-        if self.is_local_source() && self.files.as_ref().is_some_and(|files| {
-            !files.visible && files.backend.wsl_tab().is_some_and(|tab| Some(tab) != self.selected_tab())
+        if self.files.as_ref().is_some_and(|files| {
+            !files.visible && !self.active_file_tab(&files.backend)
         }) {
             self.show_selected_file_scope(cx);
             return;

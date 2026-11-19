@@ -83,6 +83,7 @@ impl Root {
             "enter" => {
                 if let Some(value) = files.completion.state.choose(input, None) {
                     accept(files, value, cx);
+                    self.submit_file_path(cx);
                 } else {
                     return false;
                 }

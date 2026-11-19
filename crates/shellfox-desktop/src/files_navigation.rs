@@ -23,7 +23,7 @@ impl Root {
             return;
         };
         let visible = self.files.as_ref().is_some_and(|files| files.visible);
-        self.select_local_file_scope(backend, cx);
+        self.select_file_scope(backend, cx);
         if let Some(files) = &mut self.files {
             files.visible = visible;
         }
@@ -267,7 +267,7 @@ impl Root {
         }
         if files.backend.is_wsl() && (path == "~" || path.starts_with("~/")) {
             if self.use_host_file_scope(cx) {
-                self.list_files(path, cx);
+                self.navigate_files(path, Navigation::Input, cx);
             }
         } else {
             self.navigate_files(path, Navigation::Input, cx);

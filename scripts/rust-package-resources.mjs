@@ -60,14 +60,14 @@ export async function stageResources({ directory, work, kind, version, nugetSnap
   const notices = path.join(directory, 'notices', 'ghostty-vt');
   cpSync(path.join(root, 'crates/ghostty-vt-sys/build-support/notices'), notices, { recursive: true });
   if (process.platform === 'win32') {
+    anchorEnv.SHELLFOX_WSL_FILES_BINARY = buildWslFilesWorker(work);
+    const wslNotices = path.join(directory, 'notices', 'wsl-files');
+    mkdirSync(wslNotices, { recursive: true });
+    const rustDocs = path.join(run('rustc', ['--print', 'sysroot']).trim(), 'share', 'doc', 'rust');
+    // The pinned toolchain supplies musl and the other self-contained runtime objects.
+    copyFileSync(path.join(rustDocs, 'COPYRIGHT.html'), path.join(wslNotices, 'COPYRIGHT.html'));
+    cpSync(path.join(rustDocs, 'licenses'), path.join(wslNotices, 'licenses'), { recursive: true });
     if (kind === 'desktop') {
-      anchorEnv.SHELLFOX_WSL_FILES_BINARY = buildWslFilesWorker(work);
-      const wslNotices = path.join(directory, 'notices', 'wsl-files');
-      mkdirSync(wslNotices, { recursive: true });
-      const rustDocs = path.join(run('rustc', ['--print', 'sysroot']).trim(), 'share', 'doc', 'rust');
-      // The pinned toolchain supplies musl and the other self-contained runtime objects.
-      copyFileSync(path.join(rustDocs, 'COPYRIGHT.html'), path.join(wslNotices, 'COPYRIGHT.html'));
-      cpSync(path.join(rustDocs, 'licenses'), path.join(wslNotices, 'licenses'), { recursive: true });
       const output = path.join(resources, 'elevated-terminal');
       const dotnet = assertSdk();
       run(dotnet, ['publish', 'native/Shellfox.ElevatedTerminal/Shellfox.ElevatedTerminal.csproj',

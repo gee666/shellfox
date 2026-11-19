@@ -10,6 +10,7 @@ use shellfox_files::{
 use std::sync::Arc;
 #[path = "peer_document_backend.rs"]
 mod peer;
+pub(crate) use peer::FileScope as PeerFileScope;
 #[cfg(windows)]
 #[path = "wsl_files_backend.rs"]
 mod wsl;
@@ -34,7 +35,8 @@ impl DocumentBackend {
 
     pub fn same_panel_scope(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Local(_), Self::Local(_)) | (Self::Peer(_), Self::Peer(_)) => true,
+            (Self::Local(_), Self::Local(_)) => true,
+            (Self::Peer(a), Self::Peer(b)) => a.ids() == b.ids(),
             #[cfg(windows)]
             (Self::Wsl(a), Self::Wsl(b)) => a.tab == b.tab && a.account == b.account
                 && a.scope.distro().eq_ignore_ascii_case(b.scope.distro()),
@@ -50,7 +52,8 @@ impl DocumentBackend {
         match self {
             #[cfg(windows)]
             Self::Wsl(backend) => Some(&backend.scope),
-            _ => None,
+            Self::Peer(peer) => peer.scope.as_ref().map(|scope| &scope.guest),
+            Self::Local(_) => None,
         }
     }
 
@@ -60,6 +63,10 @@ impl DocumentBackend {
             Self::Wsl(backend) => Some(backend.tab),
             _ => None,
         }
+    }
+
+    pub fn peer_file_scope(&self) -> Option<&PeerFileScope> {
+        self.peer_backend().and_then(|peer| peer.scope.as_ref())
     }
 
     pub fn close_wsl_editor(&self) {
@@ -79,13 +86,14 @@ impl DocumentBackend {
     pub fn peer(
         connection: Arc<crate::host_client::peer::Connection>,
         admission: crate::host_client::peer::SourceAdmission,
+        scope: Option<PeerFileScope>,
     ) -> Result<Self> {
         Ok(Self::Peer(peer::PeerDocumentBackend::new(
-            connection, admission,
+            connection, admission, scope,
         )?))
     }
-    pub fn legacy(binding: Arc<crate::host_client::peer_v1::V1Binding>) -> Result<Self> {
-        Ok(Self::Peer(peer::PeerDocumentBackend::legacy(binding)?))
+    pub fn legacy(binding: Arc<crate::host_client::peer_v1::V1Binding>, scope: Option<PeerFileScope>) -> Result<Self> {
+        Ok(Self::Peer(peer::PeerDocumentBackend::legacy(binding, scope)?))
     }
     pub fn peer_backend(&self) -> Option<&Arc<peer::PeerDocumentBackend>> {
         match self {

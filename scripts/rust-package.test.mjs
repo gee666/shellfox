@@ -10,6 +10,7 @@ test('release notices use only a supported SPDX license declared by the dependen
   assert.equal(standardLicense('MIT/Apache-2.0').id, 'Apache-2.0');
   assert.equal(standardLicense('Zlib OR Apache-2.0 OR MIT').id, 'Apache-2.0');
   assert.equal(standardLicense('CC0-1.0').id, 'CC0-1.0');
+  assert.match(standardLicense('MPL-2.0').text, /Mozilla Public License Version 2\.0/);
   assert.equal(standardLicense('MIT AND Apache-2.0'), null);
   assert.equal(standardLicense(undefined), null);
 });

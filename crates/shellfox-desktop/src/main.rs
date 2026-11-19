@@ -59,6 +59,13 @@ use gpui::{App, Application};
 use options::{Mode, Options};
 
 fn main() -> Result<()> {
+    #[cfg(windows)]
+    if std::env::var_os("GPUI_DISABLE_DIRECT_COMPOSITION").is_none() {
+        // GPUI's topmost DirectComposition target covers native child HWNDs.
+        // The standard DXGI swap chain leaves the embedded WebView2 visible.
+        // SAFETY: this runs before the application or any worker thread starts.
+        unsafe { std::env::set_var("GPUI_DISABLE_DIRECT_COMPOSITION", "1") };
+    }
     let mut arguments: Vec<_> = std::env::args_os().skip(1).collect();
     if arguments.len() == 1 && arguments[0] == "--version" {
         println!("Shellfox {}", env!("SHELLFOX_VERSION"));

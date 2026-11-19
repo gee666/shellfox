@@ -184,13 +184,16 @@ fn create(
     let builder = WebViewBuilder::new_with_web_context(&mut context);
     #[cfg(not(windows))]
     let builder = WebViewBuilder::new();
+    let loaded = Cell::new(false);
     let builder = builder
         .with_incognito(true)
         .with_bounds(rect(bounds))
         .with_focused(false)
         .with_visible(false)
         .with_hotkeys_zoom(false)
-        .with_navigation_handler(|url| url == ENTRY || url == DOCUMENT)
+        .with_navigation_handler(move |url| {
+            (url == ENTRY || url == DOCUMENT) && !loaded.replace(true)
+        })
         .with_new_window_req_handler(|_, _| NewWindowResponse::Deny)
         .with_download_started_handler(|_, _| false)
         .with_permission_handler(|_| PermissionResponse::Deny)
@@ -199,14 +202,17 @@ fn create(
     let builder = {
         use wry::WebViewBuilderExtWindows;
         builder.with_browser_accelerator_keys(false).with_default_context_menus(false)
+            .with_drag_drop_handler(|_| true)
     };
     let view = builder.build_as_child(window).map_err(|error| anyhow::anyhow!(error.to_string()))?;
     #[cfg(target_os = "linux")]
     {
-        use webkit2gtk::prelude::{SettingsExt, WebViewExt};
+        use webkit2gtk::{SettingsExt, WebViewExt};
         use wry::WebViewExtUnix;
         let settings = view.webview().settings().ok_or_else(|| anyhow::anyhow!("No WebKit settings"))?;
         settings.set_enable_dns_prefetching(false);
+        settings.set_enable_webrtc(false);
+        settings.set_enable_media_stream(false);
     }
     view.load_url(ENTRY).map_err(|error| anyhow::anyhow!(error.to_string()))?;
     Ok(NativeView {

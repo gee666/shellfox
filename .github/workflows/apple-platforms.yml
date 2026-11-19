@@ -40,9 +40,12 @@ jobs:
       CARGO_BUILD_JOBS: '4'
       CARGO_PROFILE_TEST_DEBUG: '0'
       MACOSX_DEPLOYMENT_TARGET: '13.0'
+      GHOSTTY_VT_LINK_KIND: static
       SHELLFOX_MAC_UNSIGNED: '1'
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24.22.1
@@ -57,6 +60,9 @@ jobs:
           rustup show
           node scripts/rust-package-prereqs.mjs
         timeout-minutes: 25
+      - name: Install JavaScript test fixtures
+        run: pnpm install --frozen-lockfile --ignore-scripts
+        timeout-minutes: 10
       - name: Workspace tests
         run: cargo test --locked --workspace --all-targets --no-fail-fast
         timeout-minutes: 45

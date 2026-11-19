@@ -91,12 +91,13 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
 
     pub async fn send_chunks(
         &self,
-        request: wire::BeginFileWrite,
+        mut request: wire::BeginFileWrite,
         mut input: impl Read,
         cancel: &EditorCancellation,
         progress: impl FnMut(u64) -> Result<()>,
     ) -> Result<WriteResult> {
         self.check_cancel(cancel)?;
+        (request.session_id, request.tab_id) = self.ids();
         let started = self.execute(&request).await?;
         let path = request.path.clone();
         let size = request.size;

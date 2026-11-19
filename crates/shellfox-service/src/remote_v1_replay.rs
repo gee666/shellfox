@@ -32,7 +32,10 @@ impl Replay {
             return Err(super::v1_terminal::lost());
         }
         if ack.sequence != self.last_sequence {
-            return Err(failure(ErrorCode::Validation, "ACK must match the replay snapshot."));
+            return Err(failure(
+                ErrorCode::Validation,
+                "ACK must match the replay snapshot.",
+            ));
         }
         Ok(())
     }
@@ -44,7 +47,10 @@ impl View {
             && !self.terminals.contains_key(&tab)
             && !self.replays.contains_key(&tab)
         {
-            return Err(failure(ErrorCode::Validation, "Detach an unused terminal before attaching another."));
+            return Err(failure(
+                ErrorCode::Validation,
+                "Detach an unused terminal before attaching another.",
+            ));
         }
         Ok(())
     }
@@ -60,25 +66,41 @@ impl RemoteService<'_> {
         let lost = super::v1_terminal::lost;
         let terminal = self.service.terminals.get(&tab).ok_or_else(lost)?;
         let identity = terminal.runtime.identity();
-        let exit_code = self.service.remote_automation_exit_code(terminal).filter(|_| {
-            identity.session_id == session.id
-        }).ok_or_else(|| failure(ErrorCode::AccessDenied, "No completed non-elevated replay is available."))?;
+        let exit_code = self
+            .service
+            .remote_automation_exit_code(terminal)
+            .filter(|_| identity.session_id == session.id)
+            .ok_or_else(|| {
+                failure(
+                    ErrorCode::AccessDenied,
+                    "No completed non-elevated replay is available.",
+                )
+            })?;
         let view = self.state.views.get_mut(&key(actor)).ok_or_else(lost)?;
         view.check_capacity(tab)?;
         let epoch = self.service.allocate_viewer_id().map_err(|_| lost())?;
-        let offer = self.service.observer_grant(tab, epoch).map_err(|_| lost())?;
+        let offer = self
+            .service
+            .observer_grant(tab, epoch)
+            .map_err(|_| lost())?;
         if offer.identity() != identity {
             return Err(lost());
         }
-        let recovery = self.service.call(tab, Command::ObserverRecoverStamped {
-            observer: offer.lease(),
-            capability: AnsiRecoveryCapability::RemoteV1,
-        });
+        let recovery = self.service.call(
+            tab,
+            Command::ObserverRecoverStamped {
+                observer: offer.lease(),
+                capability: AnsiRecoveryCapability::RemoteV1,
+            },
+        );
         // This is a single immutable snapshot. Retire the temporary observer;
         // no controller or ongoing delivery is kept for the v1 client.
         drop(offer);
         let Ok(Response::Recovery(recovery)) = recovery else {
-            return Err(failure(ErrorCode::NativeUnavailable, "Could not build a bounded automation snapshot."));
+            return Err(failure(
+                ErrorCode::NativeUnavailable,
+                "Could not build a bounded automation snapshot.",
+            ));
         };
         let text = String::from_utf8_lossy(&recovery.bytes);
         let chunks = super::v1_delivery::snapshot_chunks(tab, identity.generation, &text);
@@ -102,7 +124,14 @@ impl RemoteService<'_> {
             lifetime: wire::TerminalLifetime::AppOwned,
             settled_at: Some(session.settled_at.clone()),
         }))?;
-        view.replays.insert(tab, Replay { identity, epoch, last_sequence });
+        view.replays.insert(
+            tab,
+            Replay {
+                identity,
+                epoch,
+                last_sequence,
+            },
+        );
         Ok(reply)
     }
 }

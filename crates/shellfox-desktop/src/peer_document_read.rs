@@ -59,9 +59,10 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
         cancel: &EditorCancellation,
     ) -> Result<FileReadCursor> {
         self.check_cancel(cancel)?;
+        let (session_id, tab_id) = self.ids();
         let request = wire::BeginFileRead {
-            session_id: None,
-            tab_id: None,
+            session_id,
+            tab_id,
             path: path.into(),
             asset_path,
         };

@@ -147,8 +147,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     if input_v2_probe {
         println!("cargo:rustc-cfg=sf_input_v2_public_probe");
     }
-    println!("cargo:rustc-link-search=native={}", lib.display());
-    println!("cargo:rustc-link-lib={kind}=ghostty-vt");
+    if os == "macos" && kind == "static" {
+        // ld can prefer the sibling dylib when directly linking the sys test
+        // binary. Give the verified archive its own linker name.
+        std::fs::copy(lib.join("libghostty-vt.a"), out.join("libshellfox_ghostty_vt_native.a"))?;
+        println!("cargo:rustc-link-search=native={}", out.display());
+        println!("cargo:rustc-link-lib=static=shellfox_ghostty_vt_native");
+    } else {
+        println!("cargo:rustc-link-search=native={}", lib.display());
+        println!("cargo:rustc-link-lib={kind}=ghostty-vt");
+    }
     println!(
         "cargo:include={}",
         compiler_path::for_compiler(&prefix.join("include")).display()

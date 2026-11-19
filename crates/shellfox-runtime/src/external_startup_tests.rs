@@ -52,8 +52,8 @@ fn timeout_returns_original_cancellable_owner_until_join_proves_it_closed() {
         ExternalConfig::default(),
         StartupOptions {
             wait: Duration::ZERO,
-            display_policy: ExternalDisplayPolicy::RawBytes,
             before_ready: Some(delayed_ready),
+            ..Default::default()
         },
     ));
     assert_eq!(error.stage, ExternalStartStage::OwnerUnconfirmed);
@@ -72,8 +72,8 @@ fn readiness_channel_failure_retains_owner_even_if_phase_is_not_closed() {
         ExternalConfig::default(),
         StartupOptions {
             wait: Duration::from_secs(1),
-            display_policy: ExternalDisplayPolicy::RawBytes,
             before_ready: Some(lost_ready_channel),
+            ..Default::default()
         },
     ));
     assert_eq!(error.stage, ExternalStartStage::OwnerUnconfirmed);

@@ -2,7 +2,7 @@ use crate::{files::DocumentBackend, root::Root, theme::Palette};
 use gpui::{AnyElement, Context, div, prelude::*, px};
 use percent_encoding::percent_decode_str;
 use shellfox_files::EditorCancellation;
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::{Cell, RefCell}, rc::Rc, sync::Arc};
 
 #[path = "files_html_assets.rs"]
 mod assets;
@@ -17,6 +17,7 @@ const MAX_DOCUMENT: usize = 12 * 1024 * 1024;
 pub(super) struct HtmlPreview {
     prepared: Rc<RefCell<Option<anyhow::Result<assets::Prepared>>>>,
     cancel: EditorCancellation,
+    warnings_open: Rc<Cell<bool>>,
 }
 
 impl HtmlPreview {
@@ -32,7 +33,7 @@ impl HtmlPreview {
                 let _ = root.update(cx, |_, cx| cx.notify());
             }
         }).detach();
-        Self { prepared, cancel }
+        Self { prepared, cancel, warnings_open: Rc::default() }
     }
 
     pub fn render(&self, surface: &Surface, palette: Palette) -> AnyElement {
@@ -41,10 +42,16 @@ impl HtmlPreview {
             Some(Ok(prepared)) => {
                 return div().flex_1().min_h_0().flex().flex_col()
                     .when(!prepared.warnings.is_empty(), |body| {
+                        let expanded = self.warnings_open.get();
+                        let open = self.warnings_open.clone();
+                        let count = prepared.warnings.len();
                         body.child(div().id("html-preview-warnings").px(px(8.)).py(px(4.))
-                            .text_color(palette.muted)
-                            .tooltip(crate::assets::tooltip(prepared.warnings.join("\n"), palette))
-                            .child(format!("{} unavailable preview assets", prepared.warnings.len())))
+                            .text_color(palette.muted).cursor_pointer()
+                            .child(format!("{} {count} unavailable preview assets", if expanded { "▾" } else { "▸" }))
+                            .on_click(move |_, _, cx| { open.set(!open.get()); cx.refresh_windows(); }))
+                            .when(expanded, |body| body.child(div().id("html-preview-warning-list")
+                                .px(px(8.)).max_h(px(96.)).overflow_y_scroll().text_color(palette.muted)
+                                .children(prepared.warnings.iter().cloned().map(|warning| div().child(warning)))))
                     })
                     .child(surface.element(prepared.bytes.clone()))
                     .into_any_element();

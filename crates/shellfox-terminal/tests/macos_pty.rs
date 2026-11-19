@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const READY_SOCKET: &str = "SHELLFOX_TEST_MACOS_DOUBLE_FORK_SOCKET";
+const READY_SOCKET: &str = "TEST_MACOS_DOUBLE_FORK_SOCKET";
+const NEW_GROUP: &str = "TEST_MACOS_NEW_GROUP";
 
 struct Scratch(PathBuf);
 impl Scratch {
@@ -105,7 +106,7 @@ fn interactive_input_resize_output_and_original_exit() {
 }
 
 #[test]
-fn explicit_close_and_leader_exit_sweep_double_forked_job_group() {
+fn explicit_close_and_leader_exit_clean_up_original_and_double_forked_groups() {
     struct Unrelated(Child);
     impl Drop for Unrelated {
         fn drop(&mut self) {
@@ -114,7 +115,7 @@ fn explicit_close_and_leader_exit_sweep_double_forked_job_group() {
         }
     }
     let mut unrelated = Unrelated(Command::new("/bin/sleep").arg("30").spawn().unwrap());
-    for explicit in [true, false] {
+    for (explicit, separate_group) in [(true, false), (true, true), (false, true)] {
         let scratch = Scratch::new();
         let path = scratch.0.join("r.sock");
         let listener = UnixListener::bind(&path).unwrap();
@@ -126,6 +127,9 @@ fn explicit_close_and_leader_exit_sweep_double_forked_job_group() {
         config
             .env
             .insert(READY_SOCKET.into(), path.into_os_string());
+        if separate_group {
+            config.env.insert(NEW_GROUP.into(), "1".into());
+        }
         let mut session = PtySession::spawn(config).unwrap();
         let mut connection = None;
         until(|| {
@@ -168,8 +172,9 @@ fn double_fork_fixture() {
     };
     let socket = UnixStream::connect(path).unwrap();
     let fd = socket.as_raw_fd();
-    // Only async-signal-safe libc calls after fork in the test harness. The
-    // grandchild leaves its original process group but stays in the same SID.
+    let separate_group = std::env::var_os(NEW_GROUP).is_some();
+    // Only async-signal-safe libc calls after fork in the test harness. When
+    // requested the grandchild changes groups but stays in the same SID.
     unsafe {
         let pid = libc::fork();
         if pid == 0 {
@@ -177,7 +182,7 @@ fn double_fork_fixture() {
             if grandchild != 0 {
                 libc::_exit(i32::from(grandchild < 0));
             }
-            if libc::setpgid(0, 0) != 0 {
+            if separate_group && libc::setpgid(0, 0) != 0 {
                 libc::_exit(2);
             }
             libc::signal(libc::SIGHUP, libc::SIG_IGN);

@@ -231,6 +231,9 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
     let normal = launch.privilege == shellfox_runtime::LaunchPrivilege::Normal;
     assert_eq!(service.observer_delivery_policy(identity).is_some(), normal);
     assert_eq!(service.remote_automation_exit_code(&service.terminals[&tab]), normal.then_some(0));
+    assert!(service.observer_delivery_policy(Identity { generation: Default::default(), ..identity }).is_none());
+    service.disable_observer_factory_policy().unwrap();
+    assert!(service.observer_delivery_policy(identity).is_none());
     use crate::grant_requests::GrantFailure;
     use shellfox_runtime::{AnsiRecoveryCapability, Command, ErrorCode, Response};
     let viewer = service.allocate_viewer_id().unwrap();

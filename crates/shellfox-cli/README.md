@@ -84,7 +84,7 @@ Foreground `run` preserves separate binary stdout/stderr and returns the target 
 
 `runs show` requires a registered native desktop. It publishes a read-only `automation-pipe` tab over the canonical external-byte parser created before raw launch, not a new PTY or a tail-reconstructed parser. It does not invent shell facts or focus every window. Once a published run has finished, approved remote devices can replay it if its original launch was verified as non-elevated. Remote replay does not accept input, resize requests, or takeover. Detaching an observer does not kill the run. Explicit stop or metadata close asks the retained raw owner to confirm process-tree cleanup, drains final source data, then retires the parser through its original join. A failed final view is reported separately from confirmed process cleanup, without claiming successful rendering.
 
-Automation remains local-host only. It adds no remote/mobile methods or input authority. The current raw backend is supported only where native ownership proof exists; other platforms fail closed rather than using process-group/PID guesses. Observer-capable remote parity remains design work in `docs/observer-profile-v2-proposal.md`.
+Starting and controlling runs remain local-host operations. Remote clients use the existing terminal replay protocol. The raw backend requires native ownership proof and fails closed where it cannot establish it.
 
 ## Interactive subset
 

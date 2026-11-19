@@ -92,6 +92,10 @@ To include the native XCTest contracts, run `SHELLFOX_IOS_NATIVE_TESTS=1 pod ins
 
 The standalone header contract can also be syntax-checked from an x64 MSVC developer prompt with `cl /nologo /std:c++20 /EHsc /Zs mobile\\ios\\tests\\abi-contract.cpp`, or with `clang++ -std=c++20 -fsyntax-only mobile/ios/tests/abi-contract.cpp` on a 64-bit Unix/macOS host. It uses the actual C headers, not substitute SDK or generated RN headers.
 
+## Native v1 simulator smoke
+
+`Apple platform acceptance` on `experiment/ghostty-rust` builds a separate simulator bundle with the regular app code. The runner launches it with `--shellfox-native-v1 --shellfox-control-url` against a loopback Tailscale test control plane and a Rust CLI host. The test approves the simulator through the host CLI, checks shell input and output, rotates an iPad and checks the new PTY size, backgrounds and reattaches to the same shell, and verifies a file edited in the app changed on disk. The run uploads the XCTest result and screenshots in `ios-simulator-results`. It does not change the default iOS terminal or use a real tailnet or signing identity.
+
 ## Verification status
 
 Verified here on Windows:

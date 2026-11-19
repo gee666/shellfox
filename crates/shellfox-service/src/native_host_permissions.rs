@@ -38,17 +38,22 @@ fn verify_acl(file: &std::fs::File) -> Result<()> {
     } else {
         file
     };
-    #[cfg(target_os="macos")]
-    let message = "macOS extended ACLs, including benign/common-home ACLs, are not supported until native descriptor/inheritance behavior is proven; chmod is not an ACL fix";
+    shellfox_transport::verify_held_acl(inspected).context("Host resource has access or inheritance ACLs")
+}
+
+fn verify_ancestor(dir: &Dir) -> Result<()> {
+    let file = dir.try_clone()?.into_std_file();
+    #[cfg(target_os = "macos")]
+    return shellfox_transport::verify_held_traversal_acl(&readable_directory(&file)?)
+        .context("Host ancestor ACL grants access or cannot be verified");
     #[cfg(not(target_os = "macos"))]
-    let message = "Host resources with access/default ACLs are not supported";
-    shellfox_transport::verify_held_acl(inspected).context(message)
+    verify_acl(&file)
 }
 fn owned(info: &Metadata, user: u32) -> Result<()> {
     ensure!(info.uid() == user, "Foreign host resource owner");
     Ok(())
 }
-fn child_directory(parent: &Dir, name: &OsStr, user: u32) -> Result<Dir> {
+fn child_directory(parent: &Dir, name: &OsStr, user: u32, verify: bool) -> Result<Dir> {
     let before = parent.symlink_metadata(name)?;
     safe(&before)?;
     owned(&before, user)?;
@@ -57,7 +62,9 @@ fn child_directory(parent: &Dir, name: &OsStr, user: u32) -> Result<Dir> {
     safe(&opened)?;
     owned(&opened, user)?;
     ensure!(same(&before, &opened), "Host child changed while opening");
-    verify_acl(&child.try_clone()?.into_std_file())?;
+    if verify {
+        verify_acl(&child.try_clone()?.into_std_file())?;
+    }
     Ok(child)
 }
 pub(super) fn protect_directory(dir: &Dir, user: u32) -> Result<()> {
@@ -67,8 +74,11 @@ pub(super) fn protect_directory(dir: &Dir, user: u32) -> Result<()> {
     // File::set_permissions acts directly on this duplicated directory fd.
     // Renaming/replacing its path cannot redirect chmod to another directory.
     let file = readable_directory(&dir.try_clone()?.into_std_file())?;
+    #[cfg(not(target_os = "macos"))]
     verify_acl(&file)?;
     file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+    #[cfg(target_os = "macos")]
+    shellfox_transport::tighten_held_acl(&file).context("Tighten ACL on the owned host directory")?;
     Ok(())
 }
 impl HostRoot {
@@ -77,7 +87,7 @@ impl HostRoot {
         let ancestor_count = self.anchors.len() - usize::from(self.exists());
         for anchor in &self.anchors[..ancestor_count] {
             let info = anchor.handle.dir_metadata()?;
-            verify_acl(&anchor.handle.try_clone()?.into_std_file())?;
+            verify_ancestor(&anchor.handle)?;
             let system = info.uid() == 0 || (cfg!(target_os = "android") && info.uid() == 1000);
             ensure!(system || info.uid() == user, "Foreign host ancestor owner");
             // Readable 0755 directories and sticky system /tmp are safe; a
@@ -90,6 +100,7 @@ impl HostRoot {
         if self.exists() {
             let root = &self.anchors.last().context("Missing host root")?.handle;
             owned(&root.dir_metadata()?, user)?;
+            #[cfg(not(target_os = "macos"))]
             verify_acl(&root.try_clone()?.into_std_file())?;
         }
         self.revalidate()
@@ -113,8 +124,11 @@ impl HostRoot {
             names.push(name);
         }
         if directory {
-            for name in names {
-                dir = child_directory(&dir, name, user)?;
+            let mut names = names.into_iter().peekable();
+            while let Some(name) = names.next() {
+                // Only the final, owned directory is changed. Ancestors are checked.
+                let verify = !cfg!(target_os = "macos") || names.peek().is_some();
+                dir = child_directory(&dir, name, user, verify)?;
             }
             protect_directory(&dir, user)?;
         } else {
@@ -142,7 +156,7 @@ impl HostRoot {
         }
         let name = names.pop().context("Host root is not a private file")?;
         for name in names {
-            dir = child_directory(&dir, name, user)?;
+            dir = child_directory(&dir, name, user, true)?;
         }
         let before = statat(&dir, name, AtFlags::SYMLINK_NOFOLLOW)?;
         ensure!(

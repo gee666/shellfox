@@ -40,6 +40,9 @@ mod stats;
 mod v1_delivery;
 #[path = "remote_v1_replay.rs"]
 mod v1_replay;
+#[cfg(all(test, windows))]
+#[path = "remote_v2_replay_tests.rs"]
+mod v2_replay_tests;
 #[path = "remote_v1_launch.rs"]
 mod v1_launch;
 #[path = "remote_v1_privilege.rs"]

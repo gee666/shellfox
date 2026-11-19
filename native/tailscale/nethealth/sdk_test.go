@@ -25,11 +25,18 @@ import (
 	"tailscale.com/types/logger"
 )
 
+type loopbackSTUNListener struct{}
+
+func (loopbackSTUNListener) ListenPacket(ctx context.Context, network, _ string) (net.PacketConn, error) {
+	var config net.ListenConfig
+	return config.ListenPacket(ctx, network, "127.0.0.1:0")
+}
+
 func localRelay(t *testing.T) *tailcfg.DERPMap {
 	t.Helper()
 	d := derpserver.New(key.NewNode(), logger.Discard)
 	httpServer := httptest.NewTLSServer(derpserver.Handler(d))
-	stunAddr, closeSTUN := stuntest.Serve(t)
+	stunAddr, closeSTUN := stuntest.ServeWithPacketListener(t, loopbackSTUNListener{})
 	t.Cleanup(func() { d.Close(); httpServer.Close(); closeSTUN() })
 	return &tailcfg.DERPMap{Regions: map[tailcfg.DERPRegionID]*tailcfg.DERPRegion{1: {
 		RegionID: 1, RegionCode: "isolated-test", Nodes: []*tailcfg.DERPNode{{
@@ -138,7 +145,9 @@ func TestRealSDKRetainedControlRestartKeepsNodeAndListeners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	listener, err := server.Listen("tcp", ":52743")
+	// This is a virtual tsnet listener, not a socket on the host network.
+	echoAddr := net.JoinHostPort(before.TailscaleIPs[0].String(), "52743")
+	listener, err := server.Listen("tcp", echoAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +167,7 @@ func TestRealSDKRetainedControlRestartKeepsNodeAndListeners(t *testing.T) {
 	}()
 	echo := func() {
 		t.Helper()
-		conn, err := server.Dial(ctx, "tcp", net.JoinHostPort(before.TailscaleIPs[0].String(), "52743"))
+		conn, err := server.Dial(ctx, "tcp", echoAddr)
 		if err != nil {
 			t.Fatal(err)
 		}

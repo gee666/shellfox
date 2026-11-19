@@ -147,7 +147,9 @@ impl Root {
         let mut list = div()
             .id("sessions")
             .flex_1()
+            .min_w_0()
             .min_h_0()
+            .overflow_x_hidden()
             .overflow_y_scroll()
             .track_scroll(&self.sidebar_ui.scroll)
             .py(px(4.));

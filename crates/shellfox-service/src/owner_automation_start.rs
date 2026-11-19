@@ -18,7 +18,9 @@ impl Service {
             .iter()
             .any(|pending| pending.id == id)
         {
-            bail!("The original external parser startup still owns cleanup; no raw target was launched.");
+            bail!(
+                "The original external parser startup still owns cleanup; no raw target was launched."
+            );
         }
         let exists = self
             .automation
@@ -38,9 +40,13 @@ impl Service {
                     .reserved_publication_receipt(id.to_string().parse()?)?,
                 ReservedPublicationReceipt::ReceiptUnavailable
             ) {
-                bail!("Request ID has an existing durable automation publication; no new raw target was launched.");
+                bail!(
+                    "Request ID has an existing durable automation publication; no new raw target was launched."
+                );
             }
         }
+        #[cfg(feature = "experimental-shellfox-native")]
+        let native = self.native0_creation()?;
         if let Some(run) = self.automation.runs.reserve_start(&input, controller)? {
             return Ok(run);
         }
@@ -53,12 +59,28 @@ impl Service {
             generation: shellfox_core::Generation::new(),
         };
         let activity = std::sync::Arc::new(AutomationActivity::new(identity));
-        let mut runtime = match Runtime::start_external_with_policy_and_hooks(
-            identity,
-            Default::default(),
-            ExternalDisplayPolicy::LegacyAutomationV1,
-            activity.hooks(),
-        ) {
+        let start = || {
+            Runtime::start_external_with_policy_and_hooks(
+                identity,
+                Default::default(),
+                ExternalDisplayPolicy::LegacyAutomationV1,
+                activity.hooks(),
+            )
+        };
+        #[cfg(not(feature = "experimental-shellfox-native"))]
+        let started = start();
+        #[cfg(feature = "experimental-shellfox-native")]
+        let started = match native {
+            Some(native) => Runtime::start_external_with_native0(
+                identity,
+                Default::default(),
+                ExternalDisplayPolicy::LegacyAutomationV1,
+                activity.hooks(),
+                native,
+            ),
+            None => start(),
+        };
+        let mut runtime = match started {
             Ok(runtime) => runtime,
             Err(error) => {
                 match error.stage {

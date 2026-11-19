@@ -1,6 +1,6 @@
 use super::*;
 use crate::root::peer::sidebar_layout::RowFocus;
-use crate::{root::peer::session_dialog::Editor, session_menu::Item};
+use crate::{assets::inline_ellipsis, root::peer::session_dialog::Editor, session_menu::Item};
 use gpui::{Bounds, KeyDownEvent, Pixels};
 use std::{cell::Cell, rc::Rc};
 
@@ -67,13 +67,12 @@ impl Root {
                             div()
                                 .id("peer-session-title")
                                 .min_w_0()
-                                .truncate()
                                 .text_size(px(13.))
                                 .when(settled, |style| {
                                     style.text_color(palette.status_color(0x96734e))
                                 })
                                 .tooltip(tooltip(session.title.clone(), palette))
-                                .child(session.title.clone())
+                                .child(inline_ellipsis(session.title.clone(), 14.))
                                 .on_click(cx.listener(
                                     move |root, event: &gpui::ClickEvent, window, cx| {
                                         if event.click_count() > 1 {

@@ -71,12 +71,12 @@ impl Root {
         }
     }
 
-    pub(crate) fn select_local_file_scope(
+    pub(crate) fn select_file_scope(
         &mut self,
         backend: DocumentBackend,
         cx: &mut Context<Self>,
     ) {
-        if !self.is_local_source() || !backend.is_local() {
+        if self.is_local_source() != backend.is_local() {
             return;
         }
         self.sync_file_source(cx);
@@ -112,9 +112,22 @@ impl Root {
             cx.notify();
             return;
         };
-        self.select_local_file_scope(backend, cx);
+        self.select_file_scope(backend, cx);
         if self.files.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
             self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
+        }
+    }
+
+    pub(crate) fn follow_peer_file_tab(&mut self, cx: &mut Context<Self>) {
+        if !self.files.as_ref().is_some_and(|files| files.visible && files.source == self.peers.selected) {
+            return;
+        }
+        let Ok((backend, preferred)) = self.peer_file_backend() else { return; };
+        if backend.is_wsl() || self.files.as_ref().is_some_and(|files| files.backend.is_wsl()) {
+            self.select_file_scope(backend, cx);
+            if self.files.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
+                self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
+            }
         }
     }
 
@@ -141,12 +154,14 @@ impl Root {
     }
 
     pub(crate) fn use_host_file_scope(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(super::EditorOutcome::Ready(backend)) = cx.try_global::<super::EditorOutcome>()
-        else {
-            return false;
+        let backend = if self.is_local_source() {
+            let Some(super::EditorOutcome::Ready(backend)) = cx.try_global::<super::EditorOutcome>() else { return false; };
+            DocumentBackend::local(backend)
+        } else {
+            let Ok((backend, _)) = self.peer_file_backend_for(false) else { return false; };
+            backend
         };
-        let backend = DocumentBackend::local(backend);
-        self.select_local_file_scope(backend, cx);
+        self.select_file_scope(backend, cx);
         true
     }
 

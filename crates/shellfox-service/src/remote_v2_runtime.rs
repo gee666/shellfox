@@ -82,11 +82,10 @@ pub(in crate::remote) fn effective_policy(service: &Service, identity: Identity)
     if !matches!(terminal.startup, Some(Ok(()))) {
         return None;
     }
-    let eligible = match terminal.runtime.source_kind() {
-        shellfox_runtime::SourceKind::OwnedPty => accepted_launch(&terminal.runtime.launch_privilege_facts()),
-        shellfox_runtime::SourceKind::ExternalBytes => service.remote_automation_exit_code(terminal).is_some(),
-    };
-    eligible.then_some(epoch)
+    // Passive automation eligibility already requires its distinct sealed raw
+    // proof and a published, complete run. PTYs retain their own launch gate.
+    (terminal.runtime.source_kind() == shellfox_runtime::SourceKind::ExternalBytes
+        || accepted_launch(&terminal.runtime.launch_privilege_facts())).then_some(epoch)
 }
 pub(super) fn acknowledge(
     service: &mut Service,

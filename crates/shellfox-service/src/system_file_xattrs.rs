@@ -176,6 +176,9 @@ fn copy_macos_acl(source: &File, target: &File) -> SystemResult<()> {
     // freed on every branch. Apply only to this owned staging file.
     let acl = unsafe { acl_get_fd(source.as_raw_fd()) };
     if acl.is_null() {
+        if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
+            return shellfox_transport::tighten_held_acl(target).map_err(|_| storage());
+        }
         return Err(storage());
     }
     let size = unsafe { acl_size(acl) };

@@ -40,8 +40,10 @@ pub(crate) fn require_empty_darwin_acl(file: &File) -> Result<()> {
         }
         let mut entry = std::ptr::null_mut();
         let found = acl_get_entry(acl, 0, &mut entry);
+        let error = std::io::Error::last_os_error();
         acl_free(acl);
-        if found != 0 {
+        // Darwin returns 0 when an entry exists and EINVAL for an empty ACL.
+        if found == 0 || error.raw_os_error() != Some(libc::EINVAL) {
             return Err(FileError::denied());
         }
     }

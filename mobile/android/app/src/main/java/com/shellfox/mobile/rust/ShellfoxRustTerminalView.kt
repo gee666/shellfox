@@ -268,6 +268,7 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
       (y / renderer.cellHeight).toInt().coerceIn(0, (frame?.rows ?: 1) - 1))
   fun fileLinkAt(x: Float, y: Float) {
     val frame = sink?.frames?.acquire() ?: return
+    if (x < 0 || y < 0 || x >= frame.cols * renderer.cellWidth || y >= frame.rows * renderer.cellHeight) return
     val point = point(x, y, frame)
     fun open(text: String, offset: Int) {
       if (text.isNotBlank() && text.length <= 8192) emit("topFileLink", Arguments.createMap().apply {

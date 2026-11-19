@@ -129,7 +129,11 @@ pub(super) fn attach(
         return unavailable(input.tab_id, m::UnavailableReason::FactsUnavailable);
     }
     let viewer = service.allocate_viewer_id().map_err(|_| native_error())?;
-    let mut input_state = m::InputState::NotReady;
+    let mut input_state = if replay_only {
+        m::InputState::IntrinsicReadOnly
+    } else {
+        m::InputState::NotReady
+    };
     let mut controller = None;
     if !replay_only && matches!(input.control, m::ControlRequest::IfFree) {
         if takeover {
