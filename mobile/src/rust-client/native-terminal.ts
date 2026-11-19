@@ -44,10 +44,13 @@ export class NativeTerminalDriver {
 
   async open(tabId: string, readOnly: boolean, configuration: TerminalConfiguration): Promise<NativeTerminalSession> {
     idSchema.parse(tabId);
+    const version = this.version;
+    const closing = this.views.get(tabId)?.pendingClose();
+    if (closing) await closing;
+    if (version !== this.version) throw new Error('Native terminal connection changed.');
     if (this.views.has(tabId) || this.opening.has(tabId)) throw new Error('This terminal already has a native view.');
     const { remote, execute } = this.connection();
     const adapter = new RustTerminalAdapter(this.native);
-    const version = this.version;
     this.opening.add(tabId);
     try {
       const handle = await adapter.create(80, 24);
@@ -145,6 +148,7 @@ export class NativeTerminalSession {
     await this.attaching;
     const metadata = this.metadata;
     if (!metadata) throw new Error('Terminal has no current generation.');
+    if (metadata.control === 'owned' && this.state === 'attached') return;
     const result = responseSchemas.takeTerminalControl.parse(await this.execute('takeTerminalControl', {
       tabId: this.tabId, generation: metadata.generation,
     }));
@@ -167,6 +171,8 @@ export class NativeTerminalSession {
     } else if (event.type === 'exit') this.change('closed');
     else if (event.type === 'error') { this.change('reconnecting'); this.report(new TerminalOperationError(event.error)); }
   }
+
+  pendingClose(): Promise<void> | undefined { return this.closing; }
 
   close(): Promise<void> {
     if (this.closing) return this.closing;

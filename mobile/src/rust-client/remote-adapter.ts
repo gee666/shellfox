@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import { CoarseOperationError } from './coarse-operations';
+
+// Android names the status; iOS uses the ABI number (SFM_BUSY = 1).
+const nativeBusyCode = z.enum(['RUST_BUSY', 'RUST_1']);
+const nativeBusyStatus: Record<z.infer<typeof nativeBusyCode>, 1> = { RUST_BUSY: 1, RUST_1: 1 };
+const nativeBusy = z.object({ code: nativeBusyCode });
 import type { RemoteRequestPayload } from '../../../src/shared/remote-contracts';
 import { remotePayloadSchemas, remotePeerIdSchema } from '../../../src/shared/remote-schemas';
 import type { TerminalHandle } from './adapter';
@@ -107,7 +113,12 @@ export class RustRemoteClient {
 
   private async start(action: () => Promise<string>): Promise<RustOperationId> {
     this.requireLive();
-    return operationIdSchema.parse(await action());
+    try { return operationIdSchema.parse(await action()); }
+    catch (error) {
+      const failure = nativeBusy.safeParse(error);
+      if (failure.success) throw new CoarseOperationError(nativeBusyStatus[failure.data.code]);
+      throw error;
+    }
   }
 
   private requireLive(): void {

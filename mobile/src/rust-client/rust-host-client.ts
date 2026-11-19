@@ -213,7 +213,6 @@ export class RustHostClient extends RemoteOperations implements HostClient {
           needsReconnect ||= paired;
           paired = false;
           const error = connectionError(cause);
-          console.warn('Native V1 fixture', error.code, error.message);
           const denied = error.code === 'ACCESS_DENIED' || error.code === 'UNSUPPORTED' && !error.retryable;
           this.change(denied ? 'rejected' : error.code === 'APPROVAL_REQUIRED' ? 'awaiting-approval' : 'reconnecting', error);
           if (denied) { this.stopRun('rejected', error); break; }

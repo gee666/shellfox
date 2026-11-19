@@ -44,6 +44,17 @@ describe('Rust host client in existing mobile presentation', () => {
     expect(state).toHaveBeenCalledTimes(notifications);
   });
 
+  it.each(['RUST_BUSY', 'RUST_1'])('retries %s poll admission without reconnecting', async code => {
+    const { native, client } = setup();
+    native.poll.mockRejectedValueOnce(Object.assign(new Error('Native client operation failed.'), { code }));
+    const state = vi.fn(); client.subscribeState(state);
+    client.connect(); await tick(300);
+    expect(client.getState()).toMatchObject({ status: 'connected', connectionId: '1:1' });
+    expect(native.poll).toHaveBeenCalledTimes(2);
+    expect(native.reconnect).not.toHaveBeenCalled();
+    expect(state.mock.calls.map(([value]) => value.status)).toEqual(['connecting', 'connected']);
+  });
+
   it('resolves explicit native-internal polls and delivers unsolicited coarse host events exactly once', async () => {
     const { native, client } = setup(); const listener = vi.fn(); client.subscribe(listener);
     client.connect(); await tick();
@@ -95,6 +106,8 @@ describe('Rust host client in existing mobile presentation', () => {
     const view = await opening;
     expect(native.bindTerminal).toHaveBeenCalledWith('1', ids.tab, view.handle);
     expect(view.getState()).toBe('attached');
+    await view.takeControl();
+    expect(native.operation.mock.calls.some(([, json]) => json.includes('takeTerminalControl'))).toBe(false);
     expect(view.getIdentity()).toBeNull();
     await view.input({ type: 'paste', text: 'not ready' });
     expect(native.terminalInput).not.toHaveBeenCalled();
@@ -129,6 +142,24 @@ describe('Rust host client in existing mobile presentation', () => {
     creation.resolve('150'); await tick(); await rejected;
     expect(native.closeTerminal).toHaveBeenCalledWith('150');
     expect(native.bindTerminal).not.toHaveBeenCalled();
+  });
+
+  it('reopens a tab after the previous native view drains and unbinds', async () => {
+    const { native, client } = setup(); client.connect(); await tick();
+    const driver = nativeTerminalForApi(client.terminalApi);
+    if (!driver) throw new Error('Missing native terminal registration.');
+    const opening = driver.open(ids.tab, false, config); await tick();
+    const old = await opening;
+    const released = deferred<void>();
+    native.closeTerminal.mockImplementationOnce(() => released.promise);
+    const closing = old.close();
+    const reopening = driver.open(ids.tab, false, config);
+    await tick();
+    expect(native.createTerminal).toHaveBeenCalledTimes(1);
+    released.resolve(); await closing; await tick();
+    const fresh = await reopening;
+    expect(fresh.handle).not.toBe(old.handle);
+    expect(native.createTerminal).toHaveBeenCalledTimes(2);
   });
 
   it('keeps automation selection possible but suppresses native control and input', async () => {
