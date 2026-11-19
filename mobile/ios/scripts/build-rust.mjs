@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { withPinnedZig } from '../../../scripts/rust-package-prereqs.mjs';
 
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 export const slices = Object.freeze([
@@ -51,7 +52,7 @@ export function runtimePodspec(link = { libraries: [], frameworks: [] }) {
 ${link.libraries.length ? `  s.libraries = ${link.libraries.map(name => `'${name}'`).join(', ')}\n` : ''}${link.frameworks.length ? `  s.frameworks = ${link.frameworks.map(name => `'${name}'`).join(', ')}\n` : ''}end
 `;
 }
-export function build() {
+export function build(zig = 'zig') {
   minimumIOS();
   if (process.platform !== 'darwin') throw new Error('iOS native compilation requires macOS, Xcode and CocoaPods. No native build ran.');
   run('xcodebuild', ['-version']);
@@ -60,7 +61,7 @@ export function build() {
   const framework = join(destination, 'ShellfoxMobileRust.xcframework');
   if (existsSync(framework)) throw new Error(`Remove the old owned build explicitly before rebuilding: ${framework}`);
   mkdirSync(work, { recursive: true }); mkdirSync(destination, { recursive: true });
-  const cargo = join(work, 'cargo');
+  const cargo = resolve(root, process.env.CARGO_TARGET_DIR || join(work, 'cargo'));
   const nativeLibraries = new Set(), nativeFrameworks = new Set();
   for (const slice of slices) {
     const sdkroot = run('xcrun', ['--sdk', slice.sdk, '--show-sdk-path'], process.env, true);
@@ -70,7 +71,7 @@ export function build() {
       [`CC_${slice.target.replaceAll('-', '_')}`]: clang };
     const prefix = join(work, `ghostty-${slice.target}`);
     if (!existsSync(prefix)) run(process.execPath, ['crates/ghostty-vt-sys/build-support/prepare.mjs', 'build',
-      '--target', slice.target, '--prefix', prefix, '--zig-target', slice.zig], env);
+      '--target', slice.target, '--prefix', prefix, '--zig-target', slice.zig, '--zig', zig], env);
     const manifest = JSON.parse(readFileSync(join(prefix, 'ghostty-vt-build.json'), 'utf8'));
     if (manifest.rustTarget !== slice.target || manifest.zigTarget !== slice.zig || manifest.version !== '1.0.1')
       throw new Error(`Wrong prepared Ghostty target/deployment: ${prefix}`);
@@ -105,6 +106,7 @@ export function build() {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     if (process.argv.includes('--plan')) console.log(JSON.stringify({ minimumIOS: minimumIOS(), slices }, null, 2));
+    else if (process.argv.includes('--fetch-zig') && process.platform === 'darwin') await withPinnedZig(build);
     else build();
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

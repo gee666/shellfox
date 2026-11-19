@@ -64,10 +64,11 @@ test('native C calls exist in the actual Carter and client headers', () => {
 });
 test('Rust input hints stay paired with explicit-length bytes through admission and Go writes', () => {
   const owner = read('mobile/ios/ShellfoxRust/SFOwner.mm');
+  const input = read('mobile/ios/ShellfoxRust/SFOwnerInput.mm');
   const store = read('mobile/ios/ShellfoxRust/SFClientStore.mm');
   const queue = read('mobile/ios/ShellfoxRust/SFIntentQueue.mm');
-  assert.match(owner, /sfm_terminal_input_ex\(terminal.handle, \(const uint8_t \*\)json.bytes, json.length, CopyInputEx, &encoded\)/);
-  assert.match(owner, /packet.userInitiated = hint/);
+  assert.match(input, /sfm_terminal_input_ex\(terminal.handle, \(const uint8_t \*\)json.bytes, json.length, CopyInputEx, &encoded\)/);
+  assert.match(input, /packet.userInitiated = hint/);
   assert.match(owner, /sendInput:data userInitiated:intent.userInitiated/);
   assert.match(store, /sfm_client_terminal_write_ex\(client.handle, terminal.handle, \(const uint8_t \*\)bytes.bytes, bytes.length, hint, &operation\)/);
   assert.match(queue, /copy.userInitiated = intent.userInitiated/);
@@ -116,13 +117,14 @@ test('runtime Pod linker settings come from actual rustc output, not guessed fra
 test('observer profile is explicit, delivery-only and keeps the canonical native parser grid', () => {
   const module = read('mobile/ios/ShellfoxRust/ShellfoxRustClient.mm');
   const store = read('mobile/ios/ShellfoxRust/SFClientStore.mm');
-  const owner = read('mobile/ios/ShellfoxRust/SFOwner.mm');
+  const polling = read('mobile/ios/ShellfoxRust/SFClientPolling.mm');
+  const owner = read('mobile/ios/ShellfoxRust/SFOwnerInput.mm');
   const table = read('mobile/ios/ShellfoxRust/SFClientProfile.mm');
   assert.match(module, /observerV2Operation:/);
   assert.match(module, /sfm_client_profile\(client.handle, &profile, &capabilities\)/);
   assert.doesNotMatch(module, /sfm_client_profile\(terminal/);
-  assert.match(store, /observer:NO result:result/);
-  assert.match(store, /observer:YES result:result/);
+  assert.match(store, /profile:SFM_CLIENT_PROFILE_V1 result:result/);
+  assert.match(store, /profile:SFM_CLIENT_PROFILE_OBSERVER_V2 result:result/);
   assert.match(table, /SFM_CLIENT_PROFILE_OBSERVER_V2, SFM_CLIENT_API_DELIVERY/);
   for (const api of ['bind_terminal', 'unbind_terminal', 'terminal_reset_ticket', 'terminal_reset_grid',
     'terminal_reset_done', 'terminal_recovery_ready', 'terminal_consumed', 'poll', 'disconnect']) {
@@ -131,8 +133,8 @@ test('observer profile is explicit, delivery-only and keeps the canonical native
   const resize = owner.split('- (SfmStatus)resize:')[1].split('- (SfmStatus)input:')[0];
   assert.ok(resize.indexOf('if (terminal.deliveryOnly) return SFM_OK;') < resize.indexOf('sfm_terminal_resize('));
   assert.match(owner, /if \(terminal.deliveryOnly\) return SFM_INVALID/);
-  assert.match(store, /connection\[@"binding"\]/);
-  assert.match(store, /@"observer-v2"/);
+  assert.match(polling, /connection\[@"binding"\]/);
+  assert.match(polling, /@"observer-v2"/);
 });
 test('both native carriers use exact routes and preserve real HTTP status without native fallback', () => {
   const policy = read('mobile/ios/ShellfoxRust/SFNetworkPolicy.h');

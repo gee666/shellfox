@@ -1,0 +1,163 @@
+name: Apple platform acceptance
+
+# Apple CI runs on the experiment branch. No job publishes a release.
+on:
+  push:
+    branches: [experiment/ghostty-rust]
+    paths:
+      - .github/workflows/rust-platforms.yml
+      - Cargo.*
+      - rust-toolchain.toml
+      - crates/**
+      - vendor/**
+      - scripts/**
+      - resources/**
+      - native/**
+      - mobile/**
+      - src/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    if: github.ref == 'refs/heads/experiment/ghostty-rust'
+    name: macOS ${{ matrix.arch }} workspace and unsigned installer
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-latest, arch: arm64 }
+          - { runner: macos-15-intel, arch: x64 }
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple/target
+      CARGO_BUILD_JOBS: '4'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      SHELLFOX_MAC_UNSIGNED: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.22.1
+          architecture: ${{ matrix.arch }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Prepare static Ghostty
+        id: prepare
+        run: |
+          rustup show
+          node scripts/rust-package-prereqs.mjs
+        timeout-minutes: 25
+      - name: Workspace tests
+        run: cargo test --locked --workspace --all-targets --no-fail-fast
+        timeout-minutes: 45
+      - name: Build desktop and CLI and package .app and .dmg
+        id: package
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: node scripts/package-rust.mjs
+        timeout-minutes: 45
+      - name: Smoke extracted desktop and CLI and verify disk image
+        id: smoke
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        run: node scripts/package-rust-smoke.mjs
+        timeout-minutes: 5
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ !cancelled() && steps.smoke.outcome == 'success' }}
+        with:
+          name: unsigned-shellfox-macos-${{ matrix.arch }}
+          path: tmp/rust-installers/
+          if-no-files-found: error
+      - name: Remove Cargo build directory
+        if: always()
+        run: rm -rf -- "$CARGO_TARGET_DIR"
+        timeout-minutes: 5
+
+  ios:
+    if: github.ref == 'refs/heads/experiment/ghostty-rust'
+    name: iOS app and native contracts on arm64 simulator
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple-ios/target
+      CARGO_BUILD_JOBS: '4'
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.22.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Install dependencies, generate terminal page and test RN native contracts
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          node scripts/mobile-terminal.mjs
+          node --test mobile/ios/scripts/contracts.test.mjs
+        timeout-minutes: 10
+      - name: Build Rust static libraries for device and simulator
+        run: |
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+          node mobile/ios/scripts/build-rust.mjs --fetch-zig
+        timeout-minutes: 35
+      - name: Build embedded Go transport
+        run: |
+          node scripts/mobile-native.mjs setup
+          node scripts/mobile-native.mjs build ios
+        timeout-minutes: 25
+      - name: Install Pods with the native XCTest target
+        working-directory: mobile/ios
+        env:
+          SHELLFOX_IOS_NATIVE_TESTS: '1'
+        run: pod install
+        timeout-minutes: 15
+      - name: Build unsigned simulator application
+        run: |
+          xcodebuild -workspace mobile/ios/ShellfoxMobile.xcworkspace \
+            -scheme ShellfoxMobile -sdk iphonesimulator -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath tmp/ios-derived \
+            CODE_SIGNING_ALLOWED=NO build
+        timeout-minutes: 30
+      - name: Run native contracts on an available iPhone simulator
+        run: |
+          simulator=$(xcrun simctl list devices booted available -j | node -e '
+            const { devices } = JSON.parse(require("node:fs").readFileSync(0));
+            console.log(Object.values(devices).flat().find(d => d.name.startsWith("iPhone"))?.udid ?? "");')
+          if [ -z "$simulator" ]; then
+            simulator=$(xcrun simctl list devices available -j | node -e '
+              const { devices } = JSON.parse(require("node:fs").readFileSync(0));
+              console.log(Object.values(devices).reverse().flat().find(d => d.name.startsWith("iPhone"))?.udid ?? "");')
+            test -n "$simulator"
+            xcrun simctl boot "$simulator"
+          fi
+          xcrun simctl bootstatus "$simulator" -b
+          xcodebuild -workspace mobile/ios/ShellfoxMobile.xcworkspace \
+            -scheme ShellfoxRustNative -sdk iphonesimulator -configuration Debug \
+            -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath tmp/ios-derived \
+            -resultBundlePath tmp/ios-native-tests.xcresult -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO test
+        timeout-minutes: 25
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: ios-simulator-results
+          path: |
+            tmp/ios-derived/Build/Products/Debug-iphonesimulator/ShellfoxMobile.app
+            tmp/ios-native-tests.xcresult
+            tmp/ios-rust-build/*-link.txt
+          if-no-files-found: ignore
+      - name: Remove Cargo build directory
+        if: always()
+        run: rm -rf -- "$CARGO_TARGET_DIR"
+        timeout-minutes: 5

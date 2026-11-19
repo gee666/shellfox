@@ -39,7 +39,7 @@ function linux(work, app, artifacts) {
   writeFileSync(path.join(control, 'control'), [
     'Package: shellfox', `Version: ${pkg.version}`, `Architecture: ${debianArch}`, 'Section: devel', 'Priority: optional',
     `Maintainer: ${pkg.author}`,
-    'Depends: libc6 (>= 2.39), libgcc-s1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1',
+    'Depends: libc6 (>= 2.39), libgcc-s1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1, libwebkit2gtk-4.1-0',
     'Description: Shellfox terminal manager', '',
   ].join('\n'));
   // These are the standard deb members; no dpkg installation or root is needed to build them.
@@ -97,7 +97,7 @@ function signMac(file) {
   run('/usr/bin/codesign', ['--force', '--sign', identity, ...signing, ...(keychain ? ['--keychain', keychain] : []), file]);
 }
 
-function macos(app, artifacts) {
+function macos(app, artifacts, sign) {
   const contents = path.join(app, 'Contents');
   const plist = path.join(contents, 'Info.plist');
   writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
@@ -114,10 +114,12 @@ function macos(app, artifacts) {
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>\n`);
   copy(icon('icns'), path.join(contents, 'Resources/shellfox.icns'));
-  // Helpers were signed before hashing them into the Rust binaries.
-  signMac(path.join(contents, 'MacOS/shellfox-cli'));
-  signMac(app);
-  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+  if (sign) {
+    // Helpers were signed before hashing them into the Rust binaries.
+    sign(path.join(contents, 'MacOS/shellfox-cli'));
+    sign(app);
+    run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+  }
   run('/usr/bin/ditto', ['-c', '-k', '--keepParent', app, path.join(artifacts, `${stem}.zip`)]);
   run('/usr/bin/hdiutil', ['create', '-volname', 'Shellfox', '-format', 'UDZO', '-srcfolder', app, path.join(artifacts, `${stem}.dmg`)]);
 }
@@ -139,8 +141,9 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
       nugetSnapshot = path.join(work, 'nuget-snapshot.json');
       writeFileSync(nugetSnapshot, JSON.stringify(await acquireNugetSnapshot('10.0')));
     }
+    const signDarwin = process.platform === 'darwin' && process.env.SHELLFOX_MAC_UNSIGNED !== '1' ? signMac : undefined;
     const { anchorEnv, helperSha256 } = await stageResources({ directory: stage, work, kind: 'desktop', version: pkg.version,
-      nugetSnapshot, probeTailscale: false, signDarwin: process.platform === 'darwin' ? signMac : undefined });
+      nugetSnapshot, probeTailscale: false, signDarwin });
     const cargoTarget = path.resolve(process.env.CARGO_TARGET_DIR || path.join(scratchRoot, 'rust-installers-target'));
     const env = { ...anchorEnv, SHELLFOX_PACKAGED_GO_SHA256: helperSha256 };
     run('cargo', ['build', '--locked', '--release', '--target-dir', cargoTarget,
@@ -158,7 +161,7 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     if (win) {
       for (const dir of [app, path.join(app, 'bin')]) copy(path.join(profile, 'ghostty-vt.dll'), path.join(dir, 'ghostty-vt.dll'));
       await windows(app, artifacts, testId);
-    } else if (mac) macos(app, artifacts);
+    } else if (mac) macos(app, artifacts, signDarwin);
     else linux(work, app, artifacts);
     mkdirSync(path.dirname(output), { recursive: true });
     renameSync(artifacts, output);

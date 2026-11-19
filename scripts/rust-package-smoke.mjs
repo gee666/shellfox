@@ -29,16 +29,14 @@ export function verifyManifest(directory) {
   return manifest;
 }
 
-async function ownHostSmoke(directory, work, helperSha256) {
-  const cli = path.join(directory, 'bin', executableName('shellfox-cli'));
-  const helper = path.join(directory, 'resources', 'tailscale', executableName('shellfox-tailscale'));
+export async function ownHostSmoke(cli, helper, work, helperSha256, env = {}) {
   const data = path.join(work, 'isolated host data');
   mkdirSync(data, { mode: 0o700 });
   const flags = ['--data-dir', data, '--helper', helper, '--helper-sha256', helperSha256];
   const help = run(cli, ['--help'], { timeout: 15_000 });
   assert.match(help, /host stop/, 'Safe package smoke requires the actual CLI graceful host stop command');
   const child = spawn(cli, [...flags, 'host', 'serve'], {
-    cwd: work, env: { ...process.env, TMP: work, TEMP: work, TMPDIR: work },
+    cwd: work, env: { ...process.env, ...env, TMP: work, TEMP: work, TMPDIR: work },
     windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
   });
   let diagnostics = '';
@@ -47,7 +45,8 @@ async function ownHostSmoke(directory, work, helperSha256) {
   const exited = new Promise((resolve, reject) => { child.once('exit', (code, signal) => resolve({ code, signal })); child.once('error', reject); });
   // Handle spawn failure even if the readiness loop has not reached await exited.
   exited.catch(() => {});
-  const command = args => JSON.parse(run(cli, [...flags, ...args], { cwd: work, timeout: 15_000 }));
+  const invoke = args => run(cli, [...flags, ...args], { cwd: work, env, timeout: 15_000 });
+  const command = args => JSON.parse(invoke(args));
   let stopped = false;
   try {
     const deadline = Date.now() + 30_000;
@@ -66,14 +65,14 @@ async function ownHostSmoke(directory, work, helperSha256) {
     assert.ok(command(['settings', 'get']));
     command(['session', 'close', id]);
     assert.deepEqual(command(['session', 'list']), []);
-    run(cli, [...flags, 'host', 'stop'], { cwd: work, timeout: 15_000 });
+    invoke(['host', 'stop']);
     const result = await Promise.race([exited, delay(15_000).then(() => { throw new Error('Owned host did not exit after stop'); })]);
     assert.deepEqual(result, { code: 0, signal: null });
     stopped = true;
     return 'owned persistent host: native endpoint, metadata create/list/rename/close, settings, graceful stop';
   } finally {
     if (!stopped && child.exitCode === null && child.signalCode === null) {
-      try { run(cli, [...flags, 'host', 'stop'], { cwd: work, timeout: 15_000 }); } catch { /* Only this smoke's private endpoint was contacted. */ }
+      try { invoke(['host', 'stop']); } catch { /* Only this smoke's private endpoint was contacted. */ }
       const ended = await Promise.race([exited.then(() => true).catch(() => true), delay(5_000).then(() => false)]);
       if (!ended) {
         // Never force-stop a host, even our fixture. Preserve its isolated data.
@@ -112,7 +111,7 @@ export async function smokePackage(directory) {
     const helperPath = `resources/tailscale/${executableName('shellfox-tailscale')}`;
     const helperDigest = manifest.files.find(file => file.path === helperPath)?.sha256;
     assert.match(helperDigest ?? '', /^[a-f0-9]{64}$/);
-    checks.push(await ownHostSmoke(directory, work, helperDigest));
+    checks.push(await ownHostSmoke(cli, helper, work, helperDigest));
     if (manifest.kind === 'desktop') {
       const desktop = path.join(directory, 'bin', executableName('shellfox'));
       const output = run(desktop, ['--data-dir', path.join(work, 'desktop data'), '--smoke'], { cwd: work, timeout: 60_000 });

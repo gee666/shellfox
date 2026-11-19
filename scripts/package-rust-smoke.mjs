@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { readJson, root, run, scratchRoot } from './rust-package-common.mjs';
+import { fileHash, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
+import { ownHostSmoke } from './rust-package-smoke.mjs';
 
 const { version } = readJson(path.join(root, 'package.json'));
 const directory = path.resolve(process.argv[2] ?? path.join(scratchRoot, 'rust-installers'));
@@ -28,7 +29,11 @@ try {
   } else if (process.platform === 'darwin') {
     run('/usr/bin/ditto', ['-x', '-k', path.join(directory, `${stem}.zip`), extracted]);
     const app = path.join(extracted, 'Shellfox.app');
-    run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+    run('/usr/bin/plutil', ['-lint', path.join(app, 'Contents/Info.plist')]);
+    run('/usr/bin/hdiutil', ['verify', path.join(directory, `${stem}.dmg`)]);
+    if (process.env.SHELLFOX_MAC_UNSIGNED !== '1') {
+      run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+    }
     desktop = path.join(app, 'Contents/MacOS/Shellfox');
     cli = path.join(app, 'Contents/MacOS/shellfox-cli');
     resources = path.join(app, 'Contents/Resources');
@@ -51,8 +56,8 @@ try {
     }
   }
   resources ??= path.join(path.dirname(desktop), 'resources');
-  const helper = process.platform === 'win32' ? 'shellfox-tailscale.exe' : 'shellfox-tailscale';
-  assert.ok(existsSync(path.join(resources, 'tailscale', helper)), 'Missing bundled Tailscale helper');
+  const helper = path.join(resources, 'tailscale', process.platform === 'win32' ? 'shellfox-tailscale.exe' : 'shellfox-tailscale');
+  assert.ok(existsSync(helper), 'Missing bundled Tailscale helper');
   assert.ok(existsSync(path.join(resources, 'THIRD-PARTY-NOTICES.txt')), 'Missing third-party notices');
   const home = path.join(work, 'home');
   mkdirSync(home);
@@ -61,6 +66,7 @@ try {
   assert.equal(run(desktop, ['--version']).trim(), `Shellfox ${version}`);
   assert.equal(run(cli, ['--version']).trim(), `shellfox-cli ${version}`);
   assert.match(run(desktop, ['--data-dir', path.join(work, 'data'), '--smoke'], { cwd: work, env, timeout: 60_000 }), /PASS: owned PTY/);
+  if (process.platform === 'darwin') console.log(await ownHostSmoke(cli, helper, work, fileHash(helper), env));
   console.log('Packaged desktop and CLI version, native terminal I/O, resize and shutdown passed.');
 } finally {
   rmSync(work, { recursive: true, force: true });
