@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { assertHeadlessFiles, executableName, fileHash, filesUnder, readJson, run, scratchRoot } from './rust-package-common.mjs';
+import { assertHeadlessFiles, executableName, fileHash, filesUnder, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
 
 export function verifyManifest(directory) {
   const manifest = readJson(path.join(directory, 'package-manifest.json'));
@@ -63,13 +63,20 @@ export async function ownHostSmoke(cli, helper, work, helperSha256, env = {}) {
     command(['session', 'rename', id, 'Renamed packaged smoke']);
     assert.equal(command(['session', 'list'])[0].title, 'Renamed packaged smoke');
     assert.ok(command(['settings', 'get']));
+    if (process.platform === 'darwin') {
+      const tabs = command(['tab', 'list', id]);
+      assert.equal(tabs.length, 1);
+      run('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'attach', tabs[0].id],
+        { cwd: work, env, timeout: 45_000 });
+    }
     command(['session', 'close', id]);
     assert.deepEqual(command(['session', 'list']), []);
     invoke(['host', 'stop']);
     const result = await Promise.race([exited, delay(15_000).then(() => { throw new Error('Owned host did not exit after stop'); })]);
     assert.deepEqual(result, { code: 0, signal: null });
     stopped = true;
-    return 'owned persistent host: native endpoint, metadata create/list/rename/close, settings, graceful stop';
+    return 'owned persistent host: native endpoint, metadata create/list/rename/close, settings, graceful stop'
+      + (process.platform === 'darwin' ? ', packaged CLI attach and PTY echo' : '');
   } finally {
     if (!stopped && child.exitCode === null && child.signalCode === null) {
       try { invoke(['host', 'stop']); } catch { /* Only this smoke's private endpoint was contacted. */ }
