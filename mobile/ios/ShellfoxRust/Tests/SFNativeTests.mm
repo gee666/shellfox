@@ -118,6 +118,7 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
     terminal.readOnly = YES;
     XCTAssertEqual([owner resize:terminal.identifier columns:22 rows:5], SFM_OK);
     XCTAssertEqual(sink.sent.count, 3u);
+    terminal.sink = nil;
     XCTAssertEqual([owner close:terminal.identifier], SFM_OK);
     [done fulfill];
   }];
@@ -185,6 +186,7 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
   XCTestExpectation *done = [self expectationWithDescription:@"native event filter"];
   BOOL accepted = [[SFOwner shared] enqueue:^{
     SFClientRecord *client = [SFClientRecord new];
+    client.profile = SFM_CLIENT_PROFILE_V1;
     SFClientStore *store = [SFClientStore shared];
     NSDictionary *connection = @{@"status":@"connected", @"permission":@"approved", @"connectionId":@"1"};
     NSDictionary *(^event)(NSString *) = ^NSDictionary *(NSString *operation) {
@@ -197,7 +199,9 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
     XCTAssertTrue([store shouldForward:event(@"3") client:client]);
     XCTAssertFalse([client.explicitOperations containsObject:@"3"]);
     client.pollOperation = @"4";
-    XCTAssertFalse([store shouldForward:event(@"4") client:client]);
+    NSDictionary *completion = event(@"4");
+    [store completed:completion client:client];
+    XCTAssertFalse([store shouldForward:completion client:client]);
     XCTAssertNil(client.pollOperation);
     NSMutableDictionary *denied = [event(@"5") mutableCopy];
     denied[@"result"] = @{@"ok":@NO, @"error":@{@"code":@"FORBIDDEN", @"message":@"denied"}};

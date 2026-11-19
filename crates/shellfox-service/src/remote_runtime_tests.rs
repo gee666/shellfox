@@ -233,10 +233,16 @@ async fn boot_does_not_start_or_login_and_cancel_only_affects_exact_attempt() {
     until(&control, |s| s.status == RemoteNetworkStatus::LoginRequired).await;
     assert_eq!(network.starts.load(Ordering::SeqCst), 1);
     assert_eq!(network.logins.load(Ordering::SeqCst), 0);
-    control
-        .request(RemoteRequest::Login { auth_key: None })
-        .await
-        .unwrap();
+    // A routine status request can briefly own the same admission slot.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            match control.request(RemoteRequest::Login { auth_key: None }).await {
+                Ok(_) => break,
+                Err(error) if error.code == ErrorCode::Validation => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(error) => panic!("Unexpected login error: {error:?}"),
+            }
+        }
+    }).await.expect("Login admission did not become available");
     let login = until(&control, |s| s.login_url.is_some()).await;
     let id = login
         .attempts

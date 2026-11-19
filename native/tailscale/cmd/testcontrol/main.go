@@ -53,7 +53,7 @@ func main() {
 	control.HTTPTestServer = server
 	server.Start()
 	defer server.Close()
-	fmt.Println(server.URL)
+	fmt.Println("SHELLFOX_TESTCONTROL_READY", server.URL)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	<-ctx.Done()

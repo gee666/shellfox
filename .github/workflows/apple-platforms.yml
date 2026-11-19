@@ -143,7 +143,13 @@ jobs:
             tmp/mobile-rust/ios/
             tmp/mobile-native/ios/
             tmp/ios-rust-build/*-link.txt
-          key: apple-ios-frameworks-v1-${{ runner.arch }}-${{ steps.sdk.outputs.key }}-${{ hashFiles('Cargo.*', 'rust-toolchain.toml', 'crates/**', 'vendor/**', 'native/mobile/**', 'native/tailscale/**', 'mobile/ios/scripts/build-rust.mjs', 'scripts/mobile-native.mjs', 'scripts/rust-package-prereqs.mjs', 'package.json') }}
+          key: >-
+            apple-ios-frameworks-v2-${{ runner.arch }}-${{ steps.sdk.outputs.key }}-${{ hashFiles(
+            'Cargo.*', 'rust-toolchain.toml', 'crates/*.rs', 'crates/ghostty-vt*/**',
+            'crates/shellfox-client/**', 'crates/shellfox-core/**', 'crates/shellfox-mobile/**', 'crates/shellfox-protocol/**',
+            'native/mobile/**', 'native/tailscale/go.*', 'native/tailscale/controlurl/**', 'native/tailscale/nethealth/**',
+            'native/tailscale/TAILSCALE-LICENSE', 'mobile/ios/scripts/build-rust.mjs',
+            'scripts/mobile-native.mjs', 'scripts/rust-package-prereqs.mjs', 'package.json') }}
       - name: Build Rust static libraries for device and simulator
         if: steps.ios-frameworks.outputs.cache-hit != 'true'
         run: |
@@ -186,6 +192,8 @@ jobs:
           name: ios-simulator-build-failure
           path: tmp/ios-app-build.log
       - name: Run native contracts on an available iPhone simulator
+        id: native-contracts
+        shell: bash
         run: |
           simulator=$(xcrun simctl list devices booted available -j | node -e '
             const { devices } = JSON.parse(require("node:fs").readFileSync(0));
@@ -202,8 +210,13 @@ jobs:
             -scheme ShellfoxRustNative -sdk iphonesimulator -configuration Debug \
             -destination "platform=iOS Simulator,id=$simulator" -derivedDataPath tmp/ios-derived \
             -resultBundlePath tmp/ios-native-tests.xcresult -parallel-testing-enabled NO \
-            CODE_SIGNING_ALLOWED=NO test
+            CODE_SIGNING_ALLOWED=NO test 2>&1 | tee tmp/ios-native-tests.log
         timeout-minutes: 25
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: failure() && steps.native-contracts.outcome == 'failure'
+        with:
+          name: ios-native-contracts-failure
+          path: tmp/ios-native-tests.log
       - name: Build isolated Rust host and loopback testcontrol
         id: ui-host
         if: ${{ !cancelled() && steps.pods.outcome == 'success' }}

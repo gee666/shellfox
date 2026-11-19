@@ -15,6 +15,14 @@ static NSString *Golden(Class type, NSString *name) {
 static NSData *Encoded(id object) {
   return [NSJSONSerialization dataWithJSONObject:object options:0 error:nil];
 }
+static NSDictionary *ObserveEvent(SFClientStore *store, SFClientRecord *client, SFGoTransport *transport) {
+  NSDictionary *event = SFTestClientEvent(client.handle, transport);
+  if (event) {
+    [store completed:event client:client];
+    [store shouldForward:event client:client];
+  }
+  return event;
+}
 @interface SFObserverWire : NSObject
 @property(nonatomic) Class fixtureClass;
 - (SFGoHTTPResponse *)request:(NSString *)path body:(NSString *)body;
@@ -69,10 +77,10 @@ static NSData *Encoded(id object) {
       XCTAssertEqual(profile, SFM_CLIENT_PROFILE_OBSERVER_V2); XCTAssertEqual(caps, SFM_CLIENT_API_DELIVERY);
       uint64_t operation = 0;
       XCTAssertEqual(sfm_observer_v2_discover(client.handle, 0, &operation), SFM_OK);
-      XCTAssertTrue(SFTestClientSuccess(SFTestClientEvent(client.handle, transport)));
+      XCTAssertTrue(SFTestClientSuccess(ObserveEvent(store, client, transport)));
       NSData *attempt = [@"30000000-0000-4000-8000-000000000001" dataUsingEncoding:NSUTF8StringEncoding];
       XCTAssertEqual(sfm_observer_v2_pair(client.handle, (const uint8_t *)attempt.bytes, attempt.length, &operation), SFM_OK);
-      NSDictionary *paired = SFTestClientEvent(client.handle, transport);
+      NSDictionary *paired = ObserveEvent(store, client, transport);
       XCTAssertTrue(SFTestClientSuccess(paired));
       XCTAssertEqualObjects(paired[@"profile"], @"observer-v2");
       XCTAssertNil(paired[@"connection"][@"permission"]); XCTAssertNil(paired[@"connection"][@"connectionId"]);
@@ -82,7 +90,7 @@ static NSData *Encoded(id object) {
       id envelope = [NSJSONSerialization JSONObjectWithData:[Golden(self.class, @"request-attach") dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
       NSData *command = Encoded(@{@"method":envelope[@"method"], @"payload":envelope[@"payload"]});
       XCTAssertEqual(sfm_observer_v2_operation(client.handle, (const uint8_t *)command.bytes, command.length, &operation), SFM_OK);
-      NSDictionary *attached = SFTestClientEvent(client.handle, transport);
+      NSDictionary *attached = ObserveEvent(store, client, transport);
       XCTAssertTrue(SFTestClientSuccess(attached));
       XCTAssertEqualObjects(attached[@"result"][@"value"][@"kind"], @"attached");
       XCTAssertEqualObjects(attached[@"result"][@"value"][@"input"], NSNull.null);
@@ -109,10 +117,10 @@ static NSData *Encoded(id object) {
       NSDictionary *input = @{@"type":@"commit", @"text":@"never sent"};
       XCTAssertEqual([owner input:terminal.identifier event:input], SFM_INVALID);
       XCTAssertEqual([store consumedTerminal:terminal.identifier sequence:UINT64_MAX], SFM_OK);
-      XCTAssertTrue(SFTestClientSuccess(SFTestClientEvent(client.handle, transport)));
+      XCTAssertTrue(SFTestClientSuccess(ObserveEvent(store, client, transport)));
       XCTAssertEqualObjects([wire lastAck][@"kind"], @"recovery"); XCTAssertEqualObjects([wire lastAck][@"sequence"], @4);
       XCTAssertEqual([store poll:identifier operation:&operation], SFM_OK);
-      NSDictionary *events = SFTestClientEvent(client.handle, transport);
+      NSDictionary *events = ObserveEvent(store, client, transport);
       XCTAssertTrue(SFTestClientSuccess(events));
       XCTAssertEqual([events[@"result"][@"value"][@"events"] count], 1u);
       XCTAssertEqualObjects([events[@"result"][@"value"][@"events"] firstObject][@"event"][@"type"], @"sourceEnded");
@@ -120,11 +128,11 @@ static NSData *Encoded(id object) {
       XCTAssertEqual(wire.ackCount, 1u);
       XCTAssertEqual(sfm_terminal_pump(terminal.handle, nullptr, nullptr), SFM_OK);
       XCTAssertEqual([store consumedTerminal:terminal.identifier sequence:UINT64_MAX], SFM_OK);
-      XCTAssertTrue(SFTestClientSuccess(SFTestClientEvent(client.handle, transport)));
+      XCTAssertTrue(SFTestClientSuccess(ObserveEvent(store, client, transport)));
       XCTAssertEqualObjects([wire lastAck][@"kind"], @"data"); XCTAssertEqualObjects([wire lastAck][@"sequence"], @5);
     } @finally {
       if (terminal && identifier) [store unbind:identifier terminal:terminal.identifier];
-      if (client) { [transport closeClient:client.handle]; [store finishClose:client]; }
+      if (client) [store finishClose:client];
       if (terminal) [owner close:terminal.identifier];
       [done fulfill];
     }
@@ -169,7 +177,7 @@ static NSData *Encoded(id object) {
           NSArray *expected = @[@"/v2/discover"]; XCTAssertEqualObjects(requested, expected);
         }
       } @finally {
-        if (client) { [transport closeClient:client.handle]; [store finishClose:client]; }
+        if (client) [store finishClose:client];
       }
     }
     [done fulfill];
