@@ -1,15 +1,22 @@
-use shellfox_ghostty_vt::Screen;
+use shellfox_ghostty_vt::{CursorVisual, PresentationFrame, Screen};
 #[cfg(test)]
 use shellfox_runtime::ScreenFrame;
 use shellfox_runtime::ViewFrame;
 use std::{ops::Deref, rc::Rc, sync::Arc};
 
-/// Fixtures own their parser. Live views hold the service's immutable frame,
-/// never a cloned cell grid, PTY or mirror parser.
+pub(crate) struct PeerFrame {
+    pub(crate) rendered: PresentationFrame,
+    pub(crate) cursor: CursorVisual,
+    pub(crate) selection: Option<shellfox_ghostty_vt::PresentationSelection>,
+    pub(crate) sequence: u64,
+}
+
+/// Local sessions share the service frame. Remote v1 sessions render locally.
 #[derive(Clone)]
 pub(crate) enum SharedScreen {
     Empty,
     Fixture(Rc<Screen>),
+    Peer(Rc<PeerFrame>),
     Native(Arc<ViewFrame>),
 }
 
@@ -29,6 +36,7 @@ impl Deref for SharedScreen {
         match self {
             Self::Empty => &EMPTY,
             Self::Fixture(screen) => screen,
+            Self::Peer(frame) => &frame.rendered.screen,
             Self::Native(frame) => &frame.screen.screen,
         }
     }

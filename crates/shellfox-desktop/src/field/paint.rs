@@ -5,59 +5,38 @@ use super::{
     semantics,
     text::{base_font, shape},
 };
-use gpui::{
-    Context, ElementInputHandler, IntoElement, canvas, div, fill, point, prelude::*, px, size,
-};
+use gpui::{Context, ElementInputHandler, IntoElement, canvas, point, prelude::*, px};
+#[path = "paint_container.rs"]
+mod container;
 
-fn alignment(align: gpui::TextAlign, width: f32, available: f32) -> f32 {
-    let space = (available - width).max(0.);
-    match align {
-        gpui::TextAlign::Left => 0.,
-        gpui::TextAlign::Center => space / 2.,
-        gpui::TextAlign::Right => space,
-    }
-}
-fn unavailable_document(binding: &semantics::Binding) -> crate::accessibility::SemanticNode {
-    let mut node = crate::accessibility::SemanticNode::new(
-        binding.id,
-        Some(binding.parent),
-        crate::accessibility::Role::Group,
-        binding.name.clone(),
-    );
-    node.data.set_description(
-        "Large-document text accessibility is unavailable; keyboard editing remains available.",
-    );
-    node
-}
-fn document(
+#[path = "paint_layout.rs"]
+mod layout;
+use layout::alignment;
+#[path = "paint_document.rs"]
+mod document;
+#[path = "placeholder.rs"]
+mod placeholder;
+
+pub(super) fn render(
     field: &Field,
-    state: &semantics::TextState,
-    virtualized: bool,
-) -> Option<Result<crate::accessibility::SemanticNode, crate::accessibility::SemanticError>> {
-    field.semantic.as_ref().map(|binding| {
-        if virtualized {
-            // This is NOT a partial TextPattern. Full large-document AT is a separate reviewed producer.
-            let mut node = unavailable_document(binding);
-            node.focus = Some(field.focus.clone());
-            Ok(node)
-        } else {
-            binding.document(
-                state,
-                field.secret,
-                field.multiline,
-                &field.placeholder,
-                field.focus.clone(),
-            )
-        }
-    })
-}
-
-pub(super) fn render(field: &Field, cx: &Context<Field>) -> impl IntoElement {
+    window: &gpui::Window,
+    cx: &Context<Field>,
+) -> impl IntoElement {
     let entity = cx.entity();
     let snapshot = field.snapshot.clone();
+    let syntax = field.syntax_spans.clone();
     let state = semantics::capture(field);
+    let wrap = field.wrap_layout.clone();
+    let nowrap = field.nowrap.clone();
+    let asset_editor = field.asset_editor;
+    let content_width = nowrap
+        .as_ref()
+        .map(|layout| (layout.width + 16.).max(field.file_viewport.unwrap_or(0.)));
+    let row_count = wrap
+        .as_ref()
+        .map_or(snapshot.line_count(), |wrap| wrap.count(&snapshot));
     let virtualized = field.asset_editor
-        && (snapshot.text.len() > shellfox_files::TEXT_BYTES || snapshot.line_count() > 4096);
+        && (snapshot.text.len() > shellfox_files::TEXT_BYTES || row_count > 4096);
     let mut semantic = field.semantic.clone();
     if !virtualized && semantic.is_some() && snapshot.line_count() > 4096 {
         if let Some(binding) = &semantic {
@@ -67,12 +46,13 @@ pub(super) fn render(field: &Field, cx: &Context<Field>) -> impl IntoElement {
         }
         semantic = None;
     }
-    let document = document(field, &state, virtualized);
+    let document = document::document(field, &state, virtualized);
     let paint_semantic = if virtualized { None } else { semantic.clone() };
     let focus = field.focus.clone();
     let selection = field.selection.clone();
     let multiline = field.multiline;
-    let directory = field.directory;
+    let session_title = field.session_title;
+    let settings_input = field.settings_input;
     let placeholder = field.placeholder.clone();
     let text_align = field.text_align;
     let palette = field.palette;
@@ -80,125 +60,144 @@ pub(super) fn render(field: &Field, cx: &Context<Field>) -> impl IntoElement {
     let initial_scroll = field.scroll_x;
     let line_height = field.line_height;
     let font_size = field.font_size;
-    let top = if multiline { 8. } else { 3. };
+    let preferred_font = field.preferred_font.clone();
+    let top = if multiline {
+        field.multiline_text_inset()
+    } else if session_title {
+        1.
+    } else {
+        3.
+    };
     let monospace = field.monospace;
     let secret = field.secret;
     let code = field.code_editor;
     let height = if multiline {
-        snapshot.line_count() as f32 * line_height + 16.
+        let hint_rows = if snapshot.text.is_empty() {
+            placeholder.lines().count()
+        } else {
+            0
+        };
+        row_count.max(hint_rows) as f32 * line_height + 16.
     } else {
         26.
     };
-    let element = div()
-        .w_full()
-        .min_w_0()
-        .when(!directory, |style| {
-            style.px_2().bg(if multiline {
-                palette.panel
-            } else {
-                palette.input_bg
-            })
-        })
-        .when(!multiline && !directory, |style| {
-            style
-                .h(px(28.))
-                .border_1()
-                .border_color(palette.input_border)
-                .rounded_sm()
-        })
-        .when(directory, |style| style.h(px(28.)))
-        .when(multiline, |style| style.h(px(height)))
-        .track_focus(&field.focus)
-        .on_key_down(cx.listener(Field::key))
-        .on_mouse_down(gpui::MouseButton::Left, cx.listener(Field::click))
-        .on_mouse_move(cx.listener(Field::drag))
-        .on_mouse_up(gpui::MouseButton::Left, cx.listener(Field::release))
-        .on_mouse_up_out(gpui::MouseButton::Left, cx.listener(Field::release))
+    let element = container::container(field, content_width, height, window, cx)
         .child(
             canvas(
                 |_, _, _| (),
                 move |bounds, _, window, cx| {
-                    let font = base_font(monospace, font_size, code, window);
+                    let font = preferred_font
+                        .clone()
+                        .map(gpui::font)
+                        .unwrap_or_else(|| base_font(monospace, font_size, code, window));
+                    let paint_style =
+                        placeholder::Style::new(&font, palette.foreground, font_size, line_height);
                     let row = snapshot.row(cursor);
+                    let caret_row = wrap
+                        .as_ref()
+                        .map_or(row, |wrap| wrap.row(&snapshot, cursor));
                     let column = snapshot
                         .line(row)
                         .map_or(0, |range| cursor.saturating_sub(range.start));
-                    let mut scroll = initial_scroll;
-                    if focus.is_focused(window)
+                    let scroll = if nowrap.is_some() {
+                        0.
+                    } else if wrap.is_none()
+                        && focus.is_focused(window)
                         && let Some(range) = snapshot.window(row, column, virtualized)
                     {
-                        let prefix = &snapshot.text[range.start..cursor.min(range.end)];
-                        let x = f32::from(
-                            shape(
-                                &buffer::display_text(prefix, secret),
-                                &font,
-                                palette.foreground,
-                                font_size,
-                                window,
-                            )
-                            .width,
-                        );
-                        let width = f32::from(
-                            shape(
-                                &buffer::display_text(&snapshot.text[range], secret),
-                                &font,
-                                palette.foreground,
-                                font_size,
-                                window,
-                            )
-                            .width,
-                        );
-                        let visible = f32::from(bounds.size.width).max(1.);
-                        if width <= visible {
-                            scroll = 0.;
-                        } else if x < scroll {
-                            scroll = x;
-                        } else if x + 3. > scroll + visible {
-                            scroll = x + 3. - visible;
-                        }
-                    }
+                        let caret = cursor.min(range.end).saturating_sub(range.start);
+                        layout::horizontal_scroll(
+                            &snapshot.text[range],
+                            caret,
+                            secret,
+                            &paint_style,
+                            f32::from(bounds.size.width),
+                            initial_scroll,
+                            window,
+                        )
+                    } else {
+                        initial_scroll
+                    };
                     window.handle_input(
                         &focus,
                         ElementInputHandler::new(bounds, entity.clone()),
                         cx,
                     );
                     let clip = bounds.intersect(&window.content_mask().bounds);
-                    let visible_rows = snapshot.visible_rows(
-                        f32::from(bounds.top()),
-                        top,
-                        line_height,
-                        f32::from(clip.top())..f32::from(clip.bottom()),
-                    );
+                    let visible_x = f32::from(clip.left() - bounds.left())
+                        ..f32::from(clip.right() - bounds.left());
+                    let clip = f32::from(clip.top())..f32::from(clip.bottom());
+                    let visible_rows = match &wrap {
+                        Some(wrap) => wrap.visible_rows(
+                            &snapshot,
+                            f32::from(bounds.top()) + top,
+                            line_height,
+                            clip,
+                        ),
+                        None => {
+                            snapshot.visible_rows(f32::from(bounds.top()), top, line_height, clip)
+                        }
+                    };
                     let rows = if paint_semantic.is_some() {
-                        0..snapshot.line_count()
+                        0..row_count
                     } else {
                         visible_rows.clone()
                     };
                     let mut semantic_runs = Vec::new();
                     let mut painted_lines = Vec::new();
                     for row in rows {
-                        let Some(range) = snapshot.window(row, column, virtualized) else {
+                        let slice = match (&wrap, &nowrap) {
+                            (Some(wrap), _) => wrap.line(&snapshot, row).map(default_slice),
+                            (_, Some(layout)) if paint_semantic.is_none() => snapshot
+                                .line(row)
+                                .map(|range| layout.slice(range, visible_x.clone())),
+                            _ => snapshot.window(row, column, virtualized).map(default_slice),
+                        };
+                        let Some(slice) = slice else {
                             continue;
                         };
+                        let range = slice.range;
                         let source = &snapshot.text[range.clone()];
-                        let display = if source.is_empty() && row == 0 && !placeholder.is_empty() {
-                            placeholder.clone()
+                        let show_hint =
+                            snapshot.text.is_empty() && row == 0 && !placeholder.is_empty();
+                        let (display, projection) = if show_hint {
+                            (placeholder::first(&placeholder).to_owned(), None)
+                        } else if asset_editor {
+                            let (text, projection, _) =
+                                super::editor_line::Projection::build(source, slice.column);
+                            (text, Some(projection))
                         } else {
-                            buffer::display_text(source, secret)
+                            (buffer::display_text(source, secret), None)
                         };
-                        let foreground = if display == placeholder && !placeholder.is_empty() {
+                        let foreground = if show_hint {
                             palette.placeholder
                         } else {
                             palette.foreground
                         };
-                        let line = shape(&display, &font, foreground, font_size, window);
+                        let line = if syntax.is_empty() || display.is_empty() {
+                            shape(&display, &font, foreground, font_size, window)
+                        } else {
+                            let runs = super::syntax::line_runs(
+                                &syntax,
+                                range.clone(),
+                                &font,
+                                palette,
+                                projection.as_ref(),
+                            );
+                            window.text_system().shape_line(
+                                display.clone().into(),
+                                px(font_size),
+                                &runs,
+                                None,
+                            )
+                        };
                         let align = alignment(
                             text_align,
                             f32::from(line.width),
                             f32::from(bounds.size.width),
                         );
                         let origin = point(
-                            bounds.left() - px(scroll) + px(align),
+                            bounds.left() + px(slice.left - scroll + align),
                             bounds.top() + px(row as f32 * line_height + top),
                         );
                         if let Some(binding) = &paint_semantic {
@@ -208,7 +207,8 @@ pub(super) fn render(field: &Field, cx: &Context<Field>) -> impl IntoElement {
                             } else {
                                 shape(&actual, &font, palette.foreground, font_size, window)
                             };
-                            let has_newline = range.end < snapshot.text.len();
+                            let has_newline =
+                                snapshot.text.as_bytes().get(range.end) == Some(&b'\n');
                             match binding.run(
                                 row,
                                 source,
@@ -237,38 +237,46 @@ pub(super) fn render(field: &Field, cx: &Context<Field>) -> impl IntoElement {
                             0.
                         };
                         if focus.is_focused(window)
-                            && selection.start <= range.end
-                            && selection.end >= range.start
+                            && if selection.is_empty() {
+                                row == caret_row && (range.start..=range.end).contains(&cursor)
+                            } else {
+                                selection.start < range.end && selection.end > range.start
+                            }
                         {
-                            let start = selection
-                                .start
-                                .saturating_sub(range.start)
-                                .min(source.len());
-                            let end = selection.end.saturating_sub(range.start).min(source.len());
-                            let left =
-                                line.x_for_index(buffer::display_index(source, start, secret));
-                            let right =
-                                line.x_for_index(buffer::display_index(source, end, secret));
-                            window.paint_quad(fill(
-                                gpui::Bounds::new(
-                                    point(origin.x + left + px(caret_adjust), origin.y),
-                                    size((right - left).max(px(1.)), px(line_height)),
-                                ),
-                                if start == end {
-                                    palette.foreground
-                                } else {
-                                    palette.accent.opacity(0.35)
+                            layout::paint_selection(
+                                &line,
+                                source,
+                                range.start,
+                                &selection,
+                                layout::SelectionStyle {
+                                    origin,
+                                    height: line_height,
+                                    caret_adjust,
+                                    secret,
+                                    projection: projection.as_ref(),
+                                    palette,
                                 },
-                            ));
+                                window,
+                            );
                         }
                         if let Err(error) = line.paint(origin, px(line_height), window, cx) {
                             eprintln!("editor paint: {error}");
+                        }
+                        if show_hint && multiline {
+                            placeholder::paint_tail(
+                                &placeholder,
+                                paint_style.color(foreground),
+                                origin,
+                                window,
+                                cx,
+                            );
                         }
                         painted_lines.push(PaintedLine {
                             source: range,
                             line,
                             origin,
                             caret_adjust,
+                            projection,
                         });
                     }
                     entity.update(cx, |field, cx| {
@@ -289,45 +297,21 @@ pub(super) fn render(field: &Field, cx: &Context<Field>) -> impl IntoElement {
             .w_full()
             .h(px(height)),
         )
+        .when(settings_input, |element| {
+            element.focus(|style| style.border_color(palette.accent))
+        })
         .overflow_hidden();
-    match (semantic, document) {
-        (Some(binding), Some(Ok(node))) => binding.frame.wrap(node, element).into_any_element(),
-        (Some(binding), Some(Err(error))) => {
-            binding.frame.reject(error);
-            element.into_any_element()
-        }
-        _ => element.into_any_element(),
+    document::wrap(semantic, document, element)
+}
+
+fn default_slice(range: std::ops::Range<usize>) -> super::horizontal::Slice {
+    super::horizontal::Slice {
+        range,
+        left: 0.,
+        column: 0,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn temporary_large_editor_coverage_does_not_advertise_a_partial_text_pattern() {
-        use crate::accessibility::{Action, Role, SemanticFrame, SemanticId};
-        let binding = super::semantics::Binding {
-            frame: SemanticFrame::new(SemanticId(1)),
-            id: SemanticId(2),
-            parent: SemanticId(1),
-            name: "File contents".into(),
-            key: "field/test".into(),
-        };
-        let node = super::unavailable_document(&binding);
-        assert_eq!(node.data.role(), Role::Group);
-        assert!(node.data.value().is_none());
-        assert!(node.data.text_selection().is_none());
-        assert!(node.data.bounds().is_none());
-        for action in [
-            Action::SetValue,
-            Action::ReplaceSelectedText,
-            Action::SetTextSelection,
-        ] {
-            assert!(!node.data.supports_action(action));
-        }
-        assert!(
-            node.data
-                .description()
-                .is_some_and(|description| description.contains("unavailable"))
-        );
-    }
-}
+#[path = "paint_tests.rs"]
+mod tests;

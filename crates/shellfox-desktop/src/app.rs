@@ -1,8 +1,18 @@
+mod link_columns;
+mod link_gesture;
+mod link_menu;
+mod link_ranges;
 mod links;
 mod open;
+mod peer;
 mod pointer;
 mod runtime;
 mod screen;
+mod scrollbar;
+mod status_overlay;
+mod terminal_file_link;
+pub(crate) use terminal_file_link::TerminalFileLink;
+pub(crate) use status_overlay::TerminalRecovery;
 mod selection;
 mod semantic_selection;
 use crate::renderer;
@@ -19,8 +29,11 @@ pub const FIXTURE: &[u8] = b"\x1b[2J\x1b[HShellfox GPUI / libghostty-vt\r\n\x1b[
 // A live view holds only a client of the app's central service, never a runtime.
 enum Backend {
     Fixture(Terminal),
+    Peer(Box<peer::Peer>),
     Attached(runtime::native::Connection),
 }
+
+
 
 pub struct TerminalView {
     backend: Backend,
@@ -35,7 +48,9 @@ pub struct TerminalView {
     bounds: Option<gpui::Bounds<gpui::Pixels>>,
     selection_drag: selection::SelectionDrag,
     link_press: Option<ViewportPoint>,
+    links: links::LinkState,
     wheel_remainder: gpui::Point<f32>,
+    scrollbar: scrollbar::Scrollbar,
     pub(crate) screen: SharedScreen,
     pub(crate) semantic_binding: Option<crate::terminal_semantics::TerminalSemantics>,
     pub(crate) cursor_reset_epoch: u64,
@@ -60,6 +75,18 @@ pub struct TerminalView {
 }
 
 impl TerminalView {
+    pub(crate) fn working_directory(&self) -> Option<String> {
+        let Backend::Attached(connection) = &self.backend else { return None; };
+        if self.failed || self.closing || self.detached {
+            return None;
+        }
+        let observer = connection.access.lease().is_none();
+        let frame = connection.client.latest(connection.tab, observer).ok()??;
+        (frame.phase == Phase::Active && frame.presentation.view == connection.access.presentation_lease())
+            .then_some(frame.working_directory)?
+            .map(|path| path.to_string())
+    }
+
     fn reject(&mut self, error: impl std::fmt::Display) {
         let error = error.to_string();
         self.notice = Some(error.clone());
@@ -78,7 +105,7 @@ impl TerminalView {
         if let Err(error) = self.cancel_held_input(false) {
             self.reject(error);
         }
-        if matches!(self.backend, Backend::Attached(_)) && !self.close_pending {
+        if matches!(self.backend, Backend::Attached(_)) && !self.close_pending && !self.closing {
             self.close_pending = self.submit(Command::RetryClose, runtime::Pending::Close);
         }
     }
@@ -88,14 +115,49 @@ impl TerminalView {
             _ => None,
         }
     }
+    pub(crate) fn peer_cursor(&self, focused: bool) -> Option<shellfox_ghostty_vt::CursorVisual> {
+        match &self.screen {
+            SharedScreen::Peer(frame) => Some(frame.cursor.for_focus(focused)),
+            _ => None,
+        }
+    }
     pub fn set_captured_settlement(&mut self, marker: Option<String>, cx: &mut Context<Self>) {
         self.captured_settlement = Some(shellfox_host::CapturedSettlement::Captured(marker));
         cx.notify();
     }
     pub fn is_closed(&self) -> bool {
-        matches!(self.backend, Backend::Fixture(_)) || self.detached
+        !matches!(self.backend, Backend::Attached(_)) || self.detached
     }
-    pub fn close(&mut self) -> bool {
+    pub(crate) fn drain_for_window_close(&mut self) -> bool {
+        if self.is_closed() {
+            return true;
+        }
+        if !self.closing {
+            self.closing = true;
+            if let Backend::Attached(connection) = &self.backend {
+                connection.cancel_frames();
+            }
+        }
+        if let Err(error) = self.cancel_held_input(false) {
+            self.reject(error);
+        }
+        self.flush_outbox();
+        // The window client detaches all its grants once this input has drained.
+        // An old per-tab lease may already be stale, so don't await its detach.
+        self.outbox.is_drained() && self.pending.is_empty() && !self.native_poll
+    }
+    pub(crate) fn resume_after_window_close(&mut self) {
+        if self.closing && !self.detached {
+            self.closing = false;
+            if let Backend::Attached(connection) = &self.backend {
+                connection.resume_frames();
+            }
+        }
+    }
+    pub(crate) fn confirm_window_detach(&mut self) {
+        self.detached = true;
+    }
+    fn close(&mut self) -> bool {
         if self.is_closed() {
             return true;
         }
@@ -129,15 +191,17 @@ impl TerminalView {
                 fixture(terminal)?;
                 self.screen = SharedScreen::Fixture(Rc::new(terminal.render()?));
             }
+            Backend::Peer(peer) => {
+                match action {
+                    shellfox_runtime::PresentationAction::Scroll { delta } => peer.terminal.view_scroll(&mut peer.presentation, delta)?,
+                    shellfox_runtime::PresentationAction::Selection { selection } => peer.terminal.view_select(&mut peer.presentation, selection)?,
+                    _ => anyhow::bail!("Unsupported terminal presentation action"),
+                }
+                self.refresh_peer_screen();
+            }
             Backend::Attached(connection) => {
                 let view = connection.access.presentation_lease();
-                anyhow::ensure!(
-                    self.submit(
-                        Command::Presentation { view, action },
-                        runtime::Pending::Applied
-                    ),
-                    "terminal presentation queue is full"
-                );
+                anyhow::ensure!(self.submit(Command::Presentation { view, action }, runtime::Pending::Applied), "terminal presentation queue is full");
             }
         }
         Ok(())
@@ -153,12 +217,13 @@ impl TerminalView {
                 fixture(terminal)?;
                 self.screen = SharedScreen::Fixture(Rc::new(terminal.render()?));
             }
+            Backend::Peer(peer) => {
+                fixture(&mut peer.terminal)?;
+                self.refresh_peer_screen();
+            }
             Backend::Attached(_) => {
                 let lease = self.lease.context("This terminal view is read-only")?;
-                anyhow::ensure!(
-                    self.submit(command(lease), runtime::Pending::Applied),
-                    "terminal command queue is full"
-                );
+                anyhow::ensure!(self.submit(command(lease), runtime::Pending::Applied), "terminal command queue is full");
             }
         }
         Ok(())
@@ -171,14 +236,14 @@ impl Drop for TerminalView {
             self.close();
             let outbox = std::mem::take(&mut self.outbox);
             if let Backend::Attached(connection) = &mut self.backend {
-                connection.retire(outbox, self.next_request);
+                connection.retire(outbox, self.next_request, !self.detached);
             }
         }
     }
 }
 
 impl Render for TerminalView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut terminal = div()
             .id("terminal")
             .size_full()
@@ -191,6 +256,16 @@ impl Render for TerminalView {
             .bg(rgb(self.theme.background))
             .text_color(rgb(self.theme.foreground))
             .track_focus(&self.focus)
+            .when_some(self.link_hover_for_draw().map(|link| link.target.clone()), |surface, target| {
+                surface.cursor_pointer().when(self.focus.is_focused(window) && !self.link_menu_open(), |surface| {
+                    let palette = crate::theme::Palette::new(&format!("#{:06x}", self.theme.accent), &format!("#{:06x}", self.theme.background));
+                    surface.tooltip(crate::assets::tooltip(target, palette))
+                })
+            })
+            .on_hover(cx.listener(|view, hovered, _, cx| {
+                view.scrollbar.hovered = *hovered;
+                cx.notify();
+            }))
             .on_key_down(cx.listener(Self::key_down))
             .on_key_up(cx.listener(Self::physical_key_up))
             .on_mouse_move(cx.listener(Self::pointer_move))
@@ -201,6 +276,7 @@ impl Render for TerminalView {
                 .on_mouse_up(button, cx.listener(Self::pointer_up))
                 .on_mouse_up_out(button, cx.listener(Self::pointer_up));
         }
+        let peer_overlay = self.peer_overlay(cx);
         terminal
             .child(
                 div()
@@ -209,13 +285,17 @@ impl Render for TerminalView {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .pl(px(8.))
-                    .pr(px(2.))
-                    .py(px(8.))
+                    .pl(px(renderer::HOST_INSET))
+                    .pr(px(renderer::HOST_RIGHT_INSET))
+                    .py(px(renderer::HOST_INSET))
                     .child(renderer::surface(cx.entity(), self.focus.clone())),
             )
+            .children(self.render_scrollbar(window, cx))
+            .children(self.render_link_menu(window, cx))
+            .children(peer_overlay)
+            .children(self.render_status_overlay(cx))
             .when(
-                self.failed || self.notice.is_some() || !self.preedit.is_empty(),
+                !self.control_blocked && (self.failed || self.notice.is_some() || !self.preedit.is_empty()),
                 |terminal| {
                     let error = if self.failed {
                         Some(self.status.clone())
@@ -230,10 +310,9 @@ impl Render for TerminalView {
                     terminal.child(
                         div()
                             .absolute()
-                            .bottom(px(0.))
-                            .left(px(8.))
-                            .right(px(2.))
-                            .min_h(px(renderer::NOTICE_HEIGHT))
+                            .bottom(px(8.))
+                            .right(px(12.))
+                            .max_w_full()
                             .text_size(px(11.))
                             .bg(rgb(self.theme.background))
                             .child(text),

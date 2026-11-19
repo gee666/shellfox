@@ -21,11 +21,34 @@ pub(super) fn entry(
     service: &Service,
     session: &shellfox_core::Session,
 ) -> Result<CatalogEntry, AppError> {
-    let creation = service.host().session_creation_facts().ok();
-    entry_with_creation(state, service, session, creation.as_ref())
+    entry_with_creation(state, service, session, &Creation::read(service))
 }
+
+struct Creation {
+    shell: Option<shellfox_host::SessionCreationFactMap>,
+    reserved: Option<std::collections::HashSet<SessionId>>,
+}
+impl Creation {
+    fn read(service: &Service) -> Self {
+        Self {
+            shell: service.host().session_creation_facts().ok(),
+            reserved: service.host().reserved_publication_sessions().ok(),
+        }
+    }
+
+    fn missing<T>(&self, id: SessionId) -> Fact<T> {
+        match (&self.shell, &self.reserved) {
+            // Reserved publication records intentional absence, unlike old
+            // sessions whose shell creation was never recorded.
+            (Some(_), Some(rows)) if rows.contains(&id) => Fact::NotApplicable,
+            (Some(_), Some(_)) => Fact::Unknown { reason: UnknownReason::NotRecorded },
+            _ => unknown(),
+        }
+    }
+}
+
 fn entry_with_creation(
-    state: &RemoteState, service: &Service, session: &shellfox_core::Session, creation: Option<&shellfox_host::SessionCreationFactMap>,
+    state: &RemoteState, service: &Service, session: &shellfox_core::Session, creation: &Creation,
 ) -> Result<CatalogEntry, AppError> {
     // Actor manager permission authorizes saved session metadata. Tab visibility
     // is applied before any tab facts or diagnostics, never a whole-row filter.
@@ -48,11 +71,10 @@ fn entry_with_creation(
         }),
     }
 }
-fn project(state: &RemoteState, service: &Service, session: &shellfox_core::Session, creation_map: Option<&shellfox_host::SessionCreationFactMap>) -> Result<v2::Session, AppError> {
+fn project(state: &RemoteState, service: &Service, session: &shellfox_core::Session, birth: &Creation) -> Result<v2::Session, AppError> {
     let mut header = session.clone(); header.tabs.clear();
     header.validate().map_err(host_error)?;
-    let creation = creation_map.and_then(|creation| creation.get(&session.id));
-    let missing_birth = if creation_map.is_some() { UnknownReason::NotRecorded } else { UnknownReason::Unavailable };
+    let creation = birth.shell.as_ref().and_then(|rows| rows.get(&session.id));
     let adapter_id = creation
         .map(|facts| {
             known(match facts.adapter_id {
@@ -61,9 +83,7 @@ fn project(state: &RemoteState, service: &Service, session: &shellfox_core::Sess
                 shellfox_core::SettingsAdapter::WindowsTerminal => wire::AdapterId::WindowsTerminal,
             })
         })
-        .unwrap_or(Fact::Unknown {
-            reason: missing_birth,
-        });
+        .unwrap_or_else(|| birth.missing(session.id));
     let shell_id = creation
         .map(|facts| {
             known(match facts.shell_id {
@@ -74,16 +94,20 @@ fn project(state: &RemoteState, service: &Service, session: &shellfox_core::Sess
                 shellfox_core::SettingsShell::Wsl => wire::ShellId::Wsl,
             })
         })
-        .unwrap_or(Fact::Unknown {
-            reason: missing_birth,
-        });
+        .unwrap_or_else(|| birth.missing(session.id));
+    let control_reason = if matches!(adapter_id, Fact::NotApplicable) {
+        "Automation replay is local-only."
+    } else {
+        "observer-v2 provides read-only delivery on the canonical grid."
+    };
     let tabs = session
         .tabs
         .iter()
         .filter(|tab| tab_visible(state, service, tab))
         .map(|tab| tabs::project(service, tab))
         .collect::<Result<Vec<_>, _>>()?;
-    let activity = aggregate(&tabs);
+    let startup_error = tabs.iter().find_map(|tab| tab.facts.error.known().and_then(Option::as_ref).filter(|error| error.code == ErrorCode::LaunchFailed)).cloned();
+    let activity = if startup_error.is_some() { wire::TabStatus::Error } else { aggregate(&tabs) };
     let status = if session.settled_at.is_some() {
         wire::Status::Settled
     } else {
@@ -112,10 +136,8 @@ fn project(state: &RemoteState, service: &Service, session: &shellfox_core::Sess
             window: unknown(),
             can_focus: known(false),
             can_add_tab: unknown(),
-            control_reason: known(Some(
-                "observer-v2 provides read-only delivery on the canonical grid.".into(),
-            )),
-            error: unknown(),
+            control_reason: known(Some(control_reason.into())),
+            error: startup_error.map(|error| known(Some(error))).unwrap_or_else(unknown),
             terminal_lifetime: unknown(),
             shell_survival: unknown(),
         },
@@ -194,11 +216,11 @@ fn counts(tabs: &[v2::Tab]) -> Fact<wire::Counts> {
 }
 pub(super) fn snapshot(state: &RemoteState, service: &Service) -> Result<v2::Snapshot, AppError> {
     let snapshot = service.host().snapshot().map_err(host_error)?;
-    let creation = service.host().session_creation_facts().ok();
+    let creation = Creation::read(service);
     let mut entries = Vec::with_capacity(snapshot.sessions.len());
     let mut encoded_bytes = 0usize;
     for session in &snapshot.sessions {
-        let entry = entry_with_creation(state, service, session, creation.as_ref())?;
+        let entry = entry_with_creation(state, service, session, &creation)?;
         let size = serde_json::to_vec(&entry).map_err(|_| failure(ErrorCode::Internal, "Invalid catalog entry."))?.len();
         encoded_bytes = encoded_bytes.checked_add(size).ok_or_else(|| failure(ErrorCode::Unsupported, "Complete authorized inventory exceeds its response bound."))?;
         if encoded_bytes > wire::MAX_RESPONSE_BYTES { return Err(failure(ErrorCode::Unsupported, "Complete authorized inventory exceeds its response bound; no partial rows returned.")); }

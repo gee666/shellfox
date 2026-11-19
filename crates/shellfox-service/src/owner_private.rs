@@ -9,6 +9,10 @@ mod operator;
 #[path = "owner_private_outgoing.rs"]
 mod outgoing;
 use directory::ExistingLocalDirectory;
+#[path = "owner_attached_launch.rs"]
+mod attached_launch;
+#[path = "owner_private_requests.rs"]
+mod requests;
 
 pub(super) enum PrivateTask {
     RemoteOperator(Box<operator::Submission>),
@@ -16,16 +20,12 @@ pub(super) enum PrivateTask {
         backend: std::sync::Arc<crate::system::NativeSystemBackend>,
         reply: oneshot::Sender<Result<()>>,
     },
-    InstallSsh {
-        config: crate::ssh::NativeSshInstall,
+    InstallSshProfiles {
+        store: crate::ssh::Store,
         reply: oneshot::Sender<Result<()>>,
     },
     InstallFactoryPolicy {
         policy: crate::NativeFactoryPolicy,
-        reply: oneshot::Sender<Result<()>>,
-    },
-    RevokeSsh {
-        client_id: uuid::Uuid,
         reply: oneshot::Sender<Result<()>>,
     },
     OpenLifetime {
@@ -82,6 +82,7 @@ struct PrivateLifetime {
 }
 pub(super) struct PrivateOwner {
     launches: DesktopLaunchRouter,
+    attached_desktop: Option<attached_launch::AttachedRegistration>,
     lifetimes: HashMap<uuid::Uuid, PrivateLifetime>,
     outgoing_native: shellfox_protocol::CancellationToken,
 }
@@ -89,6 +90,7 @@ impl PrivateOwner {
     pub fn new() -> Self {
         Self {
             launches: DesktopLaunchRouter::new(),
+            attached_desktop: None,
             lifetimes: HashMap::new(),
             outgoing_native: shellfox_protocol::CancellationToken::new(),
         }
@@ -123,14 +125,13 @@ impl PrivateOwner {
             PrivateTask::InstallFactoryPolicy { policy, reply } => {
                 let _ = reply.send(service.install_observer_factory_policy(policy));
             }
-            PrivateTask::InstallSsh { config, reply } => {
-                let _ = reply.send(service.install_ssh_native(config));
-            }
-            PrivateTask::RevokeSsh { client_id, reply } => {
-                if let Some(controller) = controllers.get(&client_id) {
-                    service.revoke_ssh_native(*controller);
-                }
-                let _ = reply.send(Ok(()));
+            PrivateTask::InstallSshProfiles { store, reply } => {
+                let result = service.assert_accepting().and_then(|()| {
+                    anyhow::ensure!(service.ssh_profiles.is_none(), "SSH profiles are already installed.");
+                    service.ssh_profiles = Some(store);
+                    Ok(())
+                });
+                let _ = reply.send(result);
             }
             PrivateTask::OpenLifetime {
                 client_id,
@@ -154,6 +155,7 @@ impl PrivateOwner {
                     if let Some(controller) = controllers.remove(&client_id) {
                         service.detach_controller(controller);
                     }
+                    self.forget_attached_desktop(service, client_id);
                     if let Some(previous) = self.lifetimes.insert(
                         client_id,
                         PrivateLifetime {
@@ -168,6 +170,7 @@ impl PrivateOwner {
                 let _ = reply.send(result);
             }
             PrivateTask::CloseLifetimes { reply } => {
+                self.attached_desktop = None;
                 for (id, lifetime) in self.lifetimes.drain() {
                     lifetime.cancel.cancel();
                     if let Some(controller) = controllers.remove(&id) {
@@ -182,6 +185,7 @@ impl PrivateOwner {
                 reply,
             } => {
                 if self.lifetimes.get(&client_id).map(|l| l.epoch) == Some(epoch) {
+                    self.forget_attached_desktop(service, client_id);
                     if let Some(lifetime) = self.lifetimes.remove(&client_id) {
                         lifetime.cancel.cancel();
                     }
@@ -198,78 +202,8 @@ impl PrivateOwner {
             } => {
                 let _ = reply.send(self.caller_fence(service, client_id, epoch));
             }
-            PrivateTask::Request {
-                cancel,
-                request,
-                client_id,
-                epoch,
-                reply,
-            } => {
-                if epoch.is_some_and(|epoch| {
-                    self.lifetimes.get(&client_id).map(|l| l.epoch) != Some(epoch)
-                }) {
-                    let _ = reply.send(Err(anyhow::anyhow!(
-                        "Private client lifetime epoch is stale or closed."
-                    )));
-                    return;
-                }
-                let controller = match service
-                    .assert_owned()
-                    .and_then(|()| controller_id(controllers, service, client_id))
-                {
-                    Ok(controller) => controller,
-                    Err(error) => {
-                        let _ = reply.send(Err(error));
-                        return;
-                    }
-                };
-                match request {
-                    PrivateRequest::RemoteOperator(_) => {
-                        let _ = reply.send(Err(anyhow::anyhow!(
-                            "Remote operator requires its original asynchronous route"
-                        )));
-                    }
-                    PrivateRequest::OutgoingV2(_) => {
-                        let _ = reply.send(Err(anyhow::anyhow!(
-                            "Outgoing requires the original asynchronous lifetime route"
-                        )));
-                    }
-                    PrivateRequest::Power(request) => service.request_power(
-                        request,
-                        cancel,
-                        crate::power_service::PowerReply::Local(reply),
-                    ),
-                    PrivateRequest::Experiment(request) => {
-                        let detach = matches!(request, ExperimentRequest::Detach {});
-                        let result = service
-                            .with_grant_recipient(cancel, |service| {
-                                service.execute(request, controller)
-                            })
-                            .and_then(encode);
-                        if detach && result.is_ok() {
-                            controllers.remove(&client_id);
-                        }
-                        let _ = reply.send(result);
-                    }
-                    PrivateRequest::DesktopLaunch(request) => {
-                        let result = if matches!(request, DesktopLaunchRequest::Submit { .. }) {
-                            service.assert_accepting()
-                        } else {
-                            service.assert_owned()
-                        };
-                        let result = result
-                            .and_then(|()| {
-                                self.launches
-                                    .handle_local(request, service)
-                                    .map_err(anyhow::Error::from)
-                            })
-                            .and_then(encode);
-                        let _ = reply.send(result);
-                    }
-                    request => {
-                        service.dispatch_automation(request, controller, reply, &mut self.launches)
-                    }
-                }
+            PrivateTask::Request { cancel, request, client_id, epoch, reply } => {
+                self.handle_request(service, controllers, request, requests::RequestContext { client_id, epoch, cancel }, reply);
             }
             PrivateTask::Submit {
                 owner,

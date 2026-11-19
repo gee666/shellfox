@@ -7,7 +7,8 @@ import type { TerminalProfileDto, TerminalProfilesDto } from '../../shared/contr
 import { pathSchema, terminalProfileSchema } from '../../shared/schemas';
 import { parseWslUnc } from '../../shared/wsl-path';
 import { validateDirectory } from '../directory';
-import { PIDFD_PREFLIGHT, PIDFD_READY } from './pidfd-preflight';
+import { PIDFD_READY } from './pidfd-preflight';
+import wslProfilePreflight from '../../../native/wsl/profile-preflight.sh';
 import { resolvePython, type PythonProbe } from './python';
 import { getDarwinSupervisorCapability } from './darwin-supervisor';
 import type { TrackingHelperOptions } from './tracking';
@@ -55,7 +56,7 @@ export async function discoverProfiles(options: ProfileOptions = {}): Promise<Te
       try {
         const distros = [...new Set(decodeWsl(await run(wsl, ['--list', '--quiet'])).split('\n').map(s => s.trim()).filter(s => s && s.length <= 160 && !/[\u0000-\u001f\u007f]/.test(s)))].slice(0, 32);
         // A distro name is not proof of a usable shell or safe close support. Preflight before permitting launch.
-        const probeScript = `test -x /bin/bash && test -x /usr/bin/env && command -v python3 >/dev/null && exec python3 -c "$1"`;
+        const probeScript = wslProfilePreflight.replace(/\r\n/g, '\n');
         const probed: TerminalProfileDto[] = new Array(distros.length);
         let next = 0;
         // Refill each worker as it finishes. A slow/booting distro must not
@@ -64,7 +65,7 @@ export async function discoverProfiles(options: ProfileOptions = {}): Promise<Te
           while (next < distros.length) {
             const index = next++, distro = distros[index]!;
             let available = false;
-            try { available = decodeWsl(await run(wsl, ['--distribution', distro, '--exec', '/bin/sh', '-c', probeScript, 'shellfox-preflight', PIDFD_PREFLIGHT])).trim() === PIDFD_READY; } catch { /* A failed preflight is an unavailable profile, not a launch permission. */ }
+            try { available = decodeWsl(await run(wsl, ['--distribution', distro, '--exec', '/bin/sh', '-c', probeScript, 'shellfox-preflight'])).trim() === PIDFD_READY; } catch { /* A failed preflight is an unavailable profile, not a launch permission. */ }
             probed[index] = { id: `wsl:${distro}`, label: `WSL · ${distro}`.slice(0, 200), environment: 'wsl', executable: wsl, args: ['--distribution', distro, '--exec', '/bin/bash', '-l', '-i'], distro, available, canTerminateDescendants: available, unavailableReason: available ? null : 'Requires accessible Bash, env, Python3, /proc and working Linux pidfd signal support. Guest preflight failed; no shell may be launched.' };
           }
         }));

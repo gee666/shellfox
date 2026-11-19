@@ -6,7 +6,7 @@
 
 Build with `cargo build --locked -p shellfox-cli`. The binary dispatches the dedicated PTY supervisor, then `shellfox_terminal::raw_process::supervisor_entry()`, before parsing normal arguments or constructing its current-thread Tokio runtime.
 
-Every command requires explicit absolute `--data-dir` and `--helper` paths plus `--helper-sha256 HEX` before the command. The hash is exactly 64 hex digits from a trusted helper build or release manifest. It is not a secret. Do not establish trust by hashing an arbitrary executable you find on disk. The service verifies the helper against the expected digest before using it.
+Development host commands require explicit absolute `--data-dir` and `--helper` paths plus `--helper-sha256 HEX` before the command. Installed builds use their standard data directory and trusted helper. The hash is exactly 64 hex digits from a trusted helper build or release manifest. It is not a secret. Do not establish trust by hashing an arbitrary executable you find on disk. The service verifies the helper against the expected digest before using it.
 
 Use an existing, initially empty experiment directory, never a production Shellfox directory. `--helper` points to the native helper that checks private directory permissions and host ownership. It is not a shell executable. The host uses this CLI binary itself as its PTY supervisor.
 
@@ -34,6 +34,12 @@ $common = @('--data-dir', $data, '--helper', $helper, '--helper-sha256', $sha)
 ```
 
 Replace `TAB_ID` with the UUID returned by `tab list`. Client commands print JSON, except interactive attach and foreground raw automation. `session list` returns sessions with their tabs; `tab list` returns a flat tab array. Session/tab mutations return the updated snapshot. Both `settings get` and `settings set` return the full global settings object. `host stop` returns `{"stopped":true}` after the service confirms shutdown. Errors go to stderr and return exit code 1.
+
+## SSH
+
+Use `shellfox ssh` to pick a saved connection, or `shellfox ssh --profile "Work server"` to connect by name. A positional name and `-p` also work. The session runs in the current terminal. Use `shellfox-cli ssh` when running the CLI binary directly.
+
+Manage profiles in Settings → SSH connections. The CLI reads the selected profile over authenticated local IPC when the host is running. With no published endpoint, it reads the existing profile store without changing it. It never starts a host or retries using disk after an authentication failure.
 
 ## Commands
 

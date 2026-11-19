@@ -55,6 +55,7 @@ struct Held {
     lease: bool,
     pin: bool,
     cleanup: PrivateCleanupState,
+    app_directory: bool,
 }
 /// Issued only by successful exclusive creation, never by opening/repairing an existing object.
 pub struct CreatedPrivate(Held);
@@ -158,7 +159,7 @@ fn verify_binding(value: &Held) -> Result<()> {
     if !value.parent_id.matches(&value.parent)? || !value.identity.matches(&value.file)? {
         return Err(FileError::conflict());
     }
-    private_verify::parent(&value.parent)?;
+    private_verify::directory_parent(&value.parent, value.app_directory)?;
     #[cfg(windows)]
     if value.lease {
         // Share0 pins the named object against opens/rename/delete for this acquired handle.
@@ -186,6 +187,15 @@ pub fn create_private_directory_at(
 ) -> std::result::Result<CreatedPrivate, crate::PrivateCreationFailure> {
     retained::create(parent, name, PrivateKind::Directory, PrivateFileUse::Stage)
 }
+/// Creates an application directory under its original pinned parent. On Windows,
+/// the kernel installs the private DACL and excludes delete sharing in one call.
+#[cfg(windows)]
+pub fn create_app_directory_at(
+    parent: &File,
+    name: &OsStr,
+) -> std::result::Result<CreatedPrivate, crate::PrivateCreationFailure> {
+    retained::create_app_directory(parent, name)
+}
 pub fn create_private_file_at(
     parent: &File,
     name: &OsStr,
@@ -199,12 +209,85 @@ pub fn open_existing_private_at(
     kind: PrivateKind,
     access: PrivateAccess,
 ) -> Result<VerifiedPrivate> {
+    open_existing(parent, name, kind, access, false)
+}
+
+/// Tighten only the original, application-owned directory, never its parent.
+/// The caller holds the original no-follow directory chain and determines that
+/// this is an app data directory, not an arbitrary user-selected document root.
+pub fn repair_app_directory_at(parent: &File, name: &OsStr, original: &File) -> Result<()> {
+    leaf(name)?;
+    private_verify::directory_parent(parent, true)?;
+    private_verify::kind(original, PrivateKind::Directory)?;
+    let identity = PrivateIdentity::from_file(original)?;
+    if private_verify::object(original, PrivateKind::Directory).is_ok() {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    let file = crate::private_windows::open_directory_for_acl(parent, name)?;
+    #[cfg(unix)]
+    let file = {
+        use rustix::fs::{openat, Mode, OFlags};
+
+        // The regular no-follow directory opener can return O_PATH on Linux.
+        // chmod needs a descriptor opened for reading.
+        File::from(openat(
+            parent,
+            name,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ).map_err(std::io::Error::from)?)
+    };
+    if !identity.matches(&file)? {
+        return Err(FileError::conflict());
+    }
+    #[cfg(windows)]
+    crate::private_security::Security::app_directory()?.apply(&file)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        // SAFETY: geteuid has no arguments or ownership requirements.
+        if file.metadata()?.uid() != unsafe { libc::geteuid() } {
+            return Err(FileError::denied());
+        }
+        file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+    }
+    private_verify::object(&file, PrivateKind::Directory)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn open_app_directory_at(parent: &File, name: &OsStr) -> Result<VerifiedPrivate> {
+    open_existing(
+        parent,
+        name,
+        PrivateKind::Directory,
+        PrivateAccess::ReadOnly,
+        true,
+    )
+}
+
+fn open_existing(
+    parent: &File,
+    name: &OsStr,
+    kind: PrivateKind,
+    access: PrivateAccess,
+    app_directory: bool,
+) -> Result<VerifiedPrivate> {
     leaf(name)?;
     if kind == PrivateKind::Directory && access == PrivateAccess::ExclusiveLease {
         return Err(FileError::denied());
     }
-    let parent_id = private_verify::parent(parent)?;
+    let parent_id = private_verify::directory_parent(parent, app_directory)?;
     let held_parent = parent.try_clone()?;
+    let pin = cfg!(windows) && app_directory;
+    #[cfg(windows)]
+    let file = if pin {
+        crate::private_windows::open_pinned_directory(parent, name, access)?
+    } else {
+        private_native::open(parent, name, kind, access)?
+    };
+    #[cfg(unix)]
     let file = private_native::open(parent, name, kind, access)?;
     let identity = private_verify::object(&file, kind)?;
     let lease = access == PrivateAccess::ExclusiveLease;
@@ -220,8 +303,9 @@ pub fn open_existing_private_at(
         kind,
         access,
         lease,
-        pin: false,
+        pin,
         cleanup: PrivateCleanupState::Owned,
+        app_directory,
     });
     result.verify_binding()?;
     Ok(result)

@@ -60,8 +60,9 @@ pub(crate) fn fingerprint_kind(file: &File, directory: bool) -> Result<Vec<u8>> 
         Foundation::LocalFree,
         Security::{
             Authorization::{GetSecurityInfo, SE_FILE_OBJECT},
-            EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl, ACCESS_ALLOWED_ACE,
-            DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, SE_DACL_PROTECTED,
+            EqualSid, GetAce, GetLengthSid, GetSecurityDescriptorControl, IsWellKnownSid,
+            WinLocalSystemSid, ACCESS_ALLOWED_ACE, DACL_SECURITY_INFORMATION,
+            OWNER_SECURITY_INFORMATION, SE_DACL_PROTECTED,
         },
     };
     let mut owner = null_mut();
@@ -94,7 +95,7 @@ pub(crate) fn fingerprint_kind(file: &File, directory: bool) -> Result<Vec<u8>> 
         unsafe {
             if GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) == 0
                 || control & SE_DACL_PROTECTED == 0
-                || (*acl).AceCount != 1
+                || !matches!((*acl).AceCount, 1 | 2)
                 || GetAce(acl, 0, &mut ace) == 0
             {
                 return Err(FileError::denied());
@@ -107,11 +108,34 @@ pub(crate) fn fingerprint_kind(file: &File, directory: bool) -> Result<Vec<u8>> 
             {
                 return Err(FileError::denied());
             }
+            if (*acl).AceCount == 2 {
+                let mut system = null_mut();
+                let current = crate::private_security::current_sid()?;
+                if !directory
+                    || EqualSid(owner, current.as_ptr().cast_mut().cast()) == 0
+                    || GetAce(acl, 1, &mut system) == 0
+                {
+                    return Err(FileError::denied());
+                }
+                let system = &*system.cast::<ACCESS_ALLOWED_ACE>();
+                if system.Header.AceType != 0
+                    || system.Header.AceFlags != 0
+                    || system.Mask != 0x1f01ff
+                    || IsWellKnownSid(
+                        (&system.SidStart as *const u32).cast_mut().cast(),
+                        WinLocalSystemSid,
+                    ) == 0
+                {
+                    return Err(FileError::denied());
+                }
+            }
             let size = GetLengthSid(owner) as usize;
             if size == 0 || size > 68 {
                 return Err(FileError::denied());
             }
-            Ok(std::slice::from_raw_parts(owner.cast::<u8>(), size).to_vec())
+            let mut fingerprint = std::slice::from_raw_parts(owner.cast::<u8>(), size).to_vec();
+            fingerprint.extend_from_slice(&(*acl).AceCount.to_le_bytes());
+            Ok(fingerprint)
         }
     })();
     // SAFETY: GetSecurityInfo allocated descriptor and it is freed exactly once.

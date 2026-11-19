@@ -7,6 +7,7 @@ use gpui::{
 
 pub fn surface(view: Entity<TerminalView>, focus: FocusHandle) -> impl IntoElement {
     let layout_view = view.clone();
+    let layout_focus = focus.clone();
     canvas(
         move |bounds, window, cx| {
             let state = layout_view.update(cx, |view, cx| {
@@ -20,17 +21,21 @@ pub fn surface(view: Entity<TerminalView>, focus: FocusHandle) -> impl IntoEleme
                     view.theme,
                     view.presentation_frame(),
                     view.cursor_reset_epoch,
+                    view.peer_cursor(window.is_window_active() && layout_focus.is_focused(window)),
                 )
             });
-            let phase = state
-                .6
-                .as_ref()
-                .is_none_or(|frame| cursor::phase(frame, state.7, window, cx));
-            (state, phase)
+            let native = state.6.as_ref();
+            let visual = native.map(|frame| frame.cursor_visual).or(state.8);
+            let phase = visual.is_none_or(|visual| {
+                let origin = native.map(|frame| (frame.identity, frame.view));
+                cursor::phase((origin, visual, state.7), window, cx)
+            });
+            (state, visual, phase)
         },
         move |bounds: Bounds<Pixels>,
               (
-            (screen, base_font, cell_width, font_size, line_height, theme, presentation, _),
+            (screen, base_font, cell_width, font_size, line_height, theme, presentation, _, _),
+            visual,
             phase,
         ),
               window,
@@ -43,8 +48,8 @@ pub fn surface(view: Entity<TerminalView>, focus: FocusHandle) -> impl IntoEleme
             });
             window.handle_input(&focus, ElementInputHandler::new(bounds, view.clone()), cx);
             window.paint_quad(fill(bounds, rgb(theme.background)));
-            let cursor = presentation.as_ref().and_then(|frame| {
-                cursor::CursorPaint::new(frame.cursor_visual, screen.cols, screen.rows, phase)
+            let cursor = visual.and_then(|visual| {
+                cursor::CursorPaint::new(visual, screen.cols, screen.rows, phase)
             });
             let painted = super::paint_cells(
                 &screen,
@@ -99,10 +104,18 @@ pub fn surface(view: Entity<TerminalView>, focus: FocusHandle) -> impl IntoEleme
                 );
             }
             view.update(cx, |view, _| {
-                view.paint_semantics(presentation.as_deref(), bounds, window)
+                view.paint_semantics(presentation.as_deref(), bounds, window);
+                if let Some((start, end)) = view.hovered_link_cells(window) {
+                    for row in start.y..=end.y {
+                        let left = if row == start.y { start.x } else { 0 };
+                        let right = if row == end.y { end.x + 1 } else { screen.cols };
+                        let origin = bounds.origin + point(px(f32::from(left) * cell_width), px(f32::from(row + 1) * line_height - 1.));
+                        window.paint_quad(fill(Bounds::new(origin, size(px(f32::from(right.saturating_sub(left)) * cell_width), px(1.))), rgb(theme.foreground)));
+                    }
+                }
             });
             // Fixture snapshots have no service presentation metadata. Never use this for a live frame.
-            if presentation.is_none()
+            if visual.is_none()
                 && screen.cursor.visible
                 && screen.cursor.x < screen.cols
                 && screen.cursor.y < screen.rows

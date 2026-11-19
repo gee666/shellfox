@@ -2,12 +2,17 @@ use super::{cache::ViewKey, dispatch::control_key, *};
 use anyhow::{ensure, Context, Result};
 use shellfox_runtime::{Command, PresentationAction, PresentationLease};
 
-#[derive(Clone, Debug)]
+#[path = "native_terminal_directory.rs"]
+mod directory;
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum NativeViewAttachment {
     Controller(Attachment),
     Observer(NativeObserverAttachment),
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum NativePresentation {
     Frame {
         focused: bool,
@@ -98,8 +103,22 @@ impl crate::Service {
                         && frame.view == view,
                     "Native presentation identity or view mismatch."
                 );
+                let identity = frame.identity;
                 self.native.capture(key, frame)?;
-                Ok(NativeResponse::Frame(self.native.offer(key)?))
+                let mut offered = self.native.offer(key)?;
+                if let Some(offered) = offered.as_mut().filter(|frame| frame.phase == Phase::Active) {
+                    offered.working_directory = self.terminals.get(&tab)
+                        .map(|entry| &entry.runtime)
+                        .filter(|runtime| {
+                            runtime.identity() == identity
+                                && runtime.source_kind() == shellfox_runtime::SourceKind::OwnedPty
+                        })
+                        .and_then(|runtime| runtime.metadata())
+                        .filter(|metadata| metadata.identity == identity)
+                        .and_then(|metadata| directory::from_report(metadata.cwd_uri.as_deref()?))
+                        .map(Arc::from);
+                }
+                Ok(NativeResponse::Frame(offered))
             }
             response @ (Response::Applied | Response::Text(_)) => {
                 Ok(NativeResponse::Terminal(response))

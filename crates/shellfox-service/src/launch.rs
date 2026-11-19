@@ -19,26 +19,33 @@ impl Service {
     }
     // Pure config capture: cold remote admission must precede directory/activity/registration effects.
     fn catalog_launch_config(&self, launch: shellfox_core::TerminalLaunch) -> Result<PtyConfig> {
-        let profile = match launch.profile_id.as_str() {
-            "pwsh" => ShellProfileId::Pwsh,
-            "windows-powershell" => ShellProfileId::WindowsPowerShell,
-            "cmd" => ShellProfileId::Cmd,
-            "wsl" => ShellProfileId::Wsl,
-            "login-shell" => ShellProfileId::LoginShell,
-            _ => bail!("Unsupported local shell profile."),
-        };
         let mut config = PtyConfig::new(self.isolation.clone());
         // Interactive app launches opt into executables, never installed account
         // state. PtyConfig::new remains Minimal for callers that do not opt in.
         config.environment = EnvironmentPolicy::InstalledTools;
         config.cwd = PathBuf::from(launch.cwd);
         config.supervisor = Some(self.supervisor.clone());
-        config.profile = Some(profile);
         config.env = launch
             .env
             .into_iter()
             .map(|entry| (entry.name.into(), entry.value.into()))
             .collect();
+        let profile = launch.profile_id.as_str();
+        #[cfg(windows)]
+        {
+            if profile == ADMIN_POWERSHELL_PROFILE {
+                return Ok(config);
+            }
+            if profile.starts_with("wsl:") {
+                self.catalog.wsl.cache.ready()?.configure(profile, &mut config)?;
+                return Ok(config);
+            }
+        }
+        config.profile = Some(
+            profile
+                .parse::<ShellProfileId>()
+                .context("Unsupported local shell profile.")?,
+        );
         Ok(config)
     }
     pub(crate) fn generation_home(&self, tab: TabId, generation: Generation) -> Result<PathBuf> {
@@ -49,21 +56,41 @@ impl Service {
         Ok(home)
     }
     pub(crate) fn start_terminal(&mut self, tab: TabId) -> Result<()> {
-        self.start_terminal_policy(tab, false).map(|_| ())
+        self.start_terminal_policy(tab, false, false).map(|_| ())
     }
     pub(crate) fn start_manager_native0_terminal(&mut self, tab: TabId) -> Result<bool> {
-        self.start_terminal_policy(tab, true)
+        self.start_terminal_policy(tab, true, false)
     }
-    fn start_terminal_policy(&mut self, tab: TabId, require_native0: bool) -> Result<bool> {
+    #[cfg(windows)]
+    pub(crate) fn start_administrator_tab(&mut self, tab: TabId) -> Result<()> {
+        self.start_terminal_policy(tab, false, true).map(|_| ())
+    }
+    fn start_terminal_policy(
+        &mut self,
+        tab: TabId,
+        require_native0: bool,
+        explicit_admin: bool,
+    ) -> Result<bool> {
         self.assert_accepting()?;
         if require_native0 && self.terminals.contains_key(&tab) {
             bail!("Cold Manager source already exists.");
         }
-        self.ensure_ssh_local_start_allowed(tab)?;
         if self.terminals.len() >= 64 {
             bail!("At most 64 live terminals are supported by this experimental host.");
         }
         let launch = self.host.terminal_launch(tab)?;
+        let administrator = launch.profile_id.as_str() == ADMIN_POWERSHELL_PROFILE;
+        #[cfg(windows)]
+        let wsl_launch = launch.profile_id.as_str().starts_with("wsl:").then(|| {
+            (launch.profile_id.clone(), launch.wsl_launch.clone(), launch.cwd.clone())
+        });
+        if administrator && !explicit_admin {
+            bail!("Open a new Administrator PowerShell tab to request elevation.");
+        }
+        #[cfg(windows)]
+        let helper = administrator
+            .then(shellfox_terminal::elevated::InteractiveHelper::bundled)
+            .transpose()?;
         let generation = Generation::new();
         let identity = Identity {
             session_id: launch.session_id,
@@ -89,6 +116,12 @@ impl Service {
         if require_native0 {
             config.isolation_root = self.generation_home(tab, generation)?;
         }
+        #[cfg(windows)]
+        let wsl_account = match wsl_launch {
+            Some((profile, binding, cwd)) => self.catalog.wsl.cache.ready()?
+                .pin_launch_account(profile.as_str(), binding.as_ref(), &cwd, &mut config)?,
+            None => None,
+        };
         let registration = TerminalIdentity {
             tab_id: tab,
             generation,
@@ -101,20 +134,26 @@ impl Service {
                 return Err(error);
             }
         };
-        #[cfg(feature = "experimental-shellfox-native")]
-        let started = match native_creation {
-            Some(native) => Runtime::start_remote_eligible_native0_program_with_limits_and_hooks(
-                identity,
-                config,
-                Default::default(),
-                None,
-                hooks,
-                native,
-            ),
-            None => Runtime::start_with_hooks(identity, config, hooks),
+        let start_ordinary = |config, hooks| {
+            #[cfg(feature = "experimental-shellfox-native")]
+            if let Some(native) = native_creation {
+                return Runtime::start_remote_eligible_native0_program_with_limits_and_hooks(
+                    identity,
+                    config,
+                    Default::default(),
+                    hooks,
+                    native,
+                );
+            }
+            Runtime::start_with_hooks(identity, config, hooks)
         };
-        #[cfg(not(feature = "experimental-shellfox-native"))]
-        let started = Runtime::start_with_hooks(identity, config, hooks);
+        #[cfg(windows)]
+        let started = match helper {
+            Some(helper) => Runtime::start_administrator(identity, config, helper, hooks),
+            None => start_ordinary(config, hooks),
+        };
+        #[cfg(not(windows))]
+        let started = start_ordinary(config, hooks);
         let runtime = match started {
             Ok(runtime) => runtime,
             Err(error) => {
@@ -126,6 +165,11 @@ impl Service {
         };
         self.terminals
             .insert(tab, OwnedTerminal::from_catalog(runtime, origin));
+        // UAC runs on the Runtime owner. Keep Service available for attach,
+        // status and cancellation while the secure desktop is open.
+        if administrator {
+            return Ok(true);
+        }
         let deadline = Instant::now() + Duration::from_secs(12);
         loop {
             self.assert_owned()?;
@@ -141,6 +185,10 @@ impl Service {
             if phase == Phase::Active
                 && (!require_native0 || matches!(self.terminals[&tab].startup, Some(Ok(()))))
             {
+                #[cfg(windows)]
+                if let Some(account) = wsl_account {
+                    self.host.record_wsl_launch_account(registration, account)?;
+                }
                 return Ok(true);
             }
             if phase == Phase::Closed {

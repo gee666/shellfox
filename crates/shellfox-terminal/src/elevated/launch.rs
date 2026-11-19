@@ -52,8 +52,8 @@ impl Capability {
 pub struct Launch {
     #[serde(rename = "type")]
     kind: &'static str,
-    #[serde(rename = "isolationRoot")]
-    isolation_root: PathBuf,
+    #[serde(rename = "isolationRoot", skip_serializing_if = "Option::is_none")]
+    isolation_root: Option<PathBuf>,
     cwd: PathBuf,
     env: BTreeMap<String, String>,
     cols: u16,
@@ -74,17 +74,40 @@ impl Launch {
             return Err(AdapterError::InvalidLaunch);
         }
         let env = super::isolated_env::environment(&root, policy)?;
-        Self::validated(cwd, root, env, cols, rows)
+        Self::validated("launch-isolated", cwd, Some(root), env, cols, rows)
     }
+
+    #[cfg(windows)]
+    pub(super) fn interactive(config: &crate::PtyConfig) -> Result<Self, AdapterError> {
+        let cwd = crate::environment::lookup_path(config.cwd.clone());
+        if !cwd.is_dir() {
+            return Err(AdapterError::InvalidLaunch);
+        }
+        // The legacy shell loads the account's PowerShell profile, like Electron.
+        let mut env = BTreeMap::new();
+        // Session metadata (including env) can come from a remote device.
+        // Do not cross that trust boundary when building an elevated environment.
+        for (key, value) in std::env::vars_os() {
+            let (Some(key), Some(value)) = (key.to_str(), value.to_str()) else {
+                continue;
+            };
+            if !key.starts_with('=') && !runtime_hook(key) {
+                env.insert(key.to_uppercase(), value.into());
+            }
+        }
+        Self::validated("launch", cwd, None, env, config.cols, config.rows)
+    }
+
     #[cfg(any(windows, test, feature = "test-support"))]
     fn validated(
+        kind: &'static str,
         cwd: PathBuf,
-        isolation_root: PathBuf,
+        isolation_root: Option<PathBuf>,
         env: BTreeMap<String, String>,
         cols: u16,
         rows: u16,
     ) -> Result<Self, AdapterError> {
-        for path in [&cwd, &isolation_root] {
+        for path in std::iter::once(&cwd).chain(isolation_root.as_ref()) {
             if !path.is_absolute()
                 || path.to_str().is_none_or(|s| {
                     s.is_empty()
@@ -120,7 +143,7 @@ impl Launch {
             }
         }
         Ok(Self {
-            kind: "launch-isolated",
+            kind,
             isolation_root,
             cwd,
             env,
@@ -142,7 +165,7 @@ impl Launch {
         cols: u16,
         rows: u16,
     ) -> Result<Self, AdapterError> {
-        Self::validated(cwd.clone(), cwd, env, cols, rows)
+        Self::validated("launch-isolated", cwd.clone(), Some(cwd), env, cols, rows)
     }
 }
 /// Serialized and bounded before acquiring a process. No environment in Debug.
@@ -166,10 +189,33 @@ pub(crate) fn dimensions(cols: u16, rows: u16) -> Result<(), AdapterError> {
     Ok(())
 }
 #[cfg(any(windows, test, feature = "test-support"))]
-fn runtime_hook(key: &str) -> bool {
+pub(super) fn runtime_hook(key: &str) -> bool {
     let name = key.to_ascii_uppercase();
     name == "DEVPATH"
         || ["COR_", "CORECLR_", "COMPLUS_", "DOTNET_"]
             .iter()
             .any(|prefix| name.starts_with(prefix))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interactive_launch_uses_the_electron_frame_without_session_environment() {
+        let cwd = std::env::current_dir().unwrap();
+        let mut config = crate::PtyConfig::new(&cwd);
+        config
+            .env
+            .insert("SHELLFOX_TEST_UNTRUSTED_OVERRIDE".into(), "remote".into());
+        let launch = Launch::interactive(&config).unwrap().prepare().unwrap();
+        let frame: serde_json::Value = serde_json::from_slice(launch.as_bytes()).unwrap();
+        assert_eq!(frame["type"], "launch");
+        assert_eq!(frame["cols"], 80);
+        assert_eq!(frame["rows"], 24);
+        assert_eq!(frame.as_object().unwrap().len(), 5);
+        let env = frame["env"].as_object().unwrap();
+        assert!(!env.contains_key("SHELLFOX_TEST_UNTRUSTED_OVERRIDE"));
+        assert!(env.keys().all(|key| !runtime_hook(key)));
+    }
 }

@@ -2,7 +2,7 @@ use super::{
     cache::{Grant, NativeState, View, ViewKey},
     *,
 };
-use shellfox_core::{CreateSession, ProfileId};
+use shellfox_core::CreateSession;
 use shellfox_runtime::{Chunk, Event, Identity, Lease, ObserverLease};
 
 fn identity() -> Identity {
@@ -243,7 +243,7 @@ fn native_metadata_uses_real_core_snapshot_and_safe_close_path() {
         request_id: SessionId::new(),
         title: Some("native fixture".into()),
         cwd: data.path().to_string_lossy().into_owned(),
-        profile_id: ProfileId::new("cmd").unwrap(),
+        profile_id: crate::tests::default_catalog_profile(),
     };
     let NativeResponse::Snapshot(created) = service
         .execute_native(NativeAction::Metadata(HostRequest::CreateSession(input)), 1)
@@ -298,7 +298,7 @@ async fn cloneable_native_proxy_uses_the_same_owner_and_metadata() {
         request_id: SessionId::new(),
         title: Some("shared owner".into()),
         cwd: data.path().to_string_lossy().into_owned(),
-        profile_id: ProfileId::new("cmd").unwrap(),
+        profile_id: crate::tests::default_catalog_profile(),
     };
     first
         .execute(NativeAction::Metadata(HostRequest::CreateSession(input)))

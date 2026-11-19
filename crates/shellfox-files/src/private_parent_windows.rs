@@ -9,6 +9,16 @@ use windows_sys::Win32::{
     },
 };
 
+// App roots are opened relative to the original pinned parent, and their own
+// handles exclude delete sharing. Do not use this fallback for file creation.
+pub(crate) fn verify_app_directory_parent(file: &File) -> Result<()> {
+    verify(file).or_else(|error| {
+        private_security::Security::new(true)?
+            .require_owner(file)
+            .map_err(|_| error)
+    })
+}
+
 pub(crate) fn verify(file: &File) -> Result<()> {
     let current = private_security::current_sid()?;
     let mut owner = null_mut();

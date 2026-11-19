@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { helperProtocolVersion } from './tailscale.mjs';
 import { run, sha256 } from './rust-package-common.mjs';
 import { acquireNugetSnapshot, managedInventory, writeManagedAudit } from './rust-package-resource-inventory.mjs';
 
@@ -85,7 +86,7 @@ export function safeProbe(directory, kind, rid) {
     const value = JSON.parse(run(executable, ['--probe'], options));
     assert.deepEqual(value, { arch: rid.endsWith('arm64') ? 'arm64' : 'amd64',
       platform: rid.startsWith('win-') ? 'windows' : rid.startsWith('osx-') ? 'darwin' : 'linux',
-      protocolVersion: 1, tailscaleVersion: '1.104.2' });
+      protocolVersion: helperProtocolVersion, tailscaleVersion: '1.104.2' });
   } else throw new Error('This generator does not launch Darwin or WSL scripts');
 }
 

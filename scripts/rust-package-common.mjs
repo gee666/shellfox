@@ -74,7 +74,7 @@ export function assertHeadlessFiles(files) {
 
 export function selectedBinaries(metadata, kind) {
   const spec = kind === 'desktop'
-    ? [['shellfox-desktop', 'shellfox-gpui-experiment'], ['shellfox-cli', 'shellfox-cli']]
+    ? [['shellfox-desktop', 'shellfox'], ['shellfox-cli', 'shellfox-cli']]
     : [['shellfox-cli', 'shellfox-cli']];
   return spec.map(([packageName, bin]) => {
     const pkg = metadata.packages.find(entry => entry.name === packageName && metadata.workspace_members.includes(entry.id));

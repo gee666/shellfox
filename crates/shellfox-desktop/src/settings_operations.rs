@@ -10,7 +10,6 @@ impl SettingsPanel {
         self.operations.pending()
             || self.environment_writing
             || self.environment_write.is_some()
-            || self.ssh_open_intent.pending()
             || self.draft.as_ref().is_some_and(|draft| {
                 draft.inflight.is_some() || self.forms.errors.is_empty() && draft.queued_write()
             })

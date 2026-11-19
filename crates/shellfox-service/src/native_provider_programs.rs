@@ -1,6 +1,5 @@
 //! Explicit producer-pinned programs. These inputs are native bootstrap authority,
 //! not wire data, package discovery or a runtime-generated trust anchor.
-use crate::ssh::{SshProgramPolicy, SshProgramRole};
 use anyhow::{ensure, Result};
 use shellfox_transport::VerifiedHelper;
 use std::{
@@ -182,50 +181,5 @@ impl std::fmt::Debug for NativeProgramResource {
         #[cfg(windows)]
         debug.field("retained_local_ntfs_lease", &self.pinned_windows.is_some());
         debug.finish_non_exhaustive()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct NativeSshPrograms {
-    pub(super) ssh: NativeProgramResource,
-    pub(super) keyscan: NativeProgramResource,
-    pub(super) askpass_cli: NativeProgramResource,
-}
-impl NativeSshPrograms {
-    /// askpass_cli must be the producer-validated CLI containing the existing
-    /// early SSH broker dispatcher, not an arbitrary executable with that name.
-    pub fn new(
-        ssh: NativeProgramResource,
-        keyscan: NativeProgramResource,
-        askpass_cli: NativeProgramResource,
-    ) -> Self {
-        Self {
-            ssh,
-            keyscan,
-            askpass_cli,
-        }
-    }
-    pub fn ssh(&self) -> &NativeProgramResource {
-        &self.ssh
-    }
-    pub fn keyscan(&self) -> &NativeProgramResource {
-        &self.keyscan
-    }
-    pub fn askpass_cli(&self) -> &NativeProgramResource {
-        &self.askpass_cli
-    }
-}
-impl SshProgramPolicy for NativeSshPrograms {
-    fn validate_current(&self, role: SshProgramRole, executable: &Path) -> Result<()> {
-        let resource = match role {
-            SshProgramRole::Ssh => &self.ssh,
-            SshProgramRole::Keyscan => &self.keyscan,
-            SshProgramRole::Askpass => &self.askpass_cli,
-        };
-        ensure!(
-            resource.path() == executable,
-            "Executable does not match its configured SSH role."
-        );
-        resource.validate_current()
     }
 }

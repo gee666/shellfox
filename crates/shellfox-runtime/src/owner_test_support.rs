@@ -14,6 +14,8 @@ pub(super) fn owner() -> Owner {
         presentations: presentation::Presentations::new(),
         layouts: layout::Layouts::new(80, 24),
         pty: None,
+        #[cfg(windows)]
+        elevated: None,
         source_kind: SourceKind::OwnedPty,
         external: None,
         delivery: Delivery::new(),

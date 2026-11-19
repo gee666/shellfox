@@ -14,7 +14,6 @@ impl crate::Runtime {
         identity: crate::Identity,
         config: shellfox_terminal::PtyConfig,
         limits: crate::GridLimits,
-        program_env: Option<shellfox_terminal::TrustedProgramEnv>,
         hooks: crate::RuntimeHooks,
         native: crate::Native0RuntimeConfig,
     ) -> Result<Self, crate::StartError> {
@@ -28,7 +27,6 @@ impl crate::Runtime {
             identity,
             config,
             limits,
-            program_env,
             hooks,
             native,
         )
@@ -57,6 +55,31 @@ const FORMATTER_EXTRAS: u32 = FORMAT_EXTRAS_ALL & !(1 << 4);
 /// Receivers must be passive mirrors: no query replies or clipboard effects.
 pub(crate) fn active_buffer_ansi(terminal: &mut Terminal) -> Result<Vec<u8>, RuntimeError> {
     bounded_active_buffer_ansi(terminal, MAX_RECOVERY_BYTES)
+}
+
+pub(crate) fn remote_v1_ansi(terminal: &mut Terminal) -> Result<Vec<u8>, RuntimeError> {
+    // v1 has a 256 KiB text limit. Leave room for UTF-8 substitution and framing.
+    const BUDGET: usize = 240 * 1024;
+    const ENTER_ALT: &[u8] = b"\x1b[?1049h";
+    let info = terminal.recovery_info().map_err(crate::commands::engine)?;
+    let prefix = if info.alternate { ENTER_ALT } else { &[] };
+    let continuation = terminal.continuation().map_err(RuntimeError::unavailable)?;
+    let budget = BUDGET.saturating_sub(RESET.len() + prefix.len() + continuation.len());
+    // Formatter extras place the cursor and restore the available DEC modes
+    // (including cursor keys, cursor visibility, bracketed paste and mouse).
+    let formatted = terminal.format_vt(FORMATTER_EXTRAS, budget).or_else(|_| {
+        // Large scrollback need not make the live terminal inaccessible.
+        let screen = terminal.render()?;
+        let bytes = crate::ansi::visible_screen(&screen)
+            .map_err(|_| shellfox_ghostty_vt::Error(-6))?;
+        if bytes.len() <= budget { Ok(bytes) } else { Err(shellfox_ghostty_vt::Error(-6)) }
+    }).map_err(|_| RuntimeError::validation("Terminal snapshot exceeds the v1 recovery limit."))?;
+    let mut bytes = Vec::with_capacity(RESET.len() + prefix.len() + formatted.len() + continuation.len());
+    bytes.extend_from_slice(RESET);
+    bytes.extend_from_slice(prefix);
+    bytes.extend_from_slice(&formatted);
+    bytes.extend_from_slice(&continuation);
+    Ok(bytes)
 }
 
 fn bounded_active_buffer_ansi(

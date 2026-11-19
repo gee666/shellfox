@@ -13,7 +13,7 @@ use std::{path::{Path,PathBuf},time::{Duration,Instant}};
 
 #[test]
 fn actual_two_go_nodes_network_only_whois_manager_pending_then_original_stop()->Result<()>{
-    let mut fixture=support::Fixture::new()?;
+    let fixture=support::Fixture::new()?;
     let a=fixture.data("network-only-a");let b=fixture.data("network-only-b");
     let(control,expected)=network::control()?;
     let options=[network::options(&a,"owned-peer-a-netonly",control.clone())?,network::options(&b,"owned-peer-b-netonly",control)?];
@@ -37,5 +37,5 @@ fn actual_two_go_nodes_network_only_whois_manager_pending_then_original_stop()->
         eprintln!("NETWORK ONLY: real tsnet/WhoIs Manager discovery and pending approval observed; no terminal/SDK security acceptance.");
         Ok(())
     })?;
-    fixture.success();Ok(())
+Ok(())
 }

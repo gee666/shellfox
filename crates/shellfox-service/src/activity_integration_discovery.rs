@@ -33,6 +33,8 @@ impl FactsDiscovery for NativeFactsDiscovery {
             &source.settings,
             &source.snapshot.preferences.default_profile_id,
             &source.cancelled,
+            #[cfg(windows)]
+            source.wsl_profiles.as_deref(),
         )?;
         discovered.probe.capabilities.close_terminal = !source.terminals.is_empty();
         Ok(discovered)
@@ -41,11 +43,12 @@ impl FactsDiscovery for NativeFactsDiscovery {
 impl NativeFactsDiscovery {
     /// Same read-only mapper for owner-native and remote fact discovery. Inputs
     /// are captured by the original owner, never supplied as GUI filesystem claims.
-    pub fn discover_catalog(
+    pub(crate) fn discover_catalog(
         &self,
         settings: &shellfox_core::Settings,
         default: &shellfox_core::ProfileId,
         cancel: &wire::CancellationToken,
+        #[cfg(windows)] wsl: Option<&crate::windows_profiles::WslProfiles>,
     ) -> Result<DiscoveredFacts, wire::AppError> {
         if cancel.is_cancelled() {
             return Err(unavailable("cancelled owner discovery"));
@@ -56,7 +59,8 @@ impl NativeFactsDiscovery {
         // The !Send engine is created and dropped entirely on this discovery thread.
         let engine = shellfox_ghostty_vt::Terminal::new(1, 1).is_ok();
         let supervisor_present = self.supervisor.is_file();
-        let backend = cfg!(windows) && supervisor_present && engine;
+        let supervised_platform = cfg!(any(windows, target_os = "linux"));
+        let backend = supervised_platform && supervisor_present && engine;
         let mut profiles = Vec::new();
         let mut shells = Vec::new();
         let mut reasons = Vec::new();
@@ -78,7 +82,7 @@ impl NativeFactsDiscovery {
                 Some("Configured supervisor resource is unavailable.".into())
             } else if !engine {
                 Some("Public Ghostty terminal engine did not initialize.".into())
-            } else if !cfg!(windows) {
+            } else if !supervised_platform {
                 Some("The discovered profile has no wired native launch adapter.".into())
             } else if command.is_none() {
                 Some("Discovered executable is no longer available.".into())
@@ -121,6 +125,18 @@ impl NativeFactsDiscovery {
                 elevation: None,
             });
         }
+        #[cfg(windows)]
+        {
+            if let Some(powershell) = profiles.iter().find(|profile| profile.id == "windows-powershell") {
+                profiles.push(crate::windows_profiles::administrator_profile(powershell, backend));
+            }
+            if let Some(wsl) = wsl {
+                profiles.extend(wsl.wire_profiles(backend));
+            }
+            if cancel.is_cancelled() {
+                return Err(unavailable("cancelled owner discovery"));
+            }
+        }
         if !supervisor_present {
             reasons.push(
                 "Configured supervisor resource is unavailable; no path was executed.".into(),
@@ -129,7 +145,6 @@ impl NativeFactsDiscovery {
         if !engine {
             reasons.push("Public Ghostty terminal engine did not initialize.".into());
         }
-        reasons.push("Incoming legacy v1 launch/view and full-state recovery are not advertised by this host.".into());
         let available = profiles.iter().any(|profile| profile.available);
         let configured = settings
             .terminal_profile_id
@@ -138,7 +153,7 @@ impl NativeFactsDiscovery {
             .unwrap_or_else(|| default.to_string());
         let default_profile_id = profiles
             .iter()
-            .find(|profile| profile.id == configured && profile.available)
+            .find(|profile| profile.id == configured && profile.available && profile.elevation.is_none())
             .map(|profile| profile.id.clone());
         let profiles = wire::TerminalProfiles {
             profiles,
@@ -146,8 +161,6 @@ impl NativeFactsDiscovery {
             lifetime: wire::TerminalLifetime::AppOwned,
             shell_survival: false,
         };
-        // Legacy v1 launch/view/full-state recovery remain gated in remote_commands.
-        // These are protocol capability absences, not invented process observations.
         let probe = wire::NativeProbe {
             platform: match std::env::consts::OS {
                 "windows" => "win32",
@@ -204,6 +217,8 @@ fn shell_id(profile: ShellProfileId) -> wire::ShellId {
         ShellProfileId::Pwsh => wire::ShellId::Pwsh,
         ShellProfileId::WindowsPowerShell => wire::ShellId::WindowsPowershell,
         ShellProfileId::Wsl => wire::ShellId::Wsl,
-        ShellProfileId::Cmd | ShellProfileId::LoginShell => wire::ShellId::LoginShell,
+        ShellProfileId::Bash => wire::ShellId::Bash,
+        ShellProfileId::Cmd | ShellProfileId::LoginShell | ShellProfileId::Sh
+        | ShellProfileId::Zsh | ShellProfileId::Fish => wire::ShellId::LoginShell,
     }
 }

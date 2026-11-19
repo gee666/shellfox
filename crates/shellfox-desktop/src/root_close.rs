@@ -1,6 +1,9 @@
 use super::*;
+#[path = "root_close_prompt.rs"]
+mod prompt;
 use crate::app_host::{
-    ActivityShutdownState, CloseDecision, CloseTarget, ShutdownOutcome, WindowCloseGuard,
+    ActivityShutdownState, CloseDecision, CloseTarget, ClosedWindows, ShutdownOutcome,
+    WindowCloseGuard,
 };
 use std::time::{Duration, Instant};
 
@@ -46,6 +49,9 @@ fn host_operation_guard(local_pending: bool, peer_pending: bool) -> WindowCloseG
 #[cfg(test)]
 #[path = "root_close_tests.rs"]
 mod tests;
+#[path = "root_close_update.rs"]
+mod update_close;
+use update_close::OtherWindows;
 
 impl Root {
     fn window_guard(&self, cx: &gpui::App) -> WindowCloseGuard {
@@ -93,44 +99,6 @@ impl Root {
         cx.notify();
         true
     }
-    pub fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if self.close_check_pending || (self.closing_window && !self.close_failed) {
-            return false;
-        }
-        if self.block_close(cx) {
-            return false;
-        }
-        let Some(host) = self.app_host.clone() else {
-            return true;
-        };
-        // A failed additional window never owns another registered window's client.
-        if self.window_id.is_none() && host.window_count().is_ok_and(|count| count != 0) {
-            return true;
-        }
-        if let Err(error) = self.sync_app_guard(cx) {
-            self.error = Some(error.to_string());
-            cx.notify();
-            return false;
-        }
-        self.close_check_pending = true;
-        cx.spawn_in(window,async move|root,cx|{
-            let count=host.owned_terminal_count().await;
-            let _=root.update_in(cx,|root,window,cx|{
-                root.close_check_pending=false;
-                let count=match count{Ok(count)=>count,Err(error)=>{root.error=Some(format!("Owned terminal status is unavailable; cleanup is not confirmed: {error:#}"));cx.notify();return;}};
-                if root.block_close(cx){return;}
-                if let Err(error)=root.sync_app_guard(cx){root.error=Some(error.to_string());cx.notify();return;}
-                let target=root.window_id.map(CloseTarget::Window).unwrap_or(CloseTarget::Quit);
-                match host.request_close(target,count){
-                    Ok(CloseDecision::Ready(ticket))=>{root.close_ticket=Some(ticket);root.begin_shutdown(window,cx);},
-                    Ok(CloseDecision::Confirm(confirmation))=>{root.close_confirmation=Some(confirmation);root.dialog=Some(Dialog::Quit);root.modal_focus.focus(window);},
-                    Ok(CloseDecision::Blocked(_))=>root.error=Some("Save/discard files and await pending operations before closing.".into()),
-                    Err(error)=>root.error=Some(error.to_string()),
-                }cx.notify();
-            });
-        }).detach();
-        false
-    }
     fn freeze_inputs(&mut self, frozen: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if let Some(panel) = &self.settings_panel {
             if frozen && !panel.update(cx, |panel, cx| panel.try_freeze_for_close(cx)) {
@@ -158,7 +126,7 @@ impl Root {
     fn drain_views(&self, cx: &mut Context<Self>) -> bool {
         let mut done = true;
         for view in self.views.values().chain(self.fixture.iter()) {
-            done &= view.update(cx, |view, _| view.close());
+            done &= view.update(cx, |view, _| view.drain_for_window_close());
         }
         done
     }
@@ -173,96 +141,137 @@ impl Root {
             window.remove_window();
             return;
         };
-        let ticket = match self.close_confirmation.take() {
-            Some(confirmation) => confirmation.approve(),
-            None => match self.close_ticket.take() {
-                Some(ticket) => ticket,
-                None => return,
-            },
+        let mut others = if self.update_restart || self.system_end_requested() {
+            match OtherWindows::inspect(window.window_handle(), cx) {
+                Ok(windows) => windows,
+                Err(error) => {
+                    self.dismiss_dialog(window, cx);
+                    self.error = Some(error.to_string());
+                    cx.notify();
+                    return;
+                }
+            }
+        } else {
+            OtherWindows::default()
         };
+        let Some(ticket) = self.close_confirmation.clone().map(|confirmation| confirmation.approve())
+            .or_else(|| self.close_ticket.clone()) else { return; };
+        // The prompt stays locked until the host reserves cleanup. Only then
+        // can draining/detaching start, and failures use the cleanup error path.
+        let prompted = matches!(self.dialog, Some(Dialog::Quit));
         self.close_failed = false;
-        self.dialog = None;
+        self.quit_focus.error = None;
+        if !prompted {
+            self.dialog = None;
+            self.close_ticket = None;
+        }
         let freeze_ready = self.freeze_inputs(true, window, cx);
         if !freeze_ready && !self.closing_window {
-            self.close_ticket = Some(ticket);
+            if !prompted && !self.update_restart {
+                self.close_ticket = Some(ticket);
+            }
             return;
         }
         let own_id = self.window_id;
+        let restart = self.update_restart;
+        let restart_request = self.update_ui.restart_request.take();
+        let updater = cx
+            .try_global::<crate::update_view::Updates>()
+            .map(|updates| updates.0.clone())
+            .filter(|update| matches!(update.notice(), Some(crate::update::Notice::Ready)));
+        let settings_client = self.host.clone();
         cx.spawn_in(window, async move |root, cx| {
+            let mut admitted = false;
             let mut peer_withdrawal_started = false;
             let result = async {
+                if !restart
+                    && let (Some(updater), Some(client)) = (&updater, &settings_client)
+                    && let Some(enabled) = crate::update_view::read_preference(client).await
+                {
+                    updater.preference(enabled);
+                }
                 let targets = host.begin_close(&ticket).await?;
-                anyhow::ensure!(
-                    targets.iter().all(|id| Some(*id) == own_id),
-                    "A window close cannot remove another window."
-                );
-                let deadline = Instant::now() + Duration::from_secs(15);
-                loop {
-                    if root.update_in(cx, |root, window, cx| {
-                        // False may be a staged freeze: never cancel the original poll
-                        // or retire a resumable SDK merely to make this drain pass.
-                        root.freeze_inputs(true, window, cx) && root.drain_views(cx)
-                    })? {
-                        break;
-                    }
-                    if Instant::now() >= deadline {
-                        host.abort_close(&ticket)?;
-                        anyhow::bail!(
-                            "Input releases/detach are still pending; the window was retained."
+                admitted = true;
+                let _ = root.update_in(cx, |root, _, cx| {
+                    root.dialog = None;
+                    root.close_confirmation = None;
+                    root.close_ticket = None;
+                    root.update_restart = false;
+                    cx.notify();
+                });
+                let drained = async {
+                    others.check_targets(own_id, &targets)?;
+                    let deadline = Instant::now() + Duration::from_secs(15);
+                    loop {
+                        let own_ready = root.update_in(cx, |root, window, cx| {
+                            root.freeze_inputs(true, window, cx) && root.drain_views(cx)
+                        })?;
+                        if others.drain(cx)? && own_ready {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                        anyhow::ensure!(
+                            Instant::now() < deadline,
+                            "Input releases/detach are still pending; windows were retained."
                         );
+                        cx.background_executor()
+                            .timer(Duration::from_millis(16))
+                            .await;
                     }
-                    cx.background_executor()
-                        .timer(Duration::from_millis(16))
-                        .await;
+                }
+                .await;
+                if let Err(error) = drained {
+                    host.abort_close(&ticket)?;
+                    return Err(error);
                 }
                 peer_withdrawal_started = true;
-                host.finish_close(ticket).await
+                host.finish_close(ticket.clone()).await
             }
             .await;
-            let _ = root.update_in(cx, |root, window, cx| {
-                match result {
-                    Ok(closed) => {
-                        root.retire_all_peer_views(cx);
-                        if closed.app_stopped {
-                            log_shutdown_report(
-                                &mut std::io::stderr().lock(),
-                                host.shutdown_outcome(),
-                            );
-                        }
-                        if root.window_id.is_none()
-                            || root
-                                .window_id
-                                .is_some_and(|id| closed.windows.contains(&id))
+            match result {
+                Ok(closed) => {
+                    let others_closed = others.apply_success(&closed, cx);
+                    let _ = root.update_in(cx, |root, window, cx| {
+                        let own_closed = root.close_confirmed(&closed, window, cx);
+                        if closed.app_stopped
+                            && others_closed
+                            && own_closed
+                            && let Some(updater) = &updater
                         {
-                            root.host = None;
-                            root.window_id = None;
-                            root.app_host = None;
-                            // No new edits were allowed after begin_close; still check pending file work.
-                            root.closing_window = false;
-                            if !root.block_close(cx) {
-                                window.remove_window();
-                            }
+                            updater.confirm_close(restart);
                         }
-                    }
-                    Err(error) => {
-                        root.close_failed = true;
-                        if peer_withdrawal_started {
-                            // DetachAll may have disconnected Manager clients even if
-                            // local detach failed. Old SDKs may not resume after that.
-                            root.retire_all_peer_views(cx);
-                        }
-                        // Retained cleanup is not permission to resume metadata or stdin.
-                        if !host.cleanup_retained().unwrap_or(true) {
-                            root.freeze_inputs(false, window, cx);
-                            root.views.retain(|_, view| !view.read(cx).is_closed());
-                        }
-                        root.error = Some(format!(
-                            "Close failed; resources retained for retry: {error:#}"
-                        ));
+                    });
+                    if closed.app_stopped && !host.is_attached() {
+                        log_shutdown_report(&mut std::io::stderr().lock(), host.shutdown_outcome());
                     }
                 }
-                cx.notify();
-            });
+                Err(error) => {
+                    let retained = host.cleanup_retained().unwrap_or(true);
+                    if prompted && !admitted && !retained {
+                        let decision = match host.owned_terminal_count().await {
+                            Ok(count) => host.recheck_close(&ticket, count).ok(),
+                            Err(_) => None,
+                        };
+                        let _ = root.update_in(cx, |root, window, cx| {
+                            root.resume_after_failed_close(false, false, window, cx);
+                            root.quit_admission_failed(error, decision, restart_request, window, cx);
+                        });
+                        return;
+                    }
+                    others.apply_failure(retained, peer_withdrawal_started, cx);
+                    let _ = root.update_in(cx, |root, window, cx| {
+                        root.resume_after_failed_close(
+                            retained,
+                            peer_withdrawal_started,
+                            window,
+                            cx,
+                        );
+                        let message = format!("Close failed; resources retained for retry: {error:#}");
+                        if crate::desktop_errors::shutdown(cx) { eprintln!("{message}"); }
+                        else { root.error = Some(message); }
+                        cx.notify();
+                    });
+                }
+            }
         })
         .detach();
     }

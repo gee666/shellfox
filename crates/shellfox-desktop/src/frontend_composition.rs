@@ -108,6 +108,8 @@ impl FrontendDirectories {
             SensitiveRoot::Device => &self.plans.device,
             SensitiveRoot::Editor => &self.plans.editor,
         };
+        plan.repair_app_directory()
+            .context("Cannot make the Shellfox frontend state directory private")?;
         let cap = match plan.create_private_approved_root() {
             Ok(cap) => cap,
             Err(failure) => {

@@ -110,7 +110,9 @@ fn create_pipe(
     options
         .first_pipe_instance(first)
         .reject_remote_clients(true)
-        .max_instances(8);
+        // The listener separately bounds request and lifetime tasks. A low
+        // kernel instance cap prevented it from rotating the accept pipe.
+        .max_instances(160);
     // The descriptor remains alive throughout creation. Tokio passes it directly
     // to CreateNamedPipeW; Windows copies it into the new pipe's kernel object.
     Ok(unsafe {
@@ -126,7 +128,19 @@ pub(crate) async fn connect(address: &str, _directory: &Path) -> Result<LocalStr
     if !suffix.is_some_and(|value| uuid::Uuid::parse_str(value).is_ok()) {
         bail!("Invalid experimental named-pipe endpoint.");
     }
-    let pipe = tokio::net::windows::named_pipe::ClientOptions::new().open(address)?;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(250);
+    let pipe = loop {
+        match tokio::net::windows::named_pipe::ClientOptions::new().open(address) {
+            Ok(pipe) => break pipe,
+            Err(error) if error.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32)
+                && tokio::time::Instant::now() < deadline => {
+                // The listener marks the next instance available after accepting
+                // the previous connection. No request has been sent yet.
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    };
     let stream: LocalStream = Box::new(pipe);
     stream.verify_peer()?;
     Ok(stream)

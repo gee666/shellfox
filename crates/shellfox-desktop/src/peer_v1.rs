@@ -3,12 +3,19 @@ use anyhow::{anyhow, Result};
 use shellfox_client::{Client, ClientState, ConnectionStatus};
 use shellfox_protocol::{
     AuthenticatedPeerId, ClientId, Disconnected, Endpoint, GetSnapshot, ManagerSnapshot,
-    OutboundTransport, PairResponse, Reply, Request, RequestLimits, TransportError,
+    OutboundTransport, PairResponse, PollResponse, Reply, Request, RequestLimits, TransportError,
     TransportFuture,
 };
 use shellfox_service::{native::NativeClient, remote::OutgoingV2Endpoint};
 
-struct Transport(NativeClient);
+#[cfg(test)]
+#[path = "peer_v1_interop_tests.rs"]
+mod interop_tests;
+
+enum Transport {
+    Native(NativeClient),
+    Attached(super::attached::AttachedLocal),
+}
 
 impl OutboundTransport for Transport {
     fn send<'a>(
@@ -27,10 +34,18 @@ impl OutboundTransport for Transport {
                 Endpoint::Disconnect => OutgoingV2Endpoint::DisconnectV1,
                 _ => return Err(TransportError::InvalidRequest),
             };
-            let response = self
-                .0
-                .outgoing_v2_with_status(peer, endpoint, body, limits)
-                .await?;
+            let response = match self {
+                Self::Native(client) => {
+                    client
+                        .outgoing_v2_with_status(peer, endpoint, body, limits)
+                        .await?
+                }
+                Self::Attached(client) => {
+                    client
+                        .outgoing(peer.clone(), endpoint, body, limits)
+                        .await?
+                }
+            };
             if !(200..300).contains(&response.status) {
                 return Err(TransportError::Rejected {
                     status: response.status,
@@ -41,18 +56,37 @@ impl OutboundTransport for Transport {
     }
 }
 
-pub struct V1Binding(Client<Transport>);
+pub struct V1Binding {
+    client: Client<Transport>,
+    pairing: tokio::sync::Mutex<()>,
+}
 
 impl V1Binding {
     pub fn state(&self) -> ClientState {
-        self.0.state()
+        self.client.state()
     }
 
     pub async fn connect(&self) -> Result<()> {
-        if self.state().status != ConnectionStatus::Connected {
-            value::<PairResponse>(self.0.pair().await?)?;
+        let _pairing = self.pairing.lock().await;
+        let state = self.state();
+        match state.status {
+            ConnectionStatus::Connected => Ok(()),
+            ConnectionStatus::Rejected => Err(anyhow!(state.last_error.map_or_else(
+                || "Access declined or revoked.".into(),
+                |error| error.message,
+            ))),
+            _ => value::<PairResponse>(self.client.pair().await?).map(|_| ()),
         }
-        Ok(())
+    }
+
+    pub(super) fn retry_rejected(&self) {
+        if self.state().status == ConnectionStatus::Rejected {
+            self.client.reconnect(ClientId::new_v4());
+        }
+    }
+
+    pub(crate) async fn poll(&self) -> Result<PollResponse> {
+        value(self.client.poll().await?)
     }
 
     pub async fn v1_snapshot(&self) -> Result<ManagerSnapshot> {
@@ -65,11 +99,31 @@ impl V1Binding {
     }
 
     pub(crate) async fn v1_reply<R: Request>(&self, request: &R) -> Result<Reply<R::Response>> {
-        Ok(self.0.execute(request).await?)
+        Ok(self.client.execute(request).await?)
+    }
+
+    pub(crate) async fn v1_reply_with_connection<R: Request>(
+        &self,
+        connection: u64,
+        request: &R,
+    ) -> Result<Reply<R::Response>> {
+        Ok(self
+            .client
+            .execute_with_connection(connection, request)
+            .await?)
+    }
+
+    pub(crate) fn with_connection<T>(
+        &self,
+        connection: u64,
+        operation: impl FnOnce() -> T,
+    ) -> Result<T> {
+        Ok(self.client.with_connection(connection, operation)?)
     }
 
     pub async fn disconnect(&self) -> Result<()> {
-        value::<Disconnected>(self.0.disconnect().await?)?;
+        let _pairing = self.pairing.lock().await;
+        value::<Disconnected>(self.client.disconnect().await?)?;
         Ok(())
     }
 }
@@ -84,10 +138,16 @@ fn value<T>(reply: Reply<T>) -> Result<T> {
 impl super::HostClient {
     /// Creates an unpaired view. Keep it for subsequent calls to the same peer.
     pub fn peer_v1(&self, peer: AuthenticatedPeerId) -> V1Binding {
-        V1Binding(Client::new(
-            peer,
-            ClientId::new_v4(),
-            Transport(self.native.clone()),
-        ))
+        V1Binding {
+            client: Client::new(
+                peer,
+                ClientId::new_v4(),
+                match &self.port {
+                    super::HostPort::Native(client) => Transport::Native(client.clone()),
+                    super::HostPort::Attached(client) => Transport::Attached(client.clone()),
+                },
+            ),
+            pairing: tokio::sync::Mutex::new(()),
+        }
     }
 }

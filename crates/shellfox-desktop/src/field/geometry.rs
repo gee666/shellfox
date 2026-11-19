@@ -7,6 +7,7 @@ pub(super) struct PaintedLine {
     pub line: ShapedLine,
     pub origin: Point<Pixels>,
     pub caret_adjust: f32,
+    pub projection: Option<super::editor_line::Projection>,
 }
 pub(super) fn index_at(field: &Field, position: Point<Pixels>, _: &Window) -> Option<usize> {
     let line = field.painted_lines.iter().find(|line| {
@@ -20,7 +21,10 @@ pub(super) fn index_at(field: &Field, position: Point<Pixels>, _: &Window) -> Op
         .line
         .closest_index_for_x(position.x - line.origin.x)
         .min(line.line.len());
-    let index = buffer::source_index(source, index, field.secret);
+    let index = line.projection.as_ref().map_or_else(
+        || buffer::source_index(source, index, field.secret),
+        |projection| projection.source_index(index),
+    );
     source
         .is_char_boundary(index)
         .then_some(line.source.start + index)
@@ -34,13 +38,17 @@ pub(super) fn caret_bounds(
     let line = field
         .painted_lines
         .iter()
+        .rev()
         .find(|line| index >= line.source.start && index <= line.source.end)?;
     let source = field.text.get(line.source.clone())?;
     let index = index.checked_sub(line.source.start)?;
     if !source.is_char_boundary(index) {
         return None;
     }
-    let display = buffer::display_index(source, index, field.secret);
+    let display = line.projection.as_ref().map_or_else(
+        || buffer::display_index(source, index, field.secret),
+        |projection| projection.display_index(index),
+    );
     Some(Bounds::new(
         point(
             line.origin.x + line.line.x_for_index(display) + px(line.caret_adjust),

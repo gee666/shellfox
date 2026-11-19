@@ -3,6 +3,40 @@ use shellfox_ghostty_vt::{Key, KeyAction, KeyEvent};
 use shellfox_runtime::{Command, Lease};
 
 #[test]
+fn window_drain_waits_for_the_reserved_release_without_queueing_a_tab_detach() {
+    let mut outbox = Outbox::default();
+    let lease = Lease {
+        controller: 7,
+        epoch: 3,
+    };
+    outbox
+        .enqueue(
+            Command::Key {
+                lease,
+                event: KeyEvent {
+                    key: Key::Character('x'),
+                    action: KeyAction::Press,
+                    ..Default::default()
+                },
+            },
+            Pending::Applied,
+        )
+        .unwrap();
+    let mut next = 0;
+    let mut pending = HashMap::new();
+    outbox.flush(&mut next, &mut pending, |_| Ok(()));
+    assert!(!outbox.is_drained());
+    outbox.cancel(false).unwrap();
+    assert!(!outbox.is_drained());
+    outbox.flush(&mut next, &mut pending, |request| {
+        assert!(matches!(request.command, Command::Key { event, .. } if event.action == KeyAction::Release));
+        Ok(())
+    });
+    assert!(outbox.is_drained());
+    assert_eq!(pending.len(), 2);
+}
+
+#[test]
 fn dropped_view_keeps_retained_intents_then_reserved_release_then_detach() {
     let lease = Lease {
         controller: 7,
@@ -46,7 +80,7 @@ fn dropped_view_keeps_retained_intents_then_reserved_release_then_detach() {
     );
     outbox.cancel(false).unwrap();
     outbox.enqueue(Command::RetryClose, Pending::Close).unwrap();
-    let mut retirement = Retirement::new(outbox, next);
+    let mut retirement = Retirement::new(outbox, next, true);
     assert!(matches!(
         retirement.next().unwrap().command,
         Command::Paste { .. }

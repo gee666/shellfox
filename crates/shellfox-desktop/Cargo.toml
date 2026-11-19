@@ -6,7 +6,7 @@ publish = false
 license = "MIT"
 
 [[bin]]
-name = "shellfox-gpui-experiment"
+name = "shellfox"
 path = "src/main.rs"
 
 [[test]]
@@ -23,6 +23,31 @@ experimental-shellfox-native = ["shellfox-service/experimental-shellfox-native",
 [dependencies]
 anyhow = "1"
 gpui = "=0.2.2"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "ico"] }
+avif-parse = "2.1.0"
+avif-pixels = { package = "ferri-pdf-avif-decode", version = "3.0.3" }
+resvg = "0.45.1"
+pulldown-cmark = { version = "0.13.6", default-features = false }
+icu_collator = "2.4.0"
+icu_decimal = { version = "2.4.0", features = ["alloc"] }
+icu_locale = "2.4.0"
+sys-locale = "0.3.2"
+percent-encoding = "2"
+tree-sitter-highlight = "0.27.2"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-typescript = "0.23.2"
+tree-sitter-html = "0.23.2"
+tree-sitter-xml = "0.7.0"
+tree-sitter-css = "0.25.0"
+tree-sitter-json = "0.24.8"
+tree-sitter-bash = "0.25.1"
+tree-sitter-python = "0.25.0"
+tree-sitter-powershell = "0.26.6"
+tree-sitter-c-sharp = "0.23.5"
+tree-sitter-md = "0.5.4"
+tree-sitter-yaml = "0.7.2"
+unicode-width = "0.2"
+unicode-segmentation = "1"
 url = "2"
 accesskit = "=0.25.2"
 raw-window-handle = "=0.6.2"
@@ -32,8 +57,13 @@ shellfox-protocol = { path = "../shellfox-protocol" }
 shellfox-client = { path = "../shellfox-client" }
 shellfox-mobile = { path = "../shellfox-mobile" }
 serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+semver = "1"
+sha2 = "0.10"
+tempfile = "3"
+reqwest = { package = "zed-reqwest", version = "=0.12.15-zed", default-features = false, features = ["rustls-tls-native-roots"] }
 shellfox-service = { path = "../shellfox-service" }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros"] }
 shellfox-runtime = { path = "../shellfox-runtime" }
 shellfox-files = { path = "../shellfox-files" }
 shellfox-ghostty-vt = { path = "../ghostty-vt" }
@@ -41,13 +71,26 @@ shellfox-terminal = { path = "../shellfox-terminal" }
 
 [target.'cfg(windows)'.dependencies]
 accesskit_windows = "=0.35.2"
-windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+winreg = "0.56"
+windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+
+[[test]]
+name = "macos-folder-picker"
+path = "tests/macos_folder_picker.rs"
+harness = false
 
 [target.'cfg(target_os = "macos")'.dependencies]
 accesskit_macos = "=0.27.2"
+flate2 = "1"
+block2 = "=0.6.2"
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSString", "NSURL"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSColorSampler", "NSColorSpace", "NSColor", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "block2", "objc2-core-foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit_unix = "=0.24.1"
+ashpd = { version = "=0.12.3", default-features = false, features = ["async-std", "raw_handle", "wayland"] }
+yeslogic-fontconfig-sys = { version = "6", features = ["dlopen"] }
 
 [dev-dependencies]
-tempfile = "3"
+flate2 = "1"

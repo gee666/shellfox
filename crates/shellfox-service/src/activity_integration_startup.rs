@@ -9,6 +9,7 @@ pub enum StartupEvidence {
     Confirmed,
     Failed {
         sanitized_error: wire::AppError,
+        acknowledged: bool,
     },
 }
 impl StartupEvidence {
@@ -17,6 +18,7 @@ impl StartupEvidence {
         match result {
             Ok(()) => Self::Confirmed,
             Err(_) => Self::Failed {
+                acknowledged: false,
                 sanitized_error: wire::AppError {
                     code: wire::ErrorCode::LaunchFailed,
                     message: FAILED.into(),
@@ -26,7 +28,7 @@ impl StartupEvidence {
         }
     }
     pub(super) fn validate(&self) -> Result<(), wire::ValidationError> {
-        if let Self::Failed { sanitized_error } = self {
+        if let Self::Failed { sanitized_error, .. } = self {
             sanitized_error.validate()?;
             if !matches!(sanitized_error.code, wire::ErrorCode::LaunchFailed)
                 || sanitized_error.message != FAILED

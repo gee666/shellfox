@@ -102,7 +102,7 @@ node scripts/electron-parity-candidate.mjs UNIQUE-GPUI-LABEL
 node scripts/electron-parity-compare.mjs BASELINE-DIR CANDIDATE-DIR UNIQUE-REPORT-LABEL
 ```
 
-The candidate command launches a new worktree `target/debug/shellfox-gpui-experiment.exe` with a fresh explicit data directory. It currently captures only the empty state. It refuses unexpected nonempty session state. It does not attach to another GPUI instance and cannot claim the remaining states passed.
+The candidate command launches a new worktree `target/debug/shellfox.exe` with a fresh explicit data directory. It currently captures only the empty state. It refuses unexpected nonempty session state. It does not attach to another GPUI instance and cannot claim the remaining states passed.
 
 The PowerShell helper opens the exact requested process, verifies its birth FILETIME, executable path and HWND owner, and checks identity again around capture. PID 9484 and PID 25904 are explicitly protected before native access. The candidate exercises the wrong-birth guard and records its rejection. Resizing and `WM_CLOSE` target only the newly owned, verified HWND. There is no global keyboard/mouse injection, foreground-window guessing, numeric-PID kill fallback or screen-crop fallback.
 

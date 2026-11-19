@@ -14,6 +14,9 @@ use std::{
 #[path = "root_close.rs"]
 mod close;
 pub(crate) use close::log_shutdown_report;
+#[path = "quit_dialog.rs"]
+mod quit_dialog;
+pub(crate) use quit_dialog::QuitFocus;
 #[path = "root_catalog.rs"]
 mod catalog;
 #[path = "root_launch.rs"]
@@ -25,34 +28,34 @@ mod semantics;
 #[path = "root_startup.rs"]
 mod startup;
 #[path="root_peer_close.rs"]mod peer_close;
-#[cfg(feature = "experimental-shellfox-native")]
 #[path = "peer_source.rs"] pub(crate) mod source;
-#[cfg(feature = "experimental-shellfox-native")]
 #[path = "root_peer.rs"] pub(crate) mod peer;
 
 pub struct StartupError {
     pub message: String,
+    pub control_required: bool,
 }
 impl From<anyhow::Error> for StartupError {
     fn from(error: anyhow::Error) -> Self {
-        Self {
-            message: format!("{error:#}"),
-        }
+        let control_required = error.downcast_ref::<shellfox_runtime::RuntimeError>()
+            .is_some_and(|error| error.code == shellfox_runtime::ErrorCode::ControlRequired);
+        Self { message: format!("{error:#}"), control_required }
     }
 }
 pub enum Dialog {
     Create(crate::directory::Draft),
     RenameSession { id: SessionId, title: Entity<Field> },
-    RenameTab { id: TabId, title: Entity<Field> },
+    SessionEnvironment { id: SessionId, text: Entity<Field> },
+    PeerSession(peer::session_dialog::PeerSessionDialog),
+    RenameTab { id: TabId, title: Entity<Field>, _blur: gpui::Subscription },
     DeleteSession(SessionId),
-    CloseTab(TabId),
+    CloseTab(shellfox_core::TerminalIdentity),
     Quit,
 }
 pub struct Root {
     pub(crate) host: Option<HostClient>,
-    #[cfg(feature = "experimental-shellfox-native")]
+    pub(crate) tab_activity: crate::tab_activity::TabActivity,
     pub(crate) peers: source::PeerSources,
-    #[cfg(feature = "experimental-shellfox-native")]
     pub(crate) peer_ui: peer::PeerUi,
     pub(crate) semantic_context: crate::accessibility::WindowSemanticContext,
     pub(crate) native_accessibility: Option<crate::accessibility::NativeAccessibility>,
@@ -60,7 +63,11 @@ pub struct Root {
     pub(crate) app_host: Option<AppHost>,
     pub(crate) window_id: Option<WindowId>,
     pub(crate) close_confirmation: Option<CloseConfirmation>,
+    pub(crate) quit_focus: QuitFocus,
+    pub(crate) window_tracker: Option<crate::desktop_geometry::WindowTracker>,
     pub(crate) close_ticket: Option<CloseTicket>,
+    pub(crate) update_restart: bool,
+    pub(crate) update_ui: crate::update_view::UpdateUi,
     pub(crate) close_check_pending: bool,
     pub(crate) close_failed: bool,
     pub(crate) snapshot: Option<Snapshot>,
@@ -72,19 +79,24 @@ pub struct Root {
     pub(crate) failures: HashMap<TabId, StartupError>,
     pub(crate) settings_panel: Option<Entity<crate::settings::SettingsPanel>>,
     pub(crate) files: Option<crate::files::Files>,
+    pub(crate) retained_files: Vec<crate::files::Files>,
     pub(crate) fixture: Option<Entity<TerminalView>>,
     pub(crate) run_dir: PathBuf,
     pub(crate) window_caption: String,
     pub(crate) error: Option<String>,
+    pub(crate) notifications: crate::chrome::Notifications,
     pub(crate) dialog: Option<Dialog>,
     pub(crate) settings: bool,
     pub(crate) sidebar: bool,
+    pub(crate) layout_keys: u8,
     pub(crate) sidebar_width: f32,
     pub(crate) resizing_sidebar: bool,
     pub(crate) local_expanded: bool,
     pub(crate) history_page_size: usize,
     pub(crate) session_pages: usize,
-    pub(crate) session_menu: Option<(SessionId, gpui::Point<gpui::Pixels>)>,
+    pub(crate) sidebar_ui: crate::sidebar::SidebarUi,
+    pub(crate) session_menu: Option<crate::session_menu::SessionMenu>,
+    pub(crate) tab_menu: Option<crate::chrome::TabMenu>,
     pub(crate) modal_focus: FocusHandle,
     pub(crate) closing_window: bool,
     pub(crate) action_pending: bool,
@@ -92,19 +104,16 @@ pub struct Root {
     pub(crate) refresh_admission: crate::workspace::refresh::RefreshAdmission,
     pub(crate) profiles: Vec<crate::settings::api::Profile>,
     pub(crate) catalog_epoch: u64,
-    pub(crate) ssh_ui: crate::root_ssh::SshUi,
     pub(crate) profile_menu: Option<crate::profile_menu::ProfileMenu>,
     pub(crate) power: power::PowerUi,
 }
 impl Root {
     pub(crate) fn is_local_source(&self)->bool{
-        #[cfg(feature="experimental-shellfox-native")] {self.peers.selected==source::Source::Local}
-        #[cfg(not(feature="experimental-shellfox-native"))] {true}
+        self.peers.selected==source::Source::Local
     }
     /// UI publication cancellation, NOT a Manager/file authority epoch.
     pub(crate) fn source_selection_epoch(&self)->u64{
-        #[cfg(feature="experimental-shellfox-native")] {self.peers.selection_epoch()}
-        #[cfg(not(feature="experimental-shellfox-native"))] {0}
+        self.peers.selection_epoch()
     }
     pub(crate) fn accept_snapshot(&mut self, snapshot: Snapshot, cx: &mut Context<Self>) -> bool {
         if self
@@ -122,6 +131,7 @@ impl Root {
             .iter()
             .flat_map(|session| session.tabs.iter().map(|tab| tab.id))
             .collect();
+        self.retire_wsl_file_tabs(&retained, cx);
         self.failures.retain(|id, _| retained.contains(id));
         self.views.retain(|id, _| retained.contains(id));
         for (tab, view) in &self.views {
@@ -134,15 +144,20 @@ impl Root {
                 view.update(cx, |view, cx| view.set_captured_settlement(marker, cx));
             }
         }
+        crate::startup_chrome::StartupPalette::remember(&snapshot, cx);
+        self.sidebar_ui.snapshot(&snapshot, cx);
         self.snapshot = Some(snapshot);
         true
     }
     pub(crate) fn sync_dialog_edit_state(&self, cx: &mut Context<Self>) {
         match &self.dialog {
+            Some(Dialog::PeerSession(dialog)) => if let Some(field) = dialog.field() {
+                field.update(cx, |field, cx| field.set_read_only(self.dialog_locked(), cx));
+            },
             Some(Dialog::Create(draft)) => draft.path.update(cx, |field, cx| {
-                field.set_read_only(self.user_action_pending || draft.busy, cx)
+                field.set_read_only(self.user_action_pending || draft.busy.is_some(), cx)
             }),
-            Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. }) => title
+            Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. } | Dialog::SessionEnvironment { text: title, .. }) => title
                 .update(cx, |field, cx| {
                     field.set_read_only(self.user_action_pending, cx)
                 }),
@@ -150,31 +165,58 @@ impl Root {
         }
     }
     pub(crate) fn dialog_locked(&self) -> bool {
-        self.user_action_pending || matches!(&self.dialog,Some(Dialog::Create(draft))if draft.busy)
+        self.user_action_pending
+            || matches!(self.dialog, Some(Dialog::Quit))
+                && (self.closing_window && !self.close_failed || self.close_check_pending)
+            || matches!(&self.dialog, Some(Dialog::Create(draft)) if draft.busy.is_some())
+            || matches!(&self.dialog, Some(Dialog::PeerSession(dialog)) if self.peer_ui.pending.contains(&dialog.cycle.peer))
     }
     pub(crate) fn dismiss_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.dialog_locked() {
             return;
         }
         if matches!(self.dialog, Some(Dialog::Quit)) {
+            self.quit_focus.error = None;
             self.close_confirmation = None;
             self.close_ticket = None;
+            self.update_restart = false;
+            self.update_ui.restart_request = None;
         }
-        self.dialog = None;
-        self.focus_selected(window, cx);
+        if matches!(self.dialog, Some(Dialog::PeerSession(_))) { self.dismiss_peer_session_dialog(window, cx); return; }
+        let dialog = self.dialog.take();
+        if let Some(Dialog::RenameTab { id, .. }) = dialog {
+            self.focus_tab_label(id, window, cx);
+        } else if !matches!(dialog, Some(Dialog::Quit)) || !self.quit_focus.restore(window) {
+            self.focus_selected(window, cx);
+        }
         cx.notify();
     }
     pub(crate) fn selected_tab(&self) -> Option<TabId> {
-        if !self.is_local_source(){return None;}
-        self.navigation.selected().tab_id
+        let selected_session = self.selected_session()?;
+        let session = self.snapshot.as_ref()?.sessions.iter().find(|item| item.id == selected_session)?;
+        let selected = self.navigation.selected().tab_id;
+        let mut visible = session.tabs.iter().filter(|tab| self.local_tab_viewable(tab));
+        visible.clone().find(|tab| Some(tab.id) == selected).or_else(|| visible.next()).map(|tab| tab.id)
     }
     pub(crate) fn selected_session(&self) -> Option<SessionId> {
         if !self.is_local_source(){return None;}
         self.navigation.selected().session_id
     }
     pub(crate) fn focus_selected(&self, window: &mut Window, cx: &gpui::App) {
-        #[cfg(feature="experimental-shellfox-native")]
-        if let Some((peer,state))=self.peers.selected_peer(){if let Some(view)=state.selected_tab.and_then(|tab|self.peer_ui.views.get(&(peer.clone(),tab))){view.read(cx).focus(window);}return;}
+        if !self.is_local_source() {
+            #[cfg(feature = "experimental-shellfox-native")]
+            if let Some((peer, state)) = self.peers.selected_peer()
+                && let Some(view) = state.selected_tab.and_then(|tab| self.peer_ui.views.get(&(peer.clone(), tab))) {
+                view.read(cx).focus(window);
+            }
+            #[cfg(not(feature = "experimental-shellfox-native"))]
+            if let Some(view) = self.peers.selected_peer().and_then(|(peer, state)| {
+                self.peer_ui.v1_views.get(&(peer.clone(), state.selected_tab?))
+            }) {
+                view.read(cx).focus.focus(window);
+            }
+            return;
+        }
         if let Some(view) = self.selected_tab().and_then(|id| self.views.get(&id)) {
             view.read(cx).focus.focus(window);
         }
@@ -188,9 +230,10 @@ impl Root {
                 if root
                     .update_in(cx, |root, window, cx| {
                         root.poll_semantics(window, cx);
-                        root.poll_ssh(window, cx);
                         root.poll_power(window, cx);
-                        #[cfg(feature="experimental-shellfox-native")] {root.poll_peer_inventory(window,cx);root.poll_peer_sources(window,cx);}
+                        root.poll_updates(cx);
+                        root.poll_session_visibility(window, cx);
+                        root.poll_peer_inventory(window,cx);root.poll_peer_sources(window,cx);
                         if let Err(error) = root.sync_app_guard(cx) {
                             root.error = Some(error.to_string());
                             cx.notify();

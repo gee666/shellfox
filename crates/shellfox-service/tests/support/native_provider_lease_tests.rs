@@ -3,16 +3,14 @@ use shellfox_service::native_providers::NativeProgramResource;
 use std::{path::Path, sync::Arc};
 fn fixture() -> Result<(tempfile::TempDir, std::path::PathBuf, [u8; 32])> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+    std::fs::create_dir_all(&root)?;
     let temp = tempfile::Builder::new()
         .prefix("program-lease-")
         .tempdir_in(root)?;
     let file = temp.path().join("declared-input");
     std::fs::write(&file, b"provider-program-fixture\n")?;
-    Ok((
-        temp,
-        file,
-        super::inputs::digest("593e72c0b7aabeff5d43bc242b289b5602127a83a1f7404e74045ad61cc542c2")?,
-    ))
+    let digest = super::inputs::digest_file(&file)?;
+    Ok((temp, file, digest))
 }
 #[test]
 fn generic_producer_guards_do_not_claim_immutable_file_validation() -> Result<()> {

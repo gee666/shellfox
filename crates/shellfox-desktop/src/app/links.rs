@@ -1,27 +1,189 @@
-use super::{Backend, TerminalView, runtime::Pending};
+use super::{
+    link_gesture::FilePress,
+    link_ranges::{self, LinkRange},
+    runtime::Pending,
+    terminal_file_link::{self, TerminalFileLink},
+    Backend, TerminalView,
+};
 use gpui::{ClipboardItem, Context};
-use shellfox_ghostty_vt::{Screen, ViewportPoint};
+use shellfox_ghostty_vt::ViewportPoint;
 use shellfox_runtime::Command;
+use url::Url;
+
+const MAX_LINK_BYTES: usize = 2048;
+
+#[derive(Default)]
+pub(super) struct LinkState {
+    pub hovered: Option<LinkRange>,
+    pub menu: Option<super::link_menu::LinkMenu>,
+    pub menu_press: Option<super::link_menu::LinkMenuPress>,
+    pub file_press: Option<FilePress>,
+    pub(super) files_enabled: bool,
+    point: Option<HoverPoint>,
+    pending: bool,
+}
+
+impl gpui::EventEmitter<TerminalFileLink> for TerminalView {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct HoverPoint {
+    point: ViewportPoint,
+    content: (u64, u64, u16),
+}
 
 impl TerminalView {
+    fn link_point(&self, point: ViewportPoint) -> HoverPoint {
+        let (sequence, top) = match &self.screen {
+            super::SharedScreen::Native(frame) => (frame.sequence, frame.top_row),
+            super::SharedScreen::Peer(frame) => (frame.sequence, frame.rendered.top_row),
+            _ => (0, 0),
+        };
+        let content = (sequence, top, self.screen.cols);
+        HoverPoint { point, content }
+    }
+
+    fn osc_link_at(&self, point: ViewportPoint) -> bool {
+        let idx = |x| usize::from(self.screen.cols) * usize::from(point.y) + usize::from(x);
+        self.screen.cells.get(idx(point.x)).is_some_and(|cell| {
+            cell.has_hyperlink
+                || cell.width == 0
+                    && point.x > 0
+                    && self
+                        .screen
+                        .cells
+                        .get(idx(point.x - 1))
+                        .is_some_and(|cell| cell.has_hyperlink)
+        })
+    }
+
+    fn plain_link_at(&self, point: ViewportPoint) -> Option<LinkRange> {
+        let metadata = match &self.screen {
+            super::SharedScreen::Native(frame) => &frame.row_metadata[..],
+            super::SharedScreen::Peer(frame) => &frame.rendered.row_metadata[..],
+            _ => &[],
+        };
+        link_ranges::link_at(&self.screen, metadata, point, self.links.files_enabled)
+    }
+
+    pub(super) fn visible_link_at(&self, point: ViewportPoint) -> Option<LinkRange> {
+        if self.osc_link_at(point) {
+            if self.links.point == Some(self.link_point(point)) {
+                self.links.hovered.clone()
+            } else {
+                None
+            }
+        } else {
+            self.plain_link_at(point)
+        }
+    }
+
+    pub(super) fn update_link_hover(
+        &mut self,
+        point: Option<ViewportPoint>,
+        cx: &mut Context<Self>,
+    ) {
+        let point = point.map(|point| self.link_point(point));
+        if self.links.point == point {
+            return;
+        }
+        self.links.point = point;
+        let had_link = self.links.hovered.take().is_some();
+        self.probe_link_hover(cx);
+        if had_link || self.links.hovered.is_some() {
+            cx.notify();
+        }
+    }
+
+    fn probe_link_hover(&mut self, cx: &mut Context<Self>) {
+        let Some(at) = self.links.point else {
+            return;
+        };
+        if !self.osc_link_at(at.point) {
+            self.links.hovered = self.plain_link_at(at.point);
+            return;
+        }
+        if self.links.pending {
+            return;
+        }
+        if let Some(uri) = self.backend.local_hyperlink(at.point) {
+            self.apply_link_hover(at, uri.ok().flatten(), cx);
+        } else if let Backend::Attached(connection) = &self.backend {
+            let view = connection.access.presentation_lease();
+            self.links.pending = self.submit(
+                Command::Presentation {
+                    view,
+                    action: shellfox_runtime::PresentationAction::Hyperlink { point: at.point },
+                },
+                Pending::LinkHover(at),
+            );
+        }
+    }
+
+    pub(super) fn apply_link_hover(
+        &mut self,
+        at: HoverPoint,
+        uri: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.links.pending = false;
+        if self.links.point != Some(at) {
+            self.probe_link_hover(cx);
+            return;
+        }
+        if at != self.link_point(at.point) {
+            return;
+        }
+        self.links.hovered = safe_target(uri, self.links.files_enabled).map(|target| LinkRange {
+            target,
+            start: at.point,
+            end: at.point,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn link_menu_open(&self) -> bool {
+        self.links.menu.is_some()
+    }
+
+    pub(super) fn link_hover_for_draw(&self) -> Option<&LinkRange> {
+        let point = self.links.point?;
+        if point == self.link_point(point.point) {
+            self.links.hovered.as_ref()
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn hovered_link_cells(&self, window: &gpui::Window) -> Option<(ViewportPoint, ViewportPoint)> {
+        if !self.focus.is_focused(window) && !self.link_menu_open() {
+            return None;
+        }
+        self.link_hover_for_draw()
+            .map(|link| (link.start, link.end))
+    }
+
+    pub(crate) fn enable_file_links(&mut self) {
+        self.links.files_enabled = true;
+    }
+
     pub(super) fn open_link(
+        &mut self,
         uri: Option<String>,
         modifiers: gpui::Modifiers,
         cx: &mut Context<Self>,
     ) {
-        let Some(uri) = uri.and_then(|uri| safe_web_url(&uri)) else {
+        let Some(uri) = safe_target(uri, self.links.files_enabled) else {
             return;
         };
-        if modifiers.shift
-            && if cfg!(target_os = "macos") {
-                modifiers.platform
-            } else {
-                modifiers.control
-            }
-        {
+        if copy_link(modifiers) {
             cx.write_to_clipboard(ClipboardItem::new_string(uri));
         } else if !(cfg!(target_os = "macos") && modifiers.control) {
-            cx.open_url(&uri);
+            if let Some(file) = terminal_file_link::parse(&uri) {
+                self.update_link_hover(None, cx);
+                cx.emit(file);
+            } else if safe_web_url(&uri).is_some() {
+                cx.open_url(&uri);
+            }
         }
     }
 
@@ -31,43 +193,57 @@ impl TerminalView {
         modifiers: gpui::Modifiers,
         cx: &mut Context<Self>,
     ) {
-        let fallback = at_cell(
-            &self.screen,
-            usize::from(point.y) * usize::from(self.screen.cols) + usize::from(point.x),
-        );
-        match &mut self.backend {
-            Backend::Fixture(terminal) => match terminal.hyperlink_at(point) {
-                Ok(uri) => Self::open_link(resolve_target(uri, fallback), modifiers, cx),
+        if !self.osc_link_at(point) {
+            self.open_link(
+                self.plain_link_at(point).map(|link| link.target),
+                modifiers,
+                cx,
+            );
+        } else if let Some(uri) = self.backend.local_hyperlink(point) {
+            match uri {
+                Ok(uri) => self.open_link(uri, modifiers, cx),
                 Err(error) => self.fail(error),
-            },
-            Backend::Attached(connection) => {
-                let view = connection.access.presentation_lease();
-                self.submit(
-                    Command::Presentation {
-                        view,
-                        action: shellfox_runtime::PresentationAction::Hyperlink { point },
-                    },
-                    Pending::Link {
-                        modifiers,
-                        fallback,
-                    },
-                );
             }
+        } else if let Backend::Attached(connection) = &self.backend {
+            let view = connection.access.presentation_lease();
+            self.submit(
+                Command::Presentation {
+                    view,
+                    action: shellfox_runtime::PresentationAction::Hyperlink { point },
+                },
+                Pending::Link { modifiers },
+            );
         }
     }
 }
 
-use url::Url;
-
-const MAX_LINK_BYTES: usize = 2048;
-
-pub(super) fn resolve_target(native: Option<String>, fallback: Option<String>) -> Option<String> {
-    // An unsafe OSC 8 URI must not turn its visible label into a different link.
-    native.or(fallback).and_then(|uri| safe_web_url(&uri))
+impl Backend {
+    fn local_hyperlink(&mut self, point: ViewportPoint) -> Option<shellfox_ghostty_vt::Result<Option<String>>> {
+        match self {
+            Self::Fixture(terminal) => Some(terminal.hyperlink_at(point)),
+            Self::Peer(peer) => Some(peer.terminal.view_hyperlink(&mut peer.presentation, point)),
+            Self::Attached(_) => None,
+        }
+    }
 }
 
-/// Shell output is untrusted. Never pass a non-web scheme to the OS opener.
-pub fn safe_web_url(value: &str) -> Option<String> {
+pub(super) fn copy_link(mods: gpui::Modifiers) -> bool {
+    mods.shift
+        && if cfg!(target_os = "macos") {
+            mods.platform
+        } else {
+            mods.control
+        }
+}
+
+fn safe_target(value: Option<String>, files: bool) -> Option<String> {
+    value.filter(|uri| {
+        safe_web_url(uri).is_some() || files && terminal_file_link::parse(uri).is_some()
+    })
+}
+
+/// Terminal output cannot pass an arbitrary scheme to the system opener.
+pub(super) fn safe_web_url(value: &str) -> Option<Url> {
     if value.len() > MAX_LINK_BYTES
         || value
             .chars()
@@ -83,80 +259,16 @@ pub fn safe_web_url(value: &str) -> Option<String> {
     {
         return None;
     }
-    Some(url.into())
-}
-
-pub fn at_cell(screen: &Screen, index: usize) -> Option<String> {
-    let cols = usize::from(screen.cols);
-    if cols == 0 || index >= screen.cells.len() {
-        return None;
-    }
-    let row_start = index / cols * cols;
-    let mut text = String::new();
-    let mut hit = None;
-    for (offset, cell) in screen.cells[row_start..row_start + cols].iter().enumerate() {
-        let start = text.len();
-        if cell.width != 0 {
-            text.push_str(if cell.text.is_empty() {
-                " "
-            } else {
-                &cell.text
-            });
-        }
-        if row_start + offset == index {
-            hit = Some(start);
-        }
-        if cell.width == 2 && row_start + offset + 1 == index {
-            hit = Some(start);
-        }
-        // Keep the leading glyph position for a wide spacer.
-        if cell.width == 0 && row_start + offset == index && offset > 0 {
-            hit = Some(text.char_indices().next_back()?.0);
-        }
-    }
-    let hit = hit?;
-    for (start, _) in text.match_indices("http") {
-        let tail = &text[start..];
-        if !(tail.starts_with("http://") || tail.starts_with("https://")) {
-            continue;
-        }
-        let length = tail
-            .find(|c: char| c.is_whitespace() || c.is_control() || "<>\"'`".contains(c))
-            .unwrap_or(tail.len());
-        let mut candidate = &tail[..length];
-        loop {
-            let last = candidate.chars().next_back()?;
-            let unmatched =
-                |open, close| candidate.matches(open).count() < candidate.matches(close).count();
-            if ".,;:!?*".contains(last)
-                || last == ')' && unmatched('(', ')')
-                || last == ']' && unmatched('[', ']')
-            {
-                candidate = &candidate[..candidate.len() - last.len_utf8()];
-            } else {
-                break;
-            }
-        }
-        if (start..start + candidate.len()).contains(&hit)
-            && let Some(url) = safe_web_url(candidate)
-        {
-            return Some(url);
-        }
-    }
-    None
+    Some(url)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shellfox_ghostty_vt::Terminal;
 
     #[test]
     fn external_opener_accepts_only_bounded_web_urls_without_credentials() {
-        assert_eq!(
-            safe_web_url("https://example.com/a").as_deref(),
-            Some("https://example.com/a")
-        );
+        assert!(safe_web_url("https://example.com/a").is_some());
         for value in [
             "javascript:alert(1)",
             "file:///etc/passwd",
@@ -169,50 +281,18 @@ mod tests {
         ] {
             assert!(safe_web_url(value).is_none(), "{value}");
         }
-        assert!(
-            safe_web_url(&format!(
-                "https://example.com/{}",
-                "x".repeat(MAX_LINK_BYTES)
-            ))
-            .is_none()
-        );
+        assert!(safe_web_url(&format!(
+            "https://example.com/{}",
+            "x".repeat(MAX_LINK_BYTES)
+        ))
+        .is_none());
     }
 
     #[test]
-    fn osc8_target_is_validated_and_never_replaced_with_its_label() {
-        assert!(
-            resolve_target(
-                Some("javascript:alert(1)".into()),
-                Some("https://label.example/".into())
-            )
-            .is_none()
-        );
+    fn copy_preserves_the_literal_target() {
         assert_eq!(
-            resolve_target(
-                Some("https://target.example/".into()),
-                Some("https://label.example/".into())
-            )
-            .as_deref(),
-            Some("https://target.example/")
+            safe_target(Some("https://example.com".into()), false).as_deref(),
+            Some("https://example.com")
         );
-        assert_eq!(
-            resolve_target(None, Some("https://label.example/".into())).as_deref(),
-            Some("https://label.example/")
-        );
-    }
-
-    #[test]
-    fn detects_link_at_cell_without_trailing_prose_punctuation() {
-        let mut terminal = Terminal::new(80, 2).unwrap();
-        terminal
-            .feed("界 (https://example.com/a_(b)). next".as_bytes())
-            .unwrap();
-        let screen = terminal.render().unwrap();
-        assert_eq!(
-            at_cell(&screen, 10).as_deref(),
-            Some("https://example.com/a_(b)")
-        );
-        assert!(at_cell(&screen, 1).is_none());
-        assert!(at_cell(&screen, 40).is_none());
     }
 }

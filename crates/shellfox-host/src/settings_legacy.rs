@@ -12,6 +12,55 @@ pub enum SettingsImportPolicy {
     IncludeGlobalEnvironment,
 }
 impl Host {
+    /// Import settings only from a private snapshot, without importing sessions or
+    /// replacing settings in a Rust store that has already been used.
+    pub fn import_electron_settings(&self, snapshot: &std::path::Path) -> Result<bool> {
+        use rusqlite::OpenFlags;
+        let db = Connection::open_with_flags(
+            snapshot,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )
+        .map_err(crate::storage::storage_error)?;
+        db.execute_batch("PRAGMA trusted_schema=OFF; PRAGMA query_only=ON;")
+            .map_err(crate::storage::storage_error)?;
+        let version: i64 = db
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(crate::storage::storage_error)?;
+        validation::ensure(
+            (1..=5).contains(&version),
+            "Unsupported Electron database version.",
+        )?;
+        let kind: String = db
+            .query_row(
+                "SELECT type FROM pragma_table_list WHERE schema='main' AND name='settings'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(crate::storage::storage_error)?;
+        validation::ensure(kind == "table", "Invalid Electron settings table.")?;
+        let settings = read(&db, SettingsImportPolicy::IncludeGlobalEnvironment)?;
+        let mut inner = self.lock()?;
+        let tx = inner
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(crate::storage::storage_error)?;
+        let mut data = crate::storage::load(&tx)?;
+        if data.state.revision != 0 {
+            return Ok(false);
+        }
+        crate::settings_store::project(&settings, &mut data)?;
+        data.state.revision = 1;
+        data.state.last_change = Some(ChangedEvent {
+            revision: 1,
+            reason: ChangeReason::Settings,
+            select_session_id: data.state.selection.session_id,
+        });
+        crate::settings_store::write(&tx, &settings)?;
+        crate::storage::save(&tx, &data)?;
+        tx.commit().map_err(crate::storage::storage_error)?;
+        Ok(true)
+    }
+
     /// Import a COPY of an Electron database. Profile/Python configuration is
     /// retained even when unavailable here; discovery still gates later launch.
     /// Passwords/private credentials are not settings and are never imported.

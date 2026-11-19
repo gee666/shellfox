@@ -113,3 +113,15 @@ async fn exactly_five_v2_operations_reach_retained_owner_and_v1_never_does() {
     }
     assert_eq!(seen.lock().unwrap().len(), 5);
 }
+
+#[tokio::test]
+async fn desktop_can_probe_legacy_discovery_without_permitting_legacy_requests() {
+    let peer = AuthenticatedPeerId::new("n-fixture").unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let transport = ServiceTransport::new(Owner { status: 200, body: b"{}".to_vec(), seen: seen.clone() }).with_legacy_discovery();
+    transport.send(&peer, Endpoint::Discover, b"{}".to_vec(), limits()).await.unwrap();
+    for endpoint in [Endpoint::Pair, Endpoint::Request, Endpoint::Events, Endpoint::Disconnect] {
+        assert_eq!(transport.send(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::InvalidRequest));
+    }
+    assert_eq!(*seen.lock().unwrap(), [OutgoingV2Endpoint::DiscoverV1]);
+}

@@ -20,6 +20,9 @@ impl UserApproval {
     pub fn from_user_action(generation: Generation) -> Self {
         Self { generation }
     }
+    pub(super) fn matches(self, generation: Generation) -> bool {
+        self.generation == generation
+    }
 }
 
 /// Resource-backed factory. A matching hash/probe cannot create loader policy.
@@ -79,32 +82,13 @@ impl NativeFactory {
     /// Bounded live validation on the same pinned full bundle. This method does
     /// not request UAC. It still refuses until explicit loader review is supplied.
     pub fn probe(&self, launch: &PreparedLaunch) -> Result<Capability, AdapterError> {
-        let command = self.command("probe-isolated", launch)?;
-        let mut io =
-            StdioIo::spawn(command, Box::new(self.executable.clone())).map_err(|failure| {
-                drop(failure.retained);
-                failure.error
-            })?;
-        let deadline = Instant::now() + Duration::from_secs(15);
-        let mut capability = None;
-        loop {
-            match io.try_receive_line().map_err(|_| AdapterError::Transport)? {
-                Some(HelperFrame::Line(line)) if capability.is_none() => {
-                    let parsed = Capability::parse_probe(&line)?;
-                    parsed.require_isolated()?;
-                    capability = Some(parsed);
-                }
-                Some(HelperFrame::Eof) => break,
-                Some(_) => return Err(AdapterError::InvalidProtocol),
-                None => {}
-            }
-            if Instant::now() >= deadline {
-                return Err(AdapterError::Transport);
-            }
-            std::thread::sleep(Duration::from_millis(2));
-        }
-        io.finish(Duration::from_secs(2))?;
-        capability.ok_or(AdapterError::InvalidProtocol)
+        let capability = probe(
+            self.command("probe-isolated", launch)?,
+            Box::new(self.executable.clone()),
+            Duration::from_secs(15),
+        )?;
+        capability.require_isolated()?;
+        Ok(capability)
     }
     pub fn launch(
         &self,
@@ -112,7 +96,7 @@ impl NativeFactory {
         generation: Generation,
         launch: PreparedLaunch,
     ) -> Result<Session, StartError> {
-        if approval.generation != generation {
+        if !approval.matches(generation) {
             return Err(StartError {
                 error: AdapterError::StaleGeneration,
                 retained: None,
@@ -138,4 +122,33 @@ impl NativeFactory {
             launch,
         )
     }
+}
+
+pub(super) fn probe(
+    command: Command,
+    hold: Box<dyn Send>,
+    timeout: Duration,
+) -> Result<Capability, AdapterError> {
+    let mut io = StdioIo::spawn(command, hold).map_err(|failure| {
+        drop(failure.retained);
+        failure.error
+    })?;
+    let deadline = Instant::now() + timeout;
+    let mut capability = None;
+    loop {
+        match io.try_receive_line().map_err(|_| AdapterError::Transport)? {
+            Some(HelperFrame::Line(line)) if capability.is_none() => {
+                capability = Some(Capability::parse_probe(&line)?);
+            }
+            Some(HelperFrame::Eof) => break,
+            Some(_) => return Err(AdapterError::InvalidProtocol),
+            None => {}
+        }
+        if Instant::now() >= deadline {
+            return Err(AdapterError::Transport);
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    io.finish(Duration::from_secs(2))?;
+    capability.ok_or(AdapterError::InvalidProtocol)
 }

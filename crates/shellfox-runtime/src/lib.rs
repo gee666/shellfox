@@ -132,41 +132,21 @@ impl Runtime {
         limits: GridLimits,
         hooks: RuntimeHooks,
     ) -> Result<Self, StartError> {
-        Self::start_owned(identity, config, limits, hooks, None)
-    }
-    pub fn start_program_with_hooks(
-        identity: Identity,
-        config: PtyConfig,
-        program_env: shellfox_terminal::TrustedProgramEnv,
-        hooks: RuntimeHooks,
-    ) -> Result<Self, StartError> {
-        Self::start_owned(
-            identity,
-            config,
-            GridLimits::default(),
-            hooks,
-            Some(program_env),
-        )
-    }
-    pub fn start_program_with_limits_and_hooks(
-        identity: Identity,
-        config: PtyConfig,
-        limits: GridLimits,
-        program_env: shellfox_terminal::TrustedProgramEnv,
-        hooks: RuntimeHooks,
-    ) -> Result<Self, StartError> {
-        Self::start_owned(identity, config, limits, hooks, Some(program_env))
+        Self::start_owned(identity, config, limits, hooks)
     }
     #[cfg(feature = "experimental-shellfox-native")]
     pub fn start_native0_program_with_limits_and_hooks(
         identity: Identity,
         config: PtyConfig,
         limits: GridLimits,
-        program_env: Option<shellfox_terminal::TrustedProgramEnv>,
         hooks: RuntimeHooks,
         native: Native0RuntimeConfig,
     ) -> Result<Self, StartError> {
-        Self::start_owned_configured(identity, config, limits, hooks, program_env, Some(native))
+        Self::start_owned_configured(
+            identity, config, limits, hooks, Some(native),
+            #[cfg(windows)]
+            None,
+        )
     }
     #[cfg(feature = "experimental-shellfox-native")]
     pub fn native0_engine_identity(
@@ -178,20 +158,34 @@ impl Runtime {
                 message: "Native002 local engine verification failed.".into(),
             })
     }
+    #[cfg(windows)]
+    pub fn start_administrator(
+        identity: Identity,
+        config: PtyConfig,
+        helper: shellfox_terminal::elevated::InteractiveHelper,
+        hooks: RuntimeHooks,
+    ) -> Result<Self, StartError> {
+        Self::start_owned_configured(
+            identity, config, GridLimits::default(), hooks,
+            #[cfg(feature = "experimental-shellfox-native")]
+            None,
+            Some(helper),
+        )
+    }
     fn start_owned(
         identity: Identity,
         config: PtyConfig,
         limits: GridLimits,
         hooks: RuntimeHooks,
-        program_env: Option<shellfox_terminal::TrustedProgramEnv>,
     ) -> Result<Self, StartError> {
         Self::start_owned_configured(
             identity,
             config,
             limits,
             hooks,
-            program_env,
             #[cfg(feature = "experimental-shellfox-native")]
+            None,
+            #[cfg(windows)]
             None,
         )
     }
@@ -200,8 +194,8 @@ impl Runtime {
         config: PtyConfig,
         limits: GridLimits,
         hooks: RuntimeHooks,
-        program_env: Option<shellfox_terminal::TrustedProgramEnv>,
         #[cfg(feature = "experimental-shellfox-native")] native: Option<Native0RuntimeConfig>,
+        #[cfg(windows)] administrator: Option<shellfox_terminal::elevated::InteractiveHelper>,
     ) -> Result<Self, StartError> {
         limits
             .validate_size(config.cols, config.rows)
@@ -235,7 +229,8 @@ impl Runtime {
                         native,
                         inspection: Some(inspection_publisher),
                         hooks,
-                        program_env,
+                        #[cfg(windows)]
+                        administrator,
                         launch: launch_owner,
                         launch_binding,
                     },

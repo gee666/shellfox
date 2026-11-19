@@ -31,6 +31,12 @@ impl Owner {
                 | PresentationAction::Selection { .. }
                 | PresentationAction::SelectionAtVersion { .. }
         );
+        let focus = match action {
+            PresentationAction::Frame { focused }
+                if matches!(view, PresentationLease::Controller(_))
+                    && self.source_kind == SourceKind::OwnedPty && self.phase == Phase::Active => Some(focused),
+            _ => None,
+        };
         let result = self.presentations.action(
             &mut self.terminal,
             self.identity,
@@ -39,6 +45,11 @@ impl Owner {
             view,
             action,
         )?;
+        if let Some(focused) = focus {
+            if let Some(bytes) = self.presentations.focus_report(&self.terminal, view, focused)? {
+                self.write(bytes)?;
+            }
+        }
         if changed && matches!(view, PresentationLease::Controller(_)) {
             self.dirty = true;
         }

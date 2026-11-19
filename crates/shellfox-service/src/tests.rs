@@ -8,22 +8,39 @@ use shellfox_host::SettingsRequest;
 use std::{path::PathBuf, time::Duration};
 
 pub(crate) fn scratch() -> tempfile::TempDir {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root")
+        .join("tmp");
     std::fs::create_dir_all(&root).expect("project tmp");
     tempfile::Builder::new()
         .prefix("service-test-")
         .tempdir_in(root)
         .expect("scratch")
 }
-pub(crate) fn helper() -> (PathBuf, [u8; 32]) {
-    let path = std::env::var_os("SHELLFOX_SERVICE_TEST_HELPER").expect("test helper path");
-    let hex = std::env::var("SHELLFOX_SERVICE_TEST_HELPER_SHA256").expect("trusted helper digest");
-    assert_eq!(hex.len(), 64);
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).expect("hex digest");
+pub(crate) fn default_catalog_profile() -> ProfileId {
+    #[cfg(any(windows, target_os = "linux"))]
+    {
+        ProfileId::new(
+            shellfox_terminal::default_shell_profile()
+                .unwrap()
+                .id()
+                .as_str(),
+        )
+        .unwrap()
     }
-    (PathBuf::from(path), digest)
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        // These metadata tests do not launch a PTY on platforms without a supervisor.
+        ProfileId::default()
+    }
+}
+#[path = "../../test_dev_helper.rs"]
+mod dev_helper;
+
+pub(crate) fn helper() -> (PathBuf, [u8; 32]) {
+    dev_helper::helper().expect("development Tailscale helper")
 }
 #[tokio::test(flavor = "current_thread")]
 async fn framed_lengths_are_bounded_before_allocation() {
@@ -94,7 +111,6 @@ fn failed_startup_retains_generation_until_confirmed_close() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "requires explicit retained helper artifact and trusted digest; never installed app data"]
 async fn private_server_typed_clients_security_and_metadata() {
     let data = scratch();
     let (helper, digest) = helper();
@@ -104,11 +120,13 @@ async fn private_server_typed_clients_security_and_metadata() {
     let original = linked.path().join("unrelated-fixture");
     std::fs::write(&original, b"must not be opened as SQLite").unwrap();
     std::fs::hard_link(&original, linked_data.join(shellfox_host::STORE_FILENAME)).unwrap();
-    assert!(
-        PrivateDirectory::prepare(&linked_data, &helper, digest, true)
-            .await
-            .is_err()
-    );
+    let error = crate::local::serve_with_ready(&linked_data, &helper, digest, (), |_| {
+        panic!("hard-linked store must not publish readiness");
+    })
+    .await
+    .expect_err("hard-linked store must be rejected");
+    assert!(format!("{error:#}").contains(shellfox_host::STORE_FILENAME), "{error:#}");
+    assert!(!linked_data.join("rust-service-v1/endpoint.json").exists());
     assert_eq!(
         std::fs::read(original).unwrap(),
         b"must not be opened as SQLite"
@@ -118,17 +136,20 @@ async fn private_server_typed_clients_security_and_metadata() {
         .run_until(async {
             let directory = data.path().to_owned();
             let executable = helper.clone();
-            let server = tokio::task::spawn_local(async move {
-                crate::local::serve(&directory, &executable, digest).await
+            let (ready, received) = tokio::sync::oneshot::channel();
+            let mut server = tokio::task::spawn_local(async move {
+                crate::local::serve_with_ready(&directory, &executable, digest, (), move |_| {
+                    let _ = ready.send(());
+                })
+                .await
             });
-            let endpoint = data.path().join("rust-service-v1/endpoint.json");
-            tokio::time::timeout(Duration::from_secs(20), async {
-                while !endpoint.exists() {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
+            tokio::select! {
+                result = &mut server => panic!("host stopped before readiness: {result:?}"),
+                ready = tokio::time::timeout(Duration::from_secs(60), received) => {
+                    ready.expect("endpoint publication").expect("host readiness callback");
                 }
-            })
-            .await
-            .expect("endpoint publication");
+            }
+            let endpoint = data.path().join("rust-service-v1/endpoint.json");
             let client = LocalClient::connect(data.path(), &helper, digest)
                 .await
                 .unwrap();
@@ -136,11 +157,12 @@ async fn private_server_typed_clients_security_and_metadata() {
                 panic!("snapshot");
             };
             assert!(initial.sessions.is_empty());
+            let profile = default_catalog_profile();
             let input = CreateSession {
                 request_id: SessionId::new(),
                 title: Some("owned fixture".into()),
                 cwd: data.path().to_string_lossy().into_owned(),
-                profile_id: ProfileId::new("cmd").unwrap(),
+                profile_id: profile.clone(),
             };
             let A::Snapshot(created) = client.execute(Q::CreateSession { input }).await.unwrap()
             else {
@@ -160,7 +182,7 @@ async fn private_server_typed_clients_security_and_metadata() {
                     input: AddTab {
                         title: Some("second".into()),
                         cwd: None,
-                        profile_id: ProfileId::new("cmd").unwrap(),
+                        profile_id: profile,
                     },
                 })
                 .await

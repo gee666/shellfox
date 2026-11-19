@@ -29,16 +29,14 @@ pub(super) enum Pending {
     Copy,
     Recovery,
     Close,
-    Link {
-        modifiers: gpui::Modifiers,
-        fallback: Option<String>,
-    },
+    Link { modifiers: gpui::Modifiers },
+    LinkHover(links::HoverPoint),
 }
 #[derive(Default)]
 pub(super) struct DeliveryState {
     consumed: u64,
     delivered: u64,
-    recovering: bool,
+    pub(super) recovering: bool,
     recovery_barrier: Option<u64>,
     exited: Option<u64>,
     #[cfg(test)]
@@ -162,14 +160,12 @@ impl TerminalView {
             (Some(Pending::Copy), Ok(Response::Text(Some(text)))) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text))
             }
-            (
-                Some(Pending::Link {
-                    modifiers,
-                    fallback,
-                }),
-                Ok(Response::Text(text)),
-            ) => {
-                Self::open_link(links::resolve_target(text, fallback), modifiers, cx);
+            (Some(Pending::Link { modifiers }), Ok(Response::Text(text))) => {
+                self.open_link(text, modifiers, cx);
+            }
+            (Some(Pending::LinkHover(at)), result) => {
+                let uri = match result { Ok(Response::Text(text)) => text, _ => None };
+                self.apply_link_hover(at, uri, cx);
             }
             (pending, Err(error)) => {
                 if matches!(pending, Some(Pending::Close)) {
@@ -227,7 +223,7 @@ impl TerminalView {
                     capability: shellfox_runtime::AnsiRecoveryCapability::VisibleScreen,
                 },
             },
-            Backend::Fixture(_) => return,
+            Backend::Fixture(_) | Backend::Peer(_) => return,
         };
         self.delivery.recovering = self.submit(command, Pending::Recovery);
     }

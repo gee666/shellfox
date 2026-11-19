@@ -92,7 +92,7 @@ func verifyOwnershipPrivate(handle windows.Handle,directory bool)error {
  if err:=validateOwnershipHandle(handle,directory);err!=nil{return err}
  user,err:=windows.GetCurrentProcessToken().GetTokenUser();if err!=nil{return err}
  sd,err:=privateSecurityDescriptor(handle,user.User.Sid);if err!=nil{return err}
- return checkPrivateDACL(sd,user.User.Sid)
+ return checkPrivateDACL(sd,user.User.Sid,directory)
 }
 func openOwnershipFileExpected(directory,expected string)(*os.File,error) {
  root,err:=openOwnershipRoot(directory);if err!=nil{return nil,err};defer root.Close()

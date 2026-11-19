@@ -27,6 +27,12 @@ pub(super) struct Editor {
 }
 impl Editor {
     fn new(profile: Option<&api::SshProfile>, cx: &mut App) -> Self {
+        let password = Field::password(cx);
+        let mut input = |text| {
+            let field = Field::settings_input(None, cx);
+            field.update(cx, |field, cx| field.set_text(text, cx));
+            field
+        };
         let editor = Self {
             id: profile
                 .map(|p| p.id.clone())
@@ -34,20 +40,16 @@ impl Editor {
             is_new: profile.is_none(),
             has_password: profile.is_some_and(|p| p.has_password),
             clear_password: false,
-            name: Field::new(profile.map(|p| p.name.clone()).unwrap_or_default(), cx),
-            host: Field::new(profile.map(|p| p.host.clone()).unwrap_or_default(), cx),
-            port: Field::new(profile.map(|p| p.port.to_string()).unwrap_or_default(), cx),
-            user: Field::new(profile.map(|p| p.user.clone()).unwrap_or_default(), cx),
-            password: Field::password(cx),
-            key: Field::new(
-                profile.and_then(|p| p.key_file.clone()).unwrap_or_default(),
-                cx,
-            ),
-            cwd: Field::new(
+            name: input(profile.map(|p| p.name.clone()).unwrap_or_default()),
+            host: input(profile.map(|p| p.host.clone()).unwrap_or_default()),
+            port: input(profile.map(|p| p.port.to_string()).unwrap_or_default()),
+            user: input(profile.map(|p| p.user.clone()).unwrap_or_default()),
+            password,
+            key: input(profile.and_then(|p| p.key_file.clone()).unwrap_or_default()),
+            cwd: input(
                 profile
                     .and_then(|p| p.remote_cwd.clone())
                     .unwrap_or_default(),
-                cx,
             ),
         };
         editor.configure_fields(false, cx);
@@ -96,41 +98,53 @@ impl Editor {
         }
     }
 }
+#[derive(Default)]
 pub(super) struct SshView {
     pub profiles: Option<Vec<api::SshProfile>>,
     pub editor: Option<Editor>,
     pub removing: Option<String>,
     pub pending: bool,
+    pub reading: bool,
+    pub epoch: u64,
     pub error: Option<String>,
     pub status: Option<String>,
     pub status_epoch: u64,
+    pub focus_control: Option<String>,
+    pub hovered_row: Option<String>,
+    editor_subscriptions: Vec<Subscription>,
 }
 impl SshView {
-    pub fn new(_cx: &mut App) -> Self {
-        Self {
-            profiles: None,
-            editor: None,
-            removing: None,
-            pending: false,
-            error: None,
-            status: None,
-            status_epoch: 0,
-        }
-    }
     pub fn cancel_editor(&mut self) -> bool {
         if self.pending {
             return false;
         }
         if self.editor.is_some() || self.removing.is_some() {
-            self.editor = None;
-            self.removing = None;
+            self.focus_control = Some(
+                self.editor
+                    .as_ref()
+                    .filter(|editor| !editor.is_new)
+                    .map(|editor| editor.id.as_str())
+                    .or(self.removing.as_deref())
+                    .map_or_else(|| "add-ssh".into(), row_id),
+            );
+            self.clear_editor();
             self.error = None;
             true
         } else {
             false
         }
     }
+    pub fn clear_editor(&mut self) {
+        self.editor_subscriptions.clear();
+        self.editor = None;
+        self.removing = None;
+    }
 }
+
+pub(super) fn row_id(id: &str) -> String {
+    format!("ssh-row-{id}")
+}
+
 impl SettingsPanel {
     pub(super) fn ssh_action(
         &mut self,
@@ -162,8 +176,23 @@ impl SettingsPanel {
                     return;
                 }
                 let editor = Editor::new(profile, cx);
+                self.ssh.clear_editor();
                 for field in editor.fields() {
                     field.update(cx, |field, cx| field.apply_palette(self.palette, cx));
+                    let mut seen = Arc::downgrade(&field.read(cx).snapshot_text());
+                    self.ssh.editor_subscriptions.push(cx.observe_in(
+                        &field,
+                        window,
+                        move |panel, field, _, cx| {
+                            let current = Arc::downgrade(&field.read(cx).snapshot_text());
+                            if !current.ptr_eq(&seen) {
+                                seen = current;
+                                if !panel.ssh.pending && panel.ssh.error.take().is_some() {
+                                    cx.notify();
+                                }
+                            }
+                        },
+                    ));
                 }
                 editor.name.read(cx).focus(window);
                 self.ssh.editor = Some(editor);
@@ -178,7 +207,8 @@ impl SettingsPanel {
                 return;
             }
             Operation::Remove(id) => {
-                self.ssh.editor = None;
+                self.ssh.clear_editor();
+                self.ssh.focus_control = Some(format!("confirm-remove-{id}"));
                 self.ssh.removing = Some(id);
                 self.ssh.error = None;
                 cx.notify();
@@ -193,7 +223,9 @@ impl SettingsPanel {
                     editor
                         .key
                         .update(cx, |field, cx| field.set_text(String::new(), cx));
+                    editor.key.read(cx).focus(window);
                 }
+                self.ssh.error = None;
                 cx.notify();
                 return;
             }
@@ -203,8 +235,10 @@ impl SettingsPanel {
                     editor
                         .password
                         .update(cx, |field, cx| field.set_text(String::new(), cx));
+                    editor.configure_fields(false, cx);
                     editor.password.read(cx).focus(window);
                 }
+                self.ssh.error = None;
                 cx.notify();
                 return;
             }
@@ -224,6 +258,8 @@ impl SettingsPanel {
                 if self.ssh.editor.is_some() || self.ssh.removing.is_some() {
                     return;
                 }
+                self.ssh.status = None;
+                self.ssh.status_epoch += 1;
                 (api::Request::SshImport, aux::After::Import)
             }
             _ => return,
@@ -240,23 +276,7 @@ impl SettingsPanel {
         let name = editor.name.read(cx).text.trim().to_owned();
         let host = editor.host.read(cx).text.trim().to_owned();
         let port = editor.port.read(cx).text.trim().to_owned();
-        if name.is_empty() {
-            return Err("Name is required.".into());
-        }
-        if host.is_empty() {
-            return Err("Host is required.".into());
-        }
-        let port = if port.is_empty() {
-            22
-        } else {
-            if !port.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err("Port must be between 1 and 65535.".into());
-            }
-            port.parse::<u16>()
-                .ok()
-                .filter(|port| *port > 0)
-                .ok_or("Port must be between 1 and 65535.")?
-        };
+        let port = validate_endpoint(&name, &host, &port)?;
         let password = editor.password.read(cx).text.clone();
         let key = editor.key.read(cx).text.clone();
         let cwd = editor.cwd.read(cx).text.trim().to_owned();
@@ -276,5 +296,44 @@ impl SettingsPanel {
             key_file: if key.is_empty() { None } else { Some(key) },
             remote_cwd: if cwd.is_empty() { None } else { Some(cwd) },
         })
+    }
+}
+
+fn validate_endpoint(name: &str, host: &str, port: &str) -> Result<u16, String> {
+    let mut errors = Vec::new();
+    if name.is_empty() {
+        errors.push("Name is required.");
+    }
+    if host.is_empty() {
+        errors.push("Host is required.");
+    }
+    let parsed = if port.is_empty() {
+        Some(22)
+    } else if port.bytes().all(|byte| byte.is_ascii_digit()) {
+        port.parse::<u16>().ok().filter(|port| *port != 0)
+    } else {
+        None
+    };
+    if parsed.is_none() {
+        errors.push("Port must be between 1 and 65535.");
+    }
+    parsed
+        .filter(|_| errors.is_empty())
+        .ok_or_else(|| errors.join(" "))
+}
+
+#[cfg(test)]
+#[test]
+fn endpoint_validation_matches_the_form() {
+    assert_eq!(validate_endpoint("Fixture", "localhost", ""), Ok(22));
+    assert_eq!(
+        validate_endpoint("Fixture", "localhost", "065535"),
+        Ok(65535)
+    );
+    for port in ["0", "65536", "+22", "22.0", "2e1"] {
+        assert_eq!(
+            validate_endpoint("", "", port),
+            Err("Name is required. Host is required. Port must be between 1 and 65535.".into())
+        );
     }
 }

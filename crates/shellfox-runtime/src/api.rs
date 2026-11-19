@@ -60,19 +60,22 @@ impl GridLimits {
 
 /// Register this generation with the metadata host BEFORE starting the runtime.
 /// This crate never writes metadata or commits a pending tab/session deletion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Identity {
     pub session_id: SessionId,
     pub tab_id: TabId,
     pub generation: Generation,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Lease {
     pub controller: u64,
     pub epoch: u64,
 }
 /// Read-only delivery identity. It can never authorize input or resize.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ObserverLease {
     pub viewer: u64,
     pub epoch: u64,
@@ -127,6 +130,7 @@ pub enum Command {
     Unobserve {
         observer: ObserverLease,
     },
+    /// Desktop xterm keyboard behavior. KeyV2 keeps Ghostty's native encoding.
     Key {
         lease: Lease,
         event: KeyEvent,
@@ -254,7 +258,8 @@ impl Command {
         Ok(())
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Phase {
     Starting,
     Active,
@@ -266,7 +271,8 @@ pub struct Chunk {
     pub sequence: u64,
     pub bytes: Vec<u8>,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ScreenFrame {
     pub identity: Identity,
     pub sequence: u64,
@@ -278,6 +284,8 @@ pub struct ScreenFrame {
 pub enum AnsiRecoveryCapability {
     VisibleScreen,
     FormattedActiveBufferV1,
+    /// Bounded ANSI projection for xterm clients of the existing v1 protocol.
+    RemoteV1,
 }
 #[derive(Debug)]
 pub enum Response {
@@ -294,6 +302,12 @@ pub enum Response {
         capability: AnsiRecoveryCapability,
         bytes: Vec<u8>,
         last_sequence: u64,
+    },
+    RemoteV1Ansi {
+        bytes: Vec<u8>,
+        last_sequence: u64,
+        cols: u16,
+        rows: u16,
     },
     Text(Option<String>),
     MouseTracking(bool),

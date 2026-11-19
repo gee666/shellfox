@@ -62,6 +62,27 @@ impl From<&RemoteControlState> for RemoteOperatorState {
         }
     }
 }
+impl From<RemoteOperatorState> for RemoteControlState {
+    fn from(state: RemoteOperatorState) -> Self {
+        Self {
+            enabled: state.enabled,
+            hostname: state.hostname,
+            status: state.status,
+            login_url: state.login_url,
+            error: state.error,
+            peers: state.peers,
+            pending: state.pending.into_iter().map(|peer| shellfox_remote::PendingPeer {
+                peer: shellfox_transport::incoming::PeerIdentity { id: peer.id, hostname: peer.hostname },
+                clients: peer.clients,
+            }).collect(),
+            approvals: state.approvals,
+            attempts: state.attempts,
+            cleanup_retained: state.cleanup_retained,
+            incoming_legacy_terminal_attachment: state.incoming_legacy_terminal_attachment,
+            terminal_capability_reason: state.terminal_capability_reason,
+        }
+    }
+}
 pub(crate) type Reply = Result<RemoteOperatorState, AppError>;
 impl Validate for RemoteRequest {
     fn validate(&self) -> Result<(), ValidationError> {

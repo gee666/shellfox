@@ -15,7 +15,7 @@ fn joined_raw_close_proof_survives_metadata_failure_and_retry_without_relaunch()
     // Actual metadata revision change invalidates the prepared close, as output
     // activity or another committed metadata action can do during cleanup.
     service.host.rename_session(identity.session_id,"concurrent metadata fixture").unwrap();
-    assert!(service.finish_close(prepared,&[tab]).is_err());
+    assert!(service.finish_close(prepared).is_err());
     assert!(service.host.snapshot().unwrap().sessions.iter().any(|session|session.id==identity.session_id));
     assert!(service.automation.closed_external.contains_key(&tab));
     assert!(service.start_automation(spec,9).is_err());

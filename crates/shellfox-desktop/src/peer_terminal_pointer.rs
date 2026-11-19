@@ -68,6 +68,12 @@ impl PeerTerminalView {
         let Some(bounds) = self.bounds else {
             return;
         };
+        let (x, cell_width) = renderer::mouse_axis(
+            f32::from(position.x - bounds.left()), self.cell_width,
+        );
+        let (y, cell_height) = renderer::mouse_axis(
+            f32::from(position.y - bounds.top()), self.line_height,
+        );
         let event = m::MouseEvent {
             action,
             button,
@@ -77,14 +83,14 @@ impl PeerTerminalView {
                 alt: modifiers.alt,
                 super_key: modifiers.platform,
             },
-            x_px: f64::from(f32::from(position.x - bounds.left())),
-            y_px: f64::from(f32::from(position.y - bounds.top())),
+            x_px: f64::from(x),
+            y_px: f64::from(y),
             any_button_pressed: self.buttons != 0,
         };
         match self.owner.admit_mouse(
             event,
-            self.cell_width as u32,
-            self.line_height as u32,
+            cell_width,
+            cell_height,
             self.hints.clone(),
         ) {
             Ok(input) => {

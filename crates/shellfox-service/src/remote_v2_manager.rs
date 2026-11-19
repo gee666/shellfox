@@ -63,7 +63,7 @@ pub(super) fn handle(
                     runtime::detach_all(service, view)?;
                 }
                 state.observer_views.entries.remove(&previous_id);
-                state.metadata_v2.remove(&previous_id);
+                state.remove_metadata_view(previous_id);
             }
             if state.observer_views.entries.len() >= 32
                 && !state.observer_views.entries.contains_key(&id)
@@ -94,7 +94,7 @@ pub(super) fn handle(
                 runtime::detach_all(service, view)?;
             }
             state.observer_views.entries.remove(&id);
-            state.metadata_v2.remove(&id);
+            state.remove_metadata_view(id);
             if let Some(transfers) = &mut state.transfers {
                 transfers.cancel_actor(&key(request.connection.actor()));
             }
@@ -153,7 +153,7 @@ pub(super) fn handle(
     }
 }
 fn tab_visible(state: &RemoteState, service: &Service, tab: &shellfox_core::Tab) -> bool {
-    if service.terminals.get(&tab.id).is_some_and(|terminal| {
+    if super::privacy::elevated_profile(tab.profile_id.as_str()) || service.terminals.get(&tab.id).is_some_and(|terminal| {
         terminal.runtime.identity().session_id == tab.session_id
             && terminal.runtime.launch_privilege_facts().privilege
                 == shellfox_runtime::LaunchPrivilege::Elevated

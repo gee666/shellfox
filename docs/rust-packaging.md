@@ -1,4 +1,18 @@
-# Rust portable packaging
+# Rust packaging
+
+## Release installers
+
+Run `node scripts/package-rust.mjs` on the target OS and architecture. It reads the version from `package.json`, builds `shellfox` and `shellfox-cli` in release mode, and writes to `tmp/rust-installers/`. Set `CARGO_TARGET_DIR` to give the build its own cache. Use the Ghostty, Go, and Windows SDK prerequisites below. Windows also needs `pnpm install --frozen-lockfile --ignore-scripts` for the existing Squirrel tooling.
+
+- Windows x64: `ShellfoxSetup.exe`, the `shellfox` Squirrel package and `RELEASES`, and a portable ZIP. Windows ARM64 packages are ZIP-only.
+- Linux x64 and ARM64: `shellfox_<version>_<arch>.deb` and a portable `.tar.gz`. The DEB retains `/usr/lib/shellfox/shellfox` so Electron can hand off to it.
+- macOS x64 and ARM64: a signed `Shellfox.app` in a DMG and the ZIP read by the existing macOS updater. CI builds both.
+
+`node scripts/package-rust-smoke.mjs` extracts a package and exercises a real PTY without installing over another copy. Do not run `ShellfoxSetup.exe` on a machine with an existing Shellfox installation for a smoke test. The package script accepts a separate output directory and a `ShellfoxLaneI…` test identity for an isolated Windows install. Its name and shortcuts differ from the production installer.
+
+Installed desktop builds default to `Shellfox/rust-v1/host` beneath the per-user app-data directory. Production Windows launches the Tailscale helper from the same stable path Electron uses. For development, pass an isolated `--data-dir` and the pinned development helper. The installer does not publish or import data.
+
+## Experimental portable archives
 
 This is migration infrastructure, not a release channel. It does not replace the installed Shellfox, install startup jobs, enroll Tailscale, request UAC, sign binaries, or publish anything. The existing Electron and Node-headless packages remain separate products until runtime and installer parity is proven.
 
@@ -18,6 +32,8 @@ node scripts/rust-package.mjs desktop
 
 `rust-package-prereqs.mjs` explicitly acquires checksum-verified Ghostty archives. Windows x64 uses the retained official 1.0.1 DLL archive. Other native targets acquire Zig 0.17.0 with the SHA-256 in `crates/ghostty-vt-sys/build-support/zig-0.17.0.json`, then build the pinned Ghostty source and dependency archives. Outside Actions, set `GHOSTTY_VT_DIR` to the printed installation path. A pre-existing source-build prefix is refused rather than silently reused. These recipes are not evidence that a target builds or runs.
 
+Windows desktop packaging also builds a static Linux WSL Files worker for the package architecture. `rust-package-prereqs.mjs` adds the pinned Rust musl target; packaging embeds the worker in `Shellfox.exe` and includes the toolchain notices. Local WSL Files needs WSL 2 and `/usr/bin/python3`. The host records the ordinary account when a new WSL tab first launches. The worker checks that account's effective UID even if the distro default changes. Older tabs without launch proof need a new tab. The worker runs from memory and does not install anything in the distro. A raw development build without `SHELLFOX_WSL_FILES_BINARY` can run Windows Files, but cannot open WSL Files.
+
 Windows needs Visual Studio C++ tools, the Windows SDK, and the .NET SDK. The active helper uses project-local SDK 10.0.404 and self-contained runtime 10.0.15 through `scripts/dotnet-sdk.mjs`. Provision it explicitly with `node scripts/dotnet-sdk.mjs provision`; `SHELLFOX_DOTNET` may select an absolute, version-checked `dotnet.exe`. It does not replace a global SDK or change PATH. GPUI needs the SDK's `fxc.exe`. Use a Visual Studio developer shell or set `GPUI_FXC_PATH` to an installed compiler, for example `C:/Program Files (x86)/Windows Kits/10/bin/10.0.22000.0/x64/fxc.exe`. GPUI 0.2.2's fallback checks a different SDK version and can miss an installed compiler.
 
 MSVC still rejects some long header paths. The packaging script uses the short, separate native build cache `tmp/rp-<platform>-<arch>/` and omits the redundant native target-triple directory. A first attempt with the longer cache produced a 261-character `grid_ref_tracked.h` path. The header existed and the archive was valid; MSVC could not open it. Do not change registry policy or stop a running app to solve that build-path constraint.
@@ -28,7 +44,7 @@ macOS requires Xcode command-line tools and the macOS SDK. Retained native C hel
 
 ## Output and isolation
 
-The script discovers the actual workspace binary targets and fails if one is absent. It builds `shellfox-cli` for headless packages and both `shellfox-cli` and `shellfox-gpui-experiment` for desktop packages, with `cargo build --locked --release`. The package version is the selected Cargo package version, not the old Electron version.
+The script discovers the workspace binary targets and fails if one is absent. It builds `shellfox-cli` for headless packages and both `shellfox-cli` and `shellfox` for desktop packages, with `cargo build --locked --release`. The artifact version comes from `package.json`.
 
 Builds never overwrite `target/debug`, `target/release` or installed app directories. Disposable staging and extracted smoke fixtures stay under root `tmp/` and are removed after use. The short `tmp/rp-*` build cache, prepared Ghostty installation and successful artifacts are retained as deliberate build outputs. A host that cannot stop gracefully causes failure and retains its isolated scratch directory and PID for investigation. The script does not force-stop it or remove its live data.
 
@@ -50,7 +66,7 @@ An existing artifact is not overwritten. A failed archive smoke removes the inco
 package-manifest.json
 bin/
   shellfox-cli[.exe]
-  shellfox-gpui-experiment[.exe]       desktop only
+  shellfox[.exe]       desktop only
   ghostty-vt.dll                     Windows, beside loading binaries
 resources/
   tailscale/

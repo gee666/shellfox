@@ -5,93 +5,12 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { hashFile, type UpdatePlatform } from './self-updater';
 import { validateUpdateZip } from './zip-validation';
-import { posixCommitGate, powershellCommitGate, startHandoff } from './handoff';
+import { startHandoff } from './handoff';
+import linuxHelper from './install-linux.sh';
+import macHelper from './install-mac.sh';
+import windowsHelper from './install-windows.ps1';
 const exec = promisify(execFile);
 const run = async (file: string, args: string[]) => (await exec(file, args, { timeout: 60_000, windowsHide: true, maxBuffer: 1024 * 1024 })).stdout.trim();
-const waitForExit = `tries=0
-while kill -0 "$pid" 2>/dev/null; do
-  [ ! -f "$control/cancel" ] || exit 1
-  tries=$((tries + 1))
-  [ "$tries" -le 120 ] || exit 1
-  sleep 1
-done
-[ ! -f "$control/cancel" ] || exit 1
-`;
-const linuxHelper = `#!/bin/sh
-pid=$1; work=$2; package=$3; executable=$4; expected=$5; control=$6; relaunch=$7
-exec >"$work/install.log" 2>&1
-failed() {
-  if [ -x /usr/bin/zenity ]; then /usr/bin/zenity --error --text='Shellfox update failed or was cancelled. Reopen Shellfox to try again.'; fi
-  if [ "$relaunch" = 1 ]; then "$executable" >/dev/null 2>&1 & fi
-  exit 1
-}
-actual=$(/usr/bin/sha256sum -- "$package") || exit 1
-[ "\${actual%% *}" = "$expected" ] || exit 1
-${posixCommitGate}
-${waitForExit}
-actual=$(/usr/bin/sha256sum -- "$package") || failed
-[ "\${actual%% *}" = "$expected" ] || failed
-if /usr/bin/pkexec /usr/bin/apt-get install -y "$package"; then
-  if [ "$relaunch" = 1 ]; then "$executable" >/dev/null 2>&1 & fi
-  rm -rf -- "$work"
-else
-  failed
-fi
-`;
-const macHelper = `#!/bin/sh
-pid=$1; work=$2; bundle=$3; stage=$4; control=$5; relaunch=$6
-exec >"$work/install.log" 2>&1
-failed() {
-  /usr/bin/osascript -e 'display alert "Shellfox update failed" message "The previous app was kept. Reopen Shellfox and try again."' || true
-  if [ "$relaunch" = 1 ]; then /usr/bin/open -n "$bundle"; fi
-  exit 1
-}
-/usr/bin/codesign --verify --deep --strict "$stage/Shellfox.app" || exit 1
-${posixCommitGate}
-${waitForExit}
-old="$stage/previous.app"
-new="$stage/Shellfox.app"
-/usr/bin/codesign --verify --deep --strict "$new" || failed
-if mv -- "$bundle" "$old"; then
-  if mv -- "$new" "$bundle"; then
-    if [ "$relaunch" = 1 ]; then /usr/bin/open -n "$bundle"; fi
-    rm -rf -- "$stage" "$work"
-    exit 0
-  fi
-  if ! mv -- "$old" "$bundle"; then
-    /usr/bin/osascript -e 'display alert "Shellfox rollback failed" message "The previous app is in the .Shellfox-update backup folder beside the installation. Restore it manually."' || true
-    exit 1
-  fi
-fi
-failed
-`;
-const windowsHelper = `param([string]$Config)
-$ErrorActionPreference = 'Stop'
-$c = $null
-$managerExited = $false
-try {
-  $c = Get-Content -LiteralPath $Config -Raw -Encoding UTF8 | ConvertFrom-Json
-  if ((Get-FileHash -LiteralPath $c.file -Algorithm SHA256).Hash -ne $c.sha256) { throw 'Installer checksum changed.' }
-  ${powershellCommitGate}
-  $p = Get-Process -Id $c.pid -ErrorAction SilentlyContinue
-  if ($p) { Wait-Process -Id $c.pid -Timeout 120 -ErrorAction Stop }
-  if (Test-Path -LiteralPath (Join-Path $c.control 'cancel')) { exit 1 }
-  $managerExited = $true
-  $hash = (Get-FileHash -LiteralPath $c.file -Algorithm SHA256).Hash
-  if ($hash -ne $c.sha256) { throw 'Installer checksum changed.' }
-  $install = Start-Process -FilePath $c.file -ArgumentList '--silent' -Wait -PassThru
-  if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
-  if ($c.relaunch) { Start-Process -FilePath $c.updateExe -ArgumentList '--processStart Shellfox.exe' }
-  Remove-Item -LiteralPath $c.work -Recurse -Force
-} catch {
-  try { $_ | Out-File -LiteralPath (Join-Path $c.work 'install.log') } catch {}
-  if (-not $managerExited) { exit 1 }
-  try { Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('Shellfox update failed. Reopen Shellfox and try again.', 'Shellfox update') | Out-Null } catch {}
-  if ($c.relaunch) { try { Start-Process -FilePath $c.updateExe -ArgumentList '--processStart Shellfox.exe' } catch {} }
-  exit 1
-}
-`;
-
 export async function createUpdatePlatform(options: { platform: string; arch: string; executable: string; packaged: boolean; pid?: number }): Promise<UpdatePlatform> {
   const { platform, arch, executable } = options;
   const pid = options.pid ?? process.pid;

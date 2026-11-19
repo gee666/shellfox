@@ -14,7 +14,9 @@ fn name_key(value: &str) -> String {
     lower.strip_suffix(".exe").unwrap_or(&lower).to_owned()
 }
 fn path_key(value: &str) -> String {
-    if value.as_bytes().get(1) == Some(&b':') {
+    if let [drive, b':', b'/' | b'\\', ..] = value.as_bytes()
+        && drive.is_ascii_alphabetic()
+    {
         value.replace('\\', "/").to_lowercase()
     } else {
         value.into()
@@ -144,6 +146,7 @@ mod tests {
         let rule = create("C:\\Tools\\My Agent.exe", &[]).unwrap();
         assert_eq!(rule.executable_paths, ["C:\\Tools\\My Agent.exe"]);
         assert!(create("c:/tools/my agent.exe", &[rule]).is_err());
+        assert_ne!(path_key("/:Tools/Agent"), path_key("/:tools/agent"));
         for bad in ["", "node --flag", "tool,other", "./tool", "C:tool"] {
             assert!(create(bad, &[]).is_err());
         }

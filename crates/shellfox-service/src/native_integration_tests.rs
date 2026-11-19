@@ -11,6 +11,52 @@ use std::{
 
 #[test]
 #[ignore = "requires an explicit separate supervisor artifact in SHELLFOX_NATIVE_TEST_SUPERVISOR"]
+fn three_live_pty_tabs_stop_and_release_host_ownership() -> Result<()> {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+    let data = tempfile::Builder::new()
+        .prefix("native-close-")
+        .tempdir_in(root)?;
+    let supervisor = PathBuf::from(
+        std::env::var_os("SHELLFOX_NATIVE_TEST_SUPERVISOR").context("explicit test artifact")?,
+    );
+    let mut service = crate::Service::open_owned(data.path(), &supervisor)?;
+    let profile_id = ProfileId::new("cmd")?;
+    let snapshot = service.host().create_session(CreateSession {
+        request_id: SessionId::new(),
+        title: None,
+        cwd: data.path().to_string_lossy().into_owned(),
+        profile_id: profile_id.clone(),
+    })?;
+    let session_id = snapshot.sessions[0].id;
+    for _ in 0..2 {
+        service.host().add_tab(
+            session_id,
+            shellfox_core::AddTab {
+                title: None,
+                cwd: None,
+                profile_id: profile_id.clone(),
+            },
+        )?;
+    }
+    let snapshot = service.host().snapshot()?;
+    for tab in &snapshot.sessions[0].tabs {
+        service.attach(tab.id, 1, false)?;
+    }
+    assert_eq!(service.active_terminals(), 3);
+    let start = Instant::now();
+    service.shutdown()?;
+    assert_eq!(service.active_terminals(), 0);
+    anyhow::ensure!(
+        start.elapsed() < Duration::from_secs(5),
+        "Three live PTYs did not stop promptly"
+    );
+    drop(service);
+    crate::Service::open_owned(data.path(), &supervisor)?.shutdown()?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires an explicit separate supervisor artifact in SHELLFOX_NATIVE_TEST_SUPERVISOR"]
 fn native_and_readonly_client_share_one_real_runtime_and_detach_does_not_kill() {
     fn marker(frame: &ScreenFrame) -> bool {
         frame

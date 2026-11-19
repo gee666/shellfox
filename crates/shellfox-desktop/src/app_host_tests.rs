@@ -227,43 +227,27 @@ async fn quit_checks_every_window_including_hidden_dirty_file_and_pending_operat
     );
 }
 #[tokio::test(flavor = "current_thread")]
-async fn stale_approval_cannot_close_a_window_that_became_last_or_dirty() {
-    let host = AppHost::with_backend(Fake::default());
+async fn one_restart_confirmation_reserves_and_closes_every_window() {
+    let backend = Fake::default();
+    let host = AppHost::with_backend(backend.clone());
     let a = host.open_window().await.unwrap();
     let b = host.open_window().await.unwrap();
-    let a_ticket = approved(host.request_close(CloseTarget::Window(a.id), 3).unwrap());
-    let b_ticket = approved(host.request_close(CloseTarget::Window(b.id), 3).unwrap());
-    host.finish_close(a_ticket).await.unwrap();
-    assert!(host.finish_close(b_ticket).await.is_err());
-    let ticket = approved(host.request_close(CloseTarget::Window(b.id), 3).unwrap());
-    host.set_guard(b.id, WindowCloseGuard::DirtyFile).unwrap();
-    assert!(host.finish_close(ticket).await.is_err());
-    assert_eq!(host.window_count().unwrap(), 1);
+    let CloseDecision::Confirm(confirmation) = host.request_close(CloseTarget::Quit, 2).unwrap() else {
+        panic!("restart needs one confirmation for all shells");
+    };
+    assert_eq!(confirmation.terminal_count, 2);
+    assert_eq!(backend.0.lock().unwrap().calls, ["fork:1", "fork:2"]);
+    let ticket = confirmation.approve();
+    assert_eq!(host.begin_close(&ticket).await.unwrap(), [a.id, b.id]);
+    assert_eq!(backend.0.lock().unwrap().calls, ["fork:1", "fork:2"]);
+    let closed = host.finish_close(ticket).await.unwrap();
+    assert_eq!(closed.windows, [a.id, b.id]);
+    assert!(closed.app_stopped);
+    assert_eq!(backend.0.lock().unwrap().calls, ["fork:1", "fork:2", "detach:1", "detach:2", "stop"]);
 }
-#[tokio::test(flavor = "current_thread")]
-async fn stop_failure_retains_application_host_windows_and_requires_new_approval() {
-    let fake = Fake::default();
-    let host = AppHost::with_backend(fake.clone());
-    let window = host.open_window().await.unwrap();
-    fake.0.lock().unwrap().fail_stop = true;
-    let ticket = approved(host.request_close(CloseTarget::Quit, 1).unwrap());
-    assert!(host.finish_close(ticket.clone()).await.is_err());
-    assert!(host.cleanup_retained().unwrap());
-    assert_eq!(host.window_count().unwrap(), 1);
-    assert!(host.open_window().await.is_err());
-    assert!(host.finish_close(ticket).await.is_err());
-    assert!(matches!(
-        host.request_close(CloseTarget::Quit, 1).unwrap(),
-        CloseDecision::Confirm(_)
-    ));
-    fake.0.lock().unwrap().fail_stop = false;
-    let ticket = approved(host.request_close(CloseTarget::Quit, 1).unwrap());
-    assert_eq!(
-        host.finish_close(ticket).await.unwrap().windows,
-        [window.id]
-    );
-    assert!(!host.cleanup_retained().unwrap());
-}
+#[path = "app_host_quit_fault_tests.rs"]
+mod quit_fault;
+
 #[tokio::test(flavor = "current_thread")]
 async fn failed_release_does_not_stop_or_remove_window() {
     let fake = Fake::default();
@@ -331,5 +315,6 @@ async fn bounded_window_clients_and_foreign_tickets_are_rejected() {
     assert_eq!(fake.0.lock().unwrap().next, MAX_WINDOWS);
     let foreign = AppHost::with_backend(Fake::default());
     let ticket = approved(foreign.request_close(CloseTarget::Quit, 0).unwrap());
+    assert!(host.recheck_close(&ticket, 0).is_err());
     assert!(host.finish_close(ticket).await.is_err());
 }

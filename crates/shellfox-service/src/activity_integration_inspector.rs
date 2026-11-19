@@ -7,9 +7,19 @@ use std::{collections::HashMap, ffi::OsString};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InspectionScope {
     LocalWindows,
+    LocalUnix,
     Guest,
     Ssh,
     Unsupported,
+}
+impl InspectionScope {
+    pub(super) fn locally_inspectable(self) -> bool {
+        matches!(self, Self::LocalWindows | Self::LocalUnix)
+    }
+
+    fn matches_platform(self, platform: InspectionPlatform) -> bool {
+        matches!((self, platform), (Self::LocalWindows, InspectionPlatform::Windows) | (Self::LocalUnix, InspectionPlatform::Unix))
+    }
 }
 pub trait RuntimeSource {
     fn runtime(&self, identity: Identity) -> Option<&Runtime>;
@@ -93,6 +103,7 @@ impl RuntimeInspectionState {
             && identities.iter().all(|identity| {
                 self.entries.get(&identity.tab_id).is_some_and(|entry| {
                     entry.identity == *identity
+                        // Unix inspection feeds status, not automatic-expiry proof.
                         && entry.scope == InspectionScope::LocalWindows
                         && entry.completed_started_at.is_some_and(|started| {
                             started >= since_ms.max(entry.minimum_started_at)
@@ -127,7 +138,7 @@ impl ProcessInspector for RuntimeProcessInspector<'_> {
             .get_mut(&identity.tab_id)
             .filter(|entry| entry.identity == identity)
             .ok_or(InspectionFailure::OwnershipMismatch)?;
-        if entry.scope != InspectionScope::LocalWindows {
+        if !entry.scope.locally_inspectable() {
             return Err(InspectionFailure::Unavailable);
         }
         let runtime = self
@@ -142,6 +153,9 @@ impl ProcessInspector for RuntimeProcessInspector<'_> {
                     let result = result.map_err(map_failure)?;
                     if started < entry.minimum_started_at {
                         return Err(InspectionFailure::Pending);
+                    }
+                    if !entry.scope.matches_platform(result.evidence.platform) {
+                        return Err(InspectionFailure::OwnershipMismatch);
                     }
                     let snapshot = convert_inspection(identity, result)?;
                     entry.completed_started_at = Some(started);
@@ -179,9 +193,10 @@ pub fn convert_inspection(
         mut complete,
         processes,
     } = result.evidence;
-    if platform != InspectionPlatform::Windows {
-        return Err(InspectionFailure::Unavailable);
-    }
+    let (platform, domain) = match platform {
+        InspectionPlatform::Windows => (ProcessPlatform::Windows, "windows/local"),
+        InspectionPlatform::Unix => (ProcessPlatform::Unix, "unix/local"),
+    };
     if root.pid == 0 || root.birth == 0 || processes.len() > MAX_OWNED_PROCESSES {
         return Err(InspectionFailure::Bounds);
     }
@@ -221,7 +236,7 @@ pub fn convert_inspection(
         complete &= exact;
         rows.push(OwnedProcess {
             identity: ProcessIdentity {
-                domain: "windows/local".into(),
+                domain: domain.into(),
                 pid: process.identity.pid,
                 birth: process.identity.birth.to_string(),
             },
@@ -237,7 +252,7 @@ pub fn convert_inspection(
     }
     Ok(OwnedProcessSnapshot {
         identity,
-        platform: ProcessPlatform::Windows,
+        platform,
         root: if root_alive {
             RootState::Alive
         } else {

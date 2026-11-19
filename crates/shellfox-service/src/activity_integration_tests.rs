@@ -131,10 +131,9 @@ fn text_conversion_and_total_bytes_are_bounded_before_publication() {
     ));
     let mut unix = raw(identity);
     unix.evidence.platform = InspectionPlatform::Unix;
-    assert!(matches!(
-        convert_inspection(identity, unix),
-        Err(InspectionFailure::Unavailable)
-    ));
+    let snapshot = convert_inspection(identity, unix).unwrap();
+    assert_eq!(snapshot.platform, crate::activity::ProcessPlatform::Unix);
+    assert_eq!(snapshot.processes[0].identity.domain, "unix/local");
 }
 
 #[test]

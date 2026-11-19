@@ -98,7 +98,9 @@ test('invalid configured ABI lists fail', () => {
 });
 test('Gradle validation uses configured Node, selected artifact directory and precedes native tasks', () => {
   const gradle = readFileSync(join(root, 'mobile/android/app/build.gradle'), 'utf8');
-  assert.match(gradle, /react\.nodeExecutableAndArgs\.get\(\)/); assert.match(gradle, /shellfoxNodeExecutable/);
+  assert.match(gradle, /reactExtension = extensions\.getByType\(com\.facebook\.react\.ReactExtension\)/);
+  assert.match(gradle, /reactExtension\.getNodeExecutableAndArgs\(\)\.get\(\)/);
+  assert.match(gradle, /shellfoxNodeExecutable/);
   assert.match(gradle, /task\.dependsOn\(validateRustArtifacts\)/);
   assert.match(gradle, /configureCMake/); assert.match(gradle, /preBuild/);
   assert.match(gradle, /"--artifact-dir", rustAndroidDir\.get\(\)\.asFile\.absolutePath/);

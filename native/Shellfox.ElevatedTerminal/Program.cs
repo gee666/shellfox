@@ -37,7 +37,7 @@ internal static class Launcher
 {
     internal static async Task<int> Run(bool isolated = false)
     {
-        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(isolated ? 120 : 15));
         using var input = new BufferedStream(Console.OpenStandardInput(), 4096);
         using var output = Console.OpenStandardOutput();
         using var parent = Process.GetCurrentProcess();
@@ -98,6 +98,9 @@ internal static class Launcher
         {
             var launch = await Wire.ReadLine(input, cancel.Token) ?? throw new EndOfStreamException();
             ConPty.ValidateLaunch(launch, isolated);
+            // Let Windows own consent timing. Local CLOSE or EOF still
+            // cancels our wait immediately.
+            if (!isolated) cancel.CancelAfter(Timeout.InfiniteTimeSpan);
             // Keep reading CLOSE/EOF while ShellExecute waits on the secure desktop.
             var commands = Task.Run(async () =>
             {
@@ -134,6 +137,7 @@ internal static class Launcher
             else _ = start.ContinueWith(t => { if (t.Status == TaskStatus.RanToCompletion && cancel.IsCancellationRequested) t.Result.Dispose(); }, TaskScheduler.Default);
             child = await start.WaitAsync(cancel.Token);
             if (isolated) originalPeer = new OriginalPeerExit(child);
+            else cancel.CancelAfter(TimeSpan.FromSeconds(15)); // Bound post-consent connection and authentication.
             await connect;
             LocalPipe.Verify(pipe, child, false);
             launchSent = true; // A partial frame might reach the authenticated peer.

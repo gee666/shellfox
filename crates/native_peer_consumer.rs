@@ -23,6 +23,15 @@ struct Negotiation {
     discovered: bool,
     attempt: Option<m::Id>,
 }
+#[derive(Debug)]
+pub struct LegacyPeerRequired;
+impl std::fmt::Display for LegacyPeerRequired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("This peer offers only the legacy Shellfox profile.")
+    }
+}
+impl std::error::Error for LegacyPeerRequired {}
+
 pub struct PeerConnection<T: OutboundTransport> {
     client: Arc<ManagerClient<T>>,
     client_id: m::Id,
@@ -63,6 +72,9 @@ impl<T: OutboundTransport> PeerConnection<T> {
     /// One PAIR per peer connection, shared by all bound views. No view calls this
     /// as an implicit takeover. A legacy offer is not a downgrade/authority grant.
     pub async fn connect(&self) -> Result<Origin> {
+        self.connect_with_policy(FallbackPolicy::Never).await
+    }
+    pub async fn connect_with_policy(&self, fallback: FallbackPolicy) -> Result<Origin> {
         let mut negotiation = self.negotiation.lock().await;
         if self.client.binding_witness().is_ok() {
             return self.origin();
@@ -77,12 +89,13 @@ impl<T: OutboundTransport> PeerConnection<T> {
         if !negotiation.discovered {
             match self
                 .client
-                .discover(FallbackPolicy::Never)
+                .discover(fallback)
                 .await
                 .map_err(|e| anyhow!(e))?
             {
                 DiscoveryOutcome::Available(_) => negotiation.discovered = true,
-                DiscoveryOutcome::Incompatible(_) | DiscoveryOutcome::LegacyAvailable => {
+                DiscoveryOutcome::LegacyAvailable => return Err(LegacyPeerRequired.into()),
+                DiscoveryOutcome::Incompatible(_) => {
                     return Err(anyhow!(
                         "This host does not offer the required Manager profile. No fallback or control was attempted."
                     ));

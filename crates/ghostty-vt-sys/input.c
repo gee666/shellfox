@@ -34,6 +34,20 @@ done:
     return result;
 }
 
+int sf_xterm_input_mode(SfVt *vt, uint8_t id, uint8_t *out) {
+    if (!vt || !out) return GHOSTTY_INVALID_VALUE;
+    GhosttyTerminalModeConfig mode = {0};
+    switch (id) {
+        case 0: mode.mode = GHOSTTY_MODE_CURSOR_KEYS; break;
+        case 1: mode.mode = GHOSTTY_MODE_BRACKETED_PASTE; break;
+        case 2: mode.mode = GHOSTTY_MODE_FOCUS_EVENT; break;
+        default: return GHOSTTY_INVALID_VALUE;
+    }
+    int r = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_MODE, &mode);
+    if (!r) *out = mode.value;
+    return r;
+}
+
 int sf_paste(SfVt *vt, uint8_t *text, size_t text_len,
              uint8_t *out, size_t cap, size_t *len) {
     if (vt->callback_error) return vt->callback_error;

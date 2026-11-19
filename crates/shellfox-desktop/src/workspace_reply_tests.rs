@@ -15,10 +15,12 @@ fn session() -> Session {
             id: TabId::new(),
             session_id: id,
             title: "shell".into(),
+            use_process_title: false,
             cwd: if cfg!(windows) { "C:/owned" } else { "/owned" }.into(),
             ordinal: 0,
             created_at: None,
             profile_id: ProfileId::new("login-shell").unwrap(),
+            wsl_launch: None,
             state: TabState::Pending,
         }],
     }

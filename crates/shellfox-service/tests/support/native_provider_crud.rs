@@ -1,36 +1,19 @@
-//! Same original Service CRUD regression, isolated from the pure/compatibility suite.
 use super::*;
+use std::time::Duration;
 
 async fn step(client: &NativeClient, action: NativeAction, phase: &str) -> Result<NativeResponse> {
-    let started = std::time::Instant::now();
-    eprintln!("provider-service {phase} begin");
-    let result =
-        tokio::time::timeout(std::time::Duration::from_secs(20), client.execute(action)).await;
-    eprintln!(
-        "provider-service {phase} returned after {}ms",
-        started.elapsed().as_millis()
-    );
-    result.map_err(|_| {
-        anyhow::anyhow!("cooperative operation budget ended at {phase}; original cleanup requested")
-    })?
+    tokio::time::timeout(Duration::from_secs(20), client.execute(action))
+        .await
+        .map_err(|_| anyhow::anyhow!("{phase} timed out"))?
 }
+
 #[test]
 fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()> {
-    let started = std::time::Instant::now();
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let data = fixture.data("configured-providers");
-    let calibration = inputs::resource(fixture.helper.clone(), fixture.digest)?;
-    let clock = std::time::Instant::now();
-    for _ in 0..3 {
-        calibration.validate_current()?;
-    }
-    eprintln!(
-        "provider-service three helper validations {}ms {calibration:?}",
-        clock.elapsed().as_millis()
-    );
-    let (providers, opener) = inputs::providers(&data, &fixture.helper, fixture.digest)?;
+    let (providers, opener) = inputs::providers(&data);
     let services = providers.system_services();
-    let supervisor = inputs::program("CLI")?;
+    let supervisor = inputs::program()?;
     let remote = app_composition::NativeApplicationConfig::new(
         &data,
         None,
@@ -42,13 +25,11 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
     let ssh_path = data.join("rust-service-v1/ssh");
     ensure!(!ssh_path.exists(), "source planning created SSH namespace");
     let home = data.clone();
+    let helper = fixture.helper.clone();
+    let digest = fixture.digest;
     support::cycle_remote(&fixture, &data, remote, |owner, _| async move {
         let client = NativeClient::new(owner);
         let second = client.fork();
-        eprintln!(
-            "provider-service Ready after {}ms",
-            started.elapsed().as_millis()
-        );
         ensure!(
             ssh_path.is_dir(),
             "providers were not installed before Ready"
@@ -90,7 +71,7 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
             host: "fixture.invalid".into(),
             port: 22,
             user: "fixture".into(),
-            password: ssh::Password::Clear,
+            password: ssh::Password::set("isolated-cli-fixture".into())?,
             key_file: None,
             remote_cwd: None,
         };
@@ -124,13 +105,15 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
         ensure!(rows
             .iter()
             .any(|row| row.id == id && row.name == "updated-owned-only"));
-        ensure!(
-            client
-                .execute(NativeAction::Ssh(ssh::Request::Import))
-                .await
-                .is_err(),
-            "unsupported import falsely reported an empty successful scan"
-        );
+        use shellfox_service::local::{LocalClient, SshRead, SshReadReply};
+        let local = LocalClient::connect(&home, &helper, digest).await?;
+        let profiles = local.request(&SshRead::List).await?;
+        ensure!(!serde_json::to_string(&profiles)?.contains("isolated-cli-fixture"));
+        ensure!(matches!(profiles, SshReadReply::Profiles(rows) if rows.iter().any(|row| row.id == id && row.has_password)));
+        let SshReadReply::Connection(Some(profile)) = local.request(&SshRead::Connection { id }).await? else {
+            anyhow::bail!("CLI could not read its selected connection");
+        };
+        ensure!(profile.password.as_ref().is_some_and(|secret| secret.expose() == "isolated-cli-fixture"));
         let NativeResponse::Ssh(ssh::Response::Profiles(rows)) = step(
             &second,
             NativeAction::Ssh(ssh::Request::Delete { id }),
@@ -141,12 +124,7 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
             anyhow::bail!("SSH delete unavailable");
         };
         ensure!(!rows.iter().any(|row| row.id == id));
-        eprintln!(
-            "provider-service CRUD complete after {}ms; original bootstrap cleanup follows",
-            started.elapsed().as_millis()
-        );
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

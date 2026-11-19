@@ -2,7 +2,7 @@
 fn privileged_discriminators_precede_normal_args_prestart_and_graphics() {
     let source = include_str!("main.rs");
     let dispatch = source
-        .find("shellfox_service::ssh::dispatch_early_entry(&arguments)")
+        .find("shellfox_service::dispatch_supervisor_entry()")
         .unwrap();
     let options = source.find("Options::parse(arguments)").unwrap();
     let prestart = source.find("app_startup::prepare(&options)").unwrap();

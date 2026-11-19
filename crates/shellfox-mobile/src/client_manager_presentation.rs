@@ -27,6 +27,18 @@ impl ManagerOwnerView {
         self.presentable()?;
         Ok(crate::interaction::hyperlink_at(self.terminal, point)?)
     }
+    pub fn encode_xterm_key(&self, event: &shellfox_ghostty_vt::KeyEvent) -> Result<Vec<u8>, ManagerRecoveryError> {
+        self.presentable()?;
+        Ok(crate::engine::with_engine(self.terminal, |owned| {
+            owned.terminal.encode_xterm_key(event).map_err(|_| crate::Status::Engine)
+        })?)
+    }
+    pub fn encode_xterm_focus(&self, focused: bool) -> Result<Option<&'static [u8]>, ManagerRecoveryError> {
+        self.presentable()?;
+        Ok(crate::engine::with_engine(self.terminal, |owned| {
+            owned.terminal.encode_xterm_focus(focused).map_err(|_| crate::Status::Engine)
+        })?)
+    }
     pub fn mouse_tracking(&self) -> Result<bool, ManagerRecoveryError> {
         self.presentable()?;
         Ok(crate::interaction::mouse_tracking(self.terminal)?)

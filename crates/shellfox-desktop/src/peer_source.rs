@@ -1,5 +1,5 @@
 //! Window selection/cache identity. A peer catalog is never a local Snapshot.
-use anyhow::{Result,anyhow};
+use anyhow::{Result, anyhow};
 use shellfox_protocol::{AuthenticatedPeerId, Validate, manager_v2 as m};
 use std::collections::HashMap;
 
@@ -26,12 +26,16 @@ pub(crate) enum Phase {
 pub(crate) struct PeerState {
     pub hostname: String,
     pub online: bool,
+    pub remembered: bool,
+    pub home: Option<String>,
     pub phase: Phase,
     pub cycle: u64,
     pub snapshot: Option<m::Snapshot>,
+    catalog_cycle: Option<u64>,
     pub origin: Option<shellfox_client::manager_v2::ManagerBindingWitness>,
     pub selected_session: Option<m::Id>,
     pub selected_tab: Option<m::Id>,
+    pub selection_committed: bool,
     pub pending: bool,
     pub error: Option<String>,
 }
@@ -83,17 +87,36 @@ impl PeerSources {
             let state = self.peers.entry(id).or_insert_with(|| PeerState {
                 hostname: peer.hostname.clone(),
                 online: false,
+                remembered: false,
+                home: None,
                 phase: Phase::Disconnected,
                 cycle: 0,
                 snapshot: None,
+                catalog_cycle: None,
                 origin: None,
                 selected_session: None,
                 selected_tab: None,
+                selection_committed: false,
                 pending: false,
                 error: None,
             });
             state.hostname = peer.hostname.clone();
             state.online = peer.online;
+            state.remembered = peer.remembered;
+            if state.cycle == 0 {
+                // A Settings operation can reach these states before this window
+                // has a terminal catalog or has selected the peer.
+                use shellfox_service::remote::native::RemoteConnection as Network;
+                state.phase = match peer.connection {
+                    Network::Connecting => Phase::Connecting,
+                    Network::Reconnecting => Phase::Reconnecting,
+                    Network::AwaitingApproval => Phase::AwaitingApproval,
+                    Network::Rejected => Phase::Rejected,
+                    Network::Disconnected => Phase::Disconnected,
+                    Network::Connected => state.phase,
+                };
+                state.error = peer.last_error.as_ref().map(|error| error.message.clone());
+            }
         }
         for (id, state) in &mut self.peers {
             if !peers.iter().any(|peer| peer.id == id.as_str()) {
@@ -110,13 +133,14 @@ impl PeerSources {
             .cycle
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("Peer cycle exhausted."))?;
-        state.phase = Phase::Connecting;
+        state.phase = match state.phase {
+            Phase::AwaitingApproval => Phase::AwaitingApproval,
+            _ if state.snapshot.is_some() => Phase::Reconnecting,
+            _ => Phase::Connecting,
+        };
         state.pending = true;
         state.error = None;
-        state.snapshot = None;
         state.origin = None;
-        state.selected_session = None;
-        state.selected_tab = None;
         Ok(PeerCycle {
             peer: peer.clone(),
             generation: state.cycle,
@@ -139,10 +163,11 @@ impl PeerSources {
         state.error = error;
         state.pending = false;
         if phase != Phase::Connected {
-            state.snapshot = None;
             state.origin = None;
-            state.selected_session = None;
-            state.selected_tab = None;
+        }
+        if matches!(phase, Phase::Disconnected | Phase::Rejected) {
+            state.snapshot = None;
+            state.catalog_cycle = None;
         }
         true
     }
@@ -155,26 +180,38 @@ impl PeerSources {
         else {
             return Ok(false);
         };
-        if state
-            .snapshot
-            .as_ref()
-            .is_some_and(|old| old.revision > snapshot.revision)
+        if state.catalog_cycle == Some(cycle.generation)
+            && state
+                .snapshot
+                .as_ref()
+                .is_some_and(|old| old.revision > snapshot.revision)
         {
             return Ok(false);
         }
         let session = state
             .selected_session
             .and_then(|id| sessions(&snapshot).find(|session| session.id == id));
-        if session.is_none() {
+        let restoring = state.catalog_cycle != Some(cycle.generation);
+        let valid_tab = state.selected_tab.is_none_or(|id| {
+            session.is_some_and(|session| {
+                session
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.id == id && (!restoring || viewable_tab(tab)))
+            })
+        });
+        if session.is_none() || restoring && !valid_tab {
             state.selected_session = None;
             state.selected_tab = None;
-        } else if state
-            .selected_tab
-            .is_some_and(|id| session.is_some_and(|s| !s.tabs.iter().any(|tab| tab.id == id)))
-        {
+        } else if !valid_tab {
             state.selected_tab = None;
+        } else if restoring && state.selected_tab.is_none() {
+            state.selected_tab = session
+                .and_then(|session| session.tabs.iter().find(|tab| viewable_tab(tab)))
+                .map(|tab| tab.id);
         }
         state.snapshot = Some(snapshot);
+        state.catalog_cycle = Some(cycle.generation);
         Ok(true)
     }
     pub fn select(
@@ -203,8 +240,25 @@ impl PeerSources {
             tab.is_none_or(|id| selected.tabs.iter().any(|item| item.id == id)),
             "Peer tab does not belong to this session."
         );
+        let existing = if state.selected_session == Some(session) {
+            state.selected_tab
+        } else {
+            None
+        };
+        let viewable = |tab: &&m::Tab| viewable_tab(tab);
+        state.selection_committed = true;
         state.selected_session = Some(session);
-        state.selected_tab = tab.or_else(|| selected.tabs.first().map(|tab| tab.id));
+        state.selected_tab = tab.or_else(|| {
+            existing
+                .filter(|id| {
+                    selected
+                        .tabs
+                        .iter()
+                        .filter(viewable)
+                        .any(|tab| tab.id == *id)
+                })
+                .or_else(|| selected.tabs.iter().find(viewable).map(|tab| tab.id))
+        });
         self.choose(Source::Peer(cycle.peer.clone()))?;
         Ok(())
     }
@@ -223,13 +277,21 @@ impl PeerSources {
             state.phase = Phase::Disconnected;
             state.pending = false;
             state.snapshot = None;
+            state.catalog_cycle = None;
             state.origin = None;
-            state.selected_session = None;
-            state.selected_tab = None;
+            // Selection IDs are UI preferences, never a retained binding.
         }
         Ok(())
     }
 }
+pub(crate) fn viewable_tab(tab: &m::Tab) -> bool {
+    if matches!(tab.facts.terminal_kind.known(), Some(Some(shellfox_protocol::TerminalKind::ExternalLegacy))) {
+        return false;
+    }
+    !matches!(tab.facts.lifecycle.known(), Some(shellfox_protocol::TabLifecycle::Closed))
+        || tab.facts.profile_id.known().and_then(Option::as_deref) == Some(shellfox_service::AUTOMATION_PROFILE_ID)
+}
+
 pub(crate) fn sessions(snapshot: &m::Snapshot) -> impl Iterator<Item = &m::Session> {
     snapshot.entries.iter().filter_map(|entry| match entry {
         m::CatalogEntry::Session { value } => Some(value.as_ref()),

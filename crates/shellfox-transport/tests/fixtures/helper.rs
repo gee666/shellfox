@@ -19,7 +19,7 @@ fn main() {
     if args.get(1).is_some_and(|v| v == "--probe") {
         lifecycle::probe_hold(std::path::Path::new(&args[0]));
         emit(
-            json!({"protocolVersion":1,"tailscaleVersion":"1.104.2","platform":if cfg!(windows){"windows"} else if cfg!(target_os="macos"){"darwin"}else{"linux"},"arch":"amd64"}),
+            json!({"protocolVersion":2,"tailscaleVersion":"1.104.2","platform":if cfg!(windows){"windows"} else if cfg!(target_os="macos"){"darwin"}else{"linux"},"arch":"amd64"}),
         );
         return;
     }

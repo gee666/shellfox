@@ -82,6 +82,7 @@ fn pinned_receipt_polling_never_adopts_replacement_or_replays_known_intent() {
                     assert_eq!(*request_id, id);
                     Err(anyhow::Error::from(LaunchError::StaleOwner))
                 }
+                other => panic!("Unexpected launch request: {other:?}"),
             };
             seen.borrow_mut().push(request);
             async move { reply }
@@ -165,6 +166,7 @@ fn queued_is_not_success_and_only_correlated_handled_completes_the_pinned_handof
                         },
                     })
                 }
+                other => panic!("Unexpected launch request: {other:?}"),
             };
             seen.borrow_mut().push(request);
             async move { Ok(reply) }
@@ -228,6 +230,7 @@ fn unpinned_cli_discovery_preserves_fresh_submission_and_validates_receipt_id() 
                 DesktopLaunchRequest::Receipt { .. } => {
                     panic!("A mismatched handled receipt cannot authorize polling or replay")
                 }
+                other => panic!("Unexpected launch request: {other:?}"),
             }
         },
     ));

@@ -31,14 +31,16 @@ pub struct PresentationFrame {
     pub top_row: u64,
     pub total_rows: u64,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CursorShape {
     Block,
     Bar,
     Underline,
     HollowBlock,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CursorVisual {
     /// Active-grid coordinates. Use PresentationFrame.screen.cursor for the
     /// position and visibility relative to a particular view's scroll position.

@@ -11,6 +11,11 @@ impl Service {
     /// launch, PID lookup, or claim that a shell is currently alive.
     pub(crate) fn create_application_session(&self, input: CreateSession) -> Result<Snapshot> {
         self.assert_accepting()?;
+        #[cfg(windows)]
+        if input.profile_id.as_str().starts_with("wsl:") {
+            let profile = self.catalog.wsl.cache.ready()?.settings_profile(input.profile_id.as_str())?;
+            return self.create_profile_session(input, profile.shell_id);
+        }
         let profile = shellfox_terminal::discover_shell_profiles()?
             .into_iter()
             .find(|profile| profile.id().as_str() == input.profile_id.as_str())
@@ -19,8 +24,17 @@ impl Service {
             ShellProfileId::Pwsh => SettingsShell::Pwsh,
             ShellProfileId::WindowsPowerShell => SettingsShell::WindowsPowershell,
             ShellProfileId::Wsl => SettingsShell::Wsl,
-            ShellProfileId::Cmd | ShellProfileId::LoginShell => SettingsShell::LoginShell,
+            ShellProfileId::Bash => SettingsShell::Bash,
+            ShellProfileId::Cmd
+            | ShellProfileId::LoginShell
+            | ShellProfileId::Sh
+            | ShellProfileId::Zsh
+            | ShellProfileId::Fish => SettingsShell::LoginShell,
         };
+        self.create_profile_session(input, shell_id)
+    }
+
+    fn create_profile_session(&self, input: CreateSession, shell_id: SettingsShell) -> Result<Snapshot> {
         self.host
             .create_session_with_facts(
                 input,
@@ -33,12 +47,33 @@ impl Service {
             .map_err(Into::into)
     }
     pub(crate) fn application_metadata(
-        &self,
+        &mut self,
         request: shellfox_host::HostRequest,
     ) -> Result<Snapshot> {
         match request {
             shellfox_host::HostRequest::CreateSession(input) => {
                 self.create_application_session(input)
+            }
+            #[cfg(windows)]
+            shellfox_host::HostRequest::AddTab { session_id, input }
+                if input.profile_id.as_str() == ADMIN_POWERSHELL_PROFILE =>
+            {
+                self.assert_accepting()?;
+                // Only this fresh local action may request UAC. Neither saved
+                // metadata, default settings nor a subsequent attach can do so.
+                shellfox_terminal::elevated::InteractiveHelper::bundled()?;
+                let snapshot = self.host.add_tab(session_id, input)?;
+                let tab = snapshot.selection.tab_id.context("New administrator tab missing.")?;
+                self.start_administrator_tab(tab)?;
+                Ok(snapshot)
+            }
+            #[cfg(windows)]
+            shellfox_host::HostRequest::AddTab { session_id, input }
+                if input.profile_id.as_str().starts_with("wsl:") =>
+            {
+                self.assert_accepting()?;
+                self.catalog.wsl.cache.ready()?.settings_profile(input.profile_id.as_str())?;
+                self.host.add_tab(session_id, input).map_err(Into::into)
             }
             request => self.host.request(request).map_err(Into::into),
         }

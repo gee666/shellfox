@@ -74,7 +74,8 @@ pub(super) fn protect_directory(dir: &Dir, user: u32) -> Result<()> {
 impl HostRoot {
     pub fn validate_creation_ancestors(&self) -> Result<()> {
         let user = current_user();
-        for anchor in &self.anchors {
+        let ancestor_count = self.anchors.len() - usize::from(self.exists());
+        for anchor in &self.anchors[..ancestor_count] {
             let info = anchor.handle.dir_metadata()?;
             verify_acl(&anchor.handle.try_clone()?.into_std_file())?;
             let system = info.uid() == 0 || (cfg!(target_os = "android") && info.uid() == 1000);
@@ -87,15 +88,9 @@ impl HostRoot {
             );
         }
         if self.exists() {
-            owned(
-                &self
-                    .anchors
-                    .last()
-                    .context("Missing host root")?
-                    .handle
-                    .dir_metadata()?,
-                user,
-            )?;
+            let root = &self.anchors.last().context("Missing host root")?.handle;
+            owned(&root.dir_metadata()?, user)?;
+            verify_acl(&root.try_clone()?.into_std_file())?;
         }
         self.revalidate()
     }

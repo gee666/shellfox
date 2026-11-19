@@ -2,12 +2,9 @@ use super::*;
 use crate::native_metadata_fixture as native_metadata;
 use shellfox_remote::{
     adapter::{ObservationFacts, SessionFacts, TabFacts},
-    owner_channel, ApprovalControl, PrivateApprovalStore, RemoteHost,
+    owner_channel, Approval, ApprovalControl, PrivateApprovalStore, RemoteHost, ViewPermission,
 };
-use shellfox_transport::{
-    incoming::PeerIdentity, HostOwnership, PermissionVerifier, PrivatePathKind, VerifiedHelper,
-};
-use std::path::{Path, PathBuf};
+use shellfox_transport::incoming::PeerIdentity;
 
 async fn dispatch(
     service: &mut Service,
@@ -24,71 +21,62 @@ async fn dispatch(
     });
     result
 }
-pub(super) fn helper() -> VerifiedHelper {
-    let path = PathBuf::from(std::env::var_os("SHELLFOX_OFFLINE_HELPER").expect("explicit helper"));
-    let digest = std::env::var("SHELLFOX_OFFLINE_HELPER_SHA256").expect("explicit digest");
-    assert_eq!(digest.len(), 64);
-    let mut bytes = [0; 32];
-    for (i, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&digest[i * 2..i * 2 + 2], 16).unwrap();
-    }
-    VerifiedHelper::new(path, bytes).unwrap()
-}
-#[tokio::test]
-#[ignore = "explicit verified offline Go helper required; no tsnet or login"]
-async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
-    let parent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
-    std::fs::create_dir_all(&parent).unwrap();
-    let parent = std::fs::canonicalize(parent).unwrap();
-    #[cfg(windows)]
-    let parent = PathBuf::from(
-        parent
-            .to_str()
-            .unwrap()
-            .strip_prefix(r"\\?\")
-            .unwrap_or(parent.to_str().unwrap()),
-    );
-    let scratch = tempfile::Builder::new()
-        .prefix("service-remote-")
-        .tempdir_in(parent)
-        .unwrap();
-    let helper = helper();
-    PermissionVerifier::new(helper.clone())
-        .protect(scratch.path(), PrivatePathKind::Directory)
-        .await
-        .unwrap();
-    let ownership = HostOwnership::acquire(&helper, scratch.path())
-        .await
-        .unwrap()
-        .unwrap();
-    // Known pre-existing V2 fixture, not application approval WRITE acceptance.
-    let metadata = native_metadata::Fixture::new();
-    let directory = metadata
-        .files
-        .open_or_create_private_child(std::ffi::OsStr::new("remote-v1"))
-        .unwrap();
-    native_metadata::Fixture::seed(&directory,"approvals.json",br#"{"version":2,"approvals":[{"peerId":"n-service","hostname":"offline","approvedAtMillis":1,"policy":"control-full-account-v1"}]}"#);
+pub(super) async fn approve_peer(
+    store_owner: &crate::owner::ServiceOwner,
+    metadata: &native_metadata::Fixture,
+    peer: &PeerIdentity,
+) -> (ApprovalControl, PrivateApprovalStore) {
     let store =
         PrivateApprovalStore::retained_native(metadata.files.clone(), metadata.lost.clone());
-    store.initialize_read_only().unwrap();
-    // Positive Service/Go metadata acceptance is PENDING native approval authority.
-    let approvals = match ApprovalControl::load(&store).await {
-        Ok(control) => control,
-        Err(error) => {
-            assert_eq!(error.code, ErrorCode::Unsupported);
-            ownership.shutdown().await.unwrap();
-            return;
-        }
-    };
-    let actor = approvals
-        .authorize(
-            &PeerIdentity {
-                id: "n-service".into(),
-                hostname: "offline".into(),
-            },
-            wire::ClientId::new_v4(),
-            1,
+    store
+        .bind_repository(
+            store_owner
+                .client(uuid::Uuid::new_v4())
+                .approval_repository(metadata.lost.clone()),
         )
+        .unwrap();
+    store.initialize_read_only().unwrap();
+    let control = ApprovalControl::load(&store).await.unwrap();
+    control
+        .approve(
+            &store,
+            Approval {
+                peer_id: peer.id.clone(),
+                hostname: peer.hostname.clone(),
+                approved_at_millis: 1,
+                permission: ViewPermission::Write,
+                file_roots: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+    (control, store)
+}
+
+pub(super) async fn approval_owner(data: &std::path::Path) -> crate::owner::ServiceOwner {
+    crate::owner::ServiceOwner::start(
+        data.to_owned(),
+        std::env::current_exe().unwrap(),
+        shellfox_protocol::CancellationToken::new(),
+        (),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
+    let scratch = crate::tests::scratch();
+    let approval_data = crate::tests::scratch();
+    let mut owner = approval_owner(approval_data.path()).await;
+    let metadata = native_metadata::Fixture::new();
+    let peer = PeerIdentity {
+        id: "n-service".into(),
+        hostname: "offline".into(),
+    };
+    let (approvals, store) = approve_peer(&owner, &metadata, &peer).await;
+    let actor = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
         .unwrap();
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
@@ -192,6 +180,29 @@ async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
         service.host().snapshot().unwrap().sessions[0].title,
         "After"
     );
+    let snapshot = service.host().add_tab(session_id, shellfox_core::AddTab {
+        title: None,
+        cwd: None,
+        profile_id: shellfox_core::ProfileId::new(crate::ADMIN_POWERSHELL_PROFILE).unwrap(),
+    }).unwrap();
+    let administrator = snapshot.selection.tab_id.unwrap();
+    let listed = state.bind(&mut service).session(&snapshot, session_id).unwrap();
+    assert_eq!(listed.tabs.len(), 1);
+    assert_eq!(listed.tabs[0].id, tab.id);
+    let attach = dispatch(
+        &mut service,
+        &mut state,
+        OwnerCommand::Execute {
+            actor: actor.clone(),
+            command: RemoteCommand::AttachTerminal(wire::AttachTerminal {
+                tab_id: administrator,
+                after_sequence: None,
+                generation: None,
+            }),
+        },
+    ).await.unwrap_err();
+    assert_eq!(attach.code, ErrorCode::AccessDenied);
+    assert_eq!(service.active_terminals(), 0);
     let delete = RemoteCommand::DeleteSession(wire::DeleteSession { session_id });
     state.profiles.as_mut().unwrap().profiles[0].elevation = Some(wire::Elevation::Administrator);
     assert_eq!(
@@ -221,15 +232,7 @@ async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
     assert!(profiles["profiles"].as_array().unwrap().is_empty());
     assert_eq!(service.host().snapshot().unwrap().sessions.len(), 1);
     state.profiles.as_mut().unwrap().profiles[0].elevation = None;
-    assert_eq!(
-        approvals
-            .revoke(&store, &actor.peer_id)
-            .await
-            .unwrap_err()
-            .code,
-        ErrorCode::Unsupported,
-        "disk write remains gated; in-memory old epoch is still revoked"
-    );
+    approvals.revoke(&store, &actor.peer_id).await.unwrap();
     assert_eq!(
         dispatch(
             &mut service,
@@ -251,7 +254,7 @@ async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
     assert!(state.views.is_empty());
     service.shutdown().unwrap();
     drop(service);
-    ownership.shutdown().await.unwrap();
+    owner.shutdown().await.unwrap();
 }
 // PENDING: original factory/journal success coverage is NOT retained as a pass.
 // Native journals/uploads are gated. Actual BootGuard setup belongs to its

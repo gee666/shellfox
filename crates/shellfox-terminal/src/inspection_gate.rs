@@ -175,9 +175,6 @@ pub(crate) struct SupervisorProof {
     parent: RawProcessIdentity,
 }
 impl SupervisorProof {
-    pub(crate) fn parent_identity(&self) -> RawProcessIdentity {
-        self.parent
-    }
     pub(crate) fn parse(args: &mut impl Iterator<Item = OsString>, release: &str) -> Result<Self> {
         ensure!(
             args.next().as_deref() == Some(OsStr::new(MARKER)),

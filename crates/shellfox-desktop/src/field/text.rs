@@ -3,14 +3,10 @@ use gpui::{Font, ShapedLine, Window, font, px};
 pub(super) fn base_font(monospace: bool, font_size: f32, code: bool, window: &Window) -> Font {
     let mut selected = if monospace {
         crate::renderer::choose_font(window, "monospace", font_size)
-            .map(|(font, _)| font)
+            .map(|(font, _, _)| font)
             .unwrap_or_else(|_| font(".SystemUIFont"))
     } else {
-        font(if cfg!(windows) {
-            "Segoe UI"
-        } else {
-            ".SystemUIFont"
-        })
+        font(crate::ui_font::family())
     };
     if code {
         selected.features = gpui::FontFeatures(std::sync::Arc::new(

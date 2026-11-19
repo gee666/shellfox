@@ -133,7 +133,7 @@ fn version_three_migration_keeps_old_receipt_session_only_and_selection_unchange
     drop(host);
     scratch
         .db()
-        .execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; PRAGMA user_version=3;")
+        .execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; DROP TABLE desktop_preferences; PRAGMA user_version=3;")
         .unwrap();
     let host = Host::open(&scratch.0).unwrap();
     assert_eq!(host.snapshot().unwrap(), before);
@@ -161,7 +161,7 @@ fn version_three_migration_keeps_old_receipt_session_only_and_selection_unchange
             .db()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        5
+        6
     );
     let request = input();
     let saved = host
@@ -266,7 +266,7 @@ fn no_facts_publication_rolls_back_receipt_failure_and_retries_without_backfill(
 fn corrupt_version_three_migration_rolls_back_receipt_table_and_schema_version() {
     let scratch = Scratch::new();
     drop(Host::open(&scratch.0).unwrap());
-    scratch.db().execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; PRAGMA user_version=3; UPDATE host_state SET value='{}';").unwrap();
+    scratch.db().execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; DROP TABLE desktop_preferences; PRAGMA user_version=3; UPDATE host_state SET value='{}';").unwrap();
     assert_eq!(
         Host::open(&scratch.0).err().unwrap().code,
         ErrorCode::StorageFailed

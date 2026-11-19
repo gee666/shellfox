@@ -91,12 +91,12 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<Arg
         }
         *target = Some(path);
     }
-    let data_dir =
-        data_dir.context("Explicit --data-dir ABSOLUTE_DIR required. Use --help for usage.")?;
-    let helper =
-        helper.context("Explicit --helper ABSOLUTE_EXE required. Use --help for usage.")?;
-    let helper_sha256 = helper_sha256
-        .context("Explicit --helper-sha256 HEX required. Use a trusted build digest.")?;
+    let packaged = !cfg!(test) && shellfox_service::app_paths::is_packaged();
+    let data_dir = match data_dir {
+        Some(dir) => dir,
+        None if packaged => shellfox_service::app_paths::default_data_root()?,
+        None => bail!("Explicit --data-dir ABSOLUTE_DIR required. Use --help for usage."),
+    };
     let words: Vec<String> = args
         .map(|arg| {
             arg.into_string()
@@ -104,7 +104,12 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<Arg
         })
         .collect::<Result<_>>()?;
     let command = parse_command(&words)?;
-    let application = application.finish_with_helper(&data_dir, &helper, helper_sha256)?;
+    let (helper, helper_sha256) = match (helper, helper_sha256) {
+        (Some(helper), Some(digest)) => (helper, digest),
+        (None, None) if packaged => shellfox_service::app_paths::packaged_helper()?,
+        _ => bail!("Supply both --helper ABSOLUTE_EXE and --helper-sha256 HEX from a trusted build."),
+    };
+    let application = application.finish(&data_dir)?;
     application.validate_separate(&[&helper])?;
     Ok(Some(Args {
         data_dir,
@@ -115,7 +120,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<Arg
     }))
 }
 
-fn parse_digest(value: &str) -> Result<[u8; 32]> {
+pub(crate) fn parse_digest(value: &str) -> Result<[u8; 32]> {
     if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         bail!("--helper-sha256 requires exactly 64 hex digits from a trusted build.");
     }

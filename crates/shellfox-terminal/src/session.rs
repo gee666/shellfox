@@ -38,19 +38,7 @@ impl PtySession {
         config: PtyConfig,
         binding: crate::NativeLaunchBinding,
     ) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_windows_inner(config, SpawnOptions::default(), None, Some(binding))
-    }
-    pub fn spawn_program_bound(
-        config: PtyConfig,
-        program_env: crate::TrustedProgramEnv,
-        binding: crate::NativeLaunchBinding,
-    ) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_windows_inner(
-            config,
-            SpawnOptions::default(),
-            Some(program_env),
-            Some(binding),
-        )
+        Self::spawn_windows_inner(config, SpawnOptions::default(), Some(binding))
     }
     pub fn take_launch_evidence(&mut self) -> Option<crate::NativeLaunchEvidence> {
         self.inner
@@ -61,40 +49,24 @@ impl PtySession {
         Self::spawn_windows(config, SpawnOptions::default())
     }
 
-    pub fn spawn_program(
-        config: PtyConfig,
-        program_env: crate::TrustedProgramEnv,
-    ) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_windows_inner(config, SpawnOptions::default(), Some(program_env), None)
-    }
     #[cfg(windows)]
     pub(crate) fn spawn_windows(
         config: PtyConfig,
         options: SpawnOptions,
     ) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_windows_inner(config, options, None, None)
+        Self::spawn_windows_inner(config, options, None)
     }
     fn spawn_windows_inner(
         config: PtyConfig,
         options: SpawnOptions,
-        program_env: Option<crate::TrustedProgramEnv>,
         binding: Option<crate::NativeLaunchBinding>,
     ) -> std::result::Result<Self, SpawnError> {
         use crate::windows::{Job, StartupGate, STARTUP_TIMEOUT_MS, SUPERVISOR_FLAG};
         config.validate()?;
         let mut launch_binding = binding;
-        if let Some(program_env) = &program_env {
-            program_env.validate_for(&config)?;
-        }
         let job = Job::new()?;
         let gate = StartupGate::new()?;
         let mut inspection_gate = crate::inspection_gate::InspectionGate::new(&gate.release_name)?;
-        let mut program_gate = program_env
-            .as_ref()
-            .map(|environment| {
-                crate::program_env_pipe::ProgramGate::new(&gate.release_name, environment)
-            })
-            .transpose()?;
         let command = match &config.command {
             Some(command) => command.clone(),
             None => match config.profile {
@@ -114,9 +86,6 @@ impl PtySession {
             gate.ready_name.clone().into(),
         ];
         argv.extend(inspection_gate.arguments());
-        if let Some(gate) = &program_gate {
-            argv.extend(gate.arguments());
-        }
         argv.push(command.program);
         argv.extend(command.args);
         let builder = config.builder(&argv)?;
@@ -134,7 +103,6 @@ impl PtySession {
             inner: Some(Session {
                 child,
                 inspection: None,
-                program_env,
                 launch_evidence: None,
                 master: Some(pair.master),
                 writer,
@@ -160,20 +128,11 @@ impl PtySession {
                 .assign(inner.child.as_ref())?;
             // From now on cleanup always terminates the whole Job.
             inner.released = true;
-            if let Some(environment) = &inner.program_env {
-                environment.validate_for(&config)?;
-            }
             if !options.skip_release {
                 gate.release()?;
             }
             let deadline = Instant::now() + Duration::from_millis(STARTUP_TIMEOUT_MS as u64);
             loop {
-                if let Some(gate) = &mut program_gate {
-                    gate.poll(
-                        inner.job.as_ref().context("missing Job")?,
-                        inner.child.as_ref(),
-                    )?;
-                }
                 if inner.inspection.is_none() {
                     inner.inspection = inspection_gate.try_capture(
                         inner.job.as_ref().context("missing Job")?,

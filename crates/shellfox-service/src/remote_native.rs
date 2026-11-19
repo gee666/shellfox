@@ -178,6 +178,7 @@ pub struct RemoteControl {
     pub(super) sender: mpsc::Sender<RemoteEnvelope>,
     pub(super) outgoing: mpsc::Sender<super::outgoing::OutgoingEnvelope>,
     pub(super) state: watch::Receiver<RemoteControlState>,
+    pub(super) runtime: tokio::runtime::Handle,
 }
 pub enum RemoteAdmissionError {
     Full(RemoteRequest),

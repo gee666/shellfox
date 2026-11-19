@@ -19,6 +19,32 @@ pub(super) enum Operation {
     ConfirmRevoke(String),
     CancelRevoke,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ErrorSection {
+    Access,
+    Machines,
+    Clients,
+}
+
+impl Operation {
+    pub fn client_access_target(&self) -> Option<(&'static str, &str)> {
+        match self {
+            Self::Approve(id) => Some(("Approve", id)),
+            Self::Reject(id) => Some(("Reject", id)),
+            Self::Revoke(id) => Some(("Revoke", id)),
+            Self::ConfirmRevoke(id) => Some(("Confirm revoke", id)),
+            _ => None,
+        }
+    }
+    pub fn section(&self) -> ErrorSection {
+        match self {
+            Self::Connect(_) | Self::Disconnect(_) | Self::Forget(_) => ErrorSection::Machines,
+            Self::Approve(_) | Self::Reject(_) | Self::ConfirmRevoke(_) => ErrorSection::Clients,
+            _ => ErrorSection::Access,
+        }
+    }
+}
+
 pub(super) struct RemoteView {
     pub state: Option<api::RemoteState>,
     pub hostname: Entity<Field>,
@@ -26,7 +52,9 @@ pub(super) struct RemoteView {
     pub login_address: Entity<Field>,
     pub pending: bool,
     pub login_request: bool,
-    pub error: Option<String>,
+    pub login_attempt: Option<String>,
+    pub read_error: Option<String>,
+    pub error: Option<(ErrorSection, String)>,
     pub advanced: bool,
     pub revoking: Option<String>,
     pub epoch: u64,
@@ -40,11 +68,13 @@ impl RemoteView {
     pub fn new(cx: &mut App) -> Self {
         let view = Self {
             state: None,
-            hostname: Field::new("", cx),
+            hostname: Field::settings_input(None, cx),
             auth: Field::password(cx),
             login_address: Field::new("", cx),
             pending: false,
             login_request: false,
+            login_attempt: None,
+            read_error: None,
             error: None,
             advanced: false,
             revoking: None,
@@ -67,6 +97,51 @@ impl RemoteView {
         view.login_address
             .update(cx, |field, cx| field.set_read_only(true, cx));
         view
+    }
+
+    pub fn retry_release_id(&self) -> Option<&str> {
+        if self.login.phase != login::Phase::Error {
+            return None;
+        }
+        let id = self.login_attempt.as_deref()?;
+        self.state
+            .as_ref()?
+            .attempts
+            .iter()
+            .any(|attempt| {
+                attempt.id == id && matches!(attempt.kind, api::RemoteAttemptKind::Login)
+            })
+            .then_some(id)
+    }
+
+    pub fn client_access_name(&self, operation: &Operation) -> Option<&str> {
+        let (_, id) = operation.client_access_target()?;
+        let state = self.state.as_ref()?;
+        if matches!(operation, Operation::Approve(_) | Operation::Reject(_)) {
+            state
+                .pending
+                .iter()
+                .find(|peer| peer.id == id)
+                .map(|peer| peer.hostname.as_str())
+        } else {
+            state
+                .approvals
+                .iter()
+                .find(|peer| peer.peer_id == id)
+                .map(|peer| peer.hostname.as_str())
+        }
+    }
+
+    pub fn error_at(&self, section: ErrorSection) -> Option<String> {
+        self.error
+            .as_ref()
+            .filter(|(owner, _)| *owner == section)
+            .map(|(_, message)| message.clone())
+    }
+
+    pub fn fail(&mut self, section: ErrorSection, message: &str) {
+        let text = message.split('\n').next().unwrap_or("Request failed.");
+        self.error = Some((section, text.chars().take(200).collect()));
     }
 }
 pub(super) fn connection(peer: &api::Peer) -> &'static str {

@@ -23,7 +23,12 @@ pub(crate) fn kind(file: &File, expected: PrivateKind) -> Result<()> {
     Ok(())
 }
 pub(crate) fn parent(file: &File) -> Result<PrivateIdentity> {
+    directory_parent(file, false)
+}
+pub(crate) fn directory_parent(file: &File, app_directory: bool) -> Result<PrivateIdentity> {
     kind(file, PrivateKind::Directory)?;
+    #[cfg(not(windows))]
+    let _ = app_directory;
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -36,7 +41,11 @@ pub(crate) fn parent(file: &File) -> Result<PrivateIdentity> {
         darwin_acl(file)?;
     }
     #[cfg(windows)]
-    crate::private_parent_windows::verify(file)?;
+    if app_directory {
+        crate::private_parent_windows::verify_app_directory_parent(file)?;
+    } else {
+        crate::private_parent_windows::verify(file)?;
+    }
     PrivateIdentity::from_file(file)
 }
 pub(crate) fn object(file: &File, expected: PrivateKind) -> Result<PrivateIdentity> {

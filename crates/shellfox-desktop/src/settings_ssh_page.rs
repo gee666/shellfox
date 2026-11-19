@@ -4,25 +4,32 @@ use super::{
     *,
 };
 impl SettingsPanel {
-    pub(super) fn ssh_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn ssh_page(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
-        let import = self.text_button(
-            "import-putty",
-            "Import from PuTTY",
-            Action::Ssh(Operation::Import),
-            cx,
-        );
-        let add = self.text_button("add-ssh", "Add", Action::Ssh(Operation::Add), cx);
+        let import = self
+            .text_button(
+                "import-putty",
+                "Import from PuTTY",
+                Action::Ssh(Operation::Import),
+                cx,
+            )
+            .h(px(24.))
+            .min_h(px(24.));
+        let add = self
+            .text_button("add-ssh", "Add", Action::Ssh(Operation::Add), cx)
+            .h(px(24.))
+            .min_h(px(24.));
         let mut page = div().child(
             div()
                 .flex()
-                .items_center()
+                .items_start()
                 .justify_between()
                 .gap(px(8.))
                 .mb(px(8.))
                 .child(controls::heading("SSH connections").mb_0())
                 .child(
                     div()
+                        .h(px(26.))
                         .flex()
                         .items_center()
                         .gap(px(4.))
@@ -40,6 +47,7 @@ impl SettingsPanel {
         if self.ssh.editor.as_ref().is_some_and(|editor| editor.is_new) {
             page = page.child(self.ssh_form(cx));
         }
+        let mut previous_was_row = false;
         for profile in &profiles {
             if self
                 .ssh
@@ -48,6 +56,7 @@ impl SettingsPanel {
                 .is_some_and(|editor| editor.id == profile.id)
             {
                 page = page.child(self.ssh_form(cx));
+                previous_was_row = false;
                 continue;
             }
             if self.ssh.removing.as_deref() == Some(profile.id.as_str()) {
@@ -77,6 +86,7 @@ impl SettingsPanel {
                         .child(remove)
                         .child(cancel),
                 );
+                previous_was_row = false;
                 continue;
             }
             let address = format!(
@@ -93,9 +103,12 @@ impl SettingsPanel {
                     format!(":{}", profile.port)
                 }
             );
+            let copy_id = ssh::row_id(&profile.id);
+            let edit_id = format!("edit-ssh-{}", profile.id);
+            let remove_id = format!("remove-ssh-{}", profile.id);
             let copy = self
                 .text_button(
-                    format!("ssh-row-{}", profile.id),
+                    copy_id.clone(),
                     "",
                     Action::Ssh(Operation::Edit(profile.id.clone())),
                     cx,
@@ -108,31 +121,29 @@ impl SettingsPanel {
                 .justify_start()
                 .gap(px(12.))
                 .child(
-                    div()
-                        .w(gpui::relative(2. / 7.))
-                        .overflow_hidden()
+                    controls::column(1.)
+                        .truncate()
+                        .text_color(p.foreground)
                         .child(profile.name.clone()),
                 )
                 .child(
-                    div()
-                        .w(gpui::relative(3. / 7.))
-                        .overflow_hidden()
+                    controls::column(1.5)
+                        .truncate()
                         .text_size(px(11.))
                         .font_family("Cascadia Code")
                         .text_color(p.muted)
                         .child(address),
                 )
                 .child(
-                    div()
-                        .w(gpui::relative(2. / 7.))
-                        .overflow_hidden()
-                        .text_size(px(11.))
+                    controls::column(1.)
+                        .truncate()
+                        .text_size(px(10.))
                         .text_color(p.muted)
                         .child(profile.remote_cwd.clone().unwrap_or_default()),
                 );
             let edit = self
                 .text_button(
-                    format!("edit-ssh-{}", profile.id),
+                    edit_id.clone(),
                     "",
                     Action::Ssh(Operation::Edit(profile.id.clone())),
                     cx,
@@ -143,7 +154,7 @@ impl SettingsPanel {
                 .child(crate::assets::icon("edit"));
             let remove = self
                 .text_button(
-                    format!("remove-ssh-{}", profile.id),
+                    remove_id.clone(),
                     "",
                     Action::Ssh(Operation::Remove(profile.id.clone())),
                     cx,
@@ -152,30 +163,52 @@ impl SettingsPanel {
                 .h(px(24.))
                 .p_0()
                 .child(crate::assets::icon("close"));
+            let focused = [&copy_id, &edit_id, &remove_id].into_iter().any(|id| {
+                self.controls
+                    .get(id)
+                    .is_some_and(|focus| focus.is_focused(window))
+            });
+            let row = profile.id.clone();
+            let show_actions = focused || self.ssh.hovered_row.as_ref() == Some(&row);
             page = page.child(
                 div()
+                    .id(gpui::SharedString::from(format!("ssh-actions-{copy_id}")))
+                    .on_hover(cx.listener(move |panel, hovered: &bool, _, cx| {
+                        if *hovered {
+                            panel.ssh.hovered_row = Some(row.clone());
+                        } else if panel.ssh.hovered_row.as_ref() == Some(&row) {
+                            panel.ssh.hovered_row = None;
+                        } else {
+                            return;
+                        }
+                        cx.notify();
+                    }))
                     .h(px(28.))
                     .flex()
                     .items_center()
-                    .border_b_1()
-                    .border_color(p.border)
+                    .when(previous_was_row, |row| {
+                        row.border_t_1().border_color(p.border)
+                    })
                     .child(copy)
-                    .child(edit)
-                    .child(remove),
+                    .child(
+                        div()
+                            .id("ssh-actions")
+                            .flex()
+                            .when(!show_actions, |actions| actions.invisible())
+                            .child(edit)
+                            .child(remove),
+                    ),
             );
+            previous_was_row = true;
         }
         if self.ssh.profiles.is_some() && profiles.is_empty() && self.ssh.editor.is_none() {
-            page = page.child(div().child("No connections yet."));
-        }
-        if self.ssh.profiles.is_none() && self.ssh.error.is_none() {
-            page = page.child(controls::hint(
-                if self.services.is_some() {
-                    "Reading connections…"
-                } else {
-                    "SSH settings are unavailable on the connected host."
-                },
-                p,
-            ));
+            page = page.child(
+                div()
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .text_color(p.muted)
+                    .child("No connections yet."),
+            );
         }
         if self.ssh.editor.is_none()
             && let Some(error) = &self.ssh.error

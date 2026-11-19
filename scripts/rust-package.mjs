@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { auditDependencies } from './rust-package-audit.mjs';
 import { stageResources, writeLaunchers } from './rust-package-resources.mjs';
-import { assertHeadlessFiles, executableName, fileHash, filesUnder, nativeTarget, root, run, scratchRoot, selectedBinaries, sha256 } from './rust-package-common.mjs';
+import { assertHeadlessFiles, executableName, fileHash, filesUnder, nativeTarget, readJson, root, run, scratchRoot, selectedBinaries, sha256 } from './rust-package-common.mjs';
 import { smokePackage } from './rust-package-smoke.mjs';
 import { auditSecurity } from './rust-package-security.mjs';
 
@@ -40,8 +40,8 @@ export async function packageRust(kind) {
   const target = nativeTarget();
   const metadata = JSON.parse(run('cargo', ['metadata', '--locked', '--no-deps', '--format-version', '1']));
   const binaries = selectedBinaries(metadata, kind);
-  const version = binaries[0].version;
-  if (!/^[0-9A-Za-z.+-]+$/.test(version)) throw new Error('Unsafe Cargo version in artifact name');
+  const { version } = readJson(path.join(root, 'package.json'));
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Expected a stable package.json version');
   const name = `shellfox-rust-${kind}-${version}-${process.platform}-${process.arch}`;
   const work = mkdtempSync(path.join(scratchRoot, 'rust-package-build-'));
   const artifacts = path.join(scratchRoot, 'rust-package-artifacts');
@@ -74,7 +74,7 @@ export async function packageRust(kind) {
     // Never overwrite target/release: a user-owned desktop may be loading its DLL.
     // Native-only builds omit the redundant target-triple directory. MSVC's
     // header loader still fails on long paths inside Ghostty's nested prefix.
-    const cargoTarget = path.join(scratchRoot, `rp-${process.platform}-${process.arch}`);
+    const cargoTarget = path.resolve(process.env.CARGO_TARGET_DIR ?? path.join(scratchRoot, `rp-${process.platform}-${process.arch}`));
     const buildArgs = ['build', '--locked', '--release', '--target-dir', cargoTarget];
     for (const { packageName, bin } of binaries) buildArgs.push('-p', packageName, '--bin', bin);
     run('cargo', buildArgs, { env: anchorEnv });

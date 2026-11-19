@@ -18,9 +18,8 @@ impl SettingsPanel {
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("No current sign-in address."))
             .and_then(|url| dispatch(url, |url| cx.open_url(url)));
-        if let Err(error) = result {
+        if result.is_err() {
             self.remote.login.browser_failed();
-            self.remote.error = Some(error.to_string());
         }
         // GPUI dispatches to the local platform. Its API has no completion ACK;
         // this never emits Applied/Opened or claims authentication/readiness.

@@ -16,6 +16,7 @@ mod queries;
 mod query_rules;
 mod remote_args;
 mod remote_command;
+mod ssh;
 #[cfg(test)]
 mod startup_dispatch_tests;
 mod terminal_text;
@@ -25,7 +26,11 @@ use anyhow::Result;
 
 fn main() {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    match shellfox_service::ssh::dispatch_early_entry(&arguments) {
+    if arguments.len() == 1 && arguments[0] == "--version" {
+        println!("shellfox-cli {}", env!("SHELLFOX_VERSION"));
+        return;
+    }
+    match shellfox_service::dispatch_supervisor_entry() {
         Ok(Some(code)) => std::process::exit(i32::from_ne_bytes(code.to_ne_bytes())),
         Ok(None) => {}
         Err(error) => {
@@ -33,7 +38,7 @@ fn main() {
             std::process::exit(1);
         }
     }
-    match run() {
+    match ssh::dispatch(&arguments).unwrap_or_else(run) {
         Ok(code) => std::process::exit(code),
         Err(error) => {
             eprintln!("shellfox-cli: {error:#}");

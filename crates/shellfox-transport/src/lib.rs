@@ -88,6 +88,8 @@ pub use private_path::normalize_private_path;
 #[cfg(feature = "helper")]
 pub use protocol::{NetworkPeer, NetworkState, NetworkStatus, Probe};
 
+pub const HELPER_PROTOCOL_VERSION: u32 = 2;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HelperError {
     Configuration,
@@ -101,6 +103,7 @@ pub enum HelperError {
     Executable,
     Spawn,
     Protocol,
+    ProtocolVersion { found: u32 },
     Command,
     Deadline,
     Stopped,
@@ -120,6 +123,7 @@ impl std::fmt::Display for HelperError {
             Self::Executable => "Helper artifact verification failed.",
             Self::Spawn => "Cannot start helper.",
             Self::Protocol => "Invalid helper protocol.",
+            Self::ProtocolVersion { found } => return write!(f, "Incompatible Tailscale helper protocol: expected {HELPER_PROTOCOL_VERSION}, found {found}. Rebuild the helper or reinstall Shellfox."),
             Self::Command => "Helper command failed.",
             Self::Deadline => "Helper timed out.",
             Self::Stopped => "Helper stopped.",

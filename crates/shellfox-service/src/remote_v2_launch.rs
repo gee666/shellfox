@@ -1,5 +1,8 @@
 use super::*;
 pub(in crate::remote) fn ensure_launch_profile(state: &RemoteState, id: &str) -> Result<(), AppError> {
+    if super::super::privacy::elevated_profile(id) {
+        return Err(failure(ErrorCode::AccessDenied, "Elevated launch remains local-only."));
+    }
     let profiles = state
         .profiles
         .as_ref()
@@ -28,12 +31,6 @@ pub(super) fn create(
     service: &mut Service,
     input: wire::CreateSession,
 ) -> Result<serde_json::Value, AppError> {
-    let profile = service
-        .host()
-        .snapshot()
-        .map_err(host_error)?
-        .preferences
-        .default_profile_id;
     let previous = service
         .host()
         .creation_request_receipt(input.request_id)
@@ -45,6 +42,12 @@ pub(super) fn create(
             &target(state, service, session_id)?,
         )?);
     }
+    let configured = service.host().snapshot().map_err(host_error)?.preferences.default_profile_id;
+    let profile = if cfg!(windows) {
+        super::super::creation_profile::for_windows_folder(state, &configured, &input.cwd)?
+    } else {
+        configured
+    };
     ensure_launch_profile(state, profile.as_str())?;
     let snapshot = service
         .create_application_session(shellfox_core::CreateSession {

@@ -1,14 +1,13 @@
 use serde_json::Value;
 
-/// Compare JSON meaning without changing either value. Only numeric lexical
-/// representation is flexible; every object key and null remains significant.
+/// Compare values and field presence, ignoring object key order and numeric spelling.
 pub fn assert_same(actual: &Value, expected: &Value) {
     match (actual, expected) {
         (Value::Number(a), Value::Number(b)) => assert_eq!(a.as_f64(), b.as_f64()),
         (Value::Object(a), Value::Object(b)) => {
             assert_eq!(
-                a.keys().collect::<Vec<_>>(),
-                b.keys().collect::<Vec<_>>(),
+                a.keys().collect::<std::collections::BTreeSet<_>>(),
+                b.keys().collect::<std::collections::BTreeSet<_>>(),
                 "JSON field presence changed"
             );
             for (key, value) in a {

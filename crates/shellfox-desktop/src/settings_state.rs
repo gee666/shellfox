@@ -46,6 +46,17 @@ impl Draft {
         self.revision += 1;
         Ok(true)
     }
+    /// Validation lives outside the typed draft. Restoring a valid field can
+    /// be a new edit even when it matches the draft's last valid value.
+    pub fn repair_input(&mut self) -> bool {
+        if !self.dirty() {
+            return false;
+        }
+        self.error = None;
+        self.failed_revision = None;
+        self.revision += 1;
+        true
+    }
     pub fn dirty(&self) -> bool {
         self.inflight.is_some()
             || self.pending != SettingsPatch::default()
@@ -176,6 +187,22 @@ fn preserve_external(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repairing_input_can_retry_the_same_last_valid_value() {
+        let mut draft = Draft::new(Settings::default()).unwrap();
+        assert!(!draft.repair_input());
+        let patch = SettingsPatch {
+            history_page_size: Some(37),
+            ..Default::default()
+        };
+        assert!(draft.stage(patch.clone()).unwrap());
+        assert_eq!(draft.take_save(), Some(patch.clone()));
+        draft.failed("Failed".into());
+        assert!(!draft.stage(patch.clone()).unwrap());
+        assert!(!draft.queued_write());
+        assert!(draft.repair_input());
+        assert_eq!(draft.take_save(), Some(patch));
+    }
     #[test]
     fn pending_work_distinguishes_debounce_flight_and_retained_failed_draft() {
         let mut draft = Draft::new(Settings::default()).unwrap();

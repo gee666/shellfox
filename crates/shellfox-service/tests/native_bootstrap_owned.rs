@@ -18,7 +18,7 @@ use support::*;
 
 #[test]
 fn real_go_cold_existing_and_occupied_share_one_owner() -> Result<()> {
-    let mut fixture = Fixture::new()?;
+    let fixture = Fixture::new()?;
     let data = fixture.data("cold/nested/host");
     let path = data.clone();
     let helper = fixture.helper.clone();
@@ -55,12 +55,11 @@ fn real_go_cold_existing_and_occupied_share_one_owner() -> Result<()> {
         client.execute(ExperimentRequest::Snapshot {}).await?;
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }
 #[test]
 fn preparation_collision_preserves_original_error_without_repair() -> Result<()> {
-    let mut fixture = Fixture::new()?;
+    let fixture = Fixture::new()?;
     let data = fixture.data("collision");
     let runtime = runtime()?;
     let mut boot = LocalBootstrap::plan(&data, &fixture.helper, fixture.digest)?;
@@ -77,12 +76,11 @@ fn preparation_collision_preserves_original_error_without_repair() -> Result<()>
         std::fs::read(&data)? == b"owned collision, preserve",
         "collision was repaired or replaced"
     );
-    fixture.success();
     Ok(())
 }
 #[test]
 fn real_go_failed_actor_start_cleans_original_controller() -> Result<()> {
-    let mut fixture = Fixture::new()?;
+    let fixture = Fixture::new()?;
     let data = fixture.data("failed-host");
     cycle(&fixture, &data, |client, _| async move {
         client.execute(ExperimentRequest::Snapshot {}).await?;
@@ -113,12 +111,11 @@ fn real_go_failed_actor_start_cleans_original_controller() -> Result<()> {
             .is_some_and(|e| e.code == shellfox_core::ErrorCode::StorageFailed)),
         "not an actual Host storage failure after acquisition: {error:#}"
     );
-    fixture.success();
     Ok(())
 }
 #[test]
 fn real_go_cancelled_and_unwound_preparation_keep_same_cleanup() -> Result<()> {
-    let mut fixture = Fixture::new()?;
+    let fixture = Fixture::new()?;
     for unwind in [false, true] {
         let data = fixture.data(if unwind { "unwind" } else { "cancel" });
         let runtime = runtime()?;
@@ -147,7 +144,6 @@ fn real_go_cancelled_and_unwound_preparation_keep_same_cleanup() -> Result<()> {
             );
         }
     }
-    fixture.success();
     Ok(())
 }
 struct PausedActor {
@@ -164,7 +160,7 @@ impl shellfox_service::OwnerDispatcher for PausedActor {
 }
 #[test]
 fn real_go_cancelled_stop_cleanup_resumes_original_owner() -> Result<()> {
-    let mut fixture = Fixture::new()?;
+    let fixture = Fixture::new()?;
     let data = fixture.data("cancelled-stop");
     let runtime = runtime()?;
     let mut boot = LocalBootstrap::plan(&data, &fixture.helper, fixture.digest)?;
@@ -225,12 +221,11 @@ fn real_go_cancelled_stop_cleanup_resumes_original_owner() -> Result<()> {
     reports.clean()?;
     observed.context("stop cleanup did not begin")??;
     anyhow::ensure!(not_clean, "unconfirmed blocked actor was falsely clean");
-    fixture.success();
     Ok(())
 }
 #[test]
 fn real_go_direct_stop_ignores_missing_endpoint_and_drains_connected_lifetime() -> Result<()> {
-    let mut fixture = Fixture::new()?;
+    let fixture = Fixture::new()?;
     let data = fixture.data("direct-stop");
     let path = data.clone();
     let helper = fixture.helper.clone();
@@ -251,6 +246,5 @@ fn real_go_direct_stop_ignores_missing_endpoint_and_drains_connected_lifetime() 
         drop(external);
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

@@ -105,6 +105,9 @@ pub struct ManagerFacts {
     pub explorer: Option<wire::ExplorerIntegration>,
     pub cli: Option<wire::CliIntegration>,
     pub sessions: HashMap<core::SessionId, SessionFacts>,
+    /// The owner explicitly proved these rows cannot be represented by V1.
+    /// An unexplained missing fact is still an error, not permission to omit it.
+    pub omitted_sessions: std::collections::HashSet<core::SessionId>,
 }
 #[derive(Clone, Debug)]
 pub struct SettingsFacts {

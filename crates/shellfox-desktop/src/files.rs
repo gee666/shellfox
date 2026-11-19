@@ -5,12 +5,39 @@ use std::sync::Arc;
 #[path = "document_backend.rs"]
 mod backend;
 pub(crate) use backend::DocumentBackend;
+#[path = "files_completion.rs"]
+pub(crate) mod completion;
 #[path = "files_editor.rs"]
 mod editor_ops;
 #[path = "files_editor_state.rs"]
 mod editor_state;
+#[path = "files_list.rs"]
+pub(crate) mod list;
+#[path = "files_pending.rs"]
+pub(crate) mod pending;
+#[path = "files_preview.rs"]
+mod preview;
+#[path = "files_resizer.rs"]
+pub(crate) mod resizer;
 #[path = "files_backend.rs"]
 mod selection_backend;
+#[path = "files_terminal_links.rs"]
+pub(crate) mod terminal_links;
+#[path = "files_tree.rs"]
+pub(crate) mod tree;
+pub(crate) use preview::Preview;
+#[path = "files_image_editor.rs"]
+pub(crate) mod image_editor;
+#[path = "files_layout_prefs.rs"]
+mod layout_prefs;
+#[path = "files_retained.rs"]
+mod retained;
+#[path = "files_scrollbar.rs"]
+pub(crate) mod scrollbar;
+#[path = "files_text_preview.rs"]
+pub(crate) mod text_preview;
+#[path = "files_transfer.rs"]
+pub(crate) mod transfer;
 fn files_unavailable(outcome: Option<&EditorOutcome>) -> &str {
     match outcome {
         Some(EditorOutcome::Unavailable(reason)) => reason.message(),
@@ -40,21 +67,53 @@ fn same_ui_source(captured: u64, current: u64, backend_local: bool, selected_loc
 pub struct Files {
     pub(crate) backend: DocumentBackend,
     pub(crate) source_epoch: u64,
+    pub(crate) source: crate::root::source::Source,
     pub operation: Option<EditorCancellation>,
+    pub(crate) transfer: Option<Arc<transfer::Transfer>>,
     pub location: Entity<Field>,
+    pub(crate) completion: completion::FileCompletion,
+    pub(crate) browse_focus: gpui::FocusHandle,
     pub listing: Option<FileList>,
+    pub(crate) tree: tree::Tree,
+    pub listing_error: Option<(String, String)>,
+    pub missing_folder: Option<String>,
+    pub(crate) missing_focus: [gpui::FocusHandle; 2],
     pub editor: Option<Editor>,
+    pub(crate) preview: Option<Preview>,
+    pub(crate) image_editor: Option<image_editor::ImageEditor>,
+    pub document_path: Option<String>,
+    pub document_error: Option<String>,
     pub visible: bool,
+    pub(crate) panel_focus: gpui::FocusHandle,
     pub browser: bool,
     pub browser_before_maximize: bool,
+    pub wrap: bool,
     pub maximized: bool,
     pub width: f32,
     pub browser_height: f32,
-    pub resizing_width: bool,
-    pub resizing_browser: bool,
+    pub(crate) resize: Option<resizer::FileResize>,
+    pub(crate) width_focus: gpui::FocusHandle,
+    pub(crate) height_focus: gpui::FocusHandle,
+    pub(crate) confirm_focus: crate::files_view::confirmation::ConfirmationFocus,
     pub busy: bool,
     pub request: u64,
-    pub pending_open: Option<String>,
+    pub(crate) pending_file_action: Option<pending::FileAction>,
+    pub(crate) save_and_continue: bool,
+}
+impl Drop for Files {
+    fn drop(&mut self) {
+        if let Some(transfer) = &self.transfer {
+            transfer.cancel.cancel();
+        }
+    }
+}
+impl Files {
+    pub(crate) fn opened_path(&self) -> Option<&str> {
+        self.editor
+            .as_ref()
+            .map(|editor| editor.file.path.as_str())
+            .or_else(|| self.preview.as_ref().map(Preview::path))
+    }
 }
 pub struct EditorFile {
     pub path: String,
@@ -65,6 +124,9 @@ pub struct Editor {
     pub file: EditorFile,
     pub text: Entity<Field>,
     pub saved_text: Arc<str>,
+    pub(crate) text_preview: Option<text_preview::TextPreview>,
+    pub(crate) scrollbar: scrollbar::Scrollbar,
+    pub(crate) horizontal_scrollbar: scrollbar::Scrollbar,
     pub reload_required: bool,
 }
 impl Editor {
@@ -74,9 +136,12 @@ impl Editor {
 }
 impl Root {
     pub(crate) fn file_close_guard(&self, cx: &gpui::App) -> CloseGuard {
+        let panels = self.files.iter().chain(self.retained_files.iter());
         close_guard(
-            self.files_dirty(cx),
-            self.files.as_ref().is_some_and(|f| f.busy),
+            panels.clone().any(|files| files.dirty(cx)),
+            panels
+                .into_iter()
+                .any(|files| files.busy || files.transfer.is_some()),
         )
     }
     pub(crate) fn files_source_current(&self) -> bool {
@@ -86,8 +151,11 @@ impl Root {
                 self.source_selection_epoch(),
                 f.backend.is_local(),
                 self.is_local_source(),
-            ) && f.backend.check_current().is_ok()
+            ) && self.active_file_tab(&f.backend) && f.backend.check_current().is_ok()
         })
+    }
+    fn active_file_tab(&self, backend: &DocumentBackend) -> bool {
+        backend.wsl_tab().is_none_or(|tab| self.selected_tab() == Some(tab))
     }
     pub(crate) fn files_result_current(&self, epoch: u64, backend: &DocumentBackend) -> bool {
         same_ui_source(
@@ -99,6 +167,7 @@ impl Root {
             .files
             .as_ref()
             .is_some_and(|f| f.source_epoch == epoch && f.backend.same_origin(backend))
+            && self.active_file_tab(backend)
             && backend.check_current().is_ok()
     }
     pub(crate) fn require_files_source(&mut self, cx: &mut Context<Self>) -> bool {
@@ -114,6 +183,13 @@ impl Root {
         }
     }
     pub(crate) fn toggle_files(&mut self, cx: &mut Context<Self>) {
+        self.sync_file_source(cx);
+        if self.is_local_source() && self.files.as_ref().is_some_and(|files| {
+            !files.visible && files.backend.wsl_tab().is_some_and(|tab| Some(tab) != self.selected_tab())
+        }) {
+            self.show_selected_file_scope(cx);
+            return;
+        }
         if self.files_source_current() {
             if let Some(files) = &mut self.files {
                 files.visible = !files.visible;
@@ -121,48 +197,13 @@ impl Root {
             cx.notify();
             return;
         }
-        if self.files.as_ref().is_some_and(|f| f.busy) {
-            if let Some(files) = &mut self.files {
-                files.visible = true;
-            }
-            self.cancel_file_operation(cx);
-            self.error = Some(
-                "Wait for the original file operation to finish before changing sources.".into(),
-            );
-            cx.notify();
-            return;
-        }
-        if self.files_dirty(cx) {
-            if let Some(files) = &mut self.files {
-                files.visible = true;
-            }
-            self.error=Some("The original draft is retained. Explicitly discard it before opening Files for another source.".into());
-            cx.notify();
-            return;
-        }
-        let Some((backend, preferred)) = self.selected_document_backend(cx) else {
+        let Some((backend, preferred)) = self.prepare_files(cx) else {
             return;
         };
         let epoch = self.source_selection_epoch();
-        self.files = Some(Files {
-            backend: backend.clone(),
-            source_epoch: epoch,
-            operation: None,
-            location: Field::file_path(String::new(), cx),
-            listing: None,
-            editor: None,
-            visible: true,
-            browser: true,
-            browser_before_maximize: true,
-            maximized: false,
-            width: 520.,
-            browser_height: 240.,
-            resizing_width: false,
-            resizing_browser: false,
-            busy: true,
-            request: 0,
-            pending_open: None,
-        });
+        if let Some(files) = &mut self.files {
+            files.busy = true;
+        }
         let task_backend = backend.clone();
         let task = cx
             .background_executor()
@@ -195,6 +236,85 @@ impl Root {
         .detach();
         cx.notify();
     }
+    pub(super) fn prepare_files(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<(DocumentBackend, Option<String>)> {
+        self.sync_file_source(cx);
+        if self.files.as_ref().is_some_and(|f| f.busy) {
+            if let Some(files) = &mut self.files {
+                files.visible = true;
+            }
+            self.cancel_file_operation(cx);
+            self.error = Some(
+                "Wait for the original file operation to finish before changing sources.".into(),
+            );
+            cx.notify();
+            return None;
+        }
+        if self.files_dirty(cx) {
+            if let Some(files) = &mut self.files {
+                files.visible = true;
+            }
+            self.error=Some("The original draft is retained. Explicitly discard it before opening Files for another source.".into());
+            cx.notify();
+            return None;
+        }
+        let (backend, preferred) = self.selected_document_backend(cx)?;
+        self.initialize_file_panel(backend.clone(), cx);
+        Some((backend, preferred))
+    }
+
+    pub(super) fn initialize_file_panel(
+        &mut self,
+        backend: DocumentBackend,
+        cx: &mut Context<Self>,
+    ) {
+        let epoch = self.source_selection_epoch();
+        let location = Field::file_path(String::new(), cx);
+        let layout = layout_prefs::FileLayout::read(cx);
+        cx.observe(&location, |root, field, cx| {
+            root.file_location_changed(field, cx)
+        })
+        .detach();
+        self.files = Some(Files {
+            backend,
+            source_epoch: epoch,
+            source: self.peers.selected.clone(),
+            operation: None,
+            transfer: None,
+            location,
+            completion: Default::default(),
+            browse_focus: cx.focus_handle(),
+            listing: None,
+            tree: tree::Tree::new(),
+            listing_error: None,
+            missing_folder: None,
+            missing_focus: std::array::from_fn(|_| cx.focus_handle()),
+            editor: None,
+            preview: None,
+            image_editor: None,
+            document_path: None,
+            document_error: None,
+            visible: true,
+            panel_focus: cx.focus_handle(),
+            browser: true,
+            browser_before_maximize: true,
+            wrap: true,
+            maximized: false,
+            width: layout.width,
+            browser_height: layout.browser_height,
+            resize: None,
+            width_focus: cx.focus_handle(),
+            height_focus: cx.focus_handle(),
+            confirm_focus: crate::files_view::confirmation::ConfirmationFocus::new(cx),
+            busy: false,
+            request: 0,
+            pending_file_action: None,
+            save_and_continue: false,
+        });
+    }
+
     pub(crate) fn discard_retired_files(&mut self, cx: &mut Context<Self>) {
         if self.files_source_current() {
             return;
@@ -212,105 +332,9 @@ impl Root {
         self.toggle_files(cx);
     }
     pub(crate) fn files_dirty(&self, cx: &gpui::App) -> bool {
-        self.files
-            .as_ref()
-            .and_then(|f| f.editor.as_ref())
-            .is_some_and(|e| e.dirty(cx))
-    }
-    pub(crate) fn list_files(&mut self, path: String, cx: &mut Context<Self>) {
-        if !self.require_files_source(cx) {
-            return;
-        }
-        let Some(files) = &mut self.files else { return };
-        if files.busy {
-            return;
-        }
-        files.request += 1;
-        let request = files.request;
-        files.busy = true;
-        let epoch = files.source_epoch;
-        let backend = files.backend.clone();
-        let task_backend = backend.clone();
-        let task = cx
-            .background_executor()
-            .spawn(async move { task_backend.list(&path).await });
-        cx.spawn(async move |root, cx| {
-            let result = task.await;
-            let _ = root.update(cx, |root, cx| {
-                let current = root.files_result_current(epoch, &backend);
-                let Some(files) = &mut root.files else { return };
-                if files.request != request || !files.backend.same_origin(&backend) {
-                    return;
-                }
-                files.busy = false;
-                if !current {
-                    root.error = Some("Folder result belongs to a retired source.".into());
-                    cx.notify();
-                    return;
-                }
-                match result {
-                    Ok(listing) => {
-                        let mut prepared = Some(listing);
-                        let mut location = Field::file_path(
-                            prepared
-                                .as_ref()
-                                .map(|l| l.path.clone())
-                                .unwrap_or_default(),
-                            cx,
-                        );
-                        // Owner-thread source check above; only bounded swaps under the ORIGINAL witness.
-                        match backend.commit_if_current(|| {
-                            std::mem::swap(&mut files.listing, &mut prepared);
-                            std::mem::swap(&mut files.location, &mut location);
-                        }) {
-                            Ok(()) => root.error = None,
-                            Err(e) => root.error = Some(format!("Folder source retired: {e:#}")),
-                        }
-                        drop(prepared);
-                        drop(location);
-                    }
-                    Err(e) => root.error = Some(e.to_string()),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
+        self.files.as_ref().is_some_and(|files| files.dirty(cx))
     }
 }
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn files_reports_initialization_failure_instead_of_missing_backend_defaults() {
-        let outcome = EditorOutcome::Unavailable(
-            crate::editor_composition::EditorUnavailableReason::PreparationFailed(
-                "Files unavailable: fixture initialization refused.".into(),
-            ),
-        );
-        assert_eq!(
-            files_unavailable(Some(&outcome)),
-            "Files unavailable: fixture initialization refused."
-        );
-        assert_ne!(files_unavailable(None), files_unavailable(Some(&outcome)));
-    }
-    #[test]
-    fn file_edit_during_async_terminal_close_blocks_final_removal() {
-        assert_eq!(close_guard(false, false), CloseGuard::Ready);
-        assert_eq!(close_guard(true, false), CloseGuard::Dirty);
-    }
-    #[test]
-    fn in_flight_write_blocks_close_even_if_buffer_matches_old_saved_text() {
-        assert_eq!(close_guard(false, true), CloseGuard::Pending);
-        assert_eq!(close_guard(true, true), CloseGuard::Pending);
-        assert_eq!(close_guard(true, false), CloseGuard::Dirty);
-    }
-    #[test]
-    fn ui_source_switch_roundtrip_cannot_publish_local_or_foreign_results() {
-        assert!(same_ui_source(1, 1, true, true));
-        assert!(!same_ui_source(1, 2, true, false));
-        assert!(!same_ui_source(1, 3, true, true));
-        assert!(!same_ui_source(2, 2, false, true));
-        assert!(same_ui_source(2, 2, false, false));
-    }
-}
+#[path = "files_tests.rs"]
+mod tests;

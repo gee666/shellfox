@@ -149,16 +149,7 @@ fn validate_attachment(attachment: &Attachment) -> Result<(), ValidationError> {
 impl Validate for ExperimentResponse {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
-            Self::Snapshot(snapshot) => {
-                ensure(snapshot.sessions.len() <= 10000)?;
-                snapshot
-                    .preferences
-                    .validate()
-                    .map_err(|_| ValidationError)?;
-                for session in &snapshot.sessions {
-                    session.validate().map_err(|_| ValidationError)?;
-                }
-            }
+            Self::Snapshot(snapshot) => validate_snapshot(snapshot)?,
             Self::Settings(settings) => settings.validate().map_err(|_| ValidationError)?,
             Self::Attachment(attachment) => validate_attachment(attachment)?,
             Self::Output(chunks) => {
@@ -178,6 +169,13 @@ impl Validate for ExperimentResponse {
         Ok(())
     }
 }
+pub(crate) fn validate_snapshot(snapshot: &Snapshot) -> Result<(), ValidationError> {
+    ensure(snapshot.sessions.len() <= 10000)?;
+    snapshot.preferences.validate().map_err(|_| ValidationError)?;
+    for session in &snapshot.sessions { session.validate().map_err(|_| ValidationError)?; }
+    Ok(())
+}
+
 impl shellfox_protocol::LocalRequest for ExperimentRequest {
     type Response = ExperimentResponse;
     const METHOD: &'static str = METHOD;

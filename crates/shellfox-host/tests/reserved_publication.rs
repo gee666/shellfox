@@ -34,6 +34,7 @@ fn exact_ids_publish_together_without_selection_or_runtime_ownership() {
         let tab = &session.tabs[0];
         assert_eq!(tab.id, request.tab_id);
         assert_eq!(tab.session_id, request.session_id);
+        assert_eq!(tab.title, "external run");
         assert_eq!(tab.profile_id, request.profile_id);
         assert_eq!(tab.state, TabState::Pending);
         let event = host.changed_since(before.revision).unwrap().unwrap();

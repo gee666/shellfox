@@ -110,7 +110,7 @@ fn independent_services_serialize_revision_checked_saves() {
         let b = scope.spawn(|| second.write_text(&request("second")));
         (a.join().unwrap(), b.join().unwrap())
     });
-    assert_ne!(first.is_ok(), second.is_ok());
+    assert_ne!(first.is_ok(), second.is_ok(), "first: {first:?}; second: {second:?}");
     assert_eq!(
         first.err().or_else(|| second.err()).unwrap().code,
         ErrorCode::FileConflict

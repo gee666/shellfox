@@ -15,6 +15,12 @@ use transport_frame::{Frame, LifetimeReply, TRANSPORT_VERSION};
 mod launch;
 #[path = "local_request.rs"]
 mod request;
+#[path = "local_desktop.rs"]
+mod desktop;
+pub use desktop::{DesktopProviderRequest, DesktopReply, DesktopRequest};
+#[path = "local_ssh.rs"]
+pub(crate) mod ssh_read;
+pub use ssh_read::{open_ssh_directory, read_ssh_profiles, ssh_endpoint_exists, SshRead, SshReadReply};
 use crate::{
     experiment::{ExperimentRequest, ExperimentResponse, METHOD},
     platform,
@@ -22,6 +28,12 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 pub use client::{LocalClient, LocalRequestFailure};
+
+pub async fn check_helper_protocol(helper: &std::path::Path, digest: [u8; 32]) -> Result<()> {
+    let helper = shellfox_transport::VerifiedHelper::new(helper.to_owned(), digest)?;
+    shellfox_transport::HelperTransport::probe(&helper).await?;
+    Ok(())
+}
 pub(crate) use request::PrivateRequest;
 use serde::{Deserialize, Serialize};
 pub use shellfox_protocol::{automation, decode_chunk, encode_chunk};

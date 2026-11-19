@@ -17,21 +17,8 @@ impl PtySession {
     ) -> std::result::Result<Self, SpawnError> {
         Err(anyhow::anyhow!(UNSUPPORTED).into())
     }
-    pub fn spawn_program_bound(
-        _config: PtyConfig,
-        _environment: crate::TrustedProgramEnv,
-        _binding: crate::NativeLaunchBinding,
-    ) -> std::result::Result<Self, SpawnError> {
-        Err(anyhow::anyhow!(UNSUPPORTED).into())
-    }
     pub fn take_launch_evidence(&mut self) -> Option<crate::NativeLaunchEvidence> {
         None
-    }
-    pub fn spawn_program(
-        _config: PtyConfig,
-        _environment: crate::TrustedProgramEnv,
-    ) -> std::result::Result<Self, SpawnError> {
-        Err(anyhow::anyhow!(UNSUPPORTED).into())
     }
     /// Refuse before allocating a PTY or spawning any process.
     pub fn spawn(_config: PtyConfig) -> std::result::Result<Self, SpawnError> {

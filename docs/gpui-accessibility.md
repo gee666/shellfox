@@ -175,9 +175,9 @@ Preserve the source controls' names, roles, disabled/selected/expanded states an
 Use safe hashed unit artifacts:
 
 ```text
-cargo test --locked -p shellfox-desktop --bin shellfox-gpui-experiment accessibility::
-cargo test --locked -p shellfox-desktop --bin shellfox-gpui-experiment terminal_semantics::tests::
-cargo test --locked -p shellfox-desktop --bin shellfox-gpui-experiment settings::semantic_tests::
+cargo test --locked -p shellfox-desktop --bin shellfox accessibility::
+cargo test --locked -p shellfox-desktop --bin shellfox terminal_semantics::tests::
+cargo test --locked -p shellfox-desktop --bin shellfox settings::semantic_tests::
 ```
 
 Do not run the desktop `--test accessibility` target while a regular desktop executable may be loaded. Cargo may build and replace that normal binary as an additional target. For actual application checks, use the private BuildPlan output, not `cargo run` or a shared loaded executable.

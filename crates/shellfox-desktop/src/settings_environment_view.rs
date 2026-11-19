@@ -18,6 +18,8 @@ impl SettingsPanel {
         let pending = environment.pending;
         let parent = self.environment_semantic_id();
         let field = self.bind_field(field, "Environment variables", parent, cx);
+        let empty = field.read(cx).text.is_empty();
+        let focused = field.read(cx).is_focused(window);
         let (_, issues) = environment_data::parse(
             &field.read(cx).text,
             self.catalog
@@ -78,14 +80,30 @@ impl SettingsPanel {
             .flex_col()
             .child(
                 div()
+                    .relative()
                     .h(px(180.))
                     .min_h(px(100.))
                     .overflow_hidden()
                     .bg(p.input_bg)
                     .border_1()
-                    .border_color(p.input_border)
+                    .border_color(if focused { p.accent } else { p.input_border })
                     .rounded(px(4.))
-                    .child(field),
+                    .child(field)
+                    .when(empty, |textarea| {
+                        textarea.child(
+                            div()
+                                .absolute()
+                                .left(px(9.))
+                                .top(px(8.))
+                                .font_family("Cascadia Code")
+                                .text_size(px(12.))
+                                .line_height(px(18.))
+                                .text_color(p.placeholder)
+                                .child(div().child("# One per line"))
+                                .child(div().child("API_KEY=sk-..."))
+                                .child(div().child("NODE_ENV=development")),
+                        )
+                    }),
             )
             .child(feedback)
             .child(

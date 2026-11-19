@@ -26,6 +26,10 @@ pub(crate) fn build(
     let windows = system.parent().context("system directory has no parent")?;
     set("SystemRoot", windows.as_os_str());
     set("WINDIR", windows.as_os_str());
+    // Inbox OpenSSH needs this before it can even parse its command line.
+    if let Some(directory) = program_data() {
+        set("PROGRAMDATA", &directory);
+    }
     set("COMSPEC", system.join("cmd.exe").as_os_str());
     set("PATHEXT", OsStr::new(".COM;.EXE;.BAT;.CMD"));
     let mut paths = vec![
@@ -93,4 +97,36 @@ pub(crate) fn build(
     // No inherited hooks, agent sockets, provider credentials, package overrides,
     // PSModulePath, host bindings or WSLENV enter this fresh environment.
     Ok(env)
+}
+
+fn program_data() -> Option<OsString> {
+    use std::os::windows::ffi::OsStringExt;
+    #[link(name = "shell32")]
+    extern "system" {
+        fn SHGetFolderPathW(
+            window: *mut std::ffi::c_void,
+            folder: i32,
+            token: *mut std::ffi::c_void,
+            flags: u32,
+            out: *mut u16,
+        ) -> i32;
+    }
+    const COMMON_APPDATA: i32 = 0x23;
+    let mut chars = [0; 260];
+    // SAFETY: the documented MAX_PATH buffer is writable, and the two optional handles are null.
+    let status = unsafe {
+        SHGetFolderPathW(
+            std::ptr::null_mut(),
+            COMMON_APPDATA,
+            std::ptr::null_mut(),
+            0,
+            chars.as_mut_ptr(),
+        )
+    };
+    if status < 0 {
+        return None;
+    }
+    let end = chars.iter().position(|&c| c == 0)?;
+    let path = OsString::from_wide(&chars[..end]);
+    Path::new(&path).is_absolute().then_some(path)
 }

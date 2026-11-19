@@ -30,7 +30,8 @@ pub enum TrustStatus {
     Known(HostKeyInfo),
     Unknown(HostKeyInfo),
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum TrustDecision {
     Reject,
     TrustAndSave,

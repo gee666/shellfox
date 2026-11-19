@@ -7,7 +7,8 @@ use shellfox_ghostty_vt::{Selection, ViewportPoint};
 use std::sync::Arc;
 
 /// Read-only presentation authority is separate from terminal control authority.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum PresentationLease {
     Controller(Lease),
     Observer(ObserverLease),
@@ -42,7 +43,8 @@ pub enum PresentationAction {
         point: ViewportPoint,
     },
 }
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ViewFrame {
     pub identity: Identity,
     pub view: PresentationLease,

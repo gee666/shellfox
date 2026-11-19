@@ -1,4 +1,4 @@
-use shellfox_terminal::{PtyCommand, PtyConfig, PtyOutput, PtySession, TrustedProgramLease};
+use shellfox_terminal::{PtyCommand, PtyConfig, PtyOutput, PtySession};
 use std::os::unix::{fs::PermissionsExt, net::UnixStream};
 use std::{
     fs::{self, File},
@@ -84,38 +84,6 @@ pub fn collect(session: &mut PtySession) -> (Vec<u8>, u32) {
     (bytes, code)
 }
 /// Actual held file identity and measured bytes, not a synthetic validity flag.
-pub struct Lease {
-    path: PathBuf,
-    file: File,
-    digest: [u8; 32],
-}
-impl Lease {
-    pub fn new(path: impl AsRef<Path>) -> Self {
-        use sha2::{Digest, Sha256};
-        let path = path.as_ref().canonicalize().unwrap();
-        let file = File::open(&path).unwrap();
-        let digest = Sha256::digest(fs::read(&path).unwrap()).into();
-        Self { path, file, digest }
-    }
-}
-impl TrustedProgramLease for Lease {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-    fn revalidate(&self) -> anyhow::Result<()> {
-        use sha2::{Digest, Sha256};
-        use std::os::unix::fs::MetadataExt;
-        let held = self.file.metadata()?;
-        let current = fs::metadata(&self.path)?;
-        anyhow::ensure!(
-            (held.dev(), held.ino()) == (current.dev(), current.ino()),
-            "leased program identity changed"
-        );
-        let digest: [u8; 32] = Sha256::digest(fs::read(&self.path)?).into();
-        anyhow::ensure!(digest == self.digest, "leased program bytes changed");
-        Ok(())
-    }
-}
 fn pin_peer(stream: &UnixStream) -> File {
     let mut cred = libc::ucred {
         pid: 0,

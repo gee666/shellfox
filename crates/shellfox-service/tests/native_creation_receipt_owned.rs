@@ -8,7 +8,7 @@ use shellfox_service::native::{NativeAction, NativeClient, NativeResponse};
 
 #[test]
 fn original_creation_receipt_survives_other_selection_and_deleted_is_unavailable() -> Result<()> {
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let data = fixture.data("creation-receipt");
     let cwd = data.to_string_lossy().into_owned();
     support::cycle(&fixture, &data, |owner, _| async move {
@@ -77,6 +77,5 @@ fn original_creation_receipt_survives_other_selection_and_deleted_is_unavailable
         );
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

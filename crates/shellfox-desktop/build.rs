@@ -1,34 +1,19 @@
+#[path = "../product_version.rs"]
+mod product_version;
+#[cfg(windows)]
+mod wsl_files_asset;
+
 fn main() {
-    use std::{env, path::PathBuf, process::Command};
-    let package =
-        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory"))
-            .join("../../package.json");
-    println!("cargo:rerun-if-changed={}", package.display());
-    println!("cargo:rerun-if-env-changed=NODE_BINARY");
-    let node = env::var_os("NODE_BINARY").unwrap_or_else(|| "node".into());
-    let output = Command::new(node)
-        .arg("-e")
-        .arg("process.stdout.write(require(process.argv[1]).version)")
-        .arg(package)
-        .output()
-        .expect("Node.js is required to read canonical Shellfox build metadata");
-    assert!(output.status.success(), "read Shellfox product version");
-    let version = String::from_utf8(output.stdout).expect("UTF-8 product version");
-    assert!(
-        !version.is_empty()
-            && version.len() <= 64
-            && version
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'+')),
-        "invalid canonical product version"
-    );
-    println!("cargo:rustc-env=SHELLFOX_PRODUCT_VERSION={version}");
+    let _version = product_version::export();
     #[cfg(windows)]
-    embed_windows_icon();
+    {
+        embed_windows_icon(&_version);
+        wsl_files_asset::embed();
+    }
 }
 
 #[cfg(windows)]
-fn embed_windows_icon() {
+fn embed_windows_icon(version: &str) {
     use std::{env, fs, path::PathBuf, process::Command};
     let manifest =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory"));
@@ -52,7 +37,34 @@ fn embed_windows_icon() {
         .to_string_lossy()
         .trim_start_matches(r"\\?\")
         .replace('\\', "/");
-    fs::write(&source, format!("1 ICON \"{path}\"\n")).expect("write Windows icon resource source");
+    let numbers = version.replace('.', ",");
+    fs::write(
+        &source,
+        format!(
+            r#"1 ICON "{path}"
+1 VERSIONINFO
+FILEVERSION {numbers},0
+PRODUCTVERSION {numbers},0
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "Shellfox\0"
+      VALUE "ProductName", "Shellfox\0"
+      VALUE "FileVersion", "{version}\0"
+      VALUE "ProductVersion", "{version}\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END
+"#
+        ),
+    )
+    .expect("write Windows Shellfox resource source");
     let compiler=resource_compiler().expect("Windows SDK rc.exe is required; use a Developer PowerShell or set SHELLFOX_RC to its absolute path");
     let status = Command::new(compiler)
         .arg("/nologo")
@@ -62,10 +74,7 @@ fn embed_windows_icon() {
         .status()
         .expect("start Windows resource compiler");
     assert!(status.success(), "compile Shellfox Windows icon resource");
-    println!(
-        "cargo:rustc-link-arg-bin=shellfox-gpui-experiment={}",
-        resource.display()
-    );
+    println!("cargo:rustc-link-arg-bin=shellfox={}", resource.display());
 }
 #[cfg(windows)]
 fn resource_compiler() -> Option<std::path::PathBuf> {

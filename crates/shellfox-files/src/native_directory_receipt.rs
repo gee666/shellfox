@@ -60,6 +60,7 @@ pub(crate) fn reopen_rw(original: &VerifiedPrivate) -> Result<VerifiedPrivate> {
         lease: false,
         pin: cfg!(windows),
         cleanup: PrivateCleanupState::Owned,
+        app_directory: original.0.app_directory,
     });
     value.verify_binding()?;
     Ok(value)

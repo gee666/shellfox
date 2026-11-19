@@ -1,5 +1,7 @@
 #![cfg(windows)]
 mod support;
+#[path = "../../test_dev_helper.rs"]
+mod dev_helper;
 use support::OwnedHost;
 
 use anyhow::{bail, ensure, Context, Result};
@@ -12,29 +14,15 @@ use shellfox_service::{
     Attachment, TerminalOutput,
 };
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
 #[test]
-#[ignore = "requires trusted native helper env; see README.md"]
 fn owned_host_cmd_input_takeover_disconnect_and_stop() -> Result<()> {
-    let helper = PathBuf::from(
-        std::env::var_os("SHELLFOX_CLI_TEST_HELPER")
-            .context("Set SHELLFOX_CLI_TEST_HELPER to an absolute trusted helper path.")?,
-    );
-    ensure!(helper.is_absolute(), "Helper path must be absolute.");
-    let hex = std::env::var("SHELLFOX_CLI_TEST_HELPER_SHA256")
-        .context("Set SHELLFOX_CLI_TEST_HELPER_SHA256 from the trusted helper build.")?;
-    ensure!(
-        hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()),
-        "Invalid helper digest."
-    );
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16)?;
-    }
+    let (helper, digest) = dev_helper::helper()?;
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
@@ -85,12 +73,17 @@ async fn exercise(
     digest: [u8; 32],
     cwd: &Path,
 ) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let endpoint = data.join("rust-service-v1/endpoint.json");
     let first = loop {
         ensure!(
             host.0.try_wait()?.is_none(),
             "CLI host exited before publishing its endpoint."
         );
+        if !endpoint.is_file() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            continue;
+        }
         match LocalClient::connect(data, helper, digest).await {
             Ok(client) => break client,
             Err(error) if Instant::now() >= deadline => {

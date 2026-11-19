@@ -30,7 +30,7 @@ struct Case {
 #[test]
 fn all_active_algorithms_and_containers_match_independent_node_fixtures() {
     let fixture = Fixture::new();
-    let helper = root().join("tmp/tailscale/win32-x64/shellfox-tailscale.exe");
+    let helper = root().join("tmp/dev-helper/shellfox-tailscale.exe");
     let result = Command::new("node")
         .arg("--experimental-strip-types")
         .arg(root().join("crates/shellfox-ssh/tests/generate-fixtures.mjs"))
@@ -94,23 +94,6 @@ fn all_active_algorithms_and_containers_match_independent_node_fixtures() {
                     .unwrap(),
                 key.public_blob().unwrap()
             );
-            let prepared = store
-                .prepare_for_system(imported.id, passphrase.as_ref(), &mut rand::rngs::OsRng)
-                .unwrap();
-            let protected = Zeroizing::new(fs::read(prepared.path()).unwrap());
-            assert_eq!(
-                parse_private_key(&protected, None).unwrap_err(),
-                Error::PassphraseRequired
-            );
-            assert_eq!(
-                parse_private_key(&protected, Some(prepared.passphrase()))
-                    .unwrap()
-                    .public_blob()
-                    .unwrap(),
-                key.public_blob().unwrap()
-            );
-            prepared.cleanup().unwrap();
-            assert!(!prepared.path().exists());
             let text = String::from_utf8(data.to_vec()).unwrap();
             assert_eq!(
                 parse_private_key(

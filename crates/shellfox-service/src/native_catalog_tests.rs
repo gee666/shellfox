@@ -54,6 +54,44 @@ async fn actual_native_owner_catalog_is_bound_to_its_configured_launch_resources
     );
     owner.shutdown().await.unwrap();
 }
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_catalog_offers_installed_shells_and_the_legacy_default() {
+    use std::{os::unix::fs::PermissionsExt, path::Path};
+
+    let discovery =
+        crate::activity_integration::NativeFactsDiscovery::new(std::env::current_exe().unwrap())
+            .unwrap();
+    let default = shellfox_core::ProfileId::default();
+    let catalog = discovery
+        .discover_catalog(
+            &shellfox_core::Settings::default(),
+            &default,
+            &CancellationToken::new(),
+        )
+        .unwrap()
+        .profiles;
+    assert_eq!(
+        catalog.default_profile_id.as_deref(),
+        Some(default.as_str())
+    );
+    for name in ["sh", "bash", "zsh", "fish"] {
+        let installed = ["/bin", "/usr/bin", "/usr/local/bin"]
+            .into_iter()
+            .any(|parent| {
+                Path::new(parent)
+                    .join(name)
+                    .metadata()
+                    .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            });
+        let profile = catalog.profiles.iter().find(|profile| profile.id == name);
+        assert_eq!(profile.is_some(), installed, "{name}");
+        if let Some(profile) = profile {
+            assert!(profile.available, "{profile:?}");
+            assert_eq!(Path::new(&profile.executable).file_name().unwrap(), name);
+        }
+    }
+}
 #[test]
 fn changed_owner_configuration_cannot_publish_a_stale_successful_catalog() {
     let data = crate::tests::scratch();

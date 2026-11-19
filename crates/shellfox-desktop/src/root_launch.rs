@@ -1,4 +1,4 @@
-//! Apply an owner-resolved launch to one Root. Never create a session or attach a terminal here.
+//! Apply an owner-resolved launch to one Root.
 use super::*;
 use crate::window_manager::WindowSelection;
 use shellfox_service::desktop_launch::{LaunchError, LaunchTarget};
@@ -49,14 +49,16 @@ impl Root {
         self.accept_snapshot(snapshot, cx);
         let snapshot = self.snapshot.as_ref().ok_or(LaunchError::Unavailable)?;
         select_target(&mut self.navigation, snapshot, target)?;
+        if activate {
+            window.activate_window();
+        }
         if matches!(target, LaunchTarget::Session { .. }) {
             self.settings = false;
             self.pending_recent = None;
-        }
-        // Public activation is queued by GPUI. No focus broadcast, attach, Claim,
-        // observer, PTY, selection-persistence RPC or session creation occurs.
-        if activate {
-            window.activate_window();
+            if !self.is_local_source() {
+                self.select_local_source(window, cx);
+            }
+            self.ensure_terminal(window, cx);
         }
         cx.notify();
         Ok(())
@@ -83,10 +85,12 @@ mod tests {
                 id: TabId::new(),
                 session_id: id,
                 title: "Tab".into(),
+                use_process_title: false,
                 cwd: "/fixture".into(),
                 ordinal: 0,
                 created_at: None,
                 profile_id: ProfileId::default(),
+                wsl_launch: None,
                 state: TabState::Pending,
             }],
         }
@@ -122,6 +126,19 @@ mod tests {
         assert_eq!(*chosen.selected(), selected);
         assert_eq!(chosen.epoch(), epoch);
     }
+    #[test]
+    fn cold_launch_selects_the_requested_tab_before_attachment() {
+        let snapshot = snapshot();
+        let mut navigation = WindowSelection::new(InitialSelection::Empty);
+        navigation.accept_snapshot(&snapshot);
+        let session = &snapshot.sessions[1];
+        let tab = session.tabs[0].id;
+        let target = LaunchTarget::Session { session: session.id, tab: Some(tab) };
+        select_target(&mut navigation, &snapshot, &target).unwrap();
+        assert_eq!(navigation.selected().tab_id, Some(tab));
+        assert_eq!(navigation.selected().session_id, Some(session.id));
+    }
+
     #[test]
     fn missing_or_wrong_session_tab_is_rejected_without_retargeting() {
         let snapshot = snapshot();

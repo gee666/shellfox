@@ -30,7 +30,11 @@ impl TerminalView {
         } else {
             mods.shift
         };
-        self.lease.is_some() && self.mouse_tracking && !bypass
+        (self.lease.is_some() || self.peer_can_write()) && self.mouse_tracking && !bypass
+    }
+
+    fn held_buttons(&self) -> u8 {
+        self.outbox.buttons() | self.peer_buttons()
     }
 
     fn button_mask(button: gpui::MouseButton) -> u8 {
@@ -64,9 +68,15 @@ impl TerminalView {
         if self.failed || self.closing {
             return false;
         }
-        let (Some(bounds), Some(lease)) = (self.bounds, self.lease) else {
+        let Some(bounds) = self.bounds else {
             return false;
         };
+        let (x, cell_width) = crate::renderer::mouse_axis(
+            f32::from(position.x - bounds.left()), self.cell_width,
+        );
+        let (y, cell_height) = crate::renderer::mouse_axis(
+            f32::from(position.y - bounds.top()), self.line_height,
+        );
         let event = MouseEvent {
             action,
             button,
@@ -76,14 +86,12 @@ impl TerminalView {
                 alt: mods.alt,
                 super_key: mods.platform,
             },
-            x: f32::from(position.x - bounds.left()),
-            y: f32::from(position.y - bounds.top()),
-            any_button_pressed: self.outbox.buttons() != 0,
+            x,
+            y,
+            any_button_pressed: self.held_buttons() != 0,
         };
-        let geometry = MouseGeometry {
-            cell_width: self.cell_width as u32,
-            cell_height: self.line_height as u32,
-        };
+        let geometry = MouseGeometry { cell_width, cell_height };
+        let Some(lease) = self.lease else { return self.peer_mouse(event, geometry); };
         self.submit(
             Command::Mouse {
                 lease,
@@ -109,6 +117,12 @@ impl TerminalView {
         self.focus.focus(window);
         self.link_press = None;
         self.selection_drag.finish();
+        let context_click = event.button == gpui::MouseButton::Right
+            || cfg!(target_os = "macos") && event.button == gpui::MouseButton::Left && event.modifiers.control;
+        if self.link_pointer_down(point, event, context_click) {
+            cx.stop_propagation();
+            return;
+        }
         if event.button == gpui::MouseButton::Middle
             && self.screen.cells.iter().any(|cell| cell.selected)
         {
@@ -120,16 +134,13 @@ impl TerminalView {
                 event.position,
                 event.modifiers,
             );
-        } else if event.button == gpui::MouseButton::Left {
-            match event.click_count {
-                2 => self.select(Some(Selection::Word(point)), cx),
-                3.. => self.select(Some(Selection::Line(point)), cx),
-                _ => {
-                    self.select(None, cx);
-                    self.selection_drag.begin(point);
-                    self.link_press = Some(point);
-                }
+        } else if cfg!(target_os = "macos") && context_click {
+            let index = usize::from(point.y) * usize::from(self.screen.cols) + usize::from(point.x);
+            if !self.screen.cells.get(index).is_some_and(|cell| cell.selected) {
+                self.select(Some(Selection::Word(point)), cx);
             }
+        } else if event.button == gpui::MouseButton::Left {
+            self.begin_pointer_selection(point, event.click_count, event.modifiers, cx);
         }
         cx.stop_propagation();
         cx.notify();
@@ -141,7 +152,15 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selection_drag.active() || self.outbox.buttons() != 0 {
+        self.update_link_hover(None, cx);
+        if self.file_link_motion(event.position) {
+            cx.stop_propagation();
+            return;
+        }
+        if self.move_scrollbar_drag(event) {
+            cx.stop_propagation();
+            cx.notify();
+        } else if self.selection_drag.active() || self.held_buttons() != 0 {
             self.pointer_move(event, window, cx);
         }
     }
@@ -155,8 +174,20 @@ impl TerminalView {
         if self.failed || self.closing {
             return;
         }
+        if self.move_scrollbar_drag(event) {
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
+        if self.file_link_motion(event.position) {
+            cx.stop_propagation();
+            return;
+        }
+        if event.pressed_button.is_none() {
+            self.update_link_hover(self.cell_at(event.position, false), cx);
+        }
         if event.pressed_button.is_none()
-            && (self.outbox.buttons() != 0 || self.selection_drag.active())
+            && (self.held_buttons() != 0 || self.selection_drag.active())
         {
             self.cancel_pointer(cx);
             cx.stop_propagation();
@@ -170,7 +201,7 @@ impl TerminalView {
                 self.select(Some(selection), cx);
             }
             cx.stop_propagation();
-        } else if (self.outbox.buttons() != 0 || self.cell_at(event.position, false).is_some())
+        } else if (self.held_buttons() != 0 || self.cell_at(event.position, false).is_some())
             && self.reporting(event.modifiers)
         {
             if event.pressed_button.is_none() && self.screen.cells.iter().any(|cell| cell.selected)
@@ -181,7 +212,7 @@ impl TerminalView {
                 MouseAction::Motion,
                 event
                     .pressed_button
-                    .filter(|button| self.outbox.buttons() & Self::button_mask(*button) != 0)
+                    .filter(|button| self.held_buttons() & Self::button_mask(*button) != 0)
                     .map(Self::mouse_button),
                 event.position,
                 event.modifiers,
@@ -199,8 +230,17 @@ impl TerminalView {
         if self.failed || self.closing {
             return;
         }
+        if self.link_pointer_up(event, cx) {
+            cx.stop_propagation();
+            return;
+        }
+        if event.button == gpui::MouseButton::Left && self.end_scrollbar_drag() {
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
         let bit = Self::button_mask(event.button);
-        if self.outbox.buttons() & bit != 0 {
+        if self.held_buttons() & bit != 0 {
             self.send_mouse(
                 MouseAction::Release,
                 Some(Self::mouse_button(event.button)),
@@ -234,19 +274,22 @@ impl TerminalView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.failed || self.closing || self.cell_at(event.position, false).is_none() {
+        let on_track = self.scrollbar_track_contains(event.position);
+        if self.failed || self.closing || !on_track && self.cell_at(event.position, false).is_none() {
             return;
         }
         let delta = event.delta.pixel_delta(px(self.line_height));
+        let reporting = !on_track && self.reporting(event.modifiers);
+        let sensitivity = if event.modifiers.alt && !reporting { 5. } else { 1. };
         self.wheel_remainder.x =
-            (self.wheel_remainder.x + f32::from(delta.x) / self.line_height).clamp(-64., 64.);
+            (self.wheel_remainder.x + sensitivity * f32::from(delta.x) / self.line_height).clamp(-64., 64.);
         self.wheel_remainder.y =
-            (self.wheel_remainder.y + f32::from(delta.y) / self.line_height).clamp(-64., 64.);
+            (self.wheel_remainder.y + sensitivity * f32::from(delta.y) / self.line_height).clamp(-64., 64.);
         let x = self.wheel_remainder.x.trunc() as i32;
         let y = self.wheel_remainder.y.trunc() as i32;
         self.wheel_remainder.x -= x as f32;
         self.wheel_remainder.y -= y as f32;
-        if self.reporting(event.modifiers) {
+        if reporting {
             for (steps, positive, negative, vertical) in [
                 (y, MouseButton::WheelUp, MouseButton::WheelDown, true),
                 (x, MouseButton::WheelLeft, MouseButton::WheelRight, false),
@@ -271,19 +314,29 @@ impl TerminalView {
                 }
             }
         } else if y != 0 {
-            let result = self.apply_presentation(
-                shellfox_runtime::PresentationAction::Scroll {
-                    delta: -(y as isize),
-                },
-                |terminal| terminal.scroll(-(y as isize)),
-            );
-            if let Err(error) = result {
-                self.reject(format!("Scroll rejected: {error}"));
-            }
-            self.selection_drag.finish();
-            self.link_press = None;
+            self.scroll_lines(-(y as isize));
         }
         cx.stop_propagation();
         cx.notify();
+    }
+
+    pub(super) fn scroll_lines(&mut self, delta: isize) -> bool {
+        if self.failed || self.closing {
+            return false;
+        }
+        if delta == 0 {
+            return true;
+        }
+        let result = self.apply_presentation(
+            shellfox_runtime::PresentationAction::Scroll { delta },
+            |terminal| terminal.scroll(delta),
+        );
+        if let Err(error) = result {
+            self.reject(format!("Scroll rejected: {error}"));
+            return false;
+        }
+        self.selection_drag.finish();
+        self.link_press = None;
+        true
     }
 }

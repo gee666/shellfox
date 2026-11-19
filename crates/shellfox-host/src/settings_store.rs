@@ -113,7 +113,7 @@ fn shell_for_profile(profile: &ProfileId) -> SettingsShell {
     match profile.as_str() {
         "pwsh" => SettingsShell::Pwsh,
         "windows-powershell" => SettingsShell::WindowsPowershell,
-        "wsl" => SettingsShell::Wsl,
+        id if id == "wsl" || id.starts_with("wsl:") => SettingsShell::Wsl,
         _ => SettingsShell::LoginShell,
     }
 }

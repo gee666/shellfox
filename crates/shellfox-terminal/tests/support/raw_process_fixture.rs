@@ -76,20 +76,19 @@ fn main() -> anyhow::Result<()> {
             for _ in 0..64 {
                 io::stdout().write_all(&block)?;
             }
-            let mut input = [0; shellfox_terminal::raw_process::INPUT_BYTES + 1];
-            let mut length = 0;
-            loop {
-                let count = io::stdin().read(&mut input[length..])?;
-                if count == 0 {
-                    break;
+            if let Some(release) = args.get(1) {
+                let deadline = std::time::Instant::now() + Duration::from_secs(15);
+                while !std::path::Path::new(release).is_file() {
+                    anyhow::ensure!(std::time::Instant::now() < deadline, "stdin fixture was not released");
+                    std::thread::sleep(Duration::from_millis(5));
                 }
-                length += count;
-                anyhow::ensure!(
-                    length <= shellfox_terminal::raw_process::INPUT_BYTES,
-                    "Owned fixture stdin exceeds its bound."
-                );
             }
-            io::stdout().write_all(&input[..length])?;
+            let max = shellfox_terminal::raw_process::INPUT_BYTES
+                * if args.get(1).is_some() { 16 } else { 1 };
+            let mut input = Vec::new();
+            io::stdin().take(max as u64 + 1).read_to_end(&mut input)?;
+            anyhow::ensure!(input.len() <= max, "Owned fixture stdin exceeds its bound.");
+            io::stdout().write_all(&input)?;
             io::stderr().write_all(&[0, 255, 10])?;
             std::process::exit(7);
         }

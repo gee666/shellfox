@@ -24,6 +24,7 @@ impl SettingsPanel {
         {
             self.save_environment(cx);
         } else if key == "tab" {
+            self.keyboard_focus = true;
             let close = self.controls.get("close-environment");
             let cancel = self.controls.get("cancel-environment");
             let save = self.controls.get("save-environment");
@@ -73,6 +74,7 @@ impl SettingsPanel {
                     }
                 }
             }
+            cx.notify();
         } else {
             return;
         }

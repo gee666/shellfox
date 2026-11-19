@@ -18,6 +18,7 @@ pub(crate) const ENDPOINT_DIRECTORY: &str = "rust-service-v1";
 pub(crate) struct PrivateDirectory {
     pub path: PathBuf,
     pub helper: VerifiedHelper,
+    pub ssh_store: crate::local::ssh_read::SshStoreLocation,
     root: HostRoot,
 }
 impl PrivateDirectory {
@@ -29,7 +30,13 @@ impl PrivateDirectory {
         }
         let data = root.path().to_owned();
         if root.exists() {
-            for entry in std::fs::read_dir(&data)? {
+            let entries = std::fs::read_dir(&data).with_context(|| {
+                format!(
+                    "Cannot inspect the Shellfox data directory: {}",
+                    data.display()
+                )
+            })?;
+            for entry in entries {
                 let entry = entry?;
                 let name = entry.file_name();
                 if !matches!(
@@ -42,6 +49,8 @@ impl PrivateDirectory {
                             | "shellfox-rust-v1.sqlite3"
                             | "shellfox-rust-v1.sqlite3-wal"
                             | "shellfox-rust-v1.sqlite3-shm"
+                            | "desktop-window.json"
+                            | "keep-awake-lid.txt"
                     )
                 ) {
                     bail!("Data directory contains non-experiment files; no permissions were changed.");
@@ -62,10 +71,15 @@ impl PrivateDirectory {
         }
         // Fresh verification has no earlier resource guard to replace. Every
         // original preparation child also retains this same filesystem owner.
-        let helper = VerifiedHelper::new(helper.to_owned(), digest)?
+        let helper_path = helper.to_owned();
+        let helper = VerifiedHelper::new(helper_path.clone(), digest)?
             .with_resource_guard(root.creation_owner());
         Ok(Self {
             path: data.join(ENDPOINT_DIRECTORY),
+            ssh_store: crate::local::ssh_read::SshStoreLocation {
+                endpoint_directory: data.join(ENDPOINT_DIRECTORY),
+                helper: (helper_path, digest),
+            },
             helper,
             root,
         })
@@ -91,9 +105,15 @@ impl PrivateDirectory {
                 preparation.retain_original_directories(partial)?;
             }
             created?;
+        } else if create {
+            self.root.repair_existing().with_context(|| {
+                format!(
+                    "Cannot make the Shellfox data directory private: {}",
+                    self.root.path().display()
+                )
+            })?;
         }
-        // Existing roots are READ ONLY before acquisition. New roots must be
-        // private at creation too; neither case permits a permission repair.
+        // Clients never repair permissions. Verify the original directory before binding.
         self.check(
             self.root.path(),
             true,

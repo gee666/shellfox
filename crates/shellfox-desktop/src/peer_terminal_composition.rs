@@ -48,12 +48,7 @@ impl EntityInputHandler for PeerTerminalView {
         {
             return;
         }
-        self.admit(
-            m::Input::Key {
-                event: keys::committed(text),
-            },
-            cx,
-        );
+        self.send_xterm_key(crate::input::committed_text(text), cx);
         cx.notify();
     }
     fn replace_and_mark_text_in_range(

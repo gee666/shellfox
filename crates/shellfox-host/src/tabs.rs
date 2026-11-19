@@ -1,5 +1,9 @@
 use crate::{now, sessions::ensure_not_prepared, storage::Data, *};
 use std::collections::HashSet;
+pub(crate) fn default_title(ordinal: u32) -> String {
+    format!("Shell {}", u64::from(ordinal) + 1)
+}
+
 impl Host {
     pub fn add_tab(&self, id: SessionId, input: AddTab) -> Result<Snapshot> {
         if let Some(title) = &input.title {
@@ -14,14 +18,27 @@ impl Host {
             let tab_id = TabId::new();
             let ordinal = u32::try_from(session.tabs.len())
                 .map_err(|_| Error::new(ErrorCode::Validation, "Too many tabs."))?;
+            let use_process_title = input.title.is_none();
+            let title = input.title.unwrap_or_else(|| {
+                let occupied: HashSet<_> = session.tabs.iter().map(|tab| tab.title.as_str()).collect();
+                let mut number = u64::from(ordinal) + 1;
+                let mut title = default_title(ordinal);
+                while occupied.contains(title.as_str()) {
+                    number += 1;
+                    title = format!("Shell {number}");
+                }
+                title
+            });
             let created_at = now();
             session.tabs.push(Tab {
                 id: tab_id,
                 session_id: id,
-                title: input.title.unwrap_or_else(|| input.profile_id.to_string()),
+                title,
+                use_process_title,
                 cwd: input.cwd.unwrap_or_else(|| session.cwd.clone()),
                 ordinal,
                 created_at: Some(created_at.clone()),
+                wsl_launch: WslLaunchBinding::for_new_tab(&input.profile_id),
                 profile_id: input.profile_id,
                 state: TabState::Pending,
             });
@@ -35,10 +52,11 @@ impl Host {
         validation::title(title)?;
         self.update(ChangeReason::Sessions, |data, _| {
             let tab = data.tab_mut(id)?;
-            if tab.title == title {
+            if tab.title == title && !tab.use_process_title {
                 return Ok(false);
             }
             tab.title = title.into();
+            tab.use_process_title = false;
             Ok(true)
         })
     }

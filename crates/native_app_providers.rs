@@ -1,7 +1,7 @@
 //! Shared resource-input builder. Inputs are validated by the trusted native
 //! producer, never inferred from the running executable or a renderer request.
 use shellfox_service::{
-    native_providers::{NativeHostProviders, NativeSshResources},
+    native_providers::NativeHostProviders,
     system::{NativeSystemBackend, SystemInstallPolicy, SystemInstallResources},
 };
 use std::sync::Arc;
@@ -10,7 +10,6 @@ use std::sync::Arc;
 pub struct ApplicationProviderResources {
     installation: Arc<dyn SystemInstallResources>,
     policy: SystemInstallPolicy,
-    ssh: Option<NativeSshResources>,
 }
 impl ApplicationProviderResources {
     /// Consume only the existing portable format with an EXTERNAL trusted build
@@ -30,12 +29,7 @@ impl ApplicationProviderResources {
         Self {
             installation,
             policy,
-            ssh: None,
         }
-    }
-    pub fn with_ssh(mut self, ssh: NativeSshResources) -> Self {
-        self.ssh = Some(ssh);
-        self
     }
     pub fn build(&self, interactive_session: bool) -> NativeHostProviders {
         let system = Arc::new(NativeSystemBackend::native(
@@ -43,18 +37,13 @@ impl ApplicationProviderResources {
             self.policy,
             interactive_session,
         ));
-        let providers = NativeHostProviders::new(system);
-        match &self.ssh {
-            Some(ssh) => providers.with_ssh(ssh.clone()),
-            None => providers,
-        }
+        NativeHostProviders::new(system)
     }
 }
 impl std::fmt::Debug for ApplicationProviderResources {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApplicationProviderResources")
             .field("policy", &self.policy)
-            .field("ssh_configured", &self.ssh.is_some())
             .finish_non_exhaustive()
     }
 }

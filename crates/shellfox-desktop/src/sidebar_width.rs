@@ -7,9 +7,34 @@ pub(crate) fn clamp_width(width: f32, window: f32) -> f32 {
     width.max(160.).min((window / 2.).max(160.))
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct SidebarDrag {
+    start: f32,
+    width: f32,
+}
+impl SidebarDrag {
+    pub(crate) fn start(pointer: f32, width: f32, viewport: f32) -> Self {
+        Self {
+            start: pointer,
+            width: clamp_width(width, viewport),
+        }
+    }
+    pub(crate) fn width(self, pointer: f32, viewport: f32) -> f32 {
+        clamp_width(self.width + pointer - self.start, viewport)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dragging_keeps_the_mouse_offset_inside_the_handle() {
+        let drag = SidebarDrag::start(223., 220., 1200.);
+        assert_eq!(drag.width(223., 1200.), 220.);
+        assert_eq!(drag.width(263., 1200.), 260.);
+        assert_eq!(drag.width(1200., 1200.), 600.);
+    }
+
     #[test]
     fn resizer_matches_existing_renderer_bounds() {
         assert_eq!(clamp_width(220., 1220.), 220.);

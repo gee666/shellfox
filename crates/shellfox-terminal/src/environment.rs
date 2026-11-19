@@ -20,15 +20,12 @@ pub enum EnvironmentPolicy {
 #[cfg(windows)]
 pub(crate) fn installed_path() -> Vec<PathBuf> {
     let mut paths = Vec::new();
-    // pnpm shims refer to their installed package using the shim's own location.
-    // Prefer that installation over an unverified account-specific pi.exe shim.
-    if let Some(home) = std::env::var_os("PNPM_HOME") {
-        let home = PathBuf::from(home);
-        if home.is_absolute() && (home.join("pi.cmd").is_file() || home.join("pnpm.cmd").is_file())
-        {
-            paths.push(home);
-        }
-    }
+    // The installed pnpm shims locate their packages relative to themselves.
+    // Prefer them to account wrappers that look under the redirected app data.
+    paths.extend(pnpm_installation(
+        std::env::var_os("PNPM_HOME").map(PathBuf::from),
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
+    ));
     if let Some(path) = std::env::var_os("PATH") {
         // The active app's account-local CLI bindings target its production host.
         paths.extend(std::env::split_paths(&path).filter(|p| {
@@ -39,6 +36,16 @@ pub(crate) fn installed_path() -> Vec<PathBuf> {
         }));
     }
     validated_directories(paths)
+}
+
+#[cfg(windows)]
+fn pnpm_installation(configured: Option<PathBuf>, local_app_data: Option<PathBuf>) -> Option<PathBuf> {
+    configured
+        .into_iter()
+        .chain(local_app_data.map(|data| data.join("pnpm")))
+        .find(|home| {
+            home.is_absolute() && (home.join("pi.cmd").is_file() || home.join("pnpm.cmd").is_file())
+        })
 }
 
 #[cfg(any(windows, target_os = "linux", test))]
@@ -128,6 +135,7 @@ pub(crate) fn protected(key: &OsStr) -> bool {
             "HOMEPATH",
             "APPDATA",
             "LOCALAPPDATA",
+            "PROGRAMDATA",
             "SYSTEMROOT",
             "WINDIR",
             "COMSPEC",
@@ -210,6 +218,38 @@ mod tests {
         assert_eq!(
             lookup_path(PathBuf::from(r"\\?\UNC\server\share\tools")),
             PathBuf::from(r"\\server\share\tools")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pnpm_installation_falls_back_to_local_app_data_without_a_hint() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tmp")
+            .join(format!("pnpm-discovery-{}", std::process::id()));
+        struct Scratch(PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        std::fs::create_dir_all(root.parent().unwrap()).unwrap();
+        std::fs::create_dir(&root).unwrap();
+        let _scratch = Scratch(root.clone());
+        let default = root.join("pnpm");
+        let configured = root.join("custom-location");
+        for installation in [&default, &configured] {
+            std::fs::create_dir(installation).unwrap();
+            std::fs::write(installation.join("pi.cmd"), "@exit /b 0\r\n").unwrap();
+        }
+        assert_eq!(pnpm_installation(None, Some(root.clone())), Some(default.clone()));
+        assert_eq!(
+            pnpm_installation(Some("relative".into()), Some(root.clone())),
+            Some(default)
+        );
+        assert_eq!(
+            pnpm_installation(Some(configured.clone()), Some(root)),
+            Some(configured)
         );
     }
 

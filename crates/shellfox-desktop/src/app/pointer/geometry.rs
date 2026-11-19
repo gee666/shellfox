@@ -40,7 +40,7 @@ impl TerminalView {
     }
     pub fn runtime_phase(&self) -> Option<shellfox_runtime::Phase> {
         match &self.backend {
-            Backend::Fixture(_) => None,
+            Backend::Fixture(_) | Backend::Peer(_) => None,
             Backend::Attached(_) => self.phase,
         }
     }
@@ -55,10 +55,10 @@ impl TerminalView {
     ) -> Result<()> {
         ensure!(!self.failed && !self.closing, "terminal has stopped");
         ensure!(theme.valid(), "theme colors must be 24-bit RGB");
-        let (font, cell_width) = renderer::choose_font(window, preferred_font, font_size)?;
+        let (font, cell_width, line_height) = renderer::choose_font(window, preferred_font, font_size)?;
         let colors = theme.colors();
         // Observer fonts/themes are local. Only a controller changes parser colors.
-        if matches!(self.backend, Backend::Fixture(_)) || self.lease.is_some() {
+        if !matches!(self.backend, Backend::Attached(_)) || self.lease.is_some() {
             self.apply_terminal(
                 |lease| Command::Colors {
                     lease,
@@ -70,7 +70,7 @@ impl TerminalView {
         self.font = font;
         self.cell_width = cell_width;
         self.font_size = font_size;
-        self.line_height = (font_size * renderer::LINE_HEIGHT / renderer::FONT_SIZE).ceil();
+        self.line_height = line_height;
         self.theme = theme;
         if let Some(bounds) = self.bounds {
             self.set_terminal_bounds(bounds, cx);
@@ -96,6 +96,11 @@ impl TerminalView {
             self.line_height,
         );
         if grid == self.grid {
+            return;
+        }
+        if let Backend::Peer(peer) = &mut self.backend {
+            self.grid = grid;
+            peer.resize(grid);
             return;
         }
         if matches!(self.backend, Backend::Attached(_)) && self.lease.is_none() {

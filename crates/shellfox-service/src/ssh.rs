@@ -1,255 +1,106 @@
-//! Host-only SSH module. One metadata Host and one Runtime registry remain owner-owned.
-#[path = "ssh_admission.rs"]
-mod admission;
+//! Local SSH profiles and key validation. Connection state belongs to the CLI.
 #[path = "ssh_api.rs"]
 mod api;
-#[path = "ssh_broker.rs"]
-mod broker;
-#[path = "ssh_diagnostics.rs"]
-mod diagnostics;
-#[path = "ssh_dispatch.rs"]
-mod dispatch;
-#[path = "ssh_entry.rs"]
-mod entry;
-#[path = "ssh_lifecycle.rs"]
-mod lifecycle;
-#[path = "ssh_native.rs"]
-mod native;
-#[path = "ssh_open.rs"]
-mod open;
-#[path = "ssh_poll.rs"]
-mod poll;
-#[path = "ssh_presentation_target.rs"]
-mod presentation_target;
-#[path = "ssh_program_env.rs"]
-mod program_env;
-#[path = "ssh_runtime.rs"]
-mod runtime;
-#[path = "ssh_tap.rs"]
-mod tap;
-#[cfg(test)]
-#[path = "ssh_tests.rs"]
-mod tests;
-#[path = "ssh_work.rs"]
-mod work;
-use anyhow::Result;
-pub use api::*;
-pub use broker::{askpass_entry, askpass_from_environment, has_askpass_environment};
-pub use entry::dispatch_early_entry;
-pub use native::{NativeSshInstall, NativeSshOwner, SshProgramPolicy, SshProgramRole};
-pub use open::{OpenProfile, OpenedProfile};
-use shellfox_protocol::CancellationToken;
+#[path = "native_provider_putty.rs"]
+mod putty;
+use anyhow::{Context, Result};
+pub use api::{Input, Password, Request, Response, SelectedKey, SelectedKeyInfo};
 pub use shellfox_ssh::key_metadata::{KeyFormat, KeyMetadata};
-use shellfox_ssh::{
-    keys::PreparedIdentity,
-    pty::RemotePty,
-    system::{AuthenticationProof, SystemSshAdapter},
-    PrivateDirectory, ProfileStore,
-};
-pub use shellfox_ssh::{Secret, TrustDecision};
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{
-        mpsc::{self, Receiver, SyncSender},
-        Arc,
-    },
-    thread::JoinHandle,
-};
-use uuid::Uuid;
-use work::{Work, WorkEvent};
+pub use shellfox_ssh::Secret;
+use shellfox_ssh::{Error, PrivateDirectory, ProfileStore};
+use std::sync::Arc;
 
-pub struct SshManager {
+pub(crate) struct Store {
     directory: Arc<PrivateDirectory>,
     profiles: ProfileStore,
-    backend: Arc<SystemSshAdapter>,
-    platform: Arc<dyn NativePlatform>,
-    askpass: PathBuf,
-    lost: CancellationToken,
-    stopping: bool,
-    events: SyncSender<WorkEvent>,
-    incoming: Receiver<WorkEvent>,
-    connections: HashMap<Uuid, Connection>,
 }
-struct Connection {
-    controller: u64,
-    status: ConnectionStatus,
-    cancel: CancellationToken,
-    auth_cancel: CancellationToken,
-    authenticated: bool,
-    view_attached: bool,
-    target: SourceConnectTarget,
-    reserved: bool,
-    job: Option<JoinHandle<()>>,
-    pending: Option<Pending>,
-    runtime: Option<shellfox_runtime::Identity>,
-    broker: Option<broker::Broker>,
-    identity: Option<PreparedIdentity>,
-    proof: Option<AuthenticationProof>,
-}
-enum Pending {
-    Host(Uuid, SyncSender<TrustDecision>),
-    Prompt(Uuid, SyncSender<Option<Secret>>),
-}
-impl SshManager {
-    /// ModuleManager supplies the SAME project's stable rust-service-v1/ssh private
-    /// directory and verified resource providers. This never opens another Host.
-    pub fn new(
-        directory: Arc<PrivateDirectory>,
-        backend: Arc<SystemSshAdapter>,
-        platform: Arc<dyn NativePlatform>,
-        askpass: PathBuf,
-        lost: CancellationToken,
-    ) -> Result<Self> {
-        anyhow::ensure!(
-            askpass.is_absolute() && askpass.is_file(),
-            "A trusted askpass executable is required."
-        );
-        anyhow::ensure!(
-            backend.uses_directory(&directory),
-            "SSH stores and adapter must share one private directory capability."
-        );
-        let (events, incoming) = mpsc::sync_channel(128);
-        Ok(Self {
+impl Store {
+    pub(crate) fn new(directory: PrivateDirectory) -> Self {
+        let directory = Arc::new(directory);
+        Self {
             profiles: ProfileStore::new(directory.clone()),
             directory,
-            backend,
-            platform,
-            askpass,
-            lost,
-            stopping: false,
-            events,
-            incoming,
-            connections: HashMap::new(),
-        })
+        }
     }
-    fn statuses(&self, controller: u64, id: Option<Uuid>) -> Vec<ConnectionStatus> {
-        let mut statuses: Vec<_> = self
-            .connections
-            .values()
-            .filter(|c| c.controller == controller && id.is_none_or(|id| c.status.connection == id))
-            .map(|c| c.status.clone())
-            .collect();
-        statuses.sort_by_key(|s| s.connection);
-        statuses
-    }
-    fn owned(&mut self, controller: u64, id: Uuid) -> Result<&mut Connection> {
-        self.connections
-            .get_mut(&id)
-            .filter(|c| c.controller == controller)
-            .ok_or_else(|| anyhow::anyhow!("SSH connection is unavailable to this controller."))
-    }
-    fn check(
+    pub(crate) fn read(
         &self,
-        controller: u64,
-        tab: Option<shellfox_core::TabId>,
-        validator: &dyn NativeControllerValidator,
-    ) -> Result<()> {
-        anyhow::ensure!(!self.lost.is_cancelled(), "Native host ownership was lost.");
-        anyhow::ensure!(!self.stopping, "SSH module is stopping.");
-        anyhow::ensure!(controller > 0, "Invalid native controller.");
-        validator.validate_native(controller)?;
-        if let Some(tab) = tab {
-            validator.validate_target(controller, tab)?;
-        }
-        Ok(())
+        request: crate::local::SshRead,
+    ) -> Result<crate::local::SshReadReply> {
+        crate::local::read_ssh_profiles(Some(&self.directory), request)
     }
-    pub fn begin_shutdown(&mut self) {
-        self.stopping = true;
-        for c in self.connections.values_mut() {
-            if !matches!(c.status.state, State::Closed) {
-                c.stop();
+    fn request(
+        &self,
+        request: Request,
+        check: impl Fn() -> shellfox_ssh::Result<()>,
+    ) -> Result<Response> {
+        request.validate()?;
+        check()?;
+        match request {
+            Request::List => Ok(Response::Profiles(self.profiles.list()?)),
+            Request::Save(input) => Ok(Response::Profiles(
+                self.profiles.save_guarded(input.into_profile(), check)?,
+            )),
+            Request::Delete { id } => {
+                Ok(Response::Profiles(self.profiles.delete_guarded(id, check)?))
+            }
+            Request::Import => {
+                let sessions = putty::import_sessions().context("Native SSH import failed.")?;
+                Ok(Response::Imported(
+                    self.profiles.import_guarded(sessions, check)?,
+                ))
+            }
+            Request::ValidateKey { selected } => {
+                let bytes = self.directory.read_key_file(selected.path())?;
+                let metadata = shellfox_ssh::key_metadata::inspect(&bytes)?;
+                let cryptographically_validated =
+                    match shellfox_ssh::keys::parse_private_key(&bytes, None) {
+                        Ok(_) => true,
+                        Err(Error::PassphraseRequired) => false,
+                        Err(Error::UnsupportedKeyFormat) if metadata.limitation.is_some() => false,
+                        Err(Error::InvalidKey)
+                            if metadata.encrypted && metadata.limitation.is_some() =>
+                        {
+                            false
+                        }
+                        Err(error) => return Err(error.into()),
+                    };
+                check()?;
+                let path = selected
+                    .path()
+                    .to_str()
+                    .context("Unsupported SSH key path encoding.")?
+                    .to_owned();
+                Ok(Response::SelectedKey(SelectedKeyInfo {
+                    path,
+                    metadata,
+                    cryptographically_validated,
+                }))
             }
         }
     }
-    /// Only true after worker, broker, encrypted identity and original runtime are closed.
-    pub fn is_closed(&self) -> bool {
-        self.connections.values().all(|c| {
-            c.runtime.is_none()
-                && c.job.is_none()
-                && c.broker.is_none()
-                && c.identity.is_none()
-                && !c.reserved
+}
+impl crate::Service {
+    pub(crate) fn execute_ssh_settings(&self, request: Request) -> Result<Response> {
+        self.assert_accepting()?;
+        let store = self
+            .ssh_profiles
+            .as_ref()
+            .context("SSH profile storage is unavailable.")?;
+        store.request(request, || {
+            if self.grant_recipient.is_cancelled() {
+                return Err(Error::Permissions);
+            }
+            self.assert_accepting().map_err(|_| Error::Permissions)
         })
     }
-    /// Feed ONLY bytes from the existing runtime event stream. A local PTY start or
-    /// arbitrary UI "ready" message is not authentication proof.
-    pub fn observe_output(&mut self, identity: shellfox_runtime::Identity, bytes: &[u8]) {
-        for c in self
-            .connections
-            .values_mut()
-            .filter(|c| c.runtime == Some(identity))
-        {
-            if !c.authenticated
-                && !c.cancel.is_cancelled()
-                && c.proof.as_mut().is_some_and(|p| p.observe(bytes))
-            {
-                c.authenticated = true;
-                c.status.state = State::Ready;
-            }
-        }
-    }
-    /// Only the native live-output tap can supply this non-wire proof receipt.
-    pub(super) fn accept_live_confirmation(
-        &mut self,
-        identity: shellfox_runtime::Identity,
-        proof: &AuthenticationProof,
-    ) {
-        for c in self
-            .connections
-            .values_mut()
-            .filter(|c| c.runtime == Some(identity) && !c.authenticated && !c.cancel.is_cancelled())
-        {
-            if c.proof
-                .as_mut()
-                .is_some_and(|expected| expected.accept_confirmation(proof))
-            {
-                c.authenticated = true;
-                c.status.state = State::Ready;
-            }
-        }
-    }
-    /// Owner calls this only for its matching generation after confirmed tree cleanup.
-    pub fn runtime_closed(&mut self, identity: shellfox_runtime::Identity) {
-        for c in self
-            .connections
-            .values_mut()
-            .filter(|c| c.runtime == Some(identity))
-        {
-            c.runtime = None;
-            let incomplete = !c.cancel.is_cancelled() && !c.authenticated;
-            c.cancel.cancel();
-            c.auth_cancel.cancel();
-            c.status.state = if incomplete {
-                State::Failed {
-                    message: "SSH closed before authentication was confirmed.".into(),
-                }
-            } else {
-                State::Closing
-            };
-        }
-    }
-}
-// An accidentally dropped manager must not release credentials/private identity ownership
-// for a still-live runtime. Normal Service shutdown polls cleanup instead of using this hold.
-struct Retained {
-    _directory: Arc<PrivateDirectory>,
-    _connections: HashMap<Uuid, Connection>,
-}
-static UNCONFIRMED: std::sync::OnceLock<std::sync::Mutex<Vec<Retained>>> =
-    std::sync::OnceLock::new();
-impl Drop for SshManager {
-    fn drop(&mut self) {
-        if !self.is_closed() {
-            self.begin_shutdown();
-            UNCONFIRMED
-                .get_or_init(Default::default)
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(Retained {
-                    _directory: self.directory.clone(),
-                    _connections: std::mem::take(&mut self.connections),
-                });
-        }
+    pub(crate) fn read_ssh_settings(
+        &self,
+        request: crate::local::SshRead,
+    ) -> Result<crate::local::SshReadReply> {
+        self.assert_accepting()?;
+        self.ssh_profiles
+            .as_ref()
+            .context("SSH profile storage is unavailable.")?
+            .read(request)
     }
 }

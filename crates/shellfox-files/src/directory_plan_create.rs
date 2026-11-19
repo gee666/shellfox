@@ -140,6 +140,26 @@ fn verify_private_root(plan: &DirectoryWalk, expected: &HandleIdentity) -> Resul
     verified.verify_binding()
 }
 impl DirectoryPlan {
+    /// Only the app's own configured state roots may request repair. The plan
+    /// holds the original directory and parent; a new root goes through creation.
+    pub fn repair_app_directory(&self) -> Result<()> {
+        let _mutation = FileService::mutation_lock()?;
+        self.authority.can_derive_root()?;
+        self.authority.authorized(true)?;
+        self.revalidate()?;
+        if !self.original.missing.is_empty() {
+            return Ok(());
+        }
+        let [.., parent, original] = self.original.dirs.as_slice() else {
+            return Err(FileError::denied());
+        };
+        crate::repair_app_directory_at(
+            &parent.try_clone()?.into_std_file(),
+            self.original.names.last().ok_or_else(FileError::denied)?,
+            &original.try_clone()?.into_std_file(),
+        )?;
+        self.revalidate()
+    }
     /// Caller retains/revalidates its complete topology at each root boundary.
     /// This creates only through this ORIGINAL capability and never upgrades it.
     pub fn create_approved_root(

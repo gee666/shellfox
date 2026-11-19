@@ -31,10 +31,14 @@ func validPrivatePlatformPath(path string) bool {
 }
 
 func privatePermissions(path string, directory, protect bool) error {
-	anchorPath:=path
-	if !directory {anchorPath=filepath.Dir(path)}
-	anchor,err:=openOwnershipRoot(anchorPath)
-	if err!=nil{return err}
+	anchorPath := path
+	if !directory {
+		anchorPath = filepath.Dir(path)
+	}
+	anchor, err := openOwnershipRoot(anchorPath)
+	if err != nil {
+		return err
+	}
 	defer anchor.Close()
 	access := uint32(windows.READ_CONTROL | windows.FILE_READ_ATTRIBUTES)
 	if protect {
@@ -69,7 +73,7 @@ func privatePermissions(path string, directory, protect bool) error {
 			return err
 		}
 	}
-	return checkPrivateDACL(sd, user.User.Sid)
+	return checkPrivateDACL(sd, user.User.Sid, directory)
 }
 
 func privateSecurityDescriptor(handle windows.Handle, user *windows.SID) (*windows.SECURITY_DESCRIPTOR, error) {
@@ -95,7 +99,7 @@ func checkPrivateOwner(sd *windows.SECURITY_DESCRIPTOR, user *windows.SID) error
 	return nil
 }
 
-func checkPrivateDACL(sd *windows.SECURITY_DESCRIPTOR, user *windows.SID) error {
+func checkPrivateDACL(sd *windows.SECURITY_DESCRIPTOR, user *windows.SID, allowSystem bool) error {
 	control, _, err := sd.Control()
 	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
 		return os.ErrPermission
@@ -119,10 +123,10 @@ func checkPrivateDACL(sd *windows.SECURITY_DESCRIPTOR, user *windows.SID) error 
 	if size < int(headerSize) || size > len(data) {
 		return os.ErrPermission
 	}
-	return checkPrivateACEs(data[:size], user)
+	return checkPrivateACEs(data[:size], user, allowSystem)
 }
 
-func checkPrivateACEs(acl []byte, user *windows.SID) error {
+func checkPrivateACEs(acl []byte, user *windows.SID, allowSystem bool) error {
 	headerSize := int(unsafe.Sizeof(windows.ACL{}))
 	if len(acl) < headerSize || int(binary.LittleEndian.Uint16(acl[2:4])) != len(acl) {
 		return os.ErrPermission
@@ -133,6 +137,15 @@ func checkPrivateACEs(acl []byte, user *windows.SID) error {
 	}
 	sidOffset := int(unsafe.Offsetof(windows.ACCESS_ALLOWED_ACE{}.SidStart))
 	sid := unsafe.Slice((*byte)(unsafe.Pointer(user)), user.Len())
+	var system []byte
+	if allowSystem {
+		systemSid, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+		if err != nil {
+			return err
+		}
+		system = unsafe.Slice((*byte)(unsafe.Pointer(systemSid)), systemSid.Len())
+	}
+	ownerAllowed := false
 	offset := headerSize
 	for range count {
 		if len(acl)-offset < sidOffset {
@@ -144,16 +157,23 @@ func checkPrivateACEs(acl []byte, user *windows.SID) error {
 			return os.ErrPermission
 		}
 		ace = ace[:size]
-		// Only ordinary allow ACEs for the exact current-user SID are accepted.
+		// Only ordinary allow ACEs for the current user and, for directories, SYSTEM.
 		// Byte comparison validates the entire SID length before any SID API
 		// could read untrusted ACE memory. Object/callback/deny ACEs fail closed.
 		if ace[0] != windows.ACCESS_ALLOWED_ACE_TYPE ||
 			ace[1]&windows.INHERIT_ONLY_ACE != 0 ||
-			binary.LittleEndian.Uint32(ace[4:8]) == 0 ||
-			!bytes.Equal(ace[sidOffset:], sid) {
+			binary.LittleEndian.Uint32(ace[4:8]) == 0 {
+			return os.ErrPermission
+		}
+		if bytes.Equal(ace[sidOffset:], sid) {
+			ownerAllowed = true
+		} else if !allowSystem || !bytes.Equal(ace[sidOffset:], system) {
 			return os.ErrPermission
 		}
 		offset += size
+	}
+	if !ownerAllowed {
+		return os.ErrPermission
 	}
 	return nil
 }

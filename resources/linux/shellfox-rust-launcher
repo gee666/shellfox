@@ -1,0 +1,8 @@
+#!/bin/sh
+# Shellfox/linux-v1
+launcher=$(readlink -f -- "$0") || exit 1
+root=$(CDPATH= cd -- "$(dirname -- "$launcher")/../lib/shellfox" && pwd) || exit 1
+if [ "${1:-}" = ssh ]; then
+  exec "$root/shellfox-cli" "$@"
+fi
+exec "$root/shellfox" "$@"

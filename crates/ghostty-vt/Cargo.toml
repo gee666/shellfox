@@ -9,4 +9,5 @@ license.workspace = true
 experimental-shellfox-native = ["shellfox-ghostty-vt-sys/experimental-shellfox-native"]
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 shellfox-ghostty-vt-sys = { path = "../ghostty-vt-sys" }

@@ -1,5 +1,5 @@
-use gpui::{Bounds, Context, Pixels, Task, Window, fill, outline, point, px, size};
-use shellfox_runtime::{CursorShape, CursorVisual, Identity, PresentationLease, ViewFrame};
+use gpui::{Bounds, Context, Pixels, Task, Window, fill, point, px, size};
+use shellfox_runtime::{CursorShape, CursorVisual, Identity, PresentationLease};
 use std::time::{Duration, Instant};
 
 // Shipped xterm DOM CSS uses a 1s step-end cycle with its transition at 50%.
@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 const BLINK_INTERVAL: Duration = Duration::from_millis(500);
 // Local reset events are UI state, not invented producer paint revisions.
 // Same-content/unrelated-row DOM span replacement parity remains unproven.
-type CursorKey = (Identity, PresentationLease, CursorVisual, u64);
+type CursorKey = (Option<(Identity, PresentationLease)>, CursorVisual, u64);
 
 fn phase_at(elapsed: Duration) -> bool {
     elapsed.as_millis() % 1000 < 500
@@ -23,13 +23,13 @@ struct Blink {
     task: Option<Task<()>>,
 }
 impl Blink {
-    fn update(&mut self, frame: &ViewFrame, local_reset: u64, cx: &mut Context<Self>) -> bool {
-        let key = (frame.identity, frame.view, frame.cursor_visual, local_reset);
+    fn update(&mut self, key: CursorKey, cx: &mut Context<Self>) -> bool {
+        let (_, cursor, _) = key;
         if self.key != Some(key) {
             self.key = Some(key);
             self.started = Some(Instant::now());
             self.task = None;
-            if frame.cursor_visual.visible && frame.cursor_visual.blinking {
+            if cursor.visible && cursor.blinking {
                 self.task = Some(cx.spawn(async move |clock, cx| {
                     loop {
                         let Ok(delay) = clock.update(cx, |clock, _| {
@@ -49,19 +49,18 @@ impl Blink {
                 }));
             }
         }
-        !frame.cursor_visual.blinking || self.started.is_none_or(|start| phase_at(start.elapsed()))
+        !cursor.blinking || self.started.is_none_or(|start| phase_at(start.elapsed()))
     }
 }
 
 /// The state is owned by the painted canvas, so hidden/dropped views cancel their blink task.
 pub(super) fn phase(
-    frame: &ViewFrame,
-    local_reset: u64,
+    key: CursorKey,
     window: &mut Window,
     cx: &mut gpui::App,
 ) -> bool {
     let clock = window.use_keyed_state("terminal-cursor-blink", cx, |_, _| Blink::default());
-    clock.update(cx, |clock, cx| clock.update(frame, local_reset, cx))
+    clock.update(cx, |clock, cx| clock.update(key, cx))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -136,11 +135,7 @@ impl CursorPaint {
                 bounds.size.height = thickness;
             }
             CursorShape::HollowBlock => {
-                window.paint_quad(outline(
-                    bounds,
-                    super::color(self.color),
-                    gpui::BorderStyle::Solid,
-                ));
+                paint_inset_outline(bounds, super::color(self.color), window);
                 return;
             }
             CursorShape::Block => {}
@@ -153,6 +148,31 @@ impl CursorPaint {
                 background
             },
         ));
+    }
+}
+
+fn paint_inset_outline(bounds: Bounds<Pixels>, color: gpui::Hsla, window: &mut Window) {
+    // xterm's square CSS outline is inset by one pixel. Paint edges on the
+    // device pixel grid rather than blending a rounded-border distance field.
+    let scale = window.scale_factor();
+    let snap = |value: Pixels| px((f32::from(value) * scale).round() / scale);
+    let left = snap(bounds.left());
+    let top = snap(bounds.top());
+    let right = snap(bounds.right());
+    let bottom = snap(bounds.bottom());
+    let width = right - left;
+    let height = bottom - top;
+    let edge = snap(px(1.)).min(width).min(height);
+    if edge <= px(0.) { return; }
+    for (x, y, w, h) in [
+        (left, top, width, edge),
+        (left, bottom - edge, width, edge),
+        (left, top + edge, edge, height - edge * 2.),
+        (right - edge, top + edge, edge, height - edge * 2.),
+    ] {
+        if h > px(0.) {
+            window.paint_quad(fill(Bounds::new(point(x, y), size(w, h)), color));
+        }
     }
 }
 

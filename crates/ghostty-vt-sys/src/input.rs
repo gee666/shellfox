@@ -15,6 +15,7 @@ unsafe extern "C" {
         cap: usize,
         len: *mut usize,
     ) -> i32;
+    fn sf_xterm_input_mode(vt: *mut c_void, mode: u8, out: *mut u8) -> i32;
     fn sf_paste(
         vt: *mut c_void,
         text: *mut u8,
@@ -39,6 +40,14 @@ fn encoded_key_output(mut call: impl FnMut(*mut u8, usize, &mut usize) -> i32) -
         return Err(-2);
     }
     Ok(out)
+}
+
+#[derive(Clone, Copy)]
+#[repr(u8)]
+pub enum XtermInputMode {
+    ApplicationCursorKeys = 0,
+    BracketedPaste = 1,
+    FocusReporting = 2,
 }
 
 impl Engine {
@@ -72,6 +81,13 @@ impl Engine {
         self.status()?;
         event.validate().map_err(InvalidKeyV2::native_code)?;
         self.encode_checked_key(event.raw())
+    }
+    pub fn xterm_input_mode(&self, mode: XtermInputMode) -> Result<bool> {
+        self.status()?;
+        let mut enabled = 0;
+        // SAFETY: the mode query borrows the live terminal and one writable byte.
+        unsafe { check(sf_xterm_input_mode(self.ptr.as_ptr(), mode as u8, &mut enabled))? };
+        Ok(enabled != 0)
     }
     pub fn encode_paste(&mut self, text: &str) -> Result<Vec<u8>> {
         self.status()?;

@@ -1,13 +1,15 @@
 use crate::{Error, Modifiers, Result, Terminal};
 use shellfox_ghostty_vt_sys as sys;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum MouseAction {
     Press,
     Release,
     Motion,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum MouseButton {
     Left,
     Middle,
@@ -45,7 +47,8 @@ impl MouseButton {
 /// drag/release reporting. Positions must be finite and within +/- 1 billion.
 /// Wheel steps use Press with a wheel button. Accumulate fractional scrolling
 /// in the UI and send each whole step, rather than inventing escape sequences.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MouseEvent {
     pub action: MouseAction,
     pub button: Option<MouseButton>,
@@ -55,7 +58,8 @@ pub struct MouseEvent {
     /// Current state after this event, including any other held button.
     pub any_button_pressed: bool,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MouseGeometry {
     pub cell_width: u32,
     pub cell_height: u32,

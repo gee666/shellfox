@@ -1,9 +1,21 @@
-use crate::{assets::icon, root::Root, theme::Palette};
+use crate::{
+    assets::icon,
+    files::{
+        pending::FileAction,
+        resizer::{ResizeAxis, files_resizer},
+    },
+    root::Root,
+    theme::Palette,
+};
 use gpui::{AnyElement, Context, Div, Stateful, Window, div, prelude::*, px};
 #[path = "files_browser.rs"]
 mod browser;
+#[path = "files_confirm_view.rs"]
+pub(crate) mod confirmation;
 #[path = "files_document.rs"]
 mod document;
+#[path = "files_transfer_view.rs"]
+mod transfer_view;
 
 fn control(
     id: impl Into<gpui::SharedString>,
@@ -12,6 +24,11 @@ fn control(
 ) -> Stateful<Div> {
     div()
         .id(id.into())
+        .tab_index(0)
+        .border_1()
+        .border_color(gpui::transparent_black())
+        .focus(|style| style.border_color(palette.accent))
+        .rounded(px(2.))
         .w(px(24.))
         .h(px(24.))
         .flex()
@@ -21,17 +38,17 @@ fn control(
         .text_color(palette.muted)
         .cursor_pointer()
         .hover(|style| style.bg(palette.hover).text_color(palette.accent))
-        .child(icon(name).size(px(
-            if matches!(name, "save" | "reload" | "maximize" | "restore") {
-                14.
-            } else {
-                16.
-            },
-        )))
+        .child(icon(name).size(px(match name {
+            "save" | "reload" | "maximize" | "restore" | "wrap" => 14.,
+            "file-upload" | "file-download" => 15.,
+            _ => 16.,
+        })))
 }
 fn text_button(id: &'static str, label: &'static str, palette: Palette) -> Stateful<Div> {
     div()
         .id(id)
+        .tab_index(0)
+        .focus(|style| style.border_color(palette.accent))
         .h(px(24.))
         .px(px(6.))
         .flex()
@@ -47,6 +64,33 @@ fn text_button(id: &'static str, label: &'static str, palette: Palette) -> State
         .child(label)
 }
 impl Root {
+    pub(crate) fn with_peer_files(
+        &self,
+        terminal: Div,
+        palette: Palette,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let shown = self
+            .files
+            .as_ref()
+            .is_some_and(|f| f.visible && f.source == self.peers.selected);
+        div()
+            .relative()
+            .flex()
+            .size_full()
+            .child(terminal)
+            .when(shown, |view| {
+                let panel = self.files_panel(palette, window, cx);
+                if self.files_narrow(window) {
+                    view.child(div().absolute().inset_0().child(panel))
+                } else {
+                    view.child(panel)
+                }
+            })
+            .into_any_element()
+    }
+
     pub(crate) fn files_panel(
         &self,
         palette: Palette,
@@ -74,7 +118,20 @@ impl Root {
         };
         let mut panel = div()
             .relative()
+            .track_focus(&files.panel_focus)
             .occlude()
+            .on_key_down(|event: &gpui::KeyDownEvent, window, cx| {
+                if event.keystroke.key != "tab" {
+                    return;
+                }
+                if event.keystroke.modifiers.shift {
+                    window.focus_prev();
+                } else {
+                    window.focus_next();
+                }
+                window.prevent_default();
+                cx.stop_propagation();
+            })
             .w(px(width))
             .h_full()
             .min_w_0()
@@ -88,46 +145,12 @@ impl Root {
                 style.pl(px(4.)).border_l_1().border_color(palette.border)
             });
         if !files.maximized && !narrow {
-            panel = panel.child(
-                div()
-                    .id("file-width-resizer")
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(px(4.))
-                    .border_r_1()
-                    .border_color(palette.border)
-                    .cursor(gpui::CursorStyle::ResizeColumn)
-                    .hover(|style| style.bg(palette.accent))
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|root, _, _, cx| {
-                            if let Some(files) = &mut root.files {
-                                files.resizing_width = true;
-                            }
-                            cx.stop_propagation();
-                        }),
-                    )
-                    .on_mouse_up(
-                        gpui::MouseButton::Left,
-                        cx.listener(|root, _, _, cx| {
-                            if let Some(files) = &mut root.files {
-                                files.resizing_width = false;
-                            }
-                            cx.notify();
-                        }),
-                    )
-                    .on_mouse_up_out(
-                        gpui::MouseButton::Left,
-                        cx.listener(|root, _, _, cx| {
-                            if let Some(files) = &mut root.files {
-                                files.resizing_width = false;
-                            }
-                            cx.notify();
-                        }),
-                    ),
-            );
+            panel = panel.child(files_resizer(
+                ResizeAxis::Width,
+                palette,
+                &files.width_focus,
+                cx,
+            ));
         }
         let mut header = div()
             .h(px(32.))
@@ -148,13 +171,28 @@ impl Root {
                 .when(files.browser, |style| {
                     style.bg(palette.hover).text_color(palette.accent)
                 })
+                .tooltip(crate::assets::tooltip(
+                    format!(
+                        "{} file browser ({})",
+                        if files.browser { "Collapse" } else { "Expand" },
+                        if cfg!(target_os = "macos") {
+                            "⌘⇧E"
+                        } else {
+                            "Ctrl+Shift+E"
+                        },
+                    ),
+                    palette,
+                ))
                 .on_click(cx.listener(|root, _, _, cx| root.toggle_file_browser(cx))),
             )
             .child(div().flex_1())
-            .child(
-                control("open-folder-explorer", "folder", palette)
-                    .on_click(cx.listener(|root, _, _, cx| root.open_file_explorer(false, cx))),
-            );
+            .when(files.backend.is_local(), |header| {
+                header.child(
+                    control("open-folder-explorer", "folder", palette)
+                        .tooltip(crate::assets::tooltip("Open in system explorer", palette))
+                        .on_click(cx.listener(|root, _, _, cx| root.open_file_explorer(false, cx))),
+                )
+            });
         if !narrow || files.maximized {
             header = header.child(
                 control(
@@ -166,6 +204,14 @@ impl Root {
                     },
                     palette,
                 )
+                .tooltip(crate::assets::tooltip(
+                    if files.maximized {
+                        "Restore file"
+                    } else {
+                        "Maximize file"
+                    },
+                    palette,
+                ))
                 .on_click(
                     cx.listener(|root, _, window, cx| root.toggle_file_maximized(window, cx)),
                 ),
@@ -174,55 +220,19 @@ impl Root {
         header = header.child(
             text_button("hide-files", "×", palette)
                 .w(px(24.))
-                .on_click(cx.listener(|root, _, _, cx| root.toggle_files(cx))),
+                .tooltip(crate::assets::tooltip("Close file sidebar", palette))
+                .on_click(
+                    cx.listener(|root, _, _, cx| root.request_file_action(FileAction::Hide, cx)),
+                ),
         );
         panel = panel.child(header);
         if files.browser {
             panel = panel.child(self.file_browser(palette, window, cx));
         }
-        panel = panel.child(self.file_document(palette, cx));
-        if files.pending_open.is_some() {
-            panel = panel.child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .occlude()
-                    .p(px(16.))
-                    .flex()
-                    .flex_col()
-                    .justify_center()
-                    .bg(palette.panel)
-                    .child("Discard unsaved changes?")
-                    .child(
-                        div()
-                            .flex()
-                            .justify_end()
-                            .gap(px(4.))
-                            .mt(px(12.))
-                            .child(text_button("cancel-open-file", "Cancel", palette).on_click(
-                                cx.listener(|root, _, _, cx| {
-                                    if let Some(files) = &mut root.files {
-                                        files.pending_open = None;
-                                    }
-                                    cx.notify();
-                                }),
-                            ))
-                            .child(
-                                text_button("discard-open-file", "Discard changes", palette)
-                                    .on_click(cx.listener(|root, _, _, cx| {
-                                        if let Some(path) = root.files.as_mut().and_then(|files| {
-                                            if files.busy {
-                                                None
-                                            } else {
-                                                files.pending_open.take()
-                                            }
-                                        }) {
-                                            root.open_file(path, cx);
-                                        }
-                                    })),
-                            ),
-                    ),
-            );
+        let document_width = width - if files.maximized || narrow { 0. } else { 5. };
+        panel = panel.child(self.file_document(palette, document_width, window, cx));
+        if let Some(confirmation) = self.file_confirmation(palette, window, cx) {
+            panel = panel.child(confirmation);
         }
         self.semantic_region(
             "root/files",

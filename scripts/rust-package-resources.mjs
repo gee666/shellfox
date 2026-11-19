@@ -1,15 +1,16 @@
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { buildHelper, goVersion, helperTarget, probeHelper } from './tailscale.mjs';
+import { buildHelperWithAnchor, goVersion } from './tailscale.mjs';
 import { darwinHelpers } from './terminal-native-helpers.mjs';
-import { executableName, root, run } from './rust-package-common.mjs';
+import { executableName, fileHash, root, run } from './rust-package-common.mjs';
 import { generateResourceManifest } from './rust-package-resource-manifest.mjs';
+import { buildWslFilesWorker } from './rust-package-wsl-files.mjs';
 import { assertSdk, dotnetEnvironment, helperEnvironment, retainRuntimeNotices, runtimeVersion } from './dotnet-sdk.mjs';
 
 export function writeLaunchers(directory, kind) {
   // Binaries validate --data-dir themselves. No environment-only profile selection.
   const launchers = [['shellfox', 'shellfox-cli']];
-  if (kind === 'desktop') launchers.push(['shellfox-desktop', 'shellfox-gpui-experiment']);
+  if (kind === 'desktop') launchers.push(['shellfox-desktop', 'shellfox']);
   for (const [name, bin] of launchers) {
     if (process.platform === 'win32') {
       writeFileSync(path.join(directory, name + '.cmd'), `@echo off\r\n"%~dp0bin\\${bin}.exe" %*\r\nexit /b %errorlevel%\r\n`);
@@ -22,7 +23,7 @@ export function writeLaunchers(directory, kind) {
   }
 }
 
-export async function stageResources({ directory, work, kind, version, nugetSnapshot = null }) {
+export async function stageResources({ directory, work, kind, version, nugetSnapshot = null, probeTailscale = true, signDarwin }) {
   const resources = path.join(directory, 'resources');
   mkdirSync(resources, { recursive: true });
   const records = [], anchorEnv = {
@@ -49,16 +50,24 @@ export async function stageResources({ directory, work, kind, version, nugetSnap
   const go = process.env.SHELLFOX_GO || 'go';
   const actualGoVersion = run(go, ['version']).trim();
   if (!actualGoVersion.startsWith(`go version go${goVersion} `)) throw new Error(`Packaging requires pinned Go ${goVersion}, found ${actualGoVersion}`);
-  buildHelper();
-  cpSync(helperTarget().directory, path.join(resources, 'tailscale'), { recursive: true });
+  const tailscale = path.join(resources, 'tailscale');
+  const helper = buildHelperWithAnchor(process.platform, process.arch, { directory: tailscale, probe: probeTailscale });
+  if (process.platform === 'darwin') signDarwin?.(helper.executable);
+  const helperSha256 = signDarwin ? fileHash(helper.executable) : helper.sha256;
   records.push({ name: 'embedded-tailscale', path: `resources/tailscale/${executableName('shellfox-tailscale')}`, use: 'retained helper; Rust adapter acceptance required' });
-  probeHelper(path.join(resources, 'tailscale', executableName('shellfox-tailscale')));
-  makeBundle('go', path.join(resources, 'tailscale'), goVersion, 'go-helper', 'SHELLFOX_GO_HELPER_MANIFEST_SHA256', true);
+  makeBundle('go', tailscale, goVersion, 'go-helper', 'SHELLFOX_GO_HELPER_MANIFEST_SHA256', probeTailscale);
 
   const notices = path.join(directory, 'notices', 'ghostty-vt');
   cpSync(path.join(root, 'crates/ghostty-vt-sys/build-support/notices'), notices, { recursive: true });
   if (process.platform === 'win32') {
     if (kind === 'desktop') {
+      anchorEnv.SHELLFOX_WSL_FILES_BINARY = buildWslFilesWorker(work);
+      const wslNotices = path.join(directory, 'notices', 'wsl-files');
+      mkdirSync(wslNotices, { recursive: true });
+      const rustDocs = path.join(run('rustc', ['--print', 'sysroot']).trim(), 'share', 'doc', 'rust');
+      // The pinned toolchain supplies musl and the other self-contained runtime objects.
+      copyFileSync(path.join(rustDocs, 'COPYRIGHT.html'), path.join(wslNotices, 'COPYRIGHT.html'));
+      cpSync(path.join(rustDocs, 'licenses'), path.join(wslNotices, 'licenses'), { recursive: true });
       const output = path.join(resources, 'elevated-terminal');
       const dotnet = assertSdk();
       run(dotnet, ['publish', 'native/Shellfox.ElevatedTerminal/Shellfox.ElevatedTerminal.csproj',
@@ -85,9 +94,10 @@ export async function stageResources({ directory, work, kind, version, nugetSnap
         '-arch', process.arch === 'x64' ? 'x86_64' : 'arm64', '-mmacosx-version-min=13.0',
         path.join(root, 'src/main/terminal/native', helper.sourceFile), '-lproc', '-o', file]);
       chmodSync(file, 0o755);
+      signDarwin?.(file);
       records.push({ name: helper.basename, path: `resources/terminal-native/${helper.basename}`, use: 'retained native helper; Darwin runtime acceptance required' });
     }
     makeBundle('darwin', output, undefined, 'darwin-helpers', 'SHELLFOX_DARWIN_HELPERS_MANIFEST_SHA256');
   }
-  return { records, anchorEnv };
+  return { records, anchorEnv, helperSha256 };
 }

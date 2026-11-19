@@ -74,6 +74,13 @@ pub(crate) fn validate(
     Ok(limits)
 }
 impl super::native::RemoteControl {
+    pub(crate) fn outgoing_deadline(&self, deadline: Instant) -> tokio::time::Sleep {
+        // GPUI polls native requests outside Tokio. Only timer creation needs
+        // to enter the runtime that owns the remote manager.
+        let _runtime = self.runtime.enter();
+        tokio::time::sleep_until(deadline.into())
+    }
+
     pub(crate) async fn outgoing_v2(
         &self,
         peer: &AuthenticatedPeerId,
@@ -97,7 +104,7 @@ impl super::native::RemoteControl {
         tokio::select! {
             biased;
             _=cancel.cancelled()=>Err(TransportError::Cancelled),
-            _=tokio::time::sleep_until(deadline.into())=>Err(TransportError::Deadline),
+            _=self.outgoing_deadline(deadline)=>Err(TransportError::Deadline),
             result=receive=>result.unwrap_or(Err(TransportError::Unavailable)),
         }
     }

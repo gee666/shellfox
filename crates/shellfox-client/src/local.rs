@@ -31,6 +31,8 @@ impl<T: LocalTransport> LocalClient<T> {
             LOCAL_NAMESPACE,
             "experimental.power.v1",
             DESKTOP_LAUNCH_NAMESPACE,
+            DESKTOP_VIEW_NAMESPACE,
+            SSH_READ_NAMESPACE,
             <automation::AutomationStart as LocalRequest>::METHOD,
             <automation::AutomationList as LocalRequest>::METHOD,
             <automation::AutomationRead as LocalRequest>::METHOD,

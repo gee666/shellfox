@@ -17,7 +17,7 @@ export interface HelperSpec { command: string; args: string[]; stopFile?: string
 // the lid-close action to "do nothing" and restores the saved original when
 // told to stop, when Shellfox is gone, or on the next run after a hard kill.
 const WINDOWS_HELPER = `param([int]$Owner, [string]$State, [string]$Stop, [switch]$RestoreOnly)
-function Get-Lid { $q = (powercfg /q SCHEME_CURRENT SUB_BUTTONS LIDACTION 2>$null) | Out-String; $m = [regex]::Matches($q, '0x[0-9a-fA-F]{8}'); if ($m.Count -ge 2) { ,@([Convert]::ToInt32($m[$m.Count - 2].Value, 16), [Convert]::ToInt32($m[$m.Count - 1].Value, 16)) } }
+function Get-Lid { $q = (powercfg /qh SCHEME_CURRENT SUB_BUTTONS LIDACTION 2>$null) | Out-String; $m = [regex]::Matches($q, '0x[0-9a-fA-F]{8}'); if ($m.Count -ge 2) { ,@([Convert]::ToInt32($m[$m.Count - 2].Value, 16), [Convert]::ToInt32($m[$m.Count - 1].Value, 16)) } }
 function Set-Lid([int]$Ac, [int]$Dc) { powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION $Ac 2>$null | Out-Null; powercfg /setdcvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION $Dc 2>$null | Out-Null; powercfg /setactive SCHEME_CURRENT 2>$null | Out-Null }
 function Read-Saved { try { if ($State -and (Test-Path -LiteralPath $State)) { $v = @((Get-Content -LiteralPath $State -Raw).Trim() -split ',' | ForEach-Object { [int]$_ }); if ($v.Count -eq 2) { return ,$v } } } catch { }; $null }
 function Restore-Lid($Lid) { if ($Lid) { try { Set-Lid $Lid[0] $Lid[1] } catch { } }; if ($State) { Remove-Item -LiteralPath $State -Force -ErrorAction SilentlyContinue } }

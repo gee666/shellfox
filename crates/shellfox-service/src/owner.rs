@@ -235,16 +235,6 @@ impl ServiceOwner {
                                 service.enqueue_native_catalog(controller, reply);
                                 continue;
                             }
-                            if matches!(
-                                *action,
-                                crate::native::NativeAction::Ssh(_)
-                                    | crate::native::NativeAction::SshOpen(_)
-                            ) {
-                                if let Err(error) = service.admit_ssh_native(controller) {
-                                    let _ = reply.send(Err(error));
-                                    continue;
-                                }
-                            }
                             if matches!(*action, crate::native::NativeAction::System(_)) {
                                 if let Err(error) = service.admit_system_native(controller) {
                                     let _ = reply.send(Err(anyhow::anyhow!(error.message)));

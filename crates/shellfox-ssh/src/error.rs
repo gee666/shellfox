@@ -33,10 +33,6 @@ pub enum Error {
     UnsupportedKeyFormat,
     #[error("SSH process failed or exceeded its deadline/output limit.")]
     Process,
-    #[error("SSH connection adapter is not installed; no connection was started.")]
-    AdapterUnavailable,
-    #[error("SSH proxy or jump host is not supported by this adapter.")]
-    UnsupportedProxy,
 }
 
 impl From<std::io::Error> for Error {

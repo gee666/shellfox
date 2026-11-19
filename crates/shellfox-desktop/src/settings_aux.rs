@@ -1,10 +1,11 @@
 use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum After {
-    Remote(u64),
+    Remote(u64, remote::ErrorSection),
     RemoteRead(u64),
     Login(u64),
-    SshRead,
+    RetryLogin(u64),
+    SshRead(u64),
     Ssh,
     Import,
     Key,
@@ -19,8 +20,13 @@ impl SettingsPanel {
                 cx,
             );
         }
-        if !self.ssh.pending && self.ssh.editor.is_none() && self.ssh.removing.is_none() {
-            self.request_aux(api::Request::SshList, After::SshRead, cx);
+        if !self.ssh.reading
+            && !self.ssh.pending
+            && self.ssh.editor.is_none()
+            && self.ssh.removing.is_none()
+        {
+            self.ssh.reading = true;
+            self.request_aux(api::Request::SshList, After::SshRead(self.ssh.epoch), cx);
         }
     }
     pub(super) fn request_aux(
@@ -46,6 +52,9 @@ impl SettingsPanel {
             cx.notify();
             return;
         };
+        if matches!(after, After::Ssh | After::Import) {
+            self.ssh.epoch += 1;
+        }
         let lease = mutating.then(|| self.operations.begin());
         cx.spawn(async move |panel, cx| {
             let result = services.request(request).await;
@@ -54,13 +63,25 @@ impl SettingsPanel {
                 if matches!(after, After::RemoteRead(_)) {
                     panel.remote.reading = false;
                 }
-                if let After::Remote(epoch) | After::RemoteRead(epoch) | After::Login(epoch) = after
+                if let After::Remote(epoch, _)
+                | After::RemoteRead(epoch)
+                | After::Login(epoch)
+                | After::RetryLogin(epoch) = after
                     && epoch != panel.remote.epoch
                 {
                     return;
                 }
+                if let After::SshRead(epoch) = after {
+                    panel.ssh.reading = false;
+                    if epoch != panel.ssh.epoch
+                        || panel.ssh.editor.is_some()
+                        || panel.ssh.removing.is_some()
+                    {
+                        return;
+                    }
+                }
                 match after {
-                    After::Remote(_) | After::Login(_) => {
+                    After::Remote(_, _) | After::Login(_) | After::RetryLogin(_) => {
                         panel.remote.pending = false;
                         panel.remote.inflight_peer = None;
                         panel.remote.login_request = false;
@@ -87,17 +108,25 @@ impl SettingsPanel {
             After::Login(_) => {
                 self.remote.pending = false;
                 self.remote.login.fail();
-                self.remote.error = Some(message);
             }
-            After::Remote(_) => {
+            After::Remote(_, section) => {
                 self.remote.pending = false;
-                self.remote.error = Some(message);
+                if self.visible {
+                    self.remote.fail(section, &message);
+                }
+            }
+            After::RetryLogin(_) => {
+                self.remote.pending = false;
+                if self.visible {
+                    self.remote.fail(remote::ErrorSection::Access, &message);
+                }
             }
             After::RemoteRead(_) => {
                 self.remote.reading = false;
-                self.remote.error = Some(message);
+                self.remote.read_error = Some(message);
             }
-            After::SshRead => {
+            After::SshRead(_) => {
+                self.ssh.reading = false;
                 self.ssh.error = Some(message);
             }
             After::Ssh | After::Import | After::Key => {
@@ -109,15 +138,14 @@ impl SettingsPanel {
     fn accept_aux(&mut self, after: After, response: api::Response, cx: &mut Context<Self>) {
         match (after, response) {
             (
-                After::Remote(_) | After::RemoteRead(_) | After::Login(_),
+                After::Remote(_, _) | After::RemoteRead(_) | After::Login(_) | After::RetryLogin(_),
                 api::Response::Remote(state),
             ) => {
-                let current = self.remote.hostname.read(cx).text.clone();
                 if self
                     .remote
                     .state
                     .as_ref()
-                    .is_none_or(|old| old.hostname == current)
+                    .is_none_or(|old| old.hostname != state.hostname)
                 {
                     self.remote
                         .hostname
@@ -133,26 +161,54 @@ impl SettingsPanel {
                 {
                     self.remote.login_started = Some(std::time::Instant::now());
                 }
-                let open = !self.operations.frozen()
+                let open = self.visible
+                    && !self.operations.frozen()
                     && self
                         .remote
                         .login
                         .accept(&state, matches!(after, After::Login(_)));
+                if matches!(after, After::Login(_)) {
+                    self.remote.login_attempt = state
+                        .attempts
+                        .iter()
+                        .find(|attempt| matches!(attempt.kind, api::RemoteAttemptKind::Login))
+                        .map(|attempt| attempt.id.clone());
+                } else if self
+                    .remote
+                    .login_attempt
+                    .as_ref()
+                    .is_some_and(|id| !state.attempts.iter().any(|attempt| attempt.id == *id))
+                {
+                    self.remote.login_attempt = None;
+                }
+                let retry = matches!(after, After::RetryLogin(_))
+                    && self.visible
+                    && self.remote.login_attempt.is_none();
                 self.remote.state = Some(state);
-                self.remote.error = None;
+                self.remote.read_error = None;
+                if retry {
+                    self.remote_action(remote::Operation::Login, cx);
+                    return;
+                }
+                self.release_finished_login(cx);
                 if open {
                     let serial = self.remote.login.serial();
                     self.dispatch_login_browser(serial, cx);
                 }
             }
-            (After::SshRead, api::Response::SshProfiles(profiles)) => {
+            (After::SshRead(_), api::Response::SshProfiles(profiles)) => {
                 self.ssh.profiles = Some(profiles);
                 self.ssh.error = None;
             }
             (After::Ssh, api::Response::SshProfiles(profiles)) => {
+                self.ssh.focus_control = self.visible.then(|| {
+                    self.ssh
+                        .editor
+                        .as_ref()
+                        .map_or_else(|| "add-ssh".into(), |editor| ssh::row_id(&editor.id))
+                });
                 self.ssh.profiles = Some(profiles);
-                self.ssh.editor = None;
-                self.ssh.removing = None;
+                self.ssh.clear_editor();
                 self.ssh.error = None;
             }
             (
@@ -196,18 +252,5 @@ impl SettingsPanel {
                 "Unexpected settings capability response from host.".into(),
             ),
         }
-    }
-    pub(super) fn choose_color(&mut self, kind: api::ColorKind, cx: &mut Context<Self>) {
-        if self.operations.frozen() {
-            return;
-        }
-        let target = match kind {
-            api::ColorKind::Accent => "Accent",
-            api::ColorKind::Background => "Background",
-        };
-        self.auxiliary_error = Some(format!(
-            "{target} color picker awaits the Chromium interaction reference. No replacement picker was opened."
-        ));
-        cx.notify();
     }
 }

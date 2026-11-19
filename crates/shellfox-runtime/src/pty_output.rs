@@ -6,6 +6,11 @@ impl Owner {
             self.poll_external(budget);
             return;
         }
+        #[cfg(windows)]
+        if self.elevated.is_some() {
+            self.poll_administrator(budget);
+            return;
+        }
         if self.pty.is_none() || self.phase == Phase::Closed {
             return;
         }

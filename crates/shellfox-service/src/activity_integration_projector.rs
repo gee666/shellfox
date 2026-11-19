@@ -80,12 +80,12 @@ impl NativeSourceFactsProjector {
             }
             let settings =
                 adapter::persisted_settings(&source.settings).map_err(wire::AppError::from)?;
-            let sessions = if legacy_sessions {
+            let catalog = if legacy_sessions {
                 let mut private = request.private_tabs.clone();
                 private.extend(source.snapshot.sessions.iter().flat_map(|session| session.tabs.iter()).filter(|tab|
                     discovered.profiles.profiles.iter().any(|profile| profile.id == tab.profile_id.as_str() && profile.elevation.is_some()))
                     .map(|tab| tab.id));
-                crate::facts_projection::project_session_facts_visible(&source, request.target_session, &private)?
+                crate::facts_projection::project_legacy_catalog(&source, request.target_session, &private)?
             } else {
                 Default::default()
             };
@@ -114,7 +114,8 @@ impl NativeSourceFactsProjector {
                     probe: Some(probe),
                     explorer,
                     cli,
-                    sessions,
+                    sessions: catalog.sessions,
+                    omitted_sessions: catalog.omitted_sessions,
                 },
                 profiles: Some(discovered.profiles),
                 home: system.home.ok(),

@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use shellfox_service::{
-    desktop_launch::LaunchRequestKind, local::LocalClient, remote::RemoteUnavailableReason,
+    desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest, LaunchRequestKind}, local::LocalClient, remote::RemoteUnavailableReason,
 };
 use std::{
     cell::RefCell,
@@ -70,6 +70,10 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    runtime.block_on(shellfox_service::local::check_helper_protocol(
+        &config.helper,
+        config.helper_sha256,
+    ))?;
     let remote = options
         .application
         .remote_options(std::env::current_exe()?, true)?;
@@ -90,11 +94,24 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
         AppHostPrestart::Occupied(proof) => {
             // The sealed acquire(None)+contender-exit proof authorizes this attempt,
             // not a particular future owner fence. Discovery/receipts capture that once.
-            runtime.block_on(async {
+            let attach = runtime.block_on(async {
                 let client = LocalClient::connect(proof.directory(), &config.helper, config.helper_sha256).await?;
-                client.launch_existing(options.launch.clone(), LaunchRequestKind::Fresh).await
-            }).context("Existing-owner launch handoff did not complete; no cold fallback or GUI was started")?;
-            Ok(Startup::Forwarded)
+                let DesktopLaunchReply::Route(route) = client.request(&DesktopLaunchRequest::Discover {}).await? else {
+                    anyhow::bail!("Existing host returned an invalid desktop discovery response.");
+                };
+                if route.desktop_registered {
+                    client.launch_existing_pinned(options.launch.clone(), LaunchRequestKind::Fresh, route.owner).await?;
+                    Ok(None)
+                } else {
+                    Ok::<_, anyhow::Error>(Some(route.owner))
+                }
+            }).context("Existing host could not be contacted; another host was not started")?;
+            if let Some(owner) = attach {
+                let host = AppHost::attached(config.clone(), owner)?;
+                Ok(Startup::Graphical(Some(Prestarted { config, host, remote_unavailable: None })))
+            } else {
+                Ok(Startup::Forwarded)
+            }
         }
         AppHostPrestart::Failed { host, error } => {
             let retained = Prestarted {
@@ -125,7 +142,7 @@ impl Prestarted {
             };
             match result {
                 Ok(outcome) => {
-                    crate::root::log_shutdown_report(&mut std::io::stderr().lock(), Ok(outcome));
+                    if !self.host.is_attached() { crate::root::log_shutdown_report(&mut std::io::stderr().lock(), Ok(outcome)); }
                     return;
                 }
                 Err(error) => {

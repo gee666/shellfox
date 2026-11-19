@@ -1,12 +1,16 @@
 //! Public production route. Run only through the original-handle owned runner.
+#[cfg(target_os = "linux")]
+#[path = "support/power_linux_prerequisites.rs"]
+mod power_linux_prerequisites;
 #[path = "support/native_bootstrap_owned.rs"]
 mod support;
 use anyhow::{ensure, Result};
 use shellfox_service::{local::LocalClient, native::NativeClient, power::PowerStatus};
 
 #[test]
+#[cfg_attr(windows, ignore = "changes Windows lid policy; use an explicitly approved live run")]
 fn local_clients_and_native_windows_share_power_and_shutdown_releases() -> Result<()> {
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let data = fixture.data("shared-power");
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
@@ -19,6 +23,19 @@ fn local_clients_and_native_windows_share_power_and_shutdown_releases() -> Resul
         ensure!(first.power_status().await?.status == PowerStatus::Inactive);
         ensure!(local.power_status().await?.status == PowerStatus::Inactive);
         let enabled = first.set_power(true).await?;
+        #[cfg(target_os = "linux")]
+        if !enabled.pending && enabled.status == PowerStatus::Inactive {
+            if let Some(error) = &enabled.error {
+                if error
+                    .split("; ")
+                    .all(power_linux_prerequisites::inhibitor_unavailable)
+                {
+                    eprintln!("SKIP shared power lease: Linux inhibitors unavailable: {error}");
+                    stop.request();
+                    return Ok(());
+                }
+            }
+        }
         ensure!(
             !enabled.pending && enabled.error.is_none(),
             "acquire failed: {enabled:?}"
@@ -41,6 +58,5 @@ fn local_clients_and_native_windows_share_power_and_shutdown_releases() -> Resul
         stop.request();
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

@@ -42,7 +42,8 @@ pub enum SystemResponse {
 
 /// Independent query failures remain failures. A missing launcher proven by a
 /// successful filesystem query is not the same as unavailable discovery.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemFacts {
     pub home: SystemResult<Directory>,
     pub cli: SystemResult<CliIntegration>,

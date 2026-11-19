@@ -184,6 +184,7 @@ pub(in crate::remote) fn execute(
                 .get_mut(&view_id)
                 .ok_or_else(|| failure(ErrorCode::AuthFailed, "Metadata view missing."))?
                 .visible = input.0.session_ids;
+            state.visibility_dirty = true;
             checked(wire::Configured { configured: true })
         }
         AttachTerminal(_) | AcknowledgeTerminal(_) | DetachTerminal(_) => Err(failure(
@@ -192,10 +193,12 @@ pub(in crate::remote) fn execute(
         )),
         GetSessionStats(input) => statistics(state, service, input.0.session_id),
         ClearSessionError(input) => {
-            target(state, service, input.0.session_id)?;
-            Err(capability_unavailable(
-                "actual runtime error acknowledgement; failed startup evidence is retained",
-            ))
+            let session = target(state, service, input.0.session_id)?;
+            authorize_session_sources(state, service, &session)?;
+            service.acknowledge_session_error(session.id).map_err(|_| {
+                failure(ErrorCode::NativeUnavailable, "Could not acknowledge the session error.")
+            })?;
+            session_reply(state, service, session.id)
         }
         command @ (ListFiles(_)
         | ReadFile(_)

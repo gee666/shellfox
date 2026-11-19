@@ -16,7 +16,7 @@ pub fn policy() -> StoragePolicy {
     if cfg!(windows) {
         let helper = std::env::var_os("SHELLFOX_SSH_TEST_PERMISSIONS_HELPER")
             .map(PathBuf::from)
-            .unwrap_or_else(|| root().join("tmp/tailscale/win32-x64/shellfox-tailscale.exe"));
+            .unwrap_or_else(|| root().join("tmp/dev-helper/shellfox-tailscale.exe"));
         assert!(
             helper.is_file(),
             "Build/configure the real private-permissions helper, never bypass ACL checks"

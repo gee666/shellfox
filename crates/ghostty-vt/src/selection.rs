@@ -2,12 +2,14 @@ use crate::{Error, Result, Terminal};
 use shellfox_ghostty_vt_sys as sys;
 
 /// Zero-based cell in the currently visible viewport, not the active screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ViewportPoint {
     pub x: u16,
     pub y: u16,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Selection {
     /// Both endpoints are inclusive. Reversed and rectangular ranges are valid.
     Range {

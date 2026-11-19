@@ -20,7 +20,7 @@ fn actual_app_creation_projects_without_invented_runtime() {
                     request_id: SessionId::new(),
                     title: None,
                     cwd: data.path().to_string_lossy().into_owned(),
-                    profile_id: ProfileId::new("cmd").unwrap(),
+                    profile_id: crate::tests::default_catalog_profile(),
                 },
             },
             1,
@@ -32,8 +32,13 @@ fn actual_app_creation_projects_without_invented_runtime() {
     service.pump_activity();
     let source = crate::activity_integration::read_source(&service.source_facts_watch()).unwrap();
     let result = project_session_facts(&source).unwrap();
-    let session = &result[&snapshot.selection.session_id.unwrap()];
-    assert!(matches!(session.shell_id, wire::ShellId::LoginShell));
+    let id = snapshot.selection.session_id.unwrap();
+    let session = &result[&id];
+    let expected_shell = shell(source.creation_facts[&id].shell_id);
+    assert_eq!(
+        std::mem::discriminant(&session.shell_id),
+        std::mem::discriminant(&expected_shell)
+    );
     let tab = &snapshot.sessions[0].tabs[0];
     assert_eq!(
         session.tabs[&tab.id].created_at,
@@ -66,7 +71,7 @@ fn unknown_creation_time_or_session_intent_is_unavailable_without_backfill() {
             request_id: SessionId::new(),
             title: None,
             cwd: data.path().to_string_lossy().into_owned(),
-            profile_id: ProfileId::new("cmd").unwrap(),
+            profile_id: crate::tests::default_catalog_profile(),
         })
         .unwrap();
     service.pump_activity();

@@ -46,6 +46,10 @@ pub(super) fn environment(
         .map_err(|_| AdapterError::InvalidLaunch)?;
     let mut env = BTreeMap::new();
     for (key, value) in built {
+        // The regular PTY sets this for OpenSSH; it isn't in the isolated helper's allowlist.
+        if key == "PROGRAMDATA" {
+            continue;
+        }
         env.insert(
             key.into_string().map_err(|_| AdapterError::InvalidLaunch)?,
             value

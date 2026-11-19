@@ -22,7 +22,7 @@ impl Secret {
         }
         Ok(Self(value))
     }
-    /// Host adapter only. Never send this value to remote clients or logs.
+    /// Local connection only. Never send this value to remote clients or logs.
     pub fn expose(&self) -> &str {
         &self.0
     }
@@ -161,7 +161,7 @@ pub enum ProfileSource {
     Putty,
 }
 
-/// Host-only, serializable solely for the private store. Debug redacts passwords.
+/// Private store and authenticated same-user CLI only. Debug redacts passwords.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StoredProfile {
@@ -200,6 +200,9 @@ impl StoredProfile {
             options.validate()?;
         }
         Ok(self)
+    }
+    pub fn validate_connection_options(&self) -> Result<()> {
+        self.connection_options.as_ref().map_or(Ok(()), ConnectionOptions::validate)
     }
     pub fn remote_dto(&self) -> RemoteProfileDto {
         RemoteProfileDto {
@@ -263,8 +266,8 @@ pub struct ImportSession {
     pub key_file: Option<String>,
     pub connection_options: Option<ConnectionOptions>,
 }
-#[derive(Clone, Serialize, Debug)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ImportResult {
     pub profiles: Vec<ProfileDto>,
     pub added: usize,

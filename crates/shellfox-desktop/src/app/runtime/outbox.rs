@@ -50,6 +50,9 @@ fn same_mouse(first: &Command, second: &Command) -> bool {
         && (x.action == MouseAction::Motion || x.x == y.x && x.y == y.y))
 }
 impl Outbox {
+    pub fn is_drained(&self) -> bool {
+        self.queue.is_empty() && !self.has_held()
+    }
     pub fn has_held(&self) -> bool {
         self.physical.len() != 0
     }

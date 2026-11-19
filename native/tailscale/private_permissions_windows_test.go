@@ -114,7 +114,7 @@ func TestWindowsPrivateDACLPolicy(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sd := privateSD(t, test.dacl)
-			if safe := checkPrivateDACL(sd, user) == nil; safe != test.safe {
+			if safe := checkPrivateDACL(sd, user, false) == nil; safe != test.safe {
 				t.Fatal("DACL policy mismatch")
 			}
 		})
@@ -130,8 +130,27 @@ func TestWindowsPrivateDACLPolicy(t *testing.T) {
 	}
 }
 
+func TestWindowsDirectoryAllowsSYSTEMOnlyAlongsideItsOwner(t *testing.T) {
+	user := currentPrivateUser(t)
+	owner := "(A;OICI;FA;;;" + user.String() + ")"
+	system := "(A;;FA;;;SY)"
+	if user.IsWellKnown(windows.WinLocalSystemSid) {
+		t.Skip("current user is SYSTEM")
+	}
+	withSystem := privateSD(t, "D:P"+owner+system)
+	if err := checkPrivateDACL(withSystem, user, true); err != nil {
+		t.Fatal(err)
+	}
+	if checkPrivateDACL(withSystem, user, false) == nil || checkPrivateDACL(privateSD(t, "D:P"+system), user, true) == nil {
+		t.Fatal("accepted SYSTEM on a file or without the directory owner")
+	}
+}
+
 func TestWindowsPrivatePermissionsChecksActualACL(t *testing.T) {
-	dir := t.TempDir()
+	dir, err := filepath.Abs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	user := currentPrivateUser(t)
 	// Check must reject an actual protected ACL granting another principal.
 	sd := privateSD(t, "D:P(A;;FA;;;"+user.String()+")(A;;FR;;;WD)")
@@ -173,11 +192,11 @@ func TestWindowsPrivateACEsRejectMalformedLengths(t *testing.T) {
 	raw := unsafe.Slice((*byte)(unsafe.Pointer(dacl)), int(unsafe.Sizeof(windows.ACL{})))
 	size := int(binary.LittleEndian.Uint16(raw[2:4]))
 	valid := bytes.Clone(unsafe.Slice((*byte)(unsafe.Pointer(dacl)), size))
-	if checkPrivateACEs(valid, user) != nil {
+	if checkPrivateACEs(valid, user, false) != nil {
 		t.Fatal("rejected native allow ACE")
 	}
 	for length := 0; length < len(valid); length++ {
-		if checkPrivateACEs(valid[:length], user) == nil {
+		if checkPrivateACEs(valid[:length], user, false) == nil {
 			t.Fatal("accepted truncated ACL")
 		}
 	}
@@ -191,7 +210,7 @@ func TestWindowsPrivateACEsRejectMalformedLengths(t *testing.T) {
 	} {
 		bad := bytes.Clone(valid)
 		mutate(bad)
-		if checkPrivateACEs(bad, user) == nil {
+		if checkPrivateACEs(bad, user, false) == nil {
 			t.Fatal("accepted malformed ACL")
 		}
 	}

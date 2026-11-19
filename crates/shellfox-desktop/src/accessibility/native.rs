@@ -45,10 +45,16 @@ impl NativeAccessibility {
 
     /// Present once, only after hidden attachment and Root construction.
     /// Acceptance mode never activates a window or synthesizes focus/input.
+    pub(crate) fn system_end_requested(&self) -> bool {
+        #[cfg(windows)] { self.platform.system_end_requested() }
+        #[cfg(not(windows))] { false }
+    }
+
     pub fn present_hidden(
         &mut self,
         window: &Window,
         plan: &HiddenWindowPresentation,
+        #[cfg_attr(not(windows), allow(unused_variables))] cx: &gpui::App,
     ) -> Result<(), SemanticError> {
         if self.window != window.window_handle() || self.presentation_started {
             return Err(SemanticError::Native(
@@ -58,7 +64,11 @@ impl NativeAccessibility {
         #[cfg(target_os = "windows")]
         self.platform.validate_hidden(window)?;
         match plan.mode {
-            WindowPresentation::Activate => window.activate_window(),
+            WindowPresentation::Activate => {
+                window.activate_window();
+                #[cfg(windows)]
+                self.platform.show_after_activation(cx);
+            }
             WindowPresentation::WithoutActivation => {
                 return Err(SemanticError::Native(
                     "nonactivating presentation must use queue_present_hidden outside GPUI borrows"

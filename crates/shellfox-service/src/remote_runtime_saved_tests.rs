@@ -82,7 +82,15 @@ async fn native_admission_returns_only_unaccepted_actions_for_retry() {
         sender,
         outgoing,
         state,
+        runtime: tokio::runtime::Handle::current(),
     };
+    let native_control = control.clone();
+    std::thread::spawn(move || {
+        assert!(tokio::runtime::Handle::try_current().is_err());
+        drop(native_control.outgoing_deadline(std::time::Instant::now()));
+    })
+    .join()
+    .expect("native frontend can create an outgoing deadline outside Tokio");
     let _accepted = control.try_submit(RemoteRequest::State).unwrap();
     let rejected = control
         .try_submit(RemoteRequest::Login { auth_key: None })

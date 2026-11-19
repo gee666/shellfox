@@ -25,6 +25,30 @@ impl Host {
             .insert(identity.tab_id, identity.generation);
         Ok(())
     }
+    /// The local launch owner records the verified account once, for its registered generation.
+    pub fn record_wsl_launch_account(
+        &self,
+        identity: TerminalIdentity,
+        account: WslLaunchAccount,
+    ) -> Result<()> {
+        self.update(ChangeReason::Sessions, |data, registry| {
+            if registry.live.get(&identity.tab_id) != Some(&identity.generation) {
+                return Err(Error::new(ErrorCode::Conflict, "Terminal generation is no longer current."));
+            }
+            let tab = data.tab_mut(identity.tab_id)?;
+            ensure_not_prepared(registry, &[tab.id], Some(tab.session_id))?;
+            match &tab.wsl_launch {
+                Some(WslLaunchBinding::Pending) => {
+                    tab.wsl_launch = Some(WslLaunchBinding::Bound { account });
+                    Ok(true)
+                }
+                Some(WslLaunchBinding::Bound { account: current }) if *current == account => Ok(false),
+                _ => Err(Error::new(ErrorCode::Conflict, "This tab cannot change its WSL launch account.")),
+            }
+        })?;
+        Ok(())
+    }
+
     /// Call only after the runtime confirms the original owned process tree is gone.
     pub fn terminal_stopped(&self, identity: TerminalIdentity) -> Result<()> {
         let mut inner = self.lock()?;
@@ -40,12 +64,16 @@ impl Host {
         }
     }
     pub fn prepare_close_tab(&self, id: TabId) -> Result<PreparedClose> {
-        self.prepare_close(CloseTarget::Tab(id))
+        self.prepare_close(CloseTarget::Tab(id), None)
+    }
+    /// Compare the displayed generation and reserve cleanup under the same lock.
+    pub fn prepare_close_terminal(&self, identity: TerminalIdentity) -> Result<PreparedClose> {
+        self.prepare_close(CloseTarget::Tab(identity.tab_id), Some(identity))
     }
     pub fn prepare_delete_session(&self, id: SessionId) -> Result<PreparedClose> {
-        self.prepare_close(CloseTarget::Session(id))
+        self.prepare_close(CloseTarget::Session(id), None)
     }
-    fn prepare_close(&self, target: CloseTarget) -> Result<PreparedClose> {
+    fn prepare_close(&self, target: CloseTarget, expected: Option<TerminalIdentity>) -> Result<PreparedClose> {
         let mut inner = self.lock()?;
         let data = storage::read(&inner.db)?;
         let (tabs, session) = match target {
@@ -66,6 +94,9 @@ impl Host {
                     })
             })
             .collect::<Vec<_>>();
+        if expected.is_some_and(|expected| terminals.as_slice() != [expected]) {
+            return Err(Error::new(ErrorCode::Conflict, "Terminal generation is no longer current."));
+        }
         let token = CleanupToken::new();
         inner.registry.pending.insert(
             token,

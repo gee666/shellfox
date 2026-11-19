@@ -69,7 +69,7 @@ impl RemoteRuntime {
                 });
         preferences.validate()?;
         let hostname = preferences.hostname.clone();
-        let mut initial=RemoteControlState{enabled:false,hostname,status:RemoteNetworkStatus::Disabled,login_url:None,error:None,peers:preferences.peers.iter().map(|peer|RemotePeer{id:peer.id.clone(),hostname:peer.hostname.clone(),addresses:peer.addresses.clone(),online:false,remembered:true,host_confirmed:false,connection:RemoteConnection::Disconnected,last_error:None,attempt_id:None}).collect(),pending:approval.pending,approvals:approval.approvals,attempts:vec![],cleanup_retained:false,incoming_legacy_terminal_attachment:false,terminal_capability_reason:"Rust host full-state ANSI recovery is unavailable. Retain the Node compatibility host; read-only views never claim control.".into()};
+        let mut initial=RemoteControlState{enabled:false,hostname,status:RemoteNetworkStatus::Disabled,login_url:None,error:None,peers:preferences.peers.iter().map(|peer|RemotePeer{id:peer.id.clone(),hostname:peer.hostname.clone(),addresses:peer.addresses.clone(),online:false,remembered:true,host_confirmed:false,connection:RemoteConnection::Disconnected,last_error:None,attempt_id:None}).collect(),pending:approval.pending,approvals:approval.approvals,attempts:vec![],cleanup_retained:false,incoming_legacy_terminal_attachment:true,terminal_capability_reason:"Approved devices can attach to ordinary host-account terminals.".into()};
         if preferences.enabled {
             initial.attempts.push(RemoteAttempt {
                 id: Uuid::new_v4(),
@@ -82,14 +82,10 @@ impl RemoteRuntime {
         let (events, incoming) = mpsc::channel(64);
         let stop = CancellationToken::new();
         let cancel = stop.clone();
-        let task = tokio::runtime::Handle::try_current()
-            .map_err(|_| {
-                error(
-                    ErrorCode::NativeUnavailable,
-                    "Remote control requires the owned async runtime.",
-                )
-            })?
-            .spawn(async move {
+        let runtime = tokio::runtime::Handle::try_current().map_err(|_| {
+            error(ErrorCode::NativeUnavailable, "Remote control requires the owned async runtime.")
+        })?;
+        let task = runtime.spawn(async move {
                 let mut actor = Manager {
                     backend,
                     directory,
@@ -120,6 +116,7 @@ impl RemoteRuntime {
                 sender,
                 outgoing,
                 state: watch,
+                runtime,
             },
             Self {
                 stop,

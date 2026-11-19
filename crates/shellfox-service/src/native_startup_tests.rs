@@ -1,18 +1,8 @@
 //! Bootstrap ownership proof, including errors before the public endpoint exists.
 use crate::local::{serve_with_boot_status, LocalBootStatus};
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use crate::tests::scratch;
+use std::sync::{Arc, Mutex};
 
-fn scratch() -> tempfile::TempDir {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
-    std::fs::create_dir_all(&root).unwrap();
-    tempfile::Builder::new()
-        .prefix("native-startup-proof-")
-        .tempdir_in(root)
-        .unwrap()
-}
 #[tokio::test(flavor = "current_thread")]
 async fn preownership_validation_rejection_proves_clean_without_ready_or_stop_rpc() {
     let data = scratch();
@@ -46,26 +36,27 @@ async fn preownership_validation_rejection_proves_clean_without_ready_or_stop_rp
 }
 
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "requires explicit retained offline helper and SHA256; no production state or network"]
 async fn failure_after_go_ownership_joins_actor_releases_helper_and_allows_lock_reacquire() {
     use shellfox_transport::{HostOwnership, VerifiedHelper};
-    let data = scratch();
-    // Pure filesystem/helper validation passes. Only Host::open on the owner
-    // thread detects this failure, after the Go ownership lock was acquired.
-    let corrupt = data.path().join(shellfox_host::STORE_FILENAME);
+    let scratch = scratch();
+    let data = scratch.path().join("data");
+    let (helper, digest) = crate::tests::helper();
+    let mut boot = crate::local::LocalBootstrap::plan(&data, &helper, digest).unwrap();
+    let stop = boot.stop_handle();
+    boot.run_with_dispatcher((), move |_| stop.request(), |_| {})
+        .await
+        .unwrap();
+    drop(boot);
+    // Unix can preserve a stopped endpoint artifact. Failed startup must not replace it.
+    let endpoint = data.join("rust-service-v1/endpoint.json");
+    let stopped_endpoint = std::fs::read(&endpoint).ok();
+    // Corrupt the existing protected store so the fixture reaches SQLite.
+    let corrupt = data.join(shellfox_host::STORE_FILENAME);
     std::fs::write(&corrupt, b"deliberately not a sqlite database").unwrap();
-    let helper =
-        PathBuf::from(std::env::var_os("SHELLFOX_SERVICE_TEST_HELPER").expect("explicit helper"));
-    let hex = std::env::var("SHELLFOX_SERVICE_TEST_HELPER_SHA256").expect("explicit helper digest");
-    assert_eq!(hex.len(), 64);
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap();
-    }
     let statuses = Arc::new(Mutex::new(Vec::new()));
     let recorded = statuses.clone();
     let result = serve_with_boot_status(
-        data.path(),
+        &data,
         &helper,
         digest,
         (),
@@ -73,7 +64,13 @@ async fn failure_after_go_ownership_joins_actor_releases_helper_and_allows_lock_
         move |status| recorded.lock().unwrap().push(status),
     )
     .await;
-    assert!(result.is_err());
+    let failure = result.expect_err("corrupt SQLite must stop bootstrap");
+    assert!(
+        failure.chain().any(|cause| cause
+            .downcast_ref::<shellfox_core::Error>()
+            .is_some_and(|error| error.code == shellfox_core::ErrorCode::StorageFailed)),
+        "{failure:#}"
+    );
     {
         let recorded = statuses.lock().unwrap();
         assert!(recorded
@@ -81,11 +78,12 @@ async fn failure_after_go_ownership_joins_actor_releases_helper_and_allows_lock_
             .any(|status| matches!(status, LocalBootStatus::RetainedCleanup)));
         assert_eq!(recorded.last(), Some(&LocalBootStatus::NoOwnerClean));
     }
-    assert!(!data.path().join("rust-service-v1/endpoint.json").exists());
+    assert_eq!(std::fs::read(endpoint).ok(), stopped_endpoint);
     // Reacquisition supplements, never replaces, the explicit actor/helper
     // shutdown proof emitted by the bootstrap. This starts no tsnet/tailnet.
     let verified = VerifiedHelper::new(helper, digest).unwrap();
-    let lock_directory = shellfox_transport::normalize_private_path(&std::fs::canonicalize(data.path()).unwrap()).unwrap();
+    let lock_directory =
+        shellfox_transport::normalize_private_path(&std::fs::canonicalize(&data).unwrap()).unwrap();
     let reacquired = HostOwnership::acquire(&verified, &lock_directory)
         .await
         .unwrap()

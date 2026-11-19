@@ -5,16 +5,20 @@ The `elevated` module ports the active boundary in
 `native/Shellfox.ElevatedTerminal`, not the retired Shellfox.Native backend.
 See that helper's `ISOLATED.md` for the additive profile-free protocol.
 
-The real factory is implemented but unavailable by default. The current helper
-has `probe-isolated` and `launch-isolated`; lack of `-NoProfile` is now only a
-legacy-mode limitation. Real managed execution still requires an explicit,
-manifest-bound `NoDynamicCodeLoad` review from the trusted caller. The factory
-never creates that policy from a hash, probe or setting. No such production
-review was granted during this work. No UAC or real elevated shell was launched.
+The Windows profile menu uses the bundled helper's `probe` and `launch` modes,
+as Electron does. Only a fresh local add-tab action can start it. Remote clients
+cannot list or attach to the tab. This mode loads the account's PowerShell
+profile but does not pass session environment overrides to the elevated shell.
+Shellfox does not set a consent deadline. Windows controls the prompt, and the
+helper bounds pipe setup and ConPTY startup after approval.
+
+The separate isolated factory uses `probe-isolated` and `launch-isolated`.
+It still requires an explicit, manifest-bound `NoDynamicCodeLoad` review from
+the trusted caller and never creates that policy from a hash, probe or setting.
 
 ## Authority and ownership
 
-The host communicates with a verified helper launcher over private inherited
+The host communicates with the helper launcher over private inherited
 stdio. The C# launcher authenticates the elevated peer against the original
 process handle returned by ShellExecute. The peer verifies its original parent
 and birth. Rust does not accept renderer-supplied pipe names or kill numeric PIDs.
@@ -22,14 +26,14 @@ and birth. Rust does not accept renderer-supplied pipe names or kill numeric PID
 The privileged helper owns a non-breakaway, kill-on-close Job. In isolated mode,
 final `exit` forwarding requires authenticated Job-zero/output-drain evidence
 and a wait on the original elevated peer handle. The launcher retains late UAC
-results and unresolved peer ownership. Legacy exit semantics are not used by the
-new factory. Launcher termination, EOF, watchdog death and timeout are not substitutes.
+results and unresolved peer ownership. Interactive mode uses the original
+helper's ordered `exit` frame. Launcher termination, EOF, watchdog death and
+timeout are not substitutes.
 
-`Session` retains its original `std::process::Child`, private streams and an extra
-`VerifiedExecutable` clone. That clone owns the entire `Arc<VerifiedBundle>`,
-including managed/runtime DLLs and lazy-load assets. The hold survives launcher
-exit. It is released only after isolated peer proof and original launcher/stream
-cleanup. A retained startup error includes its session; dropping a view transfers
+`Session` retains its original `std::process::Child`, private streams and a
+resource hold. For the isolated factory, the hold owns the verified bundle,
+including managed/runtime DLLs and lazy-load assets. It is released only after
+exit proof and original launcher/stream cleanup. A retained startup error includes its session; dropping a view transfers
 that controller to a cleanup owner started before launch. Last-resort quarantine
 never releases unresolved ownership from a timeout or launcher death.
 

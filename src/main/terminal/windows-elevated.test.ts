@@ -43,6 +43,18 @@ it('authenticates readiness and preserves UTF-8 split across output frames', asy
   expect(output.join('')).toBe('雪🙂\x1b[31m');
   f.message({ type: 'exit', exitCode: 17 }); await f.pty.closeConfirmed();
 });
+it('keeps waiting for consent beyond the former two-minute deadline', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = fixture();
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(f.sent.map(frame => JSON.parse(frame).type)).toEqual(['launch']);
+    f.ready();
+    await expect(f.pty.whenReady()).resolves.toBeUndefined();
+    f.message({ type: 'exit', exitCode: 0 });
+    await f.pty.closeConfirmed();
+  } finally { vi.useRealTimers(); }
+});
 it('frames terminal NUL with explicit UTF-8 byte credit and preserves following bytes', async () => {
   const f = fixture(); f.ready(); await f.pty.whenReady();
   f.pty.write('A\u0000B');

@@ -173,8 +173,12 @@ impl RemoteHostSetup {
             .as_ref()
             .ok_or_else(|| failure(ErrorCode::Internal, "Ready backend missing."))?
             .clone();
-        // Native user-stage journals/uploads/editor are gated BEFORE initialization.
-        let state = RemoteState::new(Default::default(), None, None);
+        let mut state = RemoteState::new(Default::default(), None, None);
+        // The journal is private to this owner, not to a path supplied by a peer.
+        match shellfox_remote::RemoteTransfers::open(Default::default(), control_path.join("remote-v1-transfers")) {
+            Ok(transfers) => state.transfers = Some(transfers),
+            Err(error) => eprintln!("Remote file transfers unavailable: {}", error.message),
+        }
         // All native/backend custody remains in this original envelope while
         // the unique dispatcher is boxed. Retain it BEFORE the next await.
         self.dispatcher

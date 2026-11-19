@@ -1,4 +1,3 @@
-use crate::{Error, Result};
 use std::collections::BTreeMap;
 
 pub const TTY_MODES: &[(u8, u32)] = &[
@@ -47,51 +46,6 @@ pub const TTY_MODES: &[(u8, u32)] = &[
     (128, 38400),
     (129, 38400),
 ];
-pub fn terminal_modes() -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(TTY_MODES.len() * 5 + 1);
-    for &(opcode, value) in TTY_MODES {
-        bytes.push(opcode);
-        bytes.extend_from_slice(&value.to_be_bytes());
-    }
-    bytes.push(0);
-    bytes
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RemotePty {
-    pub term: &'static str,
-    pub cols: u16,
-    pub rows: u16,
-    pub width: u32,
-    pub height: u32,
-    pub modes: Vec<u8>,
-}
-impl RemotePty {
-    pub fn new(cols: u16, rows: u16) -> Result<Self> {
-        if cols == 0 || rows == 0 || cols > 10000 || rows > 10000 {
-            return Err(Error::Validation);
-        }
-        Ok(Self {
-            term: "xterm-256color",
-            cols,
-            rows,
-            width: 0,
-            height: 0,
-            modes: terminal_modes(),
-        })
-    }
-}
-impl Default for RemotePty {
-    fn default() -> Self {
-        Self {
-            term: "xterm-256color",
-            cols: 80,
-            rows: 24,
-            width: 0,
-            height: 0,
-            modes: terminal_modes(),
-        }
-    }
-}
 /// Explicit environment input, not process-global state. NO_COLOR and secrets never cross.
 pub fn remote_environment<'a>(
     env: impl IntoIterator<Item = (&'a str, &'a str)>,

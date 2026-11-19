@@ -28,12 +28,16 @@ pub struct SourceFacts {
     pub settings: Settings,
     pub terminals: Vec<TerminalSourceFacts>,
     pub creation_facts: shellfox_host::SessionCreationFactMap,
+    #[cfg(windows)]
+    pub(crate) wsl_profiles: Option<Arc<crate::windows_profiles::WslProfiles>>,
     pub cancelled: CancellationToken,
 }
 pub type SourceFactsWatch = tokio::sync::watch::Receiver<Option<Arc<SourceFacts>>>;
 pub struct SourceFactsPublisher {
     sender: tokio::sync::watch::Sender<Option<Arc<SourceFacts>>>,
     sequence: u64,
+    #[cfg(windows)]
+    wsl_profiles: Option<Arc<crate::windows_profiles::WslProfiles>>,
 }
 impl SourceFactsPublisher {
     pub fn new() -> (Self, SourceFactsWatch) {
@@ -42,10 +46,17 @@ impl SourceFactsPublisher {
             Self {
                 sender,
                 sequence: 0,
+                #[cfg(windows)]
+                wsl_profiles: None,
             },
             receiver,
         )
     }
+    #[cfg(windows)]
+    pub(crate) fn set_wsl_profiles(&mut self, profiles: Option<Arc<crate::windows_profiles::WslProfiles>>) {
+        self.wsl_profiles = profiles;
+    }
+
     /// Only the service owner captures snapshot/settings, after ownership checks.
     /// A bad or cancelled capture invalidates old evidence instead of publishing it.
     pub fn publish(
@@ -115,6 +126,8 @@ impl SourceFactsPublisher {
             settings,
             terminals,
             creation_facts,
+            #[cfg(windows)]
+            wsl_profiles: self.wsl_profiles.clone(),
             cancelled,
         })));
         Ok(())

@@ -11,5 +11,8 @@ pub(crate) fn terminal(owner: &OwnerActivity, terminal: &OwnedTerminal) -> Termi
         .as_ref()
         .map(StartupEvidence::from_started)
         .unwrap_or_default();
+    if let StartupEvidence::Failed { acknowledged, .. } = &mut facts.startup {
+        *acknowledged = terminal.startup_error_acknowledged;
+    }
     facts
 }

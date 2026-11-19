@@ -19,8 +19,10 @@ pub fn physical_key(key: &str) -> Key {
         "delete" => Key::Delete,
         "space" => Key::Character(' '),
         value => {
-            if let Some(number) = value.strip_prefix('f').and_then(|s| s.parse::<u8>().ok())
-                && (1..=25).contains(&number)
+            if let Some(number) = value
+                .strip_prefix('f')
+                .and_then(|s| s.parse::<u8>().ok())
+                .filter(|number| (1..=25).contains(number))
             {
                 return Key::F(number);
             }
@@ -33,12 +35,79 @@ pub fn physical_key(key: &str) -> Key {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ClipboardAction {
+    Copy,
+    Paste,
+}
+
+pub(crate) fn clipboard_shortcut(stroke: &Keystroke) -> Option<ClipboardAction> {
+    clipboard_action(stroke, cfg!(target_os = "macos"))
+}
+
+fn clipboard_action(stroke: &Keystroke, mac: bool) -> Option<ClipboardAction> {
+    let m = stroke.modifiers;
+    // The explicit xterm binding is Ctrl+Shift on every platform. On Mac,
+    // Chromium also delivers native copy/paste events for Command+C/V.
+    let explicit = m.control && m.shift && !m.alt && !m.platform;
+    let native_mac = mac && m.platform && !m.control && !m.alt && !m.shift;
+    if !explicit && !native_mac {
+        return None;
+    }
+    match stroke.key.as_str() {
+        "c" => Some(ClipboardAction::Copy),
+        "v" => Some(ClipboardAction::Paste),
+        _ => None,
+    }
+}
+
+pub(crate) fn clipboard_key_bit(key: &str) -> u8 {
+    match key {
+        "c" => 1,
+        "v" => 2,
+        _ => 0,
+    }
+}
+
+pub(crate) fn mac_select_all(stroke: &Keystroke) -> bool {
+    let m = stroke.modifiers;
+    stroke.key == "a" && m.platform && !m.shift && !m.alt && !m.control
+}
+
+pub(crate) fn page_scroll(stroke: &Keystroke, rows: u16) -> Option<isize> {
+    if !stroke.modifiers.shift {
+        return None;
+    }
+    let page = rows.saturating_sub(1) as isize;
+    match stroke.key.as_str() {
+        "pageup" => Some(-page),
+        "pagedown" => Some(page),
+        _ => None,
+    }
+}
+
+fn text_commit_expected(stroke: &Keystroke) -> bool {
+    let m = stroke.modifiers;
+    !m.platform
+        && (!m.control && !m.alt
+            || cfg!(target_os = "macos") && m.alt && !m.control
+            || cfg!(target_os = "windows") && m.alt && m.control && stroke.key != "space")
+}
+
 // Printable input goes through GPUI's native committed-text handler, not both paths.
 pub fn encode_physical(stroke: &Keystroke, action: KeyAction) -> Option<KeyEvent> {
     let key = physical_key(&stroke.key);
     let modifiers = stroke.modifiers;
-    let modified = modifiers.control || modifiers.alt || modifiers.platform;
-    if matches!(key, Key::Character(_) | Key::Unidentified) && !modified {
+    if matches!(key, Key::Character(_) | Key::Unidentified) && text_commit_expected(stroke) {
+        return None;
+    }
+    if key == Key::Unidentified
+        || cfg!(target_os = "macos")
+            && matches!(key, Key::F(_))
+            && modifiers.alt
+            && !modifiers.control
+            && !modifiers.platform
+    {
         return None;
     }
     let unshifted_codepoint = match key {
@@ -55,7 +124,12 @@ pub fn encode_physical(stroke: &Keystroke, action: KeyAction) -> Option<KeyEvent
             super_key: modifiers.platform,
         },
         consumed_modifiers: Modifiers::default(),
-        text: None,
+        text: stroke.key_char.clone().filter(|text| {
+            !text.is_empty()
+                && !text
+                    .chars()
+                    .any(|c| c.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&c))
+        }),
         unshifted_codepoint,
         composing: false,
     })
@@ -91,6 +165,21 @@ mod tests {
         assert!(event.modifiers.control);
         assert!(matches!(event.key, Key::Character('c')));
         assert!(event.text.is_none());
+    }
+
+    #[test]
+    fn terminal_clipboard_chords_match_explicit_and_mac_native_bindings() {
+        use ClipboardAction::{Copy, Paste};
+        for mac in [false, true] {
+            let action = |key| clipboard_action(&Keystroke::parse(key).unwrap(), mac);
+            assert_eq!(action("ctrl-shift-c"), Some(Copy));
+            assert_eq!(action("ctrl-shift-v"), Some(Paste));
+            assert_eq!(action("cmd-c"), mac.then_some(Copy));
+            assert_eq!(action("cmd-v"), mac.then_some(Paste));
+            for key in ["ctrl-c", "ctrl-v", "ctrl-alt-shift-c", "cmd-ctrl-shift-v"] {
+                assert_eq!(action(key), None, "{key}");
+            }
+        }
     }
 
     #[test]

@@ -9,7 +9,7 @@ use windows::{
         Foundation::{HANDLE, HWND},
         UI::WindowsAndMessaging::{
             GetForegroundWindow, GetPropW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
-            RemovePropW, SetPropW,
+            RemovePropW, SetPropW, ShowWindowAsync, SW_SHOW,
         },
     },
     core::w,
@@ -17,6 +17,8 @@ use windows::{
 
 #[path = "windows_presentation.rs"]
 mod presentation;
+#[path = "windows_end_session.rs"]
+mod end_session;
 
 const OWNER_PROPERTY: windows::core::PCWSTR = w!("Shellfox.Accessibility.OwnedPresentation");
 
@@ -137,6 +139,7 @@ impl Drop for WindowOwner {
 pub(super) struct Provider {
     adapter: SubclassingAdapter,
     owner: Rc<WindowOwner>,
+    end_session: Option<end_session::EndSessionHook>,
 }
 impl Drop for Provider {
     fn drop(&mut self) {
@@ -147,14 +150,31 @@ impl Provider {
     pub(super) fn attach(window: &Window, bridge: Bridge) -> Result<Self, SemanticError> {
         let owner = Rc::new(WindowOwner::attach(window)?);
         let adapter = SubclassingAdapter::new(owner.hwnd, bridge.clone(), bridge);
-        Ok(Self { adapter, owner })
+        let end_session = end_session::EndSessionHook::install(owner.hwnd);
+        Ok(Self { adapter, owner, end_session })
     }
+    pub(super) fn system_end_requested(&self) -> bool {
+        self.end_session.as_ref().is_some_and(end_session::EndSessionHook::requested)
+    }
+
     pub(super) fn validate_window(&self, window: &Window) -> Result<(), SemanticError> {
         self.owner.validate(window)
     }
     pub(super) fn validate_hidden(&self, window: &Window) -> Result<(), SemanticError> {
         self.owner.validate_hidden(window)
     }
+    pub(super) fn show_after_activation(&self, cx: &gpui::App) {
+        let owner = Rc::downgrade(&self.owner);
+        cx.foreground_executor().spawn(async move {
+            let Some(owner) = owner.upgrade() else { return; };
+            if owner.validate_native().is_ok() && !unsafe { IsWindowVisible(owner.hwnd) }.as_bool() {
+                // GPUI applies the hidden Win32 placement on activation. A
+                // normal placement can retain SW_HIDE, unlike SW_MAXIMIZE.
+                let _ = unsafe { ShowWindowAsync(owner.hwnd, SW_SHOW) };
+            }
+        }).detach();
+    }
+
     pub(super) fn queue_without_activation(
         &self,
         window: &Window,

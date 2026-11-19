@@ -1,8 +1,12 @@
 use super::super::StoragePolicy;
 use super::*;
 use std::fs;
+#[cfg(windows)]
+#[path = "../../test_dev_helper.rs"]
+mod dev_helper;
 fn fixture() -> Result<(tempfile::TempDir, PrivateDirectory, PathBuf)> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+    fs::create_dir_all(&root)?;
     let temp = tempfile::Builder::new()
         .prefix("external-identity-")
         .tempdir_in(root)?;
@@ -15,9 +19,9 @@ fn fixture() -> Result<(tempfile::TempDir, PrivateDirectory, PathBuf)> {
             .unwrap_or(root.to_str().ok_or(Error::Validation)?),
     );
     #[cfg(windows)]
-    let policy = StoragePolicy::with_windows_helper(PathBuf::from(
-        std::env::var_os("SHELLFOX_ACCEPT_HELPER").ok_or(Error::PermissionsHelper)?,
-    ));
+    let policy = StoragePolicy::with_windows_helper(
+        dev_helper::helper().expect("development Tailscale helper").0,
+    );
     #[cfg(not(windows))]
     let policy = StoragePolicy::default();
     let store = PrivateDirectory::open(root.join("private-store"), policy.clone())?;

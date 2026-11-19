@@ -43,15 +43,12 @@ fn headless_operator_request_keeps_auth_key_constructor_and_debug_redaction() {
 }
 #[test]
 fn headless_operator_and_native_use_same_manager_and_original_lifetime() -> Result<()> {
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let data = fixture.data("local-operator");
     let local_data = data.clone();
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
-    let supervisor = PathBuf::from(
-        std::env::var_os("SHELLFOX_ACCEPT_SUPERVISOR")
-            .context("real dispatcher artifact required")?,
-    );
+    let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
     let resources = RemoteBootResources::planned(
         data.join("rust-service-v1/go-network/node-v1"),
         "operator-owned".into(),
@@ -121,6 +118,5 @@ fn headless_operator_and_native_use_same_manager_and_original_lifetime() -> Resu
         );
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

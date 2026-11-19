@@ -4,6 +4,7 @@ import path from 'node:path';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { privateBuildPlan } from './gpui-build.mjs';
+import { developmentHelperPath, ensureDevelopmentHelper } from './tailscale.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
@@ -18,11 +19,15 @@ if (!['shell', 'fixture', 'smoke'].includes(mode) || args.some(arg => arg !== '-
     const runtimeArgs = [`--${mode}`, '--data-dir', data];
     if (mode === 'shell') {
       const supplied = process.env.SHELLFOX_EXPERIMENT_HELPER;
-      const helper = supplied ?? path.join(root, 'tmp', 'tailscale', `${process.platform}-${process.arch}`, `shellfox-tailscale${process.platform === 'win32' ? '.exe' : ''}`);
-      if (!path.isAbsolute(helper) || !existsSync(helper)) throw new Error('Build the worktree ownership helper with pnpm build:tailscale first.');
-      if (supplied && !process.env.SHELLFOX_EXPERIMENT_HELPER_SHA256) throw new Error('An overridden helper requires SHELLFOX_EXPERIMENT_HELPER_SHA256 from its trusted build.');
-      const digest = process.env.SHELLFOX_EXPERIMENT_HELPER_SHA256 ?? createHash('sha256').update(readFileSync(helper)).digest('hex');
-      if (!/^[a-f0-9]{64}$/i.test(digest)) throw new Error('Invalid trusted helper digest.');
+      if (process.platform === 'win32' && supplied &&
+          path.resolve(supplied).toLowerCase() !== developmentHelperPath().toLowerCase()) {
+        throw new Error(`Windows dev launches must use ${developmentHelperPath()}.`);
+      }
+      const development = supplied ? null : ensureDevelopmentHelper();
+      const helper = development?.executable ?? supplied;
+      const digest = (development?.sha256 ?? process.env.SHELLFOX_EXPERIMENT_HELPER_SHA256)?.toLowerCase();
+      if (!path.isAbsolute(helper) || !existsSync(helper)) throw new Error('The overridden helper must be an existing absolute path.');
+      if (!digest || !/^[a-f0-9]{64}$/.test(digest)) throw new Error('An overridden helper requires a trusted SHELLFOX_EXPERIMENT_HELPER_SHA256.');
       runtimeArgs.push('--helper', helper, '--helper-sha256', digest);
     }
     // Never replace an executable that may now be a user-occupied window.
@@ -33,7 +38,7 @@ if (!['shell', 'fixture', 'smoke'].includes(mode) || args.some(arg => arg !== '-
     build.on('exit', (code, signal) => {
       if (code !== 0 || signal) { process.exitCode = code ?? 1; return; }
       try {
-        const output = path.join(root, 'target', args.includes('--release') ? 'release' : 'debug');
+        const output = path.resolve(root, process.env.CARGO_TARGET_DIR ?? 'target', args.includes('--release') ? 'release' : 'debug');
         if (process.platform === 'win32') {
           // Cargo verified this pinned build input. Copy bytes, not a symlink into a live app.
           const bytes = readFileSync(path.join(output, 'ghostty-vt.dll'));

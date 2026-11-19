@@ -3,7 +3,8 @@ use shellfox_ghostty_vt::{KeyAction, MouseAction, MouseButton};
 
 /// Mechanical encoding facts only. These are not settlement tokens, user intent,
 /// activity policy, or permission to resume a session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum InputKind {
     Key {
         action: KeyAction,
@@ -21,7 +22,8 @@ pub enum InputKind {
 }
 /// No raw input, password, coordinates or recaptured UI context is returned.
 /// Nonzero confirms the complete encoded write, not shell read/execution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InputReceipt {
     pub accepted_bytes: u32,
     pub kind: InputKind,

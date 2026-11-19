@@ -2,6 +2,11 @@ use super::*;
 use std::io::Write as _;
 
 impl<B: AppHostBackend> AppHost<B> {
+    pub(crate) fn recheck_close(&self, ticket: &CloseTicket, terminal_count: usize) -> Result<CloseDecision> {
+        ensure!(ticket.owner.ptr_eq(&Arc::downgrade(&self.shared.identity)), "Close ticket belongs to another application host.");
+        self.request_close(ticket.target, terminal_count)
+    }
+
     /// Reserve targets AFTER approval, before draining their UI input outboxes.
     /// This freezes registry membership while Roots await their reserved key and
     /// mouse releases. It does not detach a client or request Stop.

@@ -34,7 +34,6 @@ fn unbound_and_failed_startups_never_expose_runtime_bound_fact_receipts() {
             fail_ready_cleanup: true,
             ..SpawnOptions::default()
         },
-        None,
         Some(binding),
     )
     .unwrap_err();

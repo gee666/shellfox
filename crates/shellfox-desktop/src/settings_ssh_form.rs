@@ -74,11 +74,11 @@ impl SettingsPanel {
             )
             .h(px(24.))
             .min_h(px(24.))
+            .px(px(8.))
             .py(px(2.));
         let save = self
             .button("save-ssh-edit", "Save", Action::Ssh(Operation::Save), cx)
-            .h(px(24.))
-            .min_h(px(24.))
+            .h(px(26.))
             .py(px(2.))
             .bg(p.accent)
             .border_color(p.accent)
@@ -89,7 +89,6 @@ impl SettingsPanel {
             .bg(p.accent.opacity(0.04))
             .flex()
             .flex_col()
-            .gap(px(6.))
             .on_key_down(
                 cx.listener(|panel, event: &gpui::KeyDownEvent, window, cx| {
                     if panel.ssh.editor.as_ref().is_some_and(|editor| {
@@ -115,39 +114,41 @@ impl SettingsPanel {
             .child(
                 div()
                     .flex()
+                    .flex_col()
                     .gap(px(6.))
-                    .child(controls::column(1.).child(name))
-                    .child(controls::column(2.).child(host))
-                    .child(div().w(px(64.)).child(port)),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(controls::column(1.).child(user))
-                    .child(password_box)
                     .child(
-                        controls::column(2.)
-                            .relative()
-                            .child(key)
-                            .child(key_actions),
+                        div()
+                            .flex()
+                            .gap(px(6.))
+                            .child(controls::column(1.).child(name))
+                            .child(controls::column(2.).child(host))
+                            .child(div().w(px(64.)).child(port)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(6.))
+                            .child(controls::column(1.).child(user))
+                            .child(password_box)
+                            .child(
+                                controls::column(2.)
+                                    .relative()
+                                    .child(key)
+                                    .child(key_actions),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(div().flex_1().min_w_0().child(cwd))
+                            .child(cancel)
+                            .child(save),
                     ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .child(div().flex_1().min_w_0().child(cwd))
-                    .child(cancel)
-                    .child(save),
             );
         if let Some(error) = &self.ssh.error {
-            form = form.child(
-                controls::hint(error.clone(), p)
-                    .mt(px(4.))
-                    .text_color(gpui::rgb(0xfc8397)),
-            );
+            form = form.child(controls::error(error.clone()).line_height(px(15.)));
         }
         form.into_any_element()
     }

@@ -62,14 +62,16 @@ impl RemoteNetworkFactory for NoNetwork {
 }
 #[test]
 fn accepted_mutation_dropped_before_dequeue_executes_original_backend_once() -> Result<()> {
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let rt = support::runtime()?;
     let verifier =
         PermissionVerifier::new(VerifiedHelper::new(fixture.helper.clone(), fixture.digest)?);
-    let directory = rt.block_on(IsolatedStateDirectory::create_new_private(
-        fixture.data("accepted-state"),
-        &verifier,
+    let state = fixture.data("accepted-state");
+    rt.block_on(verifier.protect(
+        state.parent().context("fixture state parent")?,
+        shellfox_transport::PrivatePathKind::Directory,
     ))?;
+    let directory = rt.block_on(IsolatedStateDirectory::create_new_private(state, &verifier))?;
     let backend = Arc::new(Backend::default());
     let (control, mut owner) = rt
         .block_on(RemoteRuntime::spawn(
@@ -121,6 +123,5 @@ fn accepted_mutation_dropped_before_dequeue_executes_original_backend_once() -> 
         backend.saves.load(Ordering::SeqCst) == 1,
         "Shutdown replayed accepted work"
     );
-    fixture.success();
     Ok(())
 }

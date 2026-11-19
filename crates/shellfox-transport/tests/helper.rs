@@ -33,7 +33,7 @@ async fn actual_process_probe_commands_events_and_owned_shutdown() {
             .await
             .unwrap()
             .protocol_version,
-        1
+        HELPER_PROTOCOL_VERSION
     );
     let (helper, _scratch) = start("normal").await;
     assert_eq!(

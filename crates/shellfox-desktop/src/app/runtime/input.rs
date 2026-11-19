@@ -13,6 +13,8 @@ impl TerminalView {
             self.submit(Command::Key { lease, event }, Pending::Applied);
         } else if matches!(self.backend, Backend::Attached(_)) {
             self.reject("Terminal control is not ready; input was not accepted");
+        } else if let Err(error) = self.peer_key(event) {
+            self.reject(error);
         }
     }
 
@@ -35,6 +37,10 @@ impl TerminalView {
     pub(in crate::app) fn cancel_pointer(&mut self, cx: &mut Context<Self>) {
         self.selection_drag.finish();
         self.link_press = None;
+        self.links.file_press = None;
+        self.links.menu_press = None;
+        self.end_scrollbar_drag();
+        self.cancel_peer_pointer();
         if self.failed || self.closing {
             return;
         }
@@ -46,7 +52,11 @@ impl TerminalView {
     }
 
     pub(in crate::app) fn cancel_input(&mut self, cx: &mut Context<Self>) {
-        if !self.outbox.has_held()
+        self.cancel_peer_pointer();
+        let was_dragging_scrollbar = self.end_scrollbar_drag();
+        let had_file_press = self.links.file_press.take().is_some();
+        let had_menu_press = self.links.menu_press.take().is_some();
+        if !was_dragging_scrollbar && !had_file_press && !had_menu_press && !self.outbox.has_held()
             && !self.selection_drag.active()
             && self.link_press.is_none()
             && self.clipboard_keys == 0

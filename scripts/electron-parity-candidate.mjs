@@ -10,7 +10,7 @@ const output=path.join(root,'tests/visual-parity/baselines/windows-x64-dpi96',la
 await mkdir(output,{recursive:false});
 const run=path.join(root,'tmp','electron-parity-candidate-'+randomUUID()),home=path.join(run,'home'),data=path.join(run,'data');
 await mkdir(run,{recursive:false});await mkdir(home,{recursive:false});
-const executable=path.join(root,'target/debug/shellfox-gpui-experiment.exe');
+const executable=path.join(root,'target/debug/shellfox.exe');
 const child=spawn(executable,['--data-dir',data],{cwd:root,env:isolatedEnvironment(home),stdio:['ignore','pipe','pipe'],windowsHide:false});
 let logs='',identity;
 child.stdout.on('data',chunk=>{logs+=chunk;});child.stderr.on('data',chunk=>{logs+=chunk;});

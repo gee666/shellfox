@@ -30,15 +30,18 @@ pub trait AppHostBackend: Send + Sync + 'static {
     fn stop(&self) -> HostFuture<'_, Option<shellfox_service::ShutdownOutcome>>;
 }
 
-pub struct EndpointBackend {
-    endpoint: tokio::sync::Mutex<HostEndpoint>,
+pub enum EndpointBackend {
+    Owned(tokio::sync::Mutex<HostEndpoint>),
+    Attached {
+        config: HostEndpointConfig,
+        runtime: crate::host_client::attached::AttachedRuntime,
+        owner: shellfox_service::desktop_launch::LaunchOwnerFence,
+    },
 }
 impl EndpointBackend {
     /// Move the original pre-GPU endpoint, never construct another service owner.
     pub fn from_endpoint(endpoint: HostEndpoint) -> Self {
-        Self {
-            endpoint: tokio::sync::Mutex::new(endpoint),
-        }
+        Self::Owned(tokio::sync::Mutex::new(endpoint))
     }
     pub fn start(config: HostEndpointConfig) -> Result<Self> {
         Self::start_with_dispatcher(config, ())
@@ -47,27 +50,31 @@ impl EndpointBackend {
         config: HostEndpointConfig,
         dispatcher: D,
     ) -> Result<Self> {
-        Ok(Self {
-            endpoint: tokio::sync::Mutex::new(HostEndpoint::start_with_dispatcher(
-                config, dispatcher,
-            )?),
-        })
+        Ok(Self::from_endpoint(HostEndpoint::start_with_dispatcher(config, dispatcher)?))
     }
 }
 impl AppHostBackend for EndpointBackend {
     type Client = HostClient;
     fn startup_outcome(&self) -> HostFuture<'_, HostEndpointStartupOutcome> {
-        Box::pin(async { Ok(self.endpoint.lock().await.startup_outcome()) })
+        Box::pin(async { Ok(match self {
+            Self::Owned(endpoint) => endpoint.lock().await.startup_outcome(),
+            Self::Attached { .. } => HostEndpointStartupOutcome::Ready,
+        }) })
     }
     fn endpoint_report(
         &self,
     ) -> HostFuture<'_, Option<std::sync::Arc<shellfox_service::NativeEndpointReport>>> {
-        Box::pin(async { Ok(self.endpoint.lock().await.endpoint_report()) })
+        Box::pin(async { Ok(match self {
+            Self::Owned(endpoint) => endpoint.lock().await.endpoint_report(),
+            Self::Attached { .. } => None,
+        }) })
     }
     fn owned_terminal_count(&self) -> HostFuture<'_, usize> {
         Box::pin(async {
+            // An attached window owns no shell, even when the host has live ones.
+            let Self::Owned(endpoint) = self else { return Ok(0); };
             let client = {
-                let mut endpoint = self.endpoint.lock().await;
+                let mut endpoint = endpoint.lock().await;
                 match endpoint.startup_outcome() {
                     HostEndpointStartupOutcome::NoOwnerClean => return Ok(0),
                     HostEndpointStartupOutcome::RetainedCleanup => anyhow::bail!(
@@ -91,14 +98,20 @@ impl AppHostBackend for EndpointBackend {
         })
     }
     fn fork_window(&self) -> HostFuture<'_, HostClient> {
-        Box::pin(async { Ok(self.endpoint.lock().await.ready().await?.fork()) })
+        Box::pin(async {
+            match self {
+                Self::Owned(endpoint) => Ok(endpoint.lock().await.ready().await?.fork()),
+                Self::Attached { config, runtime, owner } => Ok(HostClient::attached(runtime.connect(config.clone(), *owner).await?))
+            }
+        })
     }
     fn detach_window<'a>(&'a self, client: &'a HostClient) -> HostFuture<'a, ()> {
-        Box::pin(client.detach_all())
+        Box::pin(client.close_window_client())
     }
     fn stop(&self) -> HostFuture<'_, Option<shellfox_service::ShutdownOutcome>> {
         Box::pin(async {
-            let mut endpoint = self.endpoint.lock().await;
+            let Self::Owned(endpoint) = self else { return Ok(None); };
+            let mut endpoint = endpoint.lock().await;
             endpoint.shutdown().await?;
             Ok(endpoint.shutdown_outcome())
         })

@@ -1,6 +1,6 @@
 //! Real owned Runtime/production delivery mapper/Rust SDK queue boundary.
 //! In-memory authenticated-transport fixture, NOT Go/Tailscale/native approval proof.
-//! Uses only an explicitly selected private supervisor and project-owned PTY.
+//! Runs a project-owned PTY through the test supervisor.
 #![cfg(all(
     any(windows, target_os = "linux"),
     feature = "experimental-shellfox-native"
@@ -30,7 +30,6 @@ fn id(n: u8) -> m::Id {
 mod transport_fixture;
 use transport_fixture::{Server, Transport};
 #[test]
-#[ignore = "requires explicit owned Runtime supervisor fixture + private Native002 artifact and Root execution permission; never the shared Service-lib executable"]
 fn real_cut_mapping_install_consumption_opens_only_original_runtime_credit() {
     let executor = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -41,14 +40,9 @@ fn real_cut_mapping_install_consumption_opens_only_original_runtime_credit() {
     let root = tempfile::Builder::new()
         .prefix("native-manager-boundary-")
         .tempdir_in(parent)
-        .unwrap()
-        .keep();
-    let executable = PathBuf::from(
-        std::env::var_os("SHELLFOX_NATIVE_TEST_SUPERVISOR")
-            .expect("explicit separately built shellfox-runtime-fixture"),
-    );
-    assert!(executable.is_absolute() && executable.is_file());
-    let mut pty = PtyConfig::new(std::fs::canonicalize(&root).unwrap());
+        .unwrap();
+    let executable = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
+    let mut pty = PtyConfig::new(std::fs::canonicalize(root.path()).unwrap());
     pty.supervisor = Some(executable.clone());
     pty.command = Some(PtyCommand {
         program: executable.into_os_string(),
@@ -78,7 +72,6 @@ fn real_cut_mapping_install_consumption_opens_only_original_runtime_credit() {
         identity,
         pty,
         Default::default(),
-        None,
         RuntimeHooks::default(),
         native,
     )
@@ -92,7 +85,6 @@ fn real_cut_mapping_install_consumption_opens_only_original_runtime_credit() {
         next: 1,
         acks: 0,
     }));
-    eprintln!("BOUNDARY_OWNED_SCRATCH {}", root.display());
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         executor.block_on(exercise(server.clone(), identity))
     }));
@@ -103,10 +95,8 @@ fn real_cut_mapping_install_consumption_opens_only_original_runtime_credit() {
         .close_owned();
     drop(server);
     if let Err(panic) = outcome {
-        eprintln!("BOUNDARY_FAILED_FIXTURE_RETAINED {}", root.display());
         std::panic::resume_unwind(panic);
     }
-    std::fs::remove_dir_all(root).unwrap();
 }
 async fn exercise(server: Arc<Mutex<Server>>, identity: Identity) {
     let mut receiver = ManagerRecovery::native0(

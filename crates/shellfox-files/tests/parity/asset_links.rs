@@ -86,5 +86,10 @@ fn upload_revocation_immediately_after_publish_rolls_back_only_its_identified_fi
     );
     assert_eq!(inbox.usage().active, 0);
     assert_eq!(inbox.usage().saved, 0);
-    assert_eq!(fs::read_dir(inbox.root_path()).unwrap().count(), 0);
+    assert!(!published.parent().unwrap().exists());
+    let remaining: Vec<_> = fs::read_dir(inbox.root_path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(remaining, [".shellfox-transfer-meta"]);
 }

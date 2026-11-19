@@ -25,19 +25,12 @@ fn actual_catalog_native0_first_pty_uses_explicit_cli_and_stops_original_owner()
     first_pty(application::SourceFactory::Native0)
 }
 fn first_pty(factory: application::SourceFactory) -> Result<()> {
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let data = fixture.data(match factory {
         application::SourceFactory::Local => "actual-local-factory",
         application::SourceFactory::Native0 => "actual-native0-factory",
     });
-    let supervisor = PathBuf::from(
-        std::env::var_os("SHELLFOX_ACCEPT_SUPERVISOR")
-            .context("explicit real CLI dispatcher artifact required")?,
-    );
-    ensure!(
-        supervisor.is_absolute() && supervisor.is_file(),
-        "Actual CLI artifact missing"
-    );
+    let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
     let config = application::NativeApplicationConfig::new(
         &data,
         None,
@@ -192,7 +185,6 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
         Ok(())
     })?;
     eprintln!("Actual original Stop/drain and NoOwnerClean confirmed.");
-    fixture.success();
     Ok(())
 }
 
@@ -200,12 +192,12 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
 fn outgoing_native_and_private_clients_share_disabled_host_without_implicit_pair() -> Result<()> {
     use shellfox_protocol::{AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError};
     use shellfox_service::remote::OutgoingV2Endpoint;
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let data = fixture.data("outgoing-disabled");
     let local_data = data.clone();
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
-    let supervisor = PathBuf::from(std::env::var_os("SHELLFOX_ACCEPT_SUPERVISOR").context("real CLI required")?);
+    let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
     let remote = application::NativeApplicationConfig::new(&data, None, Some("owned-outgoing".into()), application::SourceFactory::Local)?
         .remote_options(supervisor, false)?;
     support::cycle_remote(&fixture, &data, remote, |owner, _| async move {
@@ -234,6 +226,5 @@ fn outgoing_native_and_private_clients_share_disabled_host_without_implicit_pair
         assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::Discover, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

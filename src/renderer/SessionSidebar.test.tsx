@@ -17,11 +17,13 @@ function Navigation({ client }: { client: ManagerClient }) {
   return <SessionSidebar client={client} sessions={state.snapshot?.sessions ?? []} selectedId={state.selectedId} busy={state.busyTabIds} pageSize={state.snapshot?.settings.historyPageSize ?? 10} />;
 }
 const settled = (id: number) => session(id, { status: 'settled', settledAt: '2026-10-04T11:00:00.000Z' });
-async function setup(items = [session()], pageSize = 10) {
+async function setup(items = [session()], pageSize = 10, machineNavigation = false) {
   const initial = snapshot(items); initial.settings.historyPageSize = pageSize;
   const fixture = mockApi(initial);
   const client = createManagerClient(fixture.api); clients.push(client); client.start();
-  const user = userEvent.setup(); const view = render(<Navigation client={client} />);
+  const user = userEvent.setup();
+  const navigation = <Navigation client={client} />;
+  const view = render(machineNavigation ? <div className="sidebar-content"><div className="machine-navigation">{navigation}</div></div> : navigation);
   await screen.findByRole('button', { name: `Local · ${items.length}` });
   return { ...view, fixture, client, user, initial };
 }
@@ -130,6 +132,19 @@ describe('session actions', () => {
     expect(fixture.api.deleteSession).toHaveBeenCalledExactlyOnceWith({ sessionId: session(1).id });
     expect(await screen.findByRole('button', { name: 'Local · 0' })).toBeVisible();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps the warning outside a short machine section and its scroll clip', async () => {
+    const { user, fixture } = await setup([session(1)], 10, true);
+    await context(user, 1); await user.click(screen.getByRole('menuitem', { name: 'Delete…' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete session' });
+    expect(dialog.parentElement).toHaveClass('sidebar-content');
+    expect(dialog.closest('.machine-navigation')).toBeNull();
+    expect(dialog).toHaveTextContent('This cannot be undone.');
+    expect(within(dialog).getByRole('button', { name: 'Delete' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fixture.api.deleteSession).not.toHaveBeenCalled();
   });
 
   it('keeps a failed deletion open and does not mention closing terminals if none are live', async () => {

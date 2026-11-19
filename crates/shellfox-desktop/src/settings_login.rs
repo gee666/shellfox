@@ -64,6 +64,12 @@ impl Login {
     pub fn busy(&self) -> bool {
         matches!(self.phase, Phase::Requesting | Phase::Browser)
     }
+    pub fn needs_release(&self) -> bool {
+        matches!(self.phase, Phase::Error | Phase::Cancelled) && self.attempt.is_none()
+    }
+    pub fn dismissed(&mut self) {
+        self.idle();
+    }
     pub fn start(&mut self, state: &RemoteState, kind: Kind) -> u64 {
         self.serial += 1;
         self.attempt = Some(Attempt {
@@ -147,6 +153,9 @@ impl Login {
         self.message = "Sign-in cancelled.".into();
     }
     pub fn fail(&mut self) {
+        if !self.busy() {
+            return;
+        }
         self.attempt = None;
         self.phase = Phase::Error;
         self.message = "Could not start sign-in. Check your connection and try again.".into();
@@ -199,6 +208,31 @@ impl Login {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_browser_open_keeps_attempt_but_expiration_enables_retry() {
+        let mut login = Login::new();
+        let state = state(Some("https://login.tailscale.com/p5-fixture"));
+        let serial = login.start(&state, Kind::Browser);
+        assert!(login.accept(&state, true));
+        login.browser_failed();
+        assert!(!login.needs_release());
+        login.timeout(serial);
+        assert!(login.needs_release());
+    }
+
+    #[test]
+    fn cancel_before_login_response_survives_a_late_failure() {
+        let mut login = Login::new();
+        let state = state(Some("https://login.tailscale.com/fixture"));
+        login.start(&state, Kind::Browser);
+        login.cancel();
+        assert!(!login.accept(&state, true));
+        login.fail();
+        assert!(login.phase == Phase::Cancelled && login.needs_release());
+        login.dismissed();
+        assert!(login.phase == Phase::Idle && !login.needs_release());
+    }
+
     fn state(url: Option<&str>) -> RemoteState {
         RemoteState {
             enabled: true,

@@ -268,6 +268,47 @@ fn dropping_execute_futures_releases_all_eight_permits() {
     assert_eq!(fake.calls(), 10);
 }
 #[test]
+fn filesystem_denial_keeps_the_view_but_auth_failure_retires_it() {
+    let fake = Fake::default();
+    let client = connected(&fake);
+    let connection = client.state().connection_id;
+    let request = BeginFileWrite {
+        session_id: None,
+        tab_id: None,
+        path: "/fixture/upload.bin".into(),
+        size: 0,
+        mode: FileWriteMode::Create,
+        revision: None,
+        content: FileContent::File,
+        mime_type: None,
+    };
+    let fail = |code| {
+        serde_json::to_vec(&Reply::<FileWriteTransfer>::Failure(AppError {
+            code,
+            message: "fixture file denial".into(),
+            retryable: false,
+        }))
+        .unwrap()
+    };
+    fake.bytes(&fail(ErrorCode::AccessDenied));
+    assert!(matches!(
+        block_on(client.execute_with_connection(connection, &request)).unwrap(),
+        Reply::Failure(_)
+    ));
+    assert_eq!(client.state().status, ConnectionStatus::Connected);
+    assert!(client.with_connection(connection, || ()).is_ok());
+    fake.bytes(&fail(ErrorCode::AuthFailed));
+    assert!(matches!(
+        block_on(client.execute_with_connection(connection, &request)).unwrap(),
+        Reply::Failure(_)
+    ));
+    assert!(matches!(
+        client.with_connection(connection, || ()),
+        Err(ClientError::StaleConnection)
+    ));
+}
+
+#[test]
 fn reconnect_cancels_old_cycle_and_late_response_cannot_apply() {
     let fake = Fake::default();
     let client = connected(&fake);
@@ -284,7 +325,18 @@ fn reconnect_cancels_old_cycle_and_late_response_cannot_apply() {
         block_on(pending),
         Err(ClientError::StaleConnection)
     ));
-    assert!(client.state().connection_id > old);
+    let current = client.state().connection_id;
+    assert!(current > old);
+    let calls = fake.calls();
+    assert!(matches!(
+        block_on(client.execute_with_connection(old, &request)),
+        Err(ClientError::StaleConnection)
+    ));
+    assert!(matches!(
+        client.with_connection(old, || unreachable!("retired publication")),
+        Err(ClientError::StaleConnection)
+    ));
+    assert_eq!(fake.calls(), calls);
     fake.bytes(SNAPSHOT);
-    block_on(client.execute(&GetSnapshot {})).unwrap();
+    block_on(client.execute_with_connection(current, &request)).unwrap();
 }

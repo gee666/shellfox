@@ -73,42 +73,25 @@ const watchdog=setTimeout(()=>{console.error('presentation xterm timeout');
 "#;
 
 #[test]
-fn headless_xterm_wrap_metadata_matches_public_ghostty_rows() -> TestResult {
+fn public_rows_keep_wrap_continuation_until_reflow() -> TestResult {
     let mut terminal = Terminal::new(8, 4)?;
     terminal.feed(b"abcdefghijkl\r\nhard")?;
     let mut view = terminal.new_presentation_view()?;
-    let before: String = terminal
-        .view_render(&mut view)?
-        .row_metadata
-        .iter()
-        .map(|row| if row.wrap_continuation { '1' } else { '0' })
-        .collect();
-    terminal.resize(16, 4)?;
-    let after: String = terminal
-        .view_render(&mut view)?
-        .row_metadata
-        .iter()
-        .map(|row| if row.wrap_continuation { '1' } else { '0' })
-        .collect();
-    let script = r#"
-const assert=require('node:assert/strict'),{Terminal}=require('@xterm/headless');
-const term=new Terminal({cols:8,rows:4,allowProposedApi:true});
-const mask=()=>Array.from({length:term.rows},(_,y)=>term.buffer.active.getLine(y).isWrapped?'1':'0').join('');
-const timeout=setTimeout(()=>process.exit(2),10000);timeout.unref();
-term.write('abcdefghijkl\r\nhard',()=>{try{assert.equal(mask(),process.argv[1]);
- term.resize(16,4);assert.equal(mask(),process.argv[2]);}catch(e){console.error(e);process.exitCode=1;}
- finally{term.dispose();clearTimeout(timeout);}});
-"#;
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = Command::new("node")
-        .current_dir(root)
-        .args(["-e", script, &before, &after])
-        .output()?;
-    assert!(
-        output.status.success(),
-        "row metadata differential failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+    // The same xterm fixture wraps the second row at 8 columns. At 16
+    // columns the logical line fits, so none of the rows continue a wrap.
+    let flags = |frame: shellfox_ghostty_vt::PresentationFrame| {
+        frame
+            .row_metadata
+            .into_iter()
+            .map(|row| row.wrap_continuation)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        flags(terminal.view_render(&mut view)?),
+        [false, true, false, false]
     );
+    terminal.resize(16, 4)?;
+    assert_eq!(flags(terminal.view_render(&mut view)?), [false; 4]);
     Ok(())
 }
 

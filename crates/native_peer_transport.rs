@@ -41,10 +41,17 @@ impl ServiceOwner for &LocalClient {
         Box::pin(self.outgoing_v2_with_status(peer, endpoint, body, limits))
     }
 }
-pub struct ServiceTransport<C>(C);
+pub struct ServiceTransport<C> {
+    owner: C,
+    offer_legacy_discovery: bool,
+}
 impl<C: ServiceOwner> ServiceTransport<C> {
     pub fn new(owner: C) -> Self {
-        Self(owner)
+        Self { owner, offer_legacy_discovery: false }
+    }
+    pub fn with_legacy_discovery(mut self) -> Self {
+        self.offer_legacy_discovery = true;
+        self
     }
 }
 #[cfg(test)]
@@ -61,13 +68,14 @@ impl<C: ServiceOwner> OutboundTransport for ServiceTransport<C> {
         Box::pin(async move {
             let endpoint = match endpoint {
                 Endpoint::DiscoverV2 => OutgoingV2Endpoint::Discover,
+                Endpoint::Discover if self.offer_legacy_discovery => OutgoingV2Endpoint::DiscoverV1,
                 Endpoint::PairV2 => OutgoingV2Endpoint::Pair,
                 Endpoint::RequestV2 => OutgoingV2Endpoint::Request,
                 Endpoint::EventsV2 => OutgoingV2Endpoint::Events,
                 Endpoint::DisconnectV2 => OutgoingV2Endpoint::Disconnect,
                 _ => return Err(TransportError::InvalidRequest),
             };
-            let response = self.0.outgoing(peer, endpoint, body, limits).await?;
+            let response = self.owner.outgoing(peer, endpoint, body, limits).await?;
             // Actual HTTP status only. A business-code/message mentioning 404 is
             // never a transport rejection or a legacy-capability hint.
             if !(200..300).contains(&response.status) {

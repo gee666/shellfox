@@ -9,6 +9,7 @@ pub struct ReservedSessionPublication {
     pub request_id: SessionId,
     pub session_id: SessionId,
     pub tab_id: TabId,
+    /// Optional display title for both the session and its reserved tab.
     pub title: Option<String>,
     pub cwd: String,
     pub profile_id: ProfileId,
@@ -30,6 +31,16 @@ pub enum ReservedPublicationReceipt {
 }
 
 impl Host {
+    /// Saved publication identities, including tombstones. This is creation
+    /// provenance, not evidence of a live parser or permission to attach.
+    pub fn reserved_publication_sessions(&self) -> Result<std::collections::HashSet<SessionId>> {
+        let inner = self.lock()?;
+        Ok(reserved_ids(&inner.db)?
+            .into_iter()
+            .map(|(_, session, _)| session)
+            .collect())
+    }
+
     pub fn reserved_publication_receipt(
         &self,
         request_id: SessionId,
@@ -100,10 +111,12 @@ impl Host {
                 let tab = Tab {
                     id: input.tab_id,
                     session_id: input.session_id,
-                    title: input.profile_id.to_string(),
+                    title: input.title.clone().unwrap_or_else(|| crate::tabs::default_title(0)),
+                    use_process_title: false,
                     cwd: input.cwd.clone(),
                     ordinal: 0,
                     created_at: Some(time.clone()),
+                    wsl_launch: WslLaunchBinding::for_new_tab(&input.profile_id),
                     profile_id: input.profile_id,
                     state: TabState::Pending,
                 };

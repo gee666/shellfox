@@ -62,10 +62,9 @@ impl Gate {
     pub fn release(
         &self,
         pid: u32,
-        packet: Option<&crate::program_env::wire::Packet>,
         before_go: impl FnOnce() -> Result<()>,
     ) -> Result<UnixStream> {
-        self.release_payload(pid, packet.map_or(&[][..], |p| p.0.as_slice()), before_go)
+        self.release_payload(pid, &[], before_go)
     }
     pub fn raw_arguments(&self) -> Vec<std::ffi::OsString> {
         vec![

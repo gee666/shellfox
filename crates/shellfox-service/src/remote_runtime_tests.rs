@@ -326,7 +326,7 @@ async fn explicit_pair_continue_and_reconnect_fence_old_attempts_without_termina
             .code,
         ErrorCode::NotFound
     );
-    assert!(!control.snapshot().incoming_legacy_terminal_attachment);
+    assert!(control.snapshot().incoming_legacy_terminal_attachment);
     control
         .request(RemoteRequest::Forget {
             peer_id: "n-peer".into(),

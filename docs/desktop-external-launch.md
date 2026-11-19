@@ -117,8 +117,8 @@ The cleanup checkpoint removed `app_launch_forward.rs`, `app_launch_forward_test
 
 Current cleanup validation:
 
-- Production `cargo check --locked -p shellfox-desktop --bin shellfox-gpui-experiment`: passed, no launch-helper warnings.
-- `cargo test --locked -p shellfox-desktop --bin shellfox-gpui-experiment app_launch:: -- --test-threads=1`: all 10 retained parser/coordinator tests passed.
+- Production `cargo check --locked -p shellfox-desktop --bin shellfox`: passed, no launch-helper warnings.
+- `cargo test --locked -p shellfox-desktop --bin shellfox app_launch:: -- --test-threads=1`: all 10 retained parser/coordinator tests passed.
 - Three existing pure startup/dispatch/bootstrap-destination tests passed from the emitted unit/deps harness.
 - Scoped warnings-denied Clippy of the actual launch-helper test root against current emitted metadata passed.
 - Full production Clippy exited 101 on 27 outside-scope app/settings/field warnings and lints. No launch-helper lint or suppression was introduced; no whole-bin Clippy pass is claimed.

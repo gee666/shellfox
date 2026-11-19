@@ -85,8 +85,7 @@ pub(super) fn options(
     hostname: &str,
     control: ControlServerOrigin,
 ) -> Result<shellfox_service::local::RemoteBootOptions> {
-    let supervisor =
-        PathBuf::from(std::env::var_os("SHELLFOX_ACCEPT_SUPERVISOR").context("Real CLI required")?);
+    let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
     let config = application::NativeApplicationConfig::new(
         data,
         None,

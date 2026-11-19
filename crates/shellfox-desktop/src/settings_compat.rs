@@ -13,23 +13,38 @@ impl Root {
                 .into_any_element(),
         }
     }
-    pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
-        self.settings = !self.settings;
-        if self.settings {
-            if let Some(panel) = &self.settings_panel {
-                panel.update(cx, |panel, cx| {
-                    panel.opened(cx);
-                });
-            }
-        } else if let Some(panel) = &self.settings_panel {
-            panel.update(cx, |panel, cx| panel.request_close(cx));
+    pub(crate) fn review_access_requests(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = &self.settings_panel else { return; };
+        if matches!(self.dialog, Some(crate::root::Dialog::Create(_))) && !self.dialog_locked() {
+            self.dialog = None;
         }
+        panel.update(cx, |panel, cx| {
+            panel.opened(cx);
+            panel.focus_on_open = false;
+            panel.category = Category::RemoteAccess;
+            panel.access_review.set(true);
+        });
+        self.settings = true;
+        cx.notify();
+    }
+
+    pub(crate) fn open_settings(&mut self, cx: &mut Context<Self>) {
+        if let Some(panel) = &self.settings_panel {
+            if self.settings {
+                panel.update(cx, |panel, cx| panel.request_close(cx));
+                return;
+            }
+            panel.update(cx, |panel, cx| panel.opened(cx));
+        }
+        self.settings = !self.settings;
         cx.notify();
     }
     pub(crate) fn sync_field_palette(&self, palette: Palette, cx: &mut Context<Self>) {
         let mut fields = Vec::new();
         match &self.dialog {
             Some(crate::root::Dialog::Create(draft)) => fields.push(draft.path.clone()),
+            Some(crate::root::Dialog::SessionEnvironment { text, .. }) => fields.push(text.clone()),
+            Some(crate::root::Dialog::PeerSession(dialog)) => fields.extend(dialog.field().cloned()),
             Some(
                 crate::root::Dialog::RenameSession { title, .. }
                 | crate::root::Dialog::RenameTab { title, .. },
@@ -59,11 +74,14 @@ impl Root {
             return;
         };
         let palette = Palette::new(&prefs.accent_color, &prefs.background_color);
-        #[cfg(feature="experimental-shellfox-native")]
+        #[cfg(feature = "experimental-shellfox-native")]
         for view in self.peer_ui.views.values(){
             if let Err(error)=view.update(cx,|view,cx|view.apply_preferences(&prefs,window,cx)){self.error=Some(format!("Peer terminal preferences: {error:#}"));}
         }
-        for view in self.views.values() {
+        let views = self.views.values();
+        #[cfg(not(feature = "experimental-shellfox-native"))]
+        let views = views.chain(self.peer_ui.v1_views.values());
+        for view in views {
             if let Err(error) = view.update(cx, |view, cx| {
                 view.apply_preferences(
                     &prefs.font_family,

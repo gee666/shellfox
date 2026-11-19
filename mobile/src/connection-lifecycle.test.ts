@@ -156,6 +156,39 @@ it('keeps a working authenticated stream through a control health error but drop
   await act(async () => { transport.polls.at(-1)?.reject(new Error('HTTP connection lost')); await flush(); });
   expect(client.getState().status).toBe('reconnecting');
 });
+it.each([true, false])('bounds stale snapshot retries (host settles: %s)', async settles => {
+  const peer: NetworkPeer = { id: 'host-1', hostname: 'workstation', online: true, addresses: [] };
+  const transport = new TestTransport();
+  const stale = 'The host changed while reading sessions.';
+  let reads = 0;
+  transport.operation = async body => {
+    expect(JSON.parse(body).method).toBe('getSnapshot');
+    return JSON.stringify(++reads === 3 && settles ? success(snapshot()) : failure('TARGET_LOST', stale));
+  };
+  mocks.request.mockImplementation(transport.request); mocks.peers.mockResolvedValue([peer]);
+  const { result } = renderHook(useShellfox); await act(async () => { await flush(); });
+  await act(async () => { await result.current.connect(peer); await flush(); });
+  expect(reads).toBe(1);
+  expect(result.current.loading).toBe(true);
+  expect(result.current.error).toBeNull();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(reads).toBe(3);
+  expect(result.current.loading).toBe(false);
+  if (settles) expect(result.current.machines[0].snapshot).toMatchObject(snapshot());
+  else expect(result.current.machines[0].snapshot).toBeNull();
+  expect(result.current.error).toBe(settles ? null : stale);
+});
+it('stops retrying a stale snapshot when the app backgrounds', async () => {
+  const peer: NetworkPeer = { id: 'host-1', hostname: 'workstation', online: true, addresses: [] };
+  const transport = new TestTransport();
+  transport.operation = async () => JSON.stringify(failure('TARGET_LOST', 'The host changed.'));
+  mocks.request.mockImplementation(transport.request); mocks.peers.mockResolvedValue([peer]);
+  const { result } = renderHook(useShellfox); await act(async () => { await flush(); });
+  await act(async () => { await result.current.connect(peer); await flush(); });
+  await act(async () => { changeState('background'); await vi.advanceTimersByTimeAsync(1000); });
+  expect(transport.calls('/v1/request')).toHaveLength(1);
+  expect(result.current.error).toBeNull();
+});
 it('reports real operation failures but does not turn reconnects into sticky warnings', async () => {
   const { result } = renderHook(useShellfox);
   await act(async () => { await flush(); });

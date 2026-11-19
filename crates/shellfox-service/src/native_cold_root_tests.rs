@@ -10,18 +10,7 @@ fn scratch() -> tempfile::TempDir {
         .tempdir_in(root)
         .unwrap()
 }
-fn helper() -> (PathBuf, [u8; 32]) {
-    let path = PathBuf::from(
-        std::env::var_os("SHELLFOX_SERVICE_TEST_HELPER").expect("explicit retained helper"),
-    );
-    let hex = std::env::var("SHELLFOX_SERVICE_TEST_HELPER_SHA256").expect("trusted hash");
-    assert_eq!(hex.len(), 64);
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap();
-    }
-    (path, digest)
-}
+use crate::tests::helper;
 #[tokio::test(flavor = "current_thread")]
 async fn missing_client_root_never_creates_or_reaches_native_helpers() {
     let data = scratch();
@@ -70,7 +59,6 @@ async fn foreign_or_production_root_is_rejected_before_permission_children_or_la
     );
 }
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "explicit trusted offline helper; private new root, no GUI/account/network"]
 async fn native_worker_creates_new_root_ready_and_confirms_cleanup_without_frontend_mkdir() {
     let data = scratch();
     let (helper, digest) = helper();
@@ -133,7 +121,6 @@ async fn native_worker_creates_new_root_ready_and_confirms_cleanup_without_front
         .await;
 }
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "explicit trusted offline helper; existing ownership remains held"]
 async fn occupied_prepare_does_not_create_private_layout_or_ui_children() {
     let data = scratch();
     let (helper, digest) = helper();

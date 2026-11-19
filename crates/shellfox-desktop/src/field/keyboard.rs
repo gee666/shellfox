@@ -17,12 +17,38 @@ impl Field {
         }
         let command = command_modifier(mods);
         if !self.multiline && matches!(key, "up" | "down") {
+            if self.number_kind.is_some() {
+                self.step(key == "up", window, cx);
+                window.prevent_default();
+                cx.stop_propagation();
+            }
             return;
         }
-        if form_key_bubbles(self.multiline, self.code_editor, key, mods) {
+        if self.asset_editor && key == "tab"
+            || form_key_bubbles(self.multiline, self.code_editor, key, mods)
+        {
             return;
         }
-        if self.multiline && matches!(key, "enter" | "tab") {
+        if self.asset_editor
+            && (command
+                || matches!(
+                    key,
+                    "enter"
+                        | "backspace"
+                        | "delete"
+                        | "left"
+                        | "right"
+                        | "home"
+                        | "end"
+                        | "up"
+                        | "down"
+                ))
+        {
+            self.history.break_group();
+        }
+        if self.asset_editor && command && matches!(key, "z" | "y") {
+            self.undo_edit(key == "y" || mods.shift);
+        } else if self.multiline && matches!(key, "enter" | "tab") {
             self.replace(None, if key == "tab" { "\t" } else { "\n" });
         } else if command && key == "a" {
             self.anchor = 0;
@@ -53,14 +79,16 @@ impl Field {
             }
             self.replace(None, "");
         } else if matches!(key, "left" | "right" | "home" | "end" | "up" | "down") {
-            let target = navigation_target(
-                &self.text,
-                self.selection.clone(),
-                self.cursor,
-                key,
-                mods.shift,
-                command,
-            );
+            let target = self.wrapped_navigation(key, command).unwrap_or_else(|| {
+                navigation_target(
+                    &self.text,
+                    self.selection.clone(),
+                    self.cursor,
+                    key,
+                    mods.shift,
+                    command,
+                )
+            });
             self.set_cursor(target, mods.shift);
         } else {
             return;
@@ -74,9 +102,9 @@ impl Field {
         if !self.multiline {
             return;
         }
-        let row = self.snapshot.row(self.cursor);
+        let row = self.visual_row(self.cursor);
         let mut offset = self.scroll.offset();
-        let top = row as f32 * self.line_height + 8.;
+        let top = row as f32 * self.line_height + self.multiline_text_inset();
         let viewport = f32::from(self.scroll.bounds().size.height);
         if viewport <= 0. {
             return;

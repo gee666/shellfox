@@ -50,7 +50,6 @@ impl runtime::RemoteNetworkFactory for NoNetwork {
     }
 }
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "explicit verified offline helper only; no tsnet, credentials or production data"]
 async fn actor_start_failure_cleans_prepared_remote_before_releasing_native_ownership() {
     let root =
         std::fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp")).unwrap();
@@ -62,14 +61,7 @@ async fn actor_start_failure_cleans_prepared_remote_before_releasing_native_owne
         .prefix("native-node-rollback-")
         .tempdir_in(&root)
         .unwrap();
-    let helper =
-        PathBuf::from(std::env::var_os("SHELLFOX_SERVICE_TEST_HELPER").expect("explicit helper"));
-    let hex = std::env::var("SHELLFOX_SERVICE_TEST_HELPER_SHA256").expect("explicit digest");
-    assert_eq!(hex.len(), 64);
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap();
-    }
+    let (helper, digest) = crate::tests::helper();
     let verified = VerifiedHelper::new(helper.clone(), digest).unwrap();
     let verifier = PermissionVerifier::new(verified.clone());
     verifier

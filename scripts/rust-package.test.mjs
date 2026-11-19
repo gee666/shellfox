@@ -3,7 +3,16 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import path from 'node:path';
 import test from 'node:test';
 import { assertLicenseTexts, lockPackages, treePackages } from './rust-package-audit.mjs';
-import { verifyAllLicenseInputs, verifyLicenseInput } from './rust-package-licenses.mjs';
+import { standardLicense, verifyAllLicenseInputs, verifyLicenseInput } from './rust-package-licenses.mjs';
+
+test('release notices use only a supported SPDX license declared by the dependency', () => {
+  assert.match(standardLicense('MIT', ['Packager <author@example.test>']).text, /Copyright \(c\) Packager\n/);
+  assert.equal(standardLicense('MIT/Apache-2.0').id, 'Apache-2.0');
+  assert.equal(standardLicense('Zlib OR Apache-2.0 OR MIT').id, 'Apache-2.0');
+  assert.equal(standardLicense('CC0-1.0').id, 'CC0-1.0');
+  assert.equal(standardLicense('MIT AND Apache-2.0'), null);
+  assert.equal(standardLicense(undefined), null);
+});
 import { assertAdvisoryReport, assertDatabaseAge, classifyAdvisories } from './rust-package-security.mjs';
 import { assertHeadlessFiles, assertHeadlessNames, fileHash, filesUnder, root, selectedBinaries, targets } from './rust-package-common.mjs';
 import { writeManifest } from './rust-package.mjs';
@@ -90,7 +99,7 @@ test('native matrix retains all six desktop/headless architectures', () => {
 test('binary selection uses actual workspace targets and fails if upcoming CLI is absent', () => {
   const metadata = { workspace_members: ['cli', 'desktop'], packages: [
     { id: 'cli', name: 'shellfox-cli', version: '0.1.0', targets: [{ name: 'shellfox-cli', kind: ['bin'] }] },
-    { id: 'desktop', name: 'shellfox-desktop', version: '0.1.0', targets: [{ name: 'shellfox-gpui-experiment', kind: ['bin'] }] },
+    { id: 'desktop', name: 'shellfox-desktop', version: '0.1.0', targets: [{ name: 'shellfox', kind: ['bin'] }] },
   ] };
   assert.equal(selectedBinaries(metadata, 'desktop').length, 2);
   assert.equal(selectedBinaries(metadata, 'headless').length, 1);
@@ -156,7 +165,7 @@ test('launchers retain argument forwarding without environment resource magic or
   writeLaunchers(directory, 'desktop');
   const contents = filesUnder(directory).map(file => readFileSync(path.join(directory, file), 'utf8')).join('\n');
   assert.match(contents, /shellfox-cli/);
-  assert.match(contents, /shellfox-gpui-experiment/);
+  assert.match(contents, /shellfox/);
   assert.doesNotMatch(contents, /ELECTRON|NODE_|SHELLFOX_RESOURCES|USER_DATA/);
   assert.match(contents, process.platform === 'win32' ? /@args/ : /"\$@"/);
   if (process.platform !== 'win32') chmodSync(path.join(directory, 'shellfox'), 0o755);

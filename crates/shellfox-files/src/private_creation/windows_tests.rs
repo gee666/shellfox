@@ -75,6 +75,34 @@ fn explicit_creation_descriptor_does_not_inherit_broad_readable_parent_acl() {
     }
 }
 #[test]
+fn app_directory_repair_tightens_inherited_acl_without_touching_parent() {
+    use cap_fs_ext::DirExt;
+    let f = Fixture::new();
+    parent_acl(f.parent(), true);
+    let before = state(&f.path);
+    let parent = cap_std::fs::Dir::from_std_file(f.parent().try_clone().unwrap());
+    parent.create_dir("app-data").unwrap();
+    parent.create_dir("other").unwrap();
+    let name = OsStr::new("app-data");
+    let held = parent.open_dir_nofollow(name).unwrap().into_std_file();
+    let other = state(&f.path.join("other"));
+    assert!(private_verify::object(&held, PrivateKind::Directory).is_err());
+    assert!(repair_app_directory_at(f.parent(), OsStr::new("other"), &held).is_err());
+    repair_app_directory_at(f.parent(), name, &held).unwrap();
+    open_app_directory_at(f.parent(), name)
+        .unwrap()
+        .verify_binding()
+        .unwrap();
+    assert_eq!(state(&f.path.join("other")), other);
+    assert_eq!(state(&f.path), before);
+    assert!(create_private_directory_at(f.parent(), OsStr::new("still-denied")).is_err());
+    create_app_directory_at(f.parent(), OsStr::new("app-created"))
+        .unwrap()
+        .verify_binding()
+        .unwrap();
+}
+
+#[test]
 fn readonly_native_parent_handle_can_create_when_original_logical_scope_is_rw() {
     use std::os::windows::fs::OpenOptionsExt;
     let f = Fixture::new();

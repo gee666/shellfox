@@ -29,6 +29,16 @@ impl crate::Service {
             NativeAction::Status => NativeResponse::Status(NativeStatus {
                 active_terminals: self.active_terminals(),
             }),
+            NativeAction::ReadWindowState => NativeResponse::WindowState(self.host().window_state()?),
+            NativeAction::ReadTabActivity => NativeResponse::TabActivity(self.desktop_tab_activity()),
+            NativeAction::SetVisibleSessions(report) => {
+                self.activity.report_desktop_visibility(controller, report.session_ids);
+                NativeResponse::Applied
+            }
+            NativeAction::SaveWindowState(state) => {
+                self.host().save_window_state(state)?;
+                NativeResponse::Applied
+            }
             NativeAction::Metadata(request) => {
                 NativeResponse::Snapshot(self.application_metadata(request)?)
             }
@@ -39,8 +49,7 @@ impl crate::Service {
                 }
             }
             NativeAction::System(request) => NativeResponse::System(self.handle_system_native(request,controller).map_err(|error|anyhow::anyhow!(error.message))?),
-            NativeAction::Ssh(request) => NativeResponse::Ssh(self.handle_ssh_native(request, controller)?),
-            NativeAction::SshOpen(input) => NativeResponse::SshOpened(self.open_ssh_profile_native(input, controller)?),
+            NativeAction::Ssh(request) => NativeResponse::Ssh(self.execute_ssh_settings(request)?),
             NativeAction::Remote(_) => {
                 anyhow::bail!("Remote controls require the owned async manager route.")
             }
@@ -59,10 +68,14 @@ impl crate::Service {
             NativeAction::SetSettled { session, settled } => {
                 NativeResponse::Snapshot(self.host().set_session_settled(session, settled)?)
             }
+            NativeAction::ClearSessionError { session } => {
+                NativeResponse::Snapshot(self.acknowledge_session_error(session)?)
+            }
             NativeAction::ChangedSince { revision } => {
                 NativeResponse::Changed(self.host().changed_since(revision)?)
             }
             NativeAction::CloseTab { tab } => NativeResponse::Snapshot(self.close_tab(tab)?),
+            NativeAction::CloseTerminal(identity) => NativeResponse::Snapshot(self.close_terminal(identity)?),
             NativeAction::DeleteSession { session } => {
                 NativeResponse::Snapshot(self.delete_session(session)?)
             }

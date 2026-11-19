@@ -27,13 +27,17 @@ use std::{
 
 #[path = "external_start.rs"]
 mod external_start;
+#[cfg(windows)]
+#[path = "elevated_pty.rs"]
+mod elevated_pty;
 pub(crate) use external_start::{run as run_external, ExternalStartServices};
 pub(crate) struct OwnerServices {
     #[cfg(feature = "experimental-shellfox-native")]
     pub native: Option<crate::Native0RuntimeConfig>,
     pub inspection: Option<inspection::InspectionPublisher>,
     pub hooks: RuntimeHooks,
-    pub program_env: Option<shellfox_terminal::TrustedProgramEnv>,
+    #[cfg(windows)]
+    pub administrator: Option<shellfox_terminal::elevated::InteractiveHelper>,
     pub launch: Arc<launch::LaunchState>,
     pub launch_binding: shellfox_terminal::NativeLaunchBinding,
 }
@@ -46,6 +50,8 @@ pub(crate) struct Owner {
     pub presentations: presentation::Presentations,
     pub layouts: layout::Layouts,
     pub pty: Option<PtySession>,
+    #[cfg(windows)]
+    pub(crate) elevated: Option<elevated_pty::ElevatedPty>,
     pub source_kind: SourceKind,
     pub external: Option<external::ExternalOwner>,
     pub delivery: Delivery,
@@ -102,6 +108,8 @@ pub(crate) fn run(
         presentations: presentation::Presentations::new(),
         layouts: layout::Layouts::new(config.cols, config.rows),
         pty: None,
+        #[cfg(windows)]
+        elevated: None,
         source_kind: SourceKind::OwnedPty,
         external: None,
         delivery: Delivery::new(),
@@ -120,12 +128,13 @@ pub(crate) fn run(
     if owner.shared.abandoned.load(Ordering::Acquire) {
         return;
     }
-    let spawned = match services.program_env {
-        Some(environment) => {
-            PtySession::spawn_program_bound(config, environment, services.launch_binding)
-        }
-        None => PtySession::spawn_bound(config, services.launch_binding),
-    };
+    #[cfg(windows)]
+    if let Some(factory) = services.administrator {
+        owner.start_administrator(factory, &config);
+        drive(owner, incoming, events);
+        return;
+    }
+    let spawned = PtySession::spawn_bound(config, services.launch_binding);
     match spawned {
         Ok(mut pty) => {
             if let Some(evidence) = pty.take_launch_evidence() {
@@ -258,6 +267,10 @@ impl Owner {
         if bytes.is_empty() {
             return Ok(());
         }
+        #[cfg(windows)]
+        if let Some(pty) = &mut self.elevated {
+            return pty.write(bytes);
+        }
         self.pty
             .as_mut()
             .ok_or_else(|| RuntimeError::unavailable("missing PTY"))?
@@ -302,6 +315,11 @@ impl Owner {
             pty.shutdown().map_err(RuntimeError::unavailable)?;
         }
         self.pty = None;
+        #[cfg(windows)]
+        if let Some(pty) = &mut self.elevated {
+            pty.shutdown()?;
+            self.elevated = None;
+        }
         self.fatal = false;
         self.set_phase(Phase::Closed, None);
         Ok(())

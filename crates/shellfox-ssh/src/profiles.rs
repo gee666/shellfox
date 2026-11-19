@@ -86,9 +86,13 @@ impl ProfileStore {
         let _lock = self.directory.lock(LOCK)?;
         Ok(public_profiles(&self.load()?.profiles))
     }
-    /// Host credential lookup only, not a settings/RPC response.
+    /// The writer replaces the entire document atomically. CLI readers do not
+    /// take a write lock, so offline profile lookup never modifies the store.
+    pub fn list_for_cli(&self) -> Result<Vec<ProfileDto>> {
+        Ok(public_profiles(&self.load()?.profiles))
+    }
+    /// Credential lookup only. Never expose this to a remote protocol.
     pub fn get_for_connection(&self, id: Uuid) -> Result<Option<StoredProfile>> {
-        let _lock = self.directory.lock(LOCK)?;
         Ok(self.load()?.profiles.into_iter().find(|p| p.id == id))
     }
     pub fn save(&self, input: ProfileInput) -> Result<Vec<ProfileDto>> {
@@ -147,6 +151,36 @@ impl ProfileStore {
         profiles.retain(|p| p.id != id);
         check()?;
         self.write(profiles)
+    }
+    /// Import the Electron v1 document without replacing independently saved profiles.
+    /// This is a host-only API; the input includes credentials.
+    pub fn import_electron(&self, bytes: &[u8]) -> Result<usize> {
+        if bytes.len() > MAX_BYTES {
+            return Err(Error::Limit);
+        }
+        let incoming: Document = serde_json::from_slice(bytes).map_err(|_| Error::Corrupt)?;
+        if incoming.version != 1 || incoming.profiles.len() > MAX_PROFILES {
+            return Err(Error::Corrupt);
+        }
+        let _lock = self.directory.lock(LOCK)?;
+        let mut profiles = self.load()?.profiles;
+        let mut ids: HashSet<_> = profiles.iter().map(|p| p.id).collect();
+        let mut names: HashSet<_> = profiles.iter().map(|p| p.name.to_lowercase()).collect();
+        let old_len = profiles.len();
+        for profile in incoming.profiles {
+            let profile = profile.normalize()?;
+            let name = profile.name.to_lowercase();
+            if !ids.contains(&profile.id) && !names.contains(&name) {
+                ids.insert(profile.id);
+                names.insert(name);
+                profiles.push(profile);
+            }
+        }
+        let added = profiles.len() - old_len;
+        if added != 0 {
+            self.write(profiles)?;
+        }
+        Ok(added)
     }
     pub fn import_json(&self, bytes: &[u8]) -> Result<ImportResult> {
         if bytes.len() > 8 * 1024 * 1024 {

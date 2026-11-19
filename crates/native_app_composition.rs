@@ -4,8 +4,6 @@ pub mod providers;
 pub use providers::ApplicationProviderResources;
 #[path = "native_app_package_arguments.rs"]
 mod package_arguments;
-#[path = "native_app_ssh_arguments.rs"]
-mod ssh_arguments;
 use anyhow::{Context, Result, bail, ensure};
 use shellfox_protocol::{AppError, ErrorCode};
 use shellfox_service::{
@@ -31,11 +29,10 @@ pub struct ApplicationArguments {
     factory: Option<SourceFactory>,
     control_server: Option<ControlServerOrigin>,
     package: package_arguments::PackageArguments,
-    ssh: ssh_arguments::SshArguments,
 }
 impl ApplicationArguments {
     pub fn is_flag(flag: &std::ffi::OsStr) -> bool {
-        flag.to_str().is_some_and(ssh_arguments::SshArguments::is_flag) || matches!(
+        matches!(
             flag.to_str(),
             Some(
                 "--remote-state-dir"
@@ -49,7 +46,6 @@ impl ApplicationArguments {
     }
     pub fn push(&mut self, flag: &str, value: OsString) -> Result<()> {
         match flag {
-            flag if ssh_arguments::SshArguments::is_flag(flag) => self.ssh.push(flag, value)?,
             "--package-manifest" | "--package-manifest-sha256" => self.package.push(flag, value)?,
             "--remote-state-dir" => {
                 ensure!(self.state.is_none(), "Duplicate --remote-state-dir");
@@ -86,7 +82,6 @@ impl ApplicationArguments {
         Ok(())
     }
     pub fn finish(self, data: &Path) -> Result<NativeApplicationConfig> {
-        ensure!(self.ssh.is_empty(), "SSH resource inputs require the original producer-pinned helper context");
         let mut config = NativeApplicationConfig::new(
             data,
             self.state,
@@ -300,11 +295,11 @@ impl SystemInstallResources for UnconfiguredInstallResources {
     }
 }
 fn unconfigured_providers(interactive: bool) -> NativeHostProviders {
-    // Standalone development launches can query the actual System provider, but
-    // cannot invent stable install resources or silently enable SSH programs.
+    // Standalone launches can use host System actions but cannot install
+    // integrations without a validated packaged launch.
     NativeHostProviders::new(Arc::new(NativeSystemBackend::native(
         Arc::new(UnconfiguredInstallResources),
-        SystemInstallPolicy::default(),
+        SystemInstallPolicy { allow_open: interactive, ..SystemInstallPolicy::default() },
         interactive,
     )))
 }

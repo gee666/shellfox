@@ -99,7 +99,6 @@ impl FileService {
                     return Ok((root.dir.try_clone()?, relative.clone(), relative));
                 }
                 RootResolution::PathBound { path } => {
-                    paths::validate(value)?;
                     let requested = Path::new(value);
                     let relative = if requested.is_absolute() {
                         requested
@@ -108,6 +107,13 @@ impl FileService {
                     } else {
                         requested
                     };
+                    paths::validate(
+                        relative
+                            .to_str()
+                            .filter(|part| !part.is_empty())
+                            .unwrap_or("."),
+                    )?;
+                    paths::validate(value)?;
                     let now = paths::open_absolute(path)?;
                     if HandleIdentity::from_directory(&root.dir)?
                         != HandleIdentity::from_directory(&now)?

@@ -24,14 +24,35 @@ pub(crate) fn open(
     )
 }
 pub(crate) fn open_rw_pinned_directory(parent: &File, leaf: &OsStr) -> Result<File> {
+    open_pinned_directory(parent, leaf, PrivateAccess::ReadWrite)
+}
+pub(crate) fn open_pinned_directory(
+    parent: &File,
+    leaf: &OsStr,
+    access: PrivateAccess,
+) -> Result<File> {
     open_options(
         parent,
         leaf,
         OpenPolicy {
             kind: PrivateKind::Directory,
-            access: PrivateAccess::ReadWrite,
+            access,
             create: None,
             desired_override: None,
+            sharing_override: Some(3),
+        },
+        None,
+    )
+}
+pub(crate) fn open_directory_for_acl(parent: &File, leaf: &OsStr) -> Result<File> {
+    open_options(
+        parent,
+        leaf,
+        OpenPolicy {
+            kind: PrivateKind::Directory,
+            access: PrivateAccess::ReadOnly,
+            create: None,
+            desired_override: Some(0x160080), // SYNCHRONIZE | READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES
             sharing_override: Some(3),
         },
         None,

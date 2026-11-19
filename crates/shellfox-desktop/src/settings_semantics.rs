@@ -149,6 +149,11 @@ impl SettingsPanel {
             Role::Button,
             self.control_name(key, label, action),
         );
+        if let controls::Action::Remote(operation) = action
+            && let Some((_, device_id)) = operation.client_access_target()
+        {
+            node.data.set_description(format!("Device ID: {device_id}"));
+        }
         node.focus = Some(focus.clone());
         node.data.add_action(accesskit::Action::Click);
         if !enabled.get() {
@@ -305,35 +310,24 @@ impl SettingsPanel {
             ),
             Action::Ssh(ssh::Operation::ChooseKey) => "Choose key file".into(),
             Action::Ssh(ssh::Operation::ClearKey) => "Clear key file".into(),
-            Action::Remote(remote::Operation::Forget(id) | remote::Operation::Reject(id)) => {
+            Action::Remote(remote::Operation::Forget(id)) => {
                 let name = self
                     .remote
                     .state
                     .as_ref()
-                    .and_then(|state| {
-                        state
-                            .peers
-                            .iter()
-                            .find(|peer| peer.id == *id)
-                            .map(|peer| peer.hostname.as_str())
-                            .or_else(|| {
-                                state
-                                    .pending
-                                    .iter()
-                                    .find(|peer| peer.id == *id)
-                                    .map(|peer| peer.hostname.as_str())
-                            })
-                    })
-                    .unwrap_or("device");
-                format!(
-                    "{} {name}",
-                    if matches!(action, Action::Remote(remote::Operation::Forget(_))) {
-                        "Forget"
-                    } else {
-                        "Reject"
-                    }
-                )
+                    .and_then(|state| state.peers.iter().find(|peer| peer.id == *id))
+                    .map_or("device", |peer| peer.hostname.as_str());
+                format!("Forget {name}")
             }
+            Action::Remote(operation) => match operation.client_access_target() {
+                Some((verb, _)) => format!(
+                    "{verb} {}",
+                    self.remote
+                        .client_access_name(operation)
+                        .unwrap_or("device")
+                ),
+                None => label.into(),
+            },
             Action::CancelEnvironment if key == "close-environment" => "Close dialog".into(),
             _ => label.into(),
         }

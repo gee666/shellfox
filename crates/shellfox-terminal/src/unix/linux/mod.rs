@@ -1,5 +1,6 @@
 //! Linux pidfd ownership. No Python helper and no numeric PID signalling.
 pub mod gate;
+pub(crate) mod inspection;
 mod pidfd;
 mod procfs;
 pub mod scope;

@@ -44,7 +44,8 @@ use shellfox_runtime::{Phase, Response, ScreenFrame};
 use std::sync::Arc;
 
 /// Captured by the frontend at bounded intent admission, never at dispatch/receipt.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NativeInputContext {
     pub captured_settlement: shellfox_host::CapturedSettlement,
     pub user_initiated: bool,
@@ -54,6 +55,10 @@ pub struct NativeInputContext {
 #[derive(Debug, Clone)]
 pub enum NativeAction {
     Status,
+    ReadWindowState,
+    ReadTabActivity,
+    SetVisibleSessions(shellfox_protocol::SetVisibleSessions),
+    SaveWindowState(shellfox_core::window_state::WindowState),
     TerminalProfiles,
     Power(crate::power::PowerRequest),
     Metadata(HostRequest),
@@ -62,7 +67,6 @@ pub enum NativeAction {
     Settings(shellfox_host::SettingsRequest),
     Ssh(crate::ssh::Request),
     System(crate::system::SystemNativeRequest),
-    SshOpen(crate::ssh::OpenProfile),
     Remote(crate::remote::native::RemoteRequest),
     SelectTab {
         tab: TabId,
@@ -82,9 +86,11 @@ pub enum NativeAction {
     ChangedSince {
         revision: u64,
     },
+    ClearSessionError { session: SessionId },
     CloseTab {
         tab: TabId,
     },
+    CloseTerminal(shellfox_core::TerminalIdentity),
     DeleteSession {
         session: SessionId,
     },
@@ -139,7 +145,8 @@ pub enum NativeAction {
     DetachAll,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum NativeCommand {
     Key(KeyEvent),
     Paste(String),
@@ -160,7 +167,8 @@ pub enum NativeCommand {
     Recover,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NativeObserverAttachment {
     pub viewer: u64,
     pub epoch: u64,
@@ -179,9 +187,12 @@ pub struct NativeFrame {
     pub phase: Phase,
     pub error: Option<String>,
     pub replay_lost: bool,
+    /// Host-validated path selector from this generation's live PWD report.
+    pub working_directory: Option<Arc<str>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NativeStatus {
     /// Actual owners retained by the common service, never a UI view count.
     pub active_terminals: usize,
@@ -190,6 +201,8 @@ pub struct NativeStatus {
 #[derive(Debug)]
 pub enum NativeResponse {
     Status(NativeStatus),
+    WindowState(Option<shellfox_core::window_state::WindowState>),
+    TabActivity(Vec<crate::NativeTabActivity>),
     Power(crate::power::PowerReport),
     TerminalProfiles(Box<crate::NativeLaunchCatalog>),
     Snapshot(Snapshot),
@@ -200,7 +213,6 @@ pub enum NativeResponse {
     Settings(shellfox_core::Settings),
     Ssh(crate::ssh::Response),
     System(crate::system::SystemNativeResponse),
-    SshOpened(crate::ssh::OpenedProfile),
     Remote(crate::remote::native::RemoteResponse),
     Changed(Option<ChangedEvent>),
     Attached(Attachment),
@@ -225,6 +237,10 @@ impl NativeClient {
     pub fn fork(&self) -> Self {
         Self::new(self.owner.fork())
     }
+    pub async fn source_facts_watch(&self) -> anyhow::Result<crate::activity_integration::SourceFactsWatch> {
+        self.owner.source_facts_watch().await
+    }
+
     pub async fn execute(&self, action: NativeAction) -> anyhow::Result<NativeResponse> {
         action
             .validate()

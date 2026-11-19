@@ -1,12 +1,16 @@
 use super::*;
 impl SettingsPanel {
+    pub(crate) fn blocks_layout_shortcuts(&self) -> bool {
+        self.environment.is_some() || self.color_picker.is_some() || self.profile_menu
+    }
+
     pub(super) fn key(
         &mut self,
         event: &gpui::KeyDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.operations.frozen() {
+        if self.operations.frozen() || self.color_picker.is_some() {
             return;
         }
         let key = event.keystroke.key.as_str();
@@ -17,14 +21,25 @@ impl SettingsPanel {
         {
             return;
         }
-        if key == "escape" {
+        if key == "tab" && self.environment.is_none() && !self.profile_menu {
+            self.keyboard_focus = true;
+            if event.keystroke.modifiers.shift {
+                window.focus_prev();
+            } else {
+                window.focus_next();
+            }
+            window.prevent_default();
+            cx.stop_propagation();
+            cx.notify();
+        } else if key == "escape" {
             if self.environment.is_some() {
-                self.environment = None;
-                cx.notify();
+                self.close_environment(window, cx);
             } else if self.profile_menu {
                 self.profile_menu = false;
                 cx.notify();
-            } else if self.ssh.editor.is_some() || self.ssh.removing.is_some() {
+            } else if self.category == Category::Ssh
+                && (self.ssh.editor.is_some() || self.ssh.removing.is_some())
+            {
                 self.ssh.cancel_editor();
                 cx.notify();
             } else {

@@ -1,35 +1,21 @@
-//! In-process editor adapter over the same capability and journaled chunk contracts.
-//! It does not raise inline file/IPC limits or grant filesystem authority.
+mod stream;
+#[cfg(target_os = "linux")]
+mod held;
+#[cfg(target_os = "linux")]
+pub use held::HeldEditor;
+#[cfg(target_os = "linux")]
+mod wsl_guest;
+#[cfg(target_os = "linux")]
+pub use wsl_guest::serve_wsl_files;
 use crate::*;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
+pub use stream::{EditorFileSink, EditorFileSource};
 use uuid::Uuid;
 
-#[derive(Clone, Default)]
-pub struct EditorCancellation(Arc<AtomicBool>);
-impl EditorCancellation {
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::Release);
-    }
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-    fn check(&self) -> Result<()> {
-        if self.is_cancelled() {
-            Err(FileError::new(
-                ErrorCode::AccessDenied,
-                "File operation cancelled.",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-}
+mod cancellation;
+pub use cancellation::EditorCancellation;
 
-/// One app-owned backend. The owner supplies a stable, validated private metadata namespace.
-/// Never initialize this from a view, per-run directory, or untrusted IPC path.
+/// App-owned editor backend bound to a stable, validated private metadata directory.
 pub struct EditorBackend {
     capability: Arc<FileService>,
     registry: Arc<Mutex<TransferRegistry>>,
@@ -94,42 +80,107 @@ impl EditorSession {
         cancellation: &EditorCancellation,
         progress: impl Fn(u64),
     ) -> Result<TextFile> {
+        match self.read_content(input, cancellation, progress, true)? {
+            ReadResult::Text {
+                path,
+                text,
+                size,
+                revision,
+                ..
+            } => Ok(TextFile {
+                path,
+                text,
+                size,
+                revision,
+            }),
+            _ => Err(unavailable()),
+        }
+    }
+    pub fn read_document(
+        &self,
+        input: &Location,
+        cancellation: &EditorCancellation,
+    ) -> Result<ReadResult> {
+        self.read_content(input, cancellation, |_| {}, false)
+    }
+    fn read_content(
+        &self,
+        input: &Location,
+        cancellation: &EditorCancellation,
+        progress: impl Fn(u64),
+        text_only: bool,
+    ) -> Result<ReadResult> {
         cancellation.check()?;
         let mut registry = self.registry.lock().map_err(|_| unavailable())?;
         let check = |_: &TransferActor, _: &FileService, _: bool| cancellation.check();
-        let started = registry.begin_read_capped(
-            &self.actor,
-            self.capability.clone(),
-            &BeginRead {
-                path: input.path.clone(),
-                asset_path: None,
-            },
-            &check,
-            TRANSFER_TEXT_BYTES,
-        )?;
+        let begin = BeginRead {
+            path: input.path.clone(),
+            asset_path: None,
+        };
+        let started = if text_only {
+            registry.begin_read_capped(
+                &self.actor,
+                self.capability.clone(),
+                &begin,
+                &check,
+                TRANSFER_TEXT_BYTES,
+            )?
+        } else {
+            registry.begin_read(&self.actor, self.capability.clone(), &begin, &check)?
+        };
+        let id = started.transfer_id;
         let result = (|| {
-            if started.kind != ContentKind::Text || started.size > TRANSFER_TEXT_BYTES {
+            if text_only && started.kind != ContentKind::Text {
                 return Err(FileError::new(
                     ErrorCode::Unsupported,
                     "Only UTF-8 text up to 8 MiB can be edited.",
                 ));
             }
-            let mut bytes =
-                Vec::with_capacity(usize::try_from(started.size).map_err(|_| unavailable())?);
+            let ReadStarted {
+                path,
+                mime_type,
+                size,
+                revision,
+                kind,
+                ..
+            } = started;
+            if kind == ContentKind::Binary {
+                return Ok(ReadResult::Binary {
+                    path,
+                    mime_type,
+                    size,
+                    revision,
+                });
+            }
+            let (limit, message) = match kind {
+                ContentKind::Text => (
+                    TRANSFER_TEXT_BYTES,
+                    "Text preview is limited to 8 MiB. Use Download for larger files.",
+                ),
+                ContentKind::Image => (
+                    TRANSFER_IMAGE_BYTES,
+                    "Image and asset preview is limited to 64 MiB. Use Download for larger files.",
+                ),
+                ContentKind::Binary => return Err(unavailable()),
+            };
+            if size > limit {
+                return Err(FileError::new(ErrorCode::Unsupported, message));
+            }
+            let mut bytes = Vec::with_capacity(usize::try_from(size).map_err(|_| unavailable())?);
             let mut offset = 0;
             loop {
                 let chunk = registry.read_chunk(
                     &self.actor,
                     &ReadChunk {
-                        transfer_id: started.transfer_id,
+                        transfer_id: id,
                         offset,
                     },
                     &check,
                 )?;
                 if chunk.data.len() > CHUNK_BYTES
                     || offset + chunk.data.len() as u64 != chunk.offset
-                    || chunk.offset > started.size
-                    || chunk.eof != (chunk.offset == started.size)
+                    || chunk.offset > size
+                    || chunk.eof != (chunk.offset == size)
                     || chunk.data.is_empty() && !chunk.eof
                 {
                     return Err(unavailable());
@@ -142,6 +193,15 @@ impl EditorSession {
                     break;
                 }
             }
+            if kind == ContentKind::Image {
+                return Ok(ReadResult::Image {
+                    path,
+                    mime_type,
+                    size,
+                    revision,
+                    bytes,
+                });
+            }
             let text = String::from_utf8(bytes).map_err(|_| {
                 FileError::new(ErrorCode::Unsupported, "This file is not UTF-8 text.")
             })?;
@@ -151,19 +211,15 @@ impl EditorSession {
                     "Editor text cannot contain NUL.",
                 ));
             }
-            Ok(TextFile {
-                path: started.path,
+            Ok(ReadResult::Text {
+                path,
+                mime_type,
+                size,
+                revision,
                 text,
-                size: started.size,
-                revision: started.revision,
             })
         })();
-        let _ = registry.cancel(
-            &self.actor,
-            &TransferIdentity {
-                transfer_id: started.transfer_id,
-            },
-        );
+        let _ = registry.cancel(&self.actor, &TransferIdentity { transfer_id: id });
         result
     }
     pub fn write(
@@ -186,12 +242,8 @@ impl EditorSession {
                 "Text exceeds the 8 MiB editor limit or contains NUL.",
             ));
         }
-        let mut registry = self.registry.lock().map_err(|_| unavailable())?;
-        let check = |_: &TransferActor, _: &FileService, _: bool| cancellation.check();
-        let started = registry.begin_write(
-            &self.actor,
-            self.capability.clone(),
-            &BeginWrite {
+        self.write_bytes(
+            BeginWrite {
                 path: input.path.clone(),
                 size: input.text.len() as u64,
                 mode: WriteMode::Replace,
@@ -199,11 +251,47 @@ impl EditorSession {
                 content: TransferContent::Text,
                 mime_type: None,
             },
-            &check,
-        )?;
+            input.text.as_bytes(),
+            cancellation,
+            progress,
+        )
+    }
+
+    pub fn write_image(
+        &self,
+        input: &ImageWrite,
+        cancellation: &EditorCancellation,
+    ) -> Result<WriteResult> {
+        cancellation.check()?;
+        self.write_bytes(
+            BeginWrite {
+                path: input.path.clone(),
+                size: input.bytes.len() as u64,
+                mode: WriteMode::Replace,
+                revision: Some(input.revision.clone()),
+                content: TransferContent::Image,
+                mime_type: Some(input.mime_type.clone()),
+            },
+            &input.bytes,
+            cancellation,
+            |_| {},
+        )
+    }
+
+    fn write_bytes(
+        &self,
+        request: BeginWrite,
+        bytes: &[u8],
+        cancellation: &EditorCancellation,
+        progress: impl Fn(u64),
+    ) -> Result<WriteResult> {
+        let mut registry = self.registry.lock().map_err(|_| unavailable())?;
+        let check = |_: &TransferActor, _: &FileService, _: bool| cancellation.check();
+        let started =
+            registry.begin_write(&self.actor, self.capability.clone(), &request, &check)?;
         let result = (|| {
             let mut offset = 0;
-            for bytes in input.text.as_bytes().chunks(CHUNK_BYTES) {
+            for bytes in bytes.chunks(CHUNK_BYTES) {
                 let next = registry.write_chunk(
                     &self.actor,
                     &WriteChunk {

@@ -4,35 +4,11 @@ use super::{
 };
 impl SettingsPanel {
     pub(super) fn terminals(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(settings) = self.draft.as_ref().map(|draft| draft.value.clone()) else {
-            return div().into_any_element();
-        };
         let p = self.palette;
-        let selected = settings
-            .terminal_profile_id
-            .as_ref()
-            .and_then(Option::as_deref)
-            .or_else(|| {
-                self.catalog
-                    .as_ref()
-                    .and_then(|catalog| catalog.default_profile_id.as_deref())
-            });
-        let selected_profile = self
-            .catalog
-            .as_ref()
-            .and_then(|catalog| {
-                catalog
-                    .profiles
-                    .iter()
-                    .find(|profile| Some(profile.id.as_str()) == selected)
-            })
-            .cloned();
-        let missing_selected =
-            selected.is_some() && self.catalog.is_some() && selected_profile.is_none();
+        let selected_profile = self.selected_shell().cloned();
         let label = selected_profile
             .as_ref()
             .map(|profile| profile.label.clone())
-            .or_else(|| selected.map(str::to_owned))
             .unwrap_or_else(|| {
                 if self.catalog.is_some() {
                     "No shells available"
@@ -54,18 +30,19 @@ impl SettingsPanel {
             .max_w(px(380.))
             .h(px(28.))
             .min_h(px(28.))
-            .px(px(6.))
+            .pl(px(9.))
+            .pr(px(2.))
             .py(px(2.))
             .bg(p.input_bg)
             .border_color(p.input_border)
             .justify_between()
-            .child(crate::assets::icon("down").w(px(12.)).h(px(12.)));
-        let mut default = div()
             .capture_key_down(
                 cx.listener(|panel, event: &gpui::KeyDownEvent, window, cx| {
                     panel.profile_key(event, window, cx)
                 }),
             )
+            .child(crate::assets::icon_sized("down", 12.));
+        let mut default = div()
             .relative()
             .child(controls::heading("Default shell"))
             .child(selector)
@@ -87,29 +64,31 @@ impl SettingsPanel {
                 .text_color(gpui::rgb(0xfc8397)),
             );
         }
-        if missing_selected {
-            default = default.child(
-                controls::hint("The saved profile is unavailable on this host.", p)
-                    .text_color(gpui::rgb(0xfc8397)),
-            );
+        if self.catalog.is_some()
+            && self.saved_shell_id().is_some_and(|id| {
+                selected_profile
+                    .as_ref()
+                    .is_none_or(|profile| profile.id != id)
+            })
+        {
+            default = default.child(controls::hint(
+                "The saved profile is unavailable on this host.",
+                p,
+            ));
         }
         if self.profile_menu {
-            let active = self
-                .catalog
-                .as_ref()
-                .and_then(|catalog| {
-                    catalog
-                        .profiles
-                        .iter()
-                        .filter(|profile| profile.available && !profile.elevation)
-                        .nth(self.profile_index)
-                })
-                .map(|profile| profile.id.clone());
+            let active = self.profile_index;
             let mut menu = div()
                 .id("settings-profile-options")
                 .max_h(px(240.))
                 .overflow_y_scroll()
+                .track_scroll(&self.profile_scroll)
                 .absolute()
+                .occlude()
+                .on_mouse_down_out(cx.listener(|panel, _, window, cx| {
+                    panel.close_profiles(window, cx);
+                    cx.stop_propagation();
+                }))
                 .top(px(54.))
                 .left_0()
                 .w_full()
@@ -120,30 +99,32 @@ impl SettingsPanel {
                 .border_color(p.border)
                 .rounded(px(6.))
                 .shadow_lg();
-            let profiles = self
-                .catalog
-                .as_ref()
-                .map(|catalog| catalog.profiles.clone())
-                .unwrap_or_default();
-            for profile in profiles.into_iter().filter(|profile| !profile.elevation) {
-                let available = profile.available;
-                let focused = active.as_ref() == Some(&profile.id);
-                menu = menu.child(
-                    self.text_button(
+            let profiles = self.shell_profiles().cloned().collect::<Vec<_>>();
+            for (index, profile) in profiles.into_iter().enumerate() {
+                let selected = selected_profile
+                    .as_ref()
+                    .is_some_and(|p| p.id == profile.id);
+                let option = self
+                    .text_button(
                         format!("profile-{}", profile.id),
                         profile.label,
                         Action::SelectProfile(profile.id),
                         cx,
                     )
+                    .skip_tab()
+                    .role(crate::accessibility::Role::ListBoxOption)
+                    .selected(selected)
                     .w_full()
                     .justify_start()
                     .px(px(8.))
                     .py(px(6.))
-                    .when(focused, |style| style.bg(p.hover))
-                    .when(!available, |style| style.opacity(0.4)),
-                );
+                    .when(index == active, |style| style.bg(p.hover))
+                    .when_some(profile.unavailable_reason, |option, reason| {
+                        option.tooltip(crate::assets::tooltip(reason, p))
+                    });
+                menu = menu.child(option);
             }
-            default = default.child(menu);
+            default = default.child(gpui::deferred(menu).with_priority(40));
         }
         let environment = self.text_button(
             "all-terminal-environment",
@@ -153,7 +134,7 @@ impl SettingsPanel {
         );
         let mut page = div()
             .child(default)
-            .child(controls::section(p).child(environment));
+            .child(controls::section(p).child(div().flex().child(environment)));
         if self
             .catalog
             .as_ref()

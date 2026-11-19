@@ -17,6 +17,7 @@ struct ObserveInput {
     calls: AtomicU64,
     request: AtomicU64,
     bytes: AtomicU64,
+    single_byte: AtomicU64,
     fail: AtomicBool,
 }
 impl LiveOutputSink for ObserveInput {
@@ -31,6 +32,7 @@ impl LiveOutputSink for ObserveInput {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.request.store(request.0, Ordering::Relaxed);
         self.bytes.store(encoded.len() as u64, Ordering::Relaxed);
+        self.single_byte.store(match encoded { [byte] => u64::from(*byte), _ => u64::MAX }, Ordering::Relaxed);
         if self.fail.load(Ordering::Relaxed) {
             Err(LiveOutputFailure)
         } else {
@@ -139,6 +141,27 @@ fn ignored_encodings_return_input_zero_and_skip_both_prewrite_hook_and_actual_wr
     assert_eq!(observer.calls.load(Ordering::Relaxed), 0);
     assert_eq!(host.runtime.phase(), Phase::Active);
 }
+#[test]
+fn xterm_nul_reaches_the_conpty_write_boundary_as_one_byte() {
+    let (mut host, observer) = host("--child-idle");
+    host.until(|host| String::from_utf8_lossy(&host.output).contains("RUNTIME_IDLE_READY"));
+    // GPUI may carry Shift+2 as an already shifted key on Windows.
+    for (key, shift) in [(' ', false), ('2', true), ('@', false)] {
+        let response = host.request(Command::Key {
+            lease: host.lease,
+            event: KeyEvent {
+                key: Key::Character(key),
+                modifiers: Modifiers { control: true, shift, ..Default::default() },
+                ..Default::default()
+            },
+        }).unwrap();
+        assert_eq!(receipt(response).accepted_bytes, 1, "{key:?}");
+        assert_eq!(observer.bytes.load(Ordering::Relaxed), 1);
+        assert_eq!(observer.single_byte.load(Ordering::Relaxed), 0);
+    }
+    assert_eq!(observer.calls.load(Ordering::Relaxed), 3);
+}
+
 #[test]
 fn native_key_receipt_reports_action_and_text_presence_without_retaining_the_text() {
     let (mut host, observer) = host("--child-idle");

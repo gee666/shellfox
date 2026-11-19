@@ -6,7 +6,11 @@ mod app_startup;
 mod assets;
 mod brand;
 mod chrome;
+mod cli_launcher;
 mod composition;
+mod desktop_errors;
+mod desktop_geometry;
+mod startup_chrome;
 mod desktop_windows;
 mod device_prefs;
 mod dialogs;
@@ -24,19 +28,27 @@ mod input;
 mod launch_handoff;
 mod launch_runtime;
 mod layout;
+mod layout_shortcuts;
 mod options;
 mod profile_menu;
 mod renderer;
 mod root;
-mod root_ssh;
+mod session_environment;
 mod session_menu;
+mod session_visibility;
+#[cfg(target_os = "macos")]
+mod macos_window;
 mod settings;
 mod sidebar;
 mod smoke;
 #[cfg(test)]
 mod startup_dispatch_tests;
+mod tab_activity;
 mod terminal_semantics;
 mod theme;
+mod ui_font;
+mod update;
+mod update_view;
 pub mod window_manager;
 mod workspace;
 
@@ -45,10 +57,25 @@ use gpui::{App, Application};
 use options::{Mode, Options};
 
 fn main() -> Result<()> {
-    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    if let Some(code) = shellfox_service::ssh::dispatch_early_entry(&arguments)? {
+    let mut arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    if arguments.len() == 1 && arguments[0] == "--version" {
+        println!("Shellfox {}", env!("SHELLFOX_VERSION"));
+        return Ok(());
+    }
+    // Squirrel invokes the app before installation is complete. Never start a host then.
+    #[cfg(windows)]
+    if let Some(event) = arguments.first() {
+        if cli_launcher::squirrel(event)? { return Ok(()); }
+        if event == "--squirrel-firstrun" { arguments.remove(0); }
+    }
+    if let Some(code) = shellfox_service::dispatch_supervisor_entry()? {
         std::process::exit(i32::from_ne_bytes(code.to_ne_bytes()));
     }
+    if let Some(code) = cli_launcher::forward_ssh(&arguments)? {
+        std::process::exit(code);
+    }
+    #[cfg(target_os = "macos")]
+    let install_cli = arguments.is_empty();
     let options = Options::parse(arguments)?;
     if options.mode == Mode::Smoke {
         let mut frontend = frontend_composition::FrontendDirectories::plan(&options)?;
@@ -58,9 +85,19 @@ fn main() -> Result<()> {
         }));
         return finish_frontend(frontend.preserve(), result);
     }
-    let app_startup::Startup::Graphical(owner) = app_startup::prepare(&options)? else {
+    let show_startup_error = options.mode == Mode::Shell && !options.ui_acceptance;
+    let startup = app_startup::prepare(&options).inspect_err(|_| {
+        if show_startup_error { desktop_errors::startup(); }
+    })?;
+    let app_startup::Startup::Graphical(owner) = startup else {
         return Ok(());
     };
+    #[cfg(target_os = "macos")]
+    if install_cli {
+        if let Err(error) = cli_launcher::install_mac() {
+            eprintln!("Shellfox CLI integration unavailable: {error:#}");
+        }
+    }
     if let Some(reason) = owner.as_ref().and_then(|owner| owner.remote_unavailable) {
         match reason {
             shellfox_service::remote::RemoteUnavailableReason::NativeApprovalStoragePending => {
@@ -81,6 +118,7 @@ fn main() -> Result<()> {
             if let Some(owner) = &owner {
                 owner.cleanup_until_confirmed();
             }
+            if show_startup_error { desktop_errors::startup(); }
             return Err(error);
         }
     };
@@ -88,6 +126,13 @@ fn main() -> Result<()> {
     // Logging only. Unlike --ui-acceptance this does not change presentation.
     let trace = options.ui_acceptance
         || std::env::var_os("SHELLFOX_UI_INIT_TRACE").is_some_and(|value| value == "1");
+    let updater = if options.ui_acceptance || owner.is_none() {
+        None
+    } else {
+        update::Updater::start().map(std::sync::Arc::new).map_err(|error| {
+            eprintln!("Updater unavailable: {error:#}");
+        }).ok()
+    };
     let graphics = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         trace_ui_init(trace, "frontend.prepare begin");
         frontend.prepare()?;
@@ -106,13 +151,29 @@ fn main() -> Result<()> {
                 }
             },
         );
-        run_graphics(options, owner.as_ref(), device_colors, editors, trace)
+        let chrome = owner.as_ref().filter(|_| !options.ui_acceptance).and_then(|owner| {
+            let result = (|| -> Result<_> {
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+                runtime.block_on(async {
+                    Ok(startup_chrome::StartupChrome::read(owner.host.chrome_client().await?).await)
+                })
+            })();
+            result.inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}")).ok()
+        });
+        run_graphics(options, owner.as_ref(), device_colors, editors, trace, updater.clone(), chrome)
     }));
     let preserved = frontend.preserve();
     if let Some(owner) = &owner {
         owner.cleanup_until_confirmed();
     }
-    finish_frontend(preserved, graphics)
+    if matches!(graphics, Ok(Ok(()))) && let Some(updater) = &updater
+        && let Err(error) = updater.install_on_exit()
+    {
+        eprintln!("Shellfox update did not start: {error:#}");
+    }
+    finish_frontend(preserved, graphics).inspect_err(|_| {
+        if show_startup_error { desktop_errors::startup(); }
+    })
 }
 
 fn finish_frontend(
@@ -140,6 +201,8 @@ fn run_graphics(
     device_colors: std::sync::Arc<settings::DeviceColors>,
     editors: editor_composition::EditorOutcome,
     trace: bool,
+    updater: Option<std::sync::Arc<update::Updater>>,
+    chrome: Option<startup_chrome::StartupChrome>,
 ) -> Result<()> {
     let retained = owner.map(|owner| (owner.config.clone(), owner.host.clone()));
     let errors = app_startup::InitErrors(std::rc::Rc::new(std::cell::RefCell::new(None)));
@@ -154,6 +217,10 @@ fn run_graphics(
             cx.set_global(app_errors);
             cx.set_global(device_prefs::DevicePrefs(device_colors));
             cx.set_global(editors);
+            if let Some(chrome) = chrome { chrome.install(cx); }
+            if let Some(updater) = updater {
+                cx.set_global(update_view::Updates(updater));
+            }
             trace_ui_init(trace, "prestarted adapter install begin");
             if let Some((config, host)) = retained
                 && let Err(error) = app_host::adapter::install_prestarted(cx, config, &host)

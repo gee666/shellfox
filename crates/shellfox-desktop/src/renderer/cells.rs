@@ -2,8 +2,7 @@
 use super::{TerminalTheme, color, paints_glyph, resolved_colors};
 use anyhow::Result;
 use gpui::{
-    App, Bounds, Font, FontStyle, FontWeight, Hsla, Pixels, TextRun, Window, fill, point, px, rgb,
-    size,
+    App, Bounds, Font, FontStyle, FontWeight, Hsla, Pixels, TextRun, Window, fill, point, px, size,
 };
 use shellfox_ghostty_vt::Screen;
 pub(crate) struct CellStyle<'a> {
@@ -34,11 +33,15 @@ where
         let start = row * usize::from(screen.cols);
         let cells = &screen.cells[start..start + usize::from(screen.cols)];
         let y = bounds.top() + px(row as f32 * style.line_height);
+        let background = |index: usize| {
+            let cell = &cells[index];
+            if cell.selected { style.theme.selection() } else { color(resolved_colors(cell).1) }
+        };
         let mut col = 0;
         while col < cells.len() {
-            let bg = resolved_colors(&cells[col]).1;
+            let bg = background(col);
             let mut end = col + 1;
-            while end < cells.len() && resolved_colors(&cells[end]).1 == bg {
+            while end < cells.len() && background(end) == bg {
                 end += 1;
             }
             window.paint_quad(fill(
@@ -49,21 +52,13 @@ where
                         px(style.line_height),
                     ),
                 ),
-                color(bg),
+                bg,
             ));
             col = end;
         }
         (overlay.row)(row, window);
         for (col, cell) in cells.iter().enumerate() {
             let origin = point(bounds.left() + px(col as f32 * style.cell_width), y);
-            if cell.selected {
-                let mut highlight: gpui::Hsla = rgb(style.theme.accent).into();
-                highlight.a = 0.4;
-                window.paint_quad(fill(
-                    Bounds::new(origin, size(px(style.cell_width), px(style.line_height))),
-                    highlight,
-                ));
-            }
             if !paints_glyph(cell) {
                 continue;
             }
@@ -93,7 +88,8 @@ where
                 &[run],
                 None,
             );
-            line.paint(origin, px(style.line_height), window, cx)?;
+            let text_origin = origin + point(px(0.), super::terminal_baseline_offset(window));
+            line.paint(text_origin, px(style.line_height), window, cx)?;
             for offset in [
                 cell.strikethrough.then_some(style.line_height * 0.5),
                 cell.underline.then_some(style.line_height - 2.),

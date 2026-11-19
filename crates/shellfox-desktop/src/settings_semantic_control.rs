@@ -1,5 +1,5 @@
 use crate::accessibility::{Role, SemanticFrame, SemanticNode};
-use gpui::{AnyElement, Div, Interactivity, Stateful, StyleRefinement, prelude::*};
+use gpui::{AnyElement, Div, FocusHandle, Interactivity, Stateful, StyleRefinement, prelude::*};
 use std::{cell::Cell, rc::Rc};
 
 /// Forwards the existing control builder unchanged. Only final conversion adds
@@ -8,6 +8,8 @@ pub(super) struct Control {
     element: Stateful<Div>,
     semantic: Option<(SemanticFrame, SemanticNode)>,
     enabled: Rc<Cell<bool>>,
+    tab_focus: Option<FocusHandle>,
+    tab_stop: bool,
 }
 impl Control {
     pub fn new(
@@ -19,7 +21,17 @@ impl Control {
             element,
             semantic,
             enabled,
+            tab_focus: None,
+            tab_stop: true,
         }
+    }
+    pub fn tab_focus(mut self, focus: FocusHandle) -> Self {
+        self.tab_focus = Some(focus);
+        self
+    }
+    pub fn skip_tab(mut self) -> Self {
+        self.tab_stop = false;
+        self
     }
     pub fn value(mut self, value: impl Into<String>) -> Self {
         if let Some((_, node)) = &mut self.semantic {
@@ -92,11 +104,14 @@ impl ParentElement for Control {
 impl IntoElement for Control {
     type Element = super::semantic_element::ControlElement;
     fn into_element(self) -> Self::Element {
+        let element = self.element.when_some(self.tab_focus, |element, focus| {
+            element.track_focus(&focus.tab_stop(self.tab_stop && self.enabled.get()))
+        });
         match self.semantic {
             Some((frame, node)) => super::semantic_element::ControlElement::Measured(Box::new(
-                frame.wrap(node, self.element),
+                frame.wrap(node, element),
             )),
-            None => super::semantic_element::ControlElement::Plain(Box::new(self.element)),
+            None => super::semantic_element::ControlElement::Plain(Box::new(element)),
         }
     }
 }

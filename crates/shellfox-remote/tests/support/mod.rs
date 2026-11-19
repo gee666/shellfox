@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use shellfox_core as core;
 use shellfox_protocol as wire;
 use shellfox_remote::adapter::*;
+use std::collections::HashSet;
 
 pub const SESSION: &str = "11111111-1111-4111-8111-111111111111";
 pub const TAB: &str = "22222222-2222-4222-8222-222222222222";
@@ -74,6 +75,7 @@ pub fn facts(platform: &str) -> ManagerFacts {
             reason: Some("Not installed".into()),
         }),
         sessions: Default::default(),
+        omitted_sessions: HashSet::new(),
     };
     facts
         .sessions

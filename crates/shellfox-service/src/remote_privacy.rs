@@ -1,19 +1,19 @@
 use super::*;
 use std::collections::HashSet;
-pub(super) fn legacy_session(mut session: wire::SessionDto) -> wire::SessionDto {
-    session.can_focus = false; session.can_add_tab = false;
-    if session.control_reason.is_none() { session.control_reason = Some("Legacy full-state terminal recovery is unavailable on this Rust host.".into()); }
-    session
+
+pub(super) fn elevated_profile(id: &str) -> bool {
+    id == crate::ADMIN_POWERSHELL_PROFILE
 }
 impl RemoteService<'_> {
     /// Existing manager policy hides explicitly local-only TAB records, not the
     /// saved session or authorized unknown metadata. This is not a live grant.
     pub(super) fn private_tabs(&self, snapshot: &Snapshot) -> HashSet<shellfox_core::TabId> {
         snapshot.sessions.iter().flat_map(|session| session.tabs.iter()).filter(|tab| {
-            self.state.profiles.as_ref().is_some_and(|profiles| profiles.profiles.iter().any(|profile|
+            elevated_profile(tab.profile_id.as_str())
+            || self.state.profiles.as_ref().is_some_and(|profiles| profiles.profiles.iter().any(|profile|
                 profile.id == tab.profile_id.as_str() && profile.elevation.is_some()))
             || self.service.terminals.get(&tab.id).is_some_and(|terminal| terminal.runtime.identity().session_id == tab.session_id
-                && terminal.runtime.launch_privilege_facts().privilege == shellfox_runtime::LaunchPrivilege::Elevated)
+                && super::v1_privilege::explicitly_elevated(&terminal.runtime.launch_privilege_facts()))
         }).map(|tab| tab.id).collect()
     }
     pub(super) fn authorize_profiles(&self, command: &RemoteCommand) -> Result<(), AppError> {

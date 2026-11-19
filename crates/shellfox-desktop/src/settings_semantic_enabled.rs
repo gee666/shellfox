@@ -14,18 +14,10 @@ impl SettingsPanel {
                         .trim()
                         .is_empty()
             }
-            Action::Profiles => self.catalog.as_ref().is_some_and(|catalog| {
-                catalog
-                    .profiles
-                    .iter()
-                    .any(|profile| profile.available && !profile.elevation)
-            }),
-            Action::SelectProfile(id) => self.catalog.as_ref().is_some_and(|catalog| {
-                catalog
-                    .profiles
-                    .iter()
-                    .any(|profile| profile.id == *id && profile.available && !profile.elevation)
-            }),
+            Action::Profiles => self.shell_profiles().next().is_some(),
+            Action::SelectProfile(id) => self
+                .shell_profiles()
+                .any(|profile| profile.id == *id && profile.available),
             Action::Ssh(operation) => {
                 if self.ssh.pending {
                     return false;
@@ -41,10 +33,15 @@ impl SettingsPanel {
                 }
             }
             Action::Remote(operation) => match operation {
+                operation if operation.client_access_target().is_some() => {
+                    !self.remote.pending && self.remote.client_access_name(operation).is_some()
+                }
                 remote::Operation::Advanced
                 | remote::Operation::OpenLogin
                 | remote::Operation::CancelRevoke => true,
-                remote::Operation::CancelLogin => self.remote.login.busy() && !self.remote.pending,
+                remote::Operation::CancelLogin => {
+                    self.remote.login.busy() && (!self.remote.pending || self.remote.login_request)
+                }
                 remote::Operation::CancelAttempt(id) | remote::Operation::ContinueAttempt(id) => {
                     !self.remote.pending
                         && self.remote.state.as_ref().is_some_and(|state| {
@@ -55,19 +52,20 @@ impl SettingsPanel {
                     self.remote.state.is_some() && !self.remote.pending && !self.remote.login.busy()
                 }
                 remote::Operation::SaveHostname => {
+                    let hostname = self.remote.hostname.read(cx).text.trim();
                     self.remote.state.as_ref().is_some_and(|state| {
-                        !self.remote.pending
-                            && !self.remote.hostname.read(cx).text.trim().is_empty()
-                            && self.remote.hostname.read(cx).text != state.hostname
+                        !self.remote.pending && !hostname.is_empty() && hostname != state.hostname
                     })
                 }
                 remote::Operation::Login => {
-                    self.remote
-                        .state
-                        .as_ref()
-                        .is_some_and(|state| !login::blocked(state))
-                        && !self.remote.pending
+                    !self.remote.pending
                         && !self.remote.login.busy()
+                        && (self.remote.retry_release_id().is_some()
+                            || self
+                                .remote
+                                .state
+                                .as_ref()
+                                .is_some_and(|state| !login::blocked(state)))
                 }
                 remote::Operation::UseKey => {
                     self.remote

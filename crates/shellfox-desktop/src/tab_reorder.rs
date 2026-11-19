@@ -1,6 +1,6 @@
+use super::{tab_menu::TabMenu, tab_scroll::TabScroll};
 use crate::{root::Root, theme::Palette, workspace::AfterAction};
 use gpui::{Context, Div, EntityId, Render, SharedString, Stateful, Window, div, prelude::*, px};
-use shellfox_core::TabState;
 use shellfox_host::{HostRequest, SessionId, TabId};
 use shellfox_service::native::NativeAction;
 
@@ -16,9 +16,9 @@ pub(super) struct TabStrip {
 }
 
 #[derive(Clone, Copy)]
-struct TabDrag {
-    strip: TabStrip,
-    tab: TabId,
+pub(super) struct TabDrag {
+    pub(super) strip: TabStrip,
+    pub(super) tab: TabId,
 }
 
 struct TabPreview {
@@ -57,29 +57,6 @@ impl TabStrip {
         })
     }
 
-    pub(super) fn keyboard_reorder(
-        self,
-        label: Stateful<Div>,
-        tab: TabId,
-        cx: &Context<Root>,
-    ) -> Stateful<Div> {
-        label.on_key_down(
-            cx.listener(move |root, event: &gpui::KeyDownEvent, window, cx| {
-                if !event.keystroke.modifiers.alt {
-                    return;
-                }
-                let offset = match event.keystroke.key.as_str() {
-                    "left" => -1,
-                    "right" => 1,
-                    _ => return,
-                };
-                window.prevent_default();
-                cx.stop_propagation();
-                root.move_local_tab(self, tab, offset, window, cx);
-            }),
-        )
-    }
-
     pub(super) fn drop_target(
         self,
         item: Stateful<Div>,
@@ -92,7 +69,13 @@ impl TabStrip {
                 .downcast_ref::<TabDrag>()
                 .is_some_and(|drag| drag.strip == self && drag.tab != tab)
         })
-        .drag_over::<TabDrag>(move |style, _, _, _| style.bg(palette.hover))
+        .drag_over::<TabDrag>(move |style, drag, _, _| {
+            if drag.strip == self && drag.tab != tab {
+                style.border_l_2().border_color(palette.accent)
+            } else {
+                style
+            }
+        })
         .on_drop(cx.listener(move |root, drag: &TabDrag, window, cx| {
             root.drop_local_tab(*drag, tab, window, cx);
         }))
@@ -100,6 +83,63 @@ impl TabStrip {
 }
 
 impl Root {
+    pub(super) fn handle_tab_key(
+        &mut self,
+        tabs: &[TabId],
+        index: usize,
+        reorder: Option<TabStrip>,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let key = event.keystroke.key.as_str();
+        let mods = event.keystroke.modifiers;
+        let id = tabs[index];
+        match key {
+            "f2" if reorder.is_some() => self.rename_tab_dialog(id, window, cx),
+            "contextmenu" | "menu" | "f10" if key != "f10" || mods.shift => {
+                if let Some(scope) = reorder
+                    && let Some(bounds) = self
+                        .tab_scroll
+                        .item_bounds(index, TabScroll::windowed(tabs.len()))
+                {
+                    self.open_tab_menu(
+                        TabMenu::new(
+                            scope,
+                            id,
+                            gpui::point(bounds.left(), bounds.bottom() - px(2.)),
+                        )
+                        .with_keyboard_focus(),
+                        window,
+                        cx,
+                    );
+                }
+            }
+            "left" | "right" if mods.alt => {
+                if let Some(scope) = reorder {
+                    self.move_local_tab(scope, id, if key == "left" { -1 } else { 1 }, window, cx);
+                }
+            }
+            "enter" | "space" => self.select_tab(id, window, cx),
+            _ => {
+                let target = match key {
+                    "left" => (index + tabs.len() - 1) % tabs.len(),
+                    "right" => (index + 1) % tabs.len(),
+                    "home" => 0,
+                    "end" => tabs.len() - 1,
+                    _ => return,
+                };
+                let id = tabs[target];
+                // Keep the label focused while a new view opens, then let the
+                // normal selection path hand focus to the terminal.
+                self.focus_tab_label(id, window, cx);
+                self.select_tab(id, window, cx);
+            }
+        }
+        window.prevent_default();
+        cx.stop_propagation();
+    }
+
     pub(super) fn tab_reorder_scope(&self, cx: &Context<Self>) -> Option<TabStrip> {
         if self.host.is_none()
             || self.closing_window
@@ -129,7 +169,30 @@ impl Root {
         self.reorder_local_tab(drag.strip, drag.tab, Some(target), None, window, cx);
     }
 
-    fn move_local_tab(
+    pub(super) fn can_move_local_tab(&self, strip: TabStrip, id: TabId, offset: isize) -> bool {
+        let Some(session) = self.snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .sessions
+                .iter()
+                .find(|session| session.id == strip.session)
+        }) else {
+            return false;
+        };
+        let tabs = || {
+            session
+                .tabs
+                .iter()
+                .filter(|tab| self.local_tab_viewable(tab))
+        };
+        let Some(index) = tabs().position(|tab| tab.id == id) else {
+            return false;
+        };
+        index
+            .checked_add_signed(offset)
+            .is_some_and(|target| target < tabs().count())
+    }
+
+    pub(super) fn move_local_tab(
         &mut self,
         strip: TabStrip,
         source: TabId,
@@ -163,7 +226,7 @@ impl Root {
         let tabs = session
             .tabs
             .iter()
-            .map(|tab| (tab.id, tab.state != TabState::Archived));
+            .map(|tab| (tab.id, self.local_tab_viewable(tab)));
         let tab_ids = match (target, offset) {
             (Some(target), None) => order::move_tab(tabs, source, target),
             (None, Some(offset)) => order::move_tab_by(tabs, source, offset),

@@ -201,12 +201,17 @@ fn late_show_uses_reserved_canonical_identity_without_facts_selection_or_control
 fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse() {
     let (scratch, mut owned, helper) = service();
     let service = &mut owned.0;
-    let spec = input(&helper, scratch.path(), vec!["describe".into()]);
+    const MARKER: &str = "TB01_COMPLETED_REPLAY";
+    let spec = input(&helper, scratch.path(), vec!["describe".into(), MARKER.into()]);
     let run = service.start_automation(spec.clone(), 9).unwrap();
     finish(service, run.id);
     let shown = show(service, run.id);
     let tab: TabId = shown.tab_id.unwrap().to_string().parse().unwrap();
     let identity = service.terminals[&tab].runtime.identity();
+    assert_eq!(
+        service.completed_automation_exit_code(&service.terminals[&tab]),
+        Some(0)
+    );
     let launch=service.terminals[&tab].runtime.launch_privilege_facts();
     assert_eq!(launch.purpose,shellfox_runtime::LaunchFactoryPurpose::StandardRawCreateProcess);
     assert_eq!(launch.basis,shellfox_runtime::LaunchEvidenceBasis::ReviewedSupervisorPrimaryTokenInheritance);
@@ -217,8 +222,38 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
     assert_eq!(service.terminals[&tab].runtime.identity(), identity);
     assert_eq!(service.terminals[&tab].runtime.launch_privilege_facts(),launch);
     assert!(service.terminals[&tab].external_cleanup.is_some());
+    assert_eq!(
+        service.completed_automation_exit_code(&service.terminals[&tab]),
+        Some(0)
+    );
     assert!(service.automation.runs.retired().is_empty());
-    observe(service, tab);
+    use crate::grant_requests::GrantFailure;
+    use shellfox_runtime::{AnsiRecoveryCapability, Command, ErrorCode, Response};
+    let viewer = service.allocate_viewer_id().unwrap();
+    let offer = service.observer_grant(tab, viewer).unwrap();
+    let Response::Recovery(recovery) = service.call(tab, Command::ObserverRecoverStamped {
+        observer: offer.lease(),
+        capability: AnsiRecoveryCapability::FormattedActiveBufferV1,
+    }).unwrap() else {
+        panic!("missing recovery")
+    };
+    assert!(String::from_utf8_lossy(&recovery.bytes).contains(MARKER));
+    for takeover in [false, true] {
+        let error = service.attach_manager(tab, 71, takeover).err().unwrap();
+        assert!(matches!(error.downcast_ref::<GrantFailure>(), Some(GrantFailure::Rejected(error)) if error.code == ErrorCode::Unsupported));
+    }
+    let ungranted = terminals::Attachment {
+        controller: 71,
+        epoch: 1,
+        generation: identity.generation,
+    };
+    for result in [
+        service.input(tab, &ungranted, b"not accepted".to_vec()),
+        service.resize(tab, &ungranted, 100, 42),
+    ] {
+        assert_eq!(result.unwrap_err().to_string(), "Terminal control lease is detached or stale.");
+    }
+    drop(offer);
     assert!(service.start_automation(spec, 9).is_err());
     service.close_tab(tab).unwrap();
     assert!(!service.terminals.contains_key(&tab));

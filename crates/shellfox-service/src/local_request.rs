@@ -7,6 +7,8 @@ pub(crate) enum PrivateRequest {
     OutgoingV2(crate::remote::outgoing_wire::Request),
     RemoteOperator(crate::remote::RemoteRequest),
     Experiment(ExperimentRequest),
+    DesktopView(Box<super::DesktopRequest>),
+    SshRead(super::SshRead),
     Power(crate::power::PowerRequest),
     AutomationStart(Box<AutomationStart>),
     AutomationList(AutomationList),
@@ -27,6 +29,8 @@ impl PrivateRequest {
         }
         let request = match header.method.as_str() {
             METHOD => Self::Experiment(payload::<ExperimentRequest>(bytes)?),
+            super::DesktopRequest::METHOD => Self::DesktopView(Box::new(payload(bytes)?)),
+            super::SshRead::METHOD => Self::SshRead(payload(bytes)?),
             crate::remote::outgoing_wire::METHOD => Self::OutgoingV2(payload(bytes)?),
             crate::remote::operator::METHOD => Self::RemoteOperator(payload(bytes)?),
             crate::power::PowerRequest::METHOD => Self::Power(payload(bytes)?),
@@ -88,6 +92,22 @@ mod tests {
             ),
             Ok((_, PrivateRequest::DesktopLaunch(_)))
         ));
+    }
+    #[test]
+    fn ssh_profiles_are_read_only_and_require_one_non_nil_id_for_secrets() {
+        let method = super::super::SshRead::METHOD;
+        assert!(matches!(
+            PrivateRequest::decode(envelope(method, r#"{"action":"list"}"#).as_bytes()),
+            Ok((_, PrivateRequest::SshRead(super::super::SshRead::List)))
+        ));
+        for bad in [
+            r#"{"action":"save"}"#,
+            r#"{"action":"connection"}"#,
+            r#"{"action":"connection","id":"00000000-0000-0000-0000-000000000000"}"#,
+            r#"{"action":"list","includeSecrets":true}"#,
+        ] {
+            assert!(PrivateRequest::decode(envelope(method, bad).as_bytes()).is_err());
+        }
     }
     #[test]
     fn duplicate_environment_is_not_erased_by_route_inspection() {

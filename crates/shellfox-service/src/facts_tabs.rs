@@ -20,6 +20,9 @@ pub(super) fn project(
                     "Owned runtime identity does not match tab membership.",
                 ));
             }
+            if runtime.source_kind == Some(shellfox_runtime::SourceKind::ExternalBytes) {
+                return Err(incompatible("V1 cannot represent a read-only external byte source. Use observer-v2."));
+            }
             let (lifecycle, observation, error) = runtime_state(runtime)?;
             (
                 lifecycle,
@@ -78,7 +81,7 @@ fn runtime_state(
                 "Startup outcome is pending; phase alone cannot prove launch success or failure.",
             )),
         },
-        StartupEvidence::Failed { sanitized_error } => {
+        StartupEvidence::Failed { sanitized_error, acknowledged } => {
             if runtime.phase == Phase::Active {
                 return Err(unavailable(
                     "Active phase contradicts actual failed-start evidence.",
@@ -91,7 +94,7 @@ fn runtime_state(
                     Life::LaunchUncertain
                 },
                 missing(&sanitized_error.message),
-                Some(sanitized_error.clone()),
+                (!acknowledged).then(|| sanitized_error.clone()),
             ))
         }
         StartupEvidence::Confirmed => match runtime.phase {
@@ -120,6 +123,34 @@ fn runtime_state(
         },
     }
 }
+#[cfg(test)]
+mod acknowledgement_tests {
+    use super::*;
+
+    #[test]
+    fn clearing_a_failed_launch_hides_error_without_claiming_start_or_cleanup() {
+        let mut facts = TerminalSourceFacts {
+            identity: shellfox_runtime::Identity { session_id: Default::default(), tab_id: Default::default(), generation: Default::default() },
+            phase: Phase::Draining,
+            source_kind: None,
+            startup: StartupEvidence::Failed {
+                sanitized_error: AppError { code: wire::ErrorCode::LaunchFailed, message: "Owned terminal startup failed.".into(), retryable: true },
+                acknowledged: false,
+            },
+            observation: None,
+            busy: false,
+            activity_available: false,
+        };
+        let (phase, _, before) = runtime_state(&facts).unwrap();
+        assert!(matches!(phase, wire::TabLifecycle::LaunchUncertain));
+        assert!(before.is_some());
+        if let StartupEvidence::Failed { acknowledged, .. } = &mut facts.startup { *acknowledged = true; }
+        let (phase, _, after) = runtime_state(&facts).unwrap();
+        assert!(matches!(phase, wire::TabLifecycle::LaunchUncertain));
+        assert!(after.is_none());
+    }
+}
+
 fn observation(runtime: &TerminalSourceFacts) -> ObservationFacts {
     match &runtime.observation {
         Some(value) if value.root == RootState::Alive => ObservationFacts::Alive {

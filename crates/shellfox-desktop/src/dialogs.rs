@@ -1,6 +1,5 @@
 use crate::{
     assets::icon_button,
-    chrome::button,
     field::Field,
     root::{Dialog, Root},
     theme::Palette,
@@ -9,6 +8,29 @@ use crate::{
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 use shellfox_host::{HostRequest, SessionId, TabId};
 use shellfox_service::native::NativeAction;
+
+pub(crate) fn dialog_button(
+    id: &'static str,
+    label: &'static str,
+    palette: Palette,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .px(px(8.))
+        .h(px(26.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .text_size(px(12.))
+        .line_height(px(16.))
+        .border_1()
+        .border_color(palette.border)
+        .bg(palette.surface)
+        .cursor_pointer()
+        .hover(|style| style.bg(palette.hover))
+        .child(label)
+}
 
 impl Root {
     pub(crate) fn rename_session_dialog(
@@ -25,12 +47,46 @@ impl Root {
             .as_ref()
             .and_then(|snapshot| snapshot.sessions.iter().find(|session| session.id == id))
         {
-            let title = Field::new(session.title.clone(), cx);
+            let title = Field::session_title(session.title.clone(), cx);
             title.read(cx).focus(window);
             self.dialog = Some(Dialog::RenameSession { id, title });
         }
         cx.notify();
     }
+    pub(crate) fn tab_title_editor(
+        &self,
+        title: gpui::Entity<crate::field::Field>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id("rename-terminal")
+            .w(px(130.))
+            .mx(px(4.))
+            .mt(px(2.))
+            .child(title.clone())
+            .on_mouse_down_out(cx.listener(|root, _, window, cx| {
+                if matches!(root.dialog, Some(Dialog::RenameTab { .. })) {
+                    root.confirm_dialog(window, cx);
+                }
+            }))
+            .on_key_down(
+                cx.listener(move |root, event: &gpui::KeyDownEvent, window, cx| {
+                    if title.read(cx).is_composing() {
+                        return;
+                    }
+                    match event.keystroke.key.as_str() {
+                        "escape" => root.dismiss_dialog(window, cx),
+                        "enter" => root.confirm_dialog(window, cx),
+                        "tab" => root.move_strip_focus(event.keystroke.modifiers.shift, window, cx),
+                        _ => return,
+                    }
+                    window.prevent_default();
+                    cx.stop_propagation();
+                }),
+            )
+            .into_any_element()
+    }
+
     pub(crate) fn rename_tab_dialog(
         &mut self,
         id: TabId,
@@ -47,20 +103,48 @@ impl Root {
                 .flat_map(|session| &session.tabs)
                 .find(|tab| tab.id == id)
         }) {
-            let title = Field::new(tab.title.clone(), cx);
+            let title = Field::tab_title(self.display_tab_title(tab).to_owned(), cx);
+            let field = title.entity_id();
+            let blur = cx.on_blur(&title.read(cx).edit_focus(), window, move |root, window, cx| {
+                if matches!(&root.dialog, Some(Dialog::RenameTab { title, .. }) if title.entity_id() == field) {
+                    root.confirm_dialog(window, cx);
+                }
+            });
             title.read(cx).focus(window);
-            self.dialog = Some(Dialog::RenameTab { id, title });
+            self.dialog = Some(Dialog::RenameTab { id, title, _blur: blur });
         }
         cx.notify();
     }
     pub(crate) fn modal_frame(
         &self,
-        title: &'static str,
+        title: impl Into<gpui::SharedString>,
         content: AnyElement,
         palette: Palette,
         cx: &Context<Self>,
     ) -> AnyElement {
         let black: gpui::Hsla = gpui::rgb(0).into();
+        let title = title.into();
+        let quitting = matches!(self.dialog, Some(Dialog::Quit));
+        let (width, radius) = match &self.dialog {
+            _ if self.peer_environment_is_open() => (480., 8.),
+            Some(Dialog::Quit) => (360., 4.),
+            Some(Dialog::SessionEnvironment { .. }) => (480., 8.),
+            _ => (540., 4.),
+        };
+        let close = icon_button("close-dialog", "close", palette)
+            .when_some(match &self.dialog {
+                Some(Dialog::Create(draft)) => Some(&draft.close),
+                Some(Dialog::Quit) => Some(&self.quit_focus.header),
+                _ => None,
+            }, |button, focus| {
+                button.track_focus(focus).focus(|style| style.border_1().border_color(palette.accent))
+            })
+            .on_click(cx.listener(|root, _, window, cx| root.dismiss_active_modal(window, cx)));
+        let close = if quitting {
+            self.quit_close_button(close.when(self.dialog_locked(), |button| button.opacity(0.45)))
+        } else {
+            close.into_any_element()
+        };
         let dialog = div()
             .absolute()
             .inset_0()
@@ -71,55 +155,49 @@ impl Root {
             .bg(black.opacity(0.53))
             .on_mouse_down(
                 gpui::MouseButton::Left,
-                cx.listener(|root, _, window, cx| root.dismiss_dialog(window, cx)),
+                cx.listener(|root, _, window, cx| root.dismiss_active_modal(window, cx)),
             )
             .child(
                 self.semantic_region(
                     "root/dialog",
                     crate::accessibility::Role::Dialog,
-                    title,
+                    title.to_string(),
                     div()
-                        .track_focus(&self.modal_focus)
+                        .when(!quitting || self.dialog_locked(), |card| card.track_focus(&self.modal_focus))
                         .on_key_down(cx.listener(|root, event: &gpui::KeyDownEvent, window, cx| {
-                            if root.dialog_locked()
-                                || matches!(root.dialog, Some(Dialog::Create(_)))
-                            {
+                            if matches!(root.dialog, Some(Dialog::Create(_))) {
+                                root.directory_key(event, window, cx);
                                 return;
                             }
-                            let composing = match &root.dialog {
-                                Some(
-                                    Dialog::RenameSession { title, .. }
-                                    | Dialog::RenameTab { title, .. },
-                                ) => title.read(cx).is_composing(),
-                                _ => false,
-                            };
-                            if composing {
+                            if root.dialog_locked() {
+                                if matches!(root.dialog, Some(Dialog::Quit)) {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                }
+                                return;
+                            }
+                            if matches!(root.dialog, Some(Dialog::Quit)) {
+                                root.quit_dialog_key(event, window, cx);
                                 return;
                             }
                             match event.keystroke.key.as_str() {
                                 "escape" => root.dismiss_dialog(window, cx),
-                                "enter" => {
-                                    if matches!(root.dialog, Some(Dialog::Quit)) {
-                                        root.dismiss_dialog(window, cx);
-                                    } else {
-                                        root.confirm_dialog(window, cx);
-                                    }
+                                "enter" if matches!(root.dialog, Some(Dialog::SessionEnvironment { .. })) || root.peer_environment_is_open() => {
+                                    if !event.keystroke.modifiers.control { return; }
+                                    root.confirm_dialog(window, cx);
                                 }
+                                "enter" => root.confirm_dialog(window, cx),
                                 _ => return,
                             }
                             window.prevent_default();
                             cx.stop_propagation();
                             cx.notify();
                         }))
-                        .w(px(if title == "Quit Shellfox?" {
-                            360.
-                        } else {
-                            540.
-                        }))
+                        .w(px(width))
                         .max_w_full()
                         .flex()
                         .flex_col()
-                        .rounded(px(4.))
+                        .rounded(px(radius))
                         .bg(palette.panel)
                         .border_1()
                         .border_color(palette.border)
@@ -143,12 +221,10 @@ impl Root {
                                 .py(px(8.))
                                 .border_b_1()
                                 .border_color(palette.border)
-                                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(title))
-                                .child(icon_button("close-dialog", "close", palette).on_click(
-                                    cx.listener(|root, _, window, cx| {
-                                        root.dismiss_dialog(window, cx)
-                                    }),
-                                )),
+                                .child(div().font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .when(matches!(self.dialog, Some(Dialog::Create(_) | Dialog::SessionEnvironment { .. })) || self.peer_environment_is_open(), |label| label.relative().top(px(2.)))
+                                    .child(title))
+                                .child(close),
                         )
                         .child(content),
                 ),
@@ -158,83 +234,43 @@ impl Root {
             .overlay_subtree(dialog)
             .into_any_element()
     }
-    pub(crate) fn render_dialog(&self, palette: Palette, cx: &Context<Self>) -> AnyElement {
-        let Some(dialog) = &self.dialog else {
-            return div().into_any_element();
-        };
-        if let Dialog::Create(draft) = dialog {
-            return self.render_directory(draft, palette, cx);
-        }
-        let mut content = div().p_3().flex().flex_col().gap_2();
-        let title = match dialog {
-            Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. } => {
-                content = content.child(title.clone());
-                "Rename"
-            }
-            Dialog::DeleteSession(_) => {
-                content = content.child(
-                    "Permanently delete this session? Its running terminals will be closed.",
-                );
-                "Delete session"
-            }
-            Dialog::CloseTab(_) => {
-                content = content.child("Close this terminal and its running processes?");
-                "Close terminal"
-            }
-            Dialog::Quit => {
-                let question = self
-                    .close_confirmation
-                    .as_ref()
-                    .map(|confirmation| {
-                        format!(
-                            "Close {} shell{} and quit?",
-                            confirmation.terminal_count,
-                            if confirmation.terminal_count == 1 {
-                                ""
-                            } else {
-                                "s"
-                            }
-                        )
-                    })
-                    .unwrap_or_else(|| "Close shells and quit?".into());
-                content=content.child(question).child(div().text_color(palette.muted).child("Running commands will stop. Shells restart fresh next time. External terminals stay open."));
-                "Quit Shellfox?"
-            }
-            Dialog::Create(_) => return div().into_any_element(),
-        };
-        let cancel = button("dialog-cancel", "Cancel", palette)
-            .on_click(cx.listener(|root, _, window, cx| root.dismiss_dialog(window, cx)));
-        let confirm_label = match dialog {
-            Dialog::Quit => "Close shells and quit",
-            Dialog::CloseTab(_) => "Close",
-            Dialog::DeleteSession(_) => "Delete",
-            _ => "Save",
-        };
-        let confirm = button("dialog-confirm", confirm_label, palette)
-            .on_click(cx.listener(|root, _, window, cx| root.confirm_dialog(window, cx)));
-        let actions = div().flex().justify_end().gap(px(6.));
-        content = content.child(if matches!(dialog, Dialog::Quit) {
-            actions.child(cancel).child(confirm)
+    fn dismiss_active_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(self.dialog, Some(Dialog::Create(_))) {
+            self.dismiss_directory(window, cx);
         } else {
-            actions.child(confirm).child(cancel)
-        });
-        self.modal_frame(title, content.into_any_element(), palette, cx)
+            self.dismiss_dialog(window, cx);
+        }
     }
-    fn confirm_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+
+    pub(crate) fn render_dialog(&self, palette: Palette, window: &Window, cx: &Context<Self>) -> AnyElement {
+        match &self.dialog {
+            Some(Dialog::Create(draft)) => self.render_directory(draft, palette, window, cx),
+            Some(Dialog::Quit) => self.render_quit_dialog(palette, window, cx),
+            Some(Dialog::SessionEnvironment { id, text }) => self.session_environment_dialog(*id, text, palette, window, cx),
+            Some(Dialog::PeerSession(dialog)) => self.render_peer_session_environment(dialog, palette, window, cx),
+            _ => div().into_any_element(),
+        }
+    }
+
+    pub(crate) fn confirm_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.user_action_pending {
             return;
         }
         let Some(dialog) = &self.dialog else {
             return;
         };
+        let sidebar = matches!(dialog, Dialog::RenameSession { .. } | Dialog::SessionEnvironment { .. } | Dialog::DeleteSession(_));
         let action = match dialog {
             Dialog::RenameSession { id, title } => {
+                let title = title.read(cx).text.trim();
+                if title.is_empty() { return; }
                 NativeAction::Metadata(HostRequest::RenameSession {
                     session_id: *id,
-                    title: title.read(cx).text.clone(),
+                    title: title.to_owned(),
                 })
             }
-            Dialog::RenameTab { id, title } => {
+            Dialog::RenameTab { id, title, .. } => {
+                if title.read(cx).is_composing() { return; }
                 let Some(session) = self.snapshot.as_ref().and_then(|snapshot| {
                     snapshot
                         .sessions
@@ -243,13 +279,24 @@ impl Root {
                 }) else {
                     return;
                 };
+                let text = &title.read(cx).text;
+                if shellfox_core::validation::title(text).is_err() {
+                    self.notify_error(None, Some("VALIDATION".into()), "Use a nonblank title of at most 200 characters, without control characters.", cx);
+                    return;
+                }
                 NativeAction::Metadata(HostRequest::RenameTab {
                     session_id: session.id,
                     tab_id: *id,
-                    title: title.read(cx).text.clone(),
+                    title: text.trim().to_owned(),
                 })
             }
-            Dialog::CloseTab(id) => NativeAction::CloseTab { tab: *id },
+            Dialog::SessionEnvironment { id, text } => {
+                let (env, issues) = crate::settings::environment_data::parse(&text.read(cx).text, cfg!(windows));
+                if !issues.is_empty() { return; }
+                NativeAction::Metadata(HostRequest::SetSessionEnv { session_id: *id, env })
+            }
+            Dialog::PeerSession(_) => { self.confirm_peer_session_dialog(window, cx); return; }
+            Dialog::CloseTab(target) => NativeAction::CloseTerminal(*target),
             Dialog::DeleteSession(id) => NativeAction::DeleteSession { session: *id },
             Dialog::Quit => {
                 self.begin_shutdown(window, cx);
@@ -257,6 +304,7 @@ impl Root {
             }
             Dialog::Create(_) => return,
         };
-        self.submit_native(action, AfterAction::Dialog, window, cx);
+        if sidebar { self.submit_sidebar_action(action, AfterAction::Dialog, window, cx); }
+        else { self.submit_native(action, AfterAction::Dialog, window, cx); }
     }
 }

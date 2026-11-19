@@ -175,6 +175,10 @@ impl OwnerActivity {
             None
         }
     }
+    pub(crate) fn watched_sessions(&self) -> impl Iterator<Item = shellfox_core::SessionId> + '_ {
+        self.terminals.values().map(|watch| watch.identity.session_id)
+    }
+
     pub fn set_visible_sessions(
         &mut self,
         sessions: Option<&[shellfox_core::SessionId]>,
@@ -230,7 +234,7 @@ impl OwnerActivity {
         let (busy, activity_available) =
             entry.map_or((false, false), |entry| entry.activity.status());
         let mut observation = entry
-            .filter(|entry| entry.scope == InspectionScope::LocalWindows)
+            .filter(|entry| entry.scope.locally_inspectable())
             .and_then(|_| self.monitor.observation(identity))
             .cloned();
         if !activity_available {

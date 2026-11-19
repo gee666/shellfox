@@ -71,6 +71,27 @@ test('Debian ships the launcher with its update script, which the launcher route
     .includes('install -m 755 "$root/resources/shellfox-launcher" /usr/bin/shellfox'));
 });
 const launcherShell = process.platform === 'win32' ? path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe') : '/bin/sh';
+test('the Rust Debian launcher uses its own prefix and preserves the SSH exit status and streams', { skip: !existsSync(launcherShell) }, async () => {
+  await mkdir('tmp', { recursive: true });
+  const prefix = await mkdtemp(path.resolve('tmp/rust package '));
+  const posix = value => process.platform === 'win32' ? value.replace(/^([A-Za-z]):/, (_, drive) => '/' + drive.toLowerCase()).replaceAll('\\', '/') : value;
+  try {
+    const bin = path.join(prefix, 'usr/bin'), lib = path.join(prefix, 'usr/lib/shellfox');
+    await mkdir(bin, { recursive: true }); await mkdir(lib, { recursive: true });
+    const source = 'resources/linux/shellfox-rust-launcher';
+    assert.doesNotMatch(await readFile(source, 'utf8'), /\/usr\/lib\/shellfox/);
+    await cp(source, path.join(bin, 'shellfox')); await chmod(path.join(bin, 'shellfox'), 0o755);
+    await writeFile(path.join(lib, 'shellfox'), '#!/bin/sh\nprintf "desktop:%s\\n" "$1"\n', { mode: 0o755 });
+    await writeFile(path.join(lib, 'shellfox-cli'), '#!/bin/sh\nIFS= read -r data\nprintf "%s:%s\\n" "$1" "$data"\nprintf "%s\\n" "$2" >&2\nexit 7\n', { mode: 0o755 });
+    const opts = { timeout: 5000, env: { ...process.env, FIXTURE_BIN: posix(bin) } };
+    const command = args => promisify(execFile)(launcherShell, ['-c', 'export PATH="$FIXTURE_BIN:$PATH"; ' + args], opts);
+    assert.equal((await command('shellfox --new-session')).stdout.trim(), 'desktop:--new-session');
+    await assert.rejects(command(`printf 'stdin\\n' | shellfox ssh 'profile name'`), error => {
+      assert.equal(error.code, 7); assert.equal(error.stdout.trim(), 'ssh:stdin'); assert.equal(error.stderr.trim(), 'profile name');
+      return true;
+    });
+  } finally { await rm(prefix, { recursive: true, force: true }); }
+});
 test('the real Debian launcher delegates help, canonical groups and rejected aliases to the universal CLI', { skip: !existsSync(launcherShell), timeout: 120000 }, async () => {
   const exec = promisify(execFile);
   const posix = value => process.platform === 'win32' ? value.replace(/^([A-Za-z]):/, (_, drive) => '/' + drive.toLowerCase()).replaceAll('\\', '/') : value;

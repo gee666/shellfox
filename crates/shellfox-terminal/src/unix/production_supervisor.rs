@@ -124,25 +124,10 @@ fn run(
 ) -> Result<u32> {
     let mut length = [0; 4];
     stream.read_exact(&mut length)?;
-    let length = u32::from_le_bytes(length) as usize;
-    ensure!(
-        length <= crate::program_env::wire::MAX_PACKET,
-        "PTY carrier too large"
-    );
-    ensure!(
-        crate::program_env::wire::KEYS
-            .iter()
-            .all(|k| std::env::var_os(k).is_none()),
-        "program carrier leaked into supervisor environment"
-    );
+    ensure!(u32::from_le_bytes(length) == 0, "Unexpected PTY startup payload.");
     let mut command = Command::new(program);
     command.args(args);
     command.env_remove("DBUS_SESSION_BUS_ADDRESS");
-    if length > 0 {
-        let mut packet = crate::program_env::wire::Packet(vec![0; length]);
-        stream.read_exact(&mut packet.0)?;
-        crate::program_env::wire::decode(&packet.0)?.apply(program, &mut command)?;
-    }
     ensure!(
         unsafe { libc::signal(libc::SIGTTOU, libc::SIG_IGN) } != libc::SIG_ERR,
         "PTY foreground setup failed"

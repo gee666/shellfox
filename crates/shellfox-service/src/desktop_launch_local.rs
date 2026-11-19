@@ -20,6 +20,11 @@ pub struct LaunchRouteInfo {
 #[serde(tag = "operation", rename_all = "camelCase", deny_unknown_fields)]
 pub enum DesktopLaunchRequest {
     Discover {},
+    RegisterAttached { owner: LaunchOwnerFence },
+    PollAttached { token: DesktopClientToken },
+    ClaimAttached { delivery: DesktopLaunchDelivery },
+    CompleteAttached { delivery: DesktopLaunchDelivery, handling: LaunchHandling },
+    UnregisterAttached { token: DesktopClientToken },
     Submit {
         owner: LaunchOwnerFence,
         intent: DesktopLaunchIntent,
@@ -40,11 +45,29 @@ pub enum DesktopLaunchRequest {
 pub enum DesktopLaunchReply {
     Route(LaunchRouteInfo),
     Receipt(LaunchReceipt),
+    Registered(DesktopClientToken),
+    Delivery(Option<DesktopLaunchDelivery>),
+    Claim(LaunchClaim),
+    Unregistered {},
+}
+impl DesktopLaunchRequest {
+    pub(crate) fn is_attached_renderer(&self) -> bool {
+        matches!(self, Self::RegisterAttached { .. } | Self::PollAttached { .. } | Self::ClaimAttached { .. }
+            | Self::CompleteAttached { .. } | Self::UnregisterAttached { .. })
+    }
+}
+impl DesktopClientToken {
+    fn validate_wire(&self) -> Result<(), ValidationError> {
+        shellfox_protocol::validation::ensure(!self.owner.0.is_nil() && !self.nonce.is_nil())
+    }
 }
 impl Validate for DesktopLaunchRequest {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             Self::Discover {} => Ok(()),
+            Self::RegisterAttached { owner } => shellfox_protocol::validation::ensure(!owner.0.is_nil()),
+            Self::PollAttached { token } | Self::UnregisterAttached { token } => token.validate_wire(),
+            Self::ClaimAttached { delivery } | Self::CompleteAttached { delivery, .. } => delivery.validate().map_err(|_| ValidationError),
             Self::Submit { owner, intent, .. } => {
                 if owner.0.is_nil() {
                     return Err(ValidationError);
@@ -65,6 +88,8 @@ impl Validate for DesktopLaunchReply {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             Self::Route(route) if route.owner.0.is_nil() => Err(ValidationError),
+            Self::Registered(token) => token.validate_wire(),
+            Self::Delivery(Some(delivery)) => delivery.validate().map_err(|_| ValidationError),
             _ => Ok(()),
         }
     }
@@ -90,8 +115,8 @@ impl DesktopLaunchRouter {
                 submission,
             } => {
                 self.check(owner, authority)?;
-                // Current slice supports handoff to the existing in-process UI
-                // only. A private request cannot bootstrap rendering on a headless owner.
+                // Submit only after a verified renderer registered. The launcher
+                // can attach and register when a headless host has no renderer.
                 if !self.route_info(authority)?.desktop_registered {
                     return Err(LaunchError::NoDesktop);
                 }
@@ -104,6 +129,7 @@ impl DesktopLaunchRouter {
             DesktopLaunchRequest::Receipt { owner, request_id } => self
                 .receipt(owner, request_id, authority)
                 .map(DesktopLaunchReply::Receipt),
+            _ => Err(LaunchError::Invalid), // Requires the verified local lifetime dispatcher.
         }
     }
 }

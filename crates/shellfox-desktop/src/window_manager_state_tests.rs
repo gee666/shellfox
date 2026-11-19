@@ -79,6 +79,34 @@ fn exact_electron_defaults_schema_and_title_strip_thresholds() {
     );
 }
 #[test]
+fn wayland_restores_size_and_maximize_without_importing_an_x11_origin() {
+    let state = WindowState { x: -15_000, y: -2000, width: 1220, height: 820, maximized: true };
+    assert_eq!(restore_size_only(Some(state), &primary()).unwrap(), RestoredBounds {
+        origin: None, width: 1220, height: 820, maximized: true,
+    });
+}
+
+#[test]
+fn mixed_dpi_restore_clamps_detached_bounds_in_primary_work_area_dips() {
+    let primary = Monitor {
+        work_area: Rect { x: 0, y: 0, width: 1536, height: 832 },
+        scale_factor: 1.25,
+        ..primary()
+    };
+    let left = Monitor {
+        id: "left-150-percent".into(),
+        work_area: Rect { x: -1707, y: 25, width: 1707, height: 910 },
+        physical_origin: (-2560, 38),
+        scale_factor: 1.5,
+    };
+    let saved = WindowState { x: -1501, y: 62, width: 1600, height: 900, maximized: true };
+    assert_eq!(restore_bounds(Some(saved), std::slice::from_ref(&left), &primary).unwrap(),
+        RestoredBounds { origin: Some((-1501, 62)), width: 1600, height: 900, maximized: true });
+    assert_eq!(restore_bounds(Some(saved), &[], &primary).unwrap(),
+        RestoredBounds { origin: None, width: 1536, height: 832, maximized: true });
+}
+
+#[test]
 fn removed_monitor_recenters_and_clamps_size_but_preserves_maximize_and_negative_display() {
     let primary = primary();
     let state = WindowState {

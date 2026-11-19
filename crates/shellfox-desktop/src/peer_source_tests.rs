@@ -12,6 +12,23 @@ fn peer(id: &str) -> shellfox_service::remote::native::RemotePeer {
         attempt_id: None,
     }
 }
+#[test]
+fn settings_approval_shows_in_sidebar_without_replacing_an_active_window_cycle() {
+    use shellfox_service::remote::native::RemoteConnection;
+    let id = AuthenticatedPeerId::new("n-approval").unwrap();
+    let mut remote = peer(id.as_str());
+    let mut state = PeerSources::default();
+    remote.connection = RemoteConnection::AwaitingApproval;
+    state.inventory(&[remote.clone()]);
+    assert_eq!(state.peers[&id].phase, Phase::AwaitingApproval);
+    let cycle = state.begin(&id).unwrap();
+    remote.connection = RemoteConnection::Disconnected;
+    state.inventory(&[remote]);
+    assert!(state.current(&cycle));
+    assert!(state.peers[&id].pending);
+    assert_eq!(state.peers[&id].phase, Phase::AwaitingApproval);
+}
+
 fn snapshot() -> m::Snapshot {
     let raw: serde_json::Value = serde_json::from_str(include_str!(
         "../../shellfox-protocol/tests/fixtures/observer_v2/snapshot.json"
@@ -19,6 +36,20 @@ fn snapshot() -> m::Snapshot {
     .unwrap();
     serde_json::from_value(raw["value"].clone()).unwrap()
 }
+#[test]
+fn peer_strip_hides_legacy_and_closed_shells_but_keeps_automation_replay() {
+    use shellfox_protocol::{TabLifecycle, TerminalKind};
+    let mut tab = sessions(&snapshot()).next().unwrap().tabs[0].clone();
+    tab.facts.terminal_kind = m::Fact::Known { value: Some(TerminalKind::Embedded) };
+    tab.facts.lifecycle = m::Fact::Known { value: TabLifecycle::Closed };
+    tab.facts.profile_id = m::Fact::Known { value: Some("pwsh".into()) };
+    assert!(!viewable_tab(&tab));
+    tab.facts.profile_id = m::Fact::Known { value: Some(shellfox_service::AUTOMATION_PROFILE_ID.into()) };
+    assert!(viewable_tab(&tab));
+    tab.facts.terminal_kind = m::Fact::Known { value: Some(TerminalKind::ExternalLegacy) };
+    assert!(!viewable_tab(&tab));
+}
+
 #[test]
 fn identical_session_ids_on_different_peers_do_not_alias_local_or_each_other() {
     let a = AuthenticatedPeerId::new("n-home").unwrap();
@@ -102,6 +133,84 @@ fn late_catalog_and_selection_cannot_rebind_after_peer_reconnect() {
     assert!(state.select(&old, session, None).is_err());
     assert!(state.catalog(&current, snapshot()).unwrap());
 }
+#[test]
+fn reconnect_keeps_cached_rows_and_selection_but_rejects_actions_on_old_binding() {
+    let peer_id = AuthenticatedPeerId::new("n-reconnect").unwrap();
+    let mut state = PeerSources::default();
+    state.inventory(&[peer(peer_id.as_str())]);
+    let old = state.begin(&peer_id).unwrap();
+    state.phase(&old, Phase::Connected, None);
+    let mut before = snapshot();
+    before.revision = 40;
+    let (session, tab) = sessions(&before)
+        .next()
+        .map(|s| (s.id, s.tabs.first().map(|t| t.id)))
+        .unwrap();
+    state.catalog(&old, before.clone()).unwrap();
+    state.select(&old, session, tab).unwrap();
+    state.peers.get_mut(&peer_id).unwrap().home = Some("/fixture".into());
+    state.phase(&old, Phase::Reconnecting, Some("disconnected".into()));
+    let new = state.begin(&peer_id).unwrap();
+    assert!(state.select(&old, session, tab).is_err());
+    assert!(state.select(&new, session, tab).is_err());
+    let peer = &state.peers[&peer_id];
+    assert_eq!(peer.selected_session, Some(session));
+    assert_eq!(peer.selected_tab, tab);
+    assert_eq!(peer.snapshot.as_ref().unwrap().revision, 40);
+    assert_eq!(peer.home.as_deref(), Some("/fixture"));
+    before.revision = 2;
+    state.phase(&new, Phase::Connected, None);
+    assert!(state.catalog(&new, before).unwrap());
+    assert_eq!(state.peers[&peer_id].selected_session, Some(session));
+}
+
+#[test]
+fn explicit_disconnect_restores_only_the_same_viewable_session_and_tab() {
+    let peer_id = AuthenticatedPeerId::new("n-return").unwrap();
+    let mut sources = PeerSources::default();
+    sources.inventory(&[peer(peer_id.as_str())]);
+    let old = sources.begin(&peer_id).unwrap();
+    let before = snapshot();
+    let (id, tab) = sessions(&before)
+        .find_map(|session| {
+            session
+                .tabs
+                .iter()
+                .find(|tab| viewable_tab(tab))
+                .map(|tab| (session.id, tab.id))
+        })
+        .unwrap();
+    sources.phase(&old, Phase::Connected, None);
+    sources.catalog(&old, before.clone()).unwrap();
+    sources.select(&old, id, Some(tab)).unwrap();
+    sources.retire(&peer_id).unwrap();
+    let saved = &sources.peers[&peer_id];
+    assert_eq!(saved.selected_session, Some(id));
+    assert_eq!(saved.selected_tab, Some(tab));
+    assert!(saved.snapshot.is_none());
+    assert!(saved.origin.is_none());
+    assert!(sources.select(&old, id, Some(tab)).is_err());
+
+    let new = sources.begin(&peer_id).unwrap();
+    sources.phase(&new, Phase::Connected, None);
+    sources.catalog(&new, before.clone()).unwrap();
+    assert_eq!(sources.peers[&peer_id].selected_tab, Some(tab));
+
+    sources.retire(&peer_id).unwrap();
+    let third = sources.begin(&peer_id).unwrap();
+    sources.phase(&third, Phase::Connected, None);
+    let mut without_tab = before;
+    for entry in &mut without_tab.entries {
+        if let m::CatalogEntry::Session { value } = entry {
+            value.tabs.retain(|item| item.id != tab);
+        }
+    }
+    sources.catalog(&third, without_tab).unwrap();
+    let saved = &sources.peers[&peer_id];
+    assert!(saved.selection_committed);
+    assert_eq!((saved.selected_session, saved.selected_tab), (None, None));
+}
+
 #[test]
 fn complete_catalog_retains_unavailable_rows_and_does_not_make_fake_sessions() {
     let id = AuthenticatedPeerId::new("n-home").unwrap();

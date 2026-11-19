@@ -5,6 +5,9 @@ use crate::{
 use shellfox_ghostty_vt::{PresentationView, Terminal, MAX_PRESENTATION_VIEWS};
 use std::sync::Arc;
 
+#[path = "presentation_focus.rs"]
+mod focus;
+
 pub(crate) enum PresentationResult {
     Frame(Arc<ViewFrame>),
     Applied,
@@ -16,6 +19,7 @@ struct Entry {
     version: u64,
     source: u64,
     focused: bool,
+    reported_focus: Option<bool>,
     cursor: Option<CursorVisual>,
     cache: Option<Arc<ViewFrame>>,
 }
@@ -91,6 +95,7 @@ impl Presentations {
             version: 0,
             source: self.source,
             focused: true,
+            reported_focus: None,
             cursor: None,
             cache: None,
         });

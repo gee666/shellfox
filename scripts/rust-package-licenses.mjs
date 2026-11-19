@@ -46,6 +46,21 @@ export function supplementalLicense(pkg, locked, destination) {
   return { files, selectedLicense: entry.selectedLicense ?? null, unresolvedReason: entry.unresolvedReason ?? null };
 }
 
+// Use the published SPDX expression, never guess a missing expression or ignore AND.
+// For dual-licensed crates select Apache-2.0, which does not need a copyright template.
+export function standardLicense(expression, authors = []) {
+  const options = (expression ?? '').trim().split(/\s+OR\s+|\s*\/\s*/);
+  if (!options.every(option => /^[a-z\d.-]+$/i.test(option))) return null;
+  const id = ['Apache-2.0', 'MIT', 'CC0-1.0'].find(candidate => options.includes(candidate));
+  if (!id) return null;
+  let text = readFileSync(path.join(texts, 'spdx', id + '.txt'), 'utf8');
+  if (id === 'MIT' && authors.length) {
+    const attribution = authors.map(author => author.replace(/\s*<[^>]+>/g, '')).join(', ');
+    text = text.replace('Copyright (c) <year> <copyright holders>', `Copyright (c) ${attribution}`);
+  }
+  return { id, text };
+}
+
 export function verifyAllLicenseInputs() {
   const manifest = readJson(inputs);
   for (const entry of manifest.dependencies) verifyLicenseInput(entry);

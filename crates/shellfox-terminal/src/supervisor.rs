@@ -30,9 +30,7 @@ pub(crate) fn entry() -> Result<Option<u32>> {
         "startup nonce mismatch"
     );
     let proof = crate::inspection_gate::SupervisorProof::parse(&mut args, release_name)?;
-    let first = args.next().context("missing supervised program")?;
-    let (program_environment, program) =
-        crate::program_env_pipe::parse(first, &mut args, release_name)?;
+    let program = args.next().context("missing supervised program")?;
     ensure!(
         std::path::Path::new(&program).is_absolute(),
         "supervised program must be absolute"
@@ -53,20 +51,6 @@ pub(crate) fn entry() -> Result<Option<u32>> {
     let arguments: Vec<OsString> = args.collect();
     let mut command = Command::new(&program);
     command.args(arguments);
-    if let Some(pipe) = program_environment {
-        ensure!(
-            crate::program_env::wire::KEYS
-                .iter()
-                .all(|key| std::env::var_os(key).is_none()),
-            "Trusted carrier leaked into supervisor environment."
-        );
-        crate::program_env_pipe::apply(
-            &pipe,
-            proof.parent_identity(),
-            std::path::Path::new(&program),
-            &mut command,
-        )?;
-    }
     let mut child = command.spawn().with_context(|| {
         format!(
             "spawn contained PTY program {}",

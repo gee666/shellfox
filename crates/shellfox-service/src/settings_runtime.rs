@@ -52,6 +52,8 @@ pub struct SettingsRuntimeAdapter {
     lost: CancellationToken,
     python: Arc<dyn SettingsPythonValidation>,
     probe_timeout: Duration,
+    #[cfg(windows)]
+    wsl_catalog: crate::windows_profiles::WslCatalogCache,
 }
 impl SettingsRuntimeAdapter {
     /// Pass the FINAL native ownership token, after the service receives it and
@@ -61,8 +63,16 @@ impl SettingsRuntimeAdapter {
             lost,
             python,
             probe_timeout: SETTINGS_PROBE_TIMEOUT,
+            #[cfg(windows)]
+            wsl_catalog: Default::default(),
         }
     }
+    #[cfg(windows)]
+    pub(crate) fn with_wsl_catalog(mut self, catalog: crate::windows_profiles::WslCatalogCache) -> Self {
+        self.wsl_catalog = catalog;
+        self
+    }
+
     pub fn with_probe_timeout(mut self, timeout: Duration) -> Result<Self> {
         shellfox_core::validation::ensure(
             !timeout.is_zero() && timeout <= SETTINGS_PROBE_TIMEOUT,
@@ -112,6 +122,18 @@ impl SettingsRuntimeAdapter {
             self.python(&candidate, SettingsPythonTarget::LinuxLocal, deadline)?;
         }
         check(&self.lost, deadline)?;
+        #[cfg(windows)]
+        if let Some(id) = candidate.terminal_profile_id.as_ref().and_then(Option::as_deref).filter(|id| id.starts_with("wsl:")) {
+            let selected = self.wsl_catalog.ready().and_then(|profiles| profiles.settings_profile(id));
+            return match selected {
+                Ok(selected) => {
+                    let id = selected.id.clone();
+                    normalize_settings_profile(previous, candidate, &[selected], Some(&id))
+                }
+                Err(_) if !selection_changed => Ok(candidate),
+                Err(_) => Err(unavailable_profile()),
+            };
+        }
         let catalog = discover_shell_profiles().map_err(|_| unavailable_catalog())?;
         check(&self.lost, deadline)?;
         let requested = requested_profile(&candidate, &catalog);
@@ -219,7 +241,12 @@ fn settings_profile(profile: &ShellProfile) -> Option<SettingsProfile> {
             ShellProfileId::Pwsh => SettingsShell::Pwsh,
             ShellProfileId::WindowsPowerShell => SettingsShell::WindowsPowershell,
             ShellProfileId::Wsl => SettingsShell::Wsl,
-            ShellProfileId::Cmd | ShellProfileId::LoginShell => SettingsShell::LoginShell,
+            ShellProfileId::Bash => SettingsShell::Bash,
+            ShellProfileId::Cmd
+            | ShellProfileId::LoginShell
+            | ShellProfileId::Sh
+            | ShellProfileId::Zsh
+            | ShellProfileId::Fish => SettingsShell::LoginShell,
         },
         executable: profile.executable()?.to_str()?.to_owned(),
         available: profile.unavailable_reason().is_none(),

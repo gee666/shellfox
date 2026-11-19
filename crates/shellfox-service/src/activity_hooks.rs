@@ -67,6 +67,8 @@ impl Service {
             InspectionScope::Guest
         } else if cfg!(windows) {
             InspectionScope::LocalWindows
+        } else if cfg!(target_os = "linux") {
+            InspectionScope::LocalUnix
         } else {
             InspectionScope::Unsupported
         };
@@ -204,6 +206,7 @@ impl Service {
                 self.activity.rules = settings.process_rules.clone();
                 self.activity.dirty = true;
             }
+            self.activity.apply_visibility()?;
             let updates = self.activity.owner.poll_processes(
                 &self.terminals,
                 &self.activity.rules,
@@ -221,27 +224,10 @@ impl Service {
                 }
             }
             let snapshot = self.host.snapshot()?;
-            let creation_facts = self.host.session_creation_facts()?;
             let current_revision = crate::activity_integration::read_source(&self.activity.watch)
                 .map(|source| source.snapshot.revision);
             if self.activity.dirty || current_revision != Some(snapshot.revision) {
-                let terminals = self
-                    .terminals
-                    .values()
-                    .filter(|terminal|crate::facts_membership::contains(&snapshot,terminal.runtime.identity()))
-                    .map(|terminal| crate::facts_capture::terminal(&self.activity.owner, terminal))
-                    .collect();
-                self.activity
-                    .publisher
-                    .publish_with_creation_facts(
-                        snapshot,
-                        settings,
-                        terminals,
-                        creation_facts,
-                        self.ownership_lost.clone(),
-                    )
-                    .map_err(|_| anyhow::anyhow!("Owned source facts invalid."))?;
-                self.activity.dirty = false;
+                self.publish_source_facts(snapshot, settings)?;
             }
             Ok(())
         })();
@@ -249,6 +235,54 @@ impl Service {
             self.activity.publisher.invalidate();
         }
     }
+    pub(crate) fn publish_source_facts(
+        &mut self,
+        snapshot: shellfox_core::Snapshot,
+        settings: shellfox_core::Settings,
+    ) -> Result<()> {
+        let creation_facts = self.host.session_creation_facts().inspect_err(|_| {
+            self.activity.publisher.invalidate();
+        })?;
+        let terminals = self
+            .terminals
+            .values()
+            .filter(|terminal| {
+                crate::facts_membership::contains(&snapshot, terminal.runtime.identity())
+            })
+            .map(|terminal| crate::facts_capture::terminal(&self.activity.owner, terminal))
+            .collect();
+        #[cfg(windows)]
+        self.activity.publisher.set_wsl_profiles(self.catalog.wsl.cache.current());
+        self.activity
+            .publisher
+            .publish_with_creation_facts(
+                snapshot,
+                settings,
+                terminals,
+                creation_facts,
+                self.ownership_lost.clone(),
+            )
+            .map_err(|_| anyhow::anyhow!("Owned source facts invalid."))?;
+        self.activity.dirty = false;
+        Ok(())
+    }
+    pub(crate) fn acknowledge_session_error(&mut self, id: shellfox_core::SessionId) -> Result<shellfox_core::Snapshot> {
+        let snapshot = self.host.snapshot()?;
+        anyhow::ensure!(snapshot.sessions.iter().any(|session| session.id == id), "Session not found.");
+        let settings = self.host.global_settings()?;
+        for terminal in self.terminals.values_mut() {
+            let identity = terminal.runtime.identity();
+            if identity.session_id == id && crate::facts_membership::contains(&snapshot, identity)
+                && terminal.startup.as_ref().is_some_and(Result::is_err) {
+                terminal.startup_error_acknowledged = true;
+            }
+        }
+        // Clear only the presentation error. Runtime phase, cleanup proof and
+        // the original startup result must remain authoritative.
+        self.publish_source_facts(snapshot.clone(), settings)?;
+        Ok(snapshot)
+    }
+
     pub(crate) fn forget_activity(&mut self, identity: Identity) {
         self.cancel_activity_inputs(identity);
         self.activity.owner.forget(identity);

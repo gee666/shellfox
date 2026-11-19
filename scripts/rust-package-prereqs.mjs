@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nativeTarget, root, run, scratchRoot, sha256 } from './rust-package-common.mjs';
+import { wslFilesTarget } from './rust-package-wsl-files.mjs';
 
 // Explicit CI/local acquisition only. This script never runs during app startup.
 export async function prepareGhostty() {
@@ -37,6 +38,7 @@ export async function prepareGhostty() {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.platform === 'win32') run('rustup', ['target', 'add', wslFilesTarget()]);
   const prefix = await prepareGhostty();
   if (prefix && process.env.GITHUB_ENV) {
     // GitHub's env file is supplied by the runner, not part of the package.

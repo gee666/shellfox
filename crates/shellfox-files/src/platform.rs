@@ -171,7 +171,10 @@ fn rename_held_information(
     };
     use windows_sys::Win32::Storage::FileSystem::FILE_RENAME_INFO;
     let name: Vec<u16> = leaf.encode_wide().collect();
-    let length = offset_of!(FILE_RENAME_INFO, FileName) + name.len() * 2;
+    // The native call requires at least the full struct, including its trailing
+    // padding, even when a one-character leaf fits in fewer bytes.
+    let length = (offset_of!(FILE_RENAME_INFO, FileName) + name.len() * 2)
+        .max(size_of::<FILE_RENAME_INFO>());
     // usize storage supplies the alignment required by FILE_RENAME_INFO.
     let mut buffer = vec![0usize; length.div_ceil(size_of::<usize>())];
     let info = buffer.as_mut_ptr().cast::<FILE_RENAME_INFO>();

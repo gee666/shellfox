@@ -31,10 +31,12 @@ fn source(creation: bool, observation: Option<Observation>) -> SourceFacts {
                 id: tab_id,
                 session_id,
                 title: "cmd intent".into(),
+                use_process_title: false,
                 cwd: "C:\\fixture".into(),
                 ordinal: 0,
                 created_at: Some("2026-01-01T00:00:00.000Z".into()),
                 profile_id: ProfileId::new("cmd").unwrap(),
+                wsl_launch: None,
                 state: TabState::Pending,
             }],
         }],
@@ -56,6 +58,8 @@ fn source(creation: bool, observation: Option<Observation>) -> SourceFacts {
         snapshot,
         settings,
         creation_facts: facts,
+        #[cfg(windows)]
+        wsl_profiles: None,
         cancelled: CancellationToken::new(),
         terminals: vec![TerminalSourceFacts {
             identity: Identity {

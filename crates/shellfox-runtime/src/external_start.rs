@@ -36,6 +36,8 @@ pub(crate) fn run(
         presentations: presentation::Presentations::new(),
         layouts: layout::Layouts::new(config.cols, config.rows),
         pty: None,
+        #[cfg(windows)]
+        elevated: None,
         source_kind: SourceKind::ExternalBytes,
         external: Some(source),
         delivery: Delivery::new(),

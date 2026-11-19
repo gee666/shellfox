@@ -1,7 +1,7 @@
 use crate::{
     content,
     paths::{self, Target},
-    ErrorCode, FileError, FileService, Result, PREVIEW_BYTES,
+    CapabilityKind, ErrorCode, FileError, FileService, Location, Result, PREVIEW_BYTES,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -70,7 +70,10 @@ pub(crate) fn asset_target(
     {
         return Err(FileError::denied());
     }
-    let base = service.target(&input.path)?;
+    let document = service.browser_existing(&Location {
+        path: input.path.clone(),
+    })?;
+    let base = service.target(&document.path)?;
     if !matches!(
         extension(&base.absolute).as_str(),
         "html" | "htm" | "xhtml" | "md" | "mdx" | "markdown" | "mdown" | "mkd"
@@ -81,8 +84,25 @@ pub(crate) fn asset_target(
         ));
     }
     content::open_regular(&base.parent, &base.name)?;
+    let base_directory = base.absolute.parent().ok_or_else(FileError::denied)?;
+    let full_account = matches!(
+        service.capability_kind(),
+        CapabilityKind::LocalDesktop | CapabilityKind::ApprovedFullAccount
+    ) && service.root_path().is_none();
+    let absolute = if full_account {
+        let location = Location {
+            path: paths::display(&base_directory.join(asset))?,
+        };
+        let canonical = PathBuf::from(service.browser_existing(&location)?.path);
+        if !canonical.starts_with(base_directory) || canonical == base_directory {
+            return Err(FileError::denied());
+        }
+        canonical
+    } else {
+        base_directory.join(asset)
+    };
     if !matches!(
-        extension(asset).as_str(),
+        extension(&absolute).as_str(),
         "css"
             | "js"
             | "mjs"
@@ -105,16 +125,14 @@ pub(crate) fn asset_target(
             "This file type cannot be embedded as a preview asset.",
         ));
     }
+    let mime = mime(&absolute);
+    if full_account {
+        return Ok((service.target(&paths::display(&absolute)?)?, mime));
+    }
     let parent = paths::descend(
         base.parent.try_clone()?,
         asset.parent().unwrap_or(Path::new("")),
     )?;
-    let absolute = base
-        .absolute
-        .parent()
-        .ok_or_else(FileError::denied)?
-        .join(asset);
-    let mime = mime(&absolute);
     Ok((
         Target {
             parent,

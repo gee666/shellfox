@@ -155,18 +155,21 @@ impl Options {
                 Some("--data-dir") => {
                     data_dir = Some(PathBuf::from(
                         args.next()
-                            .context("--data-dir requires an isolated directory")?,
+                            .context("--data-dir requires an absolute directory")?,
                     ))
                 }
                 _ => bail!(
-                    "usage: shellfox-gpui-experiment --data-dir PATH [--fixture|--shell|--smoke]"
+                    "usage: shellfox [--data-dir PATH] [--fixture|--shell|--smoke]"
                 ),
             }
         }
-        let root = data_dir
-            .context("--data-dir is required; never point it at Shellfox application data")?;
+        let root = match data_dir {
+            Some(root) => root,
+            None if mode == Mode::Shell => shellfox_service::app_paths::default_data_root()?,
+            None => bail!("--fixture and --smoke require an explicit --data-dir"),
+        };
         if !root.is_absolute() {
-            bail!("--data-dir must be an absolute path to an experiment-only directory");
+            bail!("--data-dir must be an absolute path");
         }
         if root.parent().is_none() {
             bail!("--data-dir must not be a filesystem root");
@@ -176,7 +179,7 @@ impl Options {
         } else {
             let mut name = root
                 .file_name()
-                .context("--data-dir must name an experiment directory")?
+                .context("--data-dir must name a directory")?
                 .to_os_string();
             name.push(".desktop");
             root.with_file_name(name)
@@ -203,13 +206,14 @@ impl Options {
                     helper_sha256,
                 })
             }
+            (None, None) if mode == Mode::Shell && !cfg!(test) && shellfox_service::app_paths::is_packaged() => {
+                let (helper, helper_sha256) = shellfox_service::app_paths::packaged_helper()?;
+                Some(crate::host_client::HostEndpointConfig { data_dir: root.clone(), helper, helper_sha256 })
+            }
             (None, None) => None,
             _ => bail!("--helper and --helper-sha256 must be supplied together"),
         };
-        let application = match &endpoint {
-            Some(endpoint) => application.finish_with_helper(&root, &endpoint.helper, endpoint.helper_sha256)?,
-            None => application.finish(&root)?,
-        };
+        let application = application.finish(&root)?;
         application.validate_separate(&[&desktop, &device_config_root])?;
         Ok(Self {
             mode,
@@ -244,7 +248,9 @@ mod tests {
     #[test]
     fn workspace_is_default_and_store_root_survives_run_rotation() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
+            .ancestors()
+            .nth(2)
+            .unwrap()
             .join("tmp")
             .join(format!(
                 "desktop-options-{}-{}",
@@ -287,8 +293,9 @@ mod tests {
         );
     }
     #[test]
-    fn explicit_absolute_experiment_directory_is_required() {
-        assert!(Options::parse(Vec::<OsString>::new()).is_err());
+    fn default_uses_the_rust_root_and_overrides_must_be_absolute() {
+        let options = Options::parse([]).unwrap();
+        assert_eq!(options.data_dir, shellfox_service::app_paths::default_data_root().unwrap());
         assert!(Options::parse(["--data-dir".into(), "relative".into()]).is_err());
         assert!(Options::parse(["--unknown".into()]).is_err());
     }

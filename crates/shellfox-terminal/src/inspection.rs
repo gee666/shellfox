@@ -61,7 +61,10 @@ pub(crate) use windows::{birth, open_query, process_identity, verify_member};
 #[cfg(windows)]
 #[derive(Clone)]
 pub struct InspectionCapability(std::sync::Arc<windows::OwnedInspection>);
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+pub struct InspectionCapability(pub(crate) std::sync::Arc<crate::unix::linux::inspection::OwnedInspection>);
+#[cfg(not(any(windows, target_os = "linux")))]
 #[derive(Clone)]
 pub struct InspectionCapability {
     _private: (),
@@ -77,11 +80,11 @@ impl InspectionCapability {
     /// Blocking read-only collection. Run on a bounded inspection worker, never
     /// on the terminal parser/PTY polling or service typing path.
     pub fn capture(&self) -> Result<RawOwnedEvidence, InspectionFailure> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             self.0.capture()
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             Err(InspectionFailure::Unsupported)
         }
@@ -96,6 +99,7 @@ impl InspectionCapability {
             .map(|owned| Self(std::sync::Arc::new(owned)))
     }
 }
+#[cfg(not(target_os = "linux"))]
 impl crate::PtySession {
     /// Clones read-only handles already authenticated before READY. No PID lookup,
     /// command-line read, worker wait, or process-control authority is exposed.

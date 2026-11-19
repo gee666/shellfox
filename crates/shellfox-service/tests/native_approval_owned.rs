@@ -14,7 +14,7 @@ fn app<T>(value: std::result::Result<T, shellfox_protocol::AppError>) -> Result<
 }
 #[test]
 fn real_go_owned_actor_approval_commit_revoke_and_restart() -> Result<()> {
-    let mut fixture = Fixture::new()?;
+    let fixture = Fixture::new()?;
     let data = fixture.data("approval-host");
     let saved = cycle(&fixture, &data, |client, _| async move {
         // This fixture only inspects legacy paths. SQL authority uses the actual
@@ -94,6 +94,5 @@ fn real_go_owned_actor_approval_commit_revoke_and_restart() -> Result<()> {
         );
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

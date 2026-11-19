@@ -30,7 +30,6 @@ impl PtySession {
             Self::spawn_inner(
                 config,
                 None,
-                None,
                 crate::unix::session::SpawnOptions { fault: Some(fault) },
             )
         }

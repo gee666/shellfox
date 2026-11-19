@@ -77,7 +77,7 @@ impl SettingsPanel {
         let mut page=div().child(controls::heading("Tracked programs"))
             .child(controls::hint("Tabs turn green while these programs run. Use a process name or an exact executable path.",p))
             .child(list)
-            .child(div().mt(px(12.)).flex().gap(px(8.)).child(div().flex_1().min_w_0().on_key_down(cx.listener(|panel,event:&gpui::KeyDownEvent,_,cx|{if event.keystroke.key=="enter"&&!panel.forms.fields[&Input::Agent].read(cx).is_composing() {panel.add_agent(cx);cx.stop_propagation();}})).child(field)).child(add));
+            .child(div().mt(px(12.)).flex().gap(px(8.)).child(div().flex_1().min_w_0().on_key_down(cx.listener(|panel,event:&gpui::KeyDownEvent,_,cx|{if event.keystroke.key == "enter" && panel.control_available(&Action::AddAgent, cx) && !panel.forms.fields[&Input::Agent].read(cx).is_composing() { panel.add_agent(cx); cx.stop_propagation(); }})).child(field)).child(add));
         if let Some(error) = &self.agent_error {
             page = page.child(
                 controls::hint(error.clone(), p)

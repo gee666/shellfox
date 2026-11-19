@@ -26,28 +26,33 @@ impl SystemNativeRequest {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum SystemCapability {
     Available,
     Unavailable(AppError),
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemMutationCapabilities {
     pub install: SystemCapability,
     pub uninstall: SystemCapability,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemNativeCapabilities {
     pub cli: SystemMutationCapabilities,
     pub explorer: SystemMutationCapabilities,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemNativeStatus {
     pub scope: SystemScope,
     pub facts: SystemFacts,
     pub capabilities: SystemNativeCapabilities,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum SystemNativeResponse {
     Status(Box<SystemNativeStatus>),
     Cli(CliIntegration),

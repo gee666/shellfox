@@ -3,6 +3,9 @@ mod power;
 #[path = "support/power_worker_cases.rs"]
 mod worker_cases;
 
+#[cfg(windows)]
+use shellfox_service::{app_paths, system};
+
 use power::{PowerBackend, PowerError, PowerLease, PowerManager, PowerStatus};
 use std::sync::{Arc, Mutex};
 
@@ -125,7 +128,7 @@ fn partial_capability_is_reported_and_can_be_released() {
 #[test]
 fn windows_real_request_is_brief_and_released() {
     let mut manager = PowerManager::new();
-    assert_eq!(manager.set(true).unwrap(), PowerStatus::Partial);
+    assert_eq!(manager.set(true).unwrap(), PowerStatus::Active);
     std::thread::sleep(std::time::Duration::from_millis(5));
     assert_eq!(manager.set(false).unwrap(), PowerStatus::Inactive);
 }

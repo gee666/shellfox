@@ -1,6 +1,8 @@
 #![cfg(windows)]
 #[path = "support/automation_lifetime.rs"]
 mod lifetime;
+#[path = "../../test_dev_helper.rs"]
+mod dev_helper;
 #[path = "support/mod.rs"]
 pub mod support;
 use anyhow::{ensure, Context, Result};
@@ -21,29 +23,16 @@ use std::{
 };
 
 #[test]
-#[ignore = "explicit trusted helper+owned raw fixture only; no installed host/data"]
 fn same_client_deferred_stdin_and_consumption_acked_output_have_no_head_of_line_block() -> Result<()>
 {
-    let helper = PathBuf::from(
-        std::env::var_os("SHELLFOX_CLI_TEST_HELPER").context("explicit verified helper")?,
-    );
-    let raw = PathBuf::from(
-        std::env::var_os("SHELLFOX_RAW_TEST_HELPER").context("explicit owned raw fixture")?,
-    );
-    ensure!(
-        helper.is_absolute() && helper.is_file() && raw.is_absolute() && raw.is_file(),
-        "Existing absolute fixture paths required."
-    );
-    let hex = std::env::var("SHELLFOX_CLI_TEST_HELPER_SHA256")?;
-    ensure!(
-        hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()),
-        "Trusted digest required."
-    );
-    let mut digest = [0; 32];
-    for (i, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)?;
-    }
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+    let (helper, digest) = dev_helper::helper()?;
+    let raw = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-cli-raw-fixture"));
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .context("workspace root")?
+        .join("tmp");
     std::fs::create_dir_all(&root)?;
     let scratch = tempfile::Builder::new()
         .prefix("cli-automation-owner-")
@@ -86,10 +75,14 @@ fn same_client_deferred_stdin_and_consumption_acked_output_have_no_head_of_line_
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
         };
+        let release = scratch.path().join("release-stdin");
         let spec = AutomationStart {
             request_id: uuid::Uuid::new_v4(),
             executable: raw.to_str().context("Unicode raw fixture")?.into(),
-            args: vec!["prefill-echo".into()],
+            args: vec![
+                "prefill-echo".into(),
+                release.to_str().context("Unicode release path")?.into(),
+            ],
             cwd: scratch.path().to_str().context("Unicode cwd")?.into(),
             env: BTreeMap::new(),
             title: Some("Owned deferred IO fixture".into()),
@@ -100,21 +93,26 @@ fn same_client_deferred_stdin_and_consumption_acked_output_have_no_head_of_line_
             client.request(&spec).await?.pid == run.pid,
             "Request-ID retry created another owned process."
         );
-        let input: Vec<u8> = (0..AUTOMATION_CHUNK_BYTES)
+        // More than a single pipe buffer, even if several writes are accepted
+        // while the child is blocked waiting for the reader's release.
+        const INPUT_CHUNKS: usize = 16;
+        let input: Vec<u8> = (0..INPUT_CHUNKS * AUTOMATION_CHUNK_BYTES)
             .map(|i| (i % 256) as u8)
             .collect();
         let written = Arc::new(AtomicBool::new(false));
         let writing = written.clone();
         let write = async {
-            let receipt = client
-                .request(&AutomationWrite {
-                    id: run.id,
-                    data: shellfox_service::local::encode_chunk(&input)?,
-                    eof: true,
-                })
-                .await?;
+            for (index, chunk) in input.chunks(AUTOMATION_CHUNK_BYTES).enumerate() {
+                let receipt = client
+                    .request(&AutomationWrite {
+                        id: run.id,
+                        data: shellfox_service::local::encode_chunk(chunk)?,
+                        eof: index + 1 == INPUT_CHUNKS,
+                    })
+                    .await?;
+                ensure!(receipt.accepted, "OS write was not accepted.");
+            }
             writing.store(true, Ordering::Release);
-            ensure!(receipt.accepted, "OS write was not accepted.");
             Ok::<_, anyhow::Error>(())
         };
         let read = async {
@@ -136,8 +134,11 @@ fn same_client_deferred_stdin_and_consumption_acked_output_have_no_head_of_line_
                     let bytes = shellfox_service::local::decode_chunk(&frame.data)?;
                     match frame.stream {
                         AutomationStream::Stdout => {
-                            if !written.load(Ordering::Acquire) {
-                                progressed_while_pending = true;
+                            if stdout == 0 {
+                                progressed_while_pending = !written.load(Ordering::Acquire);
+                                // The fixture cannot read stdin until the same client
+                                // has successfully drained at least one output frame.
+                                std::fs::write(&release, [])?;
                             }
                             for byte in bytes {
                                 let expected = if stdout < 2 * 1024 * 1024 {

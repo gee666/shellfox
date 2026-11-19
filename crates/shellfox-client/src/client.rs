@@ -6,6 +6,31 @@ use std::{
 
 use crate::state::*;
 
+fn is_connection_denial(method: &str, code: &ErrorCode) -> bool {
+    match code {
+        ErrorCode::AuthFailed | ErrorCode::ApprovalRequired => true,
+        // A filesystem ACL or view-only denial rejects that operation, not the authenticated host view.
+        ErrorCode::AccessDenied => !matches!(
+            method,
+            "listFiles"
+                | "readFile"
+                | "writeFile"
+                | "writeImageFile"
+                | "readFileAsset"
+                | "completeDirectory"
+                | "resolveDirectory"
+                | "createDirectory"
+                | "beginFileRead"
+                | "readFileChunk"
+                | "beginFileWrite"
+                | "writeFileChunk"
+                | "finishFileWrite"
+                | "cancelFileTransfer"
+        ),
+        _ => false,
+    }
+}
+
 /// One approved host view. Runtime drives pairing and polling; this crate spawns no tasks.
 /// Mutations always make exactly one send. A transport error means outcome unknown.
 pub struct Client<T> {
@@ -124,11 +149,45 @@ impl<T: OutboundTransport> Client<T> {
         &self,
         request: &R,
     ) -> Result<Reply<R::Response>, ClientError> {
+        self.execute_in_connection(request, None).await
+    }
+
+    /// Continuation of a multi-request effect. Never dispatch on a newly paired connection.
+    pub async fn execute_with_connection<R: Request>(
+        &self,
+        connection: u64,
+        request: &R,
+    ) -> Result<Reply<R::Response>, ClientError> {
+        self.execute_in_connection(request, Some(connection)).await
+    }
+
+    pub fn with_connection<R>(
+        &self,
+        connection: u64,
+        operation: impl FnOnce() -> R,
+    ) -> Result<R, ClientError> {
+        let session = self.session.lock().expect("client state");
+        if session.state.status != ConnectionStatus::Connected
+            || session.state.connection_id != connection
+        {
+            return Err(ClientError::StaleConnection);
+        }
+        Ok(operation())
+    }
+
+    async fn execute_in_connection<R: Request>(
+        &self,
+        request: &R,
+        expected: Option<u64>,
+    ) -> Result<Reply<R::Response>, ClientError> {
         request.validate_wire()?;
         let (id, cycle, cancel) = {
             let mut s = self.session.lock().expect("client state");
             if s.state.status != ConnectionStatus::Connected {
                 return Err(ClientError::NotConnected);
+            }
+            if expected.is_some_and(|id| s.state.connection_id != id) {
+                return Err(ClientError::StaleConnection);
             }
             if s.pending >= 8 {
                 return Err(ClientError::TooManyRequests);
@@ -167,12 +226,7 @@ impl<T: OutboundTransport> Client<T> {
             return Err(ClientError::StaleConnection);
         }
         match &result {
-            Ok(Reply::Failure(error))
-                if matches!(
-                    error.code,
-                    ErrorCode::AccessDenied | ErrorCode::AuthFailed | ErrorCode::ApprovalRequired
-                ) =>
-            {
+            Ok(Reply::Failure(error)) if is_connection_denial(R::METHOD, &error.code) => {
                 Self::failed(&mut s, Some(error))
             }
             Err(ClientError::Transport(TransportError::Cancelled)) => {}

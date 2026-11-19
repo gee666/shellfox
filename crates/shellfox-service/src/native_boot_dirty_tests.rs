@@ -9,7 +9,6 @@ use std::sync::{
 };
 
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "explicit verified offline helper only; fresh private fixtures, no user host"]
 async fn guard_clean_resources_preserve_actor_dirty_warning_after_go_cleanup() {
     struct Dirty {
         cwd: String,
@@ -46,14 +45,7 @@ async fn guard_clean_resources_preserve_actor_dirty_warning_after_go_cleanup() {
         .prefix("native-dirty-guard-")
         .tempdir_in(root)
         .unwrap();
-    let path =
-        PathBuf::from(std::env::var_os("SHELLFOX_SERVICE_TEST_HELPER").expect("helper artifact"));
-    let hash = std::env::var("SHELLFOX_SERVICE_TEST_HELPER_SHA256").expect("trusted digest");
-    assert_eq!(hash.len(), 64);
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hash[index * 2..index * 2 + 2], 16).unwrap();
-    }
+    let (path, digest) = crate::tests::helper();
     let private = PrivateDirectory::plan(data.path(), &path, digest, true).unwrap();
     let directory = shellfox_transport::normalize_private_path(data.path()).unwrap();
     let mut guard = BootGuard::new(private).unwrap();

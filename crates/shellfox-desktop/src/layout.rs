@@ -1,5 +1,14 @@
 use crate::{root::Root, theme::Palette};
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
+pub(crate) fn sessions_tooltip(expanded: bool) -> &'static str {
+    match (expanded, cfg!(target_os = "macos")) {
+        (true, true) => "Hide sessions (⌘B)",
+        (false, true) => "Show sessions (⌘B)",
+        (true, false) => "Hide sessions (Ctrl+B)",
+        (false, false) => "Show sessions (Ctrl+B)",
+    }
+}
+
 impl Root {
     pub(crate) fn workspace_width(&self, window: &Window) -> f32 {
         f32::from(window.viewport_size().width)
@@ -18,46 +27,36 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        if self.resize_session_environment(event, window, cx) { return; }
         let left = event.pressed_button == Some(gpui::MouseButton::Left);
         let mut changed = self.resizing_sidebar;
         if self.resizing_sidebar {
-            if left {
-                self.sidebar_width = crate::sidebar::clamp_width(
-                    f32::from(event.position.x),
-                    f32::from(window.viewport_size().width),
-                );
+            if left && let Some(start) = self.sidebar_ui.resize_origin {
+                self.sidebar_width = start.width(f32::from(event.position.x), f32::from(window.viewport_size().width));
             } else {
                 self.resizing_sidebar = false;
+                self.sidebar_ui.resize_origin = None;
             }
         }
-        let workspace = self.workspace_width(window);
-        if let Some(files) = &mut self.files {
-            if files.resizing_width {
-                changed = true;
-                if left {
-                    let max = (workspace - 200.).max(0.);
-                    files.width = (f32::from(window.viewport_size().width)
-                        - f32::from(event.position.x))
-                    .clamp(300f32.min(max), max);
-                } else {
-                    files.resizing_width = false;
-                }
-            }
-            if files.resizing_browser {
-                changed = true;
-                if left {
-                    let max = (f32::from(window.viewport_size().height) - 200.).max(0.);
-                    files.browser_height =
-                        (f32::from(event.position.y) - 32.).clamp(68f32.min(max), max);
-                } else {
-                    files.resizing_browser = false;
-                }
-            }
-        }
+        changed |= self.resize_files(event, window, cx);
         if changed {
             cx.stop_propagation();
             cx.notify();
         }
+    }
+
+    fn sidebar_resize_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let step = if event.keystroke.modifiers.shift { 32. } else { 4. };
+        let width = match event.keystroke.key.as_str() {
+            "left" => self.sidebar_width - step,
+            "right" => self.sidebar_width + step,
+            "home" => 220.,
+            _ => return,
+        };
+        self.sidebar_width = crate::sidebar::clamp_width(width, f32::from(window.viewport_size().width));
+        window.prevent_default();
+        cx.stop_propagation();
+        cx.notify();
     }
 
     pub(crate) fn layout_body(
@@ -71,6 +70,8 @@ impl Root {
             content = content.child(self.session_sidebar(palette, window, cx)).child(
                 div()
                     .id("sidebar-resizer")
+                    .track_focus(&self.sidebar_ui.resizer)
+                    .on_key_down(cx.listener(Self::sidebar_resize_key))
                     .w(px(4.))
                     .h_full()
                     .flex_shrink_0()
@@ -79,10 +80,22 @@ impl Root {
                     .border_color(palette.border)
                     .cursor(gpui::CursorStyle::ResizeColumn)
                     .hover(|style| style.bg(palette.accent))
+                    .focus(|style| style.border_1().border_color(palette.accent))
+                    .when(self.resizing_sidebar, |style| style.bg(palette.accent))
                     .on_mouse_down(
                         gpui::MouseButton::Left,
-                        cx.listener(|root, _, _, cx| {
-                            root.resizing_sidebar = true;
+                        cx.listener(|root, event: &gpui::MouseDownEvent, window, cx| {
+                            root.sidebar_ui.resizer.focus(window);
+                            let viewport = f32::from(window.viewport_size().width);
+                            if event.click_count > 1 {
+                                root.sidebar_width = crate::sidebar::clamp_width(220., viewport);
+                                root.resizing_sidebar = false;
+                                root.sidebar_ui.resize_origin = None;
+                            } else {
+                                root.sidebar_ui.resize_origin = Some(crate::sidebar::SidebarDrag::start(f32::from(event.position.x), root.sidebar_width, viewport));
+                                root.resizing_sidebar = true;
+                            }
+                            cx.notify();
                             cx.stop_propagation();
                         }),
                     )
@@ -90,6 +103,7 @@ impl Root {
                         gpui::MouseButton::Left,
                         cx.listener(|root, _, _, cx| {
                             root.resizing_sidebar = false;
+                            root.sidebar_ui.resize_origin = None;
                             cx.notify();
                         }),
                     )
@@ -97,6 +111,7 @@ impl Root {
                         gpui::MouseButton::Left,
                         cx.listener(|root, _, _, cx| {
                             root.resizing_sidebar = false;
+                            root.sidebar_ui.resize_origin = None;
                             cx.notify();
                         }),
                     ),
@@ -123,9 +138,12 @@ impl Root {
                             .child(
                                 crate::assets::icon_button("show-sessions", "chevron", palette)
                                     .w(px(24.))
-                                    .on_click(cx.listener(|root, _, _, cx| {
-                                        root.sidebar = true;
-                                        cx.notify();
+                                    .track_focus(&self.sidebar_ui.toggle)
+                                    .focus(|style| style.border_1().border_color(palette.accent))
+                                    .tooltip(crate::assets::tooltip(sessions_tooltip(false), palette))
+                                    .on_click(cx.listener(|root, _, window, cx| {
+                                        root.sidebar_ui.toggle.focus(window);
+                                        root.toggle_sessions_layout(window, cx);
                                     })),
                             ),
                     ),

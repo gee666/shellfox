@@ -20,17 +20,24 @@ use std::{
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+#[cfg(windows)]
+type PermissionCheck = dyn Fn(&Path, bool, bool) -> Result<()> + Send + Sync;
+
 /// Host configuration only. Never accept a permissions executable from a remote request.
 #[derive(Clone)]
 pub struct StoragePolicy {
     helper: Option<PathBuf>,
     runner: Arc<dyn ProcessRunner>,
+    #[cfg(windows)]
+    check: Option<Arc<PermissionCheck>>,
 }
 impl Default for StoragePolicy {
     fn default() -> Self {
         Self {
             helper: None,
             runner: Arc::new(SystemProcessRunner),
+            #[cfg(windows)]
+            check: None,
         }
     }
 }
@@ -45,6 +52,14 @@ impl StoragePolicy {
         self.runner = runner;
         self
     }
+    #[cfg(windows)]
+    pub fn with_permission_check(
+        mut self,
+        check: impl Fn(&Path, bool, bool) -> Result<()> + Send + Sync + 'static,
+    ) -> Self {
+        self.check = Some(Arc::new(check));
+        self
+    }
     fn permissions(&self, path: &Path, directory: bool, protect: bool) -> Result<()> {
         if !cfg!(windows) {
             return Ok(());
@@ -53,6 +68,10 @@ impl StoragePolicy {
         let native_path = identity::native_helper_path(path)?;
         #[cfg(windows)]
         let path = native_path.as_path();
+        #[cfg(windows)]
+        if let Some(check) = &self.check {
+            return check(path, directory, protect);
+        }
         let helper = self.helper.as_ref().ok_or(Error::PermissionsHelper)?;
         if !helper.is_absolute() || !helper.is_file() {
             return Err(Error::PermissionsHelper);
@@ -97,7 +116,13 @@ pub struct PrivateDirectory {
 }
 impl PrivateDirectory {
     pub fn open(path: impl AsRef<Path>, policy: StoragePolicy) -> Result<Self> {
-        let path = path.as_ref();
+        Self::open_inner(path.as_ref(), policy, true)
+    }
+    /// Verify an existing directory without creating it or changing its ACL.
+    pub fn open_existing(path: impl AsRef<Path>, policy: StoragePolicy) -> Result<Self> {
+        Self::open_inner(path.as_ref(), policy, false)
+    }
+    fn open_inner(path: &Path, policy: StoragePolicy, create: bool) -> Result<Self> {
         if !path.is_absolute()
             || path
                 .components()
@@ -116,10 +141,14 @@ impl PrivateDirectory {
             builder.mode(0o700);
             builder
         };
-        let created = match parent.create_dir_with(name, &builder) {
-            Ok(()) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
-            Err(_) => return Err(Error::Storage),
+        let created = if create {
+            match parent.create_dir_with(name, &builder) {
+                Ok(()) => true,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => false,
+                Err(_) => return Err(Error::Storage),
+            }
+        } else {
+            false
         };
         // Reject final-component links/reparse points before protecting an empty new directory.
         let dir = parent
@@ -144,11 +173,6 @@ impl PrivateDirectory {
     /// Host-only private IPC path. Remote clients must not receive this capability.
     pub fn path(&self) -> &Path {
         &self.path
-    }
-    pub(crate) fn file_path(&self, name: &str) -> Result<PathBuf> {
-        Self::name(name)?;
-        self.check()?;
-        Ok(self.path.join(name))
     }
     fn check(&self) -> Result<()> {
         let current = platform::directory_handle(&self.path)?;

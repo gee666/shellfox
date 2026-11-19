@@ -9,6 +9,8 @@ mod directory_names;
 mod directory_plan;
 pub use directory_plan::{DirectoryPlan,DirectoryRelation};
 pub use directory_plan::create::{DirectoryPreparationFailure,DirectoryPreparationOwner,DirectoryRetention};
+mod browser_wsl;
+pub use browser_wsl::WslBrowserScope;
 mod editor;
 mod native_commit_fence;
 pub use native_commit_fence::NativeCommitFence;
@@ -44,7 +46,9 @@ mod private_verify;
 mod private_parent_windows;
 #[cfg(windows)]
 mod private_windows;
-pub use private_creation::{create_private_directory_at, create_private_file_at,
+#[cfg(windows)]
+pub use private_creation::{create_app_directory_at, open_app_directory_at};
+pub use private_creation::{create_private_directory_at, create_private_file_at, repair_app_directory_at,
     open_existing_private_at, CreatedPrivate, VerifiedPrivate, PrivateKind, PrivateFileUse, PrivateAccess,PrivateCleanupState,PreparedPrivateDirectoryRef,
     bounded_private_read_at,PrivateRead,PrivateVersion,PRIVATE_METADATA_MAX_BYTES,
     prepare_private_publication_at,OwnedPrivatePublication,PrivatePublicationPhase,PrivatePublishOutcome,
@@ -74,7 +78,10 @@ pub use directory_ops::{
     DirectoryCompletions, DirectoryResolved, FileContext, DIRECTORY_COMPLETION_BYTES,
     DIRECTORY_COMPLETION_LIMIT,
 };
-pub use editor::{EditorBackend, EditorCancellation, EditorSession};
+pub use editor::{EditorBackend, EditorCancellation, EditorFileSink, EditorFileSource, EditorSession};
+#[cfg(target_os = "linux")]
+pub use editor::serve_wsl_files;
+pub mod wsl_files_ipc;
 pub use error::{ErrorCode, FileError, Result};
 pub use read_result::ReadResult;
 pub use service::FileService;

@@ -1,21 +1,42 @@
 use shellfox_ghostty_vt::{Rgb, TerminalColors};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TerminalTheme {
     pub background: u32,
     pub foreground: u32,
     pub accent: u32,
+    selection: u32,
+    scrollbar: [gpui::Hsla; 2],
     ansi: Option<[u32; 16]>,
 }
 
 impl TerminalTheme {
     pub fn from_colors(background: u32, foreground: u32, accent: u32) -> Self {
+        let palette = crate::theme::Palette::new(&format!("#{accent:06x}"), &format!("#{background:06x}"));
+        let alpha = if palette.dark { 102. / 255. } else { 77. / 255. };
+        let selection = [16, 8, 0].into_iter().fold(0, |color, shift| {
+            let bg = ((background >> shift) & 255) as f32;
+            let fg = ((accent >> shift) & 255) as f32;
+            color | (((bg + (fg - bg) * alpha).round() as u32) << shift)
+        });
+        let mut thumb = palette.border;
+        thumb.a = 128. / 255.;
         Self {
             background,
             foreground,
             accent,
+            selection,
+            scrollbar: [thumb, palette.input_border],
             ansi: None,
         }
+    }
+
+    pub(super) fn selection(self) -> gpui::Hsla {
+        gpui::rgb(self.selection).into()
+    }
+
+    pub(crate) fn scrollbar(self, active: bool) -> gpui::Hsla {
+        self.scrollbar[usize::from(active)]
     }
 
     pub fn with_ansi_palette(mut self, ansi: [u32; 16]) -> Self {

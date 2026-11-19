@@ -185,6 +185,39 @@ fn editor_oversize_is_rejected_without_widening_inline_contracts_or_creating_sta
     f.clean();
 }
 #[test]
+fn document_read_uses_content_kind_and_chunked_limits() {
+    let f = Fixture::new();
+    let cancel = EditorCancellation::default();
+    let read = || f.session.read_document(&f.location(), &cancel);
+    fs::write(f.path(), [0xff, 0x00, 0x01]).unwrap();
+    assert!(matches!(
+        read().unwrap(),
+        ReadResult::Binary { size: 3, .. }
+    ));
+    f.clean();
+
+    let png = b"\x89PNG\r\n\x1a\n";
+    fs::write(f.path(), png).unwrap();
+    assert!(
+        matches!(read().unwrap(), ReadResult::Image { mime_type, bytes, .. } if mime_type == "image/png" && bytes == png)
+    );
+    f.clean();
+
+    let beyond_inline = "雪\r\n".repeat(TEXT_BYTES / 4);
+    assert!(beyond_inline.len() > TEXT_BYTES);
+    fs::write(f.path(), &beyond_inline).unwrap();
+    assert!(matches!(read().unwrap(), ReadResult::Text { text, .. } if text == beyond_inline));
+    f.clean();
+
+    fs::write(f.path(), vec![b'x'; TRANSFER_TEXT_BYTES as usize + 1]).unwrap();
+    assert_eq!(
+        read().unwrap_err().message,
+        "Text preview is limited to 8 MiB. Use Download for larger files."
+    );
+    f.clean();
+}
+
+#[test]
 fn cancelled_chunk_read_and_save_release_every_transfer_and_keep_original_content() {
     let f = Fixture::new();
     let bytes = vec![b'x'; CHUNK_BYTES * 2 + 17];

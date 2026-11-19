@@ -1,6 +1,6 @@
 //! Retained provider startup on the original acquired bootstrap and actor.
 use super::*;
-use crate::{native_providers::NativeHostProviders, ssh::NativeSshInstall};
+use crate::{native_providers::NativeHostProviders, ssh::Store};
 use std::thread::JoinHandle;
 
 #[derive(Default)]
@@ -8,11 +8,11 @@ pub(super) struct NativeProviderState {
     pub plan: Option<NativeHostProviders>,
     system_installed: bool,
     ssh_installed: bool,
-    job: Option<JoinHandle<Result<NativeSshInstall>>>,
+    job: Option<JoinHandle<Result<Option<Store>>>>,
     panicked: bool,
 }
 impl NativeProviderState {
-    fn finished(&mut self) -> Result<Option<NativeSshInstall>> {
+    fn finished(&mut self) -> Result<Option<Option<Store>>> {
         anyhow::ensure!(
             !self.panicked,
             "Original native provider worker panicked; cleanup remains unconfirmed."
@@ -36,9 +36,6 @@ impl NativeProviderState {
 }
 impl BootGuard {
     pub(super) async fn install_native_providers(&mut self) -> Result<()> {
-        let Some(plan) = self.providers.plan.clone() else {
-            return Ok(());
-        };
         self.server.ensure_running()?;
         let actor = self
             .actor
@@ -46,14 +43,13 @@ impl BootGuard {
             .context("Original actor missing before provider installation")?;
         let client = actor.client(uuid::Uuid::new_v4());
         if !self.providers.system_installed {
-            client
-                .install_system_native(plan.system_backend().clone())
-                .await?;
+            if let Some(plan) = &self.providers.plan {
+                client
+                    .install_system_native(plan.system_backend().clone())
+                    .await?;
+            }
             self.providers.system_installed = true;
         }
-        let Some(ssh) = plan.ssh else {
-            return Ok(());
-        };
         if self.providers.ssh_installed {
             return Ok(());
         }
@@ -65,7 +61,7 @@ impl BootGuard {
             );
             let lost = ownership.lost();
             let stop = self.server.stop.clone();
-            let directory = self.private.path.join("ssh");
+            let location = self.private.ssh_store.clone();
             let (registered, wait_registered) = std::sync::mpsc::sync_channel(1);
             let job = std::thread::Builder::new()
                 .name("shellfox-native-providers".into())
@@ -77,7 +73,13 @@ impl BootGuard {
                         !lost.is_cancelled() && !stop.load(std::sync::atomic::Ordering::Acquire),
                         "Native provider preparation canceled"
                     );
-                    let install = ssh.materialize(&directory)?;
+                    let install = match location.install() {
+                        Ok(store) => Some(store),
+                        Err(error) => {
+                            eprintln!("SSH profile storage unavailable: {error:#}");
+                            None
+                        }
+                    };
                     anyhow::ensure!(
                         !lost.is_cancelled() && !stop.load(std::sync::atomic::Ordering::Acquire),
                         "Native provider authority ended during preparation"
@@ -101,7 +103,9 @@ impl BootGuard {
             self.preparation.acquired_view()?.is_alive(),
             "Native ownership lost before SSH installation"
         );
-        client.install_ssh_native(install).await?;
+        if let Some(install) = install {
+            client.install_ssh_profiles(install).await?;
+        }
         self.providers.ssh_installed = true;
         Ok(())
     }
@@ -122,8 +126,7 @@ impl BootGuard {
             );
         }
         if self.providers.job.is_some() {
-            // No SSH session is launched by preparation. A returned install or
-            // ordinary error can drop only after its original worker has joined.
+            // Keep the worker until its file and permissions operations finish.
             let _ = self.providers.finished()?;
         }
         Ok(())

@@ -17,10 +17,12 @@ fn session() -> Session {
                 id: TabId::new(),
                 session_id: id,
                 title: format!("Tab {ordinal}"),
+                use_process_title: false,
                 cwd: "/fixture".into(),
                 ordinal,
                 created_at: None,
                 profile_id: ProfileId::default(),
+                wsl_launch: None,
                 state: TabState::Pending,
             })
             .collect(),

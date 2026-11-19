@@ -23,6 +23,7 @@ Pods/
 
 # .NET / native build output
 bin/
+!/crates/shellfox-runtime/src/bin/
 obj/
 *.user
 *.suo

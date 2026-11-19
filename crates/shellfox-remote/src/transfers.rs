@@ -62,13 +62,19 @@ impl RemoteTransfers {
         match command {
             BeginFileRead(input) => {
                 let capability = file_ops::capability(actor, &input.path)?.clone();
+                let path = capability
+                    .browser_existing(&files::Location {
+                        path: input.path.clone(),
+                    })
+                    .map_err(file_ops::file_error)?
+                    .path;
                 let result = self
                     .registry
                     .begin_read(
                         &identity,
                         capability,
                         &files::BeginRead {
-                            path: input.path.clone(),
+                            path,
                             asset_path: input.asset_path.clone(),
                         },
                         &auth,

@@ -7,6 +7,8 @@ mod channel;
 mod fixture;
 mod framing;
 #[cfg(windows)]
+mod interactive;
+#[cfg(windows)]
 mod isolated_env;
 mod launch;
 #[cfg(windows)]
@@ -24,10 +26,14 @@ mod tests;
 mod transport;
 mod wire;
 
+pub const ADMINISTRATOR_PROFILE_ID: &str = "administrator-powershell";
+
 pub use channel::{Channel, Event, Generation, Phase, StartupError};
 #[cfg(any(test, feature = "test-support"))]
 pub use fixture::{fixture_session, FixtureScenario};
 pub use framing::LineDecoder;
+#[cfg(windows)]
+pub use interactive::InteractiveHelper;
 pub use launch::{Capability, Launch, PreparedLaunch};
 #[cfg(windows)]
 pub use native::{NativeFactory, UserApproval};

@@ -1,311 +1,278 @@
-use crate::workspace::AfterAction;
 use crate::{
     field::Field,
     root::{Dialog, Root},
 };
-use gpui::{Context, Entity, KeyDownEvent, Window};
-use shellfox_files::{Access, EntryKind, FileService, Location};
-use shellfox_host::{CreateSession, HostRequest, ProfileId, SessionId};
-use shellfox_service::native::NativeAction;
-use std::path::{Path, PathBuf};
+use gpui::{Context, Entity, FocusHandle, ScrollHandle, Subscription, Window};
+use shellfox_host::SessionId;
+use std::{path::PathBuf, time::Duration};
+
+#[path = "directory_completion.rs"]
+pub(crate) mod completion;
+#[path = "directory_keys.rs"]
+mod keys;
+#[path = "directory_paths.rs"]
+mod paths;
+#[path = "directory_peer.rs"]
+mod peer;
+#[path = "directory_submit.rs"]
+mod submit;
+
+pub(crate) fn validate_session_folder(cwd: &str) -> Result<PathBuf, String> {
+    paths::resolve(std::path::Path::new(cwd), cwd, false)
+        .map(PathBuf::from)
+        .map_err(|_| "The session folder is missing or inaccessible.".into())
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Busy {
+    Checking,
+    Creating,
+}
 
 pub struct Draft {
     pub path: Entity<Field>,
-    pub matches: Vec<String>,
-    pub active: usize,
-    pub request_id: SessionId,
-    pub last_query: Option<String>,
-    pub accepted: Option<String>,
-    pub busy: bool,
+    target: Option<peer::PeerDirectory>,
+    pub home: Option<PathBuf>,
+    pub scroll: ScrollHandle,
+    pub scrollbar: crate::files::scrollbar::Scrollbar,
+    pub browse: FocusHandle,
+    pub close: FocusHandle,
+    prior: Option<FocusHandle>,
+    pub keep_editing: FocusHandle,
+    pub create_missing: FocusHandle,
+    id: SessionId,
+    seen: (String, bool),
+    completion: completion::Completion,
+    pub busy: Option<Busy>,
+    pub missing: Option<String>,
     pub error: Option<String>,
+    _focus: [Subscription; 3],
 }
-impl Root {
-    pub(crate) fn create_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        #[cfg(feature="experimental-shellfox-native")]
-        if !self.is_local_source(){self.focus_peer_create(window,cx);return;}
-        if self.user_action_pending || self.closing_window {
-            return;
-        }
-        let path = Field::directory(cx);
-        path.read(cx).focus(window);
-        cx.observe(&path, |root, _, cx| root.refresh_directory_matches(cx))
-            .detach();
-        self.dialog = Some(Dialog::Create(Draft {
-            path,
-            matches: Vec::new(),
-            active: 0,
-            request_id: SessionId::new(),
-            last_query: None,
-            accepted: None,
-            busy: false,
-            error: None,
-        }));
-        self.settings = false;
-        self.session_menu = None;
-        self.refresh_directory_matches(cx);
-        cx.notify();
+
+impl Draft {
+    pub(crate) fn matches(&self, cx: &gpui::App) -> &[String] {
+        self.completion.visible(&self.path.read(cx).text)
     }
-    pub(crate) fn refresh_directory_matches(&mut self, cx: &mut Context<Self>) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
-            return;
-        };
-        let query = draft.path.read(cx).text.clone();
-        if draft.busy
-            || draft.last_query.as_ref() == Some(&query)
-            || draft.path.read(cx).is_composing()
+
+    pub(crate) fn peer_name(&self) -> Option<&str> {
+        self.target.as_ref().map(|target| target.name.as_str())
+    }
+
+    pub(crate) fn active(&self) -> usize {
+        self.completion.active()
+    }
+}
+
+impl Root {
+    pub(crate) fn can_create_local_session(&self) -> bool {
+        self.host.is_some()
+            && self.snapshot.is_some()
+            && self.profiles.iter().any(|profile| {
+                profile.available && (cfg!(windows) || profile.id == self.default_profile())
+            })
+    }
+
+    pub(crate) fn open_local_directory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dialog.is_some()
+            || self.user_action_pending
+            || self.closing_window
+            || !self.can_create_local_session()
         {
             return;
         }
-        if draft.accepted.as_ref() == Some(&query) {
-            draft.matches.clear();
+        if !self.is_local_source() {
+            self.select_local_source(window, cx);
+        }
+        self.show_directory(None, paths::home(), window, cx);
+    }
+
+    fn show_directory(
+        &mut self,
+        target: Option<peer::PeerDirectory>,
+        home: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.dialog.is_some() || self.user_action_pending || self.closing_window {
             return;
         }
-        draft.accepted = None;
-        draft.last_query = Some(query.clone());
-        draft.error = None;
-        let request_id = draft.request_id;
-        let (directory, needle, prefix) = completion_query(&self.run_dir, &query);
-        let task = cx.background_executor().spawn(async move {
-            FileService::local_desktop(Access::ReadOnly)
-                .list(&Location {
-                    path: directory.to_string_lossy().into_owned(),
-                })
-                .map(|listing| {
-                    listing
-                        .entries
-                        .into_iter()
-                        .filter(|entry| {
-                            entry.kind == EntryKind::Directory
-                                && entry
-                                    .name
-                                    .to_lowercase()
-                                    .starts_with(&needle.to_lowercase())
-                        })
-                        .take(100)
-                        .map(|entry| format!("{prefix}{}{}", entry.name, std::path::MAIN_SEPARATOR))
-                        .collect::<Vec<_>>()
-                })
+        let path = Field::directory(cx);
+        let focus = path.read(cx).edit_focus();
+        let observe = cx.observe(&path, |root, _, cx| root.directory_edit(cx));
+        let blur = cx.on_blur(&focus, window, |root, _, cx| {
+            if let Some(Dialog::Create(draft)) = &mut root.dialog {
+                draft.completion.dismiss();
+                cx.notify();
+            }
         });
+        let focused = cx.on_focus(&focus, window, |root, _, cx| {
+            root.reopen_directory_matches(cx)
+        });
+        let error = (home.is_none() && target.is_none())
+            .then(|| "Could not determine the home directory.".into());
+        self.dialog = Some(Dialog::Create(Draft {
+            path,
+            target,
+            home,
+            scroll: ScrollHandle::new(),
+            scrollbar: Default::default(),
+            browse: cx.focus_handle(),
+            close: cx.focus_handle(),
+            prior: window.focused(cx),
+            keep_editing: cx.focus_handle(),
+            create_missing: cx.focus_handle(),
+            id: SessionId::new(),
+            seen: (String::new(), false),
+            completion: Default::default(),
+            busy: None,
+            missing: None,
+            error,
+            _focus: [observe, blur, focused],
+        }));
+        self.settings = false;
+        self.session_menu = None;
+        focus.focus(window);
+        // The input has not been painted yet, so its first focus event may not fire.
+        self.query_directory_matches(false, cx);
+        cx.notify();
+    }
+
+    fn directory_edit(&mut self, cx: &mut Context<Self>) {
+        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+            return;
+        };
+        let field = draft.path.read(cx);
+        let seen = (field.text.clone(), field.is_composing());
+        if draft.seen == seen {
+            return;
+        }
+        keep_confirmation_for_path(&mut draft.missing, &seen.0);
+        draft.seen = seen;
+        draft.error = None;
+        draft.completion.reset();
+        self.query_directory_matches(false, cx);
+        cx.notify();
+    }
+
+    pub(crate) fn reopen_directory_matches(&mut self, cx: &mut Context<Self>) {
+        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+            return;
+        };
+        if !draft.completion.reopen() {
+            return;
+        }
+        self.query_directory_matches(false, cx);
+        cx.notify();
+    }
+
+    fn query_directory_matches(&mut self, tab: bool, cx: &mut Context<Self>) {
+        let Some(Dialog::Create(draft)) = &mut self.dialog else {
+            return;
+        };
+        if draft.busy.is_some() || draft.missing.is_some() || draft.seen.1 {
+            return;
+        }
+        let home = draft.home.clone();
+        let target = draft.target.clone();
+        if home.is_none() && target.is_none() {
+            return;
+        }
+        let query = draft.seen.0.clone();
+        draft.completion.cancel();
+        let (id, ticket) = (draft.id, draft.completion.ticket);
         cx.spawn(async move |root, cx| {
-            let result = task.await;
+            if !tab {
+                cx.background_executor()
+                    .timer(Duration::from_millis(120))
+                    .await;
+            }
+            let current = root
+                .read_with(cx, |root, _| {
+                    matches!(&root.dialog,
+                Some(Dialog::Create(draft)) if draft.id == id && draft.completion.ticket == ticket)
+                })
+                .unwrap_or(false);
+            if !current {
+                return;
+            }
+            let result = if let Some(target) = target {
+                target.complete(query).await
+            } else if let Some(home) = home {
+                cx.background_executor()
+                    .spawn(async move { paths::complete(&home, &query) })
+                    .await
+            } else {
+                return;
+            };
             let _ = root.update(cx, |root, cx| {
                 let Some(Dialog::Create(draft)) = &mut root.dialog else {
                     return;
                 };
-                if draft.request_id != request_id || draft.path.read(cx).text != query {
+                if draft.id != id || draft.completion.ticket != ticket {
                     return;
                 }
-                draft.matches = result.unwrap_or_default();
-                draft.active = 0;
+                match result {
+                    Ok(matches) => {
+                        draft.completion.arrive(matches);
+                        if tab {
+                            if let Some(value) = draft.completion.tab() {
+                                Self::accept_directory_match(draft, value, cx);
+                            } else {
+                                draft.error = Some("No matching folders".into());
+                            }
+                        }
+                    }
+                    Err(error) if tab => draft.error = Some(error.message),
+                    Err(_) => return,
+                }
+                draft
+                    .scroll
+                    .set_offset(gpui::point(gpui::px(0.), gpui::px(0.)));
                 cx.notify();
             });
         })
         .detach();
     }
-    pub(crate) fn directory_key(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(Dialog::Create(draft)) = &mut self.dialog else {
-            return;
-        };
-        if draft.busy || self.user_action_pending || draft.path.read(cx).is_composing() {
-            return;
-        }
-        match event.keystroke.key.as_str() {
-            "escape" => {
-                if draft.matches.is_empty() {
-                    self.dialog = None;
-                } else {
-                    draft.matches.clear();
-                }
-            }
-            "up" | "down" if !draft.matches.is_empty() => {
-                let count = draft.matches.len();
-                draft.active = if event.keystroke.key == "up" {
-                    (draft.active + count - 1) % count
-                } else {
-                    (draft.active + 1) % count
-                };
-            }
-            "tab" if !event.keystroke.modifiers.shift => {
-                self.choose_directory_match(None, window, cx);
-            }
-            "enter" => {
-                if draft.matches.is_empty() {
-                    self.submit_directory(window, cx);
-                } else {
-                    self.choose_directory_match(None, window, cx);
-                }
-            }
-            _ => return,
-        }
-        window.prevent_default();
-        cx.stop_propagation();
-        cx.notify();
+
+    fn accept_directory_match(draft: &mut Draft, value: String, cx: &mut Context<Self>) {
+        draft.seen = (value.clone(), false);
+        draft.error = None;
+        draft.path.update(cx, |field, cx| field.set_text(value, cx));
     }
+
     pub(crate) fn choose_directory_match(
         &mut self,
         index: Option<usize>,
-        window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
-        if let Some(Dialog::Create(draft)) = &mut self.dialog
-            && let Some(value) = draft.matches.get(index.unwrap_or(draft.active)).cloned()
-        {
-            draft.accepted = Some(value.clone());
-            draft.path.update(cx, |field, cx| field.set_text(value, cx));
-            draft.path.read(cx).focus(window);
-            draft.matches.clear();
-        }
-        cx.notify();
-    }
-    pub(crate) fn submit_directory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    ) -> bool {
         let Some(Dialog::Create(draft)) = &mut self.dialog else {
-            return;
+            return false;
         };
-        if draft.busy || draft.path.read(cx).is_composing() {
-            return;
-        }
-        let query = draft.path.read(cx).text.clone();
-        let candidate = resolve_path(&self.run_dir, &query);
-        let request_id = draft.request_id;
-        draft.busy = true;
-        draft.matches.clear();
-        draft.error = None;
-        let task = cx.background_executor().spawn(async move {
-            let service = FileService::local_desktop(Access::ReadOnly);
-            let location = Location {
-                path: candidate.to_string_lossy().into_owned(),
-            };
-            service.stat(&location).and_then(|stat| {
-                if stat.kind != EntryKind::Directory {
-                    return Err(shellfox_files::FileError {
-                        code: shellfox_files::ErrorCode::Validation,
-                        message: "Choose a directory.".into(),
-                    });
-                }
-                Ok(location.path)
-            })
-        });
-        cx.spawn_in(window, async move |root, cx| {
-            let result = task.await;
-            let _ = root.update_in(cx, |root, window, cx| {
-                let Some(Dialog::Create(draft)) = &mut root.dialog else {
-                    return;
-                };
-                if draft.request_id != request_id {
-                    return;
-                }
-                draft.busy = false;
-                if draft.path.read(cx).text != query {
-                    draft.error = Some("Folder changed while checking. Submit it again.".into());
-                    cx.notify();
-                    return;
-                }
-                match result {
-                    Ok(cwd) => {
-                        let profile = ProfileId::new(root.default_profile());
-                        match profile {
-                            Ok(profile_id) => root.submit_native(
-                                NativeAction::Metadata(HostRequest::CreateSession(CreateSession {
-                                    request_id,
-                                    title: None,
-                                    cwd,
-                                    profile_id,
-                                })),
-                                AfterAction::Create,
-                                window,
-                                cx,
-                            ),
-                            Err(error) => root.error = Some(error.to_string()),
-                        }
-                    }
-                    Err(error) => {
-                        if let Some(Dialog::Create(draft)) = &mut root.dialog {
-                            draft.error = Some(error.to_string());
-                        }
-                    }
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        let Some(value) = draft.completion.choose(&draft.seen.0, index) else {
+            return false;
+        };
+        Self::accept_directory_match(draft, value, cx);
         cx.notify();
-    }
-    pub(crate) fn browse_directory(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let Some(Dialog::Create(draft)) = &self.dialog else {
-            return;
-        };
-        let request_id = draft.request_id;
-        let prompt = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Select folder".into()),
-        });
-        cx.spawn_in(window, async move |root, cx| {
-            let result = prompt.await;
-            let _ = root.update_in(cx, |root, window, cx| {
-                let Some(Dialog::Create(draft)) = &mut root.dialog else {
-                    return;
-                };
-                if draft.request_id != request_id {
-                    return;
-                }
-                match result {
-                    Ok(Ok(Some(paths))) => {
-                        if let Some(path) = paths.first() {
-                            draft.path.update(cx, |field, cx| {
-                                field.set_text(path.to_string_lossy().into_owned(), cx)
-                            });
-                            root.submit_directory(window, cx);
-                        }
-                    }
-                    Ok(Ok(None)) => draft.path.read(cx).focus(window),
-                    _ => draft.error = Some("Folder picker failed.".into()),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        true
     }
 }
-fn resolve_path(home: &Path, value: &str) -> PathBuf {
-    if value == "~" || value.is_empty() {
-        home.to_owned()
-    } else if value.starts_with("~/") || value.starts_with("~\\") {
-        home.join(&value[2..])
-    } else if Path::new(value).is_absolute() {
-        value.into()
-    } else {
-        home.join(value)
+
+fn keep_confirmation_for_path(missing: &mut Option<String>, input: &str) {
+    if missing.as_deref().is_some_and(|path| path != input) {
+        *missing = None;
     }
 }
-fn completion_query(home: &Path, value: &str) -> (PathBuf, String, String) {
-    if value.ends_with(['\\', '/']) {
-        return (resolve_path(home, value), String::new(), value.to_owned());
-    }
-    let (prefix, needle) = value.rfind(['\\', '/']).map_or(("", value), |index| {
-        (&value[..index + 1], &value[index + 1..])
-    });
-    (
-        resolve_path(home, prefix),
-        needle.to_owned(),
-        prefix.to_owned(),
-    )
-}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::keep_confirmation_for_path;
+
     #[test]
-    fn completion_retains_typed_relative_prefix() {
-        let home = Path::new("/private/run");
-        let (path, needle, prefix) = completion_query(home, "project/sub");
-        assert_eq!(path, home.join("project/"));
-        assert_eq!(needle, "sub");
-        assert_eq!(prefix, "project/");
+    fn non_text_input_notifications_keep_the_missing_folder_confirmation() {
+        let mut missing = Some("new/folder".into());
+        keep_confirmation_for_path(&mut missing, "new/folder");
+        assert_eq!(missing.as_deref(), Some("new/folder"));
+        keep_confirmation_for_path(&mut missing, "new/another-folder");
+        assert_eq!(missing, None);
     }
 }

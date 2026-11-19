@@ -159,35 +159,91 @@ async fn empty_host_has_actual_probe_and_read_only_system_queries_without_invent
     .unwrap();
 }
 #[tokio::test(flavor = "current_thread")]
-async fn capability_collection_does_not_invoke_the_strict_v1_unknown_creation_mapper() {
-    let (_scratch, projector, queries) = fixtures(false);
+async fn mixed_legacy_catalog_preserves_ordinary_rows_without_backfilling_birth() {
+    use shellfox_core::{
+        CreateSession, ProfileId, SessionId, SettingsAdapter, SettingsShell, TabId,
+    };
+    use shellfox_host::{CreationRequestReceipt, ReservedSessionPublication, SessionCreationFacts};
+    let (scratch, projector, queries) = fixtures(false);
+    let host = shellfox_host::Host::open(scratch.path().join("mixed")).unwrap();
+    let cwd = scratch.path().to_str().unwrap().to_owned();
+    let create = |title: &str| CreateSession {
+        request_id: SessionId::new(),
+        title: Some(title.into()),
+        cwd: cwd.clone(),
+        profile_id: ProfileId::new("cmd").unwrap(),
+    };
+    let id = |request| match host.creation_request_receipt(request).unwrap() {
+        CreationRequestReceipt::SessionCreated { session_id } => session_id,
+        other => panic!("missing creation receipt: {other:?}"),
+    };
+    let ordinary = create("ordinary");
+    let ordinary_request = ordinary.request_id;
+    host.create_session_with_facts(
+        ordinary,
+        SessionCreationFacts::new(SettingsAdapter::EmbeddedPty, SettingsShell::LoginShell),
+    )
+    .unwrap();
+    let ordinary_id = id(ordinary_request);
+    let historical = create("historical");
+    let historical_request = historical.request_id;
+    host.create_session(historical).unwrap();
+    let historical_id = id(historical_request);
+    let raw = SessionId::new();
+    host.publish_reserved_session(
+        ReservedSessionPublication {
+            request_id: SessionId::new(),
+            session_id: raw,
+            tab_id: TabId::new(),
+            title: Some("automation".into()),
+            cwd,
+            profile_id: ProfileId::new("automation-pipe").unwrap(),
+        },
+        None,
+    )
+    .unwrap();
     let mut input = (*source()).clone();
-    input.snapshot.sessions.push(serde_json::from_value(serde_json::json!({
-        "id":"11111111-1111-4111-8111-111111111111", "title":"raw metadata", "cwd":"/owned",
-        "createdAt":"2026-01-01T00:00:00.000Z", "updatedAt":"2026-01-01T00:00:00.000Z",
-        "settledAt":null,"pinnedAt":null,"env":[],"tabs":[{
-            "id":"22222222-2222-4222-8222-222222222222", "sessionId":"11111111-1111-4111-8111-111111111111",
-            "title":"raw", "cwd":"/owned", "ordinal":0,"profileId":"automation-pipe","state":"pending"
-        }]
-    })).unwrap());
+    input.snapshot = host.snapshot().unwrap();
+    input.creation_facts = host.session_creation_facts().unwrap();
     let source = Arc::new(input);
-    assert!(projector
+    let result = projector
         .project(source.clone(), request(&source))
         .await
-        .is_err());
+        .unwrap();
+    assert_eq!(result.facts.omitted_sessions, [historical_id, raw].into());
+    let listed =
+        adapter::manager_snapshot_with_settings(&source.snapshot, &result.facts, &source.settings)
+            .unwrap();
+    assert_eq!(listed.revision, source.snapshot.revision);
+    assert_eq!(listed.sessions.len(), 1);
+    assert_eq!(listed.sessions[0].id, ordinary_id);
+    assert!(matches!(
+        listed.sessions[0].shell_id,
+        wire::ShellId::LoginShell
+    ));
+    let mut targeted = request(&source);
+    targeted.target_session = Some(raw);
+    assert_eq!(
+        projector
+            .project(source.clone(), targeted)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        wire::ErrorCode::Unsupported
+    );
     let capabilities = projector
         .project_capabilities(source.clone(), request(&source))
         .await
         .unwrap();
     assert!(capabilities.facts.sessions.is_empty());
+    assert!(capabilities.facts.omitted_sessions.is_empty());
     assert!(capabilities.profiles.is_some());
     assert!(capabilities.home.is_some());
     assert!(capabilities.facts.probe.is_some());
-    assert_eq!(queries.calls.load(Ordering::SeqCst), 6);
-    assert!(
-        source.creation_facts.is_empty(),
-        "native capabilities never backfill a raw birth"
-    );
+    assert_eq!(queries.calls.load(Ordering::SeqCst), 9);
+    assert_eq!(source.snapshot.sessions.len(), 3);
+    assert_eq!(source.creation_facts.len(), 1);
 }
 #[tokio::test(flavor = "current_thread")]
 async fn independent_provider_errors_remain_missing_instead_of_fabricated_installation_or_home() {

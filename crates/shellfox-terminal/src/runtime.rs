@@ -12,7 +12,6 @@ const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) struct Session {
     pub(crate) child: Box<dyn Child + Send + Sync>,
     pub(crate) inspection: Option<crate::inspection::InspectionCapability>,
-    pub(crate) program_env: Option<crate::TrustedProgramEnv>,
     pub(crate) launch_evidence: Option<crate::NativeLaunchEvidence>,
     pub(crate) master: Option<Box<dyn MasterPty + Send>>,
     pub(crate) writer: InputWriter,

@@ -1,3 +1,24 @@
+pub(super) const WINDOW_THRESHOLD: usize = 100;
+pub(super) const WINDOWED_WIDTH: f32 = 180.;
+const OVERSCAN: usize = 3;
+
+pub(super) fn window_indices(
+    count: usize,
+    left: f32,
+    width: f32,
+    retained: impl IntoIterator<Item = usize>,
+) -> Vec<usize> {
+    let left = left.clamp(0., (count as f32 * WINDOWED_WIDTH - width).max(0.));
+    let start = ((left / WINDOWED_WIDTH) as usize).saturating_sub(OVERSCAN);
+    let end = (((left + width) / WINDOWED_WIDTH).ceil() as usize + OVERSCAN).min(count);
+    let mut indices: Vec<_> = (start..end)
+        .chain(retained.into_iter().filter(|&index| index < count))
+        .collect();
+    indices.sort_unstable();
+    indices.dedup();
+    indices
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct Viewport<Session, Tab> {
     pub(crate) session: Session,
@@ -18,18 +39,41 @@ impl<Session: PartialEq, Tab: PartialEq> Viewport<Session, Tab> {
             Some(previous) if previous.session == self.session => scroll_left,
             _ => 0.,
         };
-        let left = match tab_edges {
-            Some((start, _)) if start < left => start,
-            Some((_, end)) if end > left + self.width => end - self.width,
-            _ => left,
-        };
-        Some(left.clamp(0., max_left))
+        Some(reveal_tab(left, tab_edges, self.width, max_left))
     }
+}
+
+pub(super) fn reveal_tab(left: f32, edges: Option<(f32, f32)>, width: f32, max_left: f32) -> f32 {
+    let next = match edges {
+        Some((start, _)) if start < left => start,
+        Some((_, end)) if end > left + width => end - width,
+        _ => left,
+    };
+    next.clamp(0., max_left)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Viewport;
+    use super::{Viewport, reveal_tab, window_indices};
+
+    #[test]
+    fn restoring_focus_reveals_the_offscreen_target_without_a_selection_change() {
+        let view = viewport();
+        let editor_tab = Some((1980., 2160.));
+        assert_eq!(view.reveal_left(Some(&view), 720., editor_tab, 2400.), None);
+        assert_eq!(reveal_tab(720., editor_tab, 900., 2400.), 1260.);
+    }
+
+    #[test]
+    fn window_keeps_offscreen_interaction_targets_and_overscan() {
+        let indices = window_indices(120, 1800., 360., [1, 11, 115, 999]);
+        assert_eq!(indices, vec![1, 7, 8, 9, 10, 11, 12, 13, 14, 115]);
+    }
+
+    #[test]
+    fn window_clamps_an_offset_after_tabs_close() {
+        assert_eq!(window_indices(3, 9000., 180., []), vec![0, 1, 2]);
+    }
 
     fn viewport() -> Viewport<u8, u8> {
         Viewport {

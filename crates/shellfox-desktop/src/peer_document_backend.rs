@@ -1,7 +1,12 @@
 //! Peer-only document I/O. The original opaque Manager admission is never replaced by a UI cycle.
-use crate::host_client::peer::{PeerConnection, SourceAdmission, Transport};
+use crate::host_client::{
+    peer::{PeerConnection, SourceAdmission, Transport},
+    peer_v1::V1Binding,
+};
 use anyhow::{Result, anyhow, ensure};
-use shellfox_files::{EditorCancellation, FileList, TextFile, WriteResult, WriteText};
+use shellfox_files::{
+    EditorCancellation, FileList, ImageWrite, ReadResult, WriteResult, WriteText,
+};
 use shellfox_protocol::{self as wire, OutboundTransport, manager_v2 as m};
 use std::{
     collections::BTreeMap,
@@ -9,16 +14,23 @@ use std::{
 };
 #[path = "peer_document_read.rs"]
 mod read;
+#[path = "files_peer_requests.rs"]
+mod requests;
 #[path = "peer_document_write.rs"]
 mod write;
+use requests::{FileRequest, file_error};
 #[derive(Clone, Copy)]
 enum SaveState {
     Active,
     Unconfirmed,
 }
+enum Origin<T: OutboundTransport> {
+    Manager(Arc<PeerConnection<T>>, SourceAdmission),
+    Legacy(Arc<V1Binding>, u64),
+}
+
 pub(crate) struct PeerDocumentBackend<T: OutboundTransport = Transport> {
-    connection: Arc<PeerConnection<T>>,
-    admission: SourceAdmission,
+    origin: Origin<T>,
     saves: Mutex<BTreeMap<String, SaveState>>,
 }
 impl<T: OutboundTransport> PeerDocumentBackend<T> {
@@ -32,21 +44,43 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
             "Document admission belongs to another peer."
         );
         Ok(Arc::new(Self {
-            connection,
-            admission,
+            origin: Origin::Manager(connection, admission),
+            saves: Mutex::new(BTreeMap::new()),
+        }))
+    }
+    pub fn legacy(binding: Arc<V1Binding>) -> Result<Arc<Self>> {
+        let connection_id = binding.state().connection_id;
+        binding.with_connection(connection_id, || ())?;
+        Ok(Arc::new(Self {
+            origin: Origin::Legacy(binding, connection_id),
             saves: Mutex::new(BTreeMap::new()),
         }))
     }
     pub fn check(&self) -> Result<()> {
-        self.admission.check()
+        self.commit_if_current(|| ())
     }
     pub fn commit_if_current<R>(&self, operation: impl FnOnce() -> R) -> Result<R> {
-        self.admission.commit_if_current(operation)
+        match &self.origin {
+            Origin::Manager(_, admission) => admission.commit_if_current(operation),
+            Origin::Legacy(binding, id) => binding.with_connection(*id, operation),
+        }
     }
-    async fn execute<R: m::Request>(&self, request: &R) -> Result<R::Response> {
-        self.connection
-            .execute_admitted(&self.admission, request)
-            .await
+    async fn execute<R: FileRequest>(&self, request: &R) -> Result<R::Response> {
+        match &self.origin {
+            Origin::Manager(connection, admission) => match connection
+                .execute_admitted_reply(admission, &request.manager())
+                .await?
+            {
+                m::Reply::Success(value) => Ok(value),
+                m::Reply::Failure(error) => Err(file_error(error.code, error.message)),
+            },
+            Origin::Legacy(binding, id) => {
+                match binding.v1_reply_with_connection(*id, request).await? {
+                    wire::Reply::Success(value) => Ok(value),
+                    wire::Reply::Failure(error) => Err(file_error(error.code, error.message)),
+                }
+            }
+        }
     }
     fn check_cancel(&self, cancel: &EditorCancellation) -> Result<()> {
         self.check()?;
@@ -54,21 +88,25 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
         Ok(())
     }
     pub async fn home(&self) -> Result<String> {
-        let home = self
-            .execute(&m::GetHomeDirectory(wire::GetHomeDirectory {}))
-            .await?;
+        let home = self.execute(&wire::GetHomeDirectory {}).await?;
         wire::files::path(&home.cwd).map_err(|_| anyhow!("Invalid peer home response."))?;
         self.check()?;
         Ok(home.cwd)
     }
+    pub async fn complete(&self, path: &str) -> Result<Vec<String>> {
+        Ok(self
+            .execute(&wire::CompleteDirectory { path: path.into() })
+            .await?
+            .matches)
+    }
     pub async fn list(&self, path: &str) -> Result<FileList> {
         wire::files::path(path).map_err(|_| anyhow!("Invalid peer folder path."))?;
         let list = self
-            .execute(&m::ListFiles(wire::ListFiles {
+            .execute(&wire::ListFiles {
                 session_id: None,
                 tab_id: None,
                 path: path.into(),
-            }))
+            })
             .await?;
         let entries = list
             .entries
@@ -92,9 +130,19 @@ impl<T: OutboundTransport> PeerDocumentBackend<T> {
             truncated: list.truncated,
         })
     }
+    pub async fn create_directory(&self, path: &str) -> Result<FileList> {
+        let created = self
+            .execute(&wire::CreateDirectory {
+                path: path.into(),
+                session_id: None,
+                tab_id: None,
+            })
+            .await?;
+        self.list(&created.cwd).await
+    }
     async fn cancel_once(&self, request: wire::CancelFileTransfer) {
         // Cleanup can use only the ORIGINAL admission/transfer. Never reacquire, pair or retry.
-        let _ = self.execute(&m::CancelFileTransfer(request)).await;
+        let _ = self.execute(&request).await;
     }
     fn begin_save(&self, path: &str) -> Result<SaveAttempt<'_, T>> {
         let mut saves = self

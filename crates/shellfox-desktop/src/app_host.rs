@@ -67,6 +67,19 @@ impl<B: AppHostBackend> Clone for AppHost<B> {
     }
 }
 impl AppHost {
+    pub(crate) fn attached(config: crate::host_client::HostEndpointConfig, owner: shellfox_service::desktop_launch::LaunchOwnerFence) -> Result<Self> {
+        let runtime = crate::host_client::attached::AttachedRuntime::new()?;
+        Ok(Self::with_backend(EndpointBackend::Attached { config, owner, runtime }))
+    }
+
+    pub(crate) fn is_attached(&self) -> bool {
+        matches!(self.shared.backend, EndpointBackend::Attached { .. })
+    }
+
+    pub(crate) async fn chrome_client(&self) -> Result<crate::host_client::HostClient> {
+        self.shared.backend.fork_window().await
+    }
+
     /// Install exactly once through app_host_gpui::install. The service's private
     /// directory lock also excludes a second owner in another process.
     pub fn start(config: crate::host_client::HostEndpointConfig) -> Result<Self> {

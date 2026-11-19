@@ -63,8 +63,8 @@ export class WindowsElevatedPty implements ElevatedPty {
   private rejectClosed!: (error: Error) => void;
   private readonly readiness: Promise<void>;
   private readonly closure: Promise<void>;
-  private readonly timer: ReturnType<typeof setTimeout>;
-  constructor(private readonly child: ChildProcessWithoutNullStreams, launch: ElevatedLaunch, timeoutMs = 125000) {
+  // Windows owns consent timing. The helper bounds native startup after approval.
+  constructor(private readonly child: ChildProcessWithoutNullStreams, launch: ElevatedLaunch) {
     this.shellPid = child.pid ?? 0;
     this.readiness = new Promise((resolve, reject) => { this.resolveReady = resolve; this.rejectReady = reject; });
     this.closure = new Promise((resolve, reject) => { this.resolveClosed = resolve; this.rejectClosed = reject; });
@@ -75,17 +75,15 @@ export class WindowsElevatedPty implements ElevatedPty {
     child.on('error', () => this.fail('The administrator terminal launcher could not start.'));
     child.stdin.on('error', () => this.fail('The administrator terminal input channel disconnected.'));
     child.on('close', () => {
-      clearTimeout(this.timer);
       if (!this.confirmed) {
         this.fail('Administrator terminal cleanup was not confirmed.');
         this.rejectClosed(this.failure!);
         this.finish(1, 1); // Transport exit is NOT elevated job exit evidence.
       }
     });
-    this.timer = setTimeout(() => { this.fail('Administrator PowerShell approval timed out.'); this.kill(); }, timeoutMs);
     try { this.send({ type: 'launch', ...launch }); }
     catch (error) {
-      clearTimeout(this.timer); child.stdin.destroy(); child.stdout.resume();
+      child.stdin.destroy(); child.stdout.resume();
       this.fail('Administrator launch could not be sent.'); throw error;
     }
   }
@@ -158,7 +156,6 @@ export class WindowsElevatedPty implements ElevatedPty {
           case 'ready':
             if (this.ready) throw new Error('Unexpected ready.');
             this.ready = true; this.shellPid = message.pid; this.birth = message.birth;
-            clearTimeout(this.timer);
             if (this.closing || this.failure) this.fail('Administrator PowerShell startup was cancelled.');
             else this.resolveReady();
             break;
@@ -175,7 +172,7 @@ export class WindowsElevatedPty implements ElevatedPty {
           }
           case 'error': this.fail(message.message); break;
           case 'exit':
-            this.confirmed = true; clearTimeout(this.timer); this.resolveClosed();
+            this.confirmed = true; this.resolveClosed();
             if (!this.ready) this.fail('Administrator PowerShell did not start.');
             this.finish(message.exitCode, 0); break;
         }

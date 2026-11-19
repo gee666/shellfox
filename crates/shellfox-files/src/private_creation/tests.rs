@@ -84,6 +84,20 @@ fn state(path: &Path) -> Vec<u8> {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn app_directory_repair_chmods_the_held_directory_only() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let f = Fixture::new();
+    let data = f.path.join("app-data");
+    fs::create_dir(&data).unwrap();
+    fs::set_permissions(&data, fs::Permissions::from_mode(0o775)).unwrap();
+    let original = File::open(&data).unwrap();
+    repair_app_directory_at(f.parent(), OsStr::new("app-data"), &original).unwrap();
+    assert_eq!(original.metadata().unwrap().mode() & 0o777, 0o700);
+    assert_eq!(f.parent().metadata().unwrap().mode() & 0o777, 0o700);
+}
+
 #[test]
 fn created_objects_are_private_on_first_native_handle_without_post_create_repair() {
     let f = Fixture::new();

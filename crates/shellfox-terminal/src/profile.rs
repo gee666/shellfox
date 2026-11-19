@@ -13,6 +13,10 @@ pub enum ShellProfileId {
     Cmd,
     Wsl,
     LoginShell,
+    Bash,
+    Sh,
+    Zsh,
+    Fish,
 }
 
 impl ShellProfileId {
@@ -23,6 +27,10 @@ impl ShellProfileId {
             Self::Cmd => "cmd",
             Self::Wsl => "wsl",
             Self::LoginShell => "login-shell",
+            Self::Bash => "bash",
+            Self::Sh => "sh",
+            Self::Zsh => "zsh",
+            Self::Fish => "fish",
         }
     }
 }
@@ -36,6 +44,10 @@ impl FromStr for ShellProfileId {
             "cmd" => Ok(Self::Cmd),
             "wsl" => Ok(Self::Wsl),
             "login-shell" => Ok(Self::LoginShell),
+            "bash" => Ok(Self::Bash),
+            "sh" => Ok(Self::Sh),
+            "zsh" => Ok(Self::Zsh),
+            "fish" => Ok(Self::Fish),
             _ => bail!("unknown shell profile {value:?}"),
         }
     }
@@ -76,14 +88,32 @@ impl ShellProfile {
             program.display()
         );
         let args: &[&str] = match self.id {
-            ShellProfileId::Pwsh | ShellProfileId::WindowsPowerShell => &["-NoLogo", "-NoProfile", "-NoExit", "-Command",
-                "$env:PSModulePath = Join-Path $PSHOME 'Modules'; if ((Get-Module PSReadLine) -or (Get-Module -ListAvailable PSReadLine)) { Import-Module PSReadLine; Set-PSReadLineOption -HistorySavePath $env:PSREADLINE_HISTORYFILE }"],
+            ShellProfileId::Pwsh | ShellProfileId::WindowsPowerShell => &[
+                "-NoLogo",
+                "-NoProfile",
+                "-NoExit",
+                "-Command",
+                include_str!("powershell-init.ps1"),
+            ],
             ShellProfileId::Cmd => &["/D", "/Q"],
             #[cfg(target_os = "linux")]
-            ShellProfileId::LoginShell => match program.file_name().and_then(|s| s.to_str()) {
-                Some("bash") => &["--noprofile", "--norc", "-i"],
-                _ => &["-i"],
-            },
+            ShellProfileId::LoginShell
+            | ShellProfileId::Bash
+            | ShellProfileId::Sh
+            | ShellProfileId::Zsh
+            | ShellProfileId::Fish => {
+                anyhow::ensure!(
+                    linux_executable(program),
+                    "shell is not executable: {}",
+                    program.display()
+                );
+                match program.file_name().and_then(|s| s.to_str()) {
+                    Some("bash") => &["--noprofile", "--norc", "-i"],
+                    Some("zsh") => &["-f", "-i"],
+                    Some("fish") => &["--no-config", "-i"],
+                    _ => &["-i"],
+                }
+            }
             _ => bail!("shell has no safe local supervisor"),
         };
         Ok(PtyCommand {
@@ -123,18 +153,35 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
     }
     #[cfg(target_os = "linux")]
     {
-        let executable = ["/bin/bash", "/bin/sh"]
+        use ShellProfileId::*;
+        let installed = [(Bash, "Bash"), (Sh, "sh"), (Zsh, "Zsh"), (Fish, "Fish")]
             .into_iter()
-            .map(PathBuf::from)
-            .find(|path| path.is_file());
-        Ok(vec![ShellProfile {
-            id: ShellProfileId::LoginShell,
+            .filter_map(|(id, label)| {
+                let executable = ["/bin", "/usr/bin", "/usr/local/bin"]
+                    .into_iter()
+                    .map(|dir| Path::new(dir).join(id.as_str()))
+                    .find(|path| linux_executable(path))?;
+                Some(ShellProfile {
+                    id,
+                    label,
+                    executable: Some(executable),
+                    unavailable_reason: None,
+                })
+            })
+            .collect::<Vec<_>>();
+        // Keep the persisted default ID, even when its executable is also listed by name.
+        let executable = installed
+            .first()
+            .and_then(|profile| profile.executable.clone());
+        let default = ShellProfile {
+            id: LoginShell,
             label: "Shell",
             unavailable_reason: executable
                 .is_none()
                 .then_some("No supported Unix shell found."),
             executable,
-        }])
+        };
+        Ok(std::iter::once(default).chain(installed).collect())
     }
     #[cfg(not(any(windows, target_os = "linux")))]
     {
@@ -143,6 +190,13 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
             (ShellProfileId::Wsl, "WSL")].into_iter().map(|(id, label)| ShellProfile { id, label, executable: None,
                 unavailable_reason: Some("Local shell launch requires a platform process-tree supervisor; no unsafe fallback is allowed.") }).collect())
     }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.metadata()
+        .is_ok_and(|info| info.is_file() && info.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(windows)]
@@ -191,6 +245,10 @@ mod tests {
             ShellProfileId::Cmd,
             ShellProfileId::Wsl,
             ShellProfileId::LoginShell,
+            ShellProfileId::Bash,
+            ShellProfileId::Sh,
+            ShellProfileId::Zsh,
+            ShellProfileId::Fish,
         ] {
             assert_eq!(id.as_str().parse::<ShellProfileId>().unwrap(), id);
         }

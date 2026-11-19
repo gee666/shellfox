@@ -1,5 +1,5 @@
 use super::{Backend, TerminalView, runtime::Pending};
-use crate::input;
+use crate::input::{self, ClipboardAction, mac_select_all, page_scroll};
 use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, Window};
 use shellfox_ghostty_vt::KeyAction;
 use shellfox_ghostty_vt::{Selection, ViewportPoint};
@@ -10,37 +10,42 @@ impl TerminalView {
         if self.failed || self.closing {
             return;
         }
-        if let Some(lease) = self.lease
-            && let Some(text) = cx.read_from_clipboard().and_then(|item| item.text())
-        {
-            self.submit(Command::Paste { lease, text }, Pending::Applied);
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()).filter(|text| !text.is_empty()) {
+            if let Some(lease) = self.lease {
+                self.submit(Command::Paste { lease, text }, Pending::Applied);
+            } else if let Err(error) = self.peer_paste(&text) {
+                self.reject(error);
+            }
         }
     }
 
     pub(super) fn key_down(
         &mut self,
         event: &KeyDownEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let bit = Self::clipboard_key_bit(&event.keystroke.key);
-        if event.is_held && self.clipboard_keys & bit != 0 {
-            cx.stop_propagation();
-            return;
-        }
-        match Self::clipboard_shortcut(event.keystroke.modifiers, &event.keystroke.key) {
-            Some("copy") => {
+        if self.link_menu_key(event, window, cx) { return; }
+        let bit = input::clipboard_key_bit(&event.keystroke.key);
+        match input::clipboard_shortcut(&event.keystroke) {
+            Some(ClipboardAction::Copy) => {
                 self.clipboard_keys |= bit;
                 self.copy_selection(cx);
                 cx.stop_propagation();
             }
-            Some("paste") => {
+            Some(ClipboardAction::Paste) => {
                 self.clipboard_keys |= bit;
                 self.paste(cx);
                 cx.stop_propagation();
             }
-            _ => {
-                if let Some(key) = input::encode_physical(
+            None => {
+                if cfg!(target_os = "macos") && mac_select_all(&event.keystroke) {
+                    self.select(Some(Selection::All), cx);
+                    cx.stop_propagation();
+                } else if let Some(delta) = page_scroll(&event.keystroke, self.screen.rows) {
+                    self.scroll_lines(delta);
+                    cx.stop_propagation();
+                } else if let Some(key) = input::encode_physical(
                     &event.keystroke,
                     if event.is_held {
                         KeyAction::Repeat
@@ -57,9 +62,10 @@ impl TerminalView {
     }
 
     pub(super) fn key_up(&mut self, event: &KeyUpEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let bit = Self::clipboard_key_bit(&event.keystroke.key);
+        let bit = input::clipboard_key_bit(&event.keystroke.key);
         if self.clipboard_keys & bit != 0
-            || Self::clipboard_shortcut(event.keystroke.modifiers, &event.keystroke.key).is_some()
+            || input::clipboard_shortcut(&event.keystroke).is_some()
+            || page_scroll(&event.keystroke, self.screen.rows).is_some()
         {
             self.clipboard_keys &= !bit;
             cx.stop_propagation();
@@ -69,37 +75,18 @@ impl TerminalView {
         }
     }
 
-    fn clipboard_key_bit(key: &str) -> u8 {
-        match key {
-            "c" => 1,
-            "v" => 2,
-            _ => 0,
-        }
-    }
-
-    pub(super) fn clipboard_shortcut(mods: gpui::Modifiers, key: &str) -> Option<&'static str> {
-        let enabled = if cfg!(target_os = "macos") {
-            mods.platform && !mods.control && !mods.alt
-        } else {
-            mods.control && mods.shift && !mods.alt && !mods.platform
-        };
-        if !enabled {
-            return None;
-        }
-        match key {
-            "c" => Some("copy"),
-            "v" => Some("paste"),
-            _ => None,
-        }
-    }
-
     pub(super) fn copy_selection(&mut self, cx: &mut Context<Self>) -> bool {
         if self.failed {
             return false;
         }
         let selected = self.screen.cells.iter().any(|cell| cell.selected);
-        match &mut self.backend {
-            Backend::Fixture(terminal) => match terminal.copy_selection() {
+        let text = match &mut self.backend {
+            Backend::Fixture(terminal) => Some(terminal.copy_selection()),
+            Backend::Peer(peer) => Some(peer.terminal.view_copy(&mut peer.presentation)),
+            Backend::Attached(_) => None,
+        };
+        if let Some(text) = text {
+            match text {
                 Ok(Some(text)) => {
                     cx.write_to_clipboard(ClipboardItem::new_string(text));
                     return true;
@@ -110,19 +97,46 @@ impl TerminalView {
                     cx.notify();
                     return false;
                 }
-            },
-            Backend::Attached(connection) => {
-                let view = connection.access.presentation_lease();
-                self.submit(
-                    Command::Presentation {
-                        view,
-                        action: shellfox_runtime::PresentationAction::Copy,
-                    },
-                    Pending::Copy,
-                );
             }
+        } else if let Backend::Attached(connection) = &self.backend {
+            let view = connection.access.presentation_lease();
+            self.submit(
+                Command::Presentation { view, action: shellfox_runtime::PresentationAction::Copy },
+                Pending::Copy,
+            );
         }
         selected
+    }
+
+    pub(super) fn begin_pointer_selection(&mut self, point: ViewportPoint, clicks: usize, mods: gpui::Modifiers, cx: &mut Context<Self>) {
+        if mods.shift && !self.mouse_tracking {
+            let selection = match &self.screen {
+                super::SharedScreen::Native(frame) => frame.selection.zip(Some(frame.top_row)),
+                super::SharedScreen::Peer(frame) => frame.selection.zip(Some(frame.rendered.top_row)),
+                _ => None,
+            }.and_then(|(previous, top)| {
+                let y = previous.anchor.row.checked_sub(top)?;
+                if y >= u64::from(self.screen.rows) { return None; }
+                let start = ViewportPoint { x: previous.anchor.x, y: y as u16 };
+                Some((start, previous.rectangle))
+            });
+            if let Some((start, rectangle)) = selection {
+                self.selection_drag.begin(start, rectangle);
+                let selection = self.selection_drag.extend(point);
+                self.select(selection, cx);
+            }
+            return;
+        }
+        match clicks {
+            2 => self.select(Some(Selection::Word(point)), cx),
+            3 => self.select(Some(Selection::Line(point)), cx),
+            1 => {
+                self.select(None, cx);
+                self.selection_drag.begin(point, mods.alt && !cfg!(target_os = "macos"));
+                self.link_press = Some(point);
+            }
+            _ => {}
+        }
     }
 
     pub(super) fn select(&mut self, selection: Option<Selection>, cx: &mut Context<Self>) {
@@ -150,12 +164,14 @@ impl TerminalView {
 #[derive(Default)]
 pub struct SelectionDrag {
     anchor: Option<ViewportPoint>,
+    rectangle: bool,
     pub moved: bool,
 }
 
 impl SelectionDrag {
-    pub fn begin(&mut self, point: ViewportPoint) {
+    pub fn begin(&mut self, point: ViewportPoint, rectangle: bool) {
         self.anchor = Some(point);
+        self.rectangle = rectangle;
         self.moved = false;
     }
 
@@ -165,7 +181,7 @@ impl SelectionDrag {
         self.moved.then_some(Selection::Range {
             start,
             end: point,
-            rectangle: false,
+            rectangle: self.rectangle,
         })
     }
 
@@ -183,41 +199,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn copy_and_paste_shortcuts_require_platform_modifiers() {
-        let modifiers = if cfg!(target_os = "macos") {
-            gpui::Modifiers {
-                platform: true,
-                ..Default::default()
-            }
-        } else {
-            gpui::Modifiers {
-                control: true,
-                shift: true,
-                ..Default::default()
-            }
-        };
-        assert_eq!(
-            TerminalView::clipboard_shortcut(modifiers, "c"),
-            Some("copy")
-        );
-        assert_eq!(
-            TerminalView::clipboard_shortcut(modifiers, "v"),
-            Some("paste")
-        );
-        assert_eq!(
-            TerminalView::clipboard_shortcut(gpui::Modifiers::default(), "c"),
-            None
-        );
-        assert_eq!(
-            TerminalView::clipboard_shortcut(
-                gpui::Modifiers {
-                    alt: true,
-                    ..modifiers
-                },
-                "c"
-            ),
-            None
-        );
+    fn shift_page_keys_scroll_one_row_less_than_the_viewport() {
+        for (key, expected) in [
+            ("shift-pageup", Some(-23)),
+            ("ctrl-shift-pagedown", Some(23)),
+            ("ctrl-pageup", None),
+            ("shift-up", None),
+        ] {
+            assert_eq!(page_scroll(&gpui::Keystroke::parse(key).unwrap(), 24), expected);
+        }
     }
 
     #[test]
@@ -225,7 +215,7 @@ mod tests {
         let mut terminal = shellfox_ghostty_vt::Terminal::new(12, 3).unwrap();
         terminal.feed("A界e\u{301}🙂Z".as_bytes()).unwrap();
         let mut drag = SelectionDrag::default();
-        drag.begin(ViewportPoint { x: 5, y: 0 });
+        drag.begin(ViewportPoint { x: 5, y: 0 }, false);
         terminal
             .set_selection(drag.extend(ViewportPoint { x: 1, y: 0 }))
             .unwrap();
@@ -236,7 +226,7 @@ mod tests {
         assert!(terminal.render().unwrap().cells[1].selected);
         let mut wrapped = shellfox_ghostty_vt::Terminal::new(5, 3).unwrap();
         wrapped.feed(b"abcdefghij").unwrap();
-        drag.begin(ViewportPoint { x: 0, y: 0 });
+        drag.begin(ViewportPoint { x: 0, y: 0 }, false);
         wrapped
             .set_selection(drag.extend(ViewportPoint { x: 4, y: 1 }))
             .unwrap();
@@ -247,10 +237,19 @@ mod tests {
     }
 
     #[test]
+    fn column_drag_retains_rectangular_selection_through_release() {
+        let mut drag = SelectionDrag::default();
+        drag.begin(ViewportPoint { x: 1, y: 1 }, true);
+        assert!(matches!(drag.extend(ViewportPoint { x: 2, y: 3 }), Some(Selection::Range { rectangle: true, .. })));
+        drag.finish();
+        assert!(!drag.active());
+    }
+
+    #[test]
     fn click_does_not_select_and_release_stops_dragging() {
         let mut drag = SelectionDrag::default();
         let start = ViewportPoint { x: 2, y: 1 };
-        drag.begin(start);
+        drag.begin(start, false);
         assert!(drag.active());
         assert!(drag.extend(start).is_none());
         assert!(drag.extend(ViewportPoint { x: 5, y: 3 }).is_some());

@@ -64,8 +64,23 @@ export function useShellfox(enableLegacyClients = true, controlURL?: string) {
   const updatePreferences = useCallback((patch: Partial<Preferences>) => changePreferences(value => ({ ...value, ...patch })), [changePreferences]);
   const readSnapshot = useCallback(async (client: HostClient) => {
     const connectionId = client.getState().connectionId;
+    const isCurrent = () => {
+      const state = client.getState();
+      return alive.current && foreground.current && state.status === 'connected' && state.connectionId === connectionId;
+    };
+    const fetchSnapshot = async () => {
+      let result = await client.request('getSnapshot', {});
+      // The host can reject a read if terminal facts change during collection.
+      for (const delay of [150, 300]) {
+        if (result.ok || result.error.code !== 'TARGET_LOST' || !isCurrent()) break;
+        await new Promise<void>(resolve => setTimeout(resolve, delay));
+        if (!isCurrent()) break;
+        result = await client.request('getSnapshot', {});
+      }
+      return result;
+    };
     setSnapshotRequests(requests => new Map(requests).set(client, connectionId));
-    const result = await client.request('getSnapshot', {}).finally(() => {
+    const result = await fetchSnapshot().finally(() => {
       if (alive.current) setSnapshotRequests(requests => {
         if (requests.get(client) !== connectionId) return requests;
         const next = new Map(requests);
@@ -73,8 +88,7 @@ export function useShellfox(enableLegacyClients = true, controlURL?: string) {
         return next;
       });
     });
-    const state = client.getState();
-    if (!alive.current || !foreground.current || state.status !== 'connected' || state.connectionId !== connectionId) return;
+    if (!isCurrent()) return;
     if (result.ok) {
       const tabIds = new Set(result.value.sessions.flatMap(session => session.tabs.map(tab => tab.id)));
       setMachines(items => items.map(item => item.client === client && (!item.snapshot || item.snapshotConnectionId !== connectionId || result.value.revision >= item.snapshot.revision)

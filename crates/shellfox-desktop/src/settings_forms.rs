@@ -36,7 +36,14 @@ impl Forms {
         ]
         .into_iter()
         .map(|key| {
-            let field = Field::new("", cx);
+            let field = Field::settings_input(
+                match key {
+                    Input::History => Some(crate::field::NumberKind::History),
+                    Input::Settle | Input::Delete => Some(crate::field::NumberKind::Hours),
+                    _ => None,
+                },
+                cx,
+            );
             field.update(cx, |field, cx| {
                 field.configure(
                     crate::field::FieldOptions {
@@ -47,13 +54,6 @@ impl Forms {
                                 ""
                             }
                             .into(),
-                        ),
-                        text_align: Some(
-                            if matches!(key, Input::History | Input::Settle | Input::Delete) {
-                                gpui::TextAlign::Right
-                            } else {
-                                gpui::TextAlign::Left
-                            },
                         ),
                         ..Default::default()
                     },
@@ -113,7 +113,7 @@ impl SettingsPanel {
             return;
         }
         self.forms.seen.insert(key, text.clone());
-        self.forms.errors.remove(&key);
+        let repaired = self.forms.errors.remove(&key).is_some();
         if key == Input::Agent {
             self.agent_error = None;
             cx.notify();
@@ -167,7 +167,7 @@ impl SettingsPanel {
             Input::Agent => None,
         };
         if let Some(patch) = patch {
-            self.stage(patch, cx);
+            self.stage_edit(patch, repaired, cx);
         } else {
             self.forms.errors.insert(
                 key,

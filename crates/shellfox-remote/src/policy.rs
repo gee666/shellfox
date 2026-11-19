@@ -1,4 +1,4 @@
-use crate::{capability_unavailable, error};
+use crate::error;
 use serde::{Deserialize, Serialize};
 use shellfox_protocol::{AppError, AuthenticatedPeerId, ErrorCode, RemoteCommand};
 use std::path::{Component, PathBuf};
@@ -83,11 +83,6 @@ pub(crate) fn authorize(
             false,
         ));
     }
-    if matches!(command, AttachTerminal(_)) {
-        return Err(capability_unavailable(
-            "legacy full-state terminal recovery; retain Node compatibility host",
-        ));
-    }
     Ok(())
 }
 
@@ -103,10 +98,7 @@ mod tests {
                 .code,
             ErrorCode::AccessDenied
         );
-        assert_eq!(
-            authorize(ViewPermission::Write, &command).unwrap_err().code,
-            ErrorCode::Unsupported
-        );
+        assert!(authorize(ViewPermission::Write, &command).is_ok());
         assert!(serde_json::from_value::<RemoteCommand>(
             serde_json::json!({"method":"setSettings","payload":{}})
         )

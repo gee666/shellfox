@@ -1,4 +1,6 @@
 mod cursor;
+mod loading;
+pub(crate) use loading::terminal_loading;
 mod cells;
 pub(crate) use cells::{paint_cells, CellStyle, CellOverlay};
 mod surface;
@@ -10,28 +12,54 @@ pub use surface::surface;
 pub use theme::TerminalTheme;
 
 pub const FONT_SIZE: f32 = 14.0;
-pub const LINE_HEIGHT: f32 = 19.0;
-pub const NOTICE_HEIGHT: f32 = 22.0;
+pub const HOST_INSET: f32 = 8.0;
 
-pub fn choose_font(window: &Window, preferred: &str, font_size: f32) -> Result<(Font, f32)> {
+pub(crate) fn terminal_baseline_offset(window: &Window) -> gpui::Pixels {
+    // At Windows DPI 96, Chrome places centered terminal/menu text one
+    // device pixel below GPUI. Do not move cells, selections, or cursor boxes.
+    if cfg!(target_os = "windows") { px(1. / window.scale_factor()) } else { px(0.) }
+}
+// xterm's FitAddon always reserves the 8px overview ruler when scrollback is on.
+pub const SCROLLBAR_WIDTH: f32 = 8.0;
+pub const HOST_RIGHT_INSET: f32 = 2.0 + SCROLLBAR_WIDTH;
+
+pub fn choose_font(window: &Window, preferred: &str, font_size: f32) -> Result<(Font, f32, f32)> {
     ensure!(
         font_size.is_finite() && (8.0..=40.0).contains(&font_size),
         "font size must be between 8 and 40 pixels"
     );
     let names = window.text_system().all_font_names();
     let family = std::iter::once(preferred)
+        .filter(|family| !family.is_empty() && *family != "monospace")
         .chain(["Cascadia Code", "Consolas", "DejaVu Sans Mono", "Menlo", "Liberation Mono"])
-        .find(|candidate| !candidate.is_empty() && names.iter().any(|name| name == candidate))
+        .find(|candidate| names.iter().any(|name| name.eq_ignore_ascii_case(candidate)))
         .context("no supported monospace font found; install Cascadia Code, Consolas, Menlo or DejaVu Sans Mono")?;
     let font = font(family.to_owned());
     let id = window.text_system().resolve_font(&font);
-    let width = f32::from(window.text_system().advance(id, px(font_size), 'M')?.width);
+    // xterm measures W with zero letter spacing and does not round each cell.
+    let text = window.text_system();
+    let width = f32::from(text.advance(id, px(font_size), 'W')?.width);
+    let ascent = f32::from(text.ascent(id, px(font_size)));
+    let descent = f32::from(text.descent(id, px(font_size)));
+    let height = terminal_line_height(ascent, descent, window.scale_factor());
     ensure!(
-        width.is_finite() && width > 0.0,
-        "font has invalid cell advance"
+        width.is_finite() && width > 0.0 && height.is_finite() && height > 0.0,
+        "font has invalid cell metrics"
     );
-    // Ghostty's public mouse geometry uses whole pixels. Keep painting and input on the same grid.
-    Ok((font, width.ceil()))
+    Ok((font, width, height))
+}
+
+fn terminal_line_height(ascent: f32, descent: f32, scale: f32) -> f32 {
+    // Canvas TextMetrics rounds the font bounds to CSS pixels. xterm rounds
+    // their sum up in device pixels and uses lineHeight: 1.
+    ((ascent.round() + descent.abs().round()) * scale).ceil() / scale
+}
+
+/// Ghostty's mouse encoder takes integer cell dimensions. Scale its input
+/// coordinates into that same grid so they still select the painted cell.
+pub(crate) fn mouse_axis(position: f32, cell: f32) -> (f32, u32) {
+    let encoder_cell = cell.round().max(1.) as u32;
+    (position / cell * encoder_cell as f32, encoder_cell)
 }
 
 fn color(value: Rgb) -> gpui::Hsla {
@@ -60,9 +88,9 @@ pub fn grid_size(width: f32, height: f32, cell_width: f32, line_height: f32) -> 
     {
         return (2, 1);
     }
-    let cols = (width / cell_width).floor().clamp(2.0, 500.0) as u16;
+    let cols = (width.floor() / cell_width).floor().clamp(2.0, 500.0) as u16;
     let row_limit = (shellfox_runtime::MAX_SCREEN_CELLS / usize::from(cols)).min(250);
-    let rows = (height / line_height).floor().clamp(1.0, row_limit as f32) as u16;
+    let rows = (height.floor() / line_height).floor().clamp(1.0, row_limit as f32) as u16;
     (cols, rows)
 }
 
@@ -83,8 +111,23 @@ mod tests {
     }
 
     #[test]
+    fn xterm_rounds_font_bounds_before_applying_device_scale() {
+        assert_eq!(terminal_line_height(12.7, -3.1, 1.), 16.);
+        assert_eq!(terminal_line_height(11.7, 3.1, 1.25), 15.2);
+    }
+
+    #[test]
+    fn fractional_cells_keep_mouse_reporting_on_the_painted_column() {
+        let width = 8.2;
+        let (x, encoded_width) = mouse_axis(width * 110. + 1., width);
+        assert_eq!((x / encoded_width as f32).floor(), 110.);
+    }
+
+    #[test]
     fn grid_uses_canvas_size_not_window_chrome() {
         assert_eq!(grid_size(800., 456., 10., 19.), (80, 24));
+        // 1200px client, 224px sidebar, 420px Files panel, xterm host + ruler.
+        assert_eq!(grid_size(556. - HOST_INSET - HOST_RIGHT_INSET, 714., 8.19, 16.), (65, 44));
         assert_eq!(grid_size(600., 380., 10., 19.), (60, 20));
         assert_eq!(grid_size(0., 0., 10., 19.), (2, 1));
         assert_eq!(grid_size(f32::NAN, 456., 10., 19.), (2, 1));

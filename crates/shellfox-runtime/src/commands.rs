@@ -149,7 +149,7 @@ impl Owner {
             Command::KeyV2 { event, .. } => return self.key_v2(request_id, lease, event),
             Command::Key { event, .. } => {
                 self.active()?;
-                let bytes = self.terminal.encode_key(&event).map_err(engine)?;
+                let bytes = self.terminal.encode_xterm_key(&event).map_err(engine)?;
                 let result = self.accept_input(
                     request_id,
                     &bytes,
@@ -166,7 +166,7 @@ impl Owner {
             }
             Command::Paste { text, .. } => {
                 self.active()?;
-                let bytes = self.terminal.encode_paste(&text).map_err(engine)?;
+                let bytes = self.terminal.encode_xterm_paste(&text).map_err(engine)?;
                 let result = self.accept_input(
                     request_id,
                     &bytes,
@@ -205,6 +205,15 @@ impl Owner {
                 );
             }
             Command::Resize { cols, rows, .. } => {
+                #[cfg(windows)]
+                if self.phase == Phase::Starting {
+                    if let Some(pty) = &mut self.elevated {
+                        self.limits.validate_size(cols, rows)?;
+                        pty.resize(cols, rows)?;
+                        self.canonical_resize(cols, rows)?;
+                        return Ok(Response::Applied);
+                    }
+                }
                 self.active()?;
                 self.limits.validate_size(cols, rows)?;
                 // Drain the bounded reader queue at the old size before the resize.
@@ -212,6 +221,13 @@ impl Owner {
                 // already-queued output chunk have a single defined order.
                 self.poll_output(shellfox_terminal::OUTPUT_QUEUE_CHUNKS);
                 self.active()?;
+                #[cfg(windows)]
+                if let Some(pty) = &mut self.elevated {
+                    pty.resize(cols, rows)?;
+                    self.canonical_resize(cols, rows)?;
+                    self.replies()?;
+                    return Ok(Response::Applied);
+                }
                 self.canonical_resize(cols, rows)?;
                 self.replies()?;
                 self.pty
@@ -325,6 +341,10 @@ impl Owner {
             return Ok(());
         }
         self.set_phase(Phase::Draining, None);
+        #[cfg(windows)]
+        if let Some(pty) = &mut self.elevated {
+            return pty.begin_close();
+        }
         if let Some(pty) = self.pty.as_mut() {
             // Stop owned processes without cancelling queued/final output.
             pty.begin_shutdown().map_err(RuntimeError::unavailable)?;

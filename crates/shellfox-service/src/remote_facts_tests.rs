@@ -1,21 +1,23 @@
+use super::super::tests::{approval_owner, approve_peer};
 use super::*;
 use crate::native_metadata_fixture as native_metadata;
 use crate::OwnerDispatcher;
-use shellfox_remote::{owner_channel, ApprovalControl, PrivateApprovalStore, RemoteHost};
-use shellfox_transport::{
-    incoming::PeerIdentity, HostOwnership, PermissionVerifier, PrivatePathKind,
-};
-use std::{
-    path::Path,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use shellfox_remote::{owner_channel, RemoteHost};
+use shellfox_transport::incoming::PeerIdentity;
+use std::sync::atomic::{AtomicBool, Ordering};
 struct Provider {
     started: AtomicBool,
     release: tokio::sync::Notify,
 }
-impl ManagerFactsProvider for Provider {
-    fn collect(&self, request: ManagerFactsRequest) -> ManagerFactsFuture<'_> {
+impl super::super::SourceFactsProjector for Provider {
+    fn project(
+        &self,
+        source: Arc<crate::activity_integration::SourceFacts>,
+        request: ManagerFactsRequest,
+    ) -> ManagerFactsFuture<'_> {
         Box::pin(async move {
+            assert!(source.matches_request(&request));
+            assert_eq!(source.snapshot.sessions[0].title, "Original");
             assert!(request.terminals.is_empty());
             self.started.store(true, Ordering::SeqCst);
             self.release.notified().await;
@@ -28,66 +30,28 @@ impl ManagerFactsProvider for Provider {
     }
 }
 #[tokio::test]
-#[ignore = "explicit verified offline helper required; no node or login"]
-async fn async_facts_never_borrow_service_and_revision_changes_fence_mutations() {
-    let parent = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
-    std::fs::create_dir_all(&parent).unwrap();
-    let parent = std::fs::canonicalize(parent).unwrap();
-    #[cfg(windows)]
-    let parent = std::path::PathBuf::from(
-        parent
-            .to_str()
-            .unwrap()
-            .strip_prefix(r"\\?\")
-            .unwrap_or(parent.to_str().unwrap()),
-    );
-    let scratch = tempfile::Builder::new()
-        .prefix("service-remote-")
-        .tempdir_in(parent)
-        .unwrap();
-    let helper = super::super::tests::helper();
-    PermissionVerifier::new(helper.clone())
-        .protect(scratch.path(), PrivatePathKind::Directory)
-        .await
-        .unwrap();
-    let ownership = HostOwnership::acquire(&helper, scratch.path())
-        .await
-        .unwrap()
-        .unwrap();
+async fn facts_refresh_before_projection_and_fence_mutations_after_it_starts() {
+    let scratch = crate::tests::scratch();
+    let approval_data = crate::tests::scratch();
+    let mut owner = approval_owner(approval_data.path()).await;
     let metadata = native_metadata::Fixture::new();
-    let directory = metadata
-        .files
-        .open_or_create_private_child(std::ffi::OsStr::new("remote-v1"))
-        .unwrap();
-    native_metadata::Fixture::seed(&directory,"approvals.json",br#"{"version":2,"approvals":[{"peerId":"n-facts","hostname":"offline","approvedAtMillis":1,"policy":"control-full-account-v1"}]}"#);
-    assert!(metadata
-        .control_path()
-        .join("remote-v1/approvals.json")
-        .exists());
-    let store =
-        PrivateApprovalStore::retained_native(metadata.files.clone(), metadata.lost.clone());
-    store.initialize_read_only().unwrap();
-    // Positive Service/Go metadata acceptance is PENDING native approval authority.
-    let control = match ApprovalControl::load(&store).await {
-        Ok(control) => control,
-        Err(error) => {
-            assert_eq!(error.code, wire::ErrorCode::Unsupported);
-            ownership.shutdown().await.unwrap();
-            return;
-        }
+    let peer = PeerIdentity {
+        id: "n-facts".into(),
+        hostname: "offline".into(),
     };
+    let (control, _store) = approve_peer(&owner, &metadata, &peer).await;
     let actor = control
-        .authorize(
-            &PeerIdentity {
-                id: "n-facts".into(),
-                hostname: "offline".into(),
-            },
-            wire::ClientId::new_v4(),
-            1,
-        )
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
         .unwrap();
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
+    service.pump_activity();
+    let watch = service.source_facts_watch();
+    assert!(crate::activity_integration::read_source(&watch)
+        .unwrap()
+        .snapshot
+        .sessions
+        .is_empty());
     let created = service
         .host()
         .create_session(shellfox_core::CreateSession {
@@ -114,8 +78,10 @@ async fn async_facts_never_borrow_service_and_revision_changes_fence_mutations()
             )
         })
         .unwrap();
+    let slot = Arc::new(super::super::SourceFactsProviderSlot::new(provider.clone()));
+    slot.install(watch).unwrap();
     let mut dispatcher = super::super::RemoteDispatcher::new(receiver, state)
-        .with_facts_provider(provider.clone(), tokio::runtime::Handle::current());
+        .with_facts_provider(slot, tokio::runtime::Handle::current());
     let command = OwnerCommand::Execute {
         actor,
         command: wire::RemoteCommand::RenameSession(wire::RenameSession {
@@ -155,5 +121,5 @@ async fn async_facts_never_borrow_service_and_revision_changes_fence_mutations()
     service.shutdown().unwrap();
     drop(dispatcher);
     drop(service);
-    ownership.shutdown().await.unwrap();
+    owner.shutdown().await.unwrap();
 }

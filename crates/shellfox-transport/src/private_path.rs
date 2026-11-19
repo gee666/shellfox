@@ -4,8 +4,11 @@ use std::path::{Component, Path, PathBuf};
 /// Convert only ordinary Windows drive/UNC forms and their canonical verbatim
 /// equivalents. Never resolve links or reinterpret device namespaces.
 pub fn normalize_private_path(path: &Path) -> Result<PathBuf, HelperError> {
+    #[cfg(windows)]
     let text = path.to_str().ok_or(HelperError::InvalidRequest)?;
-    if !path.is_absolute() || text.len() > 32767 || text.chars().any(char::is_control) {
+    #[cfg(not(windows))]
+    let text = path.to_string_lossy(); // Validate without changing the path's native bytes.
+    if !path.is_absolute() || path.as_os_str().len() > 32767 || text.chars().any(char::is_control) {
         return Err(HelperError::InvalidRequest);
     }
     #[cfg(windows)]
@@ -91,6 +94,24 @@ fn valid_component(value: &str) -> Result<(), HelperError> {
         return Err(HelperError::InvalidRequest);
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn unix_private_paths_preserve_native_bytes_and_reject_ambiguous_components() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+    let path = Path::new(OsStr::from_bytes(b"/tmp/private-\xff"));
+    assert_eq!(normalize_private_path(path).unwrap(), path);
+    for invalid in [
+        b"/tmp/./private-\xff".as_slice(),
+        b"/tmp/private-\xff/..",
+        b"/tmp/\x00\xff",
+    ] {
+        assert_eq!(
+            normalize_private_path(Path::new(OsStr::from_bytes(invalid))),
+            Err(HelperError::InvalidRequest)
+        );
+    }
 }
 
 #[cfg(all(test, windows))]

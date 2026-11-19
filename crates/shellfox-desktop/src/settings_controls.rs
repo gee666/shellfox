@@ -38,7 +38,7 @@ pub(super) fn heading(text: impl Into<gpui::SharedString>) -> gpui::Div {
         .font_weight(gpui::FontWeight::SEMIBOLD)
         .line_height(px(16.))
         .mb(px(10.))
-        .child(text.into())
+        .child(div().relative().top(px(1.)).child(text.into()))
 }
 pub(super) fn hint(text: impl Into<gpui::SharedString>, p: Palette) -> gpui::Div {
     div()
@@ -48,6 +48,30 @@ pub(super) fn hint(text: impl Into<gpui::SharedString>, p: Palette) -> gpui::Div
         .mb(px(8.))
         .child(text.into())
 }
+pub(super) fn focus_outline(
+    focus: FocusHandle,
+    color: gpui::Hsla,
+    radius: f32,
+) -> impl IntoElement {
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            if focus.is_focused(window) {
+                window.paint_quad(gpui::quad(
+                    bounds,
+                    px(radius),
+                    gpui::transparent_black(),
+                    px(1.),
+                    color,
+                    gpui::BorderStyle::Solid,
+                ));
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+}
+
 pub(super) fn section(p: Palette) -> gpui::Div {
     div()
         .mt(px(22.))
@@ -77,10 +101,12 @@ impl SettingsPanel {
         let click_enabled = enabled.clone();
         let key_enabled = enabled.clone();
         let key_action = action.clone();
+        let handles_space = matches!(action, Action::Profiles);
+        let outline = self.keyboard_focus && allowed && !matches!(action, Action::ToggleUpdates);
         let click_focus = focus.clone();
         let element = div()
             .id(gpui::SharedString::from(id))
-            .track_focus(&focus)
+            .relative()
             .cursor_pointer()
             .when(!allowed, |style| {
                 style.opacity(0.4).cursor(gpui::CursorStyle::Arrow)
@@ -93,30 +119,43 @@ impl SettingsPanel {
             .rounded(px(3.))
             .bg(p.surface)
             .text_size(px(12.))
+            .line_height(px(16.))
             .text_color(p.foreground)
             .flex()
             .items_center()
             .justify_center()
-            .on_click(cx.listener(move |panel, _, window, cx| {
-                if !click_enabled.get() {
-                    return;
-                }
-                click_focus.focus(window);
-                panel.act(action.clone(), window, cx)
-            }))
+            .on_click(
+                cx.listener(move |panel, event: &gpui::ClickEvent, window, cx| {
+                    // Don't repeat keys already handled on key-down when GPUI
+                    // also emits a click on key-up.
+                    if !click_enabled.get()
+                        || matches!(event, gpui::ClickEvent::Keyboard(event)
+                        if event.button == gpui::KeyboardButton::Enter || handles_space)
+                    {
+                        return;
+                    }
+                    click_focus.focus(window);
+                    panel.act(action.clone(), window, cx)
+                }),
+            )
             .on_key_down(
                 cx.listener(move |panel, event: &gpui::KeyDownEvent, window, cx| {
                     if key_enabled.get()
                         && matches!(event.keystroke.key.as_str(), "enter" | "space")
                     {
-                        panel.act(key_action.clone(), window, cx);
+                        if event.keystroke.key == "enter" {
+                            panel.act(key_action.clone(), window, cx);
+                        }
                         window.prevent_default();
                         cx.stop_propagation();
                     }
                 }),
             )
-            .child(label);
-        semantic_control::Control::new(element, semantic, enabled)
+            .when(!label.is_empty(), |element| element.child(label))
+            .when(outline, |element| {
+                element.child(focus_outline(focus.clone(), p.accent, 3.))
+            });
+        semantic_control::Control::new(element, semantic, enabled).tab_focus(focus)
     }
     pub(super) fn button(
         &mut self,
@@ -185,10 +224,12 @@ impl SettingsPanel {
             Action::CloseSettings => self.request_close(cx),
             Action::SelectCategory(category) => {
                 self.category = category;
+                self.ssh.hovered_row = None;
                 let index = Category::ALL
                     .iter()
                     .position(|item| *item == category)
                     .unwrap_or(0);
+                self.tabs_scroll.scroll_to_item(index);
                 self.tab_focus[index].focus(window);
                 cx.notify();
             }
@@ -217,52 +258,9 @@ impl SettingsPanel {
                 },
                 cx,
             ),
-            Action::Profiles => {
-                let Some(catalog) = &self.catalog else {
-                    self.auxiliary_error =
-                        Some("Terminal profile information is unavailable.".into());
-                    cx.notify();
-                    return;
-                };
-                let available = catalog
-                    .profiles
-                    .iter()
-                    .filter(|profile| profile.available && !profile.elevation)
-                    .collect::<Vec<_>>();
-                if available.is_empty() {
-                    return;
-                }
-                let selected = self
-                    .draft
-                    .as_ref()
-                    .and_then(|draft| draft.value.terminal_profile_id.as_ref())
-                    .and_then(Option::as_ref)
-                    .or(catalog.default_profile_id.as_ref());
-                self.profile_index = available
-                    .iter()
-                    .position(|profile| Some(&profile.id) == selected)
-                    .unwrap_or(0);
-                self.profile_menu = !self.profile_menu;
-                cx.notify();
-            }
-            Action::SelectProfile(id) => {
-                if self.catalog.as_ref().is_some_and(|catalog| {
-                    catalog
-                        .profiles
-                        .iter()
-                        .any(|p| p.id == id && p.available && !p.elevation)
-                }) {
-                    self.profile_menu = false;
-                    self.stage(
-                        SettingsPatch {
-                            terminal_profile_id: Some(Some(id)),
-                            ..Default::default()
-                        },
-                        cx,
-                    );
-                }
-            }
-            Action::ChooseColor(kind) => self.choose_color(kind, cx),
+            Action::Profiles => self.toggle_profiles(window, cx),
+            Action::SelectProfile(id) => self.select_profile(id, window, cx),
+            Action::ChooseColor(kind) => self.choose_color(kind, window, cx),
             Action::SaveColor(kind) => self.save_color(kind, cx),
             Action::Environment => self.open_environment(window, cx),
             Action::SaveEnvironment => self.save_environment(cx),

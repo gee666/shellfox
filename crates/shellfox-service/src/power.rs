@@ -87,10 +87,30 @@ pub enum PowerStatus {
 }
 
 #[derive(Default)]
-pub struct SystemPower;
+pub struct SystemPower {
+    #[cfg(windows)]
+    journal: Option<std::path::PathBuf>,
+}
+impl SystemPower {
+    pub(crate) fn for_data_dir(directory: &std::path::Path) -> Self {
+        #[cfg(windows)]
+        {
+            let journal = platform::prepare(directory);
+            Self { journal: Some(journal) }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = directory;
+            Self::default()
+        }
+    }
+}
 impl PowerBackend for SystemPower {
     type Lease = platform::Lease;
     fn acquire(&mut self) -> Result<Self::Lease, PowerError> {
+        #[cfg(windows)]
+        return platform::acquire(self.journal.as_deref());
+        #[cfg(not(windows))]
         platform::acquire()
     }
 }
@@ -102,7 +122,7 @@ pub struct PowerManager<B: PowerBackend = SystemPower> {
 }
 impl PowerManager<SystemPower> {
     pub fn new() -> Self {
-        Self::with_backend(SystemPower)
+        Self::with_backend(SystemPower::default())
     }
 }
 impl Default for PowerManager<SystemPower> {

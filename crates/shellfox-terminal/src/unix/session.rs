@@ -1,6 +1,6 @@
 use super::{cgroup::Cgroup, startup::Gate, state::State};
 use crate::{config::size, input::InputWriter, reader::OutputReader};
-use crate::{ExitStatus, NativeLaunchBinding, PtyConfig, PtyOutput, SpawnError, TrustedProgramEnv};
+use crate::{ExitStatus, NativeLaunchBinding, PtyConfig, PtyOutput, SpawnError};
 use anyhow::{ensure, Context, Result};
 use std::sync::{
     mpsc::{self, SyncSender, TryRecvError},
@@ -53,43 +53,30 @@ impl std::fmt::Debug for PtySession {
     }
 }
 impl PtySession {
+    pub fn inspection_capability(&self) -> std::result::Result<crate::inspection::InspectionCapability, crate::inspection::InspectionFailure> {
+        use crate::inspection::{InspectionCapability, InspectionFailure::Unavailable};
+        let state = self.inner.as_ref().filter(|state| state.ready && !state.stopping).ok_or(Unavailable)?;
+        let pid = state.child.as_ref().and_then(|child| child.process_id()).ok_or(Unavailable)?;
+        let group = state.group.as_ref().ok_or(Unavailable)?.inspection_directory().map_err(|_| Unavailable)?;
+        let supervisor = state.pidfd.as_ref().ok_or(Unavailable)?.try_clone().map_err(|_| Unavailable)?;
+        Ok(InspectionCapability(std::sync::Arc::new(super::linux::inspection::OwnedInspection::new(group, supervisor, pid))))
+    }
+
     pub fn spawn(config: PtyConfig) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_inner(config, None, None, SpawnOptions::default())
+        Self::spawn_inner(config, None, SpawnOptions::default())
     }
     pub fn spawn_bound(
         config: PtyConfig,
         binding: NativeLaunchBinding,
     ) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_inner(config, None, Some(binding), SpawnOptions::default())
-    }
-    pub fn spawn_program(
-        config: PtyConfig,
-        environment: TrustedProgramEnv,
-    ) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_inner(config, Some(environment), None, SpawnOptions::default())
-    }
-    pub fn spawn_program_bound(
-        config: PtyConfig,
-        environment: TrustedProgramEnv,
-        binding: NativeLaunchBinding,
-    ) -> std::result::Result<Self, SpawnError> {
-        Self::spawn_inner(
-            config,
-            Some(environment),
-            Some(binding),
-            SpawnOptions::default(),
-        )
+        Self::spawn_inner(config, Some(binding), SpawnOptions::default())
     }
     pub(crate) fn spawn_inner(
         config: PtyConfig,
-        environment: Option<TrustedProgramEnv>,
         binding: Option<NativeLaunchBinding>,
         options: SpawnOptions,
     ) -> std::result::Result<Self, SpawnError> {
         config.validate()?;
-        if let Some(env) = &environment {
-            env.validate_for(&config)?;
-        }
         let command = match &config.command {
             Some(command) => command.clone(),
             None => match config.profile {
@@ -117,6 +104,12 @@ impl PtySession {
         // supervisor. User command arguments must never expand in the wrapper.
         argv.insert(1, "--expand-environment=no".into());
         let mut builder = config.builder(&argv)?;
+        if config.command.is_none()
+            && std::path::Path::new(&command.program).file_name().is_some_and(|name| name == "bash")
+            && !config.env.contains_key(std::ffi::OsStr::new("PROMPT_COMMAND"))
+        {
+            builder.env("PROMPT_COMMAND", include_str!("../bash-prompt.sh"));
+        }
         builder.env(
             "DBUS_SESSION_BUS_ADDRESS",
             format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }),
@@ -137,7 +130,7 @@ impl PtySession {
             })
             .context("start retained Linux PTY owner")?;
         let mut session = Self {
-            inner: Some(State::new(group, pair.master, writer, output, environment)),
+            inner: Some(State::new(group, pair.master, writer, output)),
             reaper,
         };
         let startup = (|| -> Result<()> {
@@ -145,18 +138,10 @@ impl PtySession {
             state.child = Some(pair.slave.spawn_command(builder)?);
             drop(pair.slave);
             let pid = state.pin()?;
-            let packet = state
-                .environment
-                .as_ref()
-                .map(|env| {
-                    env.validate_for(&config)?;
-                    env.packet()
-                })
-                .transpose()?;
             let bound = binding.is_some();
             let binding =
                 binding.unwrap_or_else(|| crate::launch_privilege::new_launch_binding().0);
-            state.control = Some(gate.release(pid, packet.as_ref(), || {
+            state.control = Some(gate.release(pid, || {
                 options.before_assignment()?;
                 state.attach(pid)?;
                 options.before_go()?;

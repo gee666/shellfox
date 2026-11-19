@@ -2,7 +2,7 @@
 use crate::{host_key_info, Error, HostKeyInfo, PrivateDirectory, Result, Secret};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ssh_key::{private::KeypairData, public::KeyData, HashAlg, Kdf, PrivateKey};
-use std::{fmt, path::Path, sync::Arc};
+use std::{fmt, sync::Arc};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -22,10 +22,6 @@ impl ValidatedKey {
     }
     pub fn info(&self) -> Result<HostKeyInfo> {
         host_key_info(&self.public_blob()?)
-    }
-    /// Host connection adapter only. No RPC serialization is implemented.
-    pub fn private_key(&self) -> &PrivateKey {
-        &self.0
     }
     pub fn to_openssh_in_memory(&self) -> Result<Zeroizing<String>> {
         self.0
@@ -100,31 +96,6 @@ pub struct ImportedKey {
     pub id: Uuid,
     pub info: HostKeyInfo,
 }
-/// Host-only encrypted temporary identity. No Serialize or Clone implementation.
-pub struct PreparedIdentity {
-    path: std::path::PathBuf,
-    file: String,
-    passphrase: Secret,
-    directory: Arc<PrivateDirectory>,
-}
-impl PreparedIdentity {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-    pub fn passphrase(&self) -> &Secret {
-        &self.passphrase
-    }
-    /// Call after the owned SSH process tree has stopped. On failure retain this object.
-    pub fn cleanup(&self) -> Result<()> {
-        self.directory.remove(&self.file)
-    }
-}
-impl fmt::Debug for PreparedIdentity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("PreparedIdentity([HOST-ONLY])")
-    }
-}
-
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ImportedMaterial {
@@ -213,49 +184,6 @@ impl KeyStore {
     /// Re-encrypt for retained OpenSSH without ever writing a decrypted key.
     /// The caller must keep the result alive with its owned SSH process and broker
     /// the passphrase privately. Never put it in argv, logs or the environment.
-    pub fn prepare_for_system(
-        &self,
-        id: Uuid,
-        unlock: Option<&Secret>,
-        rng: &mut impl ssh_key::rand_core::CryptoRngCore,
-    ) -> Result<PreparedIdentity> {
-        let key = self.load(id, unlock)?;
-        self.prepare_validated(key, rng)
-    }
-    pub fn prepare_bytes_for_system(
-        &self,
-        bytes: &[u8],
-        unlock: Option<&Secret>,
-        rng: &mut impl ssh_key::rand_core::CryptoRngCore,
-    ) -> Result<PreparedIdentity> {
-        self.prepare_validated(parse_private_key(bytes, unlock)?, rng)
-    }
-    fn prepare_validated(
-        &self,
-        key: ValidatedKey,
-        rng: &mut impl ssh_key::rand_core::CryptoRngCore,
-    ) -> Result<PreparedIdentity> {
-        let mut random = Zeroizing::new([0u8; 32]);
-        rng.try_fill_bytes(random.as_mut())
-            .map_err(|_| Error::Process)?;
-        let password =
-            Secret::new(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(random.as_ref()))?;
-        let encoded = key
-            .private_key()
-            .encrypt(rng, password.expose())
-            .map_err(|_| Error::InvalidKey)?
-            .to_openssh(ssh_key::LineEnding::LF)
-            .map_err(|_| Error::InvalidKey)?;
-        let file = format!("identity-{}.key", Uuid::new_v4());
-        self.directory
-            .atomic_write(&file, encoded.as_bytes(), MAX_KEY_BYTES)?;
-        Ok(PreparedIdentity {
-            path: self.directory.file_path(&file)?,
-            file,
-            passphrase: password,
-            directory: self.directory.clone(),
-        })
-    }
     pub fn file_name(id: Uuid) -> String {
         format!("key-{id}.key")
     }

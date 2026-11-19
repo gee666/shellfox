@@ -1,5 +1,5 @@
 use super::*;
-use shellfox_ghostty_vt::{Key, KeyEvent};
+use shellfox_ghostty_vt::{Key, KeyEvent, Modifiers};
 #[test]
 fn actual_bracketed_paste_payload_and_encoded_caps_are_distinct_and_overflow_has_zero_prewrite_side_effects(
 ) {
@@ -23,10 +23,22 @@ fn actual_bracketed_paste_payload_and_encoded_caps_are_distinct_and_overflow_has
         ),
         "actual source must enable bracketed paste"
     );
-    assert!(
-        matches!(m.request(Command::Key{lease,event:KeyEvent{key:Key::Character('x'),text:Some("x".into()),unshifted_codepoint:u32::from('x'),..Default::default()}}).unwrap(),Response::Input(InputReceipt{accepted_bytes:count,..}) if count>1),
-        "actual source must enable keyboard encoding"
-    );
+    // Alt adds bytes in both legacy and enhanced keyboard modes.
+    let modifiers = Modifiers {
+        alt: true,
+        ..Modifiers::default()
+    };
+    let key = |text: String| KeyEvent {
+        key: Key::Character('x'),
+        modifiers,
+        text: Some(text),
+        unshifted_codepoint: u32::from('x'),
+        ..Default::default()
+    };
+    assert!(matches!(
+        m.request(Command::Key { lease, event: key("x".into()) }).unwrap(),
+        Response::Input(InputReceipt { accepted_bytes, .. }) if accepted_bytes > 1
+    ));
     let id = RequestId(m.host.next);
     let accepted = match m
         .request(Command::Paste {
@@ -68,22 +80,20 @@ fn actual_bracketed_paste_payload_and_encoded_caps_are_distinct_and_overflow_has
         );
         assert_eq!(m.host.runtime.phase(), Phase::Active);
     }
-    let error = m
-        .request(Command::Key {
+    let oversized = m.host.runtime.try_send(Request {
+        id: RequestId(m.host.next),
+        command: Command::Key {
             lease,
-            event: KeyEvent {
-                key: Key::Character('x'),
-                text: Some("x".repeat(MAX_INPUT_PAYLOAD_BYTES)),
-                unshifted_codepoint: u32::from('x'),
-                ..Default::default()
-            },
-        })
-        .unwrap_err();
-    assert_eq!(error.code, ErrorCode::ResourceLimit);
+            event: key("x".repeat(MAX_INPUT_PAYLOAD_BYTES + 1)),
+        },
+    });
+    assert!(
+        matches!(oversized, Err(SubmitError::Invalid(error)) if error.code == ErrorCode::Validation)
+    );
     assert_eq!(
         m.probe.input.lock().unwrap().len(),
         before,
-        "keyboard expansion must not be clipped or written as a prefix"
+        "oversized committed text must not be clipped or written as a prefix"
     );
     m.request(Command::CheckControllerReady { lease }).unwrap();
 }

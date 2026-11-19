@@ -1,7 +1,6 @@
 use super::*;
 use shellfox_protocol::{AppError, ErrorCode};
 use shellfox_service::{
-    native_providers::{NativeProgramResource, NativeSshPrograms},
     system::{CliInstallPlan, DesktopLaunch, SystemResult, SystemScope},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -128,35 +127,4 @@ fn provider_builder_uses_explicit_policy_without_querying_or_installing() {
     assert_eq!(queries.load(Ordering::SeqCst), 0);
     let _same_backend_services = providers.system_services();
     assert_eq!(queries.load(Ordering::SeqCst), 0);
-}
-#[test]
-fn ssh_resource_input_is_a_plan_not_a_profile_scan_or_directory_creation() -> anyhow::Result<()> {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
-    let fixture = tempfile::Builder::new()
-        .prefix("provider-resource-plan-")
-        .tempdir_in(root)?;
-    let program = fixture.path().join("declared-program");
-    // Trusted fixture bytes only. This test never executes them or claims a package installation.
-    std::fs::write(&program, b"provider-program-fixture\n")?;
-    let hex = "593e72c0b7aabeff5d43bc242b289b5602127a83a1f7404e74045ad61cc542c2";
-    let mut digest = [0; 32];
-    for (index, byte) in digest.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16)?;
-    }
-    let program = NativeProgramResource::from_pinned_file(program, digest)?;
-    let ssh = NativeSshResources::new(
-        NativeSshPrograms::new(program.clone(), program.clone(), program.clone()),
-        Some(program),
-    )?;
-    let queries = Arc::new(AtomicUsize::new(0));
-    let resources = ApplicationProviderResources::new(
-        Arc::new(QueryFixture(queries.clone())),
-        SystemInstallPolicy::default(),
-    )
-    .with_ssh(ssh);
-    let _providers = resources.build(false);
-    assert!(format!("{resources:?}").contains("ssh_configured: true"));
-    assert!(!fixture.path().join("rust-service-v1").exists());
-    assert_eq!(queries.load(Ordering::SeqCst), 0);
-    Ok(())
 }

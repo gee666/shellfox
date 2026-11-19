@@ -97,8 +97,7 @@ fn approved_legacy_record_mints_explicit_account_control_without_opening_or_enum
 }
 
 #[tokio::test]
-async fn native_management_gate_permanently_denies_preexisting_in_memory_authority() {
-    // Accepted in-memory fixture only: no native persistence/history proof.
+async fn failed_durable_revocation_permanently_denies_existing_authority() {
     let control = ApprovalControl::default();
     let peer = PeerIdentity {
         id: "n-memory".into(),
@@ -113,14 +112,14 @@ async fn native_management_gate_permanently_denies_preexisting_in_memory_authori
     };
     control.install(approval.clone()).unwrap();
     let actor = control.authorize(&peer, ClientId::new_v4(), 1).unwrap();
-    // Unsupported/non-native backing must never be used: this entry gate performs no IO.
+    // This legacy store cannot commit a revocation to Host SQLite.
     let store = PrivateApprovalStore::retained_native(
         Arc::new(FileService::approved_full_account()),
         shellfox_protocol::CancellationToken::new(),
     );
     assert_eq!(
         control.revoke(&store, &peer.id).await.unwrap_err().code,
-        ErrorCode::Unsupported
+        ErrorCode::StorageFailed
     );
     assert!(control.state().unwrap().approvals.is_empty());
     assert!(actor

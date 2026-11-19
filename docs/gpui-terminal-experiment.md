@@ -18,7 +18,7 @@ node scripts/gpui-experiment.mjs fixture
 node scripts/gpui-experiment.mjs smoke
 ```
 
-The launcher uses `cargo rustc --locked` with a unique private output under `tmp/gpui-builds`. It does not replace `target/debug/shellfox-gpui-experiment.exe`, which may be a user-occupied window. Its DLL copy is hash-checked and includes notices. `shell` is the default and opens the
+The launcher uses `cargo rustc --locked` with a unique private output under `tmp/gpui-builds`. It does not replace `target/debug/shellfox.exe`, which may be a user-occupied window. Its DLL copy is hash-checked and includes notices. `shell` is the default and opens the
 application workspace. `fixture` is an explicit parser/rendering fixture with
 no shell or host database. `smoke` runs a controlled cmd script, independently of
 the interactive default shell. `--release` selects a release build; it does not
@@ -130,7 +130,7 @@ process kill. See [the PTY guide](../crates/shellfox-terminal/README.md) and
 Repeat scoped checks without forcing graphical initialization in host tests:
 
 ```powershell
-cargo test --locked -p shellfox-desktop --bin shellfox-gpui-experiment
+cargo test --locked -p shellfox-desktop --bin shellfox
 cargo clippy --locked -p shellfox-desktop --all-targets --no-deps -- -D warnings
 node --test scripts/gpui-build.test.mjs scripts/gpui-assets.test.mjs
 cargo test --locked -p shellfox-runtime --all-targets

@@ -203,13 +203,16 @@ impl Connection {
     pub fn cancel_frames(&self) {
         self.frame_life.send_replace(true);
     }
+    pub fn resume_frames(&self) {
+        self.frame_life.send_replace(false);
+    }
     pub fn frame_cancellation(&self) -> watch::Receiver<bool> {
         self.frame_life.subscribe()
     }
-    pub fn retire(&mut self, outbox: Outbox, next: u64) {
+    pub fn retire(&mut self, outbox: Outbox, next: u64, needs_detach: bool) {
         self.cancel_frames();
         if let Some(sender) = self.retirement.take() {
-            let _ = sender.send(Retirement::new(outbox, next));
+            let _ = sender.send(Retirement::new(outbox, next, needs_detach));
         }
     }
     pub fn send(&self, intent: Intent) -> std::result::Result<(), SubmitError> {
@@ -252,6 +255,7 @@ pub(in crate::app) fn start_worker(
             });
         }
         if let Ok(mut retirement) = incoming.retirement.await {
+            detach_attempted |= !retirement.needs_detach;
             while let Some(intent) = retirement.next_intent() {
                 let request = intent.request;
                 let input = intent.input;

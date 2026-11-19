@@ -10,11 +10,11 @@ impl Owner {
             .delivery
             .recover(lease)
             .map_err(RuntimeError::control)?;
-        Ok(Response::Ansi {
-            capability,
-            bytes,
-            last_sequence,
-        })
+        if capability == AnsiRecoveryCapability::RemoteV1 {
+            let geometry = self.terminal.recovery_info().map_err(crate::commands::engine)?;
+            return Ok(Response::RemoteV1Ansi { bytes, last_sequence, cols: geometry.cols, rows: geometry.rows });
+        }
+        Ok(Response::Ansi { capability, bytes, last_sequence })
     }
     pub(crate) fn recovery_bytes(
         &mut self,
@@ -24,6 +24,7 @@ impl Owner {
             AnsiRecoveryCapability::VisibleScreen => {
                 ansi::visible_screen(&self.terminal.render().map_err(crate::commands::engine)?)
             }
+            AnsiRecoveryCapability::RemoteV1 => crate::recovery::remote_v1_ansi(&mut self.terminal),
             AnsiRecoveryCapability::FormattedActiveBufferV1 => {
                 crate::recovery::active_buffer_ansi(&mut self.terminal).map_err(|mut error| {
                     // Failure of an optional serializer must not stop a live PTY.

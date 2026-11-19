@@ -59,6 +59,7 @@ impl SettingsPanel {
             return;
         }
         self.load_error = None;
+        self.apply_update_preference(&settings, cx);
         if !self.operations.frozen()
             && let Some(draft) = &self.draft
         {
@@ -89,13 +90,24 @@ impl SettingsPanel {
         }
     }
     pub(super) fn stage(&mut self, patch: SettingsPatch, cx: &mut Context<Self>) {
+        self.stage_edit(patch, false, cx);
+    }
+    pub(super) fn stage_edit(
+        &mut self,
+        patch: SettingsPatch,
+        repaired: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.operations.frozen() {
             return;
         }
         let Some(draft) = &mut self.draft else {
             return;
         };
-        match draft.stage(patch) {
+        let changed = draft
+            .stage(patch)
+            .map(|changed| changed || repaired && draft.repair_input());
+        match changed {
             Ok(true) => {
                 self.save_error = None;
                 self.saved_visible = false;
@@ -118,6 +130,7 @@ impl SettingsPanel {
                 })
                 .detach();
             }
+            Ok(false) if repaired => self.save_error = None,
             Ok(false) => {}
             Err(error) => draft.error = Some(error.to_string()),
         }
@@ -162,10 +175,18 @@ impl SettingsPanel {
                         if let Some(draft) = &mut panel.draft {
                             draft.failed("Invalid settings response from host.".into());
                         }
+                        if !panel.visible {
+                            cx.emit(SettingsEvent::BackgroundSaveFailed(anyhow::anyhow!(
+                                "Invalid settings response from host."
+                            )));
+                        }
                     }
                     Err(error) => {
                         if let Some(draft) = &mut panel.draft {
                             draft.failed(error.to_string());
+                        }
+                        if !panel.visible {
+                            cx.emit(SettingsEvent::BackgroundSaveFailed(error));
                         }
                     }
                 }

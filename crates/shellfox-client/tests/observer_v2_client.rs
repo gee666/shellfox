@@ -224,12 +224,12 @@ fn v2_settings_response_omission_reaches_presentation_without_v1_defaults() {
     };
     assert!(value.get("pythonPath").is_none());
     assert_eq!(
-        value.as_object().unwrap().keys().collect::<Vec<_>>(),
+        value.as_object().unwrap().keys().collect::<std::collections::BTreeSet<_>>(),
         case["response"]["value"]
             .as_object()
             .unwrap()
             .keys()
-            .collect::<Vec<_>>()
+            .collect::<std::collections::BTreeSet<_>>()
     );
 }
 #[test]

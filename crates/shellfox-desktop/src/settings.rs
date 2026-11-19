@@ -12,20 +12,24 @@ mod agents;
 pub mod api;
 #[path = "settings_aux.rs"]
 mod aux;
-#[path = "settings_catalog.rs"]
-mod catalog_validation;
-#[path = "settings_colors.rs"]
-mod colors;
 #[path = "settings_browser.rs"]
 mod browser;
+#[path = "settings_catalog.rs"]
+mod catalog_validation;
+#[path = "settings_color_picker.rs"]
+mod color_picker;
+#[path = "settings_colors.rs"]
+mod colors;
 #[path = "settings_compat.rs"]
 mod compat;
 #[path = "settings_controller.rs"]
 mod controller;
 #[path = "settings_controls.rs"]
 mod controls;
+#[path = "settings_device_colors.rs"]
+mod device_colors;
 #[path = "settings_environment.rs"]
-mod environment_data;
+pub(crate) mod environment_data;
 #[path = "settings_environment_keys.rs"]
 mod environment_keys;
 #[path = "settings_environment_rpc.rs"]
@@ -34,8 +38,6 @@ mod environment_rpc;
 mod environment_view;
 #[path = "settings_error.rs"]
 mod errors;
-#[path = "settings_device_colors.rs"]
-mod device_colors;
 pub use device_colors::DeviceColors;
 #[path = "settings_device_color_actions.rs"]
 mod device_color_actions;
@@ -106,16 +108,6 @@ mod semantics;
 mod ssh;
 #[path = "settings_ssh_form.rs"]
 mod ssh_form;
-#[path = "settings_ssh_intent.rs"]
-mod ssh_intent;
-#[path = "settings_ssh_open.rs"]
-mod ssh_open;
-pub use ssh_intent::SshOpenAdmission;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SshOpenRejection {
-    Busy,
-    Frozen,
-}
 #[path = "settings_ssh_page.rs"]
 mod ssh_page;
 #[path = "settings_state.rs"]
@@ -154,18 +146,7 @@ impl Category {
 pub enum SettingsEvent {
     Saved(Settings),
     CloseRequested,
-}
-pub struct SettingsSshOpened {
-    pub request_id: shellfox_core::SessionId,
-    pub opened: shellfox_service::ssh::OpenedProfile,
-    /// Clone, not fork: pending statuses/adoption belong to this exact controller.
-    pub client: HostClient,
-}
-/// Failure stays on this panel's window-bound subscription and original intent.
-/// There is no opening receipt to observe or adopt on this path.
-pub struct SettingsSshOpenFailed {
-    pub request_id: shellfox_core::SessionId,
-    pub message: String,
+    BackgroundSaveFailed(anyhow::Error),
 }
 pub struct SettingsPanel {
     client: HostClient,
@@ -188,34 +169,41 @@ pub struct SettingsPanel {
     agent_error: Option<String>,
     environment: Option<forms::Environment>,
     environment_subscription: Option<Subscription>,
+    restore_environment_focus: bool,
     environment_write: Option<environment_rpc::PendingEnvironment>,
     environment_writing: bool,
     catalog: Option<api::Catalog>,
     catalog_error: Option<String>,
     profile_menu: bool,
     profile_index: usize,
+    profile_scroll: gpui::ScrollHandle,
     custom_colors: Option<api::CustomColors>,
     device_colors: Option<Arc<DeviceColors>>,
     device_color_saving: bool,
+    color_picker: Option<color_picker::Active>,
+    accent_anchor: color_picker::Anchor,
+    background_anchor: color_picker::Anchor,
     services: Option<Arc<dyn SettingsServices>>,
     auxiliary_error: Option<String>,
     remote: remote::RemoteView,
     ssh: ssh::SshView,
-    ssh_open_intent: ssh_intent::Intent,
     focus: FocusHandle,
     close_focus: FocusHandle,
     focus_on_open: bool,
+    access_review: std::rc::Rc<std::cell::Cell<bool>>,
+    access_focus: FocusHandle,
+    body_scroll: gpui::ScrollHandle,
+    keyboard_focus: bool,
     controls: BTreeMap<String, FocusHandle>,
     tab_focus: Vec<FocusHandle>,
+    tabs_scroll: gpui::ScrollHandle,
 }
 impl EventEmitter<SettingsEvent> for SettingsPanel {}
-impl EventEmitter<SettingsSshOpened> for SettingsPanel {}
-impl EventEmitter<SettingsSshOpenFailed> for SettingsPanel {}
 impl SettingsPanel {
     pub fn new(client: HostClient, window: &mut Window, cx: &mut App) -> Entity<Self> {
         let forms = Forms::new(cx);
         let remote = remote::RemoteView::new(cx);
-        let ssh = ssh::SshView::new(cx);
+        let ssh = ssh::SshView::default();
         let services: Arc<dyn SettingsServices> =
             Arc::new(native_services::NativeServices::new(client.clone()));
         let panel = cx.new(|cx| Self {
@@ -239,25 +227,34 @@ impl SettingsPanel {
             agent_error: None,
             environment: None,
             environment_subscription: None,
+            restore_environment_focus: false,
             environment_write: None,
             environment_writing: false,
             catalog: None,
             catalog_error: None,
             profile_menu: false,
             profile_index: 0,
+            profile_scroll: gpui::ScrollHandle::new(),
             custom_colors: None,
             device_colors: None,
             device_color_saving: false,
+            color_picker: None,
+            accent_anchor: Default::default(),
+            background_anchor: Default::default(),
             services: Some(services),
             auxiliary_error: None,
             remote,
             ssh,
-            ssh_open_intent: ssh_intent::Intent::default(),
             focus: cx.focus_handle(),
             close_focus: cx.focus_handle(),
             focus_on_open: false,
+            access_review: Default::default(),
+            access_focus: cx.focus_handle(),
+            body_scroll: gpui::ScrollHandle::new(),
+            keyboard_focus: false,
             controls: BTreeMap::new(),
             tab_focus: Category::ALL.iter().map(|_| cx.focus_handle()).collect(),
+            tabs_scroll: gpui::ScrollHandle::new(),
         });
         panel.update(cx, |panel, cx| {
             for (key, field) in panel.forms.fields.clone() {
@@ -279,6 +276,15 @@ impl SettingsPanel {
                     .subscriptions
                     .push(cx.observe_in(&field, window, |_, _, _, cx| cx.notify()));
             }
+            let login_address = panel.remote.login_address.read(cx).edit_focus();
+            panel
+                .subscriptions
+                .push(cx.on_focus(&login_address, window, |panel, _, cx| {
+                    panel
+                        .remote
+                        .login_address
+                        .update(cx, Field::select_all_text);
+                }));
             panel.refresh(cx);
             panel.load_auxiliary(cx);
         });

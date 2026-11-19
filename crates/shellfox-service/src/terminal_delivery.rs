@@ -10,7 +10,6 @@ impl Service {
         let _ = self.pump_grant_retirements();
         self.pump_native_catalog();
         self.pump_automation();
-        self.pump_ssh_native();
         if self.stopping || self.metadata_closing {
             // Resource cleanup keeps every live touch, but SQL persistence waits
             // until cleanup/metadata-close has completed or safely failed.
@@ -79,6 +78,9 @@ impl Service {
                     self.activity.dirty = true;
                 }
                 Event::Reply { id, result } => {
+                    if let Ok(Response::Claimed(lease)) = &result {
+                        terminal.control_epoch = lease.epoch;
+                    }
                     if terminal.waiting.is_some_and(|waiting| waiting.0 == id.0) {
                         terminal.replies.clear();
                         terminal.replies.push_back((id, result));

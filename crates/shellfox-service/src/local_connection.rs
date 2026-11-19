@@ -104,7 +104,7 @@ pub(super) async fn serve_connection(
                 }
                 let outgoing = matches!(&request, PrivateRequest::OutgoingV2(_));
                 let asynchronous =
-                    outgoing || matches!(&request, PrivateRequest::RemoteOperator(_));
+                    outgoing || matches!(&request, PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_));
                 if !outgoing && body.len() > shellfox_protocol::MAX_REQUEST_BYTES {
                     bail!("Ordinary private request exceeds bound");
                 }

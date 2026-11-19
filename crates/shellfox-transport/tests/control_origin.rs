@@ -1,3 +1,5 @@
+#![cfg(feature = "helper")]
+
 use shellfox_transport::LoopbackOrigin;
 #[test]
 fn control_origin_is_explicit_literal_loopback_and_bounded() {

@@ -11,15 +11,23 @@ fn application_creation_preserves_selected_catalog_intent_not_current_settings()
         cwd: data.path().to_string_lossy().into_owned(),
         profile_id: ProfileId::new(profile).unwrap(),
     };
-    let created = service.create_application_session(input("cmd")).unwrap();
+    let profile = crate::tests::default_catalog_profile();
+    let created = service
+        .create_application_session(input(profile.as_str()))
+        .unwrap();
     let id = created.selection.session_id.unwrap();
     let actual = service.host.session_creation_facts().unwrap();
     assert_eq!(actual[&id].adapter_id, SettingsAdapter::EmbeddedPty);
-    assert_eq!(actual[&id].shell_id, SettingsShell::LoginShell);
+    let expected_shell = match profile.as_str() {
+        "pwsh" => SettingsShell::Pwsh,
+        "windows-powershell" => SettingsShell::WindowsPowershell,
+        _ => SettingsShell::LoginShell,
+    };
+    assert_eq!(actual[&id].shell_id, expected_shell);
     service
         .host
         .update_preferences(PreferencesPatch {
-            default_profile_id: Some(ProfileId::new("pwsh").unwrap()),
+            default_profile_id: Some(ProfileId::new("opaque:other").unwrap()),
             ..Default::default()
         })
         .unwrap();

@@ -201,6 +201,22 @@ impl HostRoot {
             held,
         )?)
     }
+    pub fn repair_existing(&self) -> Result<()> {
+        self.revalidate()?;
+        let [.., parent, root] = self.anchors.as_slice() else {
+            anyhow::bail!("App data directory must have a parent");
+        };
+        let parent = parent.handle.try_clone()?.into_std_file();
+        let original = root.handle.try_clone()?.into_std_file();
+        shellfox_files::repair_app_directory_at(
+            &parent,
+            self.path
+                .file_name()
+                .context("Missing app data directory name")?,
+            &original,
+        )?;
+        self.revalidate()
+    }
     pub fn create_missing(&mut self) -> Result<()> {
         self.revalidate()?;
         // Allocate success retention before a native call can create an object.

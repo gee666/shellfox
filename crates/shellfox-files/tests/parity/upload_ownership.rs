@@ -29,7 +29,7 @@ fn a_second_inbox_cannot_recover_live_partials_or_bypass_the_active_quota() {
         )
         .unwrap();
     assert!(UploadInbox::open(&root, UploadLimits::default()).is_err());
-    first
+    let completed = first
         .finish(
             &actor,
             &UploadIdentity {
@@ -44,7 +44,22 @@ fn a_second_inbox_cannot_recover_live_partials_or_bypass_the_active_quota() {
         first.sweep(&allow).unwrap_err().code,
         ErrorCode::AccessDenied
     );
-    let second = UploadInbox::open(&root, UploadLimits::default()).unwrap();
-    assert_eq!(second.usage().saved, 1);
-    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    for _ in 1..UPLOAD_ENTRIES {
+        std::fs::create_dir(root.join(Uuid::new_v4().to_string())).unwrap();
+    }
+    let mut second = UploadInbox::open(&root, UploadLimits::default()).unwrap();
+    // Restart charges preserved entries to the quota without adopting them as owned uploads.
+    assert_eq!(second.usage().saved, 0);
+    let error = second
+        .begin(
+            &actor,
+            &BeginUpload {
+                file_name: "over-quota".into(),
+                size: 0,
+            },
+            &allow,
+        )
+        .unwrap_err();
+    assert_eq!(error.message, "Host upload inbox quota reached.");
+    assert!(std::path::Path::new(&completed.path).is_file());
 }

@@ -23,7 +23,61 @@ pub struct Palette {
     pub ansi: [u32; 16],
     pub dark: bool,
 }
+pub(crate) struct ProgressColors {
+    pub(crate) track: u32,
+    pub(crate) value: u32,
+    pub(crate) track_edge: u32,
+    pub(crate) value_edge: u32,
+}
+
+fn composite(paper: u32, ink: u32, coverage: u32) -> u32 {
+    [16, 8, 0].into_iter().fold(0, |out, shift| {
+        let part = |rgb: u32, weight| (((rgb >> shift) & 255) * weight + 127) / 255;
+        out | ((part(ink, coverage) + part(paper, 255 - coverage)) << shift)
+    })
+}
+
 impl Palette {
+    pub(crate) fn on_accent(self) -> Hsla {
+        let white = contrast(0xffffff, self.accent_rgb);
+        rgb(if white >= 3. || white >= contrast(0, self.accent_rgb) {
+            0xffffff
+        } else {
+            0
+        })
+        .into()
+    }
+
+    pub(crate) fn progress_colors(self) -> ProgressColors {
+        // Blink chooses the native control scheme against the unpainted
+        // track colors, which need not follow the panel's scheme.
+        let light_ratio = contrast(self.accent_rgb, 0xefefef);
+        let dark_ratio = contrast(self.accent_rgb, 0x3b3b3b);
+        let dark = if self.dark { dark_ratio >= 3. || dark_ratio >= light_ratio }
+            else { light_ratio < 3. && light_ratio < dark_ratio };
+        let (track, rim) = if dark { (0x3b3b3b, 0x858585) } else { (0xefefef, 0x767676) };
+        let paper = gpui::Rgba::from(self.panel);
+        let channel = |value: f32| (value * 255.).round() as u32;
+        let paper = (channel(paper.r) << 16) | (channel(paper.g) << 8) | channel(paper.b);
+
+        // Chromium centers a 2.5 px track in the 5 px widget. Its outer
+        // rows have 3/4 coverage; the clipped value and inset rim have 9/16.
+        // The light rim has half the opacity of the dark rim.
+        let edge = composite(paper, track, 191);
+        let rim_center = if dark { 64 } else { 32 };
+        let rim_edge = if dark { 143 } else { 72 };
+        ProgressColors {
+            track: composite(track, rim, rim_center),
+            value: composite(self.accent_rgb, rim, rim_center),
+            track_edge: composite(edge, rim, rim_edge),
+            value_edge: composite(composite(edge, self.accent_rgb, 143), rim, rim_edge),
+        }
+    }
+
+    pub(crate) fn status_color(self, rgb: u32) -> Hsla {
+        gpui::rgb(ensure_contrast(rgb, self.background_rgb, 3., self.dark)).into()
+    }
+
     pub fn new(accent: &str, background: &str) -> Self {
         let background_rgb = parse_hex(background).unwrap_or(0x111016);
         let accent = parse_hex(accent).unwrap_or(0xec4899);

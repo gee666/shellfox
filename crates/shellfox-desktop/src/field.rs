@@ -3,14 +3,22 @@ use std::ops::Range;
 
 mod buffer;
 mod document;
+mod editor_line;
 mod geometry;
+mod history;
+mod horizontal;
 mod keyboard;
+mod replacement;
 mod native;
 mod paint;
 mod semantics;
 mod snapshot;
+mod picker;
+mod stepper;
+mod syntax;
+pub(crate) use stepper::NumberKind;
 mod text;
-use buffer::replace_range;
+mod wrap;
 
 #[derive(Default)]
 pub(crate) struct FieldOptions {
@@ -25,6 +33,12 @@ pub struct Field {
     snapshot: snapshot::Snapshot,
     dirty_cache: snapshot::MatchCache,
     asset_editor: bool,
+    syntax_language: Option<syntax::Language>,
+    syntax_spans: std::sync::Arc<[syntax::Span]>,
+    history: history::History,
+    file_viewport: Option<f32>,
+    nowrap: Option<horizontal::HorizontalLayout>,
+    follow_horizontal: bool,
     focus: FocusHandle,
     selection: Range<usize>,
     cursor: usize,
@@ -34,7 +48,14 @@ pub struct Field {
     pub(crate) scroll: gpui::ScrollHandle,
     marked: Option<Range<usize>>,
     multiline: bool,
+    compact: bool,
+    session_title: bool,
+    settings_input: bool,
+    number_kind: Option<NumberKind>,
+    wrap_width: Option<f32>,
+    wrap_layout: Option<wrap::WrapLayout>,
     font_size: f32,
+    preferred_font: Option<gpui::SharedString>,
     line_height: f32,
     monospace: bool,
     directory: bool,
@@ -57,6 +78,12 @@ impl Field {
             snapshot,
             dirty_cache: snapshot::MatchCache::default(),
             asset_editor: false,
+            syntax_language: None,
+            syntax_spans: std::sync::Arc::new([]),
+            history: Default::default(),
+            file_viewport: None,
+            nowrap: None,
+            follow_horizontal: true,
             selection: text.len()..text.len(),
             cursor: text.len(),
             anchor: text.len(),
@@ -67,7 +94,14 @@ impl Field {
             focus: cx.focus_handle(),
             marked: None,
             multiline: false,
+            compact: false,
+            session_title: false,
+            settings_input: false,
+            number_kind: None,
+            wrap_width: None,
+            wrap_layout: None,
             font_size: 13.,
+            preferred_font: None,
             line_height: 20.,
             monospace: false,
             directory: false,
@@ -92,6 +126,48 @@ impl Field {
 
     pub fn focus(&self, window: &mut Window) {
         self.focus.focus(window);
+    }
+
+    pub(crate) fn is_focused(&self, window: &Window) -> bool {
+        self.focus.is_focused(window)
+    }
+
+    pub(crate) fn edit_focus(&self) -> FocusHandle {
+        self.focus.clone()
+    }
+
+    pub(crate) fn settings_input(number_kind: Option<NumberKind>, cx: &mut App) -> Entity<Self> {
+        let field = Self::new("", cx);
+        field.update(cx, |field, _| {
+            field.settings_input = true;
+            field.font_size = 12.;
+            field.number_kind = number_kind;
+            if number_kind.is_some() {
+                field.text_align = gpui::TextAlign::Right;
+            }
+        });
+        field
+    }
+
+    pub(crate) fn tab_title(text: String, cx: &mut App) -> Entity<Self> {
+        let field = Self::new(text, cx);
+        field.update(cx, |field, _| {
+            field.compact = true;
+            field.font_size = 12.;
+            field.line_height = 16.;
+            field.anchor = 0;
+            field.selection = 0..field.text.len();
+        });
+        field
+    }
+
+    pub(crate) fn session_title(text: String, cx: &mut App) -> Entity<Self> {
+        let field = Self::new(text, cx);
+        field.update(cx, |field, _| {
+            field.session_title = true;
+            field.line_height = 14.;
+        });
+        field
     }
 
     pub fn editor(text: String, cx: &mut App) -> Entity<Self> {
@@ -136,7 +212,7 @@ impl Field {
         }
     }
     pub(crate) fn password(cx: &mut App) -> Entity<Self> {
-        let entity = Self::new("", cx);
+        let entity = Self::settings_input(None, cx);
         entity.update(cx, |field, _| field.secret = true);
         entity
     }
@@ -169,6 +245,7 @@ impl Field {
     }
     pub(crate) fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
         self.text = text;
+        self.history = Default::default();
         self.refresh_snapshot();
         self.set_cursor(self.text.len(), false);
         self.marked = None;
@@ -177,6 +254,7 @@ impl Field {
 
     fn click(&mut self, event: &gpui::MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.focus(window);
+        self.history.break_group();
         if let Some(index) = paint::index_at(self, event.position, window) {
             self.set_cursor(index, event.modifiers.shift);
             self.dragging = true;
@@ -185,6 +263,7 @@ impl Field {
     }
 
     fn set_cursor(&mut self, index: usize, extend: bool) {
+        self.follow_horizontal |= self.cursor != index;
         if !extend {
             self.anchor = index;
         }
@@ -213,37 +292,14 @@ impl Field {
         Some(self.snapshot.utf16_for_byte(range.start)?..self.snapshot.utf16_for_byte(range.end)?)
     }
 
-    fn replace(&mut self, range: Option<Range<usize>>, text: &str) -> Option<Range<usize>> {
-        if self.read_only {
-            return None;
-        }
-        let limit = buffer::text_limit(self.multiline, self.asset_editor);
-        if text
-            .chars()
-            .any(|ch| ch.is_control() && !(self.multiline && matches!(ch, '\n' | '\t' | '\r')))
-            || text.len() > limit
-        {
-            return None;
-        }
-        let range = match range {
-            Some(range) => self.byte_range(range)?,
-            None => self.marked.clone().unwrap_or(self.selection.clone()),
-        };
-        if range.start > range.end || self.text.len() - range.len() + text.len() > limit {
-            return None;
-        }
-        let inserted = replace_range(&mut self.text, range.clone(), text, limit)?;
-        self.refresh_snapshot();
-        let end = inserted.end;
-        self.set_cursor(end, false);
-        self.marked = None;
-        Some(range.start..end)
-    }
+
 }
 
 impl Render for Field {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        paint::render(self, cx)
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_wrap(window);
+        self.update_horizontal(window);
+        paint::render(self, window, cx)
     }
 }
 

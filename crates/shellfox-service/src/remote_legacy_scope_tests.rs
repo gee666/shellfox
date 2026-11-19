@@ -8,7 +8,13 @@ fn legacy_all_elevated_session_metadata_is_authorized_but_private_tab_facts_are_
     let mut snapshot=service.host().snapshot().unwrap(); let session=snapshot.sessions[0].id; let tab=snapshot.sessions[0].tabs[0].id;
     snapshot.sessions[0].tabs[0].created_at=None;
     let private=std::collections::HashSet::from([tab]);
-    let source=crate::activity_integration::SourceFacts { sequence:1, snapshot, settings:service.host().global_settings().unwrap(), terminals:Vec::new(), creation_facts:service.host().session_creation_facts().unwrap(), cancelled:wire::CancellationToken::new() };
+    let source = crate::activity_integration::SourceFacts {
+        sequence: 1, snapshot, settings: service.host().global_settings().unwrap(), terminals: Vec::new(),
+        creation_facts: service.host().session_creation_facts().unwrap(),
+        #[cfg(windows)]
+        wsl_profiles: None,
+        cancelled: wire::CancellationToken::new(),
+    };
     let facts=crate::facts_projection::project_session_facts_visible(&source, Some(session), &private).unwrap();
     assert!(facts[&session].tabs.is_empty());
     let mut state=RemoteState::new(ManagerFacts { sessions:facts, ..Default::default() }, Some(wire::TerminalProfiles { profiles:vec![wire::TerminalProfile { id:"admin-only".into(), label:"Administrator".into(), environment:wire::ProfileEnvironment::Local, executable:"C:\\Windows\\System32\\cmd.exe".into(), args:Vec::new(), distro:None, available:true, unavailable_reason:None, can_terminate_descendants:Some(true), elevation:Some(wire::Elevation::Administrator) }], default_profile_id:None, lifetime:wire::TerminalLifetime::AppOwned, shell_survival:false }), None);
@@ -60,6 +66,8 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
         settings: service.host().global_settings().unwrap(),
         terminals: Vec::new(),
         creation_facts: service.host().session_creation_facts().unwrap(),
+        #[cfg(windows)]
+        wsl_profiles: None,
         cancelled: wire::CancellationToken::new(),
     };
     let scoped = crate::facts_projection::project_session_facts_for(&source, Some(normal)).unwrap();
@@ -149,8 +157,16 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
                 ..
             })
         ),
-        "complete inventory stays strict, never filtered"
+        "the strict projection still reports an unsupported row"
     );
+    let catalog = crate::facts_projection::project_legacy_catalog(&source, None, &Default::default()).unwrap();
+    state.facts.sessions = catalog.sessions;
+    state.facts.omitted_sessions = catalog.omitted_sessions;
+    let stats = state.bind(&mut service).statistics(wire::GetSessionStats { session_id: None }).unwrap();
+    let stats: wire::SessionStats = serde_json::from_value(stats).unwrap();
+    stats.validate().unwrap();
+    assert_eq!(stats.sessions.len(), 1);
+    assert_eq!(stats.sessions[0].id, normal);
     assert_eq!(source.snapshot.sessions.len(), 2);
     assert!(!source.creation_facts.contains_key(&raw));
 }

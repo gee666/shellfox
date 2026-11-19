@@ -17,7 +17,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$executable = if ($BuildPath) { [IO.Path]::GetFullPath($BuildPath) } else { Join-Path $root 'target/debug/shellfox-gpui-experiment.exe' }
+$executable = if ($BuildPath) { [IO.Path]::GetFullPath($BuildPath) } else { Join-Path $root 'target/debug/shellfox.exe' }
 $acceptance = Join-Path $root 'tmp/desktop-ui-acceptance'
 New-Item -ItemType Directory -Path $acceptance -Force | Out-Null
 Add-Type -AssemblyName System.Drawing
@@ -74,8 +74,9 @@ if ($Action -eq 'launch') {
     if (![IO.Path]::GetFullPath($executable).StartsWith($privateRoot,[StringComparison]::OrdinalIgnoreCase)) { throw 'Native automation requires a separately built private executable, never target/debug or an installed app' }
     $caption = 'Shellfox v'+(Get-Content (Join-Path $root 'package.json') -Raw|ConvertFrom-Json).version
     if ($HelperPath -and !$HelperSha256) { throw 'Overridden helper requires its trusted build SHA-256' }
-    $helper = if ($HelperPath) { [IO.Path]::GetFullPath($HelperPath) } else { Join-Path $root 'tmp/tailscale/win32-x64/shellfox-tailscale.exe' }
-    if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'Build the worktree native ownership helper first' }
+    $helper = Join-Path $root 'tmp/dev-helper/shellfox-tailscale.exe'
+    if ($HelperPath -and [IO.Path]::GetFullPath($HelperPath) -ine [IO.Path]::GetFullPath($helper)) { throw "Windows dev launches must use $helper" }
+    if (!(Test-Path -LiteralPath $helper -PathType Leaf)) { throw 'Build the dev helper with pnpm build:tailscale first' }
     $digest = if ($HelperSha256) { $HelperSha256 } else { (Get-FileHash -Algorithm SHA256 -LiteralPath $helper).Hash }
     if ($digest -notmatch '^[a-fA-F0-9]{64}$') { throw 'Invalid trusted helper digest' }
     $directory = Join-Path $acceptance ([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-ffff'))

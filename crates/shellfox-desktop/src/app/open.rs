@@ -20,7 +20,7 @@ impl TerminalView {
                 "Attach to the application service before creating a shell view"
             )));
         }
-        Self::open_inner(None, window, cx).map_err(crate::root::StartupError::from)
+        Self::open_inner(None, None, window, cx).map_err(crate::root::StartupError::from)
     }
     pub fn open_attached(
         client: HostClient,
@@ -29,7 +29,7 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut App,
     ) -> std::result::Result<Entity<Self>, crate::root::StartupError> {
-        Self::open_inner(Some((client, tab, Access::Control(attachment))), window, cx)
+        Self::open_inner(Some((client, tab, Access::Control(attachment))), None, window, cx)
             .map_err(crate::root::StartupError::from)
     }
     pub fn open_observed(
@@ -41,17 +41,29 @@ impl TerminalView {
     ) -> std::result::Result<Entity<Self>, crate::root::StartupError> {
         Self::open_inner(
             Some((client, tab, Access::Observer(attachment))),
+            None,
             window,
             cx,
         )
         .map_err(crate::root::StartupError::from)
     }
-    fn open_inner(
-        attached: Option<(HostClient, TabId, Access)>,
+    pub(crate) fn open_peer(
+        binding: std::sync::Arc<crate::host_client::peer_v1::V1Binding>,
+        tab: TabId,
+        frontend_replies: bool,
         window: &mut Window,
         cx: &mut App,
     ) -> Result<Entity<Self>> {
-        let (font, cell_width) =
+        Self::open_inner(None, Some((binding, tab, frontend_replies)), window, cx)
+    }
+
+    fn open_inner(
+        attached: Option<(HostClient, TabId, Access)>,
+        peer: Option<(std::sync::Arc<crate::host_client::peer_v1::V1Binding>, TabId, bool)>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<Entity<Self>> {
+        let (font, cell_width, line_height) =
             renderer::choose_font(window, "Cascadia Code", renderer::FONT_SIZE)?;
         let theme = TerminalTheme::default();
         let (backend, screen, status, incoming, lease) =
@@ -69,6 +81,11 @@ impl TerminalView {
                     Some(incoming),
                     lease,
                 )
+            } else if let Some((binding, tab, frontend_replies)) = peer {
+                let mut terminal = Terminal::new(80, 24)?;
+                terminal.set_colors(&theme.colors())?;
+                (Backend::Peer(Box::new(super::peer::Peer::new(terminal, binding, tab, frontend_replies)?)),
+                    SharedScreen::Empty, "Connecting…", None, None)
             } else {
                 let mut terminal = Terminal::new(80, 24)?;
                 terminal.set_colors(&theme.colors())?;
@@ -95,12 +112,14 @@ impl TerminalView {
                         .await;
                     if view
                         .update_in(cx, |view, window, cx| {
-                            view.presentation_focused =
-                                window.is_window_active() && view.focus.is_focused(window);
+                            view.presentation_focused = window.is_window_active()
+                                && view.focus.is_focused(window) && !view.link_menu_open();
                             if !view.presentation_focused {
                                 view.cancel_input(cx);
                             }
                             view.poll(cx);
+                            view.report_peer_focus(view.presentation_focused);
+                            view.poll_peer(cx);
                         })
                         .is_err()
                     {
@@ -116,13 +135,15 @@ impl TerminalView {
                 clipboard_keys: 0,
                 cell_width,
                 font,
-                line_height: renderer::LINE_HEIGHT,
+                line_height,
                 font_size: renderer::FONT_SIZE,
                 theme,
                 bounds: None,
                 selection_drag: super::selection::SelectionDrag::default(),
                 link_press: None,
+                links: super::links::LinkState::default(),
                 wheel_remainder: gpui::point(0., 0.),
+                scrollbar: super::scrollbar::Scrollbar::default(),
                 screen,
                 semantic_binding: None,
                 cursor_reset_epoch: 0,

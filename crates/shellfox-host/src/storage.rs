@@ -6,7 +6,7 @@ use std::{collections::HashSet, path::Path, time::Duration};
 
 pub const STORE_FILENAME: &str = "shellfox-rust-v1.sqlite3";
 const APPLICATION_ID: i32 = 0x53465852;
-const STORE_VERSION: i32 = 5;
+const STORE_VERSION: i32 = 6;
 pub(crate) use crate::storage_write::save;
 
 pub(crate) fn storage_error(_: impl std::fmt::Display) -> Error {
@@ -82,6 +82,9 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
     }
     if version < 5 {
         crate::approval_store::migrate(&tx)?;
+    }
+    if version < 6 {
+        crate::desktop_window_state::migrate(&tx)?;
     }
     if version < STORE_VERSION {
         tx.pragma_update(None, "user_version", STORE_VERSION)

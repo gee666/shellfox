@@ -9,8 +9,11 @@ use std::{
 /// Starts only an owned experiment shell and closes its Job before returning.
 pub fn run(run_dir: &Path) -> Result<()> {
     let mut config = PtyConfig::new(run_dir);
-    // This controlled script is cmd syntax, independent of the interactive default.
-    config.profile = Some(shellfox_terminal::ShellProfileId::Cmd);
+    config.profile = Some(if cfg!(windows) {
+        shellfox_terminal::ShellProfileId::Cmd
+    } else {
+        shellfox_terminal::ShellProfileId::LoginShell
+    });
     config.supervisor = Some(std::env::current_exe()?);
     let mut pty = PtySession::spawn(config).map_err(|error| anyhow::anyhow!("{error}"))?;
     let result = (|| -> Result<()> {

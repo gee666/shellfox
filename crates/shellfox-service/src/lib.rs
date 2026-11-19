@@ -1,7 +1,9 @@
 //! Experimental headless host. No GPUI, display, or production store defaults.
 pub mod activity;
+mod electron_import;
 mod activity_hooks;
 pub mod activity_integration;
+pub mod app_paths;
 pub mod automation;
 mod creation;
 pub mod desktop_launch;
@@ -15,8 +17,11 @@ mod grant_retirement;
 mod launch;
 pub mod local;
 pub mod native;
-pub mod native_providers;
+#[path = "native_activity.rs"]
+mod native_activity;
+pub use native_activity::NativeTabActivity;
 mod native_endpoint_report;
+pub mod native_providers;
 pub use native_endpoint_report::{
     EndpointArtifactDisposition, EndpointPublicationOutcome, NativeEndpointReport,
 };
@@ -33,7 +38,6 @@ mod manager_retire;
 mod native_metadata_fixture;
 mod owner;
 mod owner_automation;
-mod owner_ssh;
 #[cfg(windows)]
 mod pipe_identity;
 mod platform;
@@ -48,6 +52,14 @@ mod service_activity;
 mod service_open;
 pub mod settings_runtime;
 pub mod ssh;
+
+/// Private terminal supervisor dispatch comes before any CLI parsing or UI.
+pub fn dispatch_supervisor_entry() -> anyhow::Result<Option<u32>> {
+    if let Some(code) = shellfox_terminal::supervisor_entry()? {
+        return Ok(Some(code));
+    }
+    Ok(shellfox_terminal::raw_process::supervisor_entry())
+}
 #[cfg(test)]
 mod stop_admission_tests;
 pub mod system;
@@ -86,6 +98,11 @@ impl OwnerDispatcher for () {
 
 /// Construct only after the local endpoint adapter has proved private ownership.
 /// One event loop owns this value and all terminal handles.
+#[cfg(windows)]
+mod windows_profiles;
+
+pub(crate) use shellfox_terminal::elevated::ADMINISTRATOR_PROFILE_ID as ADMIN_POWERSHELL_PROFILE;
+
 pub struct Service {
     host: Host,
     terminals: HashMap<TabId, terminals::OwnedTerminal>,
@@ -106,7 +123,7 @@ pub struct Service {
     stopping: bool,
     metadata_closing: bool,
     automation: owner_automation::AutomationState,
-    ssh: crate::ssh::NativeSshOwner,
+    ssh_profiles: Option<crate::ssh::Store>,
     system_native_handler: Option<std::sync::Arc<system::SystemNativeHandler>>,
     // Last: Host/SQLite and every deferred resource owner drop before this guard.
     // Original directory lifetime only, not path/VFS confinement.
@@ -129,14 +146,20 @@ impl Service {
         result
     }
     pub fn close_tab(&mut self, id: TabId) -> Result<Snapshot> {
+        self.close_tab_using(id, |host| host.prepare_close_tab(id))
+    }
+    pub(crate) fn close_terminal(&mut self, identity: TerminalIdentity) -> Result<Snapshot> {
+        self.close_tab_using(identity.tab_id, |host| host.prepare_close_terminal(identity))
+    }
+    fn close_tab_using(&mut self, id: TabId, prepare: impl FnOnce(&Host) -> shellfox_core::Result<PreparedClose>) -> Result<Snapshot> {
         self.assert_owned()?;
         self.during_metadata_close(|service| {
-            let prepared = service.host.prepare_close_tab(id)?;
+            let prepared = prepare(&service.host)?;
             if let Err(error) = service.close_external_for_tab(id) {
                 service.host.cancel_close(prepared.token)?;
                 return Err(error);
             }
-            let snapshot = service.finish_close(prepared, &[id])?;
+            let snapshot = service.finish_close(prepared)?;
             service.forget_closed_external(id);
             Ok(snapshot)
         })
@@ -159,7 +182,7 @@ impl Service {
                     return Err(error);
                 }
             }
-            let snapshot = service.finish_close(prepared, &tabs)?;
+            let snapshot = service.finish_close(prepared)?;
             for tab in tabs {
                 service.forget_closed_external(tab);
             }
@@ -167,16 +190,12 @@ impl Service {
             Ok(snapshot)
         })
     }
-    fn finish_close(&mut self, prepared: PreparedClose, targets: &[TabId]) -> Result<Snapshot> {
+    fn finish_close(&mut self, prepared: PreparedClose) -> Result<Snapshot> {
         for identity in &prepared.terminals {
             if let Err(error) = self.stop_terminal(*identity) {
                 self.host.cancel_close(prepared.token)?;
                 return Err(error);
             }
-        }
-        if let Err(error) = self.close_ssh_confirmed(targets) {
-            self.host.cancel_close(prepared.token)?;
-            return Err(error);
         }
         // stop_terminal removes each generation only after Runtime phase Closed.
         // Native loss while waiting must never permit the metadata commit.
@@ -193,23 +212,35 @@ impl Service {
         }
     }
     fn stop_terminal(&mut self, identity: TerminalIdentity) -> Result<()> {
-        let runtime = &self
+        self.begin_terminal_stop(identity)?;
+        self.confirm_terminal_stop(identity, Instant::now() + Duration::from_secs(12))
+    }
+    fn begin_terminal_stop(&mut self, identity: TerminalIdentity) -> Result<()> {
+        let terminal = self
             .terminals
-            .get(&identity.tab_id)
-            .context("Registered terminal owner is missing; cleanup cannot be confirmed.")?
-            .runtime;
+            .get_mut(&identity.tab_id)
+            .context("Registered terminal owner is missing; cleanup cannot be confirmed.")?;
+        let runtime = &terminal.runtime;
         if runtime.identity().generation != identity.generation {
             bail!("Terminal generation changed.");
         }
-        if runtime.source_kind() == shellfox_runtime::SourceKind::ExternalBytes {
-            return self.close_external_parser(identity);
-        }
-        let deadline = Instant::now() + Duration::from_secs(12);
-        if runtime.phase() != Phase::Closed {
-            if let Some(terminal) = self.terminals.get_mut(&identity.tab_id) {
-                terminal.discard_output();
-            }
+        if runtime.source_kind() != shellfox_runtime::SourceKind::ExternalBytes
+            && runtime.phase() != Phase::Closed
+        {
+            terminal.discard_output();
             self.request_close(identity.tab_id)?;
+        }
+        Ok(())
+    }
+    fn confirm_terminal_stop(
+        &mut self,
+        identity: TerminalIdentity,
+        deadline: Instant,
+    ) -> Result<()> {
+        if self.terminals[&identity.tab_id].runtime.source_kind()
+            == shellfox_runtime::SourceKind::ExternalBytes
+        {
+            return self.close_external_parser(identity);
         }
         loop {
             if let Some(terminal) = self.terminals.get_mut(&identity.tab_id) {
@@ -230,7 +261,6 @@ impl Service {
         }
         let runtime_identity = self.terminals[&identity.tab_id].runtime.identity();
         self.host.terminal_stopped(identity)?;
-        self.record_ssh_closed(runtime_identity);
         self.activity_collect_live();
         self.activity_confirmed_exit(runtime_identity);
         self.forget_activity(runtime_identity);
@@ -249,10 +279,7 @@ impl Service {
         self.begin_stop_system_native();
         self.disable_observer_factory_policy()
             .map_err(ShutdownFailure::ResourceCleanup)?;
-        self.begin_stop_ssh_native();
         self.stop_automation()
-            .map_err(ShutdownFailure::ResourceCleanup)?;
-        self.stop_ssh_confirmed()
             .map_err(ShutdownFailure::ResourceCleanup)?;
         let identities: Vec<_> = self
             .terminals
@@ -265,13 +292,21 @@ impl Service {
                 }
             })
             .collect();
+        // Start every owned PTY's shutdown before waiting for any output pipe
+        // to finish. Independent runtimes can drain and close in parallel.
+        for &identity in &identities {
+            self.begin_terminal_stop(identity)
+                .map_err(ShutdownFailure::ResourceCleanup)?;
+        }
+        let deadline = Instant::now() + Duration::from_secs(12);
         for identity in identities {
-            self.stop_terminal(identity)
+            self.confirm_terminal_stop(identity, deadline)
                 .map_err(ShutdownFailure::ResourceCleanup)?;
         }
         self.stop_native_catalog()
             .map_err(ShutdownFailure::ResourceCleanup)?;
-        self.stop_power().map_err(ShutdownFailure::ResourceCleanup)?;
+        self.stop_power()
+            .map_err(ShutdownFailure::ResourceCleanup)?;
         self.activity_collect_live();
         let pending_sessions = self.activity.persistence.pending_count();
         let activity = if self.ownership_lost.is_cancelled() && pending_sessions > 0 {

@@ -6,10 +6,7 @@ use std::time::{Duration, Instant};
 #[path = "window_manager_state_tests.rs"]
 mod tests;
 
-pub const DEFAULT_WIDTH: i32 = 1220;
-pub const DEFAULT_HEIGHT: i32 = 820;
-pub const MIN_WIDTH: i32 = 850;
-pub const MIN_HEIGHT: i32 = 600;
+pub use shellfox_core::window_state::{DEFAULT_HEIGHT, DEFAULT_WIDTH, MIN_HEIGHT, MIN_WIDTH, WindowState};
 pub const SAVE_DELAY: Duration = Duration::from_millis(400);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Rect {
@@ -17,22 +14,6 @@ pub struct Rect {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-}
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct WindowState {
-    pub x: i32,
-    pub y: i32,
-    pub width: i32,
-    pub height: i32,
-    pub maximized: bool,
-}
-impl WindowState {
-    pub fn valid(self) -> bool {
-        (-100_000..=100_000).contains(&self.x)
-            && (-100_000..=100_000).contains(&self.y)
-            && (MIN_WIDTH..=20_000).contains(&self.width)
-            && (MIN_HEIGHT..=20_000).contains(&self.height)
-    }
 }
 #[derive(Clone, Debug)]
 pub struct Monitor {
@@ -148,6 +129,18 @@ pub fn restore_bounds(
         }
     })
 }
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn restore_size_only(saved: Option<WindowState>, primary: &Monitor) -> Result<RestoredBounds> {
+    let saved = saved.filter(|state| state.valid()).map(|state| WindowState {
+        x: primary.work_area.x,
+        y: primary.work_area.y,
+        ..state
+    });
+    let mut restored = restore_bounds(saved, &[], primary)?;
+    restored.origin = None;
+    Ok(restored)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Capture {
     pub destroyed: bool,

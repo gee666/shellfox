@@ -3,6 +3,9 @@
 #[path = "remote_legacy_scope_tests.rs"]
 mod legacy_scope_tests;
 #[cfg(test)]
+#[path = "remote_v1_loopback_tests.rs"]
+mod v1_loopback_tests;
+#[cfg(test)]
 #[path = "remote_tests.rs"]
 mod tests;
 use crate::Service;
@@ -16,6 +19,8 @@ use std::collections::HashMap;
 
 #[path = "remote_commands.rs"]
 mod commands;
+#[path = "remote_creation_profile.rs"]
+mod creation_profile;
 #[path = "remote_dispatcher.rs"]
 mod dispatcher;
 #[path = "remote_files.rs"]
@@ -28,6 +33,14 @@ mod observer;
 mod privacy;
 #[path = "remote_stats.rs"]
 mod stats;
+#[path = "remote_v1_delivery.rs"]
+mod v1_delivery;
+#[path = "remote_v1_launch.rs"]
+mod v1_launch;
+#[path = "remote_v1_privilege.rs"]
+mod v1_privilege;
+#[path = "remote_v1_terminal.rs"]
+mod v1_terminal;
 pub use dispatcher::RemoteDispatcher;
 #[path = "remote_facts.rs"]
 pub mod facts;
@@ -73,6 +86,15 @@ struct View {
     epoch: u64,
     revision: u64,
     visible: Vec<SessionId>,
+    controller: u64,
+    terminals: HashMap<shellfox_core::TabId, v1_delivery::Delivery>,
+}
+impl View {
+    fn detach_terminals(self, service: &mut Service) {
+        for (tab, delivery) in self.terminals {
+            let _ = service.detach_attachment(tab, &delivery.lease);
+        }
+    }
 }
 pub struct RemoteState {
     pub facts: ManagerFacts,
@@ -84,6 +106,7 @@ pub struct RemoteState {
     manager_views: manager::ManagerViews,
     manager_uploads: Option<shellfox_remote::terminal_upload::UploadInbox>,
     metadata_v2: HashMap<wire::observer_v2::Id, MetadataV2>,
+    visibility_dirty: bool,
 }
 impl RemoteState {
     pub fn new(
@@ -101,6 +124,7 @@ impl RemoteState {
             manager_views: manager::ManagerViews::default(),
             manager_uploads: None,
             metadata_v2: HashMap::new(),
+            visibility_dirty: false,
         }
     }
     pub(super) fn dispatch_request(
@@ -110,6 +134,16 @@ impl RemoteState {
     ) {
         let cancel = request.cancellation_token();
         service.with_grant_recipient(cancel, |service| request.dispatch(&mut self.bind(service)));
+        if std::mem::take(&mut self.visibility_dirty) {
+            service.activity.report_remote_visibility(
+                self.views.values().map(|view| &view.visible)
+                    .chain(self.metadata_v2.values().map(|view| &view.visible))
+                    .flatten().copied().collect(),
+            );
+        }
+    }
+    fn remove_metadata_view(&mut self, id: wire::observer_v2::Id) {
+        self.visibility_dirty |= self.metadata_v2.remove(&id).is_some_and(|view| !view.visible.is_empty());
     }
     pub fn bind<'a>(&'a mut self, service: &'a mut Service) -> RemoteService<'a> {
         RemoteService {
@@ -172,21 +206,33 @@ impl ServiceHost for RemoteService<'_> {
             }
             OwnerCommand::ManagerV2(request) => manager::handle(self.state, self.service, *request),
             OwnerCommand::Pair { actor } => {
-                if self.state.views.len() >= 32 && !self.state.views.contains_key(&key(&actor)) {
+                let key = key(&actor);
+                if self.state.views.len() >= 32 && !self.state.views.contains_key(&key) {
                     return Err(failure(ErrorCode::Validation, "Remote view limit reached."));
+                }
+                if self.state.views.get(&key).is_some_and(|view| view.epoch >= actor.view_epoch()) {
+                    return Err(failure(ErrorCode::AuthFailed, "A newer view is already paired."));
                 }
                 let revision = self.service.host().snapshot().map_err(host_error)?.revision;
                 if let Some(transfers) = &mut self.state.transfers {
-                    transfers.cancel_actor(&key(&actor));
+                    transfers.cancel_actor(&key);
                 }
-                self.state.views.insert(
-                    key(&actor),
+                let controller = self.service.allocate_viewer_id().map_err(|_| {
+                    failure(ErrorCode::Internal, "Terminal controller could not be allocated.")
+                })?;
+                if let Some(previous) = self.state.views.insert(
+                    key,
                     View {
                         epoch: actor.view_epoch(),
                         revision,
                         visible: vec![],
+                        controller,
+                        terminals: HashMap::new(),
                     },
-                );
+                ) {
+                    self.state.visibility_dirty |= !previous.visible.is_empty();
+                    previous.detach_terminals(self.service);
+                }
                 Ok(serde_json::json!({"paired":true,"terminalControl":"exclusive-v1"}))
             }
             OwnerCommand::Disconnect { actor } => {
@@ -196,7 +242,10 @@ impl ServiceHost for RemoteService<'_> {
                     .get(&key(&actor))
                     .is_some_and(|view| view.epoch == actor.view_epoch())
                 {
-                    self.state.views.remove(&key(&actor));
+                    if let Some(view) = self.state.views.remove(&key(&actor)) {
+                        self.state.visibility_dirty |= !view.visible.is_empty();
+                        view.detach_terminals(self.service);
+                    }
                     if let Some(transfers) = &mut self.state.transfers {
                         transfers.cancel_actor(&key(&actor));
                     }
@@ -221,6 +270,10 @@ impl ServiceHost for RemoteService<'_> {
                     event.select_session_id = None;
                     view.revision = event.revision;
                     events.push(adapter::changed_event(&event).map_err(AppError::from)?);
+                }
+                let quota = 64 / view.terminals.len().max(1);
+                for (&tab, delivery) in &mut view.terminals {
+                    delivery.poll(self.service, tab, quota, &mut events);
                 }
                 checked(wire::PollResponse { events })
             }

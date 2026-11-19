@@ -34,7 +34,7 @@ mod network;
 use network::{control, online, options, state};
 #[test]
 fn actual_two_go_nodes_whois_sql_approval_manager_lease_recovery_input_and_revoke() -> Result<()> {
-    let mut fixture = support::Fixture::new()?;
+    let fixture = support::Fixture::new()?;
     let a = fixture.data("real-peer-a");
     let b = fixture.data("real-peer-b");
     let local_data = a.clone();
@@ -212,6 +212,5 @@ fn actual_two_go_nodes_whois_sql_approval_manager_lease_recovery_input_and_revok
         eprintln!("Real WhoIs, pending/approve, Host SQL, Manager binding, lease/recovery/input and revoke observed.");
         Ok(())
     })?;
-    fixture.success();
     Ok(())
 }

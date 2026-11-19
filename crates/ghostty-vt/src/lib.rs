@@ -5,6 +5,7 @@ mod colors;
 pub mod extension;
 mod input;
 mod input_v2;
+mod xterm_keys;
 pub use colors::TerminalColors;
 mod metadata;
 mod mouse;
@@ -46,7 +47,8 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Rgb {
     pub r: u8,
     pub g: u8,
@@ -57,7 +59,8 @@ impl From<[u8; 3]> for Rgb {
         Self { r, g, b }
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Cell {
     pub text: String,
     pub foreground: Rgb,
@@ -75,13 +78,15 @@ pub struct Cell {
     /// Whether Ghostty associates OSC 8 metadata with this cell.
     pub has_hyperlink: bool,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Cursor {
     pub x: u16,
     pub y: u16,
     pub visible: bool,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Screen {
     pub cols: u16,
     pub rows: u16,

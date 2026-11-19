@@ -15,13 +15,13 @@ fn failed(error: FileError, custody: Box<CreationCustody>) -> PrivateCreationFai
         custody: Some(custody),
     }
 }
-fn binding(custody: &CreationCustody) -> Result<()> {
+fn binding(custody: &CreationCustody, app_directory: bool) -> Result<()> {
     let file = custody.file.as_ref().ok_or_else(FileError::denied)?;
     let identity = custody.identity.as_ref().ok_or_else(FileError::denied)?;
     if !custody.parent_id.matches(&custody.parent)? || !identity.matches(file)? {
         return Err(FileError::conflict());
     }
-    private_verify::parent(&custody.parent)?;
+    private_verify::directory_parent(&custody.parent, app_directory)?;
     #[cfg(windows)]
     if custody.lease {
         return Ok(());
@@ -44,8 +44,23 @@ pub(super) fn create(
     kind: PrivateKind,
     purpose: PrivateFileUse,
 ) -> std::result::Result<CreatedPrivate, PrivateCreationFailure> {
-    create_with(parent, name, kind, purpose, |_| Ok(()))
+    create_inner(parent, name, kind, purpose, false, |_| Ok(()))
 }
+#[cfg(windows)]
+pub(super) fn create_app_directory(
+    parent: &File,
+    name: &OsStr,
+) -> std::result::Result<CreatedPrivate, PrivateCreationFailure> {
+    create_inner(
+        parent,
+        name,
+        PrivateKind::Directory,
+        PrivateFileUse::Stage,
+        true,
+        |_| Ok(()),
+    )
+}
+#[cfg(test)]
 pub(super) fn create_with(
     parent: &File,
     name: &OsStr,
@@ -53,8 +68,18 @@ pub(super) fn create_with(
     purpose: PrivateFileUse,
     after_create: impl FnOnce(&File) -> Result<()>,
 ) -> std::result::Result<CreatedPrivate, PrivateCreationFailure> {
+    create_inner(parent, name, kind, purpose, false, after_create)
+}
+fn create_inner(
+    parent: &File,
+    name: &OsStr,
+    kind: PrivateKind,
+    purpose: PrivateFileUse,
+    app_directory: bool,
+    after_create: impl FnOnce(&File) -> Result<()>,
+) -> std::result::Result<CreatedPrivate, PrivateCreationFailure> {
     leaf(name).map_err(rejected)?;
-    let parent_id = private_verify::parent(parent).map_err(rejected)?;
+    let parent_id = private_verify::directory_parent(parent, app_directory).map_err(rejected)?;
     let held_parent = parent.try_clone().map_err(|error| rejected(error.into()))?;
     // This box is the SAME allocation moved into an error. No allocation after a failed create.
     let mut custody = Box::new(CreationCustody {
@@ -110,7 +135,7 @@ pub(super) fn create_with(
         custody.lease = true;
     }
     // Verify while every fallible step still owns the preallocated error payload intact.
-    if let Err(error) = binding(&custody) {
+    if let Err(error) = binding(&custody, app_directory) {
         return Err(failed(error, custody));
     }
     let Some(id) = custody.identity.clone() else {
@@ -135,5 +160,6 @@ pub(super) fn create_with(
         lease,
         pin: custody.pin,
         cleanup: PrivateCleanupState::Owned,
+        app_directory,
     }))
 }

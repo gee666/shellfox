@@ -132,9 +132,6 @@ impl PrivateDirectory {
         checked.current()?;
         Ok(checked)
     }
-    pub(crate) fn check_identity(&self, path: &Path) -> Result<()> {
-        self.checked_identity(path)?.current()
-    }
     pub fn read_key_file(&self, path: &Path) -> Result<Zeroizing<Vec<u8>>> {
         self.check()?;
         let mut selected = self.checked_identity(path)?;

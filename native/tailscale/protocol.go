@@ -82,7 +82,7 @@ func main() {
 		os.Exit(runOwnershipExpected(os.Args[2], os.Args[3], os.Stdin, os.Stdout))
 	}
 	if len(os.Args) == 2 && os.Args[1] == "--probe" {
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"protocolVersion": 1, "tailscaleVersion": "1.104.2", "platform": runtime.GOOS, "arch": runtime.GOARCH})
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"protocolVersion": 2, "tailscaleVersion": "1.104.2", "platform": runtime.GOOS, "arch": runtime.GOARCH})
 		return
 	}
 	if !networkMode {

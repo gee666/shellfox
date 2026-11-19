@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFi
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertHeadlessNames, compilerHost, fileHash, root, run, sha256 } from './rust-package-common.mjs';
-import { supplementalLicense } from './rust-package-licenses.mjs';
+import { standardLicense, supplementalLicense } from './rust-package-licenses.mjs';
 
 export function lockPackages(lock) {
   return lock.split(/^\[\[package\]\]\s*$/m).slice(1).map(block => {
@@ -44,7 +44,7 @@ export function assertLicenseTexts(manifest) {
   if (missing.length) throw new Error(`License review required: ${missing.map(pkg => `${pkg.name}@${pkg.version}`).join(', ')}`);
 }
 
-export function auditDependencies({ packages, target, output, headless = false, strict = false }) {
+export function auditDependencies({ packages, target, output, headless = false, strict = false, allowStandardTexts = false }) {
   // A filtered metadata result can omit native build-host dependencies during
   // cross-target audits. The target-specific tree below selects the real graph.
   const metadata = JSON.parse(run('cargo', ['metadata', '--locked', '--format-version', '1']));
@@ -84,11 +84,19 @@ export function auditDependencies({ packages, target, output, headless = false, 
     for (const file of supplemental?.files ?? []) files.push({
       path: `notices/cargo/${pkg.name}-${pkg.version}/${file.name}`, sha256: file.sha256, role: file.role,
     });
+    const standard = allowStandardTexts && !files.some(file => file.role === 'license-text')
+      ? standardLicense(pkg.license, pkg.authors) : null;
+    if (standard) {
+      const name = `SPDX-${standard.id}.txt`;
+      const file = path.join(destination, name);
+      writeFileSync(file, standard.text);
+      files.push({ path: `notices/cargo/${pkg.name}-${pkg.version}/${name}`, sha256: fileHash(file), role: 'license-text' });
+    }
     return {
       name: pkg.name, version: pkg.version, source: pkg.source, checksum: record.checksum ?? null,
       license: pkg.license, repository: pkg.repository, licenseFiles: files,
-      selectedLicense: supplemental?.selectedLicense ?? null,
-      unresolvedReason: supplemental?.unresolvedReason ?? null,
+      selectedLicense: standard?.id ?? supplemental?.selectedLicense ?? null,
+      unresolvedReason: standard ? null : supplemental?.unresolvedReason ?? null,
       reviewRequired: !pkg.license || !files.some(file => file.role === 'license-text'),
     };
   }).sort((a, b) => `${a.name}@${a.version}`.localeCompare(`${b.name}@${b.version}`));

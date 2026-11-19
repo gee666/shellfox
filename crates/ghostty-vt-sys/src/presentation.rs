@@ -21,7 +21,8 @@ impl Drop for PresentationView {
         unsafe { sf_presentation_free(self.ptr.as_ptr()) }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RowMetadata {
     pub soft_wrapped: bool,
     pub wrap_continuation: bool,

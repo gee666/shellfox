@@ -1,0 +1,162 @@
+use super::Platform;
+use anyhow::{Context, Result, ensure};
+use sha2::{Digest, Sha256};
+use std::{
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    time::{Duration, Instant},
+};
+use tempfile::TempDir;
+
+pub(in crate::update) struct Prepared {
+    pub(super) platform: Platform,
+    pub(super) work: TempDir,
+    pub(super) helper: PathBuf,
+    pub(super) file: PathBuf,
+    pub(super) sha256: String,
+    pub(super) size: u64,
+    #[cfg(target_os = "macos")]
+    pub(super) stage: Option<TempDir>,
+}
+impl Prepared {
+    /// Only call after confirmed clean shutdown. The script checks the payload
+    /// before acknowledging and again after our PID exits.
+    pub fn handoff(self, relaunch: bool) -> Result<()> {
+        let mut hash = Sha256::new();
+        let copied = std::io::copy(
+            &mut fs::File::open(&self.file)?.take(self.size + 1),
+            &mut hash,
+        )?;
+        ensure!(
+            copied == self.size && format!("{:x}", hash.finalize()) == self.sha256,
+            "Downloaded installer changed or is missing"
+        );
+        let control = tempfile::Builder::new()
+            .prefix("handoff-")
+            .tempdir_in(self.work.path())?;
+        let mut child = self.start(control.path(), relaunch)?;
+        let handoff = (|| {
+            wait_for(
+                &mut child,
+                &control.path().join("ready"),
+                Duration::from_secs(60),
+            )?;
+            fs::File::create_new(control.path().join("commit"))?;
+            wait_for(
+                &mut child,
+                &control.path().join("committed"),
+                Duration::from_secs(10),
+            )
+        })();
+        if let Err(error) = handoff {
+            let _ = fs::File::create_new(control.path().join("cancel"));
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+        let _ = control.keep();
+        let _ = self.work.keep();
+        #[cfg(target_os = "macos")]
+        if let Some(stage) = self.stage {
+            let _ = stage.keep();
+        }
+        Ok(())
+    }
+    fn start(&self, control: &Path, relaunch: bool) -> Result<Child> {
+        let pid = std::process::id();
+        let mut command = match &self.platform {
+            #[cfg(windows)]
+            Platform::Squirrel { updater } => {
+                use std::os::windows::process::CommandExt;
+                let config = control.join("install.json");
+                fs::write(
+                    &config,
+                    serde_json::to_vec(&serde_json::json!({
+                        "pid": pid, "file": self.file, "work": self.work.path(), "updateExe": updater,
+                        "sha256": self.sha256, "control": control, "relaunch": relaunch,
+                    }))?,
+                )?;
+                let system =
+                    std::env::var_os("SystemRoot").context("Windows system root is unavailable")?;
+                let mut command = Command::new(
+                    PathBuf::from(system).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+                );
+                command
+                    .creation_flags(0x0800_0000)
+                    .args([
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                    ])
+                    .arg(&self.helper)
+                    .arg("-Config")
+                    .arg(config);
+                command
+            }
+            #[cfg(target_os = "linux")]
+            Platform::Deb { executable } => {
+                let mut command = script_command(&self.helper, pid, self.work.path());
+                command
+                    .arg(&self.file)
+                    .arg(executable)
+                    .arg(&self.sha256)
+                    .arg(control)
+                    .arg(relaunch_arg(relaunch));
+                command
+            }
+            #[cfg(target_os = "macos")]
+            Platform::Mac { bundle } => {
+                let mut command = script_command(&self.helper, pid, self.work.path());
+                command
+                    .arg(bundle)
+                    .arg(self.stage.as_ref().context("Missing staged app")?.path())
+                    .arg(control)
+                    .arg(relaunch_arg(relaunch));
+                command
+            }
+            Platform::Manual(reason) => anyhow::bail!("{reason}"),
+        };
+        Ok(command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?)
+    }
+}
+fn wait_for(child: &mut Child, signal: &Path, timeout: Duration) -> Result<()> {
+    let end = Instant::now() + timeout;
+    loop {
+        ensure!(
+            child.try_wait()?.is_none(),
+            "Installer helper exited before handoff"
+        );
+        if signal.is_file() {
+            return Ok(());
+        }
+        ensure!(
+            Instant::now() < end,
+            "Installer helper did not acknowledge handoff"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+#[cfg(unix)]
+fn script_command(helper: &Path, pid: u32, work: &Path) -> Command {
+    use std::os::unix::process::CommandExt;
+    let mut command = Command::new("/bin/sh");
+    command
+        .process_group(0)
+        .arg(helper)
+        .arg(pid.to_string())
+        .arg(work);
+    command
+}
+#[cfg(unix)]
+fn relaunch_arg(relaunch: bool) -> &'static str {
+    if relaunch { "1" } else { "0" }
+}

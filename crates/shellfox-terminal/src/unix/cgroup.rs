@@ -15,7 +15,7 @@ pub(super) struct Cgroup {
     kill: File,
     events: File,
 }
-fn open_at(directory: &File, name: &CStr, flags: i32) -> Result<File> {
+pub(super) fn open_at(directory: &File, name: &CStr, flags: i32) -> Result<File> {
     let fd = unsafe {
         libc::openat(
             directory.as_raw_fd(),
@@ -83,6 +83,9 @@ impl Cgroup {
             }
         }
         opened
+    }
+    pub fn inspection_directory(&self) -> Result<File> {
+        Ok(self.directory.try_clone()?)
     }
     pub fn attach(&mut self, pid: u32) -> Result<()> {
         self.procs

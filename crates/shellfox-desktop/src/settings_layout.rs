@@ -4,6 +4,7 @@ impl Render for SettingsPanel {
         self.semantic_actions.clear();
         self.semantic_fields.clear();
         let p = self.palette;
+        let narrow = window.viewport_size().width <= px(560.);
         if self.focus_on_open {
             self.close_focus.focus(window);
             self.focus_on_open = false;
@@ -22,9 +23,24 @@ impl Render for SettingsPanel {
                 Category::Terminals => self.terminals(cx),
                 Category::Agents => self.agents(cx),
                 Category::RemoteAccess => self.remote_page(cx),
-                Category::Ssh => self.ssh_page(cx),
+                Category::Ssh => self.ssh_page(window, cx),
             }
         };
+        if std::mem::take(&mut self.restore_environment_focus)
+            && self.category == Category::Terminals
+            && let Some(trigger) = self.controls.get("all-terminal-environment")
+        {
+            trigger.focus(window);
+        }
+        if let Some(id) = self.ssh.focus_control.take()
+            && self.category == Category::Ssh
+            && let Some(focus) = self
+                .controls
+                .get(&id)
+                .or_else(|| self.controls.get("add-ssh"))
+        {
+            focus.focus(window);
+        }
         let body = self.semantic_element(
             &format!("panel/{}", self.category.label()),
             crate::accessibility::Role::TabPanel,
@@ -32,18 +48,37 @@ impl Render for SettingsPanel {
             body,
         );
         let mut tabs = div()
+            .id("settings-categories")
+            .track_scroll(&self.tabs_scroll)
+            .overflow_x_scroll()
             .h(px(34.))
             .flex_shrink_0()
-            .px(px(20.))
+            .px(px(if narrow { 12. } else { 20. }))
             .flex()
-            .gap(px(12.))
+            .gap(px(if narrow { 10. } else { 12. }))
             .border_b_1()
             .border_color(p.border);
         for (index, category) in Category::ALL.into_iter().enumerate() {
+            let invalid = self.category_error(category);
+            let error_label = invalid.then(|| format!("{}, needs attention", category.label()));
             let button = div()
                 .id(("settings-category", index))
-                .track_focus(&self.tab_focus[index])
+                .track_focus(
+                    &self.tab_focus[index]
+                        .clone()
+                        .tab_stop(self.category == category),
+                )
+                .flex_shrink_0()
                 .cursor_pointer()
+                .hover(move |style| style.text_color(p.foreground))
+                .relative()
+                .when(self.keyboard_focus, |element| {
+                    element.child(controls::focus_outline(
+                        self.tab_focus[index].clone(),
+                        p.accent,
+                        0.,
+                    ))
+                })
                 .pt(px(7.))
                 .pb(px(8.))
                 .px(px(2.))
@@ -69,6 +104,7 @@ impl Render for SettingsPanel {
                             _ => None,
                         };
                         if let Some(next) = next {
+                            panel.keyboard_focus = true;
                             panel.act(
                                 controls::Action::SelectCategory(Category::ALL[next]),
                                 window,
@@ -83,13 +119,34 @@ impl Render for SettingsPanel {
                 .flex()
                 .items_center()
                 .child(category.label())
-                .when(self.category_error(category), |tab| {
+                .when_some(
+                    self.remote
+                        .state
+                        .as_ref()
+                        .map(|state| state.pending.len())
+                        .filter(|count| category == Category::RemoteAccess && *count > 0),
+                    |tab, count| {
+                        tab.child(
+                            div()
+                                .ml(px(5.))
+                                .px(px(4.))
+                                .border_1()
+                                .border_color(p.border)
+                                .rounded(px(3.))
+                                .text_size(px(9.))
+                                .line_height(px(12.))
+                                .text_color(p.accent)
+                                .child(count.to_string()),
+                        )
+                    },
+                )
+                .when(invalid, |tab| {
                     tab.child(div().ml(px(5.)).text_color(gpui::rgb(0xfc8397)).child("•"))
                 });
             let mut button = self
                 .decorate_control(
                     &format!("category/{index}"),
-                    category.label(),
+                    error_label.as_deref().unwrap_or(category.label()),
                     controls::Action::SelectCategory(category),
                     self.tab_focus[index].clone(),
                     button,
@@ -108,7 +165,16 @@ impl Render for SettingsPanel {
             tabs,
         );
         let close = crate::assets::icon_button("close-settings-panel", "close", p)
-            .track_focus(&self.close_focus)
+            .tooltip(crate::assets::tooltip("Close settings (Esc)", p))
+            .track_focus(&self.close_focus.clone().tab_stop(true))
+            .relative()
+            .when(self.keyboard_focus, |element| {
+                element.child(controls::focus_outline(
+                    self.close_focus.clone(),
+                    p.accent,
+                    4.,
+                ))
+            })
             .on_key_down(
                 cx.listener(|panel, event: &gpui::KeyDownEvent, window, cx| {
                     if matches!(event.keystroke.key.as_str(), "enter" | "space") {
@@ -151,6 +217,11 @@ impl Render for SettingsPanel {
             .flex()
             .flex_col()
             .track_focus(&self.focus)
+            .capture_any_mouse_down(cx.listener(|panel, _, _, cx| {
+                if std::mem::take(&mut panel.keyboard_focus) {
+                    cx.notify();
+                }
+            }))
             .on_key_down(
                 cx.listener(|panel, event: &gpui::KeyDownEvent, window, cx| {
                     panel.key(event, window, cx)
@@ -198,6 +269,7 @@ impl Render for SettingsPanel {
             .child(
                 div()
                     .id("settings-scroll")
+                    .track_scroll(&self.body_scroll)
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
@@ -205,15 +277,18 @@ impl Render for SettingsPanel {
                         div()
                             .w_full()
                             .max_w(px(720.))
-                            .pt(px(22.))
-                            .px(px(24.))
-                            .pb(px(36.))
+                            .pt(px(if narrow { 18. } else { 22. }))
+                            .px(px(if narrow { 14. } else { 24. }))
+                            .pb(px(if narrow { 28. } else { 36. }))
                             .text_size(px(12.))
                             .child(body),
                     ),
             );
         if self.environment.is_some() {
             page = page.child(self.environment_modal(window, cx));
+        }
+        if let Some(picker) = &self.color_picker {
+            page = page.child(picker.view.clone());
         }
         self.semantic_root(page)
     }

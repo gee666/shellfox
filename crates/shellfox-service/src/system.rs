@@ -71,7 +71,6 @@ mod validation;
 mod windows_registry;
 pub use environment::{NativeSystemEnvironment, SystemEnvironment, SystemPlatform};
 pub use io::{FileRevision, NativeSystemFiles, SystemFile, SystemFiles};
-#[cfg(windows)]
 pub(crate) use io::file_revision;
 pub use linux_discovery::{
     FileManager, LinuxMenuDiscovery, NativeSystemLinuxDiscovery, SystemLinuxDiscovery,

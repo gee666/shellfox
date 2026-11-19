@@ -21,9 +21,13 @@ impl Root {
         cx: &Context<Self>,
     ) -> AnyElement {
         let enabled = self.power_enabled();
-        let mut button = crate::assets::icon_button(
-            "keep-awake",
-            if self.power.held() { "eye" } else { "eye-off" },
+        let mut button = crate::assets::toolbar_tip(
+            crate::assets::icon_button(
+                "keep-awake",
+                if self.power.held() { "eye" } else { "eye-off" },
+                palette,
+            ),
+            "Keep awake",
             palette,
         )
         .when(self.power.held(), |style| style.text_color(palette.accent))

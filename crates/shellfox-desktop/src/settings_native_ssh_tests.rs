@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 enum Outcome {
     Profiles,
     Selected,
-    Opened,
     Unavailable,
     Wrong,
 }
@@ -42,7 +41,6 @@ impl Gateway for Fixture {
                         cryptographically_validated: false,
                     }))
                 }
-                Outcome::Opened => NativeResponse::SshOpened(opened()),
                 Outcome::Unavailable => {
                     return Err(anyhow::anyhow!(
                         "SSH services have not been installed by the owning bootstrap."
@@ -77,23 +75,6 @@ fn input(password: api::Password) -> api::SshInput {
         password,
         key_file: None,
         remote_cwd: Some("/work".into()),
-    }
-}
-fn opened() -> ssh::OpenedProfile {
-    ssh::OpenedProfile {
-        snapshot: shellfox_core::Snapshot {
-            revision: 9,
-            sessions: vec![],
-            preferences: Default::default(),
-            selection: Default::default(),
-        },
-        connection: ssh::ConnectionStatus {
-            runtime: None,
-            connection: "00000000-0000-4000-8000-000000000005".parse().unwrap(),
-            profile: "00000000-0000-4000-8000-000000000004".parse().unwrap(),
-            tab: "00000000-0000-4000-8000-000000000006".parse().unwrap(),
-            state: ssh::State::Preparing,
-        },
     }
 }
 #[test]
@@ -160,28 +141,6 @@ fn selected_key_is_validated_without_chooser_rpc_or_crypto_success_claim() {
         NativeAction::Ssh(ssh::Request::ValidateKey { .. })
     ));
     assert_eq!(gateway.requests.lock().unwrap().len(), 1);
-}
-#[test]
-fn source_open_keeps_original_intent_and_does_not_global_select_or_claim_ready() {
-    let (_, gateway) = fixture(Outcome::Opened);
-    let request_id = shellfox_core::SessionId::new();
-    let request = ssh::OpenProfile {
-        request_id,
-        profile: input(api::Password::Preserve).id.parse().unwrap(),
-        cols: 80,
-        rows: 24,
-    };
-    let result = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(super::ssh_open::execute_open(gateway.as_ref(), request))
-        .unwrap();
-    assert!(matches!(result.connection.state, ssh::State::Preparing));
-    assert!(result.snapshot.selection.session_id.is_none());
-    assert!(
-        matches!(&gateway.requests.lock().unwrap()[0],NativeAction::SshOpen(input)if input.request_id==request_id&&input.cols==80&&input.rows==24)
-    );
 }
 #[test]
 fn missing_native_installation_and_wrong_response_remain_errors() {

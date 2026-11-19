@@ -27,9 +27,10 @@ def upload = signingKeys.collectEntries { [(it): providers.gradleProperty("SHELL
 def hasUploadSigning = upload.values().every { it != null && !it.isEmpty() }
 def goAndroidDir = file(providers.gradleProperty("shellfoxGoAndroidDir")
     .getOrElse("../../../tmp/mobile-native/android"))
+def reactExtension = extensions.getByType(com.facebook.react.ReactExtension)
 def shellfoxNode = {
     def explicitNode = providers.gradleProperty("shellfoxNodeExecutable").orNull
-    def node = explicitNode == null ? react.nodeExecutableAndArgs.get() : [explicitNode]
+    def node = explicitNode == null ? reactExtension.getNodeExecutableAndArgs().get() : [explicitNode]
     if (node.isEmpty() || node.any { it == null || it.toString().trim().isEmpty() }) {
         throw new GradleException("Configure a valid RN Node executable for artifact validation.")
     }

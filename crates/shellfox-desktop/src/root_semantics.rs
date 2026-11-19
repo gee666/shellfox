@@ -37,11 +37,12 @@ impl Root {
         &mut self,
         window: &Window,
         plan: &crate::accessibility::HiddenWindowPresentation,
+        cx: &gpui::App,
     ) -> Result<(), SemanticError> {
         self.native_accessibility
             .as_mut()
             .ok_or_else(|| SemanticError::Native("Native provider did not attach.".into()))?
-            .present_hidden(window, plan)
+            .present_hidden(window, plan, cx)
     }
     pub(crate) fn sync_semantic_children(&self, cx: &mut Context<Self>) {
         let frame = self.semantic_context.frame();
@@ -61,6 +62,7 @@ impl Root {
             frame.reject(error);
         }
         let parent = match &self.dialog {
+            None | Some(Dialog::RenameTab { .. } | Dialog::RenameSession { .. }) => root,
             Some(_) => match frame.id_for("root/dialog") {
                 Ok(id) => id,
                 Err(error) => {
@@ -68,13 +70,17 @@ impl Root {
                     return;
                 }
             },
-            None => root,
         };
         match &self.dialog {
             Some(Dialog::Create(draft)) => {
                 if let Err(error) = draft.path.update(cx, |field, cx| {
                     field.set_frame(frame.clone(), parent, "Folder path", cx)
                 }) {
+                    frame.reject(error);
+                }
+            }
+            Some(Dialog::SessionEnvironment { text, .. }) => {
+                if let Err(error) = text.update(cx, |field, cx| field.set_frame(frame.clone(), parent, "Environment variables", cx)) {
                     frame.reject(error);
                 }
             }
@@ -196,7 +202,12 @@ impl Root {
             return;
         }
         for action in actions {
-            if self.handle_tab_semantic_action(&action, window, cx) {
+            if self.handle_quit_semantic_action(&action, window, cx)
+                || self.handle_profile_menu_semantic_action(&action, window, cx)
+                || self.handle_sidebar_settings_action(&action, window, cx)
+                || self.handle_tab_semantic_action(&action, window, cx)
+                || self.handle_tab_control_semantic_action(&action, window, cx)
+            {
                 continue;
             }
             if self.handle_power_action(&action, window, cx) {
@@ -213,7 +224,7 @@ impl Root {
             let mut fields = Vec::new();
             match &self.dialog {
                 Some(Dialog::Create(draft)) => fields.push(draft.path.clone()),
-                Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. }) => {
+                Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. } | Dialog::SessionEnvironment { text: title, .. }) => {
                     fields.push(title.clone())
                 }
                 _ => {}

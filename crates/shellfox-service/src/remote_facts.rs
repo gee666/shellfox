@@ -72,7 +72,7 @@ impl FactsPipeline {
             stop: wire::CancellationToken::new(),
         }
     }
-    pub fn admit(&mut self, service: &Service, request: shellfox_remote::OwnerRequest) {
+    pub fn admit(&mut self, service: &mut Service, request: shellfox_remote::OwnerRequest) {
         if request.is_cancelled() {
             return;
         }
@@ -94,10 +94,10 @@ impl FactsPipeline {
                     .iter()
                     .flat_map(|session| session.tabs.iter())
                     .filter(|tab| {
-                        service.terminals.get(&tab.id).is_some_and(|terminal| {
+                        super::privacy::elevated_profile(tab.profile_id.as_str()) || service.terminals.get(&tab.id).is_some_and(|terminal| {
                             terminal.runtime.identity().session_id == tab.session_id
-                                && terminal.runtime.launch_privilege_facts().privilege
-                                    == shellfox_runtime::LaunchPrivilege::Elevated
+                                && super::v1_privilege::explicitly_elevated(
+                                    &terminal.runtime.launch_privilege_facts())
                         })
                     })
                     .map(|tab| tab.id)
@@ -119,6 +119,12 @@ impl FactsPipeline {
         if let Err(error) = actor.with_authorized(request.command.operation(), || Ok(())) {
             request.complete(Err(error));
             return;
+        }
+        // Catalog writes need to be visible to this request, independent of the
+        // next activity poll. Genuine changes during projection are still fenced.
+        let source = crate::activity_integration::read_source(&service.source_facts_watch());
+        if service.activity.dirty || source.is_none_or(|source| !source.matches_request(&evidence)) {
+            let _ = service.publish_source_facts(evidence.snapshot.clone(), evidence.settings.clone());
         }
         self.pending += 1;
         let capabilities_only = capabilities_only(&request.command);
@@ -250,7 +256,8 @@ fn capabilities_only(command: &OwnerCommand) -> bool {
     };
     use wire::RemoteCommand::*;
     match command {
-        GetTerminalProfiles(_) | GetHomeDirectory(_) | DeleteSession(_) => true,
+        GetTerminalProfiles(_) | GetHomeDirectory(_) | DeleteSession(_)
+        | AttachTerminal(_) | CreateSession(_) | AddTab(_) | ActivateSession(_) => true,
         ListFiles(v) => v.session_id.is_some() || v.tab_id.is_some(),
         ReadFile(v) => v.session_id.is_some() || v.tab_id.is_some(),
         WriteFile(v) => v.session_id.is_some() || v.tab_id.is_some(),

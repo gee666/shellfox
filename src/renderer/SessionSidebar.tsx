@@ -1,4 +1,5 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import type { SessionDto } from '../shared/contracts';
 import { parseWslUnc } from '../shared/wsl-path';
 import { request } from './api';
@@ -24,6 +25,9 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
   const [renaming, setRenaming] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [deleting, setDeleting] = useState<SessionDto | null>(null);
+  const confirmDelete = useRef<HTMLButtonElement>(null);
+  // Focus after the context menu's cleanup restores the prior focus.
+  useEffect(() => { if (deleting) confirmDelete.current?.focus(); }, [deleting]);
   const ownScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = scrollContainer ?? ownScrollRef;
   const moreFocus = useRef<HTMLElement | null>(null);
@@ -115,6 +119,9 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
   }
   const retainedIds = [renaming, menu?.session.id ?? null, deleting?.id ?? null];
   const menuSettled = menu && sessionDot(menu.session, busy).kind === 'settled';
+  const deleteConfirmation = deleting && <div className="inline-confirm delete-confirm" role="dialog" aria-label="Delete session" onKeyDown={event => { if (event.key === 'Escape') setDeleting(null); }}><p>Permanently delete “{deleting.title}”?{deleting.tabs.some(tab => tab.terminalKind === 'embedded' && tab.lifecycle !== 'closed') ? ' Its running terminals will be closed.' : ''} This cannot be undone.</p><div><button ref={confirmDelete} disabled={action.pending} onClick={() => void remove(deleting)}>Delete</button><button onClick={() => setDeleting(null)}>Cancel</button></div></div>;
+  // A short machine section cannot contain a bottom-aligned confirmation.
+  const deleteLayer = deleting ? ownScrollRef.current?.closest('.sidebar-content') : null;
   return <div className="sidebar-scroll" ref={ownScrollRef}>
     <div className="machine-section-heading"><button className="session-section-toggle" aria-expanded={expanded} onClick={() => { setExpanded(value => !value); onSectionSelect?.(); }}><span className={`section-chevron${expanded ? ' expanded' : ''}`}><Icon name="chevron" /></span><span className="section-label">{label} · {sessions.length}</span></button>{actions}</div>
     {expanded && <div role="region" aria-label={`${label} sessions`}>{shown.length ? <WindowedSessionList sessions={shown} scrollRef={scrollRef} selectedId={selectedId} retainedIds={retainedIds} renderRow={row} /> : <p className="empty-small">No sessions, press +</p>}{shown.length < sessions.length && <button className="text-button session-more" onClick={more}>Show more</button>}</div>}
@@ -129,6 +136,6 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
       <button role="menuitem" disabled={action.pending} onClick={() => { setDeleting(menu.session); setMenu(null); }}>Delete…</button>
     </ContextMenu>}
     {editingEnv && <ShellfoxEnvModal key={editingEnv.id} client={client} session={editingEnv} onClose={() => setEditingEnv(null)} />}
-    {deleting && <div className="inline-confirm delete-confirm" role="dialog" aria-label="Delete session" onKeyDown={event => { if (event.key === 'Escape') setDeleting(null); }}><p>Permanently delete “{deleting.title}”?{deleting.tabs.some(tab => tab.terminalKind === 'embedded' && tab.lifecycle !== 'closed') ? ' Its running terminals will be closed.' : ''} This cannot be undone.</p><div><button autoFocus disabled={action.pending} onClick={() => void remove(deleting)}>Delete</button><button onClick={() => setDeleting(null)}>Cancel</button></div></div>}
+    {deleteLayer ? createPortal(deleteConfirmation, deleteLayer) : deleteConfirmation}
   </div>;
 }

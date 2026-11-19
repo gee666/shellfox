@@ -163,7 +163,7 @@ fn disconnect(state: &mut RemoteState, service: &mut Service, id: m::Id) -> Resu
         .pump_manager_retirements()
         .map_err(|_| native_error());
     state.manager_views.entries.remove(&id);
-    state.metadata_v2.remove(&id);
+    state.remove_metadata_view(id);
     cleanup.and(retirement)
 }
 fn source_for<'a>(

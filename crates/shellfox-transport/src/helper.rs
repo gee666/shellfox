@@ -40,8 +40,7 @@ impl HelperTransport {
         let process = pending.process()?;
         let result = tokio::time::timeout(Duration::from_secs(5), async {
             let raw = process.frames.recv().await.ok_or(HelperError::Stopped)??;
-            let probe: Probe = serde_json::from_slice(&raw).map_err(|_| HelperError::Protocol)?;
-            probe.validate()?;
+            let probe = Probe::parse(&raw)?;
             let status = process
                 .child
                 .wait()

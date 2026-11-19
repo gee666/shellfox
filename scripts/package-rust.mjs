@@ -1,0 +1,173 @@
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { fileHash, nativeTarget, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
+import { stageResources } from './rust-package-resources.mjs';
+import { acquireNugetSnapshot } from './rust-package-resource-inventory.mjs';
+import { packageNotices } from './package-rust-notices.mjs';
+
+const pkg = readJson(path.join(root, 'package.json'));
+const icon = extension => path.join(root, `resources/icon/icon.${extension}`);
+const arch = process.arch;
+const stem = `Shellfox-${process.platform}-${arch}-${pkg.version}`;
+
+function copy(source, target, mode = 0o644) {
+  mkdirSync(path.dirname(target), { recursive: true });
+  copyFileSync(source, target);
+  chmodSync(target, mode);
+}
+
+function tar(output, directory, members, options = []) {
+  run('tar', ['-czf', output, ...options, '-C', directory, ...members]);
+}
+
+function linux(work, app, artifacts) {
+  const debianArch = arch === 'x64' ? 'amd64' : 'arm64';
+  const shellfoxIcon = 'share/icons/hicolor/256x256/apps/shellfox.png';
+  const entry = 'share/applications/shellfox.desktop';
+  const deb = path.join(work, 'deb');
+  cpSync(app, path.join(deb, 'usr/lib/shellfox'), { recursive: true });
+  copy(icon('png'), path.join(deb, 'usr/share/pixmaps/shellfox.png'));
+  copy(path.join(root, 'resources/icon/icon-256.png'), path.join(deb, 'usr', shellfoxIcon));
+  copy(path.join(root, 'resources/linux/shellfox.desktop'), path.join(deb, 'usr', entry));
+  mkdirSync(path.join(deb, 'usr/bin'));
+  copy(path.join(root, 'resources/linux/shellfox-rust-launcher'), path.join(deb, 'usr/bin/shellfox'), 0o755);
+  symlinkSync('../lib/shellfox/shellfox-cli', path.join(deb, 'usr/bin/shellfox-cli'));
+  const control = path.join(work, 'control');
+  mkdirSync(control);
+  writeFileSync(path.join(control, 'control'), [
+    'Package: shellfox', `Version: ${pkg.version}`, `Architecture: ${debianArch}`, 'Section: devel', 'Priority: optional',
+    `Maintainer: ${pkg.author}`,
+    'Depends: libc6 (>= 2.39), libgcc-s1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1',
+    'Description: Shellfox terminal manager', '',
+  ].join('\n'));
+  // These are the standard deb members; no dpkg installation or root is needed to build them.
+  const owner = ['--owner=0', '--group=0', '--numeric-owner'];
+  writeFileSync(path.join(work, 'debian-binary'), '2.0\n');
+  tar(path.join(work, 'control.tar.gz'), control, ['.'], owner);
+  tar(path.join(work, 'data.tar.gz'), deb, ['.'], owner);
+  run('ar', ['rc', path.join(artifacts, `shellfox_${pkg.version}_${debianArch}.deb`), 'debian-binary', 'control.tar.gz', 'data.tar.gz'], { cwd: work });
+  copy(path.join(deb, 'usr', shellfoxIcon), path.join(app, shellfoxIcon));
+  const portableEntry = path.join(app, entry);
+  mkdirSync(path.dirname(portableEntry), { recursive: true });
+  writeFileSync(portableEntry, readFileSync(path.join(deb, 'usr', entry), 'utf8').replace(/^Exec=.*$/m, 'Exec=shellfox'));
+  tar(path.join(artifacts, `${stem}.tar.gz`), path.dirname(app), [path.basename(app)]);
+}
+
+async function windows(app, artifacts, testId) {
+  const archive = path.join(artifacts, `${stem}.zip`);
+  run(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/tar.exe'), ['-a', '-cf', archive, '-C', path.dirname(app), path.basename(app)]);
+  if (arch !== 'x64') return;
+  // Forge uses electron-winstaller. Its NuGet packer accepts arbitrary files once
+  // app.asar metadata discovery is disabled.
+  const require = createRequire(import.meta.url);
+  const forgeRequire = createRequire(require.resolve('@electron-forge/maker-squirrel'));
+  const { createWindowsInstaller } = forgeRequire('electron-winstaller');
+  if (testId) {
+    // Squirrel derives Desktop/Start Menu links from ProductName, not just the NuGet ID.
+    const vendor = path.resolve(path.dirname(forgeRequire.resolve('electron-winstaller')), '../vendor');
+    run(path.join(vendor, 'rcedit.exe'), [path.join(app, 'Shellfox.exe'), '--set-version-string', 'ProductName', testId, '--set-version-string', 'FileDescription', testId]);
+  }
+  const config = require('../forge.config.cjs').makers.find(maker => maker.name === '@electron-forge/maker-squirrel').config;
+  // Squirrel's internal NuGet and ZIP scratch must stay under this package build.
+  const tempKeys = ['TMP', 'TEMP', 'TMPDIR'];
+  const priorTemp = tempKeys.map(key => process.env[key]);
+  tempKeys.forEach(key => { process.env[key] = path.dirname(app); });
+  try {
+    await createWindowsInstaller({
+      ...config,
+      ...(testId ? { name: testId, title: testId } : { title: pkg.productName }),
+      appDirectory: app, outputDirectory: artifacts, exe: 'Shellfox.exe',
+      version: pkg.version, description: pkg.description, authors: testId ?? pkg.author, usePackageJson: false, noMsi: true, noDelta: true,
+      nuspecTemplate: path.join(root, 'resources/windows/rust.nuspectemplate'),
+    });
+  } finally {
+    tempKeys.forEach((key, index) => {
+      if (priorTemp[index] === undefined) delete process.env[key];
+      else process.env[key] = priorTemp[index];
+    });
+  }
+}
+
+function signMac(file) {
+  const identity = process.env.SHELLFOX_MAC_SIGN_IDENTITY || '-';
+  const signing = identity === '-' ? ['--timestamp=none'] : ['--options', 'runtime', '--timestamp'];
+  const keychain = process.env.SHELLFOX_MAC_SIGN_KEYCHAIN;
+  run('/usr/bin/codesign', ['--force', '--sign', identity, ...signing, ...(keychain ? ['--keychain', keychain] : []), file]);
+}
+
+function macos(app, artifacts) {
+  const contents = path.join(app, 'Contents');
+  const plist = path.join(contents, 'Info.plist');
+  writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>Shellfox</string>
+<key>CFBundleIdentifier</key><string>local.shellfox</string>
+<key>CFBundleExecutable</key><string>Shellfox</string>
+<key>CFBundleIconFile</key><string>shellfox.icns</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>${pkg.version}</string>
+<key>CFBundleVersion</key><string>${pkg.version}</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>\n`);
+  copy(icon('icns'), path.join(contents, 'Resources/shellfox.icns'));
+  // Helpers were signed before hashing them into the Rust binaries.
+  signMac(path.join(contents, 'MacOS/shellfox-cli'));
+  signMac(app);
+  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+  run('/usr/bin/ditto', ['-c', '-k', '--keepParent', app, path.join(artifacts, `${stem}.zip`)]);
+  run('/usr/bin/hdiutil', ['create', '-volname', 'Shellfox', '-format', 'UDZO', '-srcfolder', app, path.join(artifacts, `${stem}.dmg`)]);
+}
+
+export async function packageRust({ output = path.join(scratchRoot, 'rust-installers'), testId } = {}) {
+  const target = nativeTarget();
+  if (!/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error('Installers require a stable package.json version');
+  if (testId && (target !== 'x86_64-pc-windows-msvc' || !/^ShellfoxLaneI[a-zA-Z0-9]+$/.test(testId))) throw new Error('Use an isolated Squirrel test identity such as ShellfoxLaneI123');
+  output = path.resolve(output);
+  if (existsSync(output)) throw new Error(`Choose an unused installer output directory: ${output}`);
+  const work = mkdtempSync(path.join(scratchRoot, 'pr-'));
+  try {
+    const app = path.join(work, process.platform === 'darwin' ? 'Shellfox.app' : stem);
+    const artifacts = path.join(work, 'artifacts');
+    mkdirSync(artifacts);
+    const stage = path.join(work, 'stage');
+    let nugetSnapshot = process.env.SHELLFOX_NUGET_VULNERABILITY_SNAPSHOT ?? null;
+    if (process.platform === 'win32' && nugetSnapshot === null) {
+      nugetSnapshot = path.join(work, 'nuget-snapshot.json');
+      writeFileSync(nugetSnapshot, JSON.stringify(await acquireNugetSnapshot('10.0')));
+    }
+    const { anchorEnv, helperSha256 } = await stageResources({ directory: stage, work, kind: 'desktop', version: pkg.version,
+      nugetSnapshot, probeTailscale: false, signDarwin: process.platform === 'darwin' ? signMac : undefined });
+    const cargoTarget = path.resolve(process.env.CARGO_TARGET_DIR || path.join(scratchRoot, 'rust-installers-target'));
+    const env = { ...anchorEnv, SHELLFOX_PACKAGED_GO_SHA256: helperSha256 };
+    run('cargo', ['build', '--locked', '--release', '--target-dir', cargoTarget,
+      '-p', 'shellfox-desktop', '--bin', 'shellfox', '-p', 'shellfox-cli', '--bin', 'shellfox-cli'], { env, stdio: 'inherit', timeout: 50 * 60_000 });
+    const mac = process.platform === 'darwin', win = process.platform === 'win32';
+    const executables = mac ? path.join(app, 'Contents/MacOS') : app;
+    const resources = mac ? path.join(app, 'Contents/Resources') : path.join(app, 'resources');
+    cpSync(path.join(stage, 'resources'), resources, { recursive: true });
+    cpSync(path.join(stage, 'notices'), path.join(resources, 'notices'), { recursive: true });
+    packageNotices(resources, target);
+    copy(path.join(root, 'LICENSE'), path.join(mac ? resources : app, 'LICENSE'));
+    const profile = path.join(cargoTarget, 'release');
+    copy(path.join(profile, win ? 'shellfox.exe' : 'shellfox'), path.join(executables, win ? 'Shellfox.exe' : mac ? 'Shellfox' : 'shellfox'), 0o755);
+    copy(path.join(profile, win ? 'shellfox-cli.exe' : 'shellfox-cli'), path.join(executables, win ? 'bin/shellfox-cli.exe' : 'shellfox-cli'), 0o755);
+    if (win) {
+      for (const dir of [app, path.join(app, 'bin')]) copy(path.join(profile, 'ghostty-vt.dll'), path.join(dir, 'ghostty-vt.dll'));
+      await windows(app, artifacts, testId);
+    } else if (mac) macos(app, artifacts);
+    else linux(work, app, artifacts);
+    mkdirSync(path.dirname(output), { recursive: true });
+    renameSync(artifacts, output);
+    console.log(`[package-rust] ${output}`);
+  } finally { rmSync(work, { recursive: true, force: true }); }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [output, testId, ...rest] = process.argv.slice(2);
+  if (rest.length) throw new Error('Usage: node scripts/package-rust.mjs [OUTPUT_DIR [ISOLATED_SQUIRREL_TEST_ID]]');
+  await packageRust({ output, testId });
+}

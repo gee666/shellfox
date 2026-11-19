@@ -1,14 +1,16 @@
 use crate::{Error, Result};
 use shellfox_ghostty_vt_sys as sys;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum KeyAction {
     #[default]
     Press,
     Repeat,
     Release,
 }
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Modifiers {
     pub shift: bool,
     pub control: bool,
@@ -25,7 +27,8 @@ impl Modifiers {
 }
 /// Physical key identity, independent of committed text. Character identifies
 /// an ASCII physical position, not the text produced by the current layout.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum Key {
     #[default]
     Unidentified,
@@ -46,7 +49,8 @@ pub enum Key {
     Delete,
     F(u8),
 }
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KeyEvent {
     pub key: Key,
     pub action: KeyAction,

@@ -1,85 +1,6 @@
 //! Original-origin peer mutations; UI changes never pull a user back from another source.
 use super::*;
 impl Root {
-    pub(super) fn create_peer_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (cycle, connection, admission) = match self.peer_context() {
-            Ok(value) => value,
-            Err(error) => {
-                self.error = Some(error.to_string());
-                return;
-            }
-        };
-        if self.peer_ui.pending.contains(&cycle.peer) {
-            return;
-        }
-        let Some((path, title)) = self.peer_ui.forms.get(&cycle.peer) else {
-            return;
-        };
-        let title = title.read(cx).text.clone();
-        let cwd = path.read(cx).text.clone();
-        let request = shellfox_protocol::CreateSession {
-            cwd,
-            title: (!title.is_empty()).then_some(title),
-            request_id: SessionId::new(),
-        };
-        let source_epoch = self.source_selection_epoch();
-        let navigation = self
-            .peer_ui
-            .navigation
-            .get(&cycle.peer)
-            .copied()
-            .unwrap_or(0);
-        self.peer_ui.pending.insert(cycle.peer.clone());
-        cx.spawn_in(window, async move |root, cx| {
-            let result = async {
-                let entry = connection
-                    .execute_admitted(&admission, &m::CreateSession(request))
-                    .await?;
-                let id = entry.id();
-                let snapshot = connection
-                    .execute_admitted(
-                        &admission,
-                        &m::GetSnapshot(shellfox_protocol::GetSnapshot {}),
-                    )
-                    .await?;
-                anyhow::Ok((id, snapshot))
-            }
-            .await;
-            let _ = root.update_in(cx, |root, window, cx| {
-                if !root.peers.current(&cycle) {
-                    return;
-                }
-                root.peer_ui.pending.remove(&cycle.peer);
-                match result {
-                    Ok((id, snapshot)) => {
-                        if let Err(error) = root.peers.catalog(&cycle, snapshot).and_then(|_| {
-                            if root.source_selection_epoch() == source_epoch
-                                && root
-                                    .peer_ui
-                                    .navigation
-                                    .get(&cycle.peer)
-                                    .copied()
-                                    .unwrap_or(0)
-                                    == navigation
-                                && !root.is_local_source()
-                            {
-                                root.peers.select(&cycle, id, None)?;
-                            }
-                            Ok(())
-                        }) {
-                            root.error = Some(error.to_string());
-                        } else {
-                            root.ensure_peer_terminal(window, cx);
-                        }
-                    }
-                    Err(error) => root.error = Some(format!("Remote create failed: {error:#}")),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-        cx.notify();
-    }
     pub(super) fn add_peer_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (cycle, connection, admission) = match self.peer_context() {
             Ok(value) => value,
@@ -148,7 +69,7 @@ impl Root {
                 anyhow::Ok((tab, snapshot))
             }
             .await;
-            let _ = root.update_in(cx, |root, window, cx| {
+            let _ = root.update_in(cx, |root, _window, cx| {
                 if !root.peers.current(&cycle) {
                     return;
                 }
@@ -172,7 +93,8 @@ impl Root {
                         }) {
                             root.error = Some(error.to_string());
                         } else {
-                            root.ensure_peer_terminal(window, cx);
+                            #[cfg(feature = "experimental-shellfox-native")]
+                            root.ensure_peer_terminal(_window, cx);
                         }
                     }
                     Err(error) => {

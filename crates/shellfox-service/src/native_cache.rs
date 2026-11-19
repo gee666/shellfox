@@ -194,6 +194,7 @@ impl NativeState {
             replay_lost: view.replay_lost,
             phase: view.phase,
             error: view.error.clone(),
+            working_directory: None,
         }))
     }
     /// Observes the sole Service::drain consumer. Never parses or grants credit.

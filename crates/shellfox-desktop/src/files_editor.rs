@@ -1,22 +1,64 @@
-use super::{Editor, EditorFile, editor_state::SaveSnapshot};
+use super::{Editor, EditorFile, Preview, editor_state::SaveSnapshot, pending::FileAction};
 use crate::{field::Field, root::Root};
-use gpui::Context;
-use shellfox_files::{EditorCancellation, TextFile};
+use gpui::{AppContext, Context};
+use shellfox_files::{EditorCancellation, ErrorCode, FileError, ReadResult};
+
+enum LoadedDocument {
+    Text {
+        path: String,
+        text: String,
+        size: u64,
+        revision: String,
+    },
+    Preview(Preview),
+}
+
+fn prepare_document(read: ReadResult) -> LoadedDocument {
+    match read {
+        ReadResult::Text {
+            path,
+            text,
+            size,
+            revision,
+            ..
+        } => LoadedDocument::Text {
+            path,
+            text,
+            size,
+            revision,
+        },
+        ReadResult::Binary { path, size, .. } => {
+            LoadedDocument::Preview(Preview::Binary { path, size })
+        }
+        ReadResult::Image {
+            path,
+            mime_type,
+            revision,
+            bytes,
+            ..
+        } => LoadedDocument::Preview(Preview::image(path, &mime_type, revision, bytes)),
+    }
+}
+
 impl Root {
     pub(crate) fn request_open_file(&mut self, path: String, cx: &mut Context<Self>) {
-        if !self.require_files_source(cx) || self.files.as_ref().is_some_and(|f| f.busy) {
+        if self.files_dirty(cx) && self.files.as_ref().and_then(|f| f.opened_path()) == Some(&path)
+        {
             return;
         }
-        if self.files_dirty(cx) {
-            if let Some(f) = &mut self.files {
-                f.pending_open = Some(path);
-            }
-            cx.notify();
-        } else {
-            self.open_file(path, cx);
-        }
+        self.request_file_action(FileAction::Open(path), cx);
     }
+
     pub(crate) fn open_file(&mut self, path: String, cx: &mut Context<Self>) {
+        self.open_file_at(path, None, cx);
+    }
+
+    pub(super) fn open_file_at(
+        &mut self,
+        path: String,
+        position: Option<super::terminal_links::SourcePosition>,
+        cx: &mut Context<Self>,
+    ) {
         if !self.require_files_source(cx) {
             return;
         }
@@ -30,17 +72,20 @@ impl Root {
         let backend = files.backend.clone();
         let task_backend = backend.clone();
         files.busy = true;
-        files.pending_open = None;
+        files.pending_file_action = None;
+        files.document_path = Some(path.clone());
+        files.document_error = None;
+        files.editor = None;
+        files.preview = None;
+        files.image_editor = None;
         let cancellation = EditorCancellation::default();
         files.operation = Some(cancellation.clone());
-        if let Some(editor) = &files.editor {
-            editor
-                .text
-                .update(cx, |field, cx| field.set_read_only(true, cx));
-        }
-        let task = cx
-            .background_executor()
-            .spawn(async move { task_backend.read(&path, &cancellation).await });
+        let task = cx.background_executor().spawn(async move {
+            task_backend
+                .read(&path, &cancellation)
+                .await
+                .map(prepare_document)
+        });
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
@@ -51,52 +96,78 @@ impl Root {
                 }
                 files.busy = false;
                 files.operation = None;
-                if let Some(editor) = &files.editor {
-                    editor
-                        .text
-                        .update(cx, |field, cx| field.set_read_only(false, cx));
-                }
                 if !current {
-                    if let Some(e) = &mut files.editor {
-                        e.reload_required = true;
-                    }
-                    root.error = Some(
+                    files.document_error = Some(
                         "Document result belongs to a retired source. Reopen explicitly.".into(),
                     );
                     cx.notify();
                     return;
                 }
+                let mut editor = None;
+                let mut preview = None;
                 match result {
-                    Ok(TextFile {
+                    Ok(LoadedDocument::Text {
                         path,
                         text,
                         size,
                         revision,
                     }) => {
-                        let text = Field::asset_editor(text, cx);
+                        let text = Field::asset_editor(&path, text, cx);
+                        if let Some(position) = position {
+                            text.update(cx, |field, _| {
+                                field.goto_source_position(position.line, position.column)
+                            });
+                        }
                         cx.observe(&text, |_, _, cx| cx.notify()).detach();
                         let saved_text = text.read(cx).snapshot_text();
-                        let mut prepared = Some(Editor {
+                        editor = Some(Editor {
                             text,
                             saved_text,
+                            text_preview: super::text_preview::TextPreview::for_path(&path).map(
+                                |mut preview| {
+                                    preview.showing = position.is_none();
+                                    preview
+                                },
+                            ),
                             reload_required: false,
+                            scrollbar: Default::default(),
+                            horizontal_scrollbar: Default::default(),
                             file: EditorFile {
                                 path,
                                 size,
                                 revision,
                             },
                         });
-                        // Build entities outside the source lock; publish only a bounded swap under
-                        // the ORIGINAL witness, then drop the retired document and notify afterward.
-                        match backend
-                            .commit_if_current(|| std::mem::swap(&mut files.editor, &mut prepared))
-                        {
-                            Ok(()) => root.error = None,
-                            Err(e) => root.error = Some(format!("Document source retired: {e:#}")),
-                        }
-                        drop(prepared);
                     }
-                    Err(e) => root.error = Some(e.to_string()),
+                    Ok(LoadedDocument::Preview(loaded)) => preview = Some(loaded),
+                    Err(error) => files.document_error = Some(error.to_string()),
+                }
+                // Publish under the original admission; build and drop payloads outside it.
+                if let Err(error) = backend.commit_if_current(|| {
+                    std::mem::swap(&mut files.editor, &mut editor);
+                    std::mem::swap(&mut files.preview, &mut preview);
+                }) {
+                    files.document_error = Some(format!("Document source retired: {error:#}"));
+                } else if let (Some(position), Some(editor)) = (position, &files.editor) {
+                    let field = editor.text.clone();
+                    let entity = cx.entity().downgrade();
+                    cx.defer(move |cx| {
+                        let Some(root) = entity.upgrade() else {
+                            return;
+                        };
+                        if !root.read(cx).settings
+                            && root
+                                .read(cx)
+                                .files
+                                .as_ref()
+                                .and_then(|files| files.editor.as_ref())
+                                .is_some_and(|editor| editor.text == field)
+                        {
+                            let _ = cx.update_window(position.window, |_, window, cx| {
+                                field.read(cx).focus(window)
+                            });
+                        }
+                    });
                 }
                 cx.notify();
             });
@@ -104,6 +175,7 @@ impl Root {
         .detach();
         cx.notify();
     }
+
     pub(crate) fn save_file(&mut self, cx: &mut Context<Self>) {
         if !self.require_files_source(cx) {
             return;
@@ -114,7 +186,7 @@ impl Root {
         }
         let Some(editor) = &files.editor else { return };
         if editor.reload_required {
-            self.error =
+            files.document_error =
                 Some("Reload before saving again. The previous save was not confirmed.".into());
             cx.notify();
             return;
@@ -122,8 +194,6 @@ impl Root {
         if !editor.dirty(cx) {
             return;
         }
-        // This immutable backend plus target/revision/text is the complete original document
-        // identity. It is never rebuilt from the selected peer's labels or current connection.
         let snapshot = SaveSnapshot {
             text: editor.text.read(cx).snapshot_text(),
             path: editor.file.path.clone(),
@@ -135,33 +205,60 @@ impl Root {
         let backend = files.backend.clone();
         let task_backend = backend.clone();
         files.busy = true;
+        files.document_error = None;
         let cancellation = EditorCancellation::default();
         files.operation = Some(cancellation.clone());
         let request = snapshot.clone();
         let task = cx
             .background_executor()
             .spawn(async move { task_backend.write(&request.request(), &cancellation).await });
-        cx.spawn(async move|root,cx|{let result=task.await;let _=root.update(cx,|root,cx|{
-            let current=root.files_result_current(epoch,&backend);
-            let Some(files)=&mut root.files else{return};if files.request!=serial||!files.backend.same_origin(&backend){return;}
-            files.busy=false;files.operation=None;
-            if !current{if let Some(e)=&mut files.editor{e.reload_required=true;}root.error=Some("Save result belongs to its original retired source. Reload there before saving again.".into());cx.notify();return;}
-            match result{Ok(written)=>{
-                if let Some(editor)=&mut files.editor{
-                    if let Some(mut prepared)=snapshot.prepare_completion(&editor.file,written){
-                        match backend.commit_if_current(||prepared.commit(&mut editor.file,&mut editor.saved_text)){
-                            Ok(())=>root.error=None,Err(e)=>{editor.reload_required=true;root.error=Some(format!("Save source retired; outcome requires reload: {e:#}"));}
+        cx.spawn(async move |root, cx| {
+            let result = task.await;
+            let _ = root.update(cx, |root, cx| {
+                let current = root.files_result_current(epoch, &backend);
+                let Some(files) = &mut root.files else { return };
+                if files.request != serial || !files.backend.same_origin(&backend) { return; }
+                files.busy = false;
+                files.operation = None;
+                let continue_on_save = std::mem::take(&mut files.save_and_continue);
+                let Some(editor) = &mut files.editor else { return };
+                if !current {
+                    editor.reload_required = true;
+                    files.document_error = Some("Save result belongs to its original retired source. Reload there before saving again.".into());
+                } else {
+                    match result {
+                        Ok(written) => {
+                            if let Some(mut prepared) = snapshot.prepare_completion(&editor.file, written) {
+                                if let Err(error) = backend.commit_if_current(|| prepared.commit(&mut editor.file, &mut editor.saved_text)) {
+                                    editor.reload_required = true;
+                                    files.document_error = Some(format!("Save source retired; outcome requires reload: {error:#}"));
+                                }
+                            } else {
+                                editor.reload_required = true;
+                                files.document_error = Some("Save completed for an older document revision. Reload before saving again.".into());
+                            }
                         }
-                        drop(prepared);
-                    }else{editor.reload_required=true;root.error=Some("Save completed for an older document revision. Reload before saving again.".into());}
+                        Err(error) => {
+                            // Native or peer I/O can have uncertain completion. Only an explicit
+                            // revision conflict is safe to retry against the same revision.
+                            let conflict = error.downcast_ref::<FileError>().is_some_and(|e| e.code == ErrorCode::FileConflict);
+                            editor.reload_required = !conflict;
+                            files.document_error = Some(error.to_string());
+                        }
+                    }
                 }
-            },Err(e)=>{if let Some(editor)=&mut files.editor{editor.reload_required=true;}root.error=Some(e.to_string());}}cx.notify();
-        });}).detach();
+                if continue_on_save && files.document_error.is_none() && !editor.dirty(cx)
+                    && let Some(action) = files.pending_file_action.take()
+                {
+                    root.perform_file_action(action, cx);
+                }
+                cx.notify();
+            });
+        }).detach();
         cx.notify();
     }
+
     pub(crate) fn cancel_file_operation(&mut self, cx: &mut Context<Self>) {
-        // Cancellation targets the ORIGINAL operation even after selection/approval changes.
-        // It cannot authorize new I/O, reacquire a binding or clear a pending close guard.
         if let Some(operation) = self.files.as_ref().and_then(|f| f.operation.as_ref()) {
             operation.cancel();
         }

@@ -91,6 +91,34 @@ impl AutomationState {
     }
 }
 impl Service {
+    /// Completed screen evidence needs both raw exit and the original parser's
+    /// ordered Finish. This does not confer remote delivery eligibility.
+    pub(crate) fn completed_automation_exit_code(
+        &self,
+        terminal: &terminals::OwnedTerminal,
+    ) -> Option<i64> {
+        let runtime = &terminal.runtime;
+        let identity = runtime.identity();
+        if let Some(proof) = terminal.external_cleanup {
+            let status = runtime.external_status()?;
+            return (proof.runtime_identity() == identity
+                && status.finished
+                && !status.closed
+                && !status.failed
+                && status.source_sequence == proof.final_source_sequence())
+                .then(|| proof.kernel_exit_code());
+        }
+        let (id, relay) = self
+            .automation
+            .relays
+            .iter()
+            .find(|(_, relay)| !relay.failed_start && relay.feed.identity() == identity)?;
+        if !relay.feed.finished(runtime) {
+            return None;
+        }
+        self.automation.runs.completed_view_exit_code(*id, identity)
+    }
+
     pub(super) fn begin_automation_stop(&mut self, request: AutomationStop) -> Result<()> {
         let id = request.id;
         self.automation.runs.begin_stop(request)?;

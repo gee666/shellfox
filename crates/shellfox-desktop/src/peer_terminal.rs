@@ -60,6 +60,8 @@ pub(crate) struct PeerTerminalView {
     pending_size: Option<(u16, u16)>,
     pub hints: m::InputHints,
     preedit: String,
+    clipboard_keys: u8,
+    reported_focus: Option<bool>,
 }
 impl PeerTerminalView {
     pub fn create(
@@ -69,7 +71,7 @@ impl PeerTerminalView {
         window: &Window,
         cx: &mut App,
     ) -> Result<(Entity<Self>, ManagerRecovery<Transport>)> {
-        let (font, cell_width) =
+        let (font, cell_width, line_height) =
             renderer::choose_font(window, &prefs.font_family, prefs.font_size)?;
         let palette = Palette::new(&prefs.accent_color, &prefs.background_color);
         let sdk =
@@ -85,7 +87,7 @@ impl PeerTerminalView {
             font,
             cell_width,
             font_size: prefs.font_size,
-            line_height: (prefs.font_size * renderer::LINE_HEIGHT / renderer::FONT_SIZE).ceil(),
+            line_height,
             theme: TerminalTheme::from_colors(
                 palette.background_rgb,
                 palette.foreground_rgb,
@@ -117,8 +119,10 @@ impl PeerTerminalView {
                 settled_at: None,
             },
             preedit: String::new(),
+            clipboard_keys: 0,
+            reported_focus: None,
         });
-        view.update(cx, |_, cx| Self::start_owner(cx));
+        view.update(cx, |_, cx| Self::start_owner(window, cx));
         Ok((view, sdk))
     }
     pub fn apply_preferences(
@@ -127,12 +131,12 @@ impl PeerTerminalView {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Result<()> {
-        let (font, width) = renderer::choose_font(window, &prefs.font_family, prefs.font_size)?;
+        let (font, width, line_height) = renderer::choose_font(window, &prefs.font_family, prefs.font_size)?;
         let palette = Palette::new(&prefs.accent_color, &prefs.background_color);
         self.font = font;
         self.cell_width = width;
         self.font_size = prefs.font_size;
-        self.line_height = (prefs.font_size * renderer::LINE_HEIGHT / renderer::FONT_SIZE).ceil();
+        self.line_height = line_height;
         self.theme = TerminalTheme::from_colors(
             palette.background_rgb,
             palette.foreground_rgb,
@@ -227,17 +231,18 @@ impl PeerTerminalView {
             self.pending_size = Some(grid);
         }
     }
-    fn start_owner(cx: &mut Context<Self>) {
-        cx.spawn(async move |view, cx| {
+    fn start_owner(window: &Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(16))
                     .await;
-                let result = view.update(cx, |view, cx| {
+                let result = view.update_in(cx, |view, window, cx| {
                     if view.retired {
                         return false;
                     }
                     view.pump(cx);
+                    view.report_xterm_focus(window, cx);
                     true
                 });
                 if !matches!(result, Ok(true)) {
@@ -283,28 +288,30 @@ impl PeerTerminalView {
         self.resize(cx);
     }
     fn admit(&mut self, input: m::Input, cx: &mut Context<Self>) {
+        self.admit_with_hints(input, self.hints.clone(), cx);
+    }
+    fn admit_with_hints(&mut self, input: m::Input, hints: m::InputHints, cx: &mut Context<Self>) -> bool {
         if self.retired || self.frozen || self.input_failed || self.ended || !self.ready {
-            return;
+            return false;
         }
         if self.input.pending_count() >= 64 {
             self.error = Some("Peer input queue full; input was not sent.".into());
             cx.notify();
-            return;
+            return false;
         }
         let Some(sdk) = &self.sdk else {
-            return;
+            return false;
         };
-        let mut hints = self.hints.clone();
-        hints.activity_hint =
-            !matches!(&input,m::Input::Key{event} if event.action==m::KeyActionV2::Release);
         match sdk.admit_input(input, hints) {
             Ok(input) => self.input.push(input),
             Err(error) => {
                 self.error = Some(format!("Input not admitted: {error:?}"));
                 cx.notify();
+                return false;
             }
         }
         self.send_next(cx);
+        true
     }
 }
 impl Drop for PeerTerminalView {

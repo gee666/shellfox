@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { helperProtocolVersion } from './tailscale.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import path from 'node:path';
@@ -97,7 +98,7 @@ export async function smokePackage(directory) {
   try {
     const helper = path.join(directory, 'resources', 'tailscale', executableName('shellfox-tailscale'));
     const probe = JSON.parse(run(helper, ['--probe'], { cwd: work, timeout: 15_000 }));
-    assert.equal(probe.protocolVersion, 1);
+    assert.equal(probe.protocolVersion, helperProtocolVersion);
     assert.equal(probe.tailscaleVersion, '1.104.2');
     checks.push('offline embedded Tailscale probe, no enrollment');
     const cli = path.join(directory, 'bin', executableName('shellfox-cli'));
@@ -113,7 +114,7 @@ export async function smokePackage(directory) {
     assert.match(helperDigest ?? '', /^[a-f0-9]{64}$/);
     checks.push(await ownHostSmoke(directory, work, helperDigest));
     if (manifest.kind === 'desktop') {
-      const desktop = path.join(directory, 'bin', executableName('shellfox-gpui-experiment'));
+      const desktop = path.join(directory, 'bin', executableName('shellfox'));
       const output = run(desktop, ['--data-dir', path.join(work, 'desktop data'), '--smoke'], { cwd: work, timeout: 60_000 });
       assert.match(output, /PASS: owned PTY/);
       checks.push('desktop --smoke: owned PTY, Ghostty output, input, resize and cleanup; no GUI window');

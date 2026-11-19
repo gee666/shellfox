@@ -8,7 +8,12 @@ impl RemoteService<'_> {
         let ids = if let Some(id) = input.session_id {
             vec![id]
         } else {
-            snapshot.sessions.iter().map(|session| session.id).collect()
+            snapshot
+                .sessions
+                .iter()
+                .map(|session| session.id)
+                .filter(|id| !self.state.facts.omitted_sessions.contains(id))
+                .collect()
         };
         let mut sessions = Vec::new();
         let mut tabs = Vec::new();

@@ -55,7 +55,7 @@ small { font-size: 11px; color: var(--muted); }
 .sidebar [hidden] { display: none; }
 .sidebar-toolbar { height: 32px; flex: 0 0 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 2px; gap: 4px; border-bottom: 1px solid var(--border); }
 .sidebar-actions { display: flex; align-items: center; gap: 4px; }
-.sidebar-content { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sidebar-content { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .sessions-toggle { flex: 0 0 24px; width: 24px; }
 .sessions-toggle.expanded svg { transform: rotate(180deg); }
 .sidebar-scroll { position: relative; overflow: auto; flex: 1; min-height: 0; padding: 4px 0; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
@@ -105,6 +105,7 @@ button.session-copy:hover { background: transparent; }
 .inline-confirm p { margin-bottom: 8px; }
 .inline-confirm > div { display: flex; gap: 4px; justify-content: flex-end; }
 .delete-confirm { bottom: 8px; left: 8px; right: 8px; }
+.delete-confirm p { overflow-wrap: anywhere; }
 .close-confirm { top: 36px; left: 8px; }
 .toasts { position: fixed; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 100; max-width: min(360px, calc(100vw - 24px)); }
 .toast { display: flex; gap: 8px; align-items: flex-start; padding: 8px 8px 8px 12px; background: var(--panel); border: 1px solid var(--border); border-left: 2px solid var(--dot-error); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); font-size: 12px; overflow-wrap: anywhere; }

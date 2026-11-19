@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -20,6 +21,20 @@ import (
 	"strings"
 	"time"
 )
+
+var fixtureClient = &http.Client{
+	Timeout:       30 * time.Second,
+	Transport:     &http.Transport{DialContext: dialFixture},
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
+
+func dialFixture(ctx context.Context, _ string, address string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil || host != "127.0.0.1" {
+		return nil, fmt.Errorf("test transport only dials 127.0.0.1")
+	}
+	return (&net.Dialer{}).DialContext(ctx, "tcp4", address)
+}
 
 type registration struct {
 	BackendURL string `json:"backendUrl"`
@@ -145,7 +160,7 @@ func proxy(w http.ResponseWriter, r *http.Request, bus string, config startInput
 	request.Header.Set("x-shellfox-peer", encoded)
 	request.Header.Set("x-shellfox-timestamp", timestamp)
 	request.Header.Set("x-shellfox-signature", hex.EncodeToString(mac.Sum(nil)))
-	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(request)
+	response, err := fixtureClient.Do(request)
 	if err != nil {
 		http.Error(w, "unavailable", 503)
 		return

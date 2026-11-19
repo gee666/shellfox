@@ -9,6 +9,7 @@ publish = false
 experimental-shellfox-native = ["shellfox-ghostty-vt/experimental-shellfox-native"]
 
 [dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
 shellfox-core = { path = "../shellfox-core" }
 shellfox-terminal = { path = "../shellfox-terminal" }
 shellfox-ghostty-vt = { path = "../ghostty-vt" }

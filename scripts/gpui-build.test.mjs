@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 test('launcher output is private and never Cargo regular target', () => {
   const plan = privateBuildPlan(root, { nonce: 'owned-fixture' });
   assert.ok(plan.executable.startsWith(path.join(root, 'tmp', 'gpui-builds') + path.sep));
-  assert.deepEqual(plan.args.slice(0, 6), ['rustc', '--locked', '-p', 'shellfox-desktop', '--bin', 'shellfox-gpui-experiment']);
+  assert.deepEqual(plan.args.slice(0, 6), ['rustc', '--locked', '-p', 'shellfox-desktop', '--bin', 'shellfox']);
   assert.deepEqual(plan.args.slice(-3), ['--', '-o', plan.executable]);
   assert.throws(() => privateBuildPlan(root, { nonce: '../target' }));
   assert.throws(() => privateBuildPlan('relative'));

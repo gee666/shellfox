@@ -324,27 +324,35 @@ fn rejects_unknown_duplicate_missing_and_extra_arguments() {
 #[test]
 fn native_paths_can_be_non_utf8_but_metadata_cannot() {
     use std::os::unix::ffi::OsStringExt;
-    let path = OsString::from_vec(b"/tmp/cli-\xff".to_vec());
-    assert!(parse([
+    let data = OsString::from_vec(b"/tmp/cli-data-\xff".to_vec());
+    let helper = OsString::from_vec(b"/tmp/cli-helper-\xff".to_vec());
+    let parsed = parse([
         OsString::from("--data-dir"),
-        path.clone(),
+        data.clone(),
         OsString::from("--helper"),
-        path,
+        helper.clone(),
         OsString::from("--helper-sha256"),
         OsString::from(DIGEST),
         OsString::from("session"),
-        OsString::from("list")
+        OsString::from("list"),
     ])
-    .is_ok());
-    let root = std::env::current_dir().unwrap().into_os_string();
-    assert!(parse([
+    .unwrap()
+    .unwrap();
+    assert_eq!(parsed.data_dir.as_os_str(), data);
+    assert_eq!(parsed.helper.as_os_str(), helper);
+    assert_eq!(
+        parsed.application.remote_state_dir,
+        parsed.data_dir.join("rust-service-v1/go-network/node-v1")
+    );
+    let error = parse([
         OsString::from("--data-dir"),
-        root.clone(),
+        data,
         OsString::from("--helper"),
-        root,
+        helper,
         OsString::from("--helper-sha256"),
         OsString::from(DIGEST),
-        OsString::from_vec(vec![0xff])
+        OsString::from_vec(vec![0xff]),
     ])
-    .is_err());
+    .unwrap_err();
+    assert_eq!(error.to_string(), "Command arguments must be valid UTF-8.");
 }

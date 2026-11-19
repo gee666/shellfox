@@ -9,6 +9,15 @@ pub(crate) struct ServicePower {
     worker: PowerWorker,
     reply: Option<PendingPower>,
 }
+impl ServicePower {
+    pub(crate) fn for_data_dir(directory: &std::path::Path) -> Self {
+        Self {
+            worker: PowerWorker::new(crate::power::SystemPower::for_data_dir(directory)),
+            reply: None,
+        }
+    }
+}
+
 struct PendingPower {
     reply: PowerReply,
     cancel: shellfox_protocol::CancellationToken,

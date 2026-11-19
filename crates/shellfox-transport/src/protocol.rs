@@ -1,4 +1,4 @@
-use crate::HelperError;
+use crate::{HelperError, HELPER_PROTOCOL_VERSION};
 use serde::Deserialize;
 use serde_json::Value;
 use std::net::IpAddr;
@@ -15,9 +15,24 @@ pub struct Probe {
     pub arch: String,
 }
 impl Probe {
-    pub(crate) fn validate(&self) -> Result<(), HelperError> {
-        if self.protocol_version != 1
-            || self.tailscale_version.is_empty()
+    pub(crate) fn parse(raw: &[u8]) -> Result<Self, HelperError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Version {
+            protocol_version: u32,
+        }
+        let version: Version = serde_json::from_slice(raw).map_err(|_| HelperError::Protocol)?;
+        if version.protocol_version != HELPER_PROTOCOL_VERSION {
+            return Err(HelperError::ProtocolVersion {
+                found: version.protocol_version,
+            });
+        }
+        let probe: Self = serde_json::from_slice(raw).map_err(|_| HelperError::Protocol)?;
+        probe.validate()?;
+        Ok(probe)
+    }
+    fn validate(&self) -> Result<(), HelperError> {
+        if self.tailscale_version.is_empty()
             || self.tailscale_version.len() > 64
             || !["windows", "linux", "darwin"].contains(&self.platform.as_str())
             || !["amd64", "arm64", "386", "arm"].contains(&self.arch.as_str())
@@ -26,6 +41,19 @@ impl Probe {
         }
         Ok(())
     }
+}
+
+#[cfg(test)]
+#[test]
+fn probe_reports_an_old_protocol_even_if_its_other_fields_differ() {
+    let result = Probe::parse(br#"{"protocolVersion":1,"oldField":true}"#);
+    assert!(matches!(
+        result,
+        Err(HelperError::ProtocolVersion { found: 1 })
+    ));
+    let message = HelperError::ProtocolVersion { found: 1 }.to_string();
+    assert!(message.contains(&format!("expected {HELPER_PROTOCOL_VERSION}, found 1")));
+    assert!(matches!(Probe::parse(b"{}"), Err(HelperError::Protocol)));
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]

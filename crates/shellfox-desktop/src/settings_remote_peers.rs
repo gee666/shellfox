@@ -1,4 +1,5 @@
-use super::remote::{Operation, connection};
+use super::remote::{ErrorSection, Operation, connection};
+use super::remote_page::connection_badge;
 use super::{
     controls::{self, Action},
     *,
@@ -22,6 +23,7 @@ impl SettingsPanel {
                     .child(
                         div()
                             .text_size(px(11.))
+                            .line_height(px(15.))
                             .text_color(p.muted)
                             .child(format!("{remembered} saved")),
                     ),
@@ -39,6 +41,7 @@ impl SettingsPanel {
                 div()
                     .py(px(10.))
                     .text_size(px(11.))
+                    .line_height(px(15.))
                     .text_color(p.muted)
                     .child("No saved machines"),
             );
@@ -56,6 +59,7 @@ impl SettingsPanel {
                 .mt(px(16.))
                 .mb(px(6.))
                 .text_size(px(10.))
+                .line_height(px(14.))
                 .text_color(p.muted)
                 .child("AVAILABLE ON YOUR TAILNET"),
         );
@@ -76,6 +80,7 @@ impl SettingsPanel {
                 div()
                     .py(px(10.))
                     .text_size(px(11.))
+                    .line_height(px(15.))
                     .text_color(p.muted)
                     .child("No other machines found"),
             );
@@ -85,7 +90,13 @@ impl SettingsPanel {
             available_list =
                 available_list.child(self.peer_row(peer, false, index + 1 == available_count, cx));
         }
-        machines.child(available_list).into_any_element()
+        machines
+            .child(available_list)
+            .when_some(
+                self.remote.error_at(ErrorSection::Machines),
+                |section, error| section.child(controls::error(error)),
+            )
+            .into_any_element()
     }
     pub(super) fn remote_clients(
         &mut self,
@@ -93,8 +104,36 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let p = self.palette;
+        let pending = self.access_review.clone();
+        let focus = self.access_focus.clone();
+        let scroll = self.body_scroll.clone();
         let mut clients = controls::section(p)
-            .child(controls::heading("Client access"))
+            .relative()
+            .track_focus(&self.access_focus)
+            .child(gpui::canvas(move |section, window, cx| {
+                let viewport = scroll.bounds();
+                if viewport.size.height <= px(0.) || !pending.replace(false) { return; }
+                let delta = section.center().y - viewport.center().y;
+                let offset = scroll.offset();
+                scroll.set_offset(gpui::point(offset.x, (offset.y - delta).clamp(-scroll.max_offset().height, px(0.))));
+                let focus = focus.clone();
+                window.defer(cx, move |window, _| { focus.focus(window); window.refresh(); });
+            }, |_, _, _, _| {}).absolute().inset_0())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(12.))
+                    .mb(px(8.))
+                    .child(controls::heading("Client access").mb_0())
+                    .when(!state.pending.is_empty(), |heading| {
+                        heading.child(
+                            connection_badge(format!("{} pending", state.pending.len()), p.muted)
+                                .border_color(p.border),
+                        )
+                    }),
+            )
             .child(controls::hint(
                 "Approve only devices you recognize. Revoking access leaves sessions running.",
                 p,
@@ -143,11 +182,19 @@ impl SettingsPanel {
                                     .text_color(p.muted)
                                     .child(format!("Device ID: {}", peer.id)),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(10.))
-                                    .text_color(p.muted)
-                                    .child(peer.addresses.as_deref().unwrap_or(&[]).join(", ")),
+                            .when_some(
+                                peer.addresses
+                                    .as_ref()
+                                    .filter(|addresses| !addresses.is_empty()),
+                                |copy, addresses| {
+                                    copy.child(
+                                        div()
+                                            .mt(px(2.))
+                                            .text_size(px(10.))
+                                            .text_color(p.muted)
+                                            .child(addresses.join(", ")),
+                                    )
+                                },
                             ),
                     )
                     .child(approve)
@@ -205,7 +252,12 @@ impl SettingsPanel {
                     .child("No clients have access"),
             );
         }
-        clients.into_any_element()
+        clients
+            .when_some(
+                self.remote.error_at(ErrorSection::Clients),
+                |section, error| section.child(controls::error(error)),
+            )
+            .into_any_element()
     }
     fn peer_row(
         &mut self,

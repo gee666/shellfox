@@ -1,7 +1,10 @@
 use super::{remote::Operation, *};
 impl SettingsPanel {
     pub(super) fn remote_action(&mut self, operation: Operation, cx: &mut Context<Self>) {
-        if self.operations.frozen() {
+        if self.operations.frozen()
+            || operation.client_access_target().is_some()
+                && (self.remote.pending || self.remote.client_access_name(&operation).is_none())
+        {
             return;
         }
         match operation {
@@ -21,15 +24,13 @@ impl SettingsPanel {
                 return;
             }
             Operation::CancelLogin => {
-                if self.remote.pending {
+                if self.remote.pending && !self.remote.login_request {
                     return;
                 }
+                // Keep the request locked until its reply tells us which native
+                // attempt to cancel. Discarding the reply can strand that attempt.
                 self.remote.login.cancel();
-                if self.remote.login_request {
-                    self.remote.epoch += 1;
-                    self.remote.pending = false;
-                    self.remote.login_request = false;
-                }
+                self.release_finished_login(cx);
                 self.remote.error = None;
                 cx.notify();
                 return;
@@ -59,8 +60,22 @@ impl SettingsPanel {
                 return;
             }
         }
+        if matches!(operation, Operation::Login)
+            && let Some(id) = self.remote.retry_release_id().map(str::to_owned)
+        {
+            self.remote.pending = true;
+            self.remote.error = None;
+            self.remote.epoch += 1;
+            self.request_aux(
+                api::Request::CancelAttempt(id),
+                aux::After::RetryLogin(self.remote.epoch),
+                cx,
+            );
+            return;
+        }
         self.remote.inflight_peer = None;
         let mut login_request = false;
+        let mut section = operation.section();
         let request = match operation {
             Operation::ToggleEnabled => {
                 if self.remote.login.busy() {
@@ -147,6 +162,8 @@ impl SettingsPanel {
                 };
                 if matches!(attempt.kind, api::RemoteAttemptKind::Login) {
                     self.remote.login.cancel();
+                } else if matches!(attempt.kind, api::RemoteAttemptKind::Connect { .. }) {
+                    section = remote::ErrorSection::Machines;
                 }
                 api::Request::CancelAttempt(id)
             }
@@ -162,20 +179,13 @@ impl SettingsPanel {
                 api::Request::ContinueAttempt(id)
             }
             Operation::Disconnect(id) => api::Request::Disconnect(id),
-            Operation::Approve(id) => {
-                if !self
-                    .remote
-                    .state
-                    .as_ref()
-                    .is_some_and(|state| state.pending.iter().any(|peer| peer.id == id))
-                {
-                    return;
-                }
-                api::Request::Approve(id)
-            }
+            Operation::Approve(id) => api::Request::Approve(id),
             Operation::Reject(id) => api::Request::Reject(id),
             Operation::Forget(id) => api::Request::Forget(id),
             Operation::ConfirmRevoke(id) => {
+                if self.remote.revoking.as_deref() != Some(id.as_str()) {
+                    return;
+                }
                 self.remote.revoking = None;
                 api::Request::Revoke(id)
             }
@@ -192,7 +202,7 @@ impl SettingsPanel {
         let after = if login_request {
             aux::After::Login(self.remote.epoch)
         } else {
-            aux::After::Remote(self.remote.epoch)
+            aux::After::Remote(self.remote.epoch, section)
         };
         self.request_aux(request, after, cx);
     }

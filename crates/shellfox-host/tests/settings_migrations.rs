@@ -50,7 +50,7 @@ fn migrates_old_isolated_schema_one_without_losing_configuration_or_revision() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |r| r.get::<_, i32>(0))
             .unwrap(),
-        5
+        6
     );
     drop(db);
     let host = Host::open(&dir.0).unwrap();
@@ -68,7 +68,7 @@ fn missing_or_invalid_version_two_settings_fail_without_silent_repair() {
         let dir = Scratch::new();
         drop(Host::open(&dir.0).unwrap());
         let db = dir.db();
-        db.execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; DROP TABLE session_creation_facts; PRAGMA user_version=2;")
+        db.execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; DROP TABLE session_creation_facts; DROP TABLE desktop_preferences; PRAGMA user_version=2;")
             .unwrap();
         db.execute_batch(corruption).unwrap();
         drop(db);
@@ -89,7 +89,7 @@ fn corrupt_schema_one_missing_global_preferences_is_not_defaulted_during_migrati
     // A valid schema1 required full Preferences and terminalEnv.
     let db = dir.db();
     db.execute_batch(
-        "DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; DROP TABLE session_creation_facts; DROP TABLE global_settings; PRAGMA user_version=1;",
+        "DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE reserved_publications; DROP TABLE session_creation_facts; DROP TABLE global_settings; DROP TABLE desktop_preferences; PRAGMA user_version=1;",
     )
     .unwrap();
     drop(db);

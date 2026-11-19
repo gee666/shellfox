@@ -14,7 +14,7 @@ impl Scratch {
         Connection::open(self.0.join(STORE_FILENAME)).unwrap()
     }
     fn v4(&self) {
-        self.db().execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; PRAGMA user_version=4;").unwrap();
+        self.db().execute_batch("DROP TABLE native_approvals; DROP TABLE native_approval_state; DROP TABLE desktop_preferences; PRAGMA user_version=4;").unwrap();
     }
 }
 impl Drop for Scratch {
@@ -73,7 +73,7 @@ fn v4_migration_preserves_metadata_settings_facts_and_request_receipts() {
             .db()
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
 }
 #[test]
@@ -97,7 +97,7 @@ fn committed_approvals_revoke_and_restart_use_exact_revision_cas() {
     assert!(revoked.approvals.is_empty());
 }
 #[test]
-fn v5_missing_corrupt_unknown_or_pending_auth_never_gains_empty_fallback() {
+fn missing_corrupt_unknown_or_pending_auth_never_gains_empty_fallback() {
     for mutation in [
         "DELETE FROM native_approval_state",
         "DROP TABLE native_approval_state",
@@ -114,7 +114,7 @@ fn v5_missing_corrupt_unknown_or_pending_auth_never_gains_empty_fallback() {
         assert!(host.approval_snapshot().is_err(), "accepted {mutation}");
         assert!(host.commit_approvals(0, vec![]).is_err(), "repaired {mutation}");
         drop(host);
-        assert_eq!(scratch.db().pragma_query_value(None,"user_version", |r| r.get::<_,i64>(0)).unwrap(),5);
+        assert_eq!(scratch.db().pragma_query_value(None,"user_version", |r| r.get::<_,i64>(0)).unwrap(),6);
     }
 }
 fn deferred_commit_fault(db: &Connection, phase: &str) {

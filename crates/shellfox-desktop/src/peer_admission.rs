@@ -44,6 +44,14 @@ impl<T: OutboundTransport> PeerConnection<T> {
         source: &SourceAdmission,
         request: &R,
     ) -> Result<R::Response> {
+        super::connection::reply(self.execute_admitted_reply(source, request).await?)
+    }
+
+    pub(crate) async fn execute_admitted_reply<R: m::Request>(
+        &self,
+        source: &SourceAdmission,
+        request: &R,
+    ) -> Result<m::Reply<R::Response>> {
         let client = self.client();
         ensure!(
             source.peer == *client.peer(),
@@ -54,8 +62,7 @@ impl<T: OutboundTransport> PeerConnection<T> {
             .execute_with_witness(&source.witness, request)
             .await
             .map_err(|error| anyhow!(error))?;
-        let value = super::connection::reply(response)?;
         source.check()?;
-        Ok(value)
+        Ok(response)
     }
 }

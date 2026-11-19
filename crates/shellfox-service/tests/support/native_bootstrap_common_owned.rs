@@ -1,3 +1,6 @@
+#[path = "../../../test_dev_helper.rs"]
+pub(crate) mod dev_helper;
+
 use anyhow::{Context, Result};
 use shellfox_service::{
     local::{LocalBootReport, LocalBootStatus, LocalBootStop, LocalBootstrap},
@@ -12,15 +15,11 @@ use std::{
 pub struct Fixture {
     pub helper: PathBuf,
     pub digest: [u8; 32],
-    success: bool,
-    plan: shellfox_files::DirectoryPlan,
-    _scope: Arc<shellfox_files::FileService>,
-    keeper: shellfox_files::DirectoryPreparationOwner,
-    // Last: original namespace pins close before scratch deletion.
-    scratch: Option<tempfile::TempDir>,
+    scratch: tempfile::TempDir,
 }
 impl Fixture {
     pub fn new() -> Result<Self> {
+        let (helper, digest) = dev_helper::helper()?;
         let root = std::fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp"))?;
         #[cfg(windows)]
         let root = PathBuf::from(
@@ -32,59 +31,14 @@ impl Fixture {
         let scratch = tempfile::Builder::new()
             .prefix("public-native-owned-")
             .tempdir_in(root)?;
-        let authority = Arc::new(shellfox_files::FileService::approved_root(
-            scratch.path(),
-            shellfox_files::Access::ReadWrite,
-        )?);
-        let keeper = authority.directory_preparation_owner();
-        let plan = authority.plan_directory(&shellfox_files::Location {
-            path: "verified-hosts".into(),
-        })?;
-        let scope = plan
-            .create_private_approved_root()
-            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-        plan.revalidate()?;
-        keeper.verify_retained()?;
-        let helper = PathBuf::from(
-            std::env::var_os("SHELLFOX_ACCEPT_HELPER").context("current owned helper required")?,
-        );
-        let hex = std::env::var("SHELLFOX_ACCEPT_HELPER_SHA256")?;
-        anyhow::ensure!(hex.len() == 64, "helper digest length");
-        let mut digest = [0; 32];
-        for (i, b) in digest.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)?;
-        }
         Ok(Self {
             helper,
             digest,
-            success: false,
-            plan,
-            _scope: scope,
-            keeper,
-            scratch: Some(scratch),
+            scratch,
         })
     }
     pub fn data(&self, name: &str) -> PathBuf {
-        self.plan.configured_path().join(name)
-    }
-    pub fn success(&mut self) {
-        self.success = true;
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        if let Err(error) = self.keeper.preserve_stale() {
-            eprintln!("Namespace disposition retained: {error}");
-            self.success = false;
-        }
-        if !self.success {
-            if let Some(dir) = self.scratch.take() {
-                eprintln!(
-                    "Owned acceptance fixture retained: {}",
-                    dir.keep().display()
-                );
-            }
-        }
+        self.scratch.path().join(name)
     }
 }
 #[derive(Clone, Default)]

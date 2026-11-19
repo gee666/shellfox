@@ -56,6 +56,24 @@ fn editor_if_reviewed(frontend: &mut FrontendDirectories) -> bool {
     }
 }
 #[test]
+fn preexisting_frontend_state_directories_are_repaired_before_use() {
+    let scratch = Scratch::new();
+    let options = Options::parse(scratch.args()).unwrap();
+    let editor = options.desktop_dir.join("file-editor");
+    std::fs::create_dir_all(&editor).unwrap();
+    std::fs::create_dir(&options.device_config_root).unwrap();
+    #[cfg(unix)]
+    for path in [&options.desktop_dir, &editor, &options.device_config_root] {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o775)).unwrap();
+    }
+    let mut frontend = prepare(&options).unwrap();
+    assert!(editor_if_reviewed(&mut frontend));
+    assert!(crate::device_prefs::prepare(&options, &mut frontend).is_ok());
+    assert!(!options.data_dir.exists());
+}
+
+#[test]
 fn options_to_real_frontend_composition_keeps_default_and_explicit_ui_outside_host() {
     for explicit_ui in [false, true] {
         let scratch = Scratch::new();

@@ -131,6 +131,23 @@ impl AutomationRuns {
         let run = self.runs.get(&id).context("Automation run not found.")?;
         Ok(run.process.is_none() && run.dto.state == AutomationState::Exited)
     }
+    pub(crate) fn completed_view_exit_code(
+        &self,
+        id: Uuid,
+        identity: shellfox_runtime::Identity,
+    ) -> Option<i64> {
+        let run = self.runs.get(&id)?;
+        if run.source_identity != Some(identity)
+            || run.dto.session_id.is_none()
+            || run.dto.tab_id.is_none()
+            || run.dto.state != AutomationState::Exited
+            || run.process.is_some()
+        {
+            return None;
+        }
+        run.outcome.map(compatible_natural_exit)
+    }
+
     /// Convenience for independent source consumers. The shared Service uses
     /// begin_stop/is_stopped while pumping its source relay between owner ticks.
     pub fn stop(&mut self, request: AutomationStop) -> Result<AutomationStopped> {

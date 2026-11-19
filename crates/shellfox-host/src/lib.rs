@@ -17,6 +17,8 @@ mod storage;
 mod storage_guard;
 mod storage_write;
 mod tabs;
+#[path = "window_state.rs"]
+mod desktop_window_state;
 
 pub use activity_store::{
     activity_unix_ms, activity_utc_timestamp, CapturedSettlement, ResumeSessionResult,
@@ -146,6 +148,7 @@ impl Host {
             session_id: session.id,
             tab_id,
             profile_id: tab.profile_id.clone(),
+            wsl_launch: tab.wsl_launch.clone(),
             cwd: tab.cwd.clone(),
             env,
         })

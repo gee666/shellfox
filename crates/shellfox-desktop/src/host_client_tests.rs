@@ -42,6 +42,7 @@ fn frame(tab: TabId, frame_id: u64, sequence: u64) -> NativeFrame {
         phase: Phase::Active,
         error: None,
         replay_lost: false,
+        working_directory: None,
     }
 }
 

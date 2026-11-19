@@ -203,6 +203,26 @@ fn cleanup_requires_current_generation_and_keeps_metadata_on_failure() {
 }
 
 #[test]
+fn delayed_close_confirmation_cannot_reserve_a_replacement_generation() {
+    let scratch = Scratch::new();
+    let host = Host::open(&scratch.0).unwrap();
+    let initial = create(&host);
+    let tab = initial.sessions[0].tabs[0].id;
+    let shown = identity(tab);
+    assert_eq!(host.prepare_close_terminal(shown).unwrap_err().code, ErrorCode::Conflict);
+    host.register_terminal(shown).unwrap();
+    host.terminal_stopped(shown).unwrap();
+    let replacement = identity(tab);
+    host.register_terminal(replacement).unwrap();
+    assert_eq!(host.prepare_close_terminal(shown).unwrap_err().code, ErrorCode::Conflict);
+    assert_eq!(host.snapshot().unwrap(), initial);
+    let prepared = host.prepare_close_terminal(replacement).unwrap();
+    assert_eq!(prepared.terminals, [replacement]);
+    host.terminal_stopped(replacement).unwrap();
+    assert!(host.commit_close(prepared.token).unwrap().sessions[0].tabs.is_empty());
+}
+
+#[test]
 fn deleting_session_cleans_all_children_and_selection() {
     let scratch = Scratch::new();
     let host = Host::open(&scratch.0).unwrap();
@@ -306,14 +326,15 @@ fn isolated_identity_newer_version_and_concurrent_owner_are_refused() {
             .unwrap(),
         "wal"
     );
-    db.pragma_update(None, "user_version", 6).unwrap();
+    let current: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
+    db.pragma_update(None, "user_version", current + 1).unwrap();
     drop(db);
     assert_eq!(
         Host::open(&scratch.0).err().unwrap().code,
         ErrorCode::Unsupported
     );
     let db = rusqlite::Connection::open(scratch.0.join(STORE_FILENAME)).unwrap();
-    db.pragma_update(None, "user_version", 5).unwrap();
+    db.pragma_update(None, "user_version", current).unwrap();
     db.pragma_update(None, "application_id", 0).unwrap();
     drop(db);
     assert_eq!(

@@ -1,8 +1,9 @@
-pub const HELP: &str = "Experimental Shellfox CLI
+pub const HELP: &str = "Shellfox CLI
 
-Usage: shellfox-cli --data-dir ABSOLUTE_DIR --helper ABSOLUTE_EXE --helper-sha256 HEX COMMAND
+Usage: shellfox-cli [--data-dir ABSOLUTE_DIR] [--helper ABSOLUTE_EXE --helper-sha256 HEX] COMMAND
 
   start [PATH] [--new-window]    (aliases: add, new, create)
+  ssh [NAME | --profile NAME | -p NAME]
   run [--cwd PATH] [--title TITLE] [--request-id UUID] [--detach] -- EXECUTABLE [ARG...]
   runs list
   runs show RUN_ID
@@ -27,7 +28,9 @@ Usage: shellfox-cli --data-dir ABSOLUTE_DIR --helper ABSOLUTE_EXE --helper-sha25
   attach TAB_ID [--takeover]
   peer PEER sessions|tabs [SESSION]|create --cwd HOST_ABSOLUTE_PATH [--title TITLE]|attach TAB [--takeover]
 
-Global flags must precede COMMAND. No default data directory or helper.
+Global flags must precede COMMAND. Installed builds use the desktop data directory and bundled helper by default.
+Development and experimental headless host commands require explicit data directory, helper and digest.
+SSH uses the calling terminal. Without a name, choose a saved connection with ↑↓ and Enter.
 --remote-state-dir ABS overrides the node leaf under DATA_DIR/rust-service-v1/go-network.
 --remote-hostname LABEL overrides its initial OS-hostname-derived DNS label.
 --remote-control-url HTTP_LOOPBACK_ORIGIN selects a trusted local test control server; default none.
@@ -35,10 +38,6 @@ Global flags must precede COMMAND. No default data directory or helper.
 Its expected digest must come from the trusted producer receipt, never a runtime self-hash.
 Inventory alone does not enable installation: a validated Host launch context is also required.
 Without configured resources, System remains query-only; private outputs are not install resources.
---ssh-program ABS --ssh-program-sha256 HEX, --ssh-keyscan ABS --ssh-keyscan-sha256 HEX,
---ssh-askpass-cli ABS --ssh-askpass-cli-sha256 HEX configure SSH only as a complete pinned set.
-Digests must come from trusted producers; askpass must be a CLI with the existing SSH dispatcher.
-No SSH executable, askpass or personal profile discovery is performed at startup.
 --source-factory local|native0 selects NEW source creation; local preserves sudo.
 Native0 requires an experimental-shellfox-native build and uses a finite source preset.
 --helper-sha256 must be the trusted helper build's SHA-256, exactly 64 hex digits.

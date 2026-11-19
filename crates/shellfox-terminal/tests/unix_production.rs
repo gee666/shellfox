@@ -3,10 +3,9 @@
 mod support;
 use shellfox_terminal::{
     launch_privilege::{self, LaunchEvidenceBasis, LaunchPrivilege},
-    AskpassBroker, PtyConfig, PtyOutput, PtySession, TrustedProgramEnv, TrustedProgramLease,
+    PtyConfig, PtyOutput, PtySession,
     UnixPrivilegeMode,
 };
-use std::{fs, path::Path, sync::Arc};
 use support::*;
 #[test]
 fn production_input_output_resize_and_original_exit() {
@@ -87,43 +86,6 @@ fn production_local_policy_does_not_silently_disable_sudo() {
     assert!(String::from_utf8_lossy(&output).contains("NoNewPrivs:\t0"));
 }
 #[test]
-fn production_trusted_ssh_carrier_is_target_only_and_revalidated() {
-    let fixture = Fixture::new();
-    let program: Arc<dyn TrustedProgramLease> = Arc::new(Lease::new("/bin/sh"));
-    let askpass_path = fixture.root.join("leased-askpass");
-    fs::write(&askpass_path, "#!/bin/sh\nexit 0\n").unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(&askpass_path, fs::Permissions::from_mode(0o700)).unwrap();
-    let askpass: Arc<dyn TrustedProgramLease> = Arc::new(Lease::new(&askpass_path));
-    let _broker_socket =
-        std::os::unix::net::UnixListener::bind(fixture.root.join("askpass.sock")).unwrap();
-    let broker = || {
-        AskpassBroker::new(
-            fixture.root.clone(),
-            fixture.root.join("askpass.sock").to_str().unwrap().into(),
-            "ab".repeat(32),
-        )
-        .unwrap()
-    };
-    let environment =
-        TrustedProgramEnv::ssh_askpass(program.clone(), askpass.clone(), broker()).unwrap();
-    let config = fixture.shell("test \"$SSH_ASKPASS_REQUIRE\" = force && test \"$SHELLFOX_SSH_ASKPASS_TOKEN\" = \"$EXPECTED_TOKEN\" && printf carrier-ok");
-    let mut config = config;
-    config
-        .env
-        .insert("EXPECTED_TOKEN".into(), "ab".repeat(32).into());
-    let mut session = PtySession::spawn_program(config.clone(), environment).unwrap();
-    let (output, code) = collect(&mut session);
-    assert_eq!(code, 0);
-    assert!(String::from_utf8_lossy(&output).contains("carrier-ok"));
-    let environment = TrustedProgramEnv::ssh_askpass(program, askpass, broker()).unwrap();
-    fs::rename(&askpass_path, fixture.root.join("retired-askpass")).unwrap();
-    assert!(PtySession::spawn_program(config, environment)
-        .unwrap_err()
-        .take_session()
-        .is_none());
-}
-#[test]
 fn production_root_exit_kills_detached_descendant_with_pidfd_exit_proof() {
     descendant(false, false, false, false);
 }
@@ -176,47 +138,6 @@ fn production_guest_ctrl_c_keeps_normal_signal_behavior() {
     let (output, code) = collect(&mut session);
     assert_eq!(code, 23);
     assert!(String::from_utf8_lossy(&output).contains("guest-interrupt"));
-}
-#[test]
-fn production_actual_ssh_proxy_receives_only_trusted_carrier() {
-    use std::os::unix::fs::PermissionsExt;
-    let fixture = Fixture::new();
-    let marker = fixture.root.join("ssh-proxy-measured");
-    let proxy = fixture.root.join("askpass");
-    fs::write(&proxy, format!("#!/bin/sh\n[ \"$SSH_ASKPASS_REQUIRE\" = force ] && [ \"$SHELLFOX_SSH_ASKPASS_TOKEN\" = \"{}\" ] && printf measured > '{}'\n",
-        "ab".repeat(32), marker.display())).unwrap();
-    fs::set_permissions(&proxy, fs::Permissions::from_mode(0o700)).unwrap();
-    let program: Arc<dyn TrustedProgramLease> = Arc::new(Lease::new("/usr/bin/ssh"));
-    let askpass: Arc<dyn TrustedProgramLease> = Arc::new(Lease::new(&proxy));
-    let _broker_socket =
-        std::os::unix::net::UnixListener::bind(fixture.root.join("broker")).unwrap();
-    let broker = AskpassBroker::new(
-        fixture.root.clone(),
-        fixture.root.join("broker").to_str().unwrap().into(),
-        "ab".repeat(32),
-    )
-    .unwrap();
-    let environment = TrustedProgramEnv::ssh_askpass(program, askpass, broker).unwrap();
-    let proxy_arg = format!("ProxyCommand={}", proxy.display());
-    let mut config = fixture.config(
-        Path::new("/usr/bin/ssh"),
-        &[
-            "-F",
-            "/dev/null",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            &proxy_arg,
-            "owned-fixture",
-        ],
-    );
-    config.unix_privilege = UnixPrivilegeMode::NonElevating;
-    let mut session = PtySession::spawn_program(config, environment).unwrap();
-    // The owned proxy deliberately supplies no SSH server. This tests the real
-    // SSH executable's carrier inheritance, not network authentication.
-    let (_, code) = collect(&mut session);
-    assert_eq!(code, 255);
-    assert_eq!(fs::read_to_string(marker).unwrap(), "measured");
 }
 #[test]
 fn production_startup_cancel_denial_and_uncertain_cleanup_retain_real_owners() {

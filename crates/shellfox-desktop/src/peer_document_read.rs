@@ -1,83 +1,161 @@
 use super::*;
 use shellfox_client::FileReadCursor;
+
 impl<T: OutboundTransport> PeerDocumentBackend<T> {
-    pub async fn read(&self, path: &str, cancel: &EditorCancellation) -> Result<TextFile> {
-        self.check_cancel(cancel)?;
-        wire::files::path(path).map_err(|_| anyhow!("Invalid peer document path."))?;
-        let header = self
-            .execute(&m::BeginFileRead(wire::BeginFileRead {
-                session_id: None,
-                tab_id: None,
-                path: path.into(),
-                asset_path: None,
-            }))
-            .await?;
-        let mut cursor = FileReadCursor::new(header)
-            .map_err(|e| anyhow!("Invalid peer read transfer: {e:?}"))?;
-        let result = self.read_chunks(path, &mut cursor, cancel).await;
-        // Read transfer disposal is not a filesystem-delete authority. No reconnect/retry.
+    pub async fn read(&self, path: &str, cancel: &EditorCancellation) -> Result<ReadResult> {
+        let mut cursor = self.begin_read(path, None, cancel).await?;
+        let result = self.read_preview(&mut cursor, cancel).await;
         self.cancel_once(cursor.cancel_request()).await;
-        let text = result?;
+        let result = result?;
+        let canonical = match &result {
+            ReadResult::Text { path, .. }
+            | ReadResult::Image { path, .. }
+            | ReadResult::Binary { path, .. } => path,
+        };
         self.check_cancel(cancel)?;
-        // This is denial bookkeeping, never authority. Do not block on its mutex under
-        // the Manager/SDK origin fence; the ORIGINAL admission is checked again afterward.
-        self.read_confirmed(path, &text.path)?;
+        self.read_confirmed(path, canonical)?;
         self.check_cancel(cancel)?;
-        Ok(text)
+        Ok(result)
     }
-    async fn read_chunks(
+
+    pub async fn read_asset(
         &self,
-        expected: &str,
+        path: &str,
+        asset: String,
+        cancel: &EditorCancellation,
+    ) -> Result<shellfox_files::FileAsset> {
+        let mut cursor = self.begin_read(path, Some(asset), cancel).await?;
+        let header = cursor.header().clone();
+        let result = async {
+            ensure!(
+                header.size <= shellfox_files::TRANSFER_IMAGE_BYTES,
+                "Image and asset preview is limited to 64 MiB. Use Download for larger files."
+            );
+            let mut bytes = Vec::with_capacity(header.size as usize);
+            self.receive_chunks(&mut cursor, cancel, |data, _| {
+                bytes.extend_from_slice(data);
+                Ok(())
+            })
+            .await?;
+            ensure!(
+                bytes.len() as u64 == header.size,
+                "Peer asset length changed."
+            );
+            Ok(shellfox_files::FileAsset {
+                mime_type: header.mime_type,
+                size: header.size,
+                bytes,
+            })
+        }
+        .await;
+        self.close_read(&cursor).await;
+        result
+    }
+
+    pub async fn begin_read(
+        &self,
+        path: &str,
+        asset_path: Option<String>,
+        cancel: &EditorCancellation,
+    ) -> Result<FileReadCursor> {
+        self.check_cancel(cancel)?;
+        let request = wire::BeginFileRead {
+            session_id: None,
+            tab_id: None,
+            path: path.into(),
+            asset_path,
+        };
+        let header = self.execute(&request).await?;
+        FileReadCursor::new(header).map_err(|e| anyhow!("Invalid peer read transfer: {e:?}"))
+    }
+
+    pub async fn close_read(&self, cursor: &FileReadCursor) {
+        self.cancel_once(cursor.cancel_request()).await;
+    }
+
+    pub async fn receive_chunks(
+        &self,
         cursor: &mut FileReadCursor,
         cancel: &EditorCancellation,
-    ) -> Result<TextFile> {
-        let header = cursor.header().clone();
-        ensure!(
-            header.path == expected,
-            "Peer read response names another target."
-        );
-        ensure!(
-            header.kind == wire::FileReadKind::Text,
-            "This peer file is not editable text."
-        );
-        ensure!(
-            header.size <= shellfox_files::TRANSFER_TEXT_BYTES,
-            "Peer document exceeds the8MiB editor limit."
-        );
-        let mut bytes = Vec::with_capacity(header.size as usize);
+        mut consume: impl FnMut(&[u8], u64) -> Result<()>,
+    ) -> Result<()> {
         while !cursor.is_complete() {
             self.check_cancel(cancel)?;
             let request = cursor
                 .request()
                 .map_err(|e| anyhow!("Peer read transfer refused: {e:?}"))?;
-            let chunk = self.execute(&m::ReadFileChunk(request)).await?;
+            let chunk = self.execute(&request).await?;
             self.check_cancel(cancel)?;
             let data = cursor
                 .receive(&chunk)
                 .map_err(|e| anyhow!("Invalid peer file chunk: {e:?}"))?;
-            ensure!(
-                bytes.len().saturating_add(data.len())
-                    <= shellfox_files::TRANSFER_TEXT_BYTES as usize,
-                "Peer document exceeded its bound."
-            );
-            bytes.extend_from_slice(&data);
+            consume(&data, chunk.offset)?;
             cursor
                 .consumed()
                 .map_err(|e| anyhow!("Peer read transfer refused: {e:?}"))?;
         }
-        ensure!(
-            bytes.len() as u64 == header.size,
-            "Peer document length changed."
-        );
+        self.check_cancel(cancel)
+    }
+
+    async fn read_preview(
+        &self,
+        cursor: &mut FileReadCursor,
+        cancel: &EditorCancellation,
+    ) -> Result<ReadResult> {
+        let header = cursor.header().clone();
+        let wire::FileReadTransfer {
+            path,
+            mime_type,
+            size,
+            revision,
+            kind,
+            ..
+        } = header;
+        // The authenticated host resolves links and returns the canonical path.
+        let (limit, error) = match kind {
+            wire::FileReadKind::Binary => {
+                return Ok(ReadResult::Binary {
+                    path,
+                    mime_type,
+                    size,
+                    revision,
+                });
+            }
+            wire::FileReadKind::Text => (
+                shellfox_files::TRANSFER_TEXT_BYTES,
+                "Text preview is limited to 8 MiB. Use Download for larger files.",
+            ),
+            wire::FileReadKind::Image => (
+                shellfox_files::TRANSFER_IMAGE_BYTES,
+                "Image and asset preview is limited to 64 MiB. Use Download for larger files.",
+            ),
+        };
+        ensure!(size <= limit, "{error}");
+        let mut bytes = Vec::with_capacity(size as usize);
+        self.receive_chunks(cursor, cancel, |data, _| {
+            bytes.extend_from_slice(data);
+            Ok(())
+        })
+        .await?;
+        ensure!(bytes.len() as u64 == size, "Peer document length changed.");
+        if kind == wire::FileReadKind::Image {
+            return Ok(ReadResult::Image {
+                path,
+                mime_type,
+                size,
+                revision,
+                bytes,
+            });
+        }
         let text =
             String::from_utf8(bytes).map_err(|_| anyhow!("Peer document is not UTF-8 text."))?;
         ensure!(!text.contains('\0'), "Peer document contains NUL.");
-        self.check_cancel(cancel)?;
-        Ok(TextFile {
-            path: header.path,
+        Ok(ReadResult::Text {
+            path,
+            mime_type,
+            size,
+            revision,
             text,
-            size: header.size,
-            revision: header.revision,
         })
     }
 }

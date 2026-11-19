@@ -10,6 +10,9 @@ links = "ghostty-vt"
 default = []
 experimental-shellfox-native = []
 
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
 [build-dependencies]
 cc = "1"
 sha2 = "0.10"

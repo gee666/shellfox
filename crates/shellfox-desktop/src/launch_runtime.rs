@@ -68,7 +68,7 @@ impl LaunchDeliveryClient for DeliveryClient {
 
 /// Called after the first Root receives its client. The Global owns the task;
 /// later Roots neither register again nor own the coordinator's lifetime.
-pub(crate) fn install(client: &HostClient, cx: &mut App) {
+pub(crate) fn install(cx: &mut App) {
     if !cx.has_global::<LaunchGlobal>() || cx.global::<LaunchGlobal>().installed {
         return;
     }
@@ -81,9 +81,12 @@ pub(crate) fn install(client: &HostClient, cx: &mut App) {
         return;
     };
     cx.global_mut::<LaunchGlobal>().installed = true;
-    let native = client.fork();
     let task = cx.spawn(async move |cx| {
-        let delivery = DeliveryClient(native);
+        let client = match original_host.chrome_client().await {
+            Ok(client) => client,
+            Err(error) => { eprintln!("Desktop launch client unavailable: {error:#}"); return; }
+        };
+        let delivery = DeliveryClient(client);
         let registration = match delivery.0.desktop_register().await {
             Ok(registration) => registration,
             Err(error) => {

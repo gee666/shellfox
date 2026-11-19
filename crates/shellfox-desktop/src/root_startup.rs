@@ -14,9 +14,8 @@ impl Root {
     ) -> Self {
         let mut root = Self {
             host: None,
-            #[cfg(feature="experimental-shellfox-native")]
+            tab_activity: Default::default(),
             peers: crate::root::source::PeerSources::default(),
-            #[cfg(feature="experimental-shellfox-native")]
             peer_ui: crate::root::peer::PeerUi::default(),
             semantic_context: crate::accessibility::WindowSemanticContext::new(
                 crate::accessibility::SemanticId(1),
@@ -26,7 +25,11 @@ impl Root {
             app_host: None,
             window_id: None,
             close_confirmation: None,
+            quit_focus: QuitFocus::new(cx),
+            window_tracker: None,
             close_ticket: None,
+            update_restart: false,
+            update_ui: Default::default(),
             close_check_pending: false,
             close_failed: false,
             snapshot: None,
@@ -38,23 +41,24 @@ impl Root {
             failures: HashMap::new(),
             settings_panel: None,
             files: None,
+            retained_files: Vec::new(),
             fixture: None,
             run_dir: options.run_dir,
-            window_caption: if options.ui_acceptance {
-                format!("Shellfox v{}", env!("SHELLFOX_PRODUCT_VERSION"))
-            } else {
-                "Shellfox · Rust workspace".into()
-            },
+            window_caption: crate::desktop_windows::caption(cx).into(),
             error: None,
+            notifications: Default::default(),
             dialog: None,
             settings: false,
             sidebar: true,
+            layout_keys: 0,
             sidebar_width: 220.,
             resizing_sidebar: false,
             local_expanded: true,
-            history_page_size: 20,
+            history_page_size: 10,
             session_pages: 1,
+            sidebar_ui: crate::sidebar::SidebarUi::new(cx),
             session_menu: None,
+            tab_menu: None,
             modal_focus: cx.focus_handle(),
             closing_window: false,
             action_pending: false,
@@ -62,10 +66,10 @@ impl Root {
             refresh_admission: Default::default(),
             profiles: Vec::new(),
             catalog_epoch: 0,
-            ssh_ui: crate::root_ssh::SshUi::default(),
             profile_menu: None,
             power: power::PowerUi::default(),
         };
+        root.sidebar_ui.visibility.trace = options.ui_acceptance;
         match native {
             Ok(provider) => root.native_accessibility = Some(provider),
             Err(error) => {
@@ -73,6 +77,9 @@ impl Root {
                 return root;
             }
         }
+        cx.observe_window_activation(window, |root, window, _| {
+            if !window.is_window_active() { root.layout_keys = 0; }
+        }).detach();
         Self::start_poll(window, cx);
         if options.mode == Mode::Fixture {
             match TerminalView::open(Mode::Fixture, &root.run_dir, window, cx) {
@@ -130,13 +137,11 @@ impl Root {
                                     match event {
                                         crate::settings::SettingsEvent::Saved(settings) => {
                                             let size = settings.history_page_size as usize;
-                                            if root.history_page_size != size {
-                                                root.history_page_size = size;
-                                                root.session_pages = 1;
-                                            }
+                                            root.apply_history_page_size(size);
                                             root.refresh_snapshot(window, cx);
                                             root.refresh_catalog(window, cx);
                                         }
+                                        crate::settings::SettingsEvent::BackgroundSaveFailed(error) => root.notify_operation_error(error, cx),
                                         crate::settings::SettingsEvent::CloseRequested => {
                                             root.settings = false;
                                             root.focus_selected(window, cx);
@@ -145,10 +150,10 @@ impl Root {
                                     }
                                 })
                                 .detach();
-                                root.ssh_ui.subscriptions.push(cx.subscribe_in(&panel, window, |root, _, event: &crate::settings::SettingsSshOpened, window, cx| root.ssh_opened(event, window, cx)));
-                                root.ssh_ui.subscriptions.push(cx.subscribe_in(&panel, window, |root, _, event: &crate::settings::SettingsSshOpenFailed, _, cx| root.ssh_open_failed(event, cx)));
                                 root.settings_panel = Some(panel);
-                                crate::launch_runtime::install(&client, cx);
+                                crate::launch_runtime::install(cx);
+                                root.watch_tab_activity(client.clone(), window, cx);
+                                crate::update_view::read_initial_preference(client.clone(), cx);
                                 root.host = Some(client);
                                 root.refresh_snapshot(window, cx);
                             }

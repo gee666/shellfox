@@ -59,6 +59,8 @@ impl Service {
                     | PrivateRequest::OutgoingV2(_)
                     | PrivateRequest::RemoteOperator(_)
                     | PrivateRequest::Experiment(_)
+                    | PrivateRequest::DesktopView(_)
+                    | PrivateRequest::SshRead(_)
                     | PrivateRequest::DesktopLaunch(_)
                     | PrivateRequest::AutomationWrite(_)
                     | PrivateRequest::AutomationStop(_) => Err(anyhow::anyhow!(

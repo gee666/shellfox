@@ -46,6 +46,28 @@ impl DeviceColors {
         );
         Ok(())
     }
+    pub(crate) fn read_files_layout(&self) -> anyhow::Result<Option<Vec<u8>>> {
+        let _guard = self.gate.lock().map_err(|_| anyhow::anyhow!("Device preferences are unavailable."))?;
+        let path = self.path.with_file_name("shellfox-files-layout-v1.json");
+        self.verify()?;
+        let result = self.files.read(&path);
+        self.verify()?;
+        Ok(result.map_err(|error| anyhow::anyhow!(error.message))?.map(|file| file.bytes))
+    }
+
+    pub(crate) fn save_files_layout(&self, bytes: &[u8]) -> anyhow::Result<()> {
+        anyhow::ensure!(bytes.len() <= 128, "Invalid file layout preferences.");
+        let _guard = self.gate.lock().map_err(|_| anyhow::anyhow!("Device preferences are unavailable."))?;
+        let path = self.path.with_file_name("shellfox-files-layout-v1.json");
+        self.verify()?;
+        let previous = self.files.read(&path).map_err(|error| anyhow::anyhow!(error.message))?;
+        self.verify()?;
+        let result = self.files.replace(&path, previous.as_ref(), Some(bytes), false);
+        self.verify()?;
+        result.map_err(|error| anyhow::anyhow!(error.message))?;
+        Ok(())
+    }
+
     pub fn read(&self) -> anyhow::Result<CustomColors> {
         let _guard = self
             .gate

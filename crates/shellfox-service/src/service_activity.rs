@@ -3,6 +3,10 @@ use crate::activity_integration::{
     SourceFactsWatch,
 };
 use anyhow::{Context, Result};
+use shellfox_core::SessionId;
+use std::collections::HashSet;
+#[path = "activity_visibility.rs"]
+mod visibility;
 use shellfox_core::SettingsProcessRule;
 use std::{
     sync::Arc,
@@ -17,8 +21,28 @@ pub(crate) struct ServiceActivity {
     pub rules: Vec<SettingsProcessRule>,
     pub next_poll_ms: u64,
     pub dirty: bool,
+    visibility: visibility::Visibility,
 }
 impl ServiceActivity {
+    pub(crate) fn report_desktop_visibility(&mut self, controller: u64, ids: Vec<SessionId>) {
+        self.visibility.desktop(controller, ids);
+    }
+
+    pub(crate) fn detach_desktop_visibility(&mut self, controller: u64) {
+        self.visibility.detach(controller);
+    }
+
+    pub(crate) fn report_remote_visibility(&mut self, ids: HashSet<SessionId>) {
+        self.visibility.remote(ids);
+    }
+
+    pub(crate) fn apply_visibility(&mut self) -> Result<()> {
+        let eligible = self.visibility.eligible(self.owner.watched_sessions());
+        self.owner
+            .set_visible_sessions(eligible.as_deref())
+            .context("Invalid activity polling interest")
+    }
+
     pub fn new() -> Result<Self> {
         let instant = Instant::now();
         let unix_ms = u64::try_from(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis())?;
@@ -36,6 +60,7 @@ impl ServiceActivity {
             rules: Vec::new(),
             next_poll_ms: unix_ms,
             dirty: true,
+            visibility: Default::default(),
         })
     }
     pub fn now_ms(&self) -> Result<u64> {

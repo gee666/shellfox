@@ -12,10 +12,15 @@ mod tests;
 pub(super) struct Retirement {
     outbox: Outbox,
     next: u64,
+    pub needs_detach: bool,
 }
 impl Retirement {
-    pub fn new(outbox: Outbox, next: u64) -> Self {
-        Self { outbox, next }
+    pub fn new(outbox: Outbox, next: u64, needs_detach: bool) -> Self {
+        Self {
+            outbox,
+            next,
+            needs_detach,
+        }
     }
     #[cfg(test)]
     pub fn next(&mut self) -> Option<Request> {

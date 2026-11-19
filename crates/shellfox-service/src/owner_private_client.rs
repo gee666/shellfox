@@ -36,23 +36,12 @@ impl OwnerClient {
             .context("Native system installation reply lost; no automatic retry.")?
     }
     /// Trusted bootstrap resources only; never exposed by any wire DTO.
-    pub async fn install_ssh_native(&self, config: crate::ssh::NativeSshInstall) -> Result<()> {
+    pub(crate) async fn install_ssh_profiles(&self, store: crate::ssh::Store) -> Result<()> {
         let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::InstallSsh { config, reply })?;
+        self.submit_private(PrivateTask::InstallSshProfiles { store, reply })?;
         response
             .await
             .context("SSH bootstrap installation reply lost; no automatic retry.")?
-    }
-    /// Explicit native security reduction, not view detach or cleanup proof.
-    pub async fn revoke_native_ssh(&self) -> Result<()> {
-        let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::RevokeSsh {
-            client_id: self.client_id,
-            reply,
-        })?;
-        response
-            .await
-            .context("Native SSH revocation reply lost.")?
     }
     pub(crate) fn for_private_client(&self, client_id: uuid::Uuid) -> Self {
         Self {

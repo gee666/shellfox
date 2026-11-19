@@ -14,7 +14,7 @@ pub(crate) struct PowerWorker<B: PowerBackend = SystemPower> {
 }
 impl Default for PowerWorker {
     fn default() -> Self {
-        Self::new(SystemPower)
+        Self::new(SystemPower::default())
     }
 }
 impl<B: PowerBackend + 'static> PowerWorker<B>

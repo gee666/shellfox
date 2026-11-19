@@ -15,10 +15,6 @@ pub mod launch_privilege;
 pub use launch_privilege::{NativeLaunchBinding, NativeLaunchEvidence};
 mod output;
 mod profile;
-pub mod program_env;
-#[cfg(windows)]
-mod program_env_pipe;
-pub use program_env::{AskpassBroker, TrustedProgramEnv, TrustedProgramLease};
 pub mod raw_process;
 #[cfg(any(windows, target_os = "linux", test))]
 mod reader;

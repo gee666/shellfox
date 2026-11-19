@@ -3,11 +3,14 @@ use shellfox_protocol::ErrorCode;
 use std::path::{Component, Path};
 
 pub fn absolute_path(path: &Path) -> SystemResult<()> {
+    #[cfg(windows)]
     let value = path
         .to_str()
         .ok_or_else(|| error(ErrorCode::Validation, "Path encoding is unsupported."))?;
+    #[cfg(not(windows))]
+    let value = path.to_string_lossy(); // Inspect delimiters and controls, not the native path returned to callers.
     if !path.is_absolute()
-        || value.len() > 32767
+        || path.as_os_str().len() > 32767
         || value.chars().any(char::is_control)
         || path
             .components()

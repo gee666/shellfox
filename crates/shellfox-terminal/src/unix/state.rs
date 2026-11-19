@@ -19,7 +19,6 @@ pub(super) struct State {
     pub master: Option<Box<dyn MasterPty + Send>>,
     pub writer: InputWriter,
     pub output: OutputReader,
-    pub environment: Option<crate::TrustedProgramEnv>,
     pub evidence: Option<crate::NativeLaunchEvidence>,
     pub stopping: bool,
     pub ready: bool,
@@ -35,7 +34,6 @@ impl State {
         master: Box<dyn MasterPty + Send>,
         writer: InputWriter,
         output: OutputReader,
-        environment: Option<crate::TrustedProgramEnv>,
     ) -> Self {
         Self {
             group: Some(group),
@@ -46,7 +44,6 @@ impl State {
             master: Some(master),
             writer,
             output,
-            environment,
             evidence: None,
             stopping: false,
             ready: false,

@@ -29,7 +29,20 @@ async fn timeout_and_protocol_error_keep_original_controller_for_confirmation_re
         wait_file(&path.join("stdin-closed-once")).await;
         assert_eq!(std::fs::read(path.join("stdin-closed-once")).unwrap(), b"1");
         release.now();
-        owner.shutdown_confirmed().await.unwrap();
+        // Opening the fixture gate does not prove that the child has exited yet.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match owner.shutdown_confirmed().await {
+                    Err(HelperError::Command) if name == "ownership-error" => {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    result => break result,
+                }
+            }
+        })
+        .await
+        .expect("released child did not exit")
+        .unwrap();
         owner.shutdown_confirmed().await.unwrap(); // Cached, idempotent original proof.
         wait_released(&path).await;
         assert_eq!(std::fs::read(path.join("original-pid")).unwrap(), pid);

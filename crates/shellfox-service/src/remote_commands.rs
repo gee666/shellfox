@@ -17,9 +17,7 @@ impl RemoteService<'_> {
             .get(&id)
             .ok_or_else(|| capability_unavailable("session runtime facts"))?;
         let dto = adapter::session_dto_visible(session, facts, &self.private_tabs(snapshot)).map_err(AppError::from)?;
-        adapter::filter_private_tabs(dto, &self.private_tabs(snapshot))
-            .map(super::privacy::legacy_session)
-            .map_err(Into::into)
+        adapter::filter_private_tabs(dto, &self.private_tabs(snapshot)).map_err(Into::into)
     }
     pub(super) fn rename_session_metadata(&self, input: wire::RenameSession) -> Result<serde_json::Value, AppError> {
         self.preflight(input.session_id)?;
@@ -57,9 +55,18 @@ impl RemoteService<'_> {
                 let saved = self.snapshot()?;
                 let private = self.private_tabs(&saved);
                 let settings = self.service.host().global_settings().map_err(host_error)?;
+                let mut facts = self.state.facts.clone();
+                facts.explorer.get_or_insert_with(|| wire::ExplorerIntegration {
+                    supported: false, installed: false, folder_item_installed: false,
+                    background_installed: false, reason: Some("Explorer integration is unavailable on this host.".into()),
+                });
+                facts.cli.get_or_insert_with(|| wire::CliIntegration {
+                    supported: false, installed: false, command: "shellfox".into(),
+                    reason: Some("CLI integration is unavailable on this host.".into()),
+                });
                 let mut snapshot = adapter::manager_snapshot_with_settings_visible(
                     &saved,
-                    &self.state.facts,
+                    &facts,
                     &settings,
                     &private,
                 )
@@ -69,7 +76,6 @@ impl RemoteService<'_> {
                     .into_iter()
                     .map(|session| {
                         adapter::filter_private_tabs(session, &private)
-                            .map(super::privacy::legacy_session)
                     })
                     .collect::<Result<_, _>>()
                     .map_err(AppError::from)?;
@@ -84,17 +90,7 @@ impl RemoteService<'_> {
                 profiles
                     .profiles
                     .retain(|profile| profile.elevation.is_none());
-                if profiles
-                    .default_profile_id
-                    .as_ref()
-                    .is_some_and(|id| !profiles.profiles.iter().any(|profile| &profile.id == id))
-                {
-                    profiles.default_profile_id = None;
-                }
-                for profile in &mut profiles.profiles {
-                    profile.available = false;
-                    profile.unavailable_reason=Some(Some(if actor.permission==shellfox_remote::ViewPermission::ReadOnly {"View-only approval cannot claim control; legacy full-state recovery is unavailable."}else{"Legacy full-state recovery is unavailable on this Rust host. Use the Node compatibility host."}.into()));
-                }
+                profiles.default_profile_id = super::v1_launch::default_profile(&profiles).map(str::to_owned);
                 checked(profiles)
             }
             GetHomeDirectory(_) => checked(
@@ -117,6 +113,7 @@ impl RemoteService<'_> {
                     .get_mut(&key(actor))
                     .ok_or_else(|| failure(ErrorCode::AuthFailed, "View missing."))?
                     .visible = input.session_ids;
+                self.state.visibility_dirty = true;
                 checked(wire::Configured { configured: true })
             }
             command @ (BeginFileRead(_)
@@ -125,7 +122,7 @@ impl RemoteService<'_> {
             | WriteFileChunk(_)
             | FinishFileWrite(_)
             | CancelFileTransfer(_)) => {
-                files::transfer(self.service, actor, &command, &mut self.state.transfers)
+                files::transfer(self.service, actor, command, &mut self.state.transfers)
             }
             ResolveDirectory(input) => shellfox_remote::directories::resolve(
                 actor,
@@ -238,26 +235,27 @@ impl RemoteService<'_> {
                 self.state.facts.sessions.remove(&input.session_id);
                 checked(wire::Deleted { deleted: true })
             }
-            // Activation/creation start terminals in the legacy contract. Do not
-            // turn these into metadata-only successes or invent launch evidence.
-            CreateSession(_) | AddTab(_) | ActivateSession(_) => Err(capability_unavailable(
-                "legacy launch and full-state recovery; retain Node compatibility host",
-            )),
-            AttachTerminal(_)
+            CreateSession(input) => self.create_session(input),
+            AddTab(input) => self.add_tab(input),
+            ActivateSession(input) => self.activate_session(input),
+            command @ (AttachTerminal(_)
             | TakeTerminalControl(_)
             | WriteTerminal(_)
             | ResizeTerminal(_)
             | AcknowledgeTerminal(_)
-            | DetachTerminal(_) => Err(capability_unavailable(
-                "legacy terminal view and full-state recovery; retain Node compatibility host",
-            )),
-            ClearSessionError(_) => Err(capability_unavailable("runtime error acknowledgement")),
+            | DetachTerminal(_)) => self.terminal_operation(actor, command),
+            ClearSessionError(input) => {
+                self.preflight(input.session_id)?;
+                let snapshot = self.service.acknowledge_session_error(input.session_id)
+                    .map_err(|_| failure(ErrorCode::NativeUnavailable, "Could not acknowledge the session error."))?;
+                checked(self.session(&snapshot, input.session_id)?)
+            }
             GetSessionStats(input) => self.statistics(input),
             BeginTerminalUpload(_)
             | WriteTerminalUpload(_)
             | FinishTerminalUpload(_)
             | CancelTerminalUpload(_) => Err(capability_unavailable(
-                "write-controlled remote terminal upload context; legacy v1 attachment unavailable",
+                "legacy terminal uploads",
             )),
         }
     }

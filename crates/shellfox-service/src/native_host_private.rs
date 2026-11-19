@@ -34,9 +34,27 @@ pub(super) fn create(
     parent: &Dir,
     name: &OsStr,
 ) -> Result<CreationHandle> {
+    #[cfg(windows)]
+    let create = shellfox_files::create_app_directory_at;
+    #[cfg(unix)]
+    let create = shellfox_files::create_private_directory_at;
+    create_retained(owner, parent, name, create)
+}
+fn create_retained(
+    owner: &Arc<NativeCreationRetention>,
+    parent: &Dir,
+    name: &OsStr,
+    create: impl FnOnce(
+        &std::fs::File,
+        &OsStr,
+    ) -> std::result::Result<
+        shellfox_files::CreatedPrivate,
+        shellfox_files::PrivateCreationFailure,
+    >,
+) -> Result<CreationHandle> {
     let parent = parent.try_clone()?.into_std_file();
     let reservation = owner.reserve(&parent, name)?;
-    reservation.finish(shellfox_files::create_private_directory_at(&parent, name))
+    reservation.finish(create(&parent, name))
 }
 pub(super) fn bind_parent(
     root: &HostRoot,
@@ -64,6 +82,9 @@ pub(super) fn bind_parent(
             .context("Root parent missing")?;
         let parent = parent.handle.try_clone()?.into_std_file();
         let leaf = root.path.file_name().context("Root leaf missing")?;
+        #[cfg(windows)]
+        let original = shellfox_files::open_app_directory_at(&parent, leaf)?;
+        #[cfg(unix)]
         let original = shellfox_files::open_existing_private_at(
             &parent,
             leaf,
@@ -120,6 +141,19 @@ pub(super) fn prepare_child(
         Ok(before) => {
             safe(&before)?;
             let held = parent.try_clone()?.into_std_file();
+            let original = parent.open_dir_nofollow(name)?;
+            ensure!(
+                same(&before, &original.dir_metadata()?),
+                "App data child changed while opening"
+            );
+            shellfox_files::repair_app_directory_at(
+                &held,
+                OsStr::new(name),
+                &original.into_std_file(),
+            )
+            .with_context(|| {
+                format!("Cannot make the Shellfox data directory child private: {name}")
+            })?;
             let existing = shellfox_files::open_existing_private_at(
                 &held,
                 OsStr::new(name),
@@ -135,7 +169,12 @@ pub(super) fn prepare_child(
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             // Exclusive-create collisions are errors, never an adoption fallback.
-            DirectoryRecord::Created(create(owner, parent, OsStr::new(name))?)
+            DirectoryRecord::Created(create_retained(
+                owner,
+                parent,
+                OsStr::new(name),
+                shellfox_files::create_private_directory_at,
+            )?)
         }
         Err(error) => return Err(error.into()),
     };

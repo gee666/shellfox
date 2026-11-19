@@ -267,7 +267,7 @@ impl Root {
                             }
                         }
                     }
-                    Err(error) => root.error = Some(format!("Peer catalog refresh: {error:#}")),
+                    Err(error) => root.notify_machine_error(&error.to_string(), cx),
                 }
                 cx.notify();
             });

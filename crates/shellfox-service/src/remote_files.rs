@@ -1,102 +1,126 @@
 use super::{failure, host_error};
 use crate::Service;
 use shellfox_protocol::{self as wire, AppError, ErrorCode, SessionId, TabId};
-use shellfox_remote::{file_ops, Actor};
+use shellfox_remote::{Actor, file_ops};
+use std::path::Path;
 
-fn membership(
+fn resolve_path(
     service: &Service,
     session: Option<SessionId>,
     tab: Option<TabId>,
-    path: &str,
+    path: &mut String,
 ) -> Result<(), AppError> {
-    if session.is_some() && !std::path::Path::new(path).is_absolute() {
-        return Err(failure(
-            ErrorCode::Unsupported,
-            "Relative session file paths need authoritative runtime cwd evidence.",
-        ));
-    }
-    if let Some(id) = session {
-        let snapshot = service.host().snapshot().map_err(host_error)?;
-        let session = snapshot
-            .sessions
-            .iter()
-            .find(|s| s.id == id)
-            .ok_or_else(|| failure(ErrorCode::NotFound, "File session not found."))?;
-        if tab.is_some_and(|id| !session.tabs.iter().any(|t| t.id == id)) {
+    let Some(id) = session else {
+        return if tab.is_none() {
+            Ok(())
+        } else {
+            Err(failure(
+                ErrorCode::Validation,
+                "File tab requires a session.",
+            ))
+        };
+    };
+    let snapshot = service.host().snapshot().map_err(host_error)?;
+    let session = snapshot
+        .sessions
+        .iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| failure(ErrorCode::NotFound, "File session not found."))?;
+    let base = match tab {
+        Some(id) => {
+            &session
+                .tabs
+                .iter()
+                .find(|t| t.id == id)
+                .ok_or_else(|| {
+                    failure(ErrorCode::NotFound, "File tab does not belong to session.")
+                })?
+                .cwd
+        }
+        None => &session.cwd,
+    };
+    let requested = Path::new(path);
+    if !requested.is_absolute() {
+        if requested.has_root()
+            || matches!(
+                requested.components().next(),
+                Some(std::path::Component::Prefix(_))
+            )
+        {
             return Err(failure(
-                ErrorCode::NotFound,
-                "File tab does not belong to session.",
+                ErrorCode::Validation,
+                "File path needs an absolute drive or a session-relative path.",
             ));
         }
-    } else if tab.is_some() {
-        return Err(failure(
-            ErrorCode::Validation,
-            "File tab requires a session.",
-        ));
+        *path = Path::new(base)
+            .join(requested)
+            .to_str()
+            .ok_or_else(|| failure(ErrorCode::Validation, "File path is not UTF-8."))?
+            .to_owned();
     }
     Ok(())
 }
 pub fn list(
     service: &Service,
     actor: &Actor,
-    input: wire::ListFiles,
+    mut input: wire::ListFiles,
 ) -> Result<serde_json::Value, AppError> {
-    membership(service, input.session_id, input.tab_id, &input.path)?;
+    resolve_path(service, input.session_id, input.tab_id, &mut input.path)?;
     file_ops::list(actor, &input.path)
 }
 pub fn read(
     service: &Service,
     actor: &Actor,
-    input: wire::ReadFile,
+    mut input: wire::ReadFile,
 ) -> Result<serde_json::Value, AppError> {
-    membership(service, input.session_id, input.tab_id, &input.path)?;
+    resolve_path(service, input.session_id, input.tab_id, &mut input.path)?;
     file_ops::read(actor, &input.path)
 }
 pub fn write(
     service: &Service,
     actor: &Actor,
-    input: wire::files::WriteFile,
+    mut input: wire::files::WriteFile,
 ) -> Result<serde_json::Value, AppError> {
-    membership(service, input.session_id, input.tab_id, &input.path)?;
+    resolve_path(service, input.session_id, input.tab_id, &mut input.path)?;
     file_ops::write(actor, &input)
 }
 pub fn directory(
     service: &Service,
     actor: &Actor,
-    input: wire::CreateDirectory,
+    mut input: wire::CreateDirectory,
     home: Option<&str>,
 ) -> Result<serde_json::Value, AppError> {
-    membership(service, input.session_id, input.tab_id, &input.path)?;
+    resolve_path(service, input.session_id, input.tab_id, &mut input.path)?;
     shellfox_remote::directories::create(actor, &input, home)
 }
 pub fn asset(
     service: &Service,
     actor: &Actor,
-    input: wire::ReadFileAsset,
+    mut input: wire::ReadFileAsset,
 ) -> Result<serde_json::Value, AppError> {
-    membership(service, input.session_id, input.tab_id, &input.path)?;
+    resolve_path(service, input.session_id, input.tab_id, &mut input.path)?;
     shellfox_remote::assets::read(actor, &input)
 }
 pub fn image(
     service: &Service,
     actor: &Actor,
-    input: wire::WriteImageFile,
+    mut input: wire::WriteImageFile,
 ) -> Result<serde_json::Value, AppError> {
-    membership(service, input.session_id, input.tab_id, &input.path)?;
+    resolve_path(service, input.session_id, input.tab_id, &mut input.path)?;
     shellfox_remote::assets::write(actor, &input)
 }
 pub fn transfer(
     service: &Service,
     actor: &Actor,
-    command: &wire::RemoteCommand,
+    mut command: wire::RemoteCommand,
     transfers: &mut Option<shellfox_remote::RemoteTransfers>,
 ) -> Result<serde_json::Value, AppError> {
-    match command {
+    match &mut command {
         wire::RemoteCommand::BeginFileRead(input) => {
-            membership(service, input.session_id, input.tab_id, &input.path)?
+            resolve_path(service, input.session_id, input.tab_id, &mut input.path)?
         }
         wire::RemoteCommand::BeginFileWrite(input) => {
-            membership(service, input.session_id, input.tab_id, &input.path)?
+            resolve_path(service, input.session_id, input.tab_id, &mut input.path)?
         }
         _ => {}
     }
@@ -107,5 +131,5 @@ pub fn transfer(
                 "owner-private transfer journal not initialized",
             )
         })?
-        .request(actor, command)
+        .request(actor, &command)
 }

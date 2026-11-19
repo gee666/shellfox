@@ -1,11 +1,11 @@
 use shellfox_core::EnvVar;
 use std::collections::HashSet;
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Issue {
+pub(crate) struct Issue {
     pub line: usize,
     pub message: &'static str,
 }
-pub(super) fn parse(text: &str, case_insensitive: bool) -> (Vec<EnvVar>, Vec<Issue>) {
+pub(crate) fn parse(text: &str, case_insensitive: bool) -> (Vec<EnvVar>, Vec<Issue>) {
     let mut env = Vec::new();
     let mut issues = Vec::new();
     let mut names = HashSet::new();
@@ -79,7 +79,7 @@ pub(super) fn parse(text: &str, case_insensitive: bool) -> (Vec<EnvVar>, Vec<Iss
     }
     (env, issues)
 }
-pub(super) fn format(env: &[EnvVar]) -> String {
+pub(crate) fn format(env: &[EnvVar]) -> String {
     env.iter()
         .map(|entry| {
             format!(

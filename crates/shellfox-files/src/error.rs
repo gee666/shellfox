@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::io;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
     Validation,
@@ -12,7 +12,8 @@ pub enum ErrorCode {
     StorageFailed,
 }
 
-#[derive(Debug, thiserror::Error, Serialize)]
+#[derive(Debug, thiserror::Error, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[error("{message}")]
 pub struct FileError {
     pub code: ErrorCode,

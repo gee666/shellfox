@@ -52,6 +52,10 @@ pub fn manager_snapshot_visible(
         for tab in &session.tabs {
             ensure(tab_ids.insert(tab.id), "duplicate tab identity")?;
         }
+        if facts.omitted_sessions.contains(&session.id) {
+            ensure(!facts.sessions.contains_key(&session.id), "omitted session has conflicting facts")?;
+            continue;
+        }
         sessions.push(session_dto_visible(
             session,
             required(facts.sessions.get(&session.id), "session runtime facts")?,

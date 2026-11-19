@@ -4,7 +4,8 @@ use crate::{sessions::ensure_not_prepared, storage, *};
 use chrono::{DateTime, FixedOffset, SecondsFormat, Utc};
 
 /// Host-only input provenance, not persisted metadata or a wire capability.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CapturedSettlement {
     /// An explicitly supported legacy client omitted its marker.
     Legacy,

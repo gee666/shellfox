@@ -35,6 +35,23 @@ fn add() -> AddTab {
         profile_id: ProfileId::default(),
     }
 }
+#[test]
+fn new_shell_titles_use_session_ordinals_and_allow_explicit_names() {
+    let scratch = Scratch::new();
+    let host = Host::open(&scratch.0).unwrap();
+    let initial = host.create_session(request()).unwrap();
+    let session = initial.sessions[0].id;
+    let first = &initial.sessions[0].tabs[0];
+    assert_eq!(first.title, "Shell 1");
+    let next = host.add_tab(session, add()).unwrap();
+    assert_eq!(next.sessions[0].tabs[1].title, "Shell 2");
+    host.close_tab(first.id).unwrap();
+    let next = host.add_tab(session, add()).unwrap();
+    assert_eq!(next.sessions[0].tabs[1].title, "Shell 3");
+    let named = host.add_tab(session, AddTab { title: Some("Logs".into()), ..add() }).unwrap();
+    assert_eq!(named.sessions[0].tabs[2].title, "Logs");
+}
+
 fn assert_captured(created: Option<&str>, before: i64, after: i64) {
     let actual = chrono::DateTime::parse_from_rfc3339(
         created.expect("new tab intent must capture its own timestamp"),

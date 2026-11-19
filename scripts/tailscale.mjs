@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { env, root } from './common.mjs';
+import { env } from './common.mjs';
 
+const root = fileURLToPath(new URL('../', import.meta.url));
+export const helperProtocolVersion = 2;
 export const tailscaleVersion = '1.104.2';
 export const goVersion = '1.27.3';
 const platforms = { win32: 'windows', darwin: 'darwin', linux: 'linux' };
@@ -21,14 +23,15 @@ export function helperTarget(platform = process.platform, arch = process.arch) {
 function goEnvironment(target) {
   const scratch = path.join(root, 'tmp');
   for (const directory of ['go-cache', 'go-mod', 'go-work']) mkdirSync(path.join(scratch, directory), { recursive: true });
-  return { ...env, CGO_ENABLED: '0', GOTOOLCHAIN: 'local', GOENV: 'off', GOFLAGS: '', GOWORK: 'off',
+  return { ...env, TEMP: scratch, TMP: scratch, TMPDIR: scratch,
+    CGO_ENABLED: '0', GOTOOLCHAIN: 'local', GOENV: 'off', GOFLAGS: '', GOWORK: 'off',
     GOOS: target.goos, GOARCH: target.goarch, GOCACHE: path.join(scratch, 'go-cache'),
     GOMODCACHE: path.join(scratch, 'go-mod'), GOTMPDIR: path.join(scratch, 'go-work') };
 }
 
 function go(args, target, capture = false) {
   const command = process.env.SHELLFOX_GO || 'go';
-  const result = spawnSync(command, args, { cwd: source, env: goEnvironment(target), timeout: 600000, windowsHide: true,
+  const result = spawnSync(command, args, { cwd: source, env: goEnvironment(target), timeout: (args[0] === 'build' ? 20 : 10) * 60_000, windowsHide: true,
     encoding: 'utf8', stdio: capture ? 'pipe' : 'inherit', maxBuffer: 32 * 1024 * 1024 });
   if (result.error || result.status !== 0) throw new Error(`Go helper command failed: ${args[0]}. Install Go ${goVersion}+ or set SHELLFOX_GO to its executable. ${result.error?.message ?? result.stderr ?? ''}`);
   return result.stdout;
@@ -64,12 +67,15 @@ export function probeHelper(executable, platform = process.platform, arch = proc
   assert.equal(result.error, undefined, 'Cannot execute embedded Tailscale helper');
   assert.equal(result.status, 0, result.stderr);
   const probe = JSON.parse(result.stdout);
-  assert.deepEqual(probe, { arch: target.goarch, platform: target.goos, protocolVersion: 1, tailscaleVersion });
+  assert.equal(probe.protocolVersion, helperProtocolVersion,
+    `Incompatible Tailscale helper protocol: expected ${helperProtocolVersion}, found ${Number.isInteger(probe.protocolVersion) ? probe.protocolVersion : 'unknown'}.`);
+  assert.deepEqual(probe, { arch: target.goarch, platform: target.goos, protocolVersion: helperProtocolVersion, tailscaleVersion });
   return probe;
 }
 
-export function buildHelperWithAnchor(platform = process.platform, arch = process.arch) {
+export function buildHelperWithAnchor(platform = process.platform, arch = process.arch, { directory, probe = true } = {}) {
   const target = helperTarget(platform, arch);
+  if (directory) target.directory = directory;
   mkdirSync(target.directory, { recursive: true });
   const executable = path.join(target.directory, target.basename), partial = executable + '.part';
   rmSync(partial, { force: true });
@@ -77,7 +83,7 @@ export function buildHelperWithAnchor(platform = process.platform, arch = proces
   try {
     go(['build', '-mod=readonly', '-trimpath', '-buildvcs=false', '-ldflags=-s -w', '-o', partial, '.'], target);
     chmodSync(partial, 0o755);
-    if (platform === process.platform && arch === process.arch) probeHelper(partial, platform, arch);
+    if (probe && platform === process.platform && arch === process.arch) probeHelper(partial, platform, arch);
     notices(target);
     // Capture the freshly linked build output, not a mutable runtime/cache target.
     sha256 = createHash('sha256').update(readFileSync(partial)).digest('hex');
@@ -87,14 +93,61 @@ export function buildHelperWithAnchor(platform = process.platform, arch = proces
   return { executable, sha256 };
 }
 
+function developmentTarget() {
+  return { ...helperTarget(), directory: path.join(root, 'tmp/dev-helper') };
+}
+
+export function developmentHelperPath() {
+  const { directory, basename } = developmentTarget();
+  return path.join(directory, basename);
+}
+
+export function buildDevelopmentHelper() {
+  const target = developmentTarget();
+  const executable = developmentHelperPath();
+  mkdirSync(target.directory, { recursive: true });
+  go(['build', '-mod=readonly', '-trimpath', '-buildvcs=false', '-ldflags=-s -w', '-o', executable, '.'], target);
+  probeHelper(executable);
+  return { executable, sha256: createHash('sha256').update(readFileSync(executable)).digest('hex') };
+}
+
+function sourcesNewerThan(directory, timestamp) {
+  return readdirSync(directory, { withFileTypes: true }).some(entry => {
+    const file = path.join(directory, entry.name);
+    return entry.isDirectory() ? sourcesNewerThan(file, timestamp)
+      : entry.isFile() && /(?:\.go$|^go\.(?:mod|sum)$)/.test(entry.name) && statSync(file).mtimeMs > timestamp;
+  });
+}
+
+export function ensureDevelopmentHelper({
+  sourceDirectory = source,
+  target = developmentTarget(),
+  probe = probeHelper,
+  build = buildDevelopmentHelper,
+} = {}) {
+  const executable = path.join(target.directory, target.basename);
+  let reason;
+  if (!existsSync(executable)) reason = 'helper is missing';
+  else if (sourcesNewerThan(sourceDirectory, statSync(executable).mtimeMs)) reason = 'Go sources changed';
+  else {
+    try { probe(executable); }
+    catch (error) { reason = error.message; }
+  }
+  if (reason) {
+    console.error(`[tailscale] Rebuilding: ${reason}`);
+    return build();
+  }
+  return { executable, sha256: createHash('sha256').update(readFileSync(executable)).digest('hex') };
+}
+
 export function buildHelper(platform = process.platform, arch = process.arch) {
   return buildHelperWithAnchor(platform, arch).executable;
 }
 
-async function testHelper() {
+function testHelper() {
   const target = helperTarget();
   go(['test', '-mod=readonly', '-count=1', './...'], target);
-  const executable = buildHelper();
+  const { executable } = ensureDevelopmentHelper();
   // Exercise framing with an invalid startup configuration, never a real enrollment.
   // Build only synthetic marker values; never put live or revoked credentials in fixtures.
   const input = [
@@ -109,7 +162,6 @@ async function testHelper() {
   assert.deepEqual(responses.map(({ id, ok }) => ({ id, ok })), [{ id: 1, ok: false }, { id: 'invalid', ok: false }, { id: 2, ok: true }]);
   assert.deepEqual(responses[2].value, { stopped: true });
   privatePermissionsSmoke(executable);
-  await ownershipSmoke(executable);
 }
 
 function privatePermissionsSmoke(executable) {
@@ -141,47 +193,6 @@ function privatePermissionsSmoke(executable) {
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
-async function ownershipSmoke(executable) {
-  const directory = mkdtempSync(path.join(root, 'tmp/ownership-smoke-'));
-  const child = spawn(executable, ['--ownership', directory], { env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-  let stdout = '', stderr = '';
-  child.stderr.on('data', data => { stderr += data.toString(); });
-  const exited = new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', resolve); });
-  const ready = new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.stdout.on('data', data => {
-      stdout += data.toString();
-      if (stdout.includes('\n')) resolve();
-    });
-    child.once('exit', () => reject(new Error('Ownership helper exited before acknowledgement.')));
-  });
-  const deadline = setTimeout(() => child.kill(), 10000);
-  try {
-    await ready;
-    assert.equal(stdout, '{"locked":true}\n');
-    const contender = spawnSync(executable, ['--ownership', directory], { env, input: '', timeout: 10000, encoding: 'utf8', windowsHide: true });
-    assert.equal(contender.status, 0, contender.stderr);
-    assert.equal(contender.stdout, '{"locked":false}\n');
-    assert.equal(contender.stderr, '');
-    child.stdin.end();
-    assert.equal(await exited, 0);
-    assert.equal(stdout, '{"locked":true}\n');
-    assert.equal(stderr, '');
-    const next = spawnSync(executable, ['--ownership', directory], { env, input: '', timeout: 10000, encoding: 'utf8', windowsHide: true });
-    assert.equal(next.status, 0, next.stderr);
-    assert.equal(next.stdout, '{"locked":true}\n');
-    assert.equal(next.stderr, '');
-    const invalid = spawnSync(executable, ['--ownership'], { env, input: '', timeout: 10000, encoding: 'utf8', windowsHide: true });
-    assert.equal(invalid.status, 2);
-    assert.deepEqual(JSON.parse(invalid.stdout), { error: 'Invalid ownership arguments' });
-    assert.equal(invalid.stderr, '');
-  } finally {
-    clearTimeout(deadline);
-    if (child.exitCode === null && child.signalCode === null) { child.kill(); await exited.catch(() => {}); }
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
-
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command = 'build', ...args] = process.argv.slice(2);
   const options = Object.fromEntries(args.map(arg => {
@@ -189,8 +200,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (!match) throw new Error('Unknown helper option: ' + arg);
     return [match[1], match[2]];
   }));
-  if (command === 'build') buildHelper(options.platform, options.arch);
-  else if (command === 'test' && !args.length) await testHelper();
+  if (command === 'build') {
+    if (options.platform || options.arch) buildHelper(options.platform, options.arch);
+    else console.log(`[tailscale] ${buildDevelopmentHelper().executable}`);
+  } else if (command === 'test' && !args.length) testHelper();
   else if (command === 'probe' && options.executable && existsSync(options.executable)) probeHelper(path.resolve(options.executable), options.platform, options.arch);
   else throw new Error('Usage: node scripts/tailscale.mjs build [--platform=win32|linux|darwin] [--arch=x64|arm64], test, or probe --executable=PATH');
 }

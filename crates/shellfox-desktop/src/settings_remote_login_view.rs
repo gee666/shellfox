@@ -3,6 +3,33 @@ use super::{
     remote::Operation,
     *,
 };
+
+fn disclosure_marker(open: bool, color: gpui::Hsla) -> impl IntoElement {
+    gpui::canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let mut marker = gpui::PathBuilder::fill();
+            let points = if open {
+                [(0., 2.), (8., 2.), (4., 8.)]
+            } else {
+                [(1., 0.), (7., 4.), (1., 8.)]
+            };
+            let [a, b, c] = points.map(|(x, y)| bounds.origin + gpui::point(px(x), px(y)));
+            marker.move_to(a);
+            marker.line_to(b);
+            marker.line_to(c);
+            marker.close();
+            if let Ok(path) = marker.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .absolute()
+    .left_0()
+    .top(px(4.))
+    .size(px(8.))
+}
+
 impl SettingsPanel {
     pub(super) fn remote_login_controls(
         &mut self,
@@ -11,7 +38,12 @@ impl SettingsPanel {
         cx: &mut Context<Self>,
     ) -> gpui::Div {
         let p = self.palette;
-        let mut actions = div().mt(px(12.)).flex().gap(px(8.)).flex_wrap();
+        let mut actions = div()
+            .mt(px(12.))
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .flex_wrap();
         if let Some(attempt) = state
             .attempts
             .iter()
@@ -32,20 +64,13 @@ impl SettingsPanel {
                 ));
             return account.child(actions);
         }
-        let native_attempt = state.attempts.iter().find(|attempt| {
-            matches!(
-                attempt.kind,
-                api::RemoteAttemptKind::Login | api::RemoteAttemptKind::Enable
-            )
-        });
-        if self.remote.login.busy() || native_attempt.is_some() {
-            let cancel_label = if native_attempt
-                .is_some_and(|attempt| matches!(attempt.kind, api::RemoteAttemptKind::Enable))
-            {
-                "Cancel"
-            } else {
-                "Cancel sign-in"
-            };
+        let native_attempt = state
+            .attempts
+            .iter()
+            .find(|attempt| matches!(attempt.kind, api::RemoteAttemptKind::Login));
+        if self.remote.login.busy()
+            || native_attempt.is_some() && self.remote.login.phase != login::Phase::Error
+        {
             let cancel = native_attempt.map_or(Operation::CancelLogin, |attempt| {
                 Operation::CancelAttempt(attempt.id.clone())
             });
@@ -58,7 +83,7 @@ impl SettingsPanel {
                 ))
                 .child(self.button(
                     "cancel-tailscale-login",
-                    cancel_label,
+                    "Cancel sign-in",
                     Action::Remote(cancel),
                     cx,
                 ));
@@ -94,6 +119,7 @@ impl SettingsPanel {
             account = account.child(
                 controls::hint(self.remote.login.message.clone(), p)
                     .mt(px(4.))
+                    .text_size(px(13.))
                     .text_color(gpui::rgb(0xfc8397)),
             );
             if let Some(url) = &self.remote.login.url {
@@ -111,16 +137,26 @@ impl SettingsPanel {
                 account = account.child(div().mt(px(8.)).child(address));
             }
         }
-        account = account.child(
-            self.text_button(
+        let disclosure = self
+            .bare_button(
                 "advanced-sign-in",
                 "Advanced sign-in",
                 Action::Remote(Operation::Advanced),
                 cx,
             )
-            .mt(px(12.))
-            .text_size(px(11.)),
-        );
+            .expanded(self.remote.advanced)
+            .h(px(15.))
+            .min_h(px(15.))
+            .line_height(px(15.))
+            .text_size(px(11.))
+            .text_color(p.muted)
+            .bg(gpui::transparent_black())
+            .border_0()
+            .py_0()
+            .pl(px(11.))
+            .pr_0()
+            .child(disclosure_marker(self.remote.advanced, p.muted));
+        account = account.child(div().mt(px(12.)).flex().child(disclosure));
         if self.remote.advanced {
             let auth = self.bind_field(self.remote.auth.clone(), "Tailscale auth key", None, cx);
             let disabled =
@@ -166,6 +202,7 @@ impl SettingsPanel {
                 .child(
                     div()
                         .text_size(px(11.))
+                        .line_height(px(13.))
                         .text_color(p.muted)
                         .child("Used once. Not saved by Shellfox."),
                 );

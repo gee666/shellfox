@@ -29,6 +29,7 @@ impl SettingsPanel {
                         if current {
                             panel.environment = None;
                             panel.environment_subscription = None;
+                            panel.restore_environment_focus = true;
                         }
                     }
                     error => {

@@ -41,10 +41,10 @@ pub(super) fn project(service: &Service, tab: &shellfox_core::Tab) -> Result<v2:
                 (Start::Failed { .. }, _) => known(wire::TabLifecycle::LaunchUncertain),
                 _ => unknown(),
             };
-            if let Start::Failed { sanitized_error } = &evidence.startup {
+            if let Start::Failed { sanitized_error, acknowledged: false } = &evidence.startup {
                 facts.error = known(Some(sanitized_error.clone()));
                 facts.status = known(wire::TabStatus::Error);
-            } else if matches!(evidence.startup, Start::Confirmed) {
+            } else if matches!(evidence.startup, Start::Confirmed | Start::Failed { acknowledged: true, .. }) {
                 facts.error = known(None);
             }
             if let Some(observation) = &evidence.observation {
@@ -68,12 +68,18 @@ pub(super) fn project(service: &Service, tab: &shellfox_core::Tab) -> Result<v2:
                 }
             }
         } else {
-            // A passive parser's Closed/Finished state is NOT a raw root exit,
-            // descendant cleanup or fabricated Embedded PTY lifecycle fact.
             facts.terminal_kind = Fact::NotApplicable;
-            facts.monitoring_reason = known(Some(
-                "External presentation does not prove raw process state or cleanup.".into(),
-            ));
+            // Parser Finish alone is not process evidence. Only the matched,
+            // published run can confirm its process exited and output ended.
+            if let Some(code) = service.completed_automation_exit_code(terminal) {
+                facts.lifecycle = known(wire::TabLifecycle::Closed);
+                facts.exit_code = known(Some(code));
+                facts.monitoring_reason = known(Some("Completed automation replay.".into()));
+            } else {
+                facts.monitoring_reason = known(Some(
+                    "External presentation does not prove raw process state or cleanup.".into(),
+                ));
+            }
         }
     } else if tab.state == shellfox_core::TabState::Archived {
         facts.lifecycle = known(wire::TabLifecycle::Closed);

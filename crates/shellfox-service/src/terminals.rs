@@ -3,6 +3,8 @@ use crate::*;
 mod commands;
 #[path = "terminal_delivery.rs"]
 mod delivery;
+#[path = "terminal_remote_v1.rs"]
+mod remote_v1;
 use serde::{Deserialize, Serialize};
 use shellfox_core::{Generation, TabId};
 use shellfox_runtime::{Command, Event, Lease, Request, RequestId, Response, Runtime};
@@ -25,8 +27,10 @@ pub struct TerminalOutput {
 pub(crate) struct OwnedTerminal {
     pub runtime: Runtime,
     pub(crate) startup: Option<std::result::Result<(), shellfox_runtime::RuntimeError>>,
+    pub(crate) startup_error_acknowledged: bool,
     pub(crate) external_cleanup: Option<crate::automation::AutomationCleanupProof>,
     pub(crate) source_share: crate::native_sharing::SourceShareRecord,
+    pub(crate) control_epoch: u64,
     replies: VecDeque<(
         RequestId,
         std::result::Result<Response, shellfox_runtime::RuntimeError>,
@@ -47,7 +51,9 @@ impl OwnedTerminal {
         Self {
             runtime,
             source_share,
+            control_epoch: 0,
             startup: None,
+            startup_error_acknowledged: false,
             external_cleanup: None,
             replies: VecDeque::new(),
             waiting: None,
@@ -130,8 +136,6 @@ impl Service {
         if !self.terminals.contains_key(&tab) {
             self.start_terminal(tab)?;
         }
-        let identity = self.terminals[&tab].runtime.identity();
-        self.check_ssh_control_admission(controller, tab, identity)?;
         let detached = self.terminals[&tab].lease.is_none() || self.terminals[&tab].lease_retiring;
         self.controller_grant(
             tab,
@@ -168,8 +172,8 @@ impl Service {
         Ok(())
     }
     pub fn detach_controller(&mut self, controller: u64) {
+        self.activity.detach_desktop_visibility(controller);
         self.release_automation_controller(controller);
-        self.detach_ssh_native(controller);
         self.revoke_system_native(controller);
         self.revoke_native_catalog(controller);
         for terminal in self.terminals.values_mut() {
@@ -184,13 +188,16 @@ impl Service {
     /// Existing private CLI protocol is explicitly Legacy until its DTO carries
     /// captured settlement. Missing native contexts never enter this method.
     pub fn input(&mut self, tab: TabId, attachment: &Attachment, bytes: Vec<u8>) -> Result<()> {
+        self.input_with_context(tab, attachment, bytes, true, shellfox_host::CapturedSettlement::Legacy)
+    }
+    fn input_with_context(&mut self, tab: TabId, attachment: &Attachment, bytes: Vec<u8>, user_initiated: bool, settlement: shellfox_host::CapturedSettlement) -> Result<()> {
         let lease = self.lease(tab, attachment)?;
         let length = u32::try_from(bytes.len())?;
         let admission = crate::activity_integration::InputAdmission::raw(
             &bytes,
-            true,
+            user_initiated,
             false,
-            shellfox_host::CapturedSettlement::Legacy,
+            settlement,
         )
         .map_err(|_| anyhow::anyhow!("Invalid bounded CLI input admission."))?;
         let response = self.call_input(tab, Command::RawInput { lease, bytes }, admission)?;
@@ -217,27 +224,20 @@ impl Service {
         attachment: &Attachment,
     ) -> Result<(Vec<u8>, u64, shellfox_runtime::AnsiRecoveryCapability)> {
         let lease = self.lease(tab, attachment)?;
-        match self.call(tab, Command::RecoverAnsi { lease })? {
-            Response::Ansi {
-                bytes,
-                last_sequence,
-                capability,
-            } => {
-                self.drain(tab)?;
-                let terminal = self
-                    .terminals
-                    .get_mut(&tab)
-                    .context("Terminal is not running.")?;
-                terminal
-                    .output
-                    .retain(|chunk| chunk.sequence > last_sequence);
-                terminal.output_bytes = terminal.output.iter().map(|chunk| chunk.bytes.len()).sum();
-                terminal.replay_lost = false;
-                terminal.recovery_pending = Some(last_sequence);
-                Ok((bytes, last_sequence, capability))
-            }
-            _ => bail!("Unexpected runtime recovery response."),
-        }
+        let Response::Ansi { bytes, last_sequence, capability } = self.call(tab, Command::RecoverAnsi { lease })? else {
+            bail!("Unexpected runtime recovery response.");
+        };
+        self.install_recovery_cut(tab, last_sequence)?;
+        Ok((bytes, last_sequence, capability))
+    }
+    fn install_recovery_cut(&mut self, tab: TabId, last_sequence: u64) -> Result<()> {
+        self.drain(tab)?;
+        let terminal = self.terminals.get_mut(&tab).context("Terminal is not running.")?;
+        terminal.output.retain(|chunk| chunk.sequence > last_sequence);
+        terminal.output_bytes = terminal.output.iter().map(|chunk| chunk.bytes.len()).sum();
+        terminal.replay_lost = false;
+        terminal.recovery_pending = Some(last_sequence);
+        Ok(())
     }
     /// Disconnecting clients do not invoke RetryClose. Host terminals survive detach.
     pub fn poll(&mut self, tab: TabId, attachment: &Attachment) -> Result<Vec<TerminalOutput>> {

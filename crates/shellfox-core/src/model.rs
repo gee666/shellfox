@@ -1,6 +1,6 @@
 use crate::{
     validate_env, validation, CleanupToken, Generation, Preferences, ProfileId, Result, SessionId,
-    TabId,
+    TabId, WslLaunchAccount, WslLaunchBinding,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -52,6 +52,9 @@ pub struct Tab {
     pub id: TabId,
     pub session_id: SessionId,
     pub title: String,
+    /// Older rows keep their saved label. Only new default labels follow live titles.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub use_process_title: bool,
     pub cwd: String,
     pub ordinal: u32,
     /// Tab intent reservation time, not session birth or runtime-generation birth.
@@ -59,6 +62,8 @@ pub struct Tab {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     pub profile_id: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl_launch: Option<WslLaunchBinding>,
     pub state: TabState,
 }
 impl Tab {
@@ -68,7 +73,17 @@ impl Tab {
         if let Some(created_at) = &self.created_at {
             validation::timestamp(created_at)?;
         }
-        Ok(())
+        validation::ensure(
+            self.wsl_launch.is_none() || self.profile_id.as_str().starts_with("wsl:"),
+            "Unexpected WSL launch account on a non-WSL tab.",
+        )
+    }
+
+    pub fn wsl_account(&self) -> Option<&WslLaunchAccount> {
+        match self.wsl_launch.as_ref()? {
+            WslLaunchBinding::Bound { account } => Some(account),
+            WslLaunchBinding::Pending => None,
+        }
     }
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -114,6 +129,8 @@ pub struct TerminalLaunch {
     pub session_id: SessionId,
     pub tab_id: TabId,
     pub profile_id: ProfileId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wsl_launch: Option<WslLaunchBinding>,
     pub cwd: String,
     /// Explicit user-saved variables only, never inherited process environment.
     pub env: Vec<EnvVar>,

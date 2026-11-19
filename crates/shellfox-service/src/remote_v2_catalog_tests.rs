@@ -52,7 +52,13 @@ fn policy_eligibility_without_actual_native_normal_evidence_is_never_effective_d
 #[test]
 fn complete_mixed_metadata_never_needs_legacy_creation_or_current_profile_defaults() {
     let (data, mut service, state) = fixture();
-    let raw = create(&service, data.path(), "automation-pipe");
+    let raw = SessionId::new();
+    let raw_tab = shellfox_core::TabId::new();
+    service.host().publish_reserved_session(shellfox_host::ReservedSessionPublication {
+        request_id: SessionId::new(), session_id: raw, tab_id: raw_tab,
+        title: Some("published raw".into()), cwd: data.path().to_str().unwrap().into(),
+        profile_id: ProfileId::new("automation-pipe").unwrap(),
+    }, None).unwrap();
     let unknown = create(&service, data.path(), "not-in-current-catalog");
     let normal = SessionId::new();
     service
@@ -75,8 +81,7 @@ fn complete_mixed_metadata_never_needs_legacy_creation_or_current_profile_defaul
     else {
         panic!("creation receipt")
     };
-    let saved = target(&state, &service, raw).unwrap();
-    let tab = saved.tabs[0].id;
+    let tab = raw_tab;
     let identity = shellfox_runtime::Identity {
         session_id: raw,
         tab_id: tab,
@@ -103,8 +108,11 @@ fn complete_mixed_metadata_never_needs_legacy_creation_or_current_profile_defaul
     else {
         panic!("session")
     };
-    assert!(matches!(value.facts.adapter_id, v2::Fact::Unknown { .. }));
-    assert!(matches!(value.facts.shell_id, v2::Fact::Unknown { .. }));
+    assert!(matches!(value.facts.adapter_id, v2::Fact::NotApplicable));
+    assert!(matches!(value.facts.shell_id, v2::Fact::NotApplicable));
+    let v2::CatalogEntry::Session { value: historical } = catalog::entry(&state, &service, &target(&state, &service, unknown).unwrap()).unwrap() else { panic!("historical session") };
+    assert!(matches!(historical.facts.shell_id, v2::Fact::Unknown { reason: v2::UnknownReason::NotRecorded }));
+    assert!(matches!(historical.tabs[0].source_kind, v2::Fact::Unknown { .. }));
     assert!(matches!(
         value.tabs[0].source_kind,
         v2::Fact::Known {
@@ -146,6 +154,24 @@ fn one_unprojectable_authorized_entry_does_not_poison_independent_normal_project
     };
     assert_eq!(value.title, "normal still works");
 }
+#[test]
+fn administrator_tab_is_hidden_without_a_catalog_or_runtime() {
+    let (data, mut service, state) = fixture();
+    let session = create(&service, data.path(), "cmd");
+    let snapshot = service.host().add_tab(session, shellfox_core::AddTab {
+        title: None, cwd: None,
+        profile_id: ProfileId::new(crate::ADMIN_POWERSHELL_PROFILE).unwrap(),
+    }).unwrap();
+    let admin = snapshot.selection.tab_id.unwrap();
+    let listed = catalog::snapshot(&state, &service).unwrap();
+    assert!(!serde_json::to_string(&listed).unwrap().contains(&admin.to_string()));
+    assert_eq!(tab_target(&state, &service, admin).unwrap_err().code, ErrorCode::NotFound);
+    assert_eq!(launch::ensure_launch_profile(&state, crate::ADMIN_POWERSHELL_PROFILE).unwrap_err().code, ErrorCode::AccessDenied);
+    // Saved metadata and local reattach cannot manufacture fresh UAC approval.
+    assert!(service.attach(admin, 1, false).unwrap_err().to_string().contains("Open a new Administrator"));
+    assert!(service.terminals.is_empty());
+}
+
 #[test]
 fn explicit_local_only_visibility_precedes_diagnostics_but_unknown_saved_facts_are_not_hidden() {
     let (data, service, mut state) = fixture();

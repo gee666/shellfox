@@ -55,7 +55,7 @@ impl OwnerClient {
         let original = tokio::select! {
             biased;
             _=limits.cancel.cancelled()=>return Err(TransportError::Cancelled),
-            _=tokio::time::sleep_until(limits.deadline.into())=>return Err(TransportError::Deadline),
+            _=remote.outgoing_deadline(limits.deadline)=>return Err(TransportError::Deadline),
             result=response=>result.map_err(|_|TransportError::Unavailable)?.map_err(|_|TransportError::Unavailable)?,
         };
         tokio::select! {

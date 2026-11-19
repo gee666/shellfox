@@ -1,5 +1,4 @@
-//! Actual Files leaf/cap fixtures only; NOT Go/Service ownership or approval commit proof.
-//! PENDING: positive approval persistence/crash recovery awaits approved storage protocol.
+//! Legacy approval metadata is inspectable but cannot grant access or be rewritten.
 #[path = "support/native_metadata.rs"]
 mod fixture;
 use fixture::Fixture;
@@ -84,7 +83,7 @@ async fn gated_save_does_not_create_marker_stage_or_change_approvals() {
         .version;
     assert_eq!(
         store.save(&[record()]).await.unwrap_err().code,
-        ErrorCode::Unsupported
+        ErrorCode::StorageFailed
     );
     assert_eq!(
         directory
@@ -132,7 +131,7 @@ async fn ownership_loss_denies_read_and_keeps_preparation_owner_for_disposition(
 }
 
 #[tokio::test]
-async fn unsupported_revoke_never_becomes_authority_in_a_fresh_native_assembly() {
+async fn failed_revoke_does_not_turn_legacy_inventory_into_runtime_authority() {
     let f = Fixture::new();
     let directory = child(&f);
     Fixture::seed(&directory, "approvals.json", &current());
@@ -140,7 +139,7 @@ async fn unsupported_revoke_never_becomes_authority_in_a_fresh_native_assembly()
     let control = ApprovalControl::default();
     assert_eq!(
         control.revoke(&first, "n-owned").await.unwrap_err().code,
-        ErrorCode::Unsupported
+        ErrorCode::StorageFailed
     );
     assert!(control.state().unwrap().approvals.is_empty());
     assert_eq!(

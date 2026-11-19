@@ -40,7 +40,7 @@ jobs:
           node-version: 24.22.1
           architecture: ${{ matrix.arch }}
       - name: Packaging rules, no native acceptance claim
-        run: node --test scripts/rust-package.test.mjs scripts/rust-package-resource.test.mjs
+        run: node --test scripts/rust-package.test.mjs scripts/rust-package-resource.test.mjs scripts/rust-package-wsl-files.test.mjs
       - name: Native runner and Rust pin
         if: inputs.build_native_packages
         run: |
@@ -85,6 +85,9 @@ jobs:
         if: inputs.build_native_packages
         run: node scripts/rust-package-prereqs.mjs
         timeout-minutes: 35
+      - name: macOS native folder picker configuration
+        if: inputs.build_native_packages && matrix.platform == 'darwin'
+        run: cargo test --locked -p shellfox-desktop --test macos-folder-picker
       - name: Headless release artifact, dependency boundary and isolated archive smoke
         if: inputs.build_native_packages
         run: node scripts/rust-package.mjs headless

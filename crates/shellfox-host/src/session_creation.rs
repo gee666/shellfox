@@ -2,7 +2,8 @@ use crate::{now, storage, *};
 
 /// Durable metadata receipt only. This identifies no tab, generation, process,
 /// launch success, or current selection. Missing/deleted receipts stay unknown.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum CreationRequestReceipt {
     SessionCreated { session_id: SessionId },
     ReceiptUnavailable,
@@ -71,10 +72,12 @@ impl Host {
             let tab = Tab {
                 id: tab_id,
                 session_id: id,
-                title: input.profile_id.to_string(),
+                title: crate::tabs::default_title(0),
+                use_process_title: true,
                 cwd: input.cwd.clone(),
                 ordinal: 0,
                 created_at: Some(now()),
+                wsl_launch: WslLaunchBinding::for_new_tab(&input.profile_id),
                 profile_id: input.profile_id,
                 state: TabState::Pending,
             };
