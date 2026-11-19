@@ -38,6 +38,7 @@ jobs:
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple/target
       CARGO_BUILD_JOBS: '4'
+      CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
       MACOSX_DEPLOYMENT_TARGET: '13.0'
       GHOSTTY_VT_LINK_KIND: static
@@ -59,6 +60,9 @@ jobs:
         run: |
           rustup show
           node scripts/rust-package-prereqs.mjs
+        timeout-minutes: 25
+      - name: Check desktop, including the wry/WKWebView HTML preview
+        run: cargo check --locked -p shellfox-desktop
         timeout-minutes: 25
       - name: Install JavaScript test fixtures
         run: pnpm install --frozen-lockfile --ignore-scripts
