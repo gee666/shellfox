@@ -10,6 +10,7 @@
   if ((self = [super init])) { _statusCode = status; _body = [body copy]; }
   return self;
 }
+@end
 
 @interface SFGoRequest : NSObject {
 @public

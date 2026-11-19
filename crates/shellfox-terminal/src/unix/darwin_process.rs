@@ -6,7 +6,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::time::{Duration, Instant};
 
 type Pid = libc::pid_t;
-const SIGNAL_GRACE: Duration = Duration::from_millis(500);
+const SIGNAL_GRACE: Duration = Duration::from_secs(3);
 const SWEEP_INTERVAL: Duration = Duration::from_millis(40);
 // Values from Darwin's <sys/proc_info.h>.
 const PROC_UID_ONLY: u32 = 4;
