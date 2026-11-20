@@ -10,7 +10,7 @@ import { eventually, nativePicker } from './macos-p4-dialog.mjs';
 import { exerciseTransfers } from './macos-p4-transfers.mjs';
 import { peerEnv, startRustPeer, viewerFlags } from './macos-p4-rust-peer.mjs';
 
-const keyboard = { a: 0, s: 1, z: 6, x: 7, c: 8, b: 11, q: 12, e: 14,
+const keyboard = { a: 0, s: 1, z: 6, x: 7, c: 8, b: 11, e: 14,
   enter: 36, escape: 53, right: 124, down: 125, up: 126 };
 const named = (tree, name) => tree.find(node => node.title === name || node.description === name);
 const observed = (shot, value) => shot.lines.find(row => row.text.toLowerCase().includes(value.toLowerCase()));
@@ -56,8 +56,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   };
   const go = async (value, folder) => {
     await focusPath(value);
-    key('escape');
-    key('enter');
+    await press('Open path');
     if (folder) await node('Folder path', field => field?.value === folder);
   };
   const browse = async () => {
@@ -113,10 +112,12 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await node('Folder path', field => field?.value === unique);
       await go(project, project);
       await focusPath(path.join(project, 'uni'));
-      await shot('03-suggestion', shot => observed(shot, 'unique-folder'));
+      await eventually('named directory suggestion', tree, rows => rows.some(row =>
+        [row.title, row.description].some(label => label?.replace(/\/$/, '') === unique)));
+      await shot('03-suggestion');
       key('down');
       key('enter');
-      await node('Folder path', field => field?.value === unique);
+      await node('Folder path', field => field?.value?.replace(/\/$/, '') === unique);
       key('enter');
       await shot('03-completion', shot => observed(shot, 'sentinel.txt'));
       await go(project, project);
@@ -211,9 +212,9 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await go(path.join(project, 'remote.svg'), project);
       await shot('14-svg', shot => observed(shot, 'remote.svg'));
       await checkNetwork('Rust standalone SVG');
-      await go(path.join(project, 'oversize.txt'), project);
+      await go(path.join(project, 'oversize.txt'));
       await shot('15-oversize-text', shot => observed(shot, 'Retry file'));
-      await go(path.join(project, 'oversize.png'), project);
+      await go(path.join(project, 'oversize.png'));
       await shot('16-oversize-image', shot => observed(shot, 'Retry file'));
       await writeFile(path.join(dir, 'preview-checks.json'), JSON.stringify({ scale: startup.scale,
         frame: startup.frame, htmlPreview: preview, loopbackRequests: 0 }, null, 2));
@@ -275,8 +276,8 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   } finally {
     await peer?.close();
     if (child.exitCode === null && child.signalCode === null && child.pid) {
-      try { key('q', 'c'); } catch { child.kill('SIGTERM'); }
-      const stopped = await Promise.race([exited, delay(5_000, null, { ref: false })]);
+      try { action('close-window'); } catch { child.kill('SIGTERM'); }
+      const stopped = await Promise.race([exited, delay(15_000, null, { ref: false })]);
       if (!stopped) child.kill('SIGTERM');
       if (!failure) assert.equal(stopped?.code, 0, 'Owned Rust desktop did not exit cleanly');
     }

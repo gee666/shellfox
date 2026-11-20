@@ -129,6 +129,13 @@ private struct WindowProbe {
             switch args[2] {
             case "tree": result = try tree(ownedWindow(owner))
             case "windows": result = ownedWindows(owner).flatMap(tree)
+            case "close-window":
+                let window = try ownedWindow(owner)
+                guard let button: AXUIElement = attribute(window, kAXCloseButtonAttribute),
+                      AXUIElementPerformAction(button, kAXPressAction as CFString) == .success else {
+                    throw ProbeError("Could not close the owned desktop window")
+                }
+                return
             case "resize-content": try resizeContent(ownedWindow(owner), values); return
             case "focus-text", "fill-text":
                 guard let name = values.first else { throw ProbeError("Missing text control name") }

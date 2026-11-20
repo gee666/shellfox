@@ -9,6 +9,7 @@ use gpui::{AnyElement, Context, FocusHandle, IntoElement, Window};
 #[derive(Clone, Copy)]
 pub(super) enum Control {
     Browse,
+    SubmitPath,
     Browser,
     Close,
     Maximize,
@@ -19,8 +20,9 @@ pub(super) enum Control {
 }
 
 impl Control {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Browse,
+        Self::SubmitPath,
         Self::Browser,
         Self::Close,
         Self::Maximize,
@@ -33,6 +35,7 @@ impl Control {
     fn key(self) -> &'static str {
         match self {
             Self::Browse => "files/browse",
+            Self::SubmitPath => "files/submit-path",
             Self::Browser => "files/browser-toggle",
             Self::Close => "files/close",
             Self::Maximize => "files/maximize",
@@ -111,6 +114,7 @@ impl Root {
                 files.browser_focus.browse.focus(window);
                 self.browse_files(window, cx);
             }
+            Control::SubmitPath if files.browser && !files.busy => self.submit_file_path(cx),
             Control::Browser => self.toggle_file_browser(window, cx),
             Control::Close => self.request_file_action(FileAction::Hide, cx),
             Control::Maximize if !self.files_narrow(window) || files.maximized => {

@@ -108,7 +108,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await expect(browser.getByRole('option')).toContainText('unique-folder');
       await field.press('ArrowDown');
       await field.press('Enter');
-      await expect(field).toHaveValue(norm('unique-folder'));
+      await expect.poll(async () => (await field.inputValue()).replace(/\/$/, '')).toBe(norm('unique-folder'));
       await field.press('Enter');
       await expect(button('sentinel.txt')).toBeVisible();
       shot('03-completion');

@@ -49,9 +49,9 @@ function window(pid, executable, flag, data, action, ...values) {
   return output ? JSON.parse(output) : undefined;
 }
 
-async function environment(parent) {
+async function environment(parent, runtime) {
   const home = path.join(parent, 'home');
-  const env = { PATH: process.env.PATH, HOME: home, USERPROFILE: home, TMPDIR: path.join(parent, 'tmp'),
+  const env = { PATH: process.env.PATH, HOME: home, USERPROFILE: home, TMPDIR: runtime,
     XDG_CONFIG_HOME: path.join(home, 'config'), XDG_DATA_HOME: path.join(home, 'data'),
     XDG_CACHE_HOME: path.join(home, 'cache'), XDG_STATE_HOME: path.join(home, 'state'),
     TS_NO_LOGS_NO_SUPPORT: 'true' };
@@ -63,7 +63,8 @@ const probe = await startContainmentProbe();
 const failed = [];
 const setup = async (section, name) => {
   const target = path.join(dir, section, name);
-  const env = await environment(target);
+  // The Darwin session supervisor needs room for its private Unix socket name.
+  const env = await environment(target, path.join(dir, `${section[0]}-${name[0]}-tmp`));
   const project = await createFiles(target, probe.url);
   return { dir: target, env, project, window, section, async checkNetwork(label) {
     await delay(1_000);

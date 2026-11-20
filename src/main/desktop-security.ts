@@ -1,4 +1,4 @@
-import { session, type BrowserWindow } from 'electron';
+import { session, type BrowserWindow, type WebFrameMain } from 'electron';
 import { installFilePreviewProtocol } from './file-preview-protocol';
 import { FILE_PREVIEW_CSP, FILE_PREVIEW_SCHEME } from '../shared/file-preview-url';
 
@@ -9,9 +9,24 @@ export function installDesktopPolicy(): void {
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
 }
+type FrameAddress = Pick<WebFrameMain, 'processId' | 'routingId'>;
+
+export function permitPreviewNavigation(url: string, initiator: FrameAddress | null | undefined, renderer: FrameAddress): boolean {
+  if (!url.startsWith(`${FILE_PREVIEW_SCHEME}://document/?html=`)) return false;
+  return !initiator || (initiator.processId === renderer.processId && initiator.routingId === renderer.routingId);
+}
+
 export function secureDesktopWindow(window: BrowserWindow): void {
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  window.webContents.on('will-navigate', event => event.preventDefault());
-  window.webContents.on('will-redirect', event => event.preventDefault());
-  window.webContents.on('will-attach-webview', event => event.preventDefault());
+  const { webContents } = window;
+  webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  webContents.on('will-navigate', event => event.preventDefault());
+  // Cancel a preview's self-navigation before Chromium replaces the painted
+  // document with a blank page after blocking the destination in CSP.
+  webContents.on('will-frame-navigate', event => {
+    if (!event.isMainFrame && !permitPreviewNavigation(event.url, event.initiator, webContents.mainFrame)) {
+      event.preventDefault();
+    }
+  });
+  webContents.on('will-redirect', event => event.preventDefault());
+  webContents.on('will-attach-webview', event => event.preventDefault());
 }

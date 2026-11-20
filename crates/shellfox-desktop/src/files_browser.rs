@@ -103,13 +103,13 @@ impl Root {
                         }),
                 ))
             })
-            .child(
+            .child(Control::SubmitPath.wrap(self, "Open path", !busy, None,
                 text_button_enabled("files-go", "Go", palette, !busy)
                     .tooltip(crate::assets::tooltip("Open path", palette))
                     .when(!busy, |button| {
                         button.on_click(cx.listener(|root, _, _, cx| root.submit_file_path(cx)))
                     }),
-            )
+            ))
             .child(
                 text_button_enabled("refresh-files", "↻", palette, !busy)
                     .tooltip(crate::assets::tooltip("Refresh files", palette))
@@ -204,7 +204,7 @@ impl Root {
                             && files.missing_folder.is_none()
                             && !match_list.is_empty(),
                         |browser| {
-                            browser.child(completion_list(match_list, files, palette, window, cx))
+                            browser.child(completion_list(self, match_list, files, palette, window, cx))
                         },
                     ),
             )

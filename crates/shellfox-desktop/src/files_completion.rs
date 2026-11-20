@@ -267,12 +267,15 @@ fn accept(files: &mut Files, value: String, cx: &mut Context<Root>) {
 }
 
 pub(crate) fn completion_list(
+    root: &Root,
     matches: &[String],
     files: &Files,
     palette: Palette,
     window: &Window,
     cx: &mut Context<Root>,
 ) -> impl IntoElement {
+    use crate::accessibility::{Role, SemanticNode};
+    let frame = root.semantic_context.frame();
     let active = files.completion.state.active();
     let max_height = (f32::from(window.viewport_size().height) * 0.35).min(240.);
     div()
@@ -297,7 +300,7 @@ pub(crate) fn completion_list(
         .text_size(px(12.))
         .line_height(px(20.))
         .children(matches.iter().enumerate().map(|(index, value)| {
-            div()
+            let row = div()
                 .id(("file-match", index))
                 .flex()
                 .items_center()
@@ -322,6 +325,17 @@ pub(crate) fn completion_list(
                 .child(div().min_w_0().truncate().child(value.clone()))
                 .on_click(cx.listener(move |root, _, window, cx| {
                     root.choose_file_completion(index, window, cx)
-                }))
+                }));
+            match (frame.id_for(&format!("files/completion/{index}")), frame.id_for("root/files")) {
+                (Ok(id), Ok(parent)) => {
+                    let mut node = SemanticNode::new(id, Some(parent), Role::ListBoxOption, value.clone());
+                    node.data.set_selected(index == active);
+                    frame.wrap(node, row).into_any_element()
+                }
+                (Err(error), _) | (_, Err(error)) => {
+                    frame.reject(error);
+                    row.into_any_element()
+                }
+            }
         }))
 }

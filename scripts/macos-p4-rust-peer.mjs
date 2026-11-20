@@ -95,7 +95,10 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
         viewer('host', 'network', 'peer', peer.id, 'connect');
         const pending = await eventually('P4 viewer requests approval', () => status(hostCLI).pending, rows => rows.length === 1);
         assert.equal(pending[0].hostname, viewerName);
+        const awaiting = await eventually('viewer received the pending approval state', current,
+          row => row?.connection === 'awaitingApproval' && Boolean(row.attemptId));
         hostCLI('host', 'network', 'peer', pending[0].id, 'approve');
+        viewer('host', 'network', 'continue', awaiting.attemptId);
         await connected();
       },
       async cycleListener(duringOutage) {
