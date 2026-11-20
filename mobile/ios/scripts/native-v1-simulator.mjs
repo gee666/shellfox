@@ -28,10 +28,11 @@ function child(command, args) {
   const proc = spawn(command, args, {
     cwd: root, env: { ...process.env, ...sharedEnv }, stdio: ['ignore', 'pipe', 'inherit'],
   });
-  const state = { proc, output: '', finished: false, status: null, startedTest: false };
+  const state = { proc, output: '', finished: false, status: null, startedTest: false, observedOutage: false };
   proc.stdout.on('data', bytes => {
     state.output = (state.output + bytes).slice(-20_000);
     state.startedTest ||= state.output.includes("testNativeV1OnOwnedRustHost]' started.");
+    state.observedOutage ||= state.output.includes("Added attachment named '04-native-host-offline'");
     process.stdout.write(bytes);
   });
   proc.once('close', (code, signal) => { state.finished = true; state.status = code ?? signal; });
@@ -182,8 +183,10 @@ try {
     return listenerStopped(await local('host', 'network', 'status'));
   }, 1_000);
   console.log('The original Rust listener helper has exited');
-  await delay(12_000);
-  live(tests, 'Native v1 UI test');
+  await until('the iPad UI to observe the confirmed listener outage', 70_000, () => {
+    live(tests, 'Native v1 UI test');
+    return tests.observedOutage;
+  });
   assert.equal((await local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci')).enabled, true);
   console.log('Rust host accepted listener restore');
   await until('native v1 UI tests to finish', 12 * 60_000, () => tests.finished);

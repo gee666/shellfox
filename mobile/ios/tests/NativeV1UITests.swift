@@ -56,7 +56,7 @@ final class NativeV1UITests: XCTestCase {
     screenshot("03-native-resized-landscape")
 
     // The landscape probe queues the host-side outage after reporting its dimensions.
-    wait("the attached simulator observed real host loss") {
+    wait("the attached simulator observed real host loss", timeout: 60) {
       connection.exists && ["Connection disconnected", "Connection reconnecting..."].contains(connection.label)
     }
     screenshot("04-native-host-offline")
