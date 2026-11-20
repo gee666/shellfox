@@ -107,6 +107,82 @@ jobs:
         run: rm -rf -- "$CARGO_TARGET_DIR"
         timeout-minutes: 5
 
+  macos-p4:
+    if: github.ref == 'refs/heads/experiment/ghostty-rust'
+    name: macOS ${{ matrix.arch }} Files runtime
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-latest, arch: arm64 }
+          - { runner: macos-15-intel, arch: x64 }
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple/target
+      CARGO_BUILD_JOBS: '4'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+      GHOSTTY_VT_LINK_KIND: static
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Require a logged-in Aqua session for P4
+        run: |
+          mkdir -p tmp/lane-apple/p4
+          xcrun swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.2" scripts/macos-p4-window.swift -o tmp/lane-apple/p4/window-probe
+          tmp/lane-apple/p4/window-probe preflight
+        timeout-minutes: 5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24.22.1
+          architecture: ${{ matrix.arch }}
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Prepare static Ghostty and JavaScript test fixtures
+        run: |
+          node scripts/rust-package-prereqs.mjs
+          pnpm install --frozen-lockfile --ignore-scripts
+        timeout-minutes: 30
+      - name: Build the P4 Files fixtures
+        shell: bash
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: ''
+        run: |
+          cargo check --locked --workspace --all-targets
+          cargo test --locked -p shellfox-desktop --bin shellfox files::
+          cargo test --locked -p shellfox-files --all-targets
+          cargo build --locked -p shellfox-desktop --bin shellfox
+          node scripts/tailscale.mjs build
+          pnpm build:test
+        timeout-minutes: 30
+      - name: Compare local Files and HTML containment in both apps
+        run: |
+          node scripts/macos-p4-files.mjs \
+            --rust "$CARGO_TARGET_DIR/debug/shellfox" \
+            --helper "$PWD/tmp/dev-helper/shellfox-tailscale" \
+            --electron "$PWD/tmp/build-test/main/index.cjs" \
+            --artifacts "$PWD/tmp/lane-apple/p4" \
+            --probe "$PWD/tmp/lane-apple/p4/window-probe"
+        timeout-minutes: 15
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: macos-p4-files-${{ matrix.arch }}
+          path: |
+            tmp/lane-apple/p4/files-*/**/*.png
+            tmp/lane-apple/p4/files-*/**/*.json
+            tmp/lane-apple/p4/files-*/**/*.log
+          if-no-files-found: warn
+      - name: Remove Cargo build directory
+        if: always()
+        run: rm -rf -- "$CARGO_TARGET_DIR"
+        timeout-minutes: 5
+
   ios:
     if: github.ref == 'refs/heads/experiment/ghostty-rust'
     name: iOS app, native contracts and native v1 simulator
