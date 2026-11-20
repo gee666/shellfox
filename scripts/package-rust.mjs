@@ -1,6 +1,7 @@
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { fileHash, nativeTarget, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
 import { stageResources } from './rust-package-resources.mjs';
@@ -97,7 +98,7 @@ function signMac(file) {
   run('/usr/bin/codesign', ['--force', '--sign', identity, ...signing, ...(keychain ? ['--keychain', keychain] : []), file]);
 }
 
-function macos(app, artifacts, sign) {
+async function macos(app, artifacts, sign) {
   const contents = path.join(app, 'Contents');
   const plist = path.join(contents, 'Info.plist');
   writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
@@ -124,7 +125,19 @@ function macos(app, artifacts, sign) {
   const volume = path.join(path.dirname(app), 'disk-image');
   mkdirSync(volume);
   renameSync(app, path.join(volume, path.basename(app)));
-  run('/usr/bin/hdiutil', ['create', '-volname', 'Shellfox', '-format', 'UDZO', '-srcfolder', volume, path.join(artifacts, `${stem}.dmg`)]);
+  const image = path.join(artifacts, `${stem}.dmg`);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      run('/usr/bin/hdiutil', ['create', '-volname', 'Shellfox', '-format', 'UDZO', '-srcfolder', volume, image], { timeout: 180_000 });
+      break;
+    } catch (error) {
+      // macOS services can briefly hold the image device while hdiutil detaches it.
+      if (attempt === 3 || !/hdiutil: create failed - Resource busy/.test(error.message)) throw error;
+      console.warn(`Disk image device busy, retrying after ${attempt * 5}s`);
+      rmSync(image, { force: true });
+      await delay(attempt * 5_000);
+    }
+  }
 }
 
 export async function packageRust({ output = path.join(scratchRoot, 'rust-installers'), testId } = {}) {
@@ -164,7 +177,7 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     if (win) {
       for (const dir of [app, path.join(app, 'bin')]) copy(path.join(profile, 'ghostty-vt.dll'), path.join(dir, 'ghostty-vt.dll'));
       await windows(app, artifacts, testId);
-    } else if (mac) macos(app, artifacts, signDarwin);
+    } else if (mac) await macos(app, artifacts, signDarwin);
     else linux(work, app, artifacts);
     mkdirSync(path.dirname(output), { recursive: true });
     renameSync(artifacts, output);

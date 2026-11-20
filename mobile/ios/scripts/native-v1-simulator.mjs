@@ -28,9 +28,9 @@ function child(command, args) {
   const state = { proc, output: '', finished: false, status: null };
   proc.stdout.on('data', bytes => {
     state.output = (state.output + bytes).slice(-20_000);
-    if (command === 'xcodebuild') console.log(bytes.toString().trimEnd());
+    process.stdout.write(bytes);
   });
-  proc.once('exit', (code, signal) => { state.finished = true; state.status = code ?? signal; });
+  proc.once('close', (code, signal) => { state.finished = true; state.status = code ?? signal; });
   proc.once('error', error => { state.finished = true; state.status = error.message; });
   return state;
 }
@@ -69,7 +69,7 @@ const cli = path.join(cargoTarget, 'debug/shellfox-cli');
 const helper = path.join(scratchRoot, 'dev-helper/shellfox-tailscale');
 const flags = ['--data-dir', data, '--helper', helper, '--helper-sha256', fileHash(helper),
   '--remote-control-url', controlURL, '--remote-hostname', 'shellfox-ios-ci'];
-const local = (...args) => JSON.parse(command(cli, [...flags, ...args], { timeout: 12_000 }));
+const local = (...args) => JSON.parse(command(cli, [...flags, ...args]));
 
 mkdirSync(evidence, { recursive: true });
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -80,7 +80,8 @@ const simulator = Object.values(devices).reverse().flat().find(device => device.
 assert.ok(simulator, 'Rotation requires an available iPad simulator');
 const sim = (...args) => command('xcrun', ['simctl', ...args]);
 let control, host, tests;
-let installed = false;
+let booted = false;
+let failure;
 try {
   control = child(path.join(lane, 'testcontrol'), [port]);
   await until('loopback Tailscale control plane HTTP readiness', 30_000, async () => {
@@ -90,19 +91,23 @@ try {
       return ready.status === 204 && ready.headers.get('X-Shellfox-Fixture') === 'testcontrol';
     } catch { return false; }
   });
-  if (simulator.state !== 'Booted') sim('boot', simulator.udid);
-  command('xcrun', ['simctl', 'bootstatus', simulator.udid, '-b'], { timeout: 180_000 });
+  console.log('Starting isolated Rust host');
   host = child(cli, [...flags, 'host', 'serve']);
-  await until('empty isolated Rust host', 30_000, () => {
+  const endpoint = path.join(data, 'rust-service-v1', 'endpoint.json');
+  await until('the Rust host endpoint', 30_000, () => {
     live(host, 'Rust host');
-    try { return local('session', 'list').length === 0; } catch { return false; }
+    return existsSync(endpoint);
   });
+  assert.deepEqual(local('session', 'list'), []);
+  console.log('Creating the fixture PTY and enabling the host listener');
   local('session', 'create', '--cwd', project, '--profile', 'login-shell', '--title', 'iOS native CI');
-  local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci');
-  sim('install', simulator.udid, app);
-  installed = true;
-  command('xcrun', ['simctl', 'launch', simulator.udid, bundleID, '--shellfox-native-v1', '--shellfox-control-url', controlURL],
-    { env: { ...sharedEnv, SIMCTL_CHILD_TS_DEBUG_ALWAYS_USE_DERP: 'true' } });
+  assert.equal(local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci').enabled, true);
+  console.log(`Booting ${simulator.name} (${simulator.udid})`);
+  if (simulator.state !== 'Booted') sim('boot', simulator.udid);
+  command('xcrun', ['simctl', 'bootstatus', simulator.udid, '-b'], { timeout: 240_000, stdio: 'inherit' });
+  booted = true;
+  assert.ok(existsSync(app), 'The fixture app must be built before running the UI tests');
+  console.log('Starting XCTest on the owned iPad');
   tests = child('xcodebuild', ['-workspace', 'mobile/ios/ShellfoxMobile.xcworkspace', '-scheme', 'ShellfoxNativeV1UI',
     '-configuration', 'Release', '-sdk', 'iphonesimulator', '-destination', `platform=iOS Simulator,id=${simulator.udid}`,
     '-derivedDataPath', build, '-resultBundlePath', result, '-parallel-testing-enabled', 'NO',
@@ -132,16 +137,30 @@ try {
   assert.equal(tests.status, 0, tests.output);
   assert.match(readFileSync(fixture, 'utf8'), /saved-from-ios/, 'Rust host did not commit the simulator file save');
   console.log('Native v1 simulator connected, paired, attached, echoed, resized, recovered from a real outage, reattached after backgrounding, and saved to the isolated Rust host.');
+} catch (error) {
+  failure = error;
+  throw error;
 } finally {
-  if (installed) {
-    try { sim('io', simulator.udid, 'screenshot', path.join(evidence, 'last-screen.png')); } catch { /* Preserve the original failure. */ }
-    try { sim('terminate', simulator.udid, bundleID); } catch { /* It may already be stopped. */ }
+  if (booted) {
+    try { sim('io', simulator.udid, 'screenshot', path.join(evidence, 'last-screen.png')); } catch { /* Best effort. */ }
   }
   await stop(tests);
+  if (booted) {
+    try { sim('terminate', simulator.udid, bundleID); } catch { /* XCTest may have stopped it. */ }
+  }
   try {
     if (host && !host.finished) {
-      try { local('host', 'stop'); } finally { await stop(host); }
+      try {
+        local('host', 'stop');
+        await until('graceful host exit', 10_000, () => host.finished);
+        assert.equal(host.status, 0, host.output);
+      } finally {
+        await stop(host);
+      }
     }
+  } catch (error) {
+    if (!failure) throw error;
+    console.error('Host cleanup also failed:', error);
   } finally {
     await stop(control);
   }

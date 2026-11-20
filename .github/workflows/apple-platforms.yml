@@ -5,6 +5,7 @@ on:
   push:
     branches: [experiment/ghostty-rust]
     paths:
+      - .github/workflows/apple-platforms.yml
       - .github/workflows/rust-platforms.yml
       - Cargo.*
       - rust-toolchain.toml
@@ -205,6 +206,8 @@ jobs:
             test -n "$simulator"
             xcrun simctl boot "$simulator"
           fi
+          # Do not keep the iPhone running while the iPad UI fixture boots.
+          trap 'xcrun simctl shutdown "$simulator"' EXIT
           xcrun simctl bootstatus "$simulator" -b
           xcodebuild -workspace mobile/ios/ShellfoxMobile.xcworkspace \
             -scheme ShellfoxRustNative -sdk iphonesimulator -configuration Debug \
