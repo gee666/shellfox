@@ -27,6 +27,8 @@ fn delayed_loopback_terminal_directory_result_cannot_replace_the_selected_peer_t
     client.set_write_timeout(Some(wait)).unwrap();
     listener.set_nonblocking(true).unwrap();
     let (mut server, _) = listener.accept().unwrap();
+    // Darwin inherits O_NONBLOCK from the listener. Only accept is nonblocking.
+    server.set_nonblocking(false).unwrap();
     server.set_read_timeout(Some(wait)).unwrap();
     server.set_write_timeout(Some(wait)).unwrap();
     let (requested, received) = mpsc::channel();
