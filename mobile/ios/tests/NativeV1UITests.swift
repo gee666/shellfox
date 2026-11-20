@@ -73,7 +73,11 @@ final class NativeV1UITests: XCTestCase {
       app.state == .runningBackground || app.state == .runningBackgroundSuspended
     }
     app.activate()
-    XCTAssertTrue(terminal.waitForExistence(timeout: 30), app.debugDescription)
+    // A handler can resume with an in-flight poll still to retire before
+    // reconnect and reattachment can complete.
+    wait("foreground reconnect restores the native terminal", timeout: 75) {
+      connection.exists && connection.label == "Connection connected" && terminal.exists
+    }
     focusKeyboard(app, terminal: terminal)
     runFixture("f", app: app)
     waitForOutput("SF_IOS_RESUMED:retained", in: terminal)

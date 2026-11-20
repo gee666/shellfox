@@ -165,10 +165,12 @@ impl Root {
                 match result {
                     Ok(LoadedDocument::Text {
                         path,
-                        text,
+                        mut text,
                         size,
                         revision,
                     }) => {
+                        let utf8_bom = text.starts_with('\u{feff}');
+                        if utf8_bom { text.remove(0); }
                         let text = Field::asset_editor(&path, text, cx);
                         if let Some(position) = position {
                             text.update(cx, |field, _| {
@@ -193,6 +195,7 @@ impl Root {
                                 path,
                                 size,
                                 revision,
+                                utf8_bom,
                             },
                         });
                     }
@@ -237,6 +240,7 @@ impl Root {
             text: editor.text.read(cx).snapshot_text(),
             path: editor.file.path.clone(),
             revision: editor.file.revision.clone(),
+            utf8_bom: editor.file.utf8_bom,
         };
         files.request += 1;
         let serial = files.request;

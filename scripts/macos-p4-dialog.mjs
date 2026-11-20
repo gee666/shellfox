@@ -29,15 +29,26 @@ export function nativePicker(action) {
     (row.role === 'AXWindow' && ['Open', 'Save', 'Save As'].includes(row.title)));
   const dismissed = () => eventually('native picker dismissed', read, rows => rows.length === 0);
   const confirmation = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Replace');
-  const confirmOpen = async () => {
-    await eventually('native Open enabled', read, rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Open' && row.enabled));
-    action('press', 'Open');
+  const openEnabled = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Open' && row.enabled);
+  const confirmOpen = async (ms = 20_000) => {
+    await eventually('native Open enabled', read, openEnabled, ms);
+    try { action('press', 'Open'); }
+    catch (error) {
+      await dismissed().catch(() => { throw error; });
+      return;
+    }
     await dismissed();
   };
   const choose = async name => {
     await eventually(`native picker lists ${name}`, read, rows => rows.some(row => label(row) === name || row.value === name));
     action('select-entry', name);
-    await confirmOpen();
+    try { await eventually('native file row selected', read, openEnabled, 5_000); }
+    catch (error) {
+      if (error?.code !== 'ERR_ASSERTION') throw error;
+      // Repeat only the row click, never Open, if the file is still unselected.
+      if (!openEnabled(read())) action('select-entry', name);
+    }
+    await confirmOpen(15_000);
   };
   return {
     wait: () => eventually('owned native file dialog', read, dialog),

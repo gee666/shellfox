@@ -21,13 +21,14 @@ pub(super) struct SaveSnapshot {
     pub path: String,
     pub revision: String,
     pub text: Arc<str>,
+    pub utf8_bom: bool,
 }
 impl SaveSnapshot {
     pub fn request(&self) -> WriteText {
         WriteText {
             path: self.path.clone(),
             revision: self.revision.clone(),
-            text: self.text.to_string(),
+            text: if self.utf8_bom { format!("\u{feff}{}", self.text) } else { self.text.to_string() },
         }
     }
     pub fn prepare_completion(
@@ -75,19 +76,23 @@ mod tests {
         let mut file = EditorFile {
             path: "/fixture/editor".into(),
             revision: "old".into(),
-            size: 3,
+            size: 6,
+            utf8_bom: true,
         };
         let mut saved: Arc<str> = Arc::from("old");
         let snapshot = SaveSnapshot {
             path: file.path.clone(),
             revision: file.revision.clone(),
             text: Arc::from("changed\r\n雪"),
+            utf8_bom: file.utf8_bom,
         };
+        let request = snapshot.request();
+        assert_eq!(request.text, "\u{feff}changed\r\n雪");
         let later: Arc<str> = Arc::from("changed\r\n雪 while saving");
         let written = WriteResult {
             path: file.path.clone(),
             revision: "new".into(),
-            size: snapshot.text.len() as u64,
+            size: request.text.len() as u64,
         };
         assert!(snapshot.apply(&mut file, &mut saved, written));
         assert_eq!(&*saved, "changed\r\n雪");
@@ -100,12 +105,14 @@ mod tests {
             path: "/fixture/a".into(),
             revision: "old".into(),
             text: Arc::from("saved"),
+            utf8_bom: false,
         };
         for (path, revision) in [("/fixture/a", "reloaded"), ("/fixture/b", "old")] {
             let mut file = EditorFile {
                 path: path.into(),
                 revision: revision.into(),
                 size: 4,
+                utf8_bom: false,
             };
             let mut saved: Arc<str> = Arc::from("keep");
             let written = WriteResult {

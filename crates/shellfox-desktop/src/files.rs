@@ -132,6 +132,7 @@ pub struct EditorFile {
     pub path: String,
     pub size: u64,
     pub revision: String,
+    pub(super) utf8_bom: bool,
 }
 pub struct Editor {
     pub file: EditorFile,

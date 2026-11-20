@@ -13,12 +13,25 @@ pub fn file_error(error: files::FileError) -> AppError {
         files::ErrorCode::FileConflict => ErrorCode::FileConflict,
         files::ErrorCode::StorageFailed => ErrorCode::StorageFailed,
     };
-    crate::error(
-        code,
-        "Host-account file operation failed under its OS permissions. No mutation was retried.",
-        false,
-    )
+    let message = if code == ErrorCode::FileConflict {
+        "File changed on disk. Reload before saving."
+    } else {
+        "Host-account file operation failed under its OS permissions. No mutation was retried."
+    };
+    crate::error(code, message, false)
 }
+#[cfg(test)]
+#[test]
+fn stale_file_revisions_report_a_conflict_without_disclosing_host_details() {
+    let result = file_error(files::FileError {
+        code: files::ErrorCode::FileConflict,
+        message: "private host path".into(),
+    });
+    assert_eq!(result.code, ErrorCode::FileConflict);
+    assert_eq!(result.message, "File changed on disk. Reload before saving.");
+    assert!(!result.retryable);
+}
+
 pub(crate) fn capability<'a>(
     actor: &'a Actor,
     _path: &str,
