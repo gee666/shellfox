@@ -20,7 +20,7 @@ func rectJSON(_ rect: CGRect) -> [String: CGFloat] {
     ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]
 }
 
-func tree(_ window: AXUIElement) -> [[String: Any]] {
+func tree(_ window: AXUIElement, includeGeometry: Bool = true) -> [[String: Any]] {
     var queue = [window]
     var result = [[String: Any]]()
     let strings = [("role", kAXRoleAttribute), ("subrole", kAXSubroleAttribute), ("title", kAXTitleAttribute),
@@ -43,7 +43,7 @@ func tree(_ window: AXUIElement) -> [[String: Any]] {
             if let focused: Bool = attribute(element, kAXFocusedAttribute) { row["focused"] = focused }
             if let enabled: Bool = attribute(element, kAXEnabledAttribute) { row["enabled"] = enabled }
         }
-        if let rect = rectangle(element) { row["rect"] = rectJSON(rect) }
+        if includeGeometry, let rect = rectangle(element) { row["rect"] = rectJSON(rect) }
         result.append(row)
         let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
         queue.append(contentsOf: children.reversed())
@@ -72,10 +72,10 @@ func nativeDialogs(_ owner: pid_t, windows: [AXUIElement]? = nil) -> [AXUIElemen
     while let element = queue.popLast(), visited < 1500 {
         visited += 1
         let role: String? = attribute(element, kAXRoleAttribute)
-        let subrole: String? = attribute(element, kAXSubroleAttribute)
-        let title: String = attribute(element, kAXTitleAttribute) ?? ""
-        let standalonePicker = role == kAXWindowRole && ["Open", "Save", "Save As"].contains(title)
-        if role == "AXSheet" || subrole == "AXDialog" || subrole == "AXSystemDialog" || standalonePicker {
+        let subrole: String? = role == kAXWindowRole ? attribute(element, kAXSubroleAttribute) : nil
+        let title: String? = role == kAXWindowRole ? attribute(element, kAXTitleAttribute) : nil
+        let standalonePicker = title.map { ["Open", "Save", "Save As"].contains($0) } ?? false
+        if role == "AXSheet" || role == "AXDialog" || subrole == "AXDialog" || subrole == "AXSystemDialog" || standalonePicker {
             dialogs.append(element)
         }
         // File lists and web documents cannot contain AppKit modal windows.
@@ -89,7 +89,7 @@ func nativeDialogs(_ owner: pid_t, windows: [AXUIElement]? = nil) -> [AXUIElemen
 func dialogRows(_ owner: pid_t) throws -> [[String: Any]] {
     let windows = ownedWindows(owner)
     guard !windows.isEmpty else { throw ProbeError("No accessible window from the owned fixture") }
-    return nativeDialogs(owner, windows: windows).flatMap(tree)
+    return nativeDialogs(owner, windows: windows).flatMap { tree($0, includeGeometry: false) }
 }
 
 func dialogOwner(_ owner: pid_t) throws -> pid_t {

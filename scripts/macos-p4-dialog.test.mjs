@@ -18,6 +18,17 @@ test('recognizes and cancels the standalone AppKit panel', async () => {
   assert.equal(visible, false);
 });
 
+test('waits for the owned window after a transient accessibility failure', async () => {
+  let reads = 0;
+  const picker = nativePicker(action => {
+    assert.equal(action, 'dialogs');
+    if (++reads === 1) throw new Error('No accessible window from the owned fixture');
+    return [openPanel, cancel];
+  });
+  assert.deepEqual(await picker.wait(), [openPanel, cancel]);
+  assert.equal(reads, 2);
+});
+
 test('selects an exact AppKit row in the preconfigured directory and waits for Open', async () => {
   const name = 'fixture.txt';
   let visible = true;

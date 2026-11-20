@@ -160,7 +160,8 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       action('paste', guardDraft);
       await editor(guardDraft);
       await go(html);
-      await shot('08-open-with-draft', shot => observed(shot, 'Save changes to notes.txt'));
+      await node('Save and continue', control => control?.enabled === true);
+      await shot('08-open-with-draft');
       await press('Cancel');
       await editor(guardDraft);
       assert.equal(await readFile(notes, 'utf8'), `\uFEFF${updated}`);
