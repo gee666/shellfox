@@ -9,7 +9,7 @@ pub(crate) fn open(
     #[cfg(all(target_os = "macos", debug_assertions, feature = "test-macos-p4"))]
     if let Some(root) = std::env::var_os("SHELLFOX_P4_PICKER_ROOT") {
         let dir = PathBuf::from(root).join(if options.directories {
-            "project"
+            "project/unique-folder"
         } else {
             "upload"
         });

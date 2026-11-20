@@ -43,7 +43,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       win.show();
       win.focus();
       return { pid: process.pid, executable: process.execPath, userData: app.getPath('userData') };
-    }, { ...dimensions, project, uploads: path.join(dir, 'upload'), downloads });
+    }, { ...dimensions, project: path.join(project, 'unique-folder'), uploads: path.join(dir, 'upload'), downloads });
     assert.deepEqual(owner, { pid, executable: binary, userData: data });
     await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1200, 760]);
     const sidebar = page.getByRole('complementary', { name: 'File sidebar' });
@@ -97,7 +97,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await expect(field).toHaveValue(project);
       await button('Browse folders').click();
       await picker.wait();
-      await picker.choose('unique-folder');
+      await picker.confirmOpen();
       await expect(field).toHaveValue(norm('unique-folder'));
       await expect(button('sentinel.txt')).toBeVisible();
       await button('Parent folder').click();

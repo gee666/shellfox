@@ -14,19 +14,23 @@ pub(super) enum Control {
     Close,
     Maximize,
     CopyPath,
+    Source,
+    Preview,
     Upload,
     Download,
     CancelTransfer,
 }
 
 impl Control {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 11] = [
         Self::Browse,
         Self::SubmitPath,
         Self::Browser,
         Self::Close,
         Self::Maximize,
         Self::CopyPath,
+        Self::Source,
+        Self::Preview,
         Self::Upload,
         Self::Download,
         Self::CancelTransfer,
@@ -40,6 +44,8 @@ impl Control {
             Self::Close => "files/close",
             Self::Maximize => "files/maximize",
             Self::CopyPath => "files/copy-path",
+            Self::Source => "files/text-source",
+            Self::Preview => "files/text-preview",
             Self::Upload => "files/upload",
             Self::Download => "files/download",
             Self::CancelTransfer => "files/cancel-transfer",
@@ -121,6 +127,15 @@ impl Root {
                 self.toggle_file_maximized(window, cx)
             }
             Control::CopyPath if files.opened_path().is_some() => self.copy_open_file_path(cx),
+            Control::Source | Control::Preview
+                if files
+                    .editor
+                    .as_ref()
+                    .and_then(|editor| editor.text_preview.as_ref())
+                    .is_some() =>
+            {
+                self.set_file_preview(matches!(control, Control::Preview), cx);
+            }
             Control::Upload if can_transfer => {
                 self.begin_file_transfer(TransferDirection::Upload, window, cx)
             }

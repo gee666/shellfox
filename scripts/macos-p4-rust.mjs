@@ -63,14 +63,6 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await press('Browse folders');
     return picker.wait();
   };
-  const togglePreview = async () => {
-    const { rect } = await node('File sidebar');
-    // The last two 24px toolbar controls are Source and Preview.
-    const folder = named(tree(), 'Folder path');
-    assert.ok(!folder, 'Collapse the browser to make the document toolbar position unambiguous');
-    const press = farRight => click({ x: rect.x + rect.width - farRight, y: rect.y + 32 + 17 });
-    return { source: () => press(43), preview: () => press(16) };
-  };
   let failure, peer;
   try {
     await Promise.race([exited.then(({ code }) => { throw new Error(`Rust desktop exited early: ${code}`); }),
@@ -101,15 +93,16 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       return startup.scale;
     }
     if (section === 'workspace') {
-      await shot('02-files', shot => observed(shot, 'notes.txt'));
+      await shot('02-files', shot => observed(shot, 'gone'));
       const dialog = await browse();
       await writeFile(path.join(dir, 'native-folder-picker.json'), JSON.stringify(dialog, null, 2));
       await picker.cancel();
       await node('Folder path', field => field?.value === project);
       await browse();
       const unique = path.join(project, 'unique-folder');
-      await picker.choose('unique-folder');
+      await picker.confirmOpen();
       await node('Folder path', field => field?.value === unique);
+      await shot('02-native-folder', shot => observed(shot, 'sentinel.txt'));
       await go(project, project);
       await focusPath(path.join(project, 'uni'));
       await eventually('named directory suggestion', tree, rows => rows.some(row =>
@@ -198,11 +191,10 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await press('Restore file');
       await node('File sidebar', value => value?.rect?.width === pane.rect.width);
       await shot('10-html-restored', shot => observed(shot, marker));
-      const toggle = await togglePreview();
-      toggle.source();
+      await press('Edit source');
       await editor(await readFile(html, 'utf8'));
       await shot('11-html-source', shot => !observed(shot, marker));
-      toggle.preview();
+      await press('Preview file');
       action('resize-content', 40, 40, 1100, 720);
       await shot('12-html-resized', shot => shot.contentSize[0] === 1100 && shot.contentSize[1] === 720 && observed(shot, marker));
       action('resize-content', 40, 40, 1200, 760);

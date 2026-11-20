@@ -39,3 +39,21 @@ test('selects an exact AppKit row in the preconfigured directory and waits for O
   await picker.choose(name);
   assert.equal(visible, false);
 });
+
+test('verifies the real overwrite sheet when AppKit does not acknowledge Save', async () => {
+  const name = 'fixture.txt';
+  let step = 'save';
+  const picker = nativePicker((action, value) => {
+    if (action === 'dialogs') {
+      if (step === 'save') return [{ role: 'AXTextField', value: name }];
+      return step === 'confirm' ? [{ role: 'AXButton', title: 'Replace' }] : [];
+    }
+    assert.equal(action, 'press');
+    if (value === 'Save') { step = 'confirm'; throw new Error('AXPress could not complete'); }
+    assert.equal(value, 'Replace');
+    step = 'closed';
+  });
+  await picker.save(name);
+  await picker.replace(true);
+  assert.equal(step, 'closed');
+});

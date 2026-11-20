@@ -151,6 +151,15 @@ impl Root {
         document.into_any_element()
     }
 
+    pub(super) fn set_file_preview(&mut self, show: bool, cx: &mut Context<Self>) {
+        if let Some(preview) = self.files.as_mut().and_then(|files| files.editor.as_mut())
+            .and_then(|editor| editor.text_preview.as_mut())
+        {
+            preview.showing = show;
+            cx.notify();
+        }
+    }
+
     pub(super) fn copy_open_file_path(&mut self, cx: &mut Context<Self>) {
         if !self.require_files_source(cx) { return; }
         if let Some(path) = self.files.as_ref().and_then(Files::opened_path) {
@@ -291,12 +300,13 @@ fn file_toolbar(
             },
         )
         .when_some(preview, |bar, preview| {
-            bar.child(preview_button(false, preview.showing, palette, cx))
-                .child(preview_button(true, preview.showing, palette, cx))
+            bar.child(preview_button(root, false, preview.showing, palette, cx))
+                .child(preview_button(root, true, preview.showing, palette, cx))
         })
 }
 
 fn preview_button(
+    root: &Root,
     show: bool,
     showing: bool,
     palette: Palette,
@@ -307,22 +317,13 @@ fn preview_button(
     } else {
         ("file-source", "edit", "Edit source")
     };
-    control(id, icon, palette)
+    let kind = if show { Control::Preview } else { Control::Source };
+    kind.wrap(root, label, true, None, control(id, icon, palette)
         .when(show == showing, |button| {
             button.bg(palette.hover).text_color(palette.accent)
         })
         .tooltip(crate::assets::tooltip(label, palette))
-        .on_click(cx.listener(move |root, _, _, cx| {
-            if let Some(preview) = root
-                .files
-                .as_mut()
-                .and_then(|files| files.editor.as_mut())
-                .and_then(|editor| editor.text_preview.as_mut())
-            {
-                preview.showing = show;
-                cx.notify();
-            }
-        }))
+        .on_click(cx.listener(move |root, _, _, cx| root.set_file_preview(show, cx))))
 }
 
 fn feedback(text: impl Into<gpui::SharedString>, palette: Palette) -> gpui::Div {

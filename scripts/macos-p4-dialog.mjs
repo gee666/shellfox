@@ -21,23 +21,31 @@ export function nativePicker(action) {
     row.subrole === 'AXDialog' || row.role === 'AXDialog' || row.role === 'AXSheet' ||
     (row.role === 'AXWindow' && ['Open', 'Save', 'Save As'].includes(row.title)));
   const dismissed = () => eventually('native picker dismissed', read, rows => rows.length === 0);
-  const choose = async name => {
-    await eventually(`native picker lists ${name}`, read, rows => rows.some(row => label(row) === name || row.value === name));
-    action('select-entry', name);
+  const confirmation = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Replace');
+  const confirmOpen = async () => {
     await eventually('native Open enabled', read, rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Open' && row.enabled));
     action('press', 'Open');
     await dismissed();
+  };
+  const choose = async name => {
+    await eventually(`native picker lists ${name}`, read, rows => rows.some(row => label(row) === name || row.value === name));
+    action('select-entry', name);
+    await confirmOpen();
   };
   return {
     wait: () => eventually('owned native file dialog', read, dialog),
     cancel: async () => { action('press', 'Cancel'); await dismissed(); },
     choose,
+    confirmOpen,
     async save(name) {
       await eventually('sanitize and prefill download filename', read, rows => rows.some(row => row.role === 'AXTextField' && row.value === name));
-      action('press', 'Save');
+      try { action('press', 'Save'); }
+      catch (error) {
+        // AppKit can display the overwrite sheet without completing AXPress.
+        await eventually('native Save opened the overwrite sheet', read, confirmation).catch(() => { throw error; });
+      }
     },
     async replace(accept) {
-      const confirmation = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Replace');
       await eventually('native overwrite confirmation', read, confirmation);
       if (accept) action('press', 'Replace');
       else {
