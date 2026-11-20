@@ -12,9 +12,9 @@ assert.equal(process.platform, 'darwin');
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Run only on an isolated macOS CI desktop');
 const { values: args } = parseArgs({ options: {
   rust: { type: 'string' }, helper: { type: 'string' }, electron: { type: 'string' },
-  artifacts: { type: 'string' }, probe: { type: 'string' },
+  'electron-project': { type: 'string' }, artifacts: { type: 'string' }, probe: { type: 'string' },
 } });
-for (const key of ['rust', 'helper', 'electron', 'artifacts', 'probe']) assert.ok(args[key], `Missing --${key}`);
+for (const key of ['rust', 'helper', 'electron', 'electron-project', 'artifacts', 'probe']) assert.ok(args[key], `Missing --${key}`);
 const lane = await realpath(path.join(scratchRoot, 'lane-apple/p4'));
 assert.equal(await realpath(args.artifacts), lane);
 assert.equal(await realpath(args.probe), path.join(lane, 'window-probe'));
@@ -22,6 +22,10 @@ run(args.probe, ['preflight'], { timeout: 10_000 });
 const [rust, helper, electron] = await Promise.all([args.rust, args.helper, args.electron].map(file => realpath(file)));
 assert.equal(helper, path.join(scratchRoot, 'dev-helper/shellfox-tailscale'));
 assert.equal(electron, path.join(scratchRoot, 'build-test/main/index.cjs'));
+const electronProject = await realpath(args['electron-project']);
+assert.equal(electronProject, path.join(scratchRoot, 'lane-apple/p4-electron'));
+const electronHelper = path.join(electronProject, 'tmp/tailscale', `darwin-${process.arch}`, 'shellfox-tailscale');
+assert.equal(await realpath(electronHelper), electronHelper);
 const electronBinary = await realpath(path.join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'));
 const dir = await mkdtemp(path.join(lane, 'files-'));
 console.log(`P4 macOS evidence: ${dir}`);
@@ -62,7 +66,7 @@ try {
   try { scale = await runRust({ ...await setup('rust'), binary: rust, helper }); }
   catch (error) { failed.push(error); console.error(error); }
   await writeFile(path.join(dir, 'rust-loopback.json'), JSON.stringify(probe.requests.splice(0)));
-  try { await runElectron({ ...await setup('electron'), binary: electronBinary, main: electron, scale }); }
+  try { await runElectron({ ...await setup('electron'), binary: electronBinary, main: electron, projectRoot: electronProject, scale }); }
   catch (error) { failed.push(error); console.error(error); }
   await writeFile(path.join(dir, 'electron-loopback.json'), JSON.stringify(probe.requests));
 } finally {

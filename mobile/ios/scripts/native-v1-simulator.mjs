@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileHash, root, run, scratchRoot } from '../../../scripts/rust-package-common.mjs';
@@ -9,7 +9,7 @@ const port = '42761';
 const controlURL = `http://127.0.0.1:${port}`;
 const bundleID = 'com.shellfox.mobile.iosnativev1fixture';
 const build = path.join(scratchRoot, 'ios-fixture-derived');
-const app = path.join(build, 'Build/Products/Release-iphonesimulator/ShellfoxMobile.app');
+const products = path.join(build, 'Build/Products');
 const evidence = path.join(scratchRoot, 'ios-native-v1-results');
 const result = path.join(evidence, 'native-v1.xcresult');
 const lane = path.join(scratchRoot, 'lane-apple-ios');
@@ -106,19 +106,20 @@ try {
   if (simulator.state !== 'Booted') sim('boot', simulator.udid);
   command('xcrun', ['simctl', 'bootstatus', simulator.udid, '-b'], { timeout: 240_000, stdio: 'inherit' });
   booted = true;
-  assert.ok(existsSync(app), 'The fixture app must be built before running the UI tests');
+  const plans = readdirSync(products).filter(name => name.startsWith('ShellfoxNativeV1UI') && name.endsWith('.xctestrun'));
+  assert.equal(plans.length, 1, `Expected one built UI test plan, found ${plans.join(', ')}`);
   console.log('Starting XCTest on the owned iPad');
-  tests = child('xcodebuild', ['-workspace', 'mobile/ios/ShellfoxMobile.xcworkspace', '-scheme', 'ShellfoxNativeV1UI',
-    '-configuration', 'Release', '-sdk', 'iphonesimulator', '-destination', `platform=iOS Simulator,id=${simulator.udid}`,
-    '-derivedDataPath', build, '-resultBundlePath', result, '-parallel-testing-enabled', 'NO',
-    'CODE_SIGNING_ALLOWED=NO', 'test-without-building']);
-  const pending = await until('the simulator pairing request', 150_000, () => {
+  tests = child('xcodebuild', ['test-without-building', '-xctestrun', path.join(products, plans[0]),
+    '-destination', `platform=iOS Simulator,id=${simulator.udid},arch=arm64`,
+    '-resultBundlePath', result, '-parallel-testing-enabled', 'NO']);
+  const pending = await until('the simulator pairing request', 360_000, () => {
     live(tests, 'Native v1 UI test');
     live(host, 'Rust host');
     const { pending } = local('host', 'network', 'status');
     assert.ok(pending.length <= 1, 'Multiple peers in a private test tailnet');
     return pending[0];
   });
+  console.log('Simulator requested pairing');
   // Leave the waiting-for-approval UI on screen before approving the exact pending peer.
   await delay(3_000);
   local('host', 'network', 'peer', pending.id, 'approve');

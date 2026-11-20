@@ -21,11 +21,16 @@ final class NativeV1UITests: XCTestCase {
     app.launchEnvironment["TS_DEBUG_ALWAYS_USE_DERP"] = "true"
     app.launch()
 
+    let settings = app.buttons["Open Settings"]
+    XCTAssertTrue(settings.waitForExistence(timeout: 30), app.debugDescription)
+    settings.tap()
+    XCTAssertTrue(app.staticTexts["shellfox-ios-ci"].waitForExistence(timeout: 90), app.debugDescription)
     let connect = app.buttons["Connect"].firstMatch
-    XCTAssertTrue(connect.waitForExistence(timeout: 60), app.debugDescription)
+    wait("the fixture host is online and ready to pair") { connect.exists && connect.isEnabled }
     connect.tap()
     XCTAssertTrue(app.buttons["Cancel request"].waitForExistence(timeout: 30), app.debugDescription)
     screenshot("01-awaiting-approval")
+    app.descendants(matching: .any)["tab-sessions"].firstMatch.tap()
 
     let session = app.buttons["Open iOS native CI"]
     XCTAssertTrue(session.waitForExistence(timeout: 60), app.debugDescription)

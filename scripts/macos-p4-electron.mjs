@@ -9,10 +9,10 @@ import { marker, original, updated } from './macos-p4-fixture.mjs';
 const expect = assertions.configure({ timeout: 20_000 });
 const dimensions = { width: 1200, height: 760 };
 
-export async function runElectron({ binary, main, project, dir, env, window, checkNetwork, scale }) {
+export async function runElectron({ binary, main, projectRoot, project, dir, env, window, checkNetwork, scale }) {
   const data = path.join(dir, 'user-data');
   const app = await _electron.launch({ executablePath: binary, cwd: root, timeout: 60_000,
-    env: { ...env, SHELLFOX_TEST_MODE: '1', SHELLFOX_TEST_VISIBLE: '1', SHELLFOX_TEST_ROOT: root,
+    env: { ...env, SHELLFOX_PROJECT_ROOT: projectRoot, SHELLFOX_TEST_MODE: '1', SHELLFOX_TEST_VISIBLE: '1', SHELLFOX_TEST_ROOT: root,
       SHELLFOX_TEST_APP_DATA: path.join(dir, 'app-data'), SHELLFOX_TEST_LATEST_RELEASE: '' },
     args: [main, '--test-user-data', data, '--test-backend', 'real'],
   });
