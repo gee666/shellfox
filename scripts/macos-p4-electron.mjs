@@ -225,7 +225,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     await page.locator('[data-machine-id="local"] .session-section-toggle').click();
     await session('A').click();
     await expect(editor).toHaveValue(draft);
-    await peer.reconnect();
+    await peer.cycleListener(() => shot('24-peer-listener-offline'));
     await expect(editor).toHaveValue(draft);
     const savedPeerFile = path.join(peer.a, 'scope.txt');
     assert.equal(await readFile(savedPeerFile, 'utf8'), 'Draft on peer A\n');

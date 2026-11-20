@@ -85,7 +85,8 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
         { ...hostOptions, timeout: 60_000 });
     }
     assert.equal(hostCLI('host', 'network', 'on', '--hostname', hostName).enabled, true);
-    const connected = () => eventually('P4 green peer connection', () => status(viewer).peers.find(row => row.id === peer.id), row => row?.connection === 'connected');
+    const current = () => status(viewer).peers.find(row => row.id === peer.id);
+    const connected = () => eventually('P4 peer connected without an explicit reconnect', current, row => row?.connection === 'connected');
     return {
       async connect() {
         assert.equal(viewer('host', 'network', 'on', '--hostname', viewerName).enabled, true);
@@ -96,8 +97,14 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
         hostCLI('host', 'network', 'peer', pending[0].id, 'approve');
         await connected();
       },
-      async reconnect() {
-        viewer('host', 'network', 'peer', peer.id, 'reconnect');
+      async cycleListener(duringOutage) {
+        assert.equal(hostCLI('host', 'network', 'off').enabled, false);
+        try {
+          await eventually('P4 viewer noticed the host listener outage', current, row => row?.connection === 'reconnecting');
+          await duringOutage();
+        } finally {
+          assert.equal(hostCLI('host', 'network', 'on', '--hostname', hostName).enabled, true);
+        }
         await connected();
       },
       close, a, b,

@@ -247,7 +247,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await clickText('Local', capture => capture.lines.find(row => row.x < capture.frame.x + 220 && /^local\b/i.test(row.text)));
     await clickText('P4 peer A');
     await editor(draft);
-    await peer.reconnect();
+    await peer.cycleListener(() => shot('24-peer-listener-offline'));
     await editor(draft);
     const savedPeerFile = path.join(peer.a, 'scope.txt');
     assert.equal(await readFile(savedPeerFile, 'utf8'), 'Draft on peer A\n');

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { _electron } from '@playwright/test';
@@ -58,7 +59,8 @@ export async function startElectronPeer({ binary, main, env, parent, client }) {
     const pending = await eventually('Electron P4 peer requires approval', async () => (await state(hostPage)).pending, rows => rows.length === 1);
     assert.equal(pending[0].id, viewerName);
     value(await hostPage.evaluate(peerId => window.shellfoxRemote.approve({ peerId }), viewerName));
-    const connected = () => eventually('Electron private peer connected', async () => (await state(client)).peers.find(peer => peer.id === hostName), row => row?.connection === 'connected');
+    const current = async () => (await state(client)).peers.find(peer => peer.id === hostName);
+    const connected = () => eventually('Electron private peer connected without an explicit reconnect', current, row => row?.connection === 'connected');
     await connected();
     for (const [cwd, title] of [[a, 'P4 peer A'], [b, 'P4 peer B']]) {
       value(await hostPage.evaluate(input => window.shellfox.createSession(input), { cwd, title, requestId: randomUUID() }));
@@ -75,9 +77,34 @@ export async function startElectronPeer({ binary, main, env, parent, client }) {
       }), delay(15_000, undefined, { ref: false })]).catch(() => {});
       await closeElectron(host);
     };
-    return { a, b, close, async reconnect() {
-      value(await client.evaluate(peerId => window.shellfoxRemote.disconnect({ peerId }), hostName));
-      value(await client.evaluate(peerId => window.shellfoxRemote.connect({ peerId }), hostName));
+    return { a, b, close, async cycleListener(duringOutage) {
+      const registration = path.join(env.SHELLFOX_TEST_REMOTE_BUS, `${hostName}.json`);
+      const original = await readFile(registration, 'utf8');
+      const service = JSON.parse(original);
+      assert.match(service.backendUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
+      const deny = createServer((_, response) => response.writeHead(503).end());
+      await new Promise((resolve, reject) => {
+        deny.once('error', reject);
+        deny.listen(0, '127.0.0.1', resolve);
+      });
+      const address = deny.address();
+      const replace = async contents => {
+        const stage = `${registration}.p4-stage`;
+        await writeFile(stage, contents, { mode: 0o600 });
+        await rename(stage, registration);
+      };
+      try {
+        assert.equal(typeof address, 'object');
+        await replace(JSON.stringify({ ...service, backendUrl: `http://127.0.0.1:${address.port}` }));
+        await eventually('Electron viewer noticed the loopback outage', current, row => row?.connection === 'reconnecting');
+        await duringOutage();
+      } finally {
+        try { await replace(original); }
+        finally {
+          deny.closeAllConnections();
+          await new Promise(resolve => deny.close(resolve));
+        }
+      }
       await connected();
     } };
   } catch (error) { await closeElectron(host).catch(console.error); throw error; }
