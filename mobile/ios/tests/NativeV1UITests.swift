@@ -39,6 +39,7 @@ final class NativeV1UITests: XCTestCase {
     // The web terminal does not expose this native element.
     let terminal = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Terminal")).firstMatch
     XCTAssertTrue(terminal.waitForExistence(timeout: 30), app.debugDescription)
+    waitForOutput("SHELLFOX_HEADLESS_ECHO_OK", in: terminal)
     focusKeyboard(app, terminal: terminal)
     runFixture("p", app: app)
     let portrait = try terminalGrid(terminal, marker: "SF_IOS_PORTRAIT")
@@ -64,7 +65,7 @@ final class NativeV1UITests: XCTestCase {
     }
     focusKeyboard(app, terminal: terminal)
     runFixture("r", app: app)
-    wait("the same PTY after network reconnect") { self.value(terminal).contains("SF_IOS_RECONNECTED:retained") }
+    waitForOutput("SF_IOS_RECONNECTED:retained", in: terminal)
     screenshot("05-native-reconnected")
 
     XCUIDevice.shared.press(.home)
@@ -75,7 +76,7 @@ final class NativeV1UITests: XCTestCase {
     XCTAssertTrue(terminal.waitForExistence(timeout: 30), app.debugDescription)
     focusKeyboard(app, terminal: terminal)
     runFixture("f", app: app)
-    wait("retained PTY after foreground reattach") { self.value(terminal).contains("SF_IOS_RESUMED:retained") }
+    waitForOutput("SF_IOS_RESUMED:retained", in: terminal)
     screenshot("06-native-foreground-reattached")
 
     XCUIDevice.shared.orientation = .portrait
@@ -136,8 +137,20 @@ final class NativeV1UITests: XCTestCase {
             let rowCount = Int(screen[rows]), let colCount = Int(screen[cols]) else { return nil }
       return (rowCount, colCount)
     }
-    wait("native output and host PTY dimensions for \(marker)") { readGrid() != nil }
+    waitForTerminal(terminal, marker: marker) { readGrid() != nil }
     return try XCTUnwrap(readGrid(), value(terminal))
+  }
+
+  private func waitForOutput(_ marker: String, in terminal: XCUIElement) {
+    waitForTerminal(terminal, marker: marker) { self.value(terminal).contains(marker) }
+  }
+
+  private func waitForTerminal(_ terminal: XCUIElement, marker: String, until predicate: @escaping () -> Bool) {
+    // Leave room for a long event poll on the hosted relay fixture.
+    let matches = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in predicate() }, object: nil)
+    let result = XCTWaiter.wait(for: [matches], timeout: 60)
+    if result != .completed { screenshot("terminal-output-timeout") }
+    XCTAssertEqual(result, .completed, "Expected \(marker) in the native terminal. Visible text:\n\(value(terminal))")
   }
 
   private func value(_ element: XCUIElement) -> String {

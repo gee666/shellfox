@@ -162,7 +162,7 @@ try {
   // Leave the waiting-for-approval UI on screen before approving the exact pending peer.
   await delay(3_000);
   await local('host', 'network', 'peer', pending.id, 'approve');
-  await until('the active PTY outage marker', 180_000, () => {
+  await until('the active PTY outage marker', 240_000, () => {
     live(tests, 'Native v1 UI test');
     return existsSync(path.join(project, '.ios-outage-ready'));
   });
