@@ -10,151 +10,6 @@ struct ProbeError: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
-private func attribute<T>(_ element: AXUIElement, _ name: String) -> T? {
-    var result: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, name as CFString, &result) == .success else { return nil }
-    return result as? T
-}
-
-private func rectangle(_ element: AXUIElement) -> CGRect? {
-    guard let position: AXValue = attribute(element, kAXPositionAttribute),
-          let size: AXValue = attribute(element, kAXSizeAttribute) else { return nil }
-    var origin = CGPoint.zero
-    var extent = CGSize.zero
-    guard AXValueGetValue(position, .cgPoint, &origin), AXValueGetValue(size, .cgSize, &extent) else { return nil }
-    return CGRect(origin: origin, size: extent)
-}
-
-private func rectJSON(_ rect: CGRect) -> [String: CGFloat] {
-    ["x": rect.minX, "y": rect.minY, "width": rect.width, "height": rect.height]
-}
-
-private func tree(_ window: AXUIElement) -> [[String: Any]] {
-    var queue = [window]
-    var result = [[String: Any]]()
-    while let element = queue.popLast(), result.count < 1500 {
-        var row = [String: Any]()
-        for (key, name) in [("role", kAXRoleAttribute), ("subrole", kAXSubroleAttribute), ("title", kAXTitleAttribute),
-                            ("description", kAXDescriptionAttribute), ("help", kAXHelpAttribute), ("value", kAXValueAttribute)] {
-            if let value: String = attribute(element, name) { row[key] = value }
-        }
-        if let rect = rectangle(element) { row["rect"] = rectJSON(rect) }
-        if let focused: Bool = attribute(element, kAXFocusedAttribute) { row["focused"] = focused }
-        if let enabled: Bool = attribute(element, kAXEnabledAttribute) { row["enabled"] = enabled }
-        result.append(row)
-        let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
-        queue.append(contentsOf: children.reversed())
-    }
-    return result
-}
-
-private func ownedWindows(_ owner: pid_t) -> [AXUIElement] {
-    let app = AXUIElementCreateApplication(owner)
-    AXUIElementSetMessagingTimeout(app, 2)
-    return attribute(app, kAXWindowsAttribute) ?? []
-}
-
-private func ownedWindow(_ owner: pid_t) throws -> AXUIElement {
-    let largest = ownedWindows(owner).max { (rectangle($0)?.width ?? 0) < (rectangle($1)?.width ?? 0) }
-    guard let window = largest, (rectangle(window)?.width ?? 0) >= 600 else {
-        throw ProbeError("No desktop window for owned PID \(owner)")
-    }
-    return window
-}
-
-private func nativeDialogs(_ owner: pid_t) -> [AXUIElement] {
-    var visited = 0
-    var dialogs = [AXUIElement]()
-    var queue = ownedWindows(owner)
-    while let element = queue.popLast(), visited < 1500 {
-        visited += 1
-        let role: String? = attribute(element, kAXRoleAttribute)
-        let subrole: String? = attribute(element, kAXSubroleAttribute)
-        if role == "AXSheet" || subrole == "AXDialog" || subrole == "AXSystemDialog" {
-            dialogs.append(element)
-        }
-        let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
-        queue.append(contentsOf: children.reversed())
-    }
-    return dialogs
-}
-
-private func dialogOwner(_ owner: pid_t) throws -> pid_t {
-    var modalPID: pid_t = 0
-    guard let dialog = nativeDialogs(owner).last,
-          AXUIElementGetPid(dialog, &modalPID) == .success, modalPID > 1 else {
-        throw ProbeError("No native modal attached to the owned application")
-    }
-    return modalPID
-}
-
-private func pressButton(_ owner: pid_t, _ name: String) throws {
-    var queue = nativeDialogs(owner)
-    var visited = 0
-    while let element = queue.popLast(), visited < 1500 {
-        visited += 1
-        let role: String? = attribute(element, kAXRoleAttribute)
-        let title: String? = attribute(element, kAXTitleAttribute)
-        let description: String? = attribute(element, kAXDescriptionAttribute)
-        if role == kAXButtonRole, title == name || description == name {
-            if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success { return }
-        }
-        let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
-        queue.append(contentsOf: children)
-    }
-    throw ProbeError("Could not press \(name) in an owned native dialog")
-}
-
-private func number(_ string: String) throws -> CGFloat {
-    guard let value = Double(string), value.isFinite else { throw ProbeError("Invalid number \(string)") }
-    return CGFloat(value)
-}
-
-private let regularChrome: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
-
-@MainActor
-private func resizeContent(_ window: AXUIElement, _ args: ArraySlice<String>) throws {
-    let values = try args.map(number)
-    guard values.count == 4 else { throw ProbeError("Expected x y width height") }
-    var position = CGPoint(x: values[0], y: values[1])
-    var size = NSWindow.frameRect(forContentRect: CGRect(x: 0, y: 0, width: values[2], height: values[3]),
-                                  styleMask: regularChrome).size
-    guard let point = AXValueCreate(.cgPoint, &position), let extent = AXValueCreate(.cgSize, &size),
-          AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, point) == .success,
-          AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, extent) == .success else {
-        throw ProbeError("Could not resize the owned window through AX")
-    }
-}
-
-private func key(_ owner: pid_t, _ args: ArraySlice<String>) throws {
-    guard let key = args.first, let code = UInt16(key), let modifiers = args.dropFirst().first else {
-        throw ProbeError("Expected the virtual key code and modifiers")
-    }
-    for down in [true, false] {
-        guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else {
-            throw ProbeError("Could not create keyboard event")
-        }
-        if modifiers.contains("c") { event.flags.insert(.maskCommand) }
-        if modifiers.contains("s") { event.flags.insert(.maskShift) }
-        event.postToPid(owner)
-    }
-}
-
-private func click(_ owner: pid_t, _ args: ArraySlice<String>, _ window: AXUIElement) throws {
-    let values = try args.map(number)
-    guard values.count == 2 else { throw ProbeError("Expected x y") }
-    let point = CGPoint(x: values[0], y: values[1])
-    guard rectangle(window)?.contains(point) == true else {
-        throw ProbeError("Click falls outside the owned window")
-    }
-    for type in [CGEventType.leftMouseDown, .leftMouseUp] {
-        guard let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left) else {
-            throw ProbeError("Could not create mouse event")
-        }
-        event.postToPid(owner)
-    }
-}
-
 private func colors(_ image: CGImage) throws -> [String: [String: CGFloat]] {
     let targets = [("style", 20, 120, 40), ("asset", 65, 19, 211)]
     let width = image.width, height = image.height
@@ -281,9 +136,9 @@ private struct WindowProbe {
                 return
             case "key": try key(owner, values); return
             case "dialog-key": try key(dialogOwner(owner), values); return
-            case "press":
-                guard let name = values.first else { throw ProbeError("Missing native button name") }
-                try pressButton(owner, name); return
+            case "press", "press-control":
+                guard let name = values.first else { throw ProbeError("Missing native control name") }
+                try pressControl(owner, name, modal: args[2] == "press"); return
             case "paste", "dialog-paste":
                 guard let text = values.first else { throw ProbeError("Missing clipboard fixture") }
                 let pasteboard = NSPasteboard.general

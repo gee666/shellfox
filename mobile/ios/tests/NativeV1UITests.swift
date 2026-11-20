@@ -40,21 +40,21 @@ final class NativeV1UITests: XCTestCase {
     let terminal = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Terminal")).firstMatch
     XCTAssertTrue(terminal.waitForExistence(timeout: 30), app.debugDescription)
     focusKeyboard(app, terminal: terminal)
-    app.typeText("SFX_CI_TOKEN=retained; printf '%s%s:' SF_ IOS_PORTRAIT; stty size\n")
+    runFixture("p", app: app)
     let portrait = try terminalGrid(terminal, marker: "SF_IOS_PORTRAIT")
     screenshot("02-native-echo-portrait")
 
     XCUIDevice.shared.orientation = .landscapeLeft
     wait("simulator rotated") { app.frame.width > app.frame.height }
     focusKeyboard(app, terminal: terminal)
-    app.typeText("printf '%s%s:' SF_ IOS_LANDSCAPE; stty size\n")
+    runFixture("l", app: app)
     let landscape = try terminalGrid(terminal, marker: "SF_IOS_LANDSCAPE")
     XCTAssertGreaterThan(landscape.columns, portrait.columns)
     screenshot("03-native-resized-landscape")
 
     let connection = app.descendants(matching: .any)["connection-status"].firstMatch
     wait("connected before the outage") { connection.exists && connection.label == "Connection connected" }
-    app.typeText("printf ready > .ios-outage-ready\n")
+    runFixture("o", app: app)
     wait("the attached simulator observed real host loss") {
       connection.exists && ["Connection disconnected", "Connection reconnecting..."].contains(connection.label)
     }
@@ -63,7 +63,7 @@ final class NativeV1UITests: XCTestCase {
       connection.exists && connection.label == "Connection connected" && terminal.exists
     }
     focusKeyboard(app, terminal: terminal)
-    app.typeText("printf '%s%s:%s\\n' SF_ IOS_RECONNECTED \"$SFX_CI_TOKEN\"\n")
+    runFixture("r", app: app)
     wait("the same PTY after network reconnect") { self.value(terminal).contains("SF_IOS_RECONNECTED:retained") }
     screenshot("05-native-reconnected")
 
@@ -74,7 +74,7 @@ final class NativeV1UITests: XCTestCase {
     app.activate()
     XCTAssertTrue(terminal.waitForExistence(timeout: 30), app.debugDescription)
     focusKeyboard(app, terminal: terminal)
-    app.typeText("printf '%s%s:%s\\n' SF_ IOS_RESUMED \"$SFX_CI_TOKEN\"\n")
+    runFixture("f", app: app)
     wait("retained PTY after foreground reattach") { self.value(terminal).contains("SF_IOS_RESUMED:retained") }
     screenshot("06-native-foreground-reattached")
 
@@ -106,6 +106,25 @@ final class NativeV1UITests: XCTestCase {
       if keyboard.exists { keyboard.tap() } else { terminal.tap() }
     }
     XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 15), app.debugDescription)
+  }
+
+  private func runFixture(_ step: Character, app: XCUIApplication) {
+    // The UIKit input view deliberately keeps its backing text input out of
+    // the accessibility tree. Tap the visible keyboard instead of typeText,
+    // which requires an accessible element reporting keyboard focus.
+    let keyboard = app.keyboards.firstMatch
+    for char in ". ./.\(step)" {
+      let predicate = char == " "
+        ? NSPredicate(format: "label == %@ OR identifier == %@", " ", "space")
+        : NSPredicate(format: "label == %@", String(char))
+      let key = keyboard.keys.matching(predicate).firstMatch
+      XCTAssertTrue(key.exists, "Missing software key \(char): \(keyboard.debugDescription)")
+      key.tap()
+    }
+    let enter = keyboard.descendants(matching: .any)
+      .matching(NSPredicate(format: "identifier == %@ OR label == %@", "Return", "return")).firstMatch
+    XCTAssertTrue(enter.exists, keyboard.debugDescription)
+    enter.tap()
   }
 
   private func terminalGrid(_ terminal: XCUIElement, marker: String) throws -> (rows: Int, columns: Int) {

@@ -80,6 +80,18 @@ mkdirSync(evidence, { recursive: true });
 mkdirSync(data, { recursive: true, mode: 0o700 });
 mkdirSync(project, { recursive: true, mode: 0o700 });
 writeFileSync(fixture, 'initial fixture text\n', { flag: 'wx' });
+// XCTest taps real software keys. Keep each command short, and source it in
+// the existing login shell so the retained token proves PTY continuity.
+const commands = {
+  p: "SFX_CI_TOKEN=retained; printf 'SF_IOS_PORTRAIT:'; stty size\n",
+  l: "printf 'SF_IOS_LANDSCAPE:'; stty size\n",
+  o: 'printf ready > .ios-outage-ready\n',
+  r: "printf 'SF_IOS_RECONNECTED:%s\\n' \"$SFX_CI_TOKEN\"\n",
+  f: "printf 'SF_IOS_RESUMED:%s\\n' \"$SFX_CI_TOKEN\"\n",
+};
+for (const [name, source] of Object.entries(commands)) {
+  writeFileSync(path.join(project, `.${name}`), source, { flag: 'wx', mode: 0o600 });
+}
 const devices = JSON.parse(command('xcrun', ['simctl', 'list', '-j', 'devices', 'available'])).devices;
 const simulator = Object.values(devices).reverse().flat().find(device => device.name.startsWith('iPad'));
 assert.ok(simulator, 'Rotation requires an available iPad simulator');
