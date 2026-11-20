@@ -36,6 +36,27 @@ class ClientPollLaneTest {
     f.tick(); assertEquals(1, f.starts)
     f.finish("attach-original"); f.tick(); assertEquals(2, f.starts)
   }
+  @Test fun filesRunDuringPollWithoutOvertakingOrdinaryWork() {
+    val f = Fixture(); f.tick()
+    var fileStarted = false
+    f.lane.submit({ fileStarted = true; "file-1" }, true) { id, error ->
+      assertNull(error); assertEquals("file-1", id)
+    }
+    assertTrue(fileStarted)
+    assertEquals("poll-1", f.lane.operation)
+    var terminalStarted = false
+    f.lane.submit({ terminalStarted = true; "attach" }) { _, error -> assertNull(error) }
+    f.finish("file-1")
+    var secondFileStarted = false
+    f.lane.submit({ secondFileStarted = true; "file-2" }, true) { _, error -> assertNull(error) }
+    assertFalse(terminalStarted)
+    assertFalse(secondFileStarted)
+    f.finish(); f.tick()
+    assertTrue(terminalStarted)
+    assertFalse(secondFileStarted)
+    f.finish("attach"); f.tick()
+    assertTrue(secondFileStarted)
+  }
   @Test fun cancelledCompletionIsNotADataDrainOrPermissionToMutate() {
     val f = Fixture(); f.tick(); var admitted = false; var failed = false
     f.lane.submit({ admitted = true; null }) { _, error -> failed = error != null }

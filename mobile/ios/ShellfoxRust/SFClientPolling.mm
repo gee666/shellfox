@@ -36,6 +36,15 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
     done(value, status);
     return;
   }
+  // Files commands do not change terminal delivery, and Rust supplies their
+  // usual connection/authority checks. Preserve ordering with queued commands.
+  if (admission == SFClientAdmissionV1FileRequest && client.profile == SFM_CLIENT_PROFILE_V1 &&
+      client.polling && !client.pendingCalls.count && !client.mutations.count) {
+    SfmStatus status = SFM_OK;
+    id value = RunWork(client, work, &status);
+    done(value, status);
+    return;
+  }
   if (client.pendingCalls.count >= 8) { done(nil, SFM_BUSY); return; }
   SFClientDeferredCall *call = [SFClientDeferredCall new];
   call.epoch = client.authorityEpoch; call.work = work; call.done = done;

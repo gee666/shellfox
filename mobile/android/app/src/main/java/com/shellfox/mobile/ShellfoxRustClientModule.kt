@@ -14,6 +14,22 @@ import com.shellfox.mobile.rust.NativeInputStale
 import com.shellfox.mobile.rust.RustBindings
 import com.shellfox.mobile.rust.NativeGoTransport
 import com.shellfox.mobile.rust.TerminalCoordinator
+import org.json.JSONException
+import org.json.JSONObject
+
+private val fileRequests = setOf("getHomeDirectory", "listFiles", "readFile", "writeFile", "writeImageFile", "readFileAsset",
+  "beginFileRead", "readFileChunk", "beginFileWrite", "writeFileChunk", "finishFileWrite", "cancelFileTransfer")
+
+private fun fileRequest(json: String): String? {
+  if (json.length > 1_048_576) return null
+  // Send the object used for classification so duplicate keys cannot turn a
+  // file request into a command that changes terminal state.
+  return try { JSONObject(json).takeIf { command ->
+    val method = command.opt("method")
+    method is String && method in fileRequests
+  }?.toString() }
+  catch (_: JSONException) { null }
+}
 
 @ReactModule(name = NativeShellfoxRustClientSpec.NAME)
 class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfoxRustClientSpec(context), LifecycleEventListener {
@@ -92,8 +108,11 @@ class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfo
   override fun poll(clientHandle: String, promise: Promise) = run(promise) {
     ClientTerminalBindings.start(this, clientHandle, 2)
   }
-  override fun operation(clientHandle: String, json: String, promise: Promise) = afterPoll(clientHandle,promise) {
-    ClientTerminalBindings.start(this, clientHandle, 3, json)
+  override fun operation(clientHandle: String, json: String, promise: Promise) {
+    val file = fileRequest(json)
+    afterPoll(clientHandle, promise, independentFile = file != null) {
+      ClientTerminalBindings.start(this, clientHandle, 3, file ?: json)
+    }
   }
   override fun cancel(clientHandle: String, operationId: String, promise: Promise) = run(promise) {
     ClientTerminalBindings.cancel(this, clientHandle, operationId); null
@@ -120,11 +139,12 @@ class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfo
     if (stopped) promise.reject("RUST_STOPPED", "Native client is unavailable.")
     return stopped
   }
-  private fun afterPoll(client: String, promise: Promise, allowV1Fence: Boolean = false, action: () -> String?) = admit(promise) { done ->
+  private fun afterPoll(client: String, promise: Promise, allowV1Fence: Boolean = false,
+    independentFile: Boolean = false, action: () -> String?) = admit(promise) { done ->
     ClientTerminalBindings.afterPoll(this, client, {
       if (stopped) throw NativeCallException(3)
       action()
-    }, allowV1Fence, done)
+    }, allowV1Fence, independentFile, done)
   }
   private fun admit(promise: Promise, enqueue: ((String?, Exception?) -> Unit) -> Unit) {
     if (unavailable(promise)) return

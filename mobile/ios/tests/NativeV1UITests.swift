@@ -172,7 +172,9 @@ final class NativeV1UITests: XCTestCase {
 
   private func wait(_ description: String, timeout: TimeInterval = 30, until predicate: @escaping () -> Bool) {
     let matches = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in predicate() }, object: nil)
-    XCTAssertEqual(XCTWaiter.wait(for: [matches], timeout: timeout), .completed, description)
+    let result = XCTWaiter.wait(for: [matches], timeout: timeout)
+    if result != .completed { screenshot("timed-out-\(description.replacingOccurrences(of: " ", with: "-"))") }
+    XCTAssertEqual(result, .completed, description)
   }
 
   private func screenshot(_ name: String) {

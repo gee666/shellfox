@@ -26,12 +26,26 @@ internal class ClientPollLane(
     if (this.authority != authority) { epoch++; this.authority = authority }
     this.connected = connected
   }
-  fun submit(start: () -> String?, done: (String?, Exception?) -> Unit) {
+  fun submit(start: () -> String?, done: (String?, Exception?) -> Unit) = submit(start, false, done)
+
+  fun submit(start: () -> String?, independentFile: Boolean, done: (String?, Exception?) -> Unit) {
     if (retired || uncertain != null) { done(null, NativeCallException(uncertain ?: 3)); return }
+    val call = Waiting(epoch, start, done)
+    // Files RPCs leave terminal delivery alone. Do not overtake any queued
+    // operation or clear the original poll when admitting one.
+    if (independentFile && connected && waiting.isEmpty() && mutations.isEmpty()) {
+      admit(call)
+      return
+    }
     if (waiting.size >= 8) { done(null, NativeCallException(1)); return }
-    waiting.addLast(Waiting(epoch, start, done))
-    // Admission waits for the original result and owner processing. Canceling
-    // an SDK operation would drop its future, not drain its delivery result.
+    waiting.addLast(call)
+  }
+
+  private fun admit(call: Waiting) {
+    val id = try { call.start() }
+    catch (error: Exception) { call.done(null, error); return }
+    if (id != null) mutations.add(id)
+    call.done(id, null)
   }
   fun prepareV1Fence() {
     if (uncertain == null) return
@@ -70,10 +84,7 @@ internal class ClientPollLane(
       while (waiting.isNotEmpty() && drained) {
         val call = waiting.removeFirst()
         if (call.epoch != epoch) { call.done(null, NativeCallException(3)); continue }
-        val id = try { call.start() }
-        catch (error: Exception) { call.done(null, error); continue }
-        if (id != null) mutations.add(id)
-        call.done(id, null)
+        admit(call)
       }
     }
     if (!retired && connected && viewsReady && ownerDrained && drained && waiting.isEmpty() && clock() >= nextPoll) {

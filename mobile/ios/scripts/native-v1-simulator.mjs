@@ -195,6 +195,10 @@ try {
   console.log('Native v1 simulator connected, paired, attached, echoed, resized, recovered from a real outage, reattached after backgrounding, and saved to the isolated Rust host.');
 } catch (error) {
   failure = error;
+  try {
+    const bytes = readFileSync(fixture);
+    console.error(`iPad fixture file at failure: ${bytes.length} bytes, save marker ${bytes.includes('saved-from-ios') ? 'present' : 'absent'}`);
+  } catch { console.error('iPad fixture file was unavailable at failure'); }
   throw error;
 } finally {
   if (booted) {

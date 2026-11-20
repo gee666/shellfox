@@ -20,10 +20,33 @@
   XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
   return store;
 }
+- (void)testV1FilesRunDuringPollWithoutOvertakingQueuedWork {
+  SFPollFixtureStore *store = [SFPollFixtureStore new];
+  store.fixture = [SFClientRecord new];
+  store.fixture.profile = SFM_CLIENT_PROFILE_V1;
+  store.fixture.polling = YES;
+  store.fixture.pollOperation = @"19";
+  [store whenDrained:@"1" admission:SFClientAdmissionV1FileRequest work:^id(SfmStatus *status) {
+    return @"20";
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); XCTAssertEqualObjects(value, @"20"); }];
+  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
+  XCTAssertTrue([store.fixture.mutations containsObject:@"20"]);
+  [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
+    XCTFail(@"Terminal work overtook an in-flight poll"); return nil;
+  } done:^(id value, SfmStatus status) { XCTFail(@"Unexpected terminal completion"); }];
+  [store completed:@{@"operationId": @"20", @"status": @(SFM_OK)} client:store.fixture];
+  [store whenDrained:@"1" admission:SFClientAdmissionV1FileRequest work:^id(SfmStatus *status) {
+    XCTFail(@"Files work overtook a queued terminal operation"); return nil;
+  } done:^(id value, SfmStatus status) { XCTFail(@"Unexpected Files completion"); }];
+  XCTAssertEqual(store.fixture.pendingCalls.count, 2u);
+}
 - (void)testFailedV1PollAllowsOnlyLocalRetirementAndAcceptedReconnectFence {
   SFPollFixtureStore *store = [self storeWithFailedPoll:SFM_CLIENT_PROFILE_V1];
   [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     XCTFail(@"Ordinary work entered an uncertain poll lane"); return nil;
+  } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
+  [store whenDrained:@"1" admission:SFClientAdmissionV1FileRequest work:^id(SfmStatus *status) {
+    XCTFail(@"Files work entered an uncertain poll lane"); return nil;
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
 
   __block BOOL retired = NO;

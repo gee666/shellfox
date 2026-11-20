@@ -8,6 +8,7 @@ typedef id (^SFClientDeferredWork)(SfmStatus *status);
 typedef void (^SFClientDeferredDone)(id value, SfmStatus status);
 typedef NS_ENUM(NSUInteger, SFClientAdmission) {
   SFClientAdmissionOrdinary,
+  SFClientAdmissionV1FileRequest,
   SFClientAdmissionV1RetireView,
   SFClientAdmissionV1Reconnect,
 };

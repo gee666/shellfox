@@ -63,10 +63,11 @@ internal object ClientTerminalBindings {
     return operation
   }
   fun afterPoll(module: Any, id: String, action: () -> String?, fenceV1: Boolean = false,
-    done: (String?, Exception?) -> Unit) {
+    independentFile: Boolean = false, done: (String?, Exception?) -> Unit) {
     val original = get(module, id)
-    if (fenceV1 && original.profile == ClientProfile.V1) original.poll.prepareV1Fence()
-    original.poll.submit({ check(get(module, id) === original); action() }, done)
+    val v1 = original.profile == ClientProfile.V1
+    if (fenceV1 && v1) original.poll.prepareV1Fence()
+    original.poll.submit({ check(get(module, id) === original); action() }, independentFile && v1, done)
   }
   fun changeViewBinding(module: Any, id: String, tab: String?, terminal: String, done: (String?, Exception?) -> Unit) {
     val client = get(module, id)
