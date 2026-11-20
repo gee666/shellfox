@@ -51,6 +51,27 @@ test('selects an exact AppKit row in the preconfigured directory and waits for O
   assert.equal(visible, false);
 });
 
+test('does not reselect a file if the timed-out click enabled Open', async () => {
+  const name = 'fixture.txt';
+  let visible = true;
+  let selections = 0;
+  const picker = nativePicker((action, value) => {
+    if (action === 'dialogs') return visible ? [openPanel, cancel,
+      { role: 'AXStaticText', value: name }, { role: 'AXButton', title: 'Open', enabled: selections > 0 },
+    ] : [];
+    if (action === 'select-entry') {
+      assert.equal(value, name);
+      selections++;
+      throw new Error('select-entry ETIMEDOUT');
+    }
+    assert.deepEqual([action, value], ['press', 'Open']);
+    visible = false;
+  });
+  await picker.choose(name);
+  assert.equal(selections, 1);
+  assert.equal(visible, false);
+});
+
 test('verifies the real overwrite sheet when AppKit does not acknowledge Save', async () => {
   const name = 'fixture.txt';
   let step = 'save';

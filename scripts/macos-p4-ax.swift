@@ -92,15 +92,6 @@ func dialogRows(_ owner: pid_t) throws -> [[String: Any]] {
     return nativeDialogs(owner, windows: windows).flatMap { tree($0, includeGeometry: false) }
 }
 
-func dialogOwner(_ owner: pid_t) throws -> pid_t {
-    var modalPID: pid_t = 0
-    guard let dialog = nativeDialogs(owner).last,
-          AXUIElementGetPid(dialog, &modalPID) == .success, modalPID > 1 else {
-        throw ProbeError("No native modal attached to the owned application")
-    }
-    return modalPID
-}
-
 private func findAX(_ roots: [AXUIElement], _ matches: (AXUIElement) -> Bool) -> AXUIElement? {
     var queue = roots
     var visited = 0
@@ -128,14 +119,21 @@ func editTextControl(_ window: AXUIElement, _ name: String, value: String?) thro
 
 @MainActor
 func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
-    let dialogs = nativeDialogs(owner)
-    guard let entry = findAX(dialogs, { element in
-        [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { key in
-            let text: String? = attribute(element, key)
-            return text == name
-        }
-    }), let row = rectangle(entry), !row.isEmpty, let dialog = dialogs.last,
-    let bounds = rectangle(dialog) else {
+    let labels = [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute]
+    let attributes = labels as CFArray
+    guard let dialog = nativeDialogs(owner).last,
+          let bounds = rectangle(dialog),
+          let entry = findAX([dialog], { element in
+              var values: CFArray?
+              if AXUIElementCopyMultipleAttributeValues(element, attributes, [], &values) == .success,
+                 let values = values as? [Any] {
+                  return values.contains { ($0 as? String) == name }
+              }
+              return labels.contains { key in
+                  let value: String? = attribute(element, key)
+                  return value == name
+              }
+          }), let row = rectangle(entry), !row.isEmpty else {
         throw ProbeError("No \(name) in the owned native picker")
     }
     // Some AppKit rows acknowledge AXSelected without changing Open's state.
@@ -158,8 +156,11 @@ func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
             Thread.sleep(forTimeInterval: 0.05)
         }
     }
-    let pid = try dialogOwner(owner)
-    try click(owner, [String(Double(target.midX)), String(Double(target.midY))][...], dialog, modal: pid)
+    var modalPID: pid_t = 0
+    guard AXUIElementGetPid(dialog, &modalPID) == .success, modalPID > 1 else {
+        throw ProbeError("No native modal attached to the owned application")
+    }
+    try click(owner, [String(Double(target.midX)), String(Double(target.midY))][...], dialog, modal: modalPID)
 }
 
 func pressControl(_ owner: pid_t, _ name: String, modal: Bool) throws {

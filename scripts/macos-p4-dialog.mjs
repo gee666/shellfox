@@ -40,15 +40,19 @@ export function nativePicker(action) {
     await dismissed();
   };
   const choose = async name => {
-    await eventually(`native picker lists ${name}`, read, rows => rows.some(row => label(row) === name || row.value === name));
-    action('select-entry', name);
-    try { await eventually('native file row selected', read, openEnabled, 5_000); }
-    catch (error) {
-      if (error?.code !== 'ERR_ASSERTION') throw error;
-      // Repeat only the row click, never Open, if the file is still unselected.
-      if (!openEnabled(read())) action('select-entry', name);
-    }
-    await confirmOpen(15_000);
+    let nextSelection = 0;
+    await eventually(`native picker selected ${name}`, () => {
+      const rows = read();
+      if (nextSelection && openEnabled(rows)) return rows;
+      if (Date.now() >= nextSelection && rows.some(row => label(row) === name || row.value === name)) {
+        // An AX timeout can arrive after the click. Read Open before retrying.
+        nextSelection = Date.now() + 1_000;
+        action('select-entry', name);
+        return null;
+      }
+      return rows;
+    }, rows => nextSelection > 0 && rows !== null && openEnabled(rows), 60_000);
+    await confirmOpen();
   };
   return {
     wait: () => eventually('owned native file dialog', read, dialog, 60_000),
