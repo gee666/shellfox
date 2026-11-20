@@ -34,12 +34,13 @@ private func tree(_ window: AXUIElement) -> [[String: Any]] {
     var result = [[String: Any]]()
     while let element = queue.popLast(), result.count < 1500 {
         var row = [String: Any]()
-        for (key, name) in [("role", kAXRoleAttribute), ("title", kAXTitleAttribute),
-                            ("description", kAXDescriptionAttribute), ("value", kAXValueAttribute)] {
+        for (key, name) in [("role", kAXRoleAttribute), ("subrole", kAXSubroleAttribute), ("title", kAXTitleAttribute),
+                            ("description", kAXDescriptionAttribute), ("help", kAXHelpAttribute), ("value", kAXValueAttribute)] {
             if let value: String = attribute(element, name) { row[key] = value }
         }
         if let rect = rectangle(element) { row["rect"] = rectJSON(rect) }
         if let focused: Bool = attribute(element, kAXFocusedAttribute) { row["focused"] = focused }
+        if let enabled: Bool = attribute(element, kAXEnabledAttribute) { row["enabled"] = enabled }
         result.append(row)
         let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
         queue.append(contentsOf: children.reversed())
@@ -47,14 +48,35 @@ private func tree(_ window: AXUIElement) -> [[String: Any]] {
     return result
 }
 
-private func ownedWindow(_ owner: pid_t) throws -> AXUIElement {
+private func ownedWindows(_ owner: pid_t) -> [AXUIElement] {
     let app = AXUIElementCreateApplication(owner)
     AXUIElementSetMessagingTimeout(app, 2)
-    let windows: [AXUIElement] = attribute(app, kAXWindowsAttribute) ?? []
-    guard let window = windows.first(where: { (rectangle($0)?.width ?? 0) >= 600 }) else {
+    return attribute(app, kAXWindowsAttribute) ?? []
+}
+
+private func ownedWindow(_ owner: pid_t) throws -> AXUIElement {
+    let largest = ownedWindows(owner).max { (rectangle($0)?.width ?? 0) < (rectangle($1)?.width ?? 0) }
+    guard let window = largest, (rectangle(window)?.width ?? 0) >= 600 else {
         throw ProbeError("No desktop window for owned PID \(owner)")
     }
     return window
+}
+
+private func pressButton(_ owner: pid_t, _ name: String) throws {
+    var queue = ownedWindows(owner)
+    var visited = 0
+    while let element = queue.popLast(), visited < 1500 {
+        visited += 1
+        let role: String? = attribute(element, kAXRoleAttribute)
+        let title: String? = attribute(element, kAXTitleAttribute)
+        let description: String? = attribute(element, kAXDescriptionAttribute)
+        if role == kAXButtonRole, title == name || description == name {
+            if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success { return }
+        }
+        let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
+        queue.append(contentsOf: children)
+    }
+    throw ProbeError("Could not press \(name) in an owned native dialog")
 }
 
 private func number(_ string: String) throws -> CGFloat {
@@ -141,6 +163,7 @@ private func capture(_ owner: pid_t, _ target: String, _ ax: AXUIElement) async 
     config.width = Int(window.frame.width * scale)
     config.height = Int(window.frame.height * scale)
     config.showsCursor = false
+    config.ignoreShadowsSingleWindow = true
     let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
     guard image.width == config.width, image.height == config.height else {
         throw ProbeError("Captured unexpected pixel bounds")
@@ -184,11 +207,15 @@ private struct WindowProbe {
             let result: Any
             switch args[2] {
             case "tree": result = tree(window)
+            case "windows": result = ownedWindows(owner).flatMap(tree)
             case "resize": try resize(window, values); return
             case "activate":
                 guard app.activate(options: []) else { throw ProbeError("Could not activate the owned app") }
                 return
             case "key": try key(owner, values); return
+            case "press":
+                guard let name = values.first else { throw ProbeError("Missing native button name") }
+                try pressButton(owner, name); return
             case "paste":
                 guard let text = values.first else { throw ProbeError("Missing clipboard fixture") }
                 let pasteboard = NSPasteboard.general

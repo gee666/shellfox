@@ -160,25 +160,33 @@ jobs:
           cargo test --locked -p shellfox-desktop --bin shellfox files::
           cargo test --locked -p shellfox-desktop --test macos-folder-picker
           cargo test --locked -p shellfox-files --all-targets
-          cargo build --locked -p shellfox-desktop --bin shellfox
+          cargo build --locked -p shellfox-desktop --bin shellfox -p shellfox-cli --bin shellfox-cli
           node scripts/tailscale.mjs build
           pnpm build:test
+          p4="$PWD/tmp/lane-apple/p4"
+          mkdir -p "$p4/go-work"
+          (cd native/tailscale && CGO_ENABLED=0 GOTMPDIR="$p4/go-work" go build -mod=readonly -o "$p4/testcontrol" ./cmd/testcontrol)
+          CGO_ENABLED=0 GOTMPDIR="$p4/go-work" go build -trimpath -o "$p4/electron-test-remote-helper" ./tests/fixtures/remote-helper/main.go
           legacy="$PWD/tmp/lane-apple/p4-electron"
           mkdir -p "$legacy/src" "$legacy/tmp/tailscale/darwin-${{ matrix.arch }}" "$legacy/go-work"
           git archive "$P4_ELECTRON_HELPER_REV" native/tailscale | tar -x -C "$legacy/src"
           (cd "$legacy/src/native/tailscale" && CGO_ENABLED=0 GOTMPDIR="$legacy/go-work" go build -mod=readonly \
             -o "$legacy/tmp/tailscale/darwin-${{ matrix.arch }}/shellfox-tailscale" .)
         timeout-minutes: 30
-      - name: Compare local Files and HTML containment in both apps
+      - name: Compare local Files, native preview and peer transfers in both apps
         run: |
+          p4="$PWD/tmp/lane-apple/p4"
           node scripts/macos-p4-files.mjs \
             --rust "$CARGO_TARGET_DIR/debug/shellfox" \
+            --cli "$CARGO_TARGET_DIR/debug/shellfox-cli" \
             --helper "$PWD/tmp/dev-helper/shellfox-tailscale" \
             --electron "$PWD/tmp/build-test/main/index.cjs" \
             --electron-project "$PWD/tmp/lane-apple/p4-electron" \
-            --artifacts "$PWD/tmp/lane-apple/p4" \
-            --probe "$PWD/tmp/lane-apple/p4/window-probe"
-        timeout-minutes: 15
+            --electron-remote-helper "$p4/electron-test-remote-helper" \
+            --testcontrol "$p4/testcontrol" \
+            --artifacts "$p4" \
+            --probe "$p4/window-probe"
+        timeout-minutes: 25
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

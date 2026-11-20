@@ -11,15 +11,23 @@ import { runRust } from './macos-p4-rust.mjs';
 assert.equal(process.platform, 'darwin');
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Run only on an isolated macOS CI desktop');
 const { values: args } = parseArgs({ options: {
-  rust: { type: 'string' }, helper: { type: 'string' }, electron: { type: 'string' },
+  rust: { type: 'string' }, cli: { type: 'string' }, helper: { type: 'string' }, electron: { type: 'string' },
   'electron-project': { type: 'string' }, artifacts: { type: 'string' }, probe: { type: 'string' },
+  testcontrol: { type: 'string' }, 'electron-remote-helper': { type: 'string' },
 } });
-for (const key of ['rust', 'helper', 'electron', 'electron-project', 'artifacts', 'probe']) assert.ok(args[key], `Missing --${key}`);
+for (const key of ['rust', 'cli', 'helper', 'electron', 'electron-project', 'artifacts', 'probe', 'testcontrol', 'electron-remote-helper']) {
+  assert.ok(args[key], `Missing --${key}`);
+}
 const lane = await realpath(path.join(scratchRoot, 'lane-apple/p4'));
 assert.equal(await realpath(args.artifacts), lane);
 assert.equal(await realpath(args.probe), path.join(lane, 'window-probe'));
 run(args.probe, ['preflight'], { timeout: 10_000 });
-const [rust, helper, electron] = await Promise.all([args.rust, args.helper, args.electron].map(file => realpath(file)));
+const [rust, cli, helper, electron, testcontrol, remoteHelper] = await Promise.all(
+  [args.rust, args.cli, args.helper, args.electron, args.testcontrol, args['electron-remote-helper']].map(file => realpath(file)));
+assert.equal(rust, path.join(scratchRoot, 'lane-apple/target/debug/shellfox'));
+assert.equal(cli, path.join(scratchRoot, 'lane-apple/target/debug/shellfox-cli'));
+assert.equal(testcontrol, path.join(lane, 'testcontrol'));
+assert.equal(remoteHelper, path.join(lane, 'electron-test-remote-helper'));
 assert.equal(helper, path.join(scratchRoot, 'dev-helper/shellfox-tailscale'));
 assert.equal(electron, path.join(scratchRoot, 'build-test/main/index.cjs'));
 const electronProject = await realpath(args['electron-project']);
@@ -63,10 +71,10 @@ const setup = async name => {
 };
 let scale;
 try {
-  try { scale = await runRust({ ...await setup('rust'), binary: rust, helper }); }
+  try { scale = await runRust({ ...await setup('rust'), binary: rust, cli, helper, testcontrol }); }
   catch (error) { failed.push(error); console.error(error); }
   await writeFile(path.join(dir, 'rust-loopback.json'), JSON.stringify(probe.requests.splice(0)));
-  try { await runElectron({ ...await setup('electron'), binary: electronBinary, main: electron, projectRoot: electronProject, scale }); }
+  try { await runElectron({ ...await setup('electron'), binary: electronBinary, main: electron, projectRoot: electronProject, remoteHelper, scale }); }
   catch (error) { failed.push(error); console.error(error); }
   await writeFile(path.join(dir, 'electron-loopback.json'), JSON.stringify(probe.requests));
 } finally {

@@ -1,24 +1,29 @@
 import assert from 'node:assert/strict';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { _electron, expect as assertions } from '@playwright/test';
 import { root } from './rust-package-common.mjs';
 import { marker, original, updated } from './macos-p4-fixture.mjs';
+import { nativePicker } from './macos-p4-dialog.mjs';
+import { closeElectron, electronRemoteEnv, startElectronPeer } from './macos-p4-electron-peer.mjs';
+import { exerciseTransfers } from './macos-p4-transfers.mjs';
 
 const expect = assertions.configure({ timeout: 20_000 });
 const dimensions = { width: 1200, height: 760 };
 
-export async function runElectron({ binary, main, projectRoot, project, dir, env, window, checkNetwork, scale }) {
+export async function runElectron({ binary, main, projectRoot, remoteHelper, project, dir, env, window, checkNetwork, scale }) {
   const data = path.join(dir, 'user-data');
+  const appEnv = { ...env, ...await electronRemoteEnv(dir, remoteHelper), SHELLFOX_PROJECT_ROOT: projectRoot,
+    SHELLFOX_TEST_MODE: '1', SHELLFOX_TEST_VISIBLE: '1', SHELLFOX_TEST_ROOT: root,
+    SHELLFOX_TEST_APP_DATA: path.join(dir, 'app-data'), SHELLFOX_TEST_LATEST_RELEASE: '' };
   const app = await _electron.launch({ executablePath: binary, cwd: root, timeout: 60_000,
-    env: { ...env, SHELLFOX_PROJECT_ROOT: projectRoot, SHELLFOX_TEST_MODE: '1', SHELLFOX_TEST_VISIBLE: '1', SHELLFOX_TEST_ROOT: root,
-      SHELLFOX_TEST_APP_DATA: path.join(dir, 'app-data'), SHELLFOX_TEST_LATEST_RELEASE: '' },
+    env: appEnv,
     args: [main, '--test-user-data', data, '--test-backend', 'real'],
   });
   const pid = app.process().pid;
   const action = (...args) => window(pid, binary, '--test-user-data', data, ...args);
-  let failure;
+  const picker = nativePicker(action);
+  let failure, peer;
   try {
     const page = await app.firstWindow({ timeout: 60_000 });
     const owner = await app.evaluate(({ app, BrowserWindow }, { width, height }) => {
@@ -48,10 +53,35 @@ export async function runElectron({ binary, main, projectRoot, project, dir, env
     await expect(page.getByRole('main', { name: 'Workspace', exact: true })).toBeVisible();
     const startup = shot('01-startup');
     if (scale !== undefined) assert.equal(startup.scale, scale, 'Compare both apps on the same backing scale');
-    await page.keyboard.press('Meta+Shift+b');
+    const filesToolbar = page.getByRole('button', { name: 'Files', exact: true });
+    await filesToolbar.click();
     await expect(sidebar).toBeVisible();
     assert.equal((await sidebar.boundingBox()).width, 420);
+    assert.equal((await sidebar.locator('.file-sidebar-header').boundingBox()).height, 32);
+    assert.equal((await browser.boundingBox()).height, 220);
+    assert.equal((await page.getByRole('separator', { name: 'File sidebar width' }).boundingBox()).width, 4);
+    assert.equal((await page.getByRole('separator', { name: 'File browser height' }).boundingBox()).height, 4);
+    const labels = await sidebar.locator('.file-sidebar-header button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')));
+    assert.deepEqual(labels, ['Toggle file browser', 'Open in system explorer', 'Maximize file', 'Close file sidebar']);
     await go(project);
+    await field.focus();
+    await page.keyboard.press('Meta+Shift+b');
+    await expect(sidebar).toBeHidden();
+    await expect(filesToolbar).toBeFocused();
+    await page.keyboard.press('Meta+Shift+b');
+    await expect(field).toHaveValue(project);
+    await button('Browse folders').click();
+    const dialog = await picker.wait();
+    await writeFile(path.join(dir, 'native-folder-picker.json'), JSON.stringify(dialog, null, 2));
+    await picker.cancel();
+    await expect(field).toHaveValue(project);
+    await button('Browse folders').click();
+    await picker.wait();
+    await picker.choose(norm('unique-folder'));
+    await expect(field).toHaveValue(norm('unique-folder'));
+    await expect(button('sentinel.txt')).toBeVisible();
+    await button('Parent folder').click();
+    await expect(field).toHaveValue(project);
     await expect(button('notes.txt')).toBeVisible();
     shot('02-files');
     await page.keyboard.press('Meta+Shift+e');
@@ -83,6 +113,10 @@ export async function runElectron({ binary, main, projectRoot, project, dir, env
     await expect(editor).toHaveValue(original);
     await button('Copy file path').click();
     await expect.poll(() => action('clipboard').value).toBe(notes);
+    await editor.press('Meta+ArrowUp');
+    await editor.press('Meta+Shift+ArrowRight');
+    await editor.press('Meta+c');
+    await expect.poll(() => action('clipboard').value).toBe('P4 editor first line');
     await editor.press('Meta+a');
     await editor.press('Meta+c');
     await expect.poll(() => action('clipboard').value).toBe(original);
@@ -101,7 +135,19 @@ export async function runElectron({ binary, main, projectRoot, project, dir, env
     await expect(button('Save file')).toBeDisabled();
     shot('08-editor-saved');
 
+    const guardDraft = 'P4 draft written by Save and continue\n';
+    await editor.fill(guardDraft);
     await button('demo.html').click();
+    const guard = sidebar.getByRole('alertdialog');
+    await expect(guard).toContainText('Save changes to notes.txt?');
+    shot('08-open-with-draft');
+    await page.keyboard.press('Escape');
+    await expect(guard).toBeHidden();
+    await expect(editor).toHaveValue(guardDraft);
+    assert.equal(await readFile(notes, 'utf8'), `\uFEFF${updated}`);
+    await button('demo.html').click();
+    await button('Save and continue').click();
+    await expect.poll(() => readFile(notes, 'utf8')).toBe(`\uFEFF${guardDraft}`);
     const preview = sidebar.frameLocator('iframe[title="HTML preview"]');
     await expect(preview.getByText(marker, { exact: true })).toHaveCSS('color', 'rgb(20, 120, 40)');
     const img = preview.getByRole('img', { name: 'Local asset' });
@@ -116,6 +162,14 @@ export async function runElectron({ binary, main, projectRoot, project, dir, env
     await expect(preview.getByText(marker, { exact: true })).toBeVisible();
     assert.equal(shot('10-html-after-probe').windowCount, screenshot.windowCount);
     await checkNetwork('Electron iframe');
+    await button('Maximize file').click();
+    await expect(sidebar).toHaveAttribute('data-maximized', 'true');
+    await expect(preview.getByText(marker, { exact: true })).toBeVisible();
+    shot('10-html-maximized');
+    await button('Restore file').click();
+    await expect(sidebar).toHaveAttribute('data-maximized', 'false');
+    await expect(preview.getByText(marker, { exact: true })).toBeVisible();
+    shot('10-html-restored');
     await button('Source').click();
     await expect(button('Wrap lines')).toBeVisible();
     await expect(editor).toHaveValue(await readFile(norm('demo.html'), 'utf8'));
@@ -139,19 +193,62 @@ export async function runElectron({ binary, main, projectRoot, project, dir, env
       await expect(button('Retry file')).toBeVisible();
       shot(name);
     }
-    await writeFile(path.join(dir, 'checks.json'), JSON.stringify({ editorBytes: `\uFEFF${updated}`, scale: startup.scale,
+    await writeFile(path.join(dir, 'checks.json'), JSON.stringify({ editorBytes: `\uFEFF${guardDraft}`, scale: startup.scale,
       frame: startup.frame, htmlPreview: screenshot, loopbackRequests: 0 }, null, 2));
+
+    await button('Close file sidebar').click();
+    await expect(sidebar).toBeHidden();
+    peer = await startElectronPeer({ binary, main, env: appEnv, parent: dir, client: page });
+    const session = name => page.getByRole('button', { name: `Select session P4 peer ${name}`, exact: true });
+    await session('A').click();
+    await filesToolbar.click();
+    await expect.poll(() => field.inputValue()).toBe(peer.a);
+    await exerciseTransfers({ parent: dir, remote: peer.a, picker, shot,
+      openUpload: () => button('Upload file').click(),
+      openDownload: () => button('Download selected file').click(),
+      async selectRemote(name) {
+        await button('Refresh files').click();
+        await button(name).click();
+        await expect(button('Download selected file')).toBeEnabled();
+      },
+      cancelUpload: () => button('Cancel file transfer').click(),
+      idle: () => expect(button('Upload file')).toBeEnabled(),
+    });
+    const draft = 'Unsaved P4 peer draft\n';
+    await button('scope.txt').click();
+    await expect(editor).toHaveValue('Draft on peer A\n');
+    await editor.fill(draft);
+    await session('B').click();
+    await expect(field).toHaveValue(peer.b);
+    await button('scope.txt').click();
+    await expect(editor).toHaveValue('Original on peer B\n');
+    await page.locator('[data-machine-id="local"] .session-section-toggle').click();
+    await session('A').click();
+    await expect(editor).toHaveValue(draft);
+    await peer.reconnect();
+    await expect(editor).toHaveValue(draft);
+    const savedPeerFile = path.join(peer.a, 'scope.txt');
+    assert.equal(await readFile(savedPeerFile, 'utf8'), 'Draft on peer A\n');
+    shot('24-peer-draft-retained');
+    await session('B').click();
+    const external = 'Written by the isolated peer host while the draft was hidden\n';
+    await writeFile(savedPeerFile, external);
+    await session('A').click();
+    await expect(editor).toHaveValue(draft);
+    await expect(sidebar.getByRole('alert')).toContainText('changed on disk');
+    assert.equal(await readFile(savedPeerFile, 'utf8'), external);
+    shot('25-peer-draft-conflict');
+    await button('Close file sidebar').click();
+    await button('Discard changes').click();
+    await expect(sidebar).toBeHidden();
   } catch (error) {
     failure = error;
     try { action('capture', path.join(dir, 'last-screen.png')); } catch { /* Best effort. */ }
     throw error;
   } finally {
-    try {
-      const closed = app.close().then(() => true);
-      assert.ok(await Promise.race([closed, delay(10_000, false, { ref: false })]), 'Owned Electron did not quit');
-    } catch (error) {
-      if (app.process().exitCode === null) app.process().kill('SIGTERM');
-      if (!failure) throw error;
-    }
+    const cleanup = [];
+    if (peer) await peer.close().catch(error => cleanup.push(error));
+    await closeElectron(app).catch(error => cleanup.push(error));
+    if (cleanup.length && !failure) throw new AggregateError(cleanup, 'P4 Electron cleanup failed');
   }
 }
