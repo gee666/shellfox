@@ -52,8 +52,6 @@ fn yes() -> bool {
 pub struct Settings {
     #[serde(deserialize_with = "crate::settings_validation::version")]
     pub version: u8,
-    #[serde(default)]
-    pub python_path: Option<String>,
     pub accent_color: String,
     #[serde(default = "background")]
     pub background_color: String,
@@ -98,7 +96,6 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: 1,
-            python_path: None,
             accent_color: "#ec4899".into(),
             background_color: background(),
             adapter_id: if cfg!(target_os = "linux") {
@@ -127,10 +124,7 @@ impl Settings {
         validation::ensure(self.version == 1, "Unsupported settings version.")?;
         validation::color(&self.accent_color)?;
         validation::color(&self.background_color)?;
-        for path in [&self.python_path, &self.shell_executable]
-            .into_iter()
-            .flatten()
-        {
+        if let Some(path) = &self.shell_executable {
             crate::settings_validation::path(path, 32767)?;
         }
         if let Some(Some(profile)) = &self.terminal_profile_id {
@@ -175,7 +169,6 @@ impl Settings {
         macro_rules! apply { ($($field:ident),* $(,)?) => { $(if let Some(value) = patch.$field { next.$field = value; })* }; }
         apply!(
             version,
-            python_path,
             accent_color,
             background_color,
             adapter_id,
@@ -199,7 +192,7 @@ impl Settings {
 }
 
 /// Missing fields preserve the latest committed value. Null is legal only for
-/// pythonPath, shellExecutable and terminalProfileId, where it clears the value.
+/// shellExecutable and terminalProfileId, where it clears the value.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingsPatch {
@@ -209,12 +202,6 @@ pub struct SettingsPatch {
         skip_serializing_if = "Option::is_none"
     )]
     pub version: Option<u8>,
-    #[serde(
-        default,
-        deserialize_with = "present_nullable",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub python_path: Option<Option<String>>,
     #[serde(
         default,
         deserialize_with = "not_null",

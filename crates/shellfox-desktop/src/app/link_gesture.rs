@@ -1,5 +1,6 @@
-use super::{link_menu::LinkMenuPress, links::copy_link, terminal_file_link, TerminalView};
+use super::{link_menu::LinkMenuPress, links::copy_link, TerminalView};
 use gpui::Context;
+use shellfox_ghostty_vt::terminal_links::parse_file_link;
 use shellfox_ghostty_vt::ViewportPoint;
 
 pub(super) struct FilePress {
@@ -92,7 +93,7 @@ impl TerminalView {
             return None;
         }
         let target = self.visible_link_at(point)?.target;
-        terminal_file_link::parse(&target)?;
+        parse_file_link(&target)?;
         Some(FilePress {
             start: event.position,
             target,

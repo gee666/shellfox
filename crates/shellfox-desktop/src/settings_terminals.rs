@@ -135,39 +135,6 @@ impl SettingsPanel {
         let mut page = div()
             .child(default)
             .child(controls::section(p).child(div().flex().child(environment)));
-        if self
-            .catalog
-            .as_ref()
-            .is_some_and(|catalog| catalog.platform == "linux")
-        {
-            page = page.child(
-                controls::section(p)
-                    .child(controls::heading("Python"))
-                    .child(div().max_w(px(380.)).child(self.bind_field(
-                        self.forms.fields[&Input::Python].clone(),
-                        "Python path",
-                        None,
-                        cx,
-                    )))
-                    .child(
-                        controls::hint(
-                            "Used to safely close terminals. Leave empty for auto-detect.",
-                            p,
-                        )
-                        .mt(px(7.)),
-                    ),
-            );
-            if let Some(error) = self.field_error(errors::Field::Python) {
-                page = page.child(controls::error(error));
-            }
-            if let Some(error) = self
-                .catalog
-                .as_ref()
-                .and_then(|catalog| catalog.python_reason.as_ref())
-            {
-                page = page.child(controls::hint(error.clone(), p));
-            }
-        }
         if let Some(error) = &self.catalog_error {
             page = page.child(controls::hint(error.clone(), p).text_color(gpui::rgb(0xfc8397)));
         }

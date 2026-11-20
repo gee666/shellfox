@@ -62,9 +62,21 @@ internal object ClientTerminalBindings {
     client.filter.expect(operation)
     return operation
   }
-  fun afterPoll(module: Any, id: String, action: () -> String?, done: (String?, Exception?) -> Unit) {
+  fun afterPoll(module: Any, id: String, action: () -> String?, fenceV1: Boolean = false,
+    done: (String?, Exception?) -> Unit) {
     val original = get(module, id)
+    if (fenceV1 && original.profile == ClientProfile.V1) original.poll.prepareV1Fence()
     original.poll.submit({ check(get(module, id) === original); action() }, done)
+  }
+  fun changeViewBinding(module: Any, id: String, tab: String?, terminal: String, done: (String?, Exception?) -> Unit) {
+    val client = get(module, id)
+    val change = { if (tab == null) unbind(module, id, terminal) else bind(module, id, tab, terminal); null }
+    if (client.profile == ClientProfile.V1 && (tab == null || !client.poll.failedPoll)) {
+      // V1 bind only reserves a local parser; attach still waits for the poll.
+      // An old parser can be released even after the carrier drops its poll.
+      val error = try { change(); null } catch (cause: Exception) { cause }
+      done(null, error)
+    } else afterPoll(module, id, change, done = done)
   }
   fun afterTerminalPoll(terminal: String, action: () -> Unit, done: (Exception?) -> Unit) {
     val client = terminals[terminal]?.client
@@ -196,6 +208,7 @@ internal object ClientTerminalBindings {
       return
     }
     client.closing = Closing(android.os.SystemClock.elapsedRealtime() + 3000, mutableListOf<(String?) -> Unit>().apply { if (done != null) add(done) })
+    if (client.profile == ClientProfile.V1) client.poll.prepareV1Fence()
     client.poll.retire()
     if (client.failed) { client.failed = false; tick(id, client) }
   }

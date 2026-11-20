@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    assets::{icon_button, tooltip},
     chrome::button,
     host_client::peer::{Connection, SourceAdmission},
 };
@@ -66,14 +67,15 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Some((peer, state)) = self.peers.selected_peer() else {
-            return div().into_any_element();
+            return self.with_peer_files(div(), palette, window, cx);
         };
         let cycle = source::PeerCycle {
             peer: peer.clone(),
             generation: state.cycle,
         };
         if state.phase != source::Phase::Connected {
-            return self.peer_connection_panel(peer, state, palette, cx);
+            let connection = self.peer_connection_panel(peer, state, palette, cx);
+            return self.with_peer_files(connection, palette, window, cx);
         }
         let mut pane = div().flex().flex_col().flex_1().min_w_0().min_h_0();
         let files_available = self.peer_api(&cycle).is_ok();
@@ -110,7 +112,18 @@ impl Root {
                 button("peer-add-tab", "+", palette)
                     .on_click(cx.listener(|root, _, window, cx| root.add_peer_tab(window, cx))),
             );
-            pane = pane.child(tabs.when(files_available, |tabs| tabs.child(div().flex_1()).child(self.render_files_toggle(true, palette, cx))));
+            pane = pane.child(tabs.when(files_available, |tabs| {
+                tabs.child(div().flex_1())
+                    .child(self.render_files_toggle(true, palette, cx))
+                    .when(visible_selected.is_some(), |tabs| {
+                        tabs.child(
+                            icon_button("peer-terminal-folder", "folder-terminal", palette)
+                                .tab_index(0)
+                                .tooltip(tooltip("Open terminal folder", palette))
+                                .on_click(cx.listener(|root, _, _, cx| root.open_peer_terminal_folder(cx))),
+                        )
+                    })
+            }));
         } else if files_available {
             pane = pane.child(div().h(px(30.)).flex().justify_end().border_b_1().border_color(palette.border)
                 .child(self.render_files_toggle(true, palette, cx)));

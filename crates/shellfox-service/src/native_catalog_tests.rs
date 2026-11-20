@@ -40,7 +40,6 @@ async fn actual_native_owner_catalog_is_bound_to_its_configured_launch_resources
             std::env::consts::OS
         }
     );
-    assert!(matches!(catalog.python,NativePythonFact::Unknown {ref reason} if !reason.is_empty()));
     if let Some(default) = &catalog.profiles.default_profile_id {
         assert!(catalog
             .profiles

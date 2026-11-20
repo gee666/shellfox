@@ -28,22 +28,17 @@ async fn connect_legacy(binding: &V1Binding) -> anyhow::Result<Connected> {
 }
 
 impl Root {
-    pub(crate) fn connect_peer(
+    pub(super) fn connect_catalog(
         &mut self,
         peer: AuthenticatedPeerId,
-        reconnect: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(host) = self.host.clone() else {
             return;
         };
-        if self.peer_ui.frozen {
-            if !reconnect || !self.peer_ui.withdrawn || self.closing_window {
-                return;
-            }
-            self.peer_ui.frozen = false;
-            self.peer_ui.withdrawn = false;
+        if self.peer_ui.frozen || self.closing_window {
+            return;
         }
         let mut legacy = self.legacy_peer_binding(&peer);
         let retry_rejected = self
@@ -51,7 +46,7 @@ impl Root {
             .peers
             .get(&peer)
             .is_some_and(|state| state.phase == source::Phase::Rejected);
-        if reconnect || retry_rejected {
+        if retry_rejected {
             host.retry_rejected_v1(&peer);
             self.retire_peer_views(&peer, cx);
             if legacy.is_none()
@@ -106,7 +101,7 @@ impl Root {
                     }
                 }
             };
-            let phase = legacy
+            let mut phase = legacy
                 .as_ref()
                 .map(|binding| match binding.state().status {
                     ConnectionStatus::AwaitingApproval => source::Phase::AwaitingApproval,
@@ -123,6 +118,17 @@ impl Root {
                             }
                         })
                 });
+            if phase == source::Phase::AwaitingApproval {
+                // Approval was lost between the owner gate and opening this view.
+                // Withdraw the secondary view; only owner attempts wait for approval.
+                if legacy.is_some() {
+                    let _ = host.disconnect_peer(&peer).await;
+                    legacy = None;
+                } else if let Ok(connection) = host.peer_existing(&peer) {
+                    let _ = connection.disconnect().await;
+                }
+                phase = source::Phase::Rejected;
+            }
             let _ = root.update_in(cx, |root, window, cx| {
                 if !root.peers.current(&cycle) || root.closing_window {
                     return;
@@ -143,7 +149,10 @@ impl Root {
                             state.home = home;
                         }
                         match root.peers.catalog(&cycle, snapshot) {
-                            Ok(true) => root.resume_peer_selection(&peer, window, cx),
+                            Ok(true) => {
+                                root.reconcile_peer_file_catalog(&peer, cx);
+                                root.resume_peer_selection(&peer, window, cx);
+                            }
                             Ok(false) => return,
                             Err(error) => {
                                 root.error = Some(error.to_string());
@@ -171,10 +180,7 @@ impl Root {
                         };
                         root.peers.phase(&cycle, phase, Some(detail));
                         #[cfg(not(feature = "experimental-shellfox-native"))]
-                        if matches!(
-                            phase,
-                            source::Phase::AwaitingApproval | source::Phase::Reconnecting
-                        ) {
+                        if phase == source::Phase::Reconnecting {
                             root.peer_ui.metadata_polls.insert(
                                 peer.clone(),
                                 Some(std::time::Instant::now() + std::time::Duration::from_secs(2)),

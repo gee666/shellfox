@@ -72,12 +72,15 @@ impl Root {
             || self.profile_menu.is_some()
             || self.tab_menu.is_some()
             || self.files.as_ref().is_some_and(|files| {
-                files.pending_file_action.is_some()
-                    || files.location.read(cx).is_composing()
-                    || files
-                        .editor
-                        .as_ref()
-                        .is_some_and(|editor| editor.text.read(cx).is_composing())
+                files.visible
+                    && (files.pending_file_action.is_some()
+                        || (files.browser
+                            && (files.missing_folder.is_some()
+                                || files.location.read(cx).is_composing()))
+                        || files
+                            .editor
+                            .as_ref()
+                            .is_some_and(|editor| editor.text.read(cx).is_composing()))
             })
             || self.layout_terminal().is_some_and(|view| {
                 let view = view.read(cx);
@@ -97,7 +100,7 @@ impl Root {
                     && self.files.as_ref().is_some_and(|files| files.visible)
                     && self.files_source_current() =>
             {
-                self.toggle_file_browser(cx)
+                self.toggle_file_browser(window, cx)
             }
             _ => return,
         }

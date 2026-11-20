@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import '../terminal-test-mocks';
+import { createServer } from 'node:http';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { failure, success, type ManagerApi, type SessionDto } from '../../shared/contracts';
 import type { FileApi } from '../../shared/file-contracts';
+import { responseSchemas } from '../../shared/schemas';
 import { App } from '../App';
 import { TerminalRegistry } from '../terminal-client';
 import { deferred, mockApi, session, snapshot } from '../test-fixtures';
@@ -130,6 +132,58 @@ it('does not open a stale terminal folder after the user switches sessions while
   await f.user.click(screen.getByRole('button', { name: 'Select session Session 2' }));
   await act(async () => pending.resolve(success({ path: '/old/session', parentPath: '/old', entries: [], truncated: false })));
   expect(screen.queryByLabelText('File sidebar')).not.toBeInTheDocument();
+});
+
+it('ignores a delayed loopback directory reply from WSL tab A after Files opens in tab B', async () => {
+  const item = session();
+  Object.assign(item.tabs[0], { title: 'Scope A', cwd: '/guest/a', profileId: 'wsl:Ubuntu' });
+  const tabB = { ...session(2).tabs[0], sessionId: item.id, title: 'Scope B', cwd: '/guest/b', profileId: 'wsl:Ubuntu', ordinal: 2 };
+  item.tabs.push(tabB);
+  const f = setup([item]);
+  const release = deferred<void>();
+  let requested: string | undefined;
+  const server = createServer((request, reply) => {
+    requested = request.url;
+    void release.promise.then(() => {
+      reply.writeHead(200, { 'Content-Type': 'application/json' });
+      reply.end(JSON.stringify(success({
+        path: '/guest/a/late-cwd', parentPath: '/guest/a', truncated: false,
+        entries: [{ kind: 'file', name: 'late-only.txt', path: '/guest/a/late-cwd/late-only.txt' }],
+      })));
+    });
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected a loopback test port.');
+    f.files.list.mockImplementationOnce(async input => {
+      const query = new URLSearchParams({ session: input.sessionId ?? '', tab: input.tabId ?? '', path: input.path });
+      const response = await fetch(`http://127.0.0.1:${address.port}/directory?${query}`, { signal: AbortSignal.timeout(4000) });
+      return responseSchemas.listFiles.parse(await response.json());
+    });
+    const openFolder = await screen.findByRole('button', { name: 'Open terminal folder' });
+    await f.user.click(openFolder);
+    await waitFor(() => expect(requested).toBe(`/directory?session=${item.id}&tab=${item.tabs[0].id}&path=.`));
+    expect(openFolder).toBeDisabled();
+
+    await f.user.click(screen.getByRole('tab', { name: /Scope B$/ }));
+    await f.user.click(screen.getByRole('button', { name: 'Files', exact: true }));
+    const path = await screen.findByRole('combobox', { name: 'Folder path' });
+    await waitFor(() => expect(path).toHaveValue('/guest/b'));
+    expect(f.files.list).toHaveBeenLastCalledWith({ sessionId: item.id, tabId: tabB.id, path: '/guest/b' });
+
+    release.resolve(undefined);
+    await waitFor(() => expect(openFolder).toBeEnabled());
+    expect(path).toHaveValue('/guest/b');
+    expect(screen.queryByRole('button', { name: 'late-only.txt' })).not.toBeInTheDocument();
+  } finally {
+    release.resolve(undefined);
+    server.closeAllConnections();
+    await new Promise<void>(resolve => { server.close(() => resolve()); });
+  }
 });
 
 it('reports terminal cwd lookup failures without opening a broken panel', async () => {

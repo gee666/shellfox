@@ -21,10 +21,7 @@ impl ServiceOwner {
         service.ownership_lost = lost.clone();
         #[cfg(windows)]
         if start_wsl_discovery { service.catalog.wsl.start(lost); }
-        let runtime = crate::settings_runtime::SettingsRuntimeAdapter::new(
-            lost.clone(),
-            std::sync::Arc::new(crate::settings_runtime::UnavailableSettingsPythonValidation),
-        );
+        let runtime = crate::settings_runtime::SettingsRuntimeAdapter::new(lost.clone());
         #[cfg(windows)]
         let runtime = runtime.with_wsl_catalog(service.catalog.wsl.cache.clone());
         if let Err(error) = service

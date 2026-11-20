@@ -221,6 +221,35 @@ fn every_environment_write_uses_the_same_js_trim_and_host_duplicate_policy() {
     assert_eq!(host.set_terminal_env(case).is_err(), cfg!(windows));
 }
 #[test]
+fn old_rust_settings_open_without_importing_the_retired_python_preference() {
+    let dir = Scratch::new();
+    let host = Host::open(&dir.0).unwrap();
+    let settings = host.global_settings().unwrap();
+    drop(host);
+    let db = rusqlite::Connection::open(dir.0.join(STORE_FILENAME)).unwrap();
+    db.execute(
+        "UPDATE global_settings SET value=json_set(value,'$.pythonPath','/old/python')",
+        [],
+    )
+    .unwrap();
+    drop(db);
+    let host = Host::open(&dir.0).unwrap();
+    assert_eq!(host.global_settings().unwrap(), settings);
+    let changed = host
+        .save_global_settings(SettingsPatch {
+            history_page_size: Some(23),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(changed.history_page_size, 23);
+    let db = rusqlite::Connection::open(dir.0.join(STORE_FILENAME)).unwrap();
+    let encoded: String = db
+        .query_row("SELECT value FROM global_settings", [], |row| row.get(0))
+        .unwrap();
+    assert!(!encoded.contains("pythonPath"));
+}
+
+#[test]
 fn discovery_changes_fail_closed_without_trusted_runtime_adapter() {
     let dir = Scratch::new();
     let host = Host::open(&dir.0).unwrap();
@@ -228,7 +257,6 @@ fn discovery_changes_fail_closed_without_trusted_runtime_adapter() {
     for input in [
         json!({"terminalProfileId":"wsl:Unavailable distro"}),
         json!({"shellExecutable":"/bin/arbitrary"}),
-        json!({"pythonPath":"/usr/bin/python3"}),
     ] {
         assert_eq!(
             host.save_global_settings(patch(input)).unwrap_err().code,

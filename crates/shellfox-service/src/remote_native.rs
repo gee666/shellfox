@@ -48,17 +48,45 @@ impl fmt::Debug for AuthKey {
 )]
 pub enum RemoteRequest {
     State,
-    Configure { enabled: bool, hostname: String },
-    Login { auth_key: Option<AuthKey> },
-    Cancel { attempt_id: Uuid },
-    Continue { attempt_id: Uuid },
-    Connect { peer_id: String },
-    Disconnect { peer_id: String },
-    Reconnect { peer_id: String },
-    Approve { peer_id: String },
-    Reject { peer_id: String },
-    Revoke { peer_id: String },
-    Forget { peer_id: String },
+    Configure {
+        enabled: bool,
+        hostname: String,
+    },
+    Login {
+        auth_key: Option<AuthKey>,
+    },
+    Cancel {
+        attempt_id: Uuid,
+    },
+    Continue {
+        attempt_id: Uuid,
+    },
+    #[serde(skip)]
+    ContinueDesktopPair {
+        attempt_id: Uuid,
+        permit: PairingPermit,
+    },
+    Connect {
+        peer_id: String,
+    },
+    Disconnect {
+        peer_id: String,
+    },
+    Reconnect {
+        peer_id: String,
+    },
+    Approve {
+        peer_id: String,
+    },
+    Reject {
+        peer_id: String,
+    },
+    Revoke {
+        peer_id: String,
+    },
+    Forget {
+        peer_id: String,
+    },
 }
 impl RemoteRequest {
     pub fn validate(&self) -> Result<(), AppError> {
@@ -75,7 +103,11 @@ impl RemoteRequest {
                     return Err(invalid());
                 }
             }
-            Self::Cancel { attempt_id } | Self::Continue { attempt_id } if attempt_id.is_nil() => {
+            Self::Cancel { attempt_id }
+            | Self::Continue { attempt_id }
+            | Self::ContinueDesktopPair { attempt_id, .. }
+                if attempt_id.is_nil() =>
+            {
                 return Err(invalid())
             }
             Self::Connect { peer_id }
@@ -169,9 +201,32 @@ impl fmt::Debug for RemoteControlState {
     }
 }
 pub type RemoteResponse = RemoteControlState;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConnectResult {
+    Created(Uuid),
+    Existing,
+}
+
+#[derive(Clone, Debug)]
+pub struct PairingPermit {
+    pub deadline: std::time::Instant,
+    pub lifetime: shellfox_protocol::CancellationToken,
+}
+impl PairingPermit {
+    pub fn active_at(&self, now: std::time::Instant) -> bool {
+        now < self.deadline && !self.lifetime.is_cancelled()
+    }
+}
+
+#[derive(Debug)]
+pub struct RemoteReceipt {
+    pub state: RemoteResponse,
+    pub connect: Option<ConnectResult>,
+}
 pub(super) struct RemoteEnvelope {
     pub request: RemoteRequest,
-    pub reply: oneshot::Sender<Result<RemoteResponse, AppError>>,
+    pub reply: oneshot::Sender<Result<RemoteReceipt, AppError>>,
 }
 #[derive(Clone)]
 pub struct RemoteControl {
@@ -185,7 +240,7 @@ pub enum RemoteAdmissionError {
     Stopped(RemoteRequest),
     Invalid(AppError),
 }
-pub type RemoteAccepted = oneshot::Receiver<Result<RemoteResponse, AppError>>;
+pub type RemoteAccepted = oneshot::Receiver<Result<RemoteReceipt, AppError>>;
 impl fmt::Debug for RemoteAdmissionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
@@ -230,12 +285,13 @@ impl RemoteControl {
                     "Remote control queue full or stopped. Request was not accepted.",
                 ),
             })?;
-        receive.await.map_err(|_| {
+        let receipt = receive.await.map_err(|_| {
             error(
                 ErrorCode::NativeUnavailable,
                 "Remote control stopped. Do not automatically retry an accepted action.",
             )
-        })?
+        })??;
+        Ok(receipt.state)
     }
 }
 pub(super) fn error(code: ErrorCode, message: &str) -> AppError {

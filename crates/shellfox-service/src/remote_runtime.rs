@@ -31,6 +31,9 @@ mod peers;
 pub use network::{
     GoNetworkFactory, NetworkFuture, RemoteControlBackend, RemoteNetwork, RemoteNetworkFactory,
 };
+fn pair_stopped() -> AppError {
+    error(ErrorCode::NativeUnavailable, "Pairing stopped. Cancel the request and connect again.")
+}
 fn cleanup_retained() -> AppError {
     error(ErrorCode::NativeUnavailable,"CleanupRetained: owned transport helper stop is not confirmed; endpoint and ownership must remain held.")
 }
@@ -96,6 +99,8 @@ impl RemoteRuntime {
                     network: None,
                     epoch: 0,
                     cycle: CancellationToken::new(),
+                    stop: cancel.clone(),
+                    lost: lost.clone(),
                     jobs: tokio::task::JoinSet::new(),
                     owned_jobs: tokio::task::JoinSet::new(),
                     orphan: None,
@@ -157,6 +162,7 @@ impl Drop for RemoteRuntime {
 struct Connection {
     id: Uuid,
     cancel: CancellationToken,
+    established: bool,
 }
 enum Event {
     Started {
@@ -175,6 +181,7 @@ enum Event {
         id: Uuid,
         peer: String,
         result: Result<(), AppError>,
+        activation: peers::PairActivation,
     },
     PeerFailed {
         epoch: u64,
@@ -203,6 +210,8 @@ struct Manager {
     network: Option<Arc<dyn RemoteNetwork>>,
     epoch: u64,
     cycle: CancellationToken,
+    stop: CancellationToken,
+    lost: CancellationToken,
     jobs: tokio::task::JoinSet<()>,
     owned_jobs: tokio::task::JoinSet<Event>,
     orphan: Option<Arc<dyn RemoteNetwork>>,
@@ -236,9 +245,12 @@ impl Manager {
                     // Enqueue accepted mutations into this owner, not its reply
                     // receiver. Response loss cannot discard an accepted action.
                     if !envelope.reply.is_closed() || !matches!(&envelope.request, RemoteRequest::State){
-                        let result=self.request(envelope.request).await;
+                        let result = match &envelope.request {
+                            RemoteRequest::ContinueDesktopPair { .. } if stop.is_cancelled() || lost.is_cancelled() => Err(pair_stopped()),
+                            _ => self.request(envelope.request).await,
+                        };
                         self.emit().await;
-                        let _=envelope.reply.send(result.map(|_|self.state.clone()));
+                        let _=envelope.reply.send(result.map(|connect|RemoteReceipt{state:self.state.clone(),connect}));
                     }
                 },
                 Some(event)=events.recv()=>{self.apply(event).await;self.emit().await;},

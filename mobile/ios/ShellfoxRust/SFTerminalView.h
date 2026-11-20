@@ -25,7 +25,7 @@
 @property(nonatomic, copy) void (^failed)(SfmStatus status);
 @property(nonatomic, copy) void (^inputReceived)(void);
 @property(nonatomic, copy) void (^selectionChanged)(NSString *text);
-@property(nonatomic, copy) void (^fileLink)(NSString *text, int offset);
+@property(nonatomic, copy) void (^fileLink)(NSString *target);
 - (void)send:(NSDictionary *)event;
 - (void)withTerminal:(void (^)(SFTerminal *terminal))work;
 - (void)detach;

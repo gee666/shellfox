@@ -26,7 +26,7 @@ pub use native_endpoint_report::{
     EndpointArtifactDisposition, EndpointPublicationOutcome, NativeEndpointReport,
 };
 mod native_catalog;
-pub use native_catalog::{NativeLaunchCatalog, NativePythonFact};
+pub use native_catalog::NativeLaunchCatalog;
 mod native_sharing;
 pub use native_sharing::NativeFactoryPolicy;
 mod mailbox_custody;

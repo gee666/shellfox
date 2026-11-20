@@ -26,9 +26,10 @@ pub(crate) fn migrate(db: &Connection, existing: bool) -> Result<()> {
     storage::save(db, &data)
 }
 pub(crate) fn read(db: &Connection) -> Result<Settings> {
+    // Older Rust stores wrote the retired Python preference into global settings.
     let value: String = db
         .query_row(
-            "SELECT value FROM global_settings WHERE id=1 AND length(CAST(value AS BLOB))<=4194304",
+            "SELECT json_remove(value,'$.pythonPath') FROM global_settings WHERE id=1 AND length(CAST(value AS BLOB))<=4194304",
             [],
             |r| r.get(0),
         )

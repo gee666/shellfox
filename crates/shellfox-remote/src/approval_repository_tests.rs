@@ -126,6 +126,56 @@ async fn approve_installs_only_after_commit_reply_and_revoke_denies_before_io() 
         .exists());
 }
 #[tokio::test]
+async fn pair_waits_for_approval_persistence_without_replaying_a_genuine_denial() {
+    let fixture = metadata::Fixture::new();
+    let repository = Repository::new();
+    let store = store(&fixture, repository.clone());
+    let control = ApprovalControl::load(&store).await.unwrap();
+    let now = crate::backend::now_millis();
+    let rejected = ClientId::new_v4();
+    assert_eq!(
+        control
+            .authorize(&peer(), rejected, now)
+            .err()
+            .unwrap()
+            .code,
+        ErrorCode::ApprovalRequired
+    );
+    control.reject("n-owned").unwrap();
+    let accepted = ClientId::new_v4();
+    assert_eq!(
+        control
+            .authorize(&peer(), accepted, now)
+            .err()
+            .unwrap()
+            .code,
+        ErrorCode::ApprovalRequired
+    );
+
+    let candidate = control.clone();
+    let approving = tokio::spawn(async move { candidate.approve(&store, approval()).await });
+    repository.entered.notified().await;
+    let mut waiting = Box::pin(control.authorize_pair_async(peer(), accepted, now));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(200), waiting.as_mut())
+            .await
+            .is_err()
+    );
+    repository.release.notify_one();
+    approving.await.unwrap().unwrap();
+    assert!(waiting.await.is_ok());
+    assert_eq!(
+        control
+            .authorize_pair_async(peer(), rejected, now)
+            .await
+            .err()
+            .unwrap()
+            .code,
+        ErrorCode::AccessDenied
+    );
+}
+
+#[tokio::test]
 async fn cancelled_management_keeps_policy_and_store_uncertain_without_retry() {
     let fixture = metadata::Fixture::new();
     let repository = Repository::new();

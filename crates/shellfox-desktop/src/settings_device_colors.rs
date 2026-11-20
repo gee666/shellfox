@@ -164,10 +164,13 @@ mod tests {
         }
     }
     fn scratch() -> Scratch {
-        let path = std::env::current_dir().unwrap().join("tmp").join(format!(
-            "settings-device-anchor-{}",
-            shellfox_core::SessionId::new()
-        ));
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .unwrap()
+            .join("tmp");
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join(format!("settings-device-{}", shellfox_core::SessionId::new()));
         std::fs::create_dir(&path).unwrap();
         Scratch(path)
     }
@@ -269,12 +272,7 @@ mod tests {
     }
     #[test]
     fn owned_device_store_reopens_and_keeps_last_three_without_cross_kind_loss() {
-        let path = std::env::current_dir().unwrap().join("tmp").join(format!(
-            "settings-device-colors-{}",
-            shellfox_core::SessionId::new()
-        ));
-        std::fs::create_dir(&path).unwrap();
-        let scratch = Scratch(path);
+        let scratch = scratch();
         let store = native(&scratch.0).unwrap();
         assert!(store.read().unwrap().accent.is_empty());
         store.save(ColorKind::Background, "#121212").unwrap();
@@ -289,12 +287,7 @@ mod tests {
     }
     #[test]
     fn future_format_is_never_overwritten_by_a_save() {
-        let path = std::env::current_dir().unwrap().join("tmp").join(format!(
-            "settings-device-future-{}",
-            shellfox_core::SessionId::new()
-        ));
-        std::fs::create_dir(&path).unwrap();
-        let scratch = Scratch(path);
+        let scratch = scratch();
         let store = native(&scratch.0).unwrap();
         let future = b"Shellfox device colors 2\naccent=#123456\nbackground=\n";
         std::fs::write(&store.path, future).unwrap();
@@ -304,12 +297,7 @@ mod tests {
     }
     #[test]
     fn shared_window_provider_serializes_cross_kind_writes() {
-        let path = std::env::current_dir().unwrap().join("tmp").join(format!(
-            "settings-device-shared-{}",
-            shellfox_core::SessionId::new()
-        ));
-        std::fs::create_dir(&path).unwrap();
-        let scratch = Scratch(path);
+        let scratch = scratch();
         let store = Arc::new(native(&scratch.0).unwrap());
         let other = store.clone();
         let task =

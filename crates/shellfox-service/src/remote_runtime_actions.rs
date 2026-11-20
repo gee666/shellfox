@@ -1,6 +1,9 @@
 use super::*;
 impl Manager {
-    pub(super) async fn request(&mut self, request: RemoteRequest) -> Result<(), AppError> {
+    pub(super) async fn request(
+        &mut self,
+        request: RemoteRequest,
+    ) -> Result<Option<ConnectResult>, AppError> {
         request.validate()?;
         match &request {
             RemoteRequest::Disconnect { peer_id }
@@ -62,13 +65,25 @@ impl Manager {
                 self.health(Some(id), Some(auth_key));
             }
             RemoteRequest::Cancel { attempt_id } => {
-                let attempt = self
+                let Some(attempt) = self
                     .state
                     .attempts
                     .iter()
                     .find(|a| a.id == attempt_id)
                     .cloned()
-                    .ok_or_else(|| error(ErrorCode::NotFound, "Attempt is no longer current."))?;
+                else {
+                    // Pair may have committed since the caller rendered Cancel. Show
+                    // the exact connected generation without disconnecting it.
+                    if self.state.peers.iter().any(|peer| {
+                        peer.connection == RemoteConnection::Connected
+                            && self.connections.get(&peer.id).is_some_and(|connection| {
+                                connection.id == attempt_id && !connection.cancel.is_cancelled()
+                            })
+                    }) {
+                        return Ok(None);
+                    }
+                    return Err(error(ErrorCode::NotFound, "Attempt is no longer current."));
+                };
                 match attempt.kind {
                     AttemptKind::Connect { peer_id } => {
                         if !self
@@ -127,20 +142,34 @@ impl Manager {
                         }
                         self.health(Some(attempt_id), None);
                     }
-                    AttemptKind::Connect { peer_id } => self.connect(&peer_id, Some(attempt_id))?,
+                    AttemptKind::Connect { peer_id } => {
+                        self.connect(&peer_id, Some(attempt_id), None)?;
+                    }
                     AttemptKind::Enable => {
                         return Err(error(ErrorCode::Validation, "Enable is still pending."))
                     }
                 }
             }
+            RemoteRequest::ContinueDesktopPair { attempt_id, permit } => {
+                if !permit.active_at(std::time::Instant::now()) {
+                    return Err(pair_stopped());
+                }
+                let peer = self.state.peers.iter().find(|peer| {
+                    peer.attempt_id == Some(attempt_id)
+                        && peer.connection == RemoteConnection::AwaitingApproval
+                });
+                if let Some(peer_id) = peer.map(|peer| peer.id.clone()) {
+                    self.connect(&peer_id, Some(attempt_id), Some(permit))?;
+                }
+            }
             RemoteRequest::Connect { peer_id } => {
                 self.remember(&peer_id).await?;
-                self.connect(&peer_id, None)?;
+                return self.connect(&peer_id, None, None).map(Some);
             }
             RemoteRequest::Reconnect { peer_id } => {
                 self.disconnect(&peer_id);
                 self.remember(&peer_id).await?;
-                self.connect(&peer_id, None)?;
+                self.connect(&peer_id, None, None)?;
             }
             RemoteRequest::Disconnect { peer_id } => self.disconnect(&peer_id),
             RemoteRequest::Forget { peer_id } => {
@@ -159,7 +188,7 @@ impl Manager {
             }
             RemoteRequest::Revoke { peer_id } => self.backend.revoke(&peer_id).await?,
         }
-        Ok(())
+        Ok(None)
     }
     async fn remember(&mut self, peer_id: &str) -> Result<(), AppError> {
         let peer = self

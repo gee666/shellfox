@@ -1,6 +1,6 @@
 use super::api;
 use shellfox_service::remote::native as host;
-pub(super) fn project(state: host::RemoteControlState) -> api::RemoteState {
+pub(crate) fn project(state: host::RemoteControlState) -> api::RemoteState {
     let status = match state.status {
         host::RemoteNetworkStatus::Disabled => api::NetworkStatus::Disabled,
         host::RemoteNetworkStatus::Starting => api::NetworkStatus::Starting,

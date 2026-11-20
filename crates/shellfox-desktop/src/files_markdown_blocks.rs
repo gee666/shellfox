@@ -9,13 +9,18 @@ impl Renderer<'_, '_> {
                 .mb(px(10.))
                 .child(self.inline(children))
                 .into_any_element(),
-            Node::Group(Tag::Heading { level, .. }, children) => {
+            Node::Group(Tag::Heading { level, id, .. }, children) => {
                 let font = match level {
                     HeadingLevel::H1 => 20.,
                     HeadingLevel::H2 => 17.,
                     HeadingLevel::H3 => 14.,
                     _ => 12.,
                 };
+                let anchor = id.as_ref().map_or_else(
+                    || anchors::slug(&inline::plain(children)),
+                    ToString::to_string,
+                );
+                self.anchors.register(anchor, self.block_index);
                 div()
                     .mt(px(14.))
                     .mb(px(8.))
@@ -33,7 +38,7 @@ impl Renderer<'_, '_> {
                 .bg(palette.sidebar)
                 .border_1()
                 .border_color(palette.border)
-                .child(self.inline(children))
+                .child(self.inline_content(children, false))
                 .into_any_element(),
             Node::Group(Tag::BlockQuote(_), children) => div()
                 .pl(px(10.))
@@ -116,18 +121,16 @@ impl Renderer<'_, '_> {
                 let Node::Group(_, children) = cell else {
                     continue;
                 };
-                let mut plain = Inline::default();
-                for child in children {
-                    plain.push(child, HighlightStyle::default(), palette);
-                }
+                let plain = inline::plain(children);
+                let len = plain.len();
                 let width = self
                     .window
                     .text_system()
                     .shape_line(
-                        plain.text.clone().into(),
+                        plain.into(),
                         px(12.),
                         &[gpui::TextRun {
-                            len: plain.text.len(),
+                            len,
                             font: font.clone(),
                             color: palette.foreground,
                             background_color: None,

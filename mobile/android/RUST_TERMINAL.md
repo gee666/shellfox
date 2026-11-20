@@ -8,6 +8,8 @@ Android uses the Rust V1 client and Ghostty Fabric terminal by default, with the
 
 `TerminalCoordinator` owns one process-lifetime `HandlerThread`. Module creation, rendering, configuration, parser barriers, resize, selection, input, reset and close all use that OS thread. A mounted view borrows a module-owned engine. Unmounting does not kill a host terminal or close an engine behind the module's back. One engine can have only one mounted sink. Handle strings and progress sequences preserve all 64 bits.
 
+Native file taps use the desktop's Rust link detector, including Ghostty soft wraps and hard wraps inside TUI columns. JavaScript receives the resolved target, not the terminal rows.
+
 `ClientTerminalBindings` binds engines before attach. Rust validates host epochs and cursors, splits delivery into bounded engine tickets and grants ACK credit only after parsing. Native calls `terminal_consumed` again when credit admission is busy, even if no new frame is needed. Pending output is parsed before mode-dependent input encoding or resize. An accepted-ticket barrier cannot move when more output arrives.
 
 Recovery events stay native. The owner queries the current ticket and `terminal_reset_grid` for that exact ticket, resets at the live host grid, then completes the matching ticket. A stale query is retried. Queued event dimensions are never used. A fence-only reset keeps the existing native grid. Engines pump even before any view mounts. Native waits for `terminal_recovery_ready`, then fits the recorded local viewport and exposes the coarse attachment result. Read-only views never request host resize. Retired IME connections cannot commit into a new view binding or reset epoch.
@@ -53,7 +55,7 @@ Gradle reads the resulting build directory under `tmp/mobile-rust-produced/andro
 
 ## Verification
 
-To run the real app against a test tailnet, build `:app:assembleTerminalTest` with the normal `mobile/index.js` entry. Install `com.shellfox.mobile.terminaltest` only on the test emulator. Use `adb reverse` for the loopback control and DERP ports, and pass `--es shellfoxControlURL http://127.0.0.1:<control-port>` when starting `com.shellfox.mobile.terminaltest/com.shellfox.mobile.MainActivity`. The Go library validates the loopback origin and uses separate state. The normal V1 app build does not accept this launch extra.
+To run the real app against a test tailnet, build `:app:assembleTerminalTest` with the normal `mobile/index.js` entry. Install `com.shellfox.mobile.terminaltest` only on the test emulator. Use `adb reverse` for the loopback control and DERP ports, and pass `--es shellfoxControlURL http://127.0.0.1:<control-port>` when starting `com.shellfox.mobile.terminaltest/com.shellfox.mobile.MainActivity`. The Go library validates the loopback origin, uses separate state and routes fixture traffic through DERP rather than advertised physical endpoints. The normal V1 app build does not accept this launch extra.
 
 Run from the repository root. Keep `GRADLE_USER_HOME` under project `tmp/` when invoking the wrapper. Each shell invocation needs an outer timeout.
 

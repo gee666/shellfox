@@ -35,6 +35,7 @@ impl Root {
             return false;
         }
         self.peer_ui.frozen = true;
+        self.stop_peer_pairing();
         #[cfg(feature = "experimental-shellfox-native")]
         for view in self.peer_ui.views.values() {
             if !view.update(cx, |view, _| view.freeze_inputs(true)) {
@@ -54,6 +55,7 @@ impl Root {
     pub(crate) fn retire_all_peer_views(&mut self, cx: &mut Context<Self>) {
         self.peer_ui.frozen = true;
         self.peer_ui.withdrawn = true;
+        self.stop_peer_pairing();
         let peers: Vec<_> = self.peers.peers.keys().cloned().collect();
         for peer in peers {
             self.retire_peer_views(&peer, cx);

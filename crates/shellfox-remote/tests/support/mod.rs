@@ -39,7 +39,6 @@ pub fn snapshot(platform: &str) -> core::Snapshot {
 pub fn facts(platform: &str) -> ManagerFacts {
     let mut facts = ManagerFacts {
         settings: Some(SettingsFacts {
-            python_path: None,
             adapter_id: wire::AdapterId::EmbeddedPty,
             shell_id: wire::ShellId::LoginShell,
             shell_executable: None,

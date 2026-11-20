@@ -133,6 +133,9 @@ SfmStatus sfm_terminal_select(SfmHandle handle, SfmSelection selection);
 SfmStatus sfm_terminal_copy(SfmHandle handle, SfmBytesFn text, void *context);
 SfmStatus sfm_terminal_hyperlink(SfmHandle handle, uint16_t x, uint16_t y,
                                SfmBytesFn uri, void *context);
+/* Resolves a plaintext file target in the owner viewport, including wrapped rows. */
+SfmStatus sfm_terminal_file_link(SfmHandle handle, uint16_t x, uint16_t y,
+                                SfmBytesFn target, void *context);
 SfmStatus sfm_terminal_mouse_tracking(SfmHandle handle, uint8_t *out);
 /* The wrapper currently exposes cursor position/visibility, not shape or blink.
  * Render a steady block cursor until that public contract is extended. */

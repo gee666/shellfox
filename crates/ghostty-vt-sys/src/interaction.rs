@@ -35,6 +35,7 @@ unsafe extern "C" {
     ) -> i32;
     fn sf_selection(vt: *mut c_void, selection: *const Selection) -> i32;
     fn sf_copy_selection(vt: *mut c_void, out: *mut u8, cap: usize, len: *mut usize) -> i32;
+    fn sf_viewport_rows(vt: *mut c_void, flags: *mut u8, count: usize) -> i32;
     fn sf_hyperlink(
         vt: *mut c_void,
         x: u16,
@@ -147,6 +148,25 @@ impl Engine {
         } else {
             Ok(())
         }
+    }
+    pub fn viewport_rows(&mut self) -> Result<Vec<RowMetadata>> {
+        self.status()?;
+        let mut flags = vec![0; usize::from(self.rows)];
+        // SAFETY: C writes one byte per row of the current viewport.
+        unsafe {
+            check(sf_viewport_rows(
+                self.ptr.as_ptr(),
+                flags.as_mut_ptr(),
+                flags.len(),
+            ))?;
+        }
+        Ok(flags
+            .into_iter()
+            .map(|flags| RowMetadata {
+                soft_wrapped: flags & 1 != 0,
+                wrap_continuation: flags & 2 != 0,
+            })
+            .collect())
     }
     pub fn hyperlink_at(&mut self, x: u16, y: u16) -> Result<Option<String>> {
         self.status()?;

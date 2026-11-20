@@ -1,5 +1,5 @@
 use crate::{files::DocumentBackend, root::Root, theme::Palette};
-use gpui::{AnyElement, Context, Image, ScrollHandle, StyledImage, div, img, prelude::*, px};
+use gpui::{AnyElement, Context, Image, StyledImage, div, img, prelude::*, px};
 use std::{cell::RefCell, sync::Arc};
 #[path = "files_markdown.rs"]
 mod markdown;
@@ -27,7 +27,6 @@ enum Content {
 pub(crate) struct TextPreview {
     kind: Kind,
     pub showing: bool,
-    scroll: ScrollHandle,
     cached: RefCell<Option<(Arc<str>, Content)>>,
 }
 
@@ -43,7 +42,6 @@ impl TextPreview {
         Some(Self {
             kind,
             showing: true,
-            scroll: ScrollHandle::new(),
             cached: RefCell::default(),
         })
     }
@@ -77,13 +75,8 @@ impl TextPreview {
             *cache = Some((text, parsed));
         }
         match cache.as_mut().map(|(_, parsed)| parsed) {
-            Some(Content::Markdown(markdown, images)) => div()
-                .id("file-markdown-preview")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .track_scroll(&self.scroll)
-                .child(markdown.render(path, backend, images, palette, window, cx))
+            Some(Content::Markdown(markdown, images)) => markdown
+                .render(path, backend, images, palette, window, cx)
                 .into_any_element(),
             Some(Content::Svg(image)) => render_image(image.clone()),
             Some(Content::Html(html)) => html.render(surface, palette),
@@ -94,6 +87,10 @@ impl TextPreview {
                 .into_any_element(),
         }
     }
+}
+
+pub(crate) fn image_error() -> AnyElement {
+    div().size_full().flex().items_center().justify_center().p(px(8.)).child("Could not display image.").into_any_element()
 }
 
 pub(crate) fn render_image(image: Arc<Image>) -> AnyElement {
@@ -110,7 +107,7 @@ pub(crate) fn render_image(image: Arc<Image>) -> AnyElement {
                 .id("file-image")
                 .max_w_full()
                 .max_h_full()
-                .with_fallback(|| div().child("Could not display image.").into_any_element()),
+                .with_fallback(|| div().whitespace_nowrap().child("Could not display image.").into_any_element()),
         )
         .into_any_element()
 }

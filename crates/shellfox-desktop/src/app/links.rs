@@ -1,16 +1,10 @@
-use super::{
-    link_gesture::FilePress,
-    link_ranges::{self, LinkRange},
-    runtime::Pending,
-    terminal_file_link::{self, TerminalFileLink},
-    Backend, TerminalView,
-};
+use super::{link_gesture::FilePress, runtime::Pending, Backend, TerminalView};
 use gpui::{ClipboardItem, Context};
-use shellfox_ghostty_vt::ViewportPoint;
+use shellfox_ghostty_vt::{
+    terminal_links::{link_at, parse_file_link, safe_web_url, LinkRange, TerminalFileLink},
+    ViewportPoint,
+};
 use shellfox_runtime::Command;
-use url::Url;
-
-const MAX_LINK_BYTES: usize = 2048;
 
 #[derive(Default)]
 pub(super) struct LinkState {
@@ -62,7 +56,7 @@ impl TerminalView {
             super::SharedScreen::Peer(frame) => &frame.rendered.row_metadata[..],
             _ => &[],
         };
-        link_ranges::link_at(&self.screen, metadata, point, self.links.files_enabled)
+        link_at(&self.screen, metadata, point, self.links.files_enabled)
     }
 
     pub(super) fn visible_link_at(&self, point: ViewportPoint) -> Option<LinkRange> {
@@ -154,7 +148,10 @@ impl TerminalView {
         }
     }
 
-    pub(crate) fn hovered_link_cells(&self, window: &gpui::Window) -> Option<(ViewportPoint, ViewportPoint)> {
+    pub(crate) fn hovered_link_cells(
+        &self,
+        window: &gpui::Window,
+    ) -> Option<(ViewportPoint, ViewportPoint)> {
         if !self.focus.is_focused(window) && !self.link_menu_open() {
             return None;
         }
@@ -178,7 +175,7 @@ impl TerminalView {
         if copy_link(modifiers) {
             cx.write_to_clipboard(ClipboardItem::new_string(uri));
         } else if !(cfg!(target_os = "macos") && modifiers.control) {
-            if let Some(file) = terminal_file_link::parse(&uri) {
+            if let Some(file) = parse_file_link(&uri) {
                 self.update_link_hover(None, cx);
                 cx.emit(file);
             } else if safe_web_url(&uri).is_some() {
@@ -218,7 +215,10 @@ impl TerminalView {
 }
 
 impl Backend {
-    fn local_hyperlink(&mut self, point: ViewportPoint) -> Option<shellfox_ghostty_vt::Result<Option<String>>> {
+    fn local_hyperlink(
+        &mut self,
+        point: ViewportPoint,
+    ) -> Option<shellfox_ghostty_vt::Result<Option<String>>> {
         match self {
             Self::Fixture(terminal) => Some(terminal.hyperlink_at(point)),
             Self::Peer(peer) => Some(peer.terminal.view_hyperlink(&mut peer.presentation, point)),
@@ -237,29 +237,7 @@ pub(super) fn copy_link(mods: gpui::Modifiers) -> bool {
 }
 
 fn safe_target(value: Option<String>, files: bool) -> Option<String> {
-    value.filter(|uri| {
-        safe_web_url(uri).is_some() || files && terminal_file_link::parse(uri).is_some()
-    })
-}
-
-/// Terminal output cannot pass an arbitrary scheme to the system opener.
-pub(super) fn safe_web_url(value: &str) -> Option<Url> {
-    if value.len() > MAX_LINK_BYTES
-        || value
-            .chars()
-            .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
-    {
-        return None;
-    }
-    let url = Url::parse(value).ok()?;
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
-        return None;
-    }
-    Some(url)
+    value.filter(|uri| safe_web_url(uri).is_some() || files && parse_file_link(uri).is_some())
 }
 
 #[cfg(test)]
@@ -283,7 +261,7 @@ mod tests {
         }
         assert!(safe_web_url(&format!(
             "https://example.com/{}",
-            "x".repeat(MAX_LINK_BYTES)
+            "x".repeat(shellfox_ghostty_vt::terminal_links::MAX_WEB_LINK_BYTES)
         ))
         .is_none());
     }

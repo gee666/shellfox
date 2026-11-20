@@ -292,9 +292,12 @@ internal object TerminalCoordinator {
   fun copy(id: String, sink: TerminalSink, done: (String) -> Unit) = command(id, sink) { entry ->
     done(RustBindings.copy(entry.handle).toString(Charsets.UTF_8))
   }
-
-  fun hyperlink(id: String, sink: TerminalSink, x: Int, y: Int, done: (String) -> Unit) = command(id, sink) { entry ->
-    done(RustBindings.hyperlink(entry.handle, x, y).toString(Charsets.UTF_8))
+  fun link(id: String, sink: TerminalSink, x: Int, y: Int, plaintext: Boolean,
+    stillVisible: (() -> Boolean)?, done: (String) -> Unit) = command(id, sink) { entry ->
+    // A queued scroll, resize or parser flush may have moved the tapped cell.
+    if (stillVisible != null && (entry.dirty || !stillVisible())) return@command
+    val bytes = if (plaintext) RustBindings.fileLink(entry.handle, x, y) else RustBindings.hyperlink(entry.handle, x, y)
+    done(bytes.toString(Charsets.UTF_8))
   }
 
   private fun command(id: String, sink: TerminalSink, critical: Boolean = false, task: (Entry) -> Unit) = execute({ sink.error(1) }, critical) {

@@ -83,33 +83,30 @@ fn dot(session: &m::Session, busy: impl Fn(m::Id) -> bool) -> AgentState {
     }
 }
 
-fn connection_label(peer: &source::PeerState) -> (&'static str, String, bool) {
+fn connection_label(peer: &source::PeerState) -> (&'static str, String) {
     use source::Phase;
     let host = &peer.hostname;
     match peer.phase {
-        Phase::Connected => ("Connected", format!("Connected to {host}"), true),
+        Phase::Connected => ("Connected", format!("Connected to {host}")),
         Phase::AwaitingApproval => (
             "Waiting for approval",
             format!("Approve this request in Shellfox on {host}."),
-            true,
         ),
-        Phase::Connecting => ("Connecting", format!("Connecting to {host}…"), true),
+        Phase::Connecting => ("Connecting", format!("Connecting to {host}…")),
         Phase::Reconnecting => (
             "Reconnecting",
             peer.error
                 .clone()
                 .unwrap_or_else(|| format!("Reconnecting to {host}…")),
-            true,
         ),
         Phase::Rejected => (
             "Access denied",
             peer.error.clone().unwrap_or_else(|| {
                 "The host declined the request. You can request access again.".into()
             }),
-            false,
         ),
-        Phase::Disconnected if peer.online => ("Disconnected", "Ready to connect".into(), false),
-        Phase::Disconnected => ("Offline", "This machine is offline.".into(), false),
+        Phase::Disconnected if peer.online => ("Disconnected", "Ready to connect".into()),
+        Phase::Disconnected => ("Offline", "This machine is offline.".into()),
     }
 }
 
@@ -147,7 +144,10 @@ impl Root {
                 peer: peer.clone(),
                 generation: state.cycle,
             };
-            let (label, detail, active) = connection_label(state);
+            let (label, detail) = connection_label(state);
+            use source::ConnectionAction;
+            let action = state.connection_action();
+            let active = matches!(action, Some(ConnectionAction::Cancel(_) | ConnectionAction::Disconnect));
             let mut rows: Vec<_> = state
                 .snapshot
                 .as_ref()
@@ -208,14 +208,14 @@ impl Root {
             let target = peer.clone();
             let toggle = peer.clone();
             let host = state.hostname.as_str();
-            let button_tip = if active {
-                format!("{detail} Disconnect")
-            } else if state.phase == source::Phase::Rejected {
-                format!("{detail} Request access again")
-            } else {
-                format!("Connect to {host}")
+            let button_tip = match action {
+                Some(ConnectionAction::Cancel(_)) => "Cancel request".into(),
+                Some(ConnectionAction::Disconnect) => format!("{detail} Disconnect"),
+                Some(ConnectionAction::Retry) => format!("{detail} Request access again"),
+                Some(ConnectionAction::Connect) => format!("Connect to {host}"),
+                None => detail.clone(),
             };
-            let disabled = state.pending || !state.online && !active;
+            let disabled = action.is_none();
             list = list.child(
                 div()
                     .id(gpui::SharedString::from(format!(
@@ -270,7 +270,7 @@ impl Root {
                                 {
                                     root.error = Some(error.to_string());
                                 }
-                                root.settings = false;
+                                root.hide_settings(cx);
                                 root.peer_ui.pending_create = None;
                                 root.resume_peer_selection(&target, window, cx);
                                 cx.notify();
@@ -298,13 +298,11 @@ impl Root {
                         .size(px(24.))
                         .tooltip(tooltip(button_tip, palette))
                         .when(disabled, |button| button.opacity(0.4))
-                        .when(!disabled, |button| {
-                            button.on_click(cx.listener(move |root, _, window, cx| {
-                                if active {
-                                    root.disconnect_peer(toggle.clone(), window, cx);
-                                } else {
-                                    root.connect_peer(toggle.clone(), false, window, cx);
-                                }
+                        .when_some(action, |button, action| {
+                            button.on_click(cx.listener(move |root, _, window, cx| match action {
+                                ConnectionAction::Cancel(id) => root.cancel_peer_pair(toggle.clone(), id, window, cx),
+                                ConnectionAction::Disconnect => root.disconnect_peer(toggle.clone(), window, cx),
+                                ConnectionAction::Connect | ConnectionAction::Retry => root.connect_peer(toggle.clone(), window, cx),
                             }))
                         }),
                     ),

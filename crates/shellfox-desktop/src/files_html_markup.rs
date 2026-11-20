@@ -18,7 +18,10 @@ pub(super) fn references(source: &str) -> anyhow::Result<References> {
                     refs.styles.push(style);
                 }
                 visit_attributes(element, |path, css| {
-                    refs.assets.entry(path).and_modify(|old| *old |= css).or_insert(css);
+                    refs.assets
+                        .entry(path)
+                        .and_modify(|old| *old |= css)
+                        .or_insert(css);
                     None
                 })
             })],
@@ -29,10 +32,14 @@ pub(super) fn references(source: &str) -> anyhow::Result<References> {
     rewriter.write(source.as_bytes())?;
     rewriter.end()?;
     // Raw style text needs its own handler because the rewriter borrows both callbacks.
-    style_text(source, |text| {
-        refs.styles.push(text.to_owned());
-        text.to_owned()
-    }, |_| {})?;
+    style_text(
+        source,
+        |text| {
+            refs.styles.push(text.to_owned());
+            text.to_owned()
+        },
+        |_| {},
+    )?;
     Ok(refs)
 }
 
@@ -47,10 +54,16 @@ pub(super) fn rewrite(
     let mut rewriter = HtmlRewriter::new(
         Settings {
             element_content_handlers: vec![
-                element!("base", |element| { element.remove(); Ok(()) }),
+                element!("base", |element| {
+                    element.remove();
+                    Ok(())
+                }),
                 element!("meta[http-equiv]", |element| {
                     if element.get_attribute("http-equiv").is_some_and(|value| {
-                        matches!(value.trim().to_ascii_lowercase().as_str(), "refresh" | "content-security-policy")
+                        matches!(
+                            value.trim().to_ascii_lowercase().as_str(),
+                            "refresh" | "content-security-policy"
+                        )
                     }) {
                         element.remove();
                     }
@@ -81,12 +94,20 @@ fn visit_attributes(
     mut asset: impl FnMut(String, bool) -> Option<String>,
 ) -> lol_html::HandlerResult {
     let link = element.tag_name() == "link";
-    let stylesheet = link && element.get_attribute("rel").is_some_and(|value| {
-        value.split_ascii_whitespace().any(|token| token.eq_ignore_ascii_case("stylesheet"))
-    });
+    let stylesheet = link
+        && element.get_attribute("rel").is_some_and(|value| {
+            value
+                .split_ascii_whitespace()
+                .any(|token| token.eq_ignore_ascii_case("stylesheet"))
+        });
     for name in ["src", "poster", "href"] {
-        if name == "href" && !link { continue; }
-        if let Some(path) = element.get_attribute(name).and_then(|value| relative_asset(&value, "")) {
+        if name == "href" && !link {
+            continue;
+        }
+        if let Some(path) = element
+            .get_attribute(name)
+            .and_then(|value| relative_asset(&value, ""))
+        {
             if let Some(data) = asset(path, stylesheet && name == "href") {
                 element.set_attribute(name, &attribute(&data))?;
             }
@@ -96,31 +117,53 @@ fn visit_attributes(
         let mut candidates = String::new();
         for candidate in srcset.split(',') {
             let mut parts = candidate.split_ascii_whitespace();
-            let Some(path) = parts.next().and_then(|value| relative_asset(value, "")) else { continue; };
-            let Some(data) = asset(path, false).filter(|data| data != "data:,") else { continue; };
+            let Some(path) = parts.next().and_then(|value| relative_asset(value, "")) else {
+                continue;
+            };
+            let Some(data) = asset(path, false).filter(|data| data != "data:,") else {
+                continue;
+            };
             let descriptor = parts.next().unwrap_or_default();
             if candidates.len() + data.len() + descriptor.len() + 3 > MAX_DOCUMENT {
-                return Err(std::io::Error::other("Preview assets exceed the document size limit.").into());
+                return Err(std::io::Error::other(
+                    "Preview assets exceed the document size limit.",
+                )
+                .into());
             }
-            if !candidates.is_empty() { candidates.push_str(", "); }
+            if !candidates.is_empty() {
+                candidates.push_str(", ");
+            }
             candidates.push_str(&data);
-            if !descriptor.is_empty() { candidates.push(' '); candidates.push_str(descriptor); }
+            if !descriptor.is_empty() {
+                candidates.push(' ');
+                candidates.push_str(descriptor);
+            }
         }
         element.set_attribute("srcset", &attribute(&candidates))?;
     }
     Ok(())
 }
 
-fn style_text(source: &str, css: impl FnMut(&str) -> String, output: impl FnMut(&[u8])) -> anyhow::Result<()> {
+fn style_text(
+    source: &str,
+    css: impl FnMut(&str) -> String,
+    output: impl FnMut(&[u8]),
+) -> anyhow::Result<()> {
     let mut rewriter = HtmlRewriter::new(
-        Settings { element_content_handlers: vec![text!("style", style_handler(css))], ..Settings::new() }, output,
+        Settings {
+            element_content_handlers: vec![text!("style", style_handler(css))],
+            ..Settings::new()
+        },
+        output,
     );
     rewriter.write(source.as_bytes())?;
     rewriter.end()?;
     Ok(())
 }
 
-fn style_handler(mut css: impl FnMut(&str) -> String) -> impl FnMut(&mut lol_html::html_content::TextChunk<'_>) -> lol_html::HandlerResult {
+fn style_handler(
+    mut css: impl FnMut(&str) -> String,
+) -> impl FnMut(&mut lol_html::html_content::TextChunk<'_>) -> lol_html::HandlerResult {
     let mut style = String::new();
     move |chunk| {
         style.push_str(chunk.as_str());
@@ -142,5 +185,7 @@ fn attribute(value: &str) -> String {
 
 fn append(output: &mut Vec<u8>, overflow: &mut bool, max: usize, chunk: &[u8]) {
     *overflow |= output.len().saturating_add(chunk.len()) > max;
-    if !*overflow { output.extend_from_slice(chunk); }
+    if !*overflow {
+        output.extend_from_slice(chunk);
+    }
 }

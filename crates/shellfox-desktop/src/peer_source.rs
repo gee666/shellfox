@@ -1,7 +1,13 @@
 //! Window selection/cache identity. A peer catalog is never a local Snapshot.
 use anyhow::{Result, anyhow};
 use shellfox_protocol::{AuthenticatedPeerId, Validate, manager_v2 as m};
+use shellfox_service::remote::native::RemotePeer;
+use uuid::Uuid;
 use std::collections::HashMap;
+
+#[path = "peer_source_connection.rs"]
+mod connection;
+pub(crate) use connection::ConnectionAction;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Source {
@@ -37,6 +43,9 @@ pub(crate) struct PeerState {
     pub selected_tab: Option<m::Id>,
     pub selection_committed: bool,
     pub pending: bool,
+    pub owner_connected: bool,
+    pub owner_pair_attempt: Option<Uuid>,
+    pub stopped_pair_attempt: Option<Uuid>,
     pub error: Option<String>,
 }
 pub(crate) struct PeerSources {
@@ -71,7 +80,7 @@ impl PeerSources {
         }
         Ok(())
     }
-    pub fn inventory(&mut self, peers: &[shellfox_service::remote::native::RemotePeer]) {
+    pub fn inventory(&mut self, peers: &[RemotePeer]) {
         self.peers.retain(|id, state| {
             peers.iter().any(|peer| peer.id == id.as_str())
                 || !matches!(state.phase, Phase::Disconnected | Phase::Rejected)
@@ -98,29 +107,22 @@ impl PeerSources {
                 selected_tab: None,
                 selection_committed: false,
                 pending: false,
+                owner_connected: false,
+                owner_pair_attempt: None,
+                stopped_pair_attempt: None,
                 error: None,
             });
             state.hostname = peer.hostname.clone();
             state.online = peer.online;
             state.remembered = peer.remembered;
-            if state.cycle == 0 {
-                // A Settings operation can reach these states before this window
-                // has a terminal catalog or has selected the peer.
-                use shellfox_service::remote::native::RemoteConnection as Network;
-                state.phase = match peer.connection {
-                    Network::Connecting => Phase::Connecting,
-                    Network::Reconnecting => Phase::Reconnecting,
-                    Network::AwaitingApproval => Phase::AwaitingApproval,
-                    Network::Rejected => Phase::Rejected,
-                    Network::Disconnected => Phase::Disconnected,
-                    Network::Connected => state.phase,
-                };
-                state.error = peer.last_error.as_ref().map(|error| error.message.clone());
-            }
+            state.observe_owner(peer);
         }
         for (id, state) in &mut self.peers {
             if !peers.iter().any(|peer| peer.id == id.as_str()) {
                 state.online = false;
+                state.owner_connected = false;
+                state.owner_pair_attempt = None;
+                state.stopped_pair_attempt = None;
             }
         }
     }
@@ -139,6 +141,7 @@ impl PeerSources {
             _ => Phase::Connecting,
         };
         state.pending = true;
+        state.owner_pair_attempt = None;
         state.error = None;
         state.origin = None;
         Ok(PeerCycle {
@@ -276,6 +279,10 @@ impl PeerSources {
                 .ok_or_else(|| anyhow::anyhow!("Peer cycle exhausted."))?;
             state.phase = Phase::Disconnected;
             state.pending = false;
+            state.owner_connected = false;
+            state.owner_pair_attempt = None;
+            state.stopped_pair_attempt = None;
+            state.error = None;
             state.snapshot = None;
             state.catalog_cycle = None;
             state.origin = None;

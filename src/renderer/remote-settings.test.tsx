@@ -28,6 +28,33 @@ async function setup(status: RemoteState['status'] = 'online') {
   return { ...view, local, remote, controller, user, openExternal, emit };
 }
 
+it('renders nothing when remote access is unsupported', async () => {
+  const local = mockApi(), remote = remoteFixture();
+  vi.mocked(remote.api.getState).mockResolvedValue(failure('UNSUPPORTED', 'Remote access unavailable.'));
+  const controller = createRemoteController(remote.api, local.api); controllers.push(controller);
+  const view = render(<RemoteSettings controller={controller} local={local.api} />);
+  controller.start();
+  await waitFor(() => expect(controller.store.getState().supported).toBe(false));
+  expect(view.container).toBeEmptyDOMElement();
+});
+
+it('holds the access switch disabled until the first state arrives', async () => {
+  const local = mockApi(), remote = remoteFixture();
+  const reply = deferred<Awaited<ReturnType<typeof remote.api.getState>>>();
+  vi.mocked(remote.api.getState).mockReturnValue(reply.promise);
+  const controller = createRemoteController(remote.api, local.api); controllers.push(controller);
+  controller.start();
+  render(<RemoteSettings controller={controller} local={local.api} />);
+  const toggle = screen.getByRole('switch', { name: 'Allow remote access' });
+  expect(toggle).toBeDisabled();
+  expect(toggle).toHaveAttribute('aria-checked', 'false');
+  expect(screen.getByText('Reading connection status…')).toBeVisible();
+  expect(screen.queryByLabelText('Remote machine name')).not.toBeInTheDocument();
+  await act(async () => reply.resolve(success(remote.state)));
+  expect(toggle).toBeEnabled();
+  expect(screen.queryByText('Reading connection status…')).not.toBeInTheDocument();
+});
+
 it('shows an already connected account without a pointless login action or browser launch', async () => {
   const f = await setup();
   expect(screen.getByRole('status')).toHaveTextContent('Connected');

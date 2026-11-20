@@ -91,9 +91,6 @@ fn arbitrary_executables_unavailable_elevation_and_unknown_opaque_ids_fail_close
 struct Discovery;
 impl SettingsRuntime for Discovery {
     fn normalize(&self, previous: &Settings, candidate: Settings) -> Result<Settings> {
-        if candidate.python_path != previous.python_path {
-            return Err(Error::new(ErrorCode::Validation, "Python is not usable."));
-        }
         normalize_settings_profile(previous, candidate, &profiles(), Some("pwsh"))
     }
 }
@@ -139,7 +136,7 @@ fn trusted_runtime_port_canonicalizes_atomically_and_failed_validation_preserves
             ..Default::default()
         },
         SettingsPatch {
-            python_path: Some(Some("/unusable/python".into())),
+            shell_executable: Some(Some("C:\\untrusted-settings.exe".into())),
             accent_color: Some("#123456".into()),
             ..Default::default()
         },

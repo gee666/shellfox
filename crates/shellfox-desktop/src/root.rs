@@ -90,6 +90,7 @@ pub struct Root {
     pub(crate) settings: bool,
     pub(crate) sidebar: bool,
     pub(crate) layout_keys: u8,
+    pub(crate) layout_focus: FocusHandle,
     pub(crate) sidebar_width: f32,
     pub(crate) resizing_sidebar: bool,
     pub(crate) local_expanded: bool,
@@ -234,7 +235,9 @@ impl Root {
                         root.poll_power(window, cx);
                         root.poll_updates(cx);
                         root.poll_session_visibility(window, cx);
-                        root.poll_peer_inventory(window,cx);root.poll_peer_sources(window,cx);
+                        root.poll_peer_inventory(window, cx);
+                        root.poll_peer_sources(window, cx);
+                        root.resume_peer_files(cx);
                         if let Err(error) = root.sync_app_guard(cx) {
                             root.error = Some(error.to_string());
                             cx.notify();

@@ -23,6 +23,10 @@ export interface RemoteClientOptions {
 interface Cycle { clientId: string; abort: AbortController; pending: number; native: Set<Promise<unknown>>; failure?: AppError }
 interface Run { clientId: string; abort: AbortController; cycle?: Cycle; suspended: boolean; pairing: boolean; restart: boolean; resume?: () => void }
 interface VisibilityRequest { cycle: Cycle; next: RemoteRequestPayload<'setVisibleSessions'> | null; promise: Promise<RemoteResponse<'setVisibleSessions'>> }
+const fileMethods = new Set<RemoteMethod>([
+  'listFiles', 'readFile', 'writeFile', 'writeImageFile', 'readFileAsset', 'completeDirectory', 'resolveDirectory', 'createDirectory',
+  'beginFileRead', 'readFileChunk', 'beginFileWrite', 'writeFileChunk', 'finishFileWrite', 'cancelFileTransfer',
+]);
 
 /** One authenticated host view and event poll per peer, independent of React/UI lifetime. */
 export class RemoteClient extends RemoteOperations {
@@ -238,7 +242,11 @@ export class RemoteClient extends RemoteOperations {
       const raw = await this.send(cycle, '/v1/request', { clientId: cycle.clientId, method, payload: validated });
       if (!this.active(run, cycle)) throw new Error('Remote view changed.');
       const result = parseResponse(method, uploadResponseCompatibility(method, raw));
-      if (!result.ok && ['AUTH_FAILED', 'APPROVAL_REQUIRED', 'ACCESS_DENIED'].includes(result.error.code)) this.interrupt(cycle, result.error);
+      if (!result.ok) {
+        const { code } = result.error;
+        // An OS file denial doesn't invalidate approval for the rest of the host.
+        if (code === 'AUTH_FAILED' || code === 'APPROVAL_REQUIRED' || code === 'ACCESS_DENIED' && !fileMethods.has(method)) this.interrupt(cycle, result.error);
+      }
       if (result.ok && method === 'attachTerminal') {
         const attachment = responseSchemas.attachTerminal.parse(result);
         if (attachment.ok) this.attachments.set(attachment.value.tabId, { generation: attachment.value.generation, controlEpoch: attachment.value.controlEpoch });

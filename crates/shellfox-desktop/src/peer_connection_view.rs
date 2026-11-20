@@ -12,20 +12,25 @@ impl Root {
         palette: Palette,
         cx: &Context<Self>,
     ) -> AnyElement {
-        use source::Phase;
+        use source::{ConnectionAction, Phase};
         let waiting = state.phase == Phase::AwaitingApproval;
         let busy = matches!(
             state.phase,
             Phase::AwaitingApproval | Phase::Connecting | Phase::Reconnecting
         );
+        let stopped = state.owner_pair_attempt.is_some()
+            && state.stopped_pair_attempt == state.owner_pair_attempt;
         let title = match state.phase {
+            _ if stopped => "Automatic checking stopped".into(),
             Phase::AwaitingApproval => "Waiting for approval".into(),
             Phase::Connecting | Phase::Reconnecting => format!("Connecting to {}", state.hostname),
             Phase::Rejected => "Request declined".into(),
             _ if state.online => "Machine disconnected".into(),
             _ => "Machine offline".into(),
         };
-        let detail = if waiting {
+        let detail = if stopped {
+            "Cancel the request and try again.".into()
+        } else if waiting {
             format!("Approve this machine in Shellfox on {}.", state.hostname)
         } else {
             state.error.clone().unwrap_or_else(|| {
@@ -33,14 +38,7 @@ impl Root {
             })
         };
         let target = peer.clone();
-        let action = if busy {
-            "Cancel request"
-        } else if state.phase == Phase::Rejected {
-            "Request access again"
-        } else {
-            "Connect"
-        };
-        let enabled = busy || state.online;
+        let action = state.connection_action();
         let panel = div()
             .flex()
             .flex_1()
@@ -96,24 +94,36 @@ impl Root {
                     )
                 },
             )
-            .child(
-                dialog_button("peer-connect-action", action, palette)
-                    .mt(px(4.))
-                    .px(px(12.))
-                    .h(px(29.))
-                    .text_size(px(13.))
-                    .line_height(px(17.))
-                    .when(!enabled, |button| button.opacity(0.4))
-                    .when(enabled, |button| {
-                        button.on_click(cx.listener(move |root, _, window, cx| {
-                            if busy {
-                                root.disconnect_peer(target.clone(), window, cx);
-                            } else {
-                                root.connect_peer(target.clone(), false, window, cx);
-                            }
-                        }))
-                    }),
-            );
+            .when_some(action, |panel, action| {
+                let (key, label) = match action {
+                    ConnectionAction::Cancel(id) => (format!("peer-cancel-{id}"), "Cancel request"),
+                    ConnectionAction::Retry => {
+                        ("peer-request-again".into(), "Request access again")
+                    }
+                    ConnectionAction::Connect => ("peer-connect".into(), "Connect"),
+                    ConnectionAction::Disconnect => return panel,
+                };
+                panel.child(
+                    self.semantic_region(
+                        &format!("workspace/{key}"),
+                        crate::accessibility::Role::Button,
+                        label,
+                        dialog_button("peer-connect-action", label, palette)
+                            .mt(px(4.))
+                            .px(px(12.))
+                            .h(px(29.))
+                            .text_size(px(13.))
+                            .line_height(px(17.))
+                            .on_click(cx.listener(move |root, _, window, cx| {
+                                if let ConnectionAction::Cancel(id) = action {
+                                    root.cancel_peer_pair(target.clone(), id, window, cx);
+                                } else {
+                                    root.connect_peer(target.clone(), window, cx);
+                                }
+                            })),
+                    ),
+                )
+            });
         div()
             .flex()
             .flex_col()

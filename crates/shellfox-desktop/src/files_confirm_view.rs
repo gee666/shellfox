@@ -1,11 +1,14 @@
 use super::text_button;
 use crate::{files::pending::basename, root::Root, theme::Palette};
-use gpui::{AnyElement, Context, FocusHandle, KeyDownEvent, Window, div, prelude::*, px};
-use std::cell::RefCell;
+use gpui::{
+    AnyElement, AnyWindowHandle, Context, FocusHandle, KeyDownEvent, Window, div, prelude::*, px,
+};
+use std::cell::{Cell, RefCell};
 
 pub(crate) struct ConfirmationFocus {
     buttons: [FocusHandle; 3],
     previous: RefCell<Option<FocusHandle>>,
+    active: Cell<Option<AnyWindowHandle>>,
 }
 
 impl ConfirmationFocus {
@@ -13,17 +16,46 @@ impl ConfirmationFocus {
         Self {
             buttons: std::array::from_fn(|_| cx.focus_handle()),
             previous: RefCell::default(),
+            active: Cell::default(),
         }
     }
 
     pub(crate) fn forget(&self) {
+        self.active.set(None);
         self.previous.borrow_mut().take();
     }
 
-    pub fn restore(&self, window: &Window, cx: &mut gpui::App) {
-        if let Some(focus) = self.previous.borrow_mut().take() {
-            window.defer(cx, move |window, _| window.focus(&focus));
+    pub(crate) fn end_panel(&self, cx: &mut Context<Root>) {
+        let Some(handle) = self.active.get() else {
+            return;
+        };
+        self.forget();
+        let buttons = self.buttons.clone();
+        let root = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            let _ = cx.update_window(handle, |_, window, cx| {
+                if buttons.iter().any(|button| button.is_focused(window)) {
+                    let _ = root.update(cx, |root, cx| root.focus_files_toggle(window, cx));
+                }
+            });
+        });
+    }
+
+    fn restore(&self, fallback: &FocusHandle, window: &Window, cx: &mut gpui::App) {
+        if self.active.take().is_none() {
+            return;
         }
+        let focus = self
+            .previous
+            .borrow_mut()
+            .take()
+            .unwrap_or_else(|| fallback.clone());
+        let buttons = self.buttons.clone();
+        window.defer(cx, move |window, _| {
+            if buttons.iter().any(|button| button.is_focused(window)) {
+                window.focus(&focus);
+            }
+        });
     }
 }
 
@@ -36,22 +68,37 @@ impl Root {
     ) -> Option<AnyElement> {
         let files = self.files.as_ref()?;
         if files.pending_file_action.is_none() {
-            files.confirm_focus.restore(window, cx);
+            files.confirm_focus.restore(&files.panel_focus, window, cx);
             return None;
         }
         let buttons = &files.confirm_focus.buttons;
         let busy = files.operation.is_some();
-        if !buttons.iter().any(|button| button.is_focused(window)) {
+        if files
+            .confirm_focus
+            .active
+            .replace(Some(window.window_handle()))
+            .is_none()
+        {
             *files.confirm_focus.previous.borrow_mut() = window.focused(cx);
-            let cancel = buttons[0].clone();
-            window.defer(cx, move |window, _| window.focus(&cancel));
         }
         let name = files.opened_path().map_or("this file", basename);
         let image_dirty = files
             .image_editor
             .as_ref()
             .is_some_and(crate::files::image_editor::ImageEditor::dirty);
-        let count = if image_dirty { 2 } else { 3 };
+        let can_save = !image_dirty
+            && files
+                .editor
+                .as_ref()
+                .is_some_and(|editor| !editor.reload_required);
+        let count = if can_save { 3 } else { 2 };
+        if !buttons[..count]
+            .iter()
+            .any(|button| button.is_focused(window))
+        {
+            let cancel = buttons[0].clone();
+            window.defer(cx, move |window, _| window.focus(&cancel));
+        }
         let prompt = if image_dirty {
             "Save the image using its controls before continuing, or discard its changes.".into()
         } else {
@@ -88,16 +135,31 @@ impl Root {
                         }
                         _ => 0,
                     };
-                    if direction != 0
-                        && !busy
-                        && let Some(index) = index
-                    {
-                        window.focus(&keyboard[(index + direction) % count]);
+                    if direction != 0 && !busy {
+                        if let Some(index) = index {
+                            window.focus(&keyboard[(index + direction) % count]);
+                        }
                     }
                     window.prevent_default();
                     cx.stop_propagation();
                 }))
                 .child(div().child(prompt))
+                .when_some(files.document_error.clone(), |dialog, error| {
+                    dialog.child(
+                        div()
+                            .mt(px(6.))
+                            .text_color(palette.status_color(0xf87171))
+                            .child(error),
+                    )
+                })
+                .when(busy, |dialog| {
+                    dialog.child(
+                        div()
+                            .mt(px(6.))
+                            .text_color(palette.muted)
+                            .child("Saving file…"),
+                    )
+                })
                 .child(
                     div()
                         .flex()
@@ -121,7 +183,7 @@ impl Root {
                                     root.discard_and_continue_file_action(cx)
                                 })),
                         )
-                        .when(!image_dirty, |row| {
+                        .when(can_save, |row| {
                             row.child(
                                 text_button("save-file-action", "Save and continue", palette)
                                     .track_focus(&buttons[2])

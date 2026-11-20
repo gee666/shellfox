@@ -24,7 +24,7 @@ pub(super) fn render(
     let crop = ready.and_then(|draft| draft.crop);
     let dirty = ready.is_some_and(|draft| draft.edits > 0);
     let status = match editor {
-        ImageEditor::Loading => "Loading image…".into(),
+        ImageEditor::Loading(_) => "Loading image…".into(),
         ImageEditor::Failed(error) => error.clone(),
         ImageEditor::Ready(edit) => edit.error.clone().unwrap_or_else(|| {
             let (w, h) = edit.dimensions();

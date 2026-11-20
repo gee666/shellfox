@@ -69,8 +69,60 @@ pub(super) fn success<T>(reply: Reply<T>) -> Result<T, AppError> {
         Reply::Failure(error) => Err(error),
     }
 }
+pub(super) struct PairActivation {
+    permit: Option<PairingPermit>,
+    events: tokio::sync::oneshot::Sender<()>,
+}
+impl PairActivation {
+    pub(super) fn new(
+        permit: Option<PairingPermit>,
+        events: tokio::sync::oneshot::Sender<()>,
+    ) -> Self {
+        Self { permit, events }
+    }
+    pub(super) fn activate(
+        self,
+        owner_stopped: bool,
+        now: std::time::Instant,
+    ) -> Result<(), AppError> {
+        if owner_stopped
+            || self
+                .permit
+                .as_ref()
+                .is_some_and(|permit| !permit.active_at(now))
+        {
+            return Err(pair_stopped());
+        }
+        self.events.send(()).map_err(|_| pair_stopped())
+    }
+}
+
 impl Manager {
-    pub(super) fn connect(&mut self, peer_id: &str, resume: Option<Uuid>) -> Result<(), AppError> {
+    pub(super) fn recover_established_peers(&mut self) {
+        if self.jobs.len() >= 48 {
+            return;
+        }
+        let pending: Vec<_> = self.state.peers.iter().filter_map(|peer| {
+            let connection = self.connections.get(&peer.id)?;
+            (peer.online
+                && peer.connection == RemoteConnection::Reconnecting
+                && peer.last_error.is_some()
+                && connection.established
+                && !connection.cancel.is_cancelled())
+                .then(|| (peer.id.clone(), connection.id))
+        }).collect();
+        for (peer, attempt) in pending {
+            // Renew the control-only pairing and event reader. Never retry a file request.
+            let _ = self.connect(&peer, Some(attempt), None);
+        }
+    }
+
+    pub(super) fn connect(
+        &mut self,
+        peer_id: &str,
+        resume: Option<Uuid>,
+        permit: Option<PairingPermit>,
+    ) -> Result<ConnectResult, AppError> {
         let network = self
             .network
             .clone()
@@ -101,7 +153,7 @@ impl Manager {
                     | RemoteConnection::AwaitingApproval
             )
         {
-            return Ok(());
+            return Ok(ConnectResult::Existing);
         }
         if resume.is_some()
             && !matches!(
@@ -116,24 +168,31 @@ impl Manager {
                 "This connection attempt cannot continue. Reconnect explicitly.",
             ));
         }
+        let previous = self.connections.get(peer_id);
+        let continuing = resume.and_then(|id| previous.filter(|connection| connection.id == id));
+        if continuing.is_some()
+            && target.connection == RemoteConnection::Reconnecting
+            && target.last_error.is_none()
+        {
+            return Ok(ConnectResult::Existing);
+        }
         let peer = wire::AuthenticatedPeerId::new(peer_id.to_owned())
             .map_err(|_| error(ErrorCode::Validation, "Invalid peer identity."))?;
         let id = resume.unwrap_or_else(Uuid::new_v4);
         let epoch = self.epoch;
-        let cancel = self.cycle.child_token();
-        if let Some(previous) = self.connections.remove(peer_id) {
+        let cancel = continuing.map_or_else(|| self.cycle.child_token(), |old| old.cancel.clone());
+        if let Some(previous) = previous.filter(|old| old.id != id) {
             previous.cancel.cancel();
-            if previous.id != id {
-                self.state
-                    .attempts
-                    .retain(|attempt| attempt.id != previous.id);
-            }
+            self.state
+                .attempts
+                .retain(|attempt| attempt.id != previous.id);
         }
         self.connections.insert(
             peer_id.into(),
             Connection {
                 id,
                 cancel: cancel.clone(),
+                established: continuing.is_some_and(|connection| connection.established),
             },
         );
         target.connection = if resume.is_some() {
@@ -153,16 +212,20 @@ impl Manager {
             });
         }
         let events = self.events.clone();
+        let stop = self.stop.clone();
+        let lost = self.lost.clone();
         let name = peer_id.to_owned();
         self.spawn_job(async move {
-            let paired = async {
+            let pair_cancel = cancel.child_token();
+            let _cancel_pair = pair_cancel.clone().drop_guard();
+            let pair = async {
                 success(
                     send::<Discovery>(
                         network.as_ref(),
                         &peer,
                         Endpoint::Discover,
                         id,
-                        cancel.child_token(),
+                        pair_cancel.child_token(),
                     )
                     .await?,
                 )?;
@@ -172,23 +235,37 @@ impl Manager {
                         &peer,
                         Endpoint::Pair,
                         id,
-                        cancel.child_token(),
+                        pair_cancel.child_token(),
                     )
                     .await?,
                 )?;
                 Ok(())
-            }
-            .await;
-            let ready = paired.is_ok();
+            };
+            let paired = if let Some(permit) = &permit {
+                tokio::select! {
+                    biased;
+                    _ = permit.lifetime.cancelled() => Err(pair_stopped()),
+                    _ = stop.cancelled() => Err(pair_stopped()),
+                    _ = lost.cancelled() => Err(pair_stopped()),
+                    _ = tokio::time::sleep_until(permit.deadline.into()) => Err(pair_stopped()),
+                    _ = cancel.cancelled() => Err(pair_stopped()),
+                    result = pair => result,
+                }
+            } else {
+                pair.await
+            };
+            drop(_cancel_pair);
+            let (start_events, activated) = tokio::sync::oneshot::channel();
             let _ = events
                 .send(Event::Paired {
                     epoch,
                     id,
                     peer: name.clone(),
                     result: paired,
+                    activation: PairActivation::new(permit, start_events),
                 })
                 .await;
-            if ready {
+            if activated.await.is_ok() {
                 loop {
                     if cancel.is_cancelled() {
                         break;
@@ -231,14 +308,18 @@ impl Manager {
                                 id,
                                 peer: name,
                                 error,
-                            }
+                            };
                         }
                     }
                 }
             }
             Event::Finished
         });
-        Ok(())
+        Ok(if resume.is_none() {
+            ConnectResult::Created(id)
+        } else {
+            ConnectResult::Existing
+        })
     }
     pub(super) fn disconnect(&mut self, peer_id: &str) {
         if let Some(connection) = self.connections.remove(peer_id) {

@@ -6,7 +6,7 @@ use std::{
 
 use crate::state::*;
 
-fn is_connection_denial(method: &str, code: &ErrorCode) -> bool {
+pub(crate) fn is_connection_denial(method: &str, code: &ErrorCode) -> bool {
     match code {
         ErrorCode::AuthFailed | ErrorCode::ApprovalRequired => true,
         // A filesystem ACL or view-only denial rejects that operation, not the authenticated host view.

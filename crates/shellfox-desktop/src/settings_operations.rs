@@ -21,6 +21,7 @@ impl SettingsPanel {
         if !self.operations.try_freeze(pending) {
             return false;
         }
+        self.stop_pairing();
         self.sync_close_read_only(cx);
         cx.notify();
         true

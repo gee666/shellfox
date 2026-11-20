@@ -86,7 +86,7 @@ class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfo
   override fun connect(clientHandle: String, promise: Promise) = run(promise) {
     ClientTerminalBindings.start(this, clientHandle, 0)
   }
-  override fun reconnect(clientHandle: String, promise: Promise) = afterPoll(clientHandle,promise) {
+  override fun reconnect(clientHandle: String, promise: Promise) = afterPoll(clientHandle, promise, allowV1Fence = true) {
     ClientTerminalBindings.start(this, clientHandle, 1)
   }
   override fun poll(clientHandle: String, promise: Promise) = run(promise) {
@@ -98,11 +98,11 @@ class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfo
   override fun cancel(clientHandle: String, operationId: String, promise: Promise) = run(promise) {
     ClientTerminalBindings.cancel(this, clientHandle, operationId); null
   }
-  override fun bindTerminal(clientHandle: String, tabId: String, terminalHandle: String, promise: Promise) = afterPoll(clientHandle,promise) {
-    ClientTerminalBindings.bind(this, clientHandle, tabId, terminalHandle); null
+  override fun bindTerminal(clientHandle: String, tabId: String, terminalHandle: String, promise: Promise) = admit(promise) { done ->
+    ClientTerminalBindings.changeViewBinding(this, clientHandle, tabId, terminalHandle, done)
   }
-  override fun unbindTerminal(clientHandle: String, terminalHandle: String, promise: Promise) = afterPoll(clientHandle,promise) {
-    ClientTerminalBindings.unbind(this, clientHandle, terminalHandle); null
+  override fun unbindTerminal(clientHandle: String, terminalHandle: String, promise: Promise) = admit(promise) { done ->
+    ClientTerminalBindings.changeViewBinding(this, clientHandle, null, terminalHandle, done)
   }
   override fun readEvent(clientHandle: String, promise: Promise) = run(promise) {
     ClientTerminalBindings.readEvent(this, clientHandle)
@@ -120,14 +120,17 @@ class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfo
     if (stopped) promise.reject("RUST_STOPPED", "Native client is unavailable.")
     return stopped
   }
-  private fun afterPoll(client: String, promise: Promise, action: () -> String?) {
+  private fun afterPoll(client: String, promise: Promise, allowV1Fence: Boolean = false, action: () -> String?) = admit(promise) { done ->
+    ClientTerminalBindings.afterPoll(this, client, {
+      if (stopped) throw NativeCallException(3)
+      action()
+    }, allowV1Fence, done)
+  }
+  private fun admit(promise: Promise, enqueue: ((String?, Exception?) -> Unit) -> Unit) {
     if (unavailable(promise)) return
     TerminalCoordinator.execute({ result(promise, null, "BUSY") }) {
       try {
-        ClientTerminalBindings.afterPoll(this, client, {
-          if (stopped) throw NativeCallException(3)
-          action()
-        }) { value, error ->
+        enqueue { value, error ->
           val code = when (error) {
             null -> null
             is NativeCallException -> nativeCode(error.status)

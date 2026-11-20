@@ -55,14 +55,12 @@ impl SettingsPanel {
             _ => {}
         }
         if self.remote.pending {
-            let cancelling = matches!(&operation,Operation::Disconnect(id) if self.remote.inflight_peer.as_ref()==Some(id));
-            if !cancelling {
-                return;
-            }
+            return;
         }
-        if matches!(operation, Operation::Login)
-            && let Some(id) = self.remote.retry_release_id().map(str::to_owned)
-        {
+        let release = matches!(operation, Operation::Login)
+            .then(|| self.remote.retry_release_id().map(str::to_owned))
+            .flatten();
+        if let Some(id) = release {
             self.remote.pending = true;
             self.remote.error = None;
             self.remote.epoch += 1;
@@ -73,9 +71,11 @@ impl SettingsPanel {
             );
             return;
         }
-        self.remote.inflight_peer = None;
+        self.remote.connecting_peer = None;
         let mut login_request = false;
-        let mut section = operation.section();
+        let section = operation.section();
+        let connecting = matches!(operation, Operation::Connect(_));
+        let cancelling_pair = matches!(operation, Operation::CancelPair(_));
         let request = match operation {
             Operation::ToggleEnabled => {
                 if self.remote.login.busy() {
@@ -148,7 +148,7 @@ impl SettingsPanel {
                 }) {
                     return;
                 }
-                self.remote.inflight_peer = Some(id.clone());
+                self.remote.connecting_peer = Some(id.clone());
                 api::Request::Connect(id)
             }
             Operation::CancelAttempt(id) => {
@@ -162,23 +162,24 @@ impl SettingsPanel {
                 };
                 if matches!(attempt.kind, api::RemoteAttemptKind::Login) {
                     self.remote.login.cancel();
-                } else if matches!(attempt.kind, api::RemoteAttemptKind::Connect { .. }) {
-                    section = remote::ErrorSection::Machines;
+                } else if !matches!(attempt.kind, api::RemoteAttemptKind::Resume) {
+                    return;
                 }
                 api::Request::CancelAttempt(id)
             }
-            Operation::ContinueAttempt(id) => {
-                if !self.remote.state.as_ref().is_some_and(|state| {
-                    state.attempts.iter().any(|attempt| {
-                        attempt.id == id && matches!(attempt.kind, api::RemoteAttemptKind::Resume)
-                    })
-                }) {
+            Operation::ResumeAccess(id) => {
+                if !self.remote.can_resume_access(&id) {
                     return;
                 }
-                self.start_remote_poll(cx);
-                api::Request::ContinueAttempt(id)
+                api::Request::ResumeAccess(id)
             }
-            Operation::Disconnect(id) => api::Request::Disconnect(id),
+            Operation::CancelPair(id) => api::Request::CancelAttempt(id),
+            Operation::Disconnect(id) => {
+                if !self.remote.connected(&id) {
+                    return;
+                }
+                api::Request::Disconnect(id)
+            }
             Operation::Approve(id) => api::Request::Approve(id),
             Operation::Reject(id) => api::Request::Reject(id),
             Operation::Forget(id) => api::Request::Forget(id),
@@ -201,6 +202,14 @@ impl SettingsPanel {
         self.remote.epoch += 1;
         let after = if login_request {
             aux::After::Login(self.remote.epoch)
+        } else if connecting {
+            aux::After::RemoteConnect {
+                epoch: self.remote.epoch,
+                generation: self.remote.pairing_scope.generation,
+                started: std::time::Instant::now(),
+            }
+        } else if cancelling_pair {
+            aux::After::RemoteCancel(self.remote.epoch)
         } else {
             aux::After::Remote(self.remote.epoch, section)
         };

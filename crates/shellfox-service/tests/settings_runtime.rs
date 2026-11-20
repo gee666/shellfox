@@ -1,18 +1,11 @@
-// No test starts Service, a shell, Python or UAC.
+// No test starts Service, a shell or UAC.
 use shellfox_core::{
-    Error, ErrorCode, Result, SessionId, Settings, SettingsAdapter, SettingsPatch, SettingsShell,
+    ErrorCode, Result, SessionId, Settings, SettingsAdapter, SettingsPatch, SettingsShell,
 };
 use shellfox_host::{Host, SettingsRuntime};
 use shellfox_protocol::CancellationToken;
 use shellfox_service::settings_runtime::*;
-use std::{
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 struct Scratch(PathBuf);
 impl Scratch {
@@ -32,19 +25,6 @@ impl Drop for Scratch {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-#[derive(Default)]
-struct CountPython(AtomicUsize);
-impl SettingsPythonValidation for CountPython {
-    fn validate(&self, request: SettingsPythonRequest<'_>) -> Result<()> {
-        request.check_owned()?;
-        self.0.fetch_add(1, Ordering::SeqCst);
-        let _ = (request.configured, request.target);
-        Err(Error::new(
-            ErrorCode::Unsupported,
-            "No owned probe in this metadata-only fixture.",
-        ))
-    }
-}
 struct SeedMetadata;
 impl SettingsRuntime for SeedMetadata {
     fn normalize(&self, _: &Settings, candidate: Settings) -> Result<Settings> {
@@ -57,24 +37,20 @@ fn lost_native_ownership_rejects_before_work_and_preserves_all_persisted_state()
     let scratch = Scratch::new();
     let host = scratch.host();
     let lost = CancellationToken::new();
-    let python = Arc::new(CountPython::default());
-    host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(
-        lost.clone(),
-        python.clone(),
-    )))
-    .unwrap();
+    host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(lost.clone())))
+        .unwrap();
     let settings = host.global_settings().unwrap();
     let snapshot = host.snapshot().unwrap();
     lost.cancel();
-    assert!(host
-        .save_global_settings(SettingsPatch {
+    assert!(
+        host.save_global_settings(SettingsPatch {
             accent_color: Some("#123456".into()),
             ..Default::default()
         })
-        .is_err());
+        .is_err()
+    );
     assert_eq!(host.global_settings().unwrap(), settings);
     assert_eq!(host.snapshot().unwrap(), snapshot);
-    assert_eq!(python.0.load(Ordering::SeqCst), 0);
 }
 #[test]
 fn opaque_unknown_profile_is_preserved_on_autosave_but_switch_never_falls_back() {
@@ -93,7 +69,6 @@ fn opaque_unknown_profile_is_preserved_on_autosave_but_switch_never_falls_back()
     .unwrap();
     host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(
         CancellationToken::new(),
-        Arc::new(UnavailableSettingsPythonValidation),
     )))
     .unwrap();
     let saved = host
@@ -137,7 +112,6 @@ fn known_native_ownership_gates_are_not_replaced_with_an_available_default() {
     let host = scratch.host();
     host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(
         CancellationToken::new(),
-        Arc::new(UnavailableSettingsPythonValidation),
     )))
     .unwrap();
     let before = host.global_settings().unwrap();
@@ -157,43 +131,26 @@ fn known_native_ownership_gates_are_not_replaced_with_an_available_default() {
     }
 }
 #[test]
-fn probe_context_rejects_cancelled_and_expired_work_and_budget_is_bounded() {
-    let lost = CancellationToken::new();
-    let expired = SettingsPythonRequest {
-        configured: None,
-        target: SettingsPythonTarget::LinuxLocal,
-        deadline: Instant::now() - Duration::from_secs(1),
-        ownership_lost: &lost,
-    };
-    assert_eq!(
-        expired.check_owned().unwrap_err().code,
-        ErrorCode::Unsupported
-    );
-    lost.cancel();
-    assert_eq!(expired.check_owned().unwrap_err().code, ErrorCode::Internal);
-    assert!(SettingsRuntimeAdapter::new(
-        CancellationToken::new(),
-        Arc::new(UnavailableSettingsPythonValidation)
-    )
-    .with_probe_timeout(Duration::ZERO)
-    .is_err());
-    assert!(SettingsRuntimeAdapter::new(
-        CancellationToken::new(),
-        Arc::new(UnavailableSettingsPythonValidation)
-    )
-    .with_probe_timeout(SETTINGS_PROBE_TIMEOUT + Duration::from_secs(1))
-    .is_err());
+fn settings_validation_budget_is_bounded() {
+    for timeout in [
+        Duration::ZERO,
+        SETTINGS_PROBE_TIMEOUT + Duration::from_secs(1),
+    ] {
+        assert!(
+            SettingsRuntimeAdapter::new(CancellationToken::new())
+                .with_probe_timeout(timeout)
+                .is_err()
+        );
+    }
 }
 #[cfg(windows)]
 #[test]
-fn actual_windows_catalog_changes_normalize_without_launching_or_invoking_python() {
-    use shellfox_terminal::{discover_shell_profiles, shell_profile, ShellProfileId};
+fn actual_windows_catalog_changes_normalize_without_launching() {
+    use shellfox_terminal::{ShellProfileId, discover_shell_profiles, shell_profile};
     let scratch = Scratch::new();
     let host = scratch.host();
-    let python = Arc::new(CountPython::default());
     host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(
         CancellationToken::new(),
-        python.clone(),
     )))
     .unwrap();
     let mut count = 0;
@@ -236,91 +193,13 @@ fn actual_windows_catalog_changes_normalize_without_launching_or_invoking_python
         count > 0,
         "Windows must discover its actual standard shells"
     );
-    // Python is unused metadata on Windows, per the current Electron service.
-    let saved = host
-        .save_global_settings(SettingsPatch {
-            python_path: Some(Some("/metadata/unused-python".into())),
-            ..Default::default()
-        })
-        .unwrap();
-    assert_eq!(saved.python_path, Some("/metadata/unused-python".into()));
-    assert_eq!(python.0.load(Ordering::SeqCst), 0);
     let before = host.snapshot().unwrap();
-    assert!(host
-        .save_global_settings(SettingsPatch {
+    assert!(
+        host.save_global_settings(SettingsPatch {
             shell_executable: Some(Some("C:\\untrusted-settings-runtime.exe".into())),
             ..Default::default()
         })
-        .is_err());
+        .is_err()
+    );
     assert_eq!(host.snapshot().unwrap(), before);
-}
-#[cfg(target_os = "linux")]
-#[test]
-fn expired_linux_probe_success_cannot_commit() {
-    struct Expire;
-    impl SettingsPythonValidation for Expire {
-        fn validate(&self, request: SettingsPythonRequest<'_>) -> Result<()> {
-            request.check_owned()?;
-            std::thread::sleep(
-                request.deadline.saturating_duration_since(Instant::now())
-                    + Duration::from_millis(1),
-            );
-            Ok(())
-        }
-    }
-    let scratch = Scratch::new();
-    let host = scratch.host();
-    let adapter = SettingsRuntimeAdapter::new(CancellationToken::new(), Arc::new(Expire))
-        .with_probe_timeout(Duration::from_millis(20))
-        .unwrap();
-    host.install_settings_runtime(Arc::new(adapter)).unwrap();
-    let before = host.global_settings().unwrap();
-    assert_eq!(
-        host.save_global_settings(SettingsPatch {
-            python_path: Some(Some("/scoped/python3".into())),
-            ..Default::default()
-        })
-        .unwrap_err()
-        .code,
-        ErrorCode::Unsupported
-    );
-    assert_eq!(host.global_settings().unwrap(), before);
-    assert_eq!(host.snapshot().unwrap().revision, 0);
-}
-#[cfg(target_os = "linux")]
-#[test]
-fn linux_python_changes_require_owned_provider_and_cancelled_probe_cannot_commit() {
-    struct CancelPython;
-    impl SettingsPythonValidation for CancelPython {
-        fn validate(&self, request: SettingsPythonRequest<'_>) -> Result<()> {
-            request.check_owned()?;
-            assert_eq!(request.target, SettingsPythonTarget::LinuxLocal);
-            assert_eq!(request.configured, Some("/scoped/python3"));
-            request.ownership_lost.cancel();
-            Ok(())
-        }
-    }
-    let scratch = Scratch::new();
-    let host = scratch.host();
-    let lost = CancellationToken::new();
-    host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(
-        lost.clone(),
-        Arc::new(CancelPython),
-    )))
-    .unwrap();
-    let before = host.global_settings().unwrap();
-    let snapshot = host.snapshot().unwrap();
-    assert_eq!(
-        host.save_global_settings(SettingsPatch {
-            python_path: Some(Some("/scoped/python3".into())),
-            accent_color: Some("#123456".into()),
-            ..Default::default()
-        })
-        .unwrap_err()
-        .code,
-        ErrorCode::Internal
-    );
-    assert!(lost.is_cancelled());
-    assert_eq!(host.global_settings().unwrap(), before);
-    assert_eq!(host.snapshot().unwrap(), snapshot);
 }

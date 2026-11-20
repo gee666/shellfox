@@ -30,20 +30,16 @@ const CAPTURES: &[&str] = &[
     "property",
     "attribute",
 ];
-const TOKENS: &[Token] = &[
-    Token::Comment,
-    Token::Comment,
-    Token::Comment,
-    Token::String,
-    Token::Property,
-    Token::Keyword,
-    Token::Keyword,
-    Token::Keyword,
-    Token::Number,
-    Token::Number,
-    Token::Property,
-    Token::Property,
-];
+const MARKUP_TAG_PUNCTUATION: &str = r#"["<" ">" "</" "/>"] @tag"#;
+const JSX_TAG_PUNCTUATION: &str = r#"
+(jsx_opening_element ["<" ">"] @tag)
+(jsx_closing_element ["</" ">"] @tag)
+(jsx_self_closing_element ["<" "/>"] @tag)
+"#;
+const TOKENS: &[Token] = {
+    use Token::*;
+    &[Comment, Comment, Comment, String, Property, Keyword, Keyword, Keyword, Number, Number, Property, Property]
+};
 impl Token {
     fn color(self, palette: Palette) -> gpui::Hsla {
         match self {
@@ -120,20 +116,20 @@ impl Language {
                     Js | Jsx => (
                         js::LANGUAGE,
                         "javascript",
-                        [js::HIGHLIGHT_QUERY, js::JSX_HIGHLIGHT_QUERY].join("\n"),
+                        [js::HIGHLIGHT_QUERY, js::JSX_HIGHLIGHT_QUERY, JSX_TAG_PUNCTUATION].join("\n"),
                         js::INJECTIONS_QUERY,
                         js::LOCALS_QUERY,
                     ),
                     Ts | Tsx => {
-                        let (lang, jsx) = if matches!(self, Tsx) {
-                            (ts::LANGUAGE_TSX, js::JSX_HIGHLIGHT_QUERY)
+                        let (lang, jsx, tags) = if matches!(self, Tsx) {
+                            (ts::LANGUAGE_TSX, js::JSX_HIGHLIGHT_QUERY, JSX_TAG_PUNCTUATION)
                         } else {
-                            (ts::LANGUAGE_TYPESCRIPT, "")
+                            (ts::LANGUAGE_TYPESCRIPT, "", "")
                         };
                         (
                             lang,
                             "typescript",
-                            [ts::HIGHLIGHTS_QUERY, js::HIGHLIGHT_QUERY, jsx].join("\n"),
+                            [ts::HIGHLIGHTS_QUERY, js::HIGHLIGHT_QUERY, jsx, tags].join("\n"),
                             "",
                             ts::LOCALS_QUERY,
                         )
@@ -141,65 +137,80 @@ impl Language {
                     Html => (
                         tree_sitter_html::LANGUAGE,
                         "html",
-                        tree_sitter_html::HIGHLIGHTS_QUERY.into(),
+                        [tree_sitter_html::HIGHLIGHTS_QUERY, MARKUP_TAG_PUNCTUATION].join("\n"),
                         tree_sitter_html::INJECTIONS_QUERY,
                         "",
                     ),
                     Xml => (
                         tree_sitter_xml::LANGUAGE_XML,
                         "xml",
-                        tree_sitter_xml::XML_HIGHLIGHT_QUERY.into(),
+                        [tree_sitter_xml::XML_HIGHLIGHT_QUERY, MARKUP_TAG_PUNCTUATION].join("\n"),
                         "",
                         "",
                     ),
                     Css => (
                         tree_sitter_css::LANGUAGE,
                         "css",
-                        tree_sitter_css::HIGHLIGHTS_QUERY.into(),
+                        [tree_sitter_css::HIGHLIGHTS_QUERY,
+                            "[(class_name) (id_name) (namespace_name) (integer_value) (float_value) (color_value)] @plain",
+                        ].join("\n"),
                         "",
                         "",
                     ),
                     Json => (
                         tree_sitter_json::LANGUAGE,
                         "json",
-                        "[(true) (false)] @boolean\n".to_owned()
-                            + tree_sitter_json::HIGHLIGHTS_QUERY,
+                        [tree_sitter_json::HIGHLIGHTS_QUERY,
+                            "(pair key: (string) @string.special.key)\n[(true) (false) (null)] @boolean",
+                        ].join("\n"),
                         "",
                         "",
                     ),
                     Bash => (
                         tree_sitter_bash::LANGUAGE,
                         "bash",
-                        tree_sitter_bash::HIGHLIGHT_QUERY.into(),
+                        [tree_sitter_bash::HIGHLIGHT_QUERY,
+                            "[(command_name) (variable_name)] @plain",
+                        ].join("\n"),
                         "",
                         "",
                     ),
                     Python => (
                         tree_sitter_python::LANGUAGE,
                         "python",
-                        "[(true) (false)] @boolean\n".to_owned()
-                            + tree_sitter_python::HIGHLIGHTS_QUERY,
+                        tree_sitter_python::HIGHLIGHTS_QUERY.replace("@function.builtin", "@keyword")
+                            + "\n[(true) (false)] @boolean",
                         "",
                         "",
                     ),
                     PowerShell => (
                         tree_sitter_powershell::LANGUAGE,
                         "powershell",
-                        tree_sitter_powershell::HIGHLIGHTS_QUERY.into(),
+                        format!(
+                            "{}\n{}",
+                            tree_sitter_powershell::HIGHLIGHTS_QUERY,
+                            r#"((variable) @boolean (#match? @boolean "(?i)^[$](true|false)$"))"#,
+                        ),
                         "",
                         "",
                     ),
                     CSharp => (
                         tree_sitter_c_sharp::LANGUAGE,
                         "c-sharp",
-                        tree_sitter_c_sharp::HIGHLIGHTS_QUERY.into(),
+                        [tree_sitter_c_sharp::HIGHLIGHTS_QUERY,
+                            "[(predefined_type) (boolean_literal) (null_literal)] @keyword",
+                        ].join("\n"),
                         "",
                         "",
                     ),
                     Markdown => (
                         tree_sitter_md::LANGUAGE,
                         "markdown",
-                        tree_sitter_md::HIGHLIGHT_QUERY_BLOCK.into(),
+                        format!(
+                            "{}\n{}",
+                            tree_sitter_md::HIGHLIGHT_QUERY_BLOCK,
+                            r#"((html_block) @comment (#match? @comment "^\s*<!--"))"#,
+                        ),
                         tree_sitter_md::INJECTION_QUERY_BLOCK,
                         "",
                     ),
@@ -213,7 +224,7 @@ impl Language {
                     Yaml => (
                         tree_sitter_yaml::LANGUAGE,
                         "yaml",
-                        tree_sitter_yaml::HIGHLIGHTS_QUERY.into(),
+                        tree_sitter_yaml::HIGHLIGHTS_QUERY.replace("@property", "@plain"),
                         "",
                         "",
                     ),
@@ -271,14 +282,13 @@ pub(super) fn highlight(language: Language, source: &str) -> Arc<[Span]> {
                 stack.pop();
             }
             Ok(HighlightEvent::Source { start, end }) => {
-                if let Some(&token) = stack.last()
-                    && source.is_char_boundary(start)
-                    && source.is_char_boundary(end)
-                {
-                    spans.push(Span {
-                        range: start..end,
-                        token,
-                    });
+                if source.is_char_boundary(start) && source.is_char_boundary(end) {
+                    if let Some(&token) = stack.last() {
+                        spans.push(Span {
+                            range: start..end,
+                            token,
+                        });
+                    }
                 }
             }
             Err(_) => return Arc::new([]),

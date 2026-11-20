@@ -36,7 +36,12 @@ impl DocumentBackend {
     pub fn same_panel_scope(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Local(_), Self::Local(_)) => true,
-            (Self::Peer(a), Self::Peer(b)) => a.ids() == b.ids(),
+            (Self::Peer(a), Self::Peer(b)) => a.ids() == b.ids()
+                && match (&a.scope, &b.scope) {
+                    (None, None) => true,
+                    (Some(a), Some(b)) => a.guest.distro().eq_ignore_ascii_case(b.guest.distro()),
+                    _ => false,
+                },
             #[cfg(windows)]
             (Self::Wsl(a), Self::Wsl(b)) => a.tab == b.tab && a.account == b.account
                 && a.scope.distro().eq_ignore_ascii_case(b.scope.distro()),
@@ -127,22 +132,6 @@ impl DocumentBackend {
             _ => Ok(operation()),
         }
     }
-    pub async fn initial_path(&self, preferred: Option<String>) -> Result<String> {
-        match self {
-            Self::Local(_) => Ok(preferred.unwrap_or_else(|| "~".into())),
-            #[cfg(windows)]
-            Self::Wsl(backend) => Ok(backend.scope.guest_cwd().to_owned()),
-            Self::Peer(peer) => match preferred {
-                Some(path) => {
-                    shellfox_protocol::files::path(&path)
-                        .map_err(|_| anyhow!("Invalid original peer folder selector."))?;
-                    peer.check()?;
-                    Ok(path)
-                }
-                None => peer.home().await,
-            },
-        }
-    }
     pub async fn list(&self, path: &str) -> Result<FileList> {
         match self {
             Self::Local(local) => {
@@ -155,6 +144,15 @@ impl DocumentBackend {
         }
     }
     pub(super) async fn complete(&self, path: &str) -> Result<Vec<String>> {
+        if self.is_wsl() {
+            if path.starts_with('~') { return Ok(Vec::new()); }
+            let (parent, prefix) = path.rsplit_once(['/', '\\']).unwrap_or((".", path));
+            let parent = if parent.is_empty() { "/" } else { parent };
+            let listing = self.list(parent).await?;
+            return Ok(listing.entries.into_iter().filter(|entry| {
+                entry.kind == EntryKind::Directory && entry.name.starts_with(prefix)
+            }).take(30).map(|entry| format!("{}/", entry.path)).collect());
+        }
         match self {
             Self::Local(backend) => {
                 let context = LocalDocumentBackend::home_context()?;

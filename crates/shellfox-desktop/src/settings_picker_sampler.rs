@@ -5,9 +5,13 @@ use super::*;
 #[path = "settings_picker_sampler_windows.rs"]
 mod windows;
 
-pub(super) struct Sampling {
+pub(super) enum Sampling {
     #[cfg(windows)]
-    capture: windows::Capture,
+    Windows(windows::Capture),
+    #[cfg(not(windows))]
+    Desktop,
+    #[cfg(all(debug_assertions, feature = "test-settings-ui"))]
+    Fixture(String),
 }
 
 impl Picker {
@@ -16,10 +20,16 @@ impl Picker {
             return;
         }
         self.sampler_focus.focus(window);
+        #[cfg(all(debug_assertions, feature = "test-settings-ui"))]
+        if let Some(sample) = super::super::fixture::value("SAMPLE") {
+            self.sampling = Some(Sampling::Fixture(sample));
+            cx.notify();
+            return;
+        }
         #[cfg(windows)]
         {
             match windows::Capture::new(window) {
-                Ok(capture) => self.sampling = Some(Sampling { capture }),
+                Ok(capture) => self.sampling = Some(Sampling::Windows(capture)),
                 Err(error) => cx.emit(Event::SamplingError(error.to_string())),
             }
             cx.notify();
@@ -27,7 +37,7 @@ impl Picker {
         #[cfg(not(windows))]
         {
             let task = start(cx);
-            self.sampling = Some(Sampling {});
+            self.sampling = Some(Sampling::Desktop);
             self.sampling_epoch = self.sampling_epoch.wrapping_add(1);
             let epoch = self.sampling_epoch;
             cx.spawn(async move |picker, cx| {
@@ -44,8 +54,20 @@ impl Picker {
     }
 
     pub(super) fn sample_on_click(&mut self, button: gpui::MouseButton, cx: &mut Context<Self>) {
+        #[cfg(all(debug_assertions, feature = "test-settings-ui"))]
+        if let Some(Sampling::Fixture(value)) = self.sampling.as_ref() {
+            let result = if button != gpui::MouseButton::Left || value == "cancel" {
+                Ok(None)
+            } else {
+                color::decode_hex(value.strip_prefix('#').unwrap_or(value))
+                    .map(Some)
+                    .ok_or_else(|| anyhow::anyhow!("Fixture screen sampler failed."))
+            };
+            self.apply_sample(result, cx);
+            return;
+        }
         #[cfg(windows)]
-        if let Some(Sampling { capture }) = self.sampling.take() {
+        if let Some(Sampling::Windows(capture)) = self.sampling.take() {
             let result = if button == gpui::MouseButton::Left {
                 capture.sample().map(Some)
             } else {

@@ -7921,6 +7921,7 @@ dependencies = [
  "block2 0.6.2",
  "ferri-pdf-avif-decode",
  "flate2",
+ "gdkx11",
  "gpui",
  "gtk",
  "icu_collator",
@@ -7969,7 +7970,9 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "url",
+ "uuid",
  "webkit2gtk",
+ "webview2-com",
  "windows 0.62.2",
  "winreg 0.56.0",
  "wry",
@@ -7999,6 +8002,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "shellfox-ghostty-vt-sys",
+ "url",
 ]
 
 [[package]]

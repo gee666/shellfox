@@ -163,7 +163,7 @@ impl<T: OutboundTransport, P: Profile> CommonClient<T, P> {
                 cancel,
             )
             .await;
-        self.finish_bound(reply, &binding, cycle)
+        self.finish_bound(reply, &binding, cycle, method)
     }
     pub async fn poll(&self) -> Result<Result<P::Poll, P::Error>, ClientError<P::Error>> {
         self.poll_selected(None).await
@@ -217,13 +217,14 @@ impl<T: OutboundTransport, P: Profile> CommonClient<T, P> {
                 cancel,
             )
             .await;
-        self.finish_bound(reply, &binding, cycle)
+        self.finish_bound(reply, &binding, cycle, "events")
     }
     fn finish_bound<V: DeserializeOwned + Validate>(
         &self,
         result: Result<P::Bound<V>, ClientError<P::Error>>,
         expected: &P::Binding,
         cycle: u64,
+        method: &str,
     ) -> Result<Result<V, P::Error>, ClientError<P::Error>> {
         let mut s = self.state.lock().expect("v2 state");
         if s.cycle != cycle {
@@ -237,12 +238,7 @@ impl<T: OutboundTransport, P: Profile> CommonClient<T, P> {
             Ok(outcome)
         });
         match &result {
-            Ok(Err(error))
-                if matches!(
-                    P::code(error),
-                    ErrorCode::AuthFailed | ErrorCode::ApprovalRequired | ErrorCode::AccessDenied
-                ) =>
-            {
+            Ok(Err(error)) if crate::client::is_connection_denial(method, &P::code(error)) => {
                 let status = match P::code(error) {
                     ErrorCode::AccessDenied => Status::Rejected,
                     ErrorCode::ApprovalRequired => Status::AwaitingApproval,

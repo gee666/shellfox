@@ -60,6 +60,13 @@ impl Root {
         match result {
             Ok((binding, view)) => {
                 self.start_v1_stream(key.0.clone(), binding, window, cx);
+                view.update(cx, |view, _| view.enable_file_links());
+                let link_key = key.clone();
+                cx.subscribe_in(&view, window, move |root, emitter, event: &crate::app::TerminalFileLink, window, cx| {
+                    if root.peer_ui.v1_views.get(&link_key) == Some(&emitter) {
+                        root.open_peer_terminal_file_link(&link_key.0, link_key.1, event, window, cx);
+                    }
+                }).detach();
                 self.peer_ui.v1_views.insert(key, view);
                 self.apply_terminal_preferences(window, cx);
             }

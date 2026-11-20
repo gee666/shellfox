@@ -1,9 +1,48 @@
 //! Match links against wrapped rows, keeping UTF-8 offsets tied to terminal cells.
-use shellfox_ghostty_vt::{RowMetadata, Screen, ViewportPoint};
+use crate::{Result, RowMetadata, Screen, Terminal, ViewportPoint};
 use std::ops::Range;
+use url::Url;
+
+mod columns;
+mod file;
+pub use file::{parse as parse_file_link, TerminalFileLink};
+
+pub const MAX_WEB_LINK_BYTES: usize = 2048;
+
+/// Terminal text must not pass arbitrary schemes or credentials to an opener.
+pub fn safe_web_url(value: &str) -> Option<Url> {
+    if value.len() > MAX_WEB_LINK_BYTES
+        || value
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
+    {
+        return None;
+    }
+    let url = Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    Some(url)
+}
+
+impl Terminal {
+    /// Resolve a plaintext file link in the current viewport, including scrollback.
+    pub fn file_link_at(&mut self, point: ViewportPoint) -> Result<Option<String>> {
+        if point.x >= self.cols || point.y >= self.rows {
+            return Ok(None);
+        }
+        let screen = self.render()?;
+        let metadata = self.engine.viewport_rows().map_err(crate::Error)?;
+        Ok(find_link(&screen, &metadata, point, false, true).map(|link| link.target))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct LinkRange {
+pub struct LinkRange {
     pub target: String,
     pub start: ViewportPoint,
     pub end: ViewportPoint,
@@ -36,10 +75,20 @@ pub(super) fn web_match(text: &str) -> impl Iterator<Item = (Range<usize>, &str)
     })
 }
 
-pub(super) fn link_at(
+pub fn link_at(
     screen: &Screen,
     metadata: &[RowMetadata],
     point: ViewportPoint,
+    files: bool,
+) -> Option<LinkRange> {
+    find_link(screen, metadata, point, true, files)
+}
+
+fn find_link(
+    screen: &Screen,
+    metadata: &[RowMetadata],
+    point: ViewportPoint,
+    web: bool,
     files: bool,
 ) -> Option<LinkRange> {
     let (x, y, cols, rows) = (
@@ -51,7 +100,7 @@ pub(super) fn link_at(
     if x >= cols || y >= rows {
         return None;
     }
-    if let Some(link) = super::link_columns::column_link_at(screen, metadata, point, files) {
+    if let Some(link) = columns::column_link_at(screen, metadata, point, web, files) {
         return Some(link);
     }
     let continued = |row: usize| {
@@ -105,24 +154,28 @@ pub(super) fn link_at(
         }
     }
     let hit = hit?;
-    let web = web_match(&text).filter(|(_, url)| super::links::safe_web_url(url).is_some());
-    let files = super::terminal_file_link::file_match(&text).filter(move |_| files);
-    web.chain(files).find_map(|(offset, url)| {
-        if !offset.contains(&hit) {
-            return None;
-        }
-        Some(LinkRange {
-            target: url.into(),
-            start: offsets.get(offset.start)?.0,
-            end: offsets.get(offset.end.checked_sub(1)?)?.1,
-        })
-    })
+    let web = web.then(|| web_match(&text).filter(|(_, url)| safe_web_url(url).is_some()));
+    let files = files.then(|| file::file_match(&text));
+    let link = web
+        .into_iter()
+        .flatten()
+        .chain(files.into_iter().flatten())
+        .find_map(|(offset, target)| {
+            if !offset.contains(&hit) {
+                return None;
+            }
+            Some(LinkRange {
+                target: target.into(),
+                start: offsets.get(offset.start)?.0,
+                end: offsets.get(offset.end.checked_sub(1)?)?.1,
+            })
+        });
+    link
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shellfox_ghostty_vt::Terminal;
 
     #[test]
     fn both_halves_of_a_soft_wrapped_web_link_share_the_complete_target() {

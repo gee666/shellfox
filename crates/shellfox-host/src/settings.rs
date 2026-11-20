@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 /// Trusted host adapter, not a remote request or a command launcher. Implementors
 /// resolve a discovered, available, non-elevated profile, reject arbitrary shell
-/// executables, and validate Linux Python before returning canonical settings.
+/// executables before returning canonical settings.
 /// This callback must not mutate host state or call back into Host.
 pub trait SettingsRuntime: Send + Sync {
     fn normalize(&self, previous: &Settings, candidate: Settings) -> Result<Settings>;
@@ -37,8 +37,7 @@ impl Host {
         let launch_changed = candidate.terminal_profile_id != previous.terminal_profile_id
             || candidate.shell_id != previous.shell_id
             || candidate.shell_executable != previous.shell_executable
-            || candidate.adapter_id != previous.adapter_id
-            || candidate.python_path != previous.python_path;
+            || candidate.adapter_id != previous.adapter_id;
         let settings = if let Some(runtime) = runtime.as_ref() {
             runtime.normalize(&previous, candidate)?
         } else {

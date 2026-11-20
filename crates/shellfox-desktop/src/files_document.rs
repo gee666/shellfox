@@ -1,6 +1,6 @@
 use super::{control, text_button};
 use crate::{
-    files::{Files, Preview, pending::basename, text_preview::render_image},
+    files::{Files, Preview, pending::basename, text_preview::{image_error, render_image}},
     root::Root,
     theme::Palette,
 };
@@ -54,17 +54,17 @@ impl Root {
                     }),
             );
         }
+        let preview = files
+            .editor
+            .as_ref()
+            .and_then(|editor| editor.text_preview.as_ref());
+        let available_preview =
+            preview.filter(|preview| preview.available(&self.html_preview, window));
         if let Some(path) = path {
-            let preview = files.editor.as_ref().and_then(|editor| editor.text_preview.as_ref())
-                .filter(|preview| preview.available(&self.html_preview, window));
-            document = document.child(file_toolbar(files, path, preview, palette, cx));
+            document = document.child(file_toolbar(files, path, available_preview, palette, cx));
         }
         if let Some(editor) = &files.editor {
-            if let Some(preview) = editor
-                .text_preview
-                .as_ref()
-                .filter(|preview| preview.showing && preview.available(&self.html_preview, window))
-            {
+            if let Some(preview) = available_preview.filter(|preview| preview.showing) {
                 return document
                     .child(preview.render(
                         &editor.file.path,
@@ -76,6 +76,17 @@ impl Root {
                         cx,
                     ))
                     .into_any_element();
+            }
+            if preview.is_some_and(|preview| preview.showing) {
+                document = document.child(
+                    div()
+                        .flex_shrink_0()
+                        .px(px(8.))
+                        .py(px(4.))
+                        .text_size(px(11.))
+                        .text_color(palette.muted)
+                        .child("HTML preview unavailable. Showing source."),
+                );
             }
             editor.text.update(cx, |field, cx| {
                 field.set_file_viewport(width, files.wrap, cx)
@@ -132,9 +143,7 @@ impl Root {
                 Preview::Image {
                     image: Some(image), ..
                 } => render_image(image.clone()),
-                Preview::Image { image: None, .. } => {
-                    feedback("Could not display image.", palette).into_any_element()
-                }
+                Preview::Image { image: None, .. } => image_error(),
             });
         } else if !loading && files.document_error.is_none() {
             document = document.child(feedback("Select a file.", palette));
@@ -155,7 +164,7 @@ fn file_toolbar(
             .image_editor
             .as_ref()
             .is_some_and(crate::files::image_editor::ImageEditor::dirty);
-    let saving = files.editor.is_some() && files.operation.is_some();
+    let saving = files.saving();
     let path = path.to_owned();
     let label = format!("{}{}", basename(&path), if dirty { " *" } else { "" });
     div()

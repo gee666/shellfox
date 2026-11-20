@@ -61,7 +61,7 @@ impl Default for State {
 pub struct ApprovalControl {
     inner: Arc<Mutex<State>>,
     changed: tokio::sync::watch::Sender<u64>,
-    management: Arc<tokio::sync::Mutex<()>>,
+    pub(super) management: Arc<tokio::sync::Mutex<()>>,
 }
 impl Default for ApprovalControl {
     fn default() -> Self {

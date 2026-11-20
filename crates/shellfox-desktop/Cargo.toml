@@ -18,7 +18,9 @@ name = "accessibility"
 path = "src/accessibility_test_root.rs"
 
 [features]
+test-putty-source = ["shellfox-service/test-putty-source"]
 test-settings-browser = []
+test-settings-ui = []
 experimental-shellfox-native = ["shellfox-service/experimental-shellfox-native", "shellfox-ghostty-vt/experimental-shellfox-native", "shellfox-mobile/experimental-shellfox-native"]
 
 [dependencies]
@@ -53,6 +55,7 @@ tree-sitter-yaml = "0.7.2"
 unicode-width = "0.2"
 unicode-segmentation = "1"
 url = "2"
+uuid = "1"
 accesskit = "=0.25.2"
 raw-window-handle = "=0.6.2"
 shellfox-host = { path = "../shellfox-host" }
@@ -78,6 +81,7 @@ wry = { version = "=0.57.3", default-features = false, features = ["os-webview"]
 
 [target.'cfg(windows)'.dependencies]
 accesskit_windows = "=0.35.2"
+webview2-com = "=0.39.1"
 winreg = "0.56"
 windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
@@ -97,6 +101,7 @@ objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSC
 [target.'cfg(target_os = "linux")'.dependencies]
 wry = "=0.57.3"
 gtk = "0.18"
+gdkx11 = "=0.18.2"
 webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 accesskit_unix = "=0.24.1"
 ashpd = { version = "=0.12.3", default-features = false, features = ["async-std", "raw_handle", "wayland"] }

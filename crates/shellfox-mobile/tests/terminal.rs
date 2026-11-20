@@ -169,6 +169,40 @@ fn selection_copy_links_and_scroll_stay_in_native_engine() {
     assert_eq!(sfm_terminal_close(handle), 0);
 }
 #[test]
+fn plaintext_file_links_resolve_both_rows_in_the_owner_viewport() {
+    let mut handle = 0;
+    assert_eq!(unsafe { sfm_terminal_create(20, 4, &mut handle) }, 0);
+    let path = "./src/deep/界/terminal.rs:12:4";
+    let output = format!("{path}\r\nhttps://example.test\r\nnext\r\nlast\r\n");
+    assert_eq!(submit(handle, 1, output.as_bytes()), 0);
+    assert_eq!(sfm_terminal_pump(handle, None, std::ptr::null_mut()), 0);
+    assert_eq!(sfm_terminal_scroll(handle, -10), 0);
+
+    let at = |x, y| {
+        let mut target = Vec::<u8>::new();
+        assert_eq!(
+            sfm_terminal_file_link(
+                handle,
+                x,
+                y,
+                Some(bytes),
+                (&mut target as *mut Vec<u8>).cast()
+            ),
+            0
+        );
+        String::from_utf8(target).unwrap()
+    };
+    // The first row includes a two-cell glyph. Either cell and the continuation hit the same path.
+    assert_eq!(at(11, 0), path);
+    assert_eq!(at(12, 0), path);
+    assert_eq!(at(1, 1), path);
+    assert!(at(19, 1).is_empty());
+    assert!(at(1, 2).is_empty());
+    assert!(at(20, 0).is_empty());
+    assert_eq!(sfm_terminal_close(handle), 0);
+}
+
+#[test]
 fn owner_reset_drops_old_output_selection_and_local_credit() {
     let handle = create();
     assert_eq!(submit(handle, 1, b"old"), 0);

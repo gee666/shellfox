@@ -1,4 +1,4 @@
-use crate::window_manager::state::{Monitor, Rect, WindowState, restore_bounds};
+use crate::window_manager::state::{Monitor, Rect, RestoredBounds, WindowState, restore_bounds};
 use gpui::{App, Bounds, Pixels, PlatformDisplay, Window, WindowBounds, WindowOptions};
 
 fn monitor(display: &dyn PlatformDisplay) -> Monitor {
@@ -26,23 +26,28 @@ fn pixels(value: Pixels) -> i32 {
 }
 
 pub(super) fn configure(cx: &App, saved: Option<WindowState>, options: &mut WindowOptions) {
-    let Some(primary) = cx.primary_display() else {
-        return;
-    };
-    let primary = monitor(primary.as_ref());
-    let restored = (|| {
-        #[cfg(target_os = "linux")]
-        if gpui::guess_compositor() == "Wayland" {
-            return crate::window_manager::state::restore_size_only(saved, &primary);
+    let monitors: Vec<_> = cx.displays().iter().map(|display| monitor(display.as_ref())).collect();
+    #[cfg(target_os = "linux")]
+    if gpui::guess_compositor() == "Wayland" {
+        use crate::window_manager::state::{restore_size_only, wayland_output_limit};
+        // Wayland has no primary display. GPUI supplies logical output bounds.
+        if let Some(output) = wayland_output_limit(&monitors) {
+            apply(options, restore_size_only(saved, &output), &output);
         }
-        let monitors: Vec<_> = cx.displays().iter().map(|display| monitor(display.as_ref())).collect();
-        restore_bounds(saved, &monitors, &primary)
-    })();
+        return;
+    }
+    if let Some(primary) = cx.primary_display() {
+        let primary = monitor(primary.as_ref());
+        apply(options, restore_bounds(saved, &monitors, &primary), &primary);
+    }
+}
+
+fn apply(options: &mut WindowOptions, restored: anyhow::Result<RestoredBounds>, monitor: &Monitor) {
     let Ok(restored) = restored else { return; };
     if let Ok(configured) = crate::window_manager::adapter::window_options(
         std::mem::take(options),
         restored,
-        &primary,
+        monitor,
     ) {
         *options = configured;
     }

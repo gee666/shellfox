@@ -22,9 +22,24 @@ fn control(
     name: &'static str,
     palette: Palette,
 ) -> Stateful<Div> {
+    icon_button(id, name, palette, true)
+}
+
+fn icon_button(
+    id: impl Into<gpui::SharedString>,
+    name: &'static str,
+    palette: Palette,
+    enabled: bool,
+) -> Stateful<Div> {
     div()
         .id(id.into())
-        .tab_index(0)
+        .when(enabled, |style| {
+            style
+                .tab_index(0)
+                .cursor_pointer()
+                .hover(|style| style.bg(palette.hover).text_color(palette.accent))
+        })
+        .when(!enabled, |style| style.opacity(0.4))
         .border_1()
         .border_color(gpui::transparent_black())
         .focus(|style| style.border_color(palette.accent))
@@ -36,8 +51,6 @@ fn control(
         .justify_center()
         .flex_shrink_0()
         .text_color(palette.muted)
-        .cursor_pointer()
-        .hover(|style| style.bg(palette.hover).text_color(palette.accent))
         .child(icon(name).size(px(match name {
             "save" | "reload" | "maximize" | "restore" | "wrap" => 14.,
             "file-upload" | "file-download" => 15.,
@@ -45,9 +58,24 @@ fn control(
         })))
 }
 fn text_button(id: &'static str, label: &'static str, palette: Palette) -> Stateful<Div> {
+    text_button_enabled(id, label, palette, true)
+}
+
+fn text_button_enabled(
+    id: &'static str,
+    label: &'static str,
+    palette: Palette,
+    enabled: bool,
+) -> Stateful<Div> {
     div()
         .id(id)
-        .tab_index(0)
+        .when(enabled, |style| {
+            style
+                .tab_index(0)
+                .cursor_pointer()
+                .hover(|style| style.bg(palette.hover))
+        })
+        .when(!enabled, |style| style.opacity(0.4))
         .focus(|style| style.border_color(palette.accent))
         .h(px(24.))
         .px(px(6.))
@@ -59,16 +87,14 @@ fn text_button(id: &'static str, label: &'static str, palette: Palette) -> State
         .border_1()
         .border_color(palette.border)
         .bg(palette.surface)
-        .cursor_pointer()
-        .hover(|style| style.bg(palette.hover))
         .child(label)
 }
 impl Root {
     pub(crate) fn with_peer_files(
         &self,
-        terminal: Div,
+        terminal: impl IntoElement,
         palette: Palette,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let shown = self
@@ -94,7 +120,7 @@ impl Root {
     pub(crate) fn files_panel(
         &self,
         palette: Palette,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Some(files) = self.files.as_ref().filter(|files| files.visible) else {
@@ -103,6 +129,13 @@ impl Root {
         if !self.files_source_current() {
             return div().p(px(8.)).flex().flex_col().gap(px(6.))
                 .child("Document source retired. The original draft is retained; it will not be saved to the selected source.")
+                .when_some(files.document_error.clone(), |panel, error| panel.child(error))
+                .when(self.can_resume_file_draft(cx), |panel| {
+                    panel.child(
+                        text_button("resume-file-draft", "Resume draft", palette)
+                            .on_click(cx.listener(|root, _, _, cx| root.resume_file_draft(cx))),
+                    )
+                })
                 .when(files.busy,|panel|panel.child(text_button("cancel-retired-files","Cancel original operation",palette).on_click(cx.listener(|root,_,_,cx|root.cancel_file_operation(cx)))))
                 .when(!files.busy,|panel|panel.child(text_button("discard-retired-files","Discard old draft and switch Files",palette).on_click(cx.listener(|root,_,_,cx|root.discard_retired_files(cx)))))
                 .into_any_element();
@@ -164,13 +197,22 @@ impl Root {
             .border_color(palette.border)
             .child(
                 control(
-                    "file-browser-toggle",
+                    if files.browser {
+                        "collapse-file-browser"
+                    } else {
+                        "expand-file-browser"
+                    },
                     if files.browser { "up" } else { "down" },
                     palette,
                 )
-                .when(files.browser, |style| {
-                    style.bg(palette.hover).text_color(palette.accent)
+                .track_focus(&files.browser_focus.toggle)
+                .bg(if files.browser {
+                    palette.hover
+                } else {
+                    palette.surface
                 })
+                .border_color(palette.border)
+                .when(files.browser, |style| style.text_color(palette.accent))
                 .tooltip(crate::assets::tooltip(
                     format!(
                         "{} file browser ({})",
@@ -183,7 +225,7 @@ impl Root {
                     ),
                     palette,
                 ))
-                .on_click(cx.listener(|root, _, _, cx| root.toggle_file_browser(cx))),
+                .on_click(cx.listener(|root, _, window, cx| root.toggle_file_browser(window, cx))),
             )
             .child(div().flex_1())
             .when(files.backend.is_local(), |header| {
@@ -196,7 +238,11 @@ impl Root {
         if !narrow || files.maximized {
             header = header.child(
                 control(
-                    "maximize-file",
+                    if files.maximized {
+                        "restore-file"
+                    } else {
+                        "maximize-file"
+                    },
                     if files.maximized {
                         "restore"
                     } else {
@@ -204,6 +250,9 @@ impl Root {
                     },
                     palette,
                 )
+                .when(files.maximized, |style| {
+                    style.bg(palette.hover).text_color(palette.accent)
+                })
                 .tooltip(crate::assets::tooltip(
                     if files.maximized {
                         "Restore file"

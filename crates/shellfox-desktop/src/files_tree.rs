@@ -15,6 +15,7 @@ pub(crate) struct Tree {
     pub scroll: ScrollHandle,
     pub scrollbar: super::scrollbar::Scrollbar,
     pub keyboard_focus: bool,
+    pub loading: bool,
     next_request: u64,
 }
 
@@ -26,11 +27,18 @@ impl Tree {
             scroll: ScrollHandle::new(),
             scrollbar: Default::default(),
             keyboard_focus: false,
+            loading: false,
             next_request: 0,
         }
     }
 
+    pub fn begin_reload(&mut self) {
+        self.reset(false);
+        self.loading = true;
+    }
+
     pub(crate) fn cancel_loading(&mut self) {
+        self.loading = false;
         self.branches
             .retain(|_, (_, branch)| !matches!(branch, Branch::Loading));
     }
@@ -163,6 +171,20 @@ mod tests {
             Ordering::Less
         );
     }
+    #[test]
+    fn reload_drops_expanded_branches_and_invalidates_pending_reads() {
+        let mut tree = Tree::new();
+        let old = tree.load("/folder/branch".into());
+
+        tree.begin_reload();
+        assert!(tree.loading);
+        assert!(tree.branches.is_empty());
+
+        tree.cancel_loading();
+        assert!(!tree.loading);
+        assert_ne!(tree.load("/folder/branch".into()), old);
+    }
+
     #[test]
     fn collapse_drops_descendants_but_not_sibling_prefixes_and_invalidates_reads() {
         let mut tree = Tree::new();

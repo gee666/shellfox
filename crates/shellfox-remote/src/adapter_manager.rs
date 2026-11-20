@@ -13,7 +13,7 @@ pub fn settings_dto(
     checked(
         wire::SettingsDto {
             version: 1,
-            python_path: facts.python_path.clone(),
+            python_path: None,
             accent_color: preferences.accent_color.clone(),
             background_color: preferences.background_color.clone(),
             adapter_id: facts.adapter_id,

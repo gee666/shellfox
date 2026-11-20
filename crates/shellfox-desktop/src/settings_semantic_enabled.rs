@@ -42,7 +42,11 @@ impl SettingsPanel {
                 remote::Operation::CancelLogin => {
                     self.remote.login.busy() && (!self.remote.pending || self.remote.login_request)
                 }
-                remote::Operation::CancelAttempt(id) | remote::Operation::ContinueAttempt(id) => {
+                remote::Operation::ResumeAccess(id) => self.remote.can_resume_access(id),
+                remote::Operation::Disconnect(id) => {
+                    !self.remote.pending && self.remote.connected(id)
+                }
+                remote::Operation::CancelAttempt(id) => {
                     !self.remote.pending
                         && self.remote.state.as_ref().is_some_and(|state| {
                             state.attempts.iter().any(|attempt| attempt.id == *id)
@@ -88,9 +92,6 @@ impl SettingsPanel {
                                     )
                             })
                         })
-                }
-                remote::Operation::Disconnect(id) => {
-                    !self.remote.pending || self.remote.inflight_peer.as_ref() == Some(id)
                 }
                 _ => !self.remote.pending,
             },

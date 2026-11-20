@@ -12,6 +12,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
+import androidx.core.graphics.withClip
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
 import com.facebook.react.bridge.WritableMap
@@ -177,7 +178,7 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
   override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
     sink?.frames?.acquire()?.let { frame ->
-      renderer.draw(canvas, frame, null, preedit)
+      canvas.withClip(0, 0, width, height) { renderer.draw(this, frame, null, preedit) }
       val y = frame.cursorY * renderer.cellHeight
       connection?.updateCursorAnchor(frame.cursorX * renderer.cellWidth, y, y + renderer.baseline, y + renderer.cellHeight)
     }
@@ -270,14 +271,13 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
     val frame = sink?.frames?.acquire() ?: return
     if (x < 0 || y < 0 || x >= frame.cols * renderer.cellWidth || y >= frame.rows * renderer.cellHeight) return
     val point = point(x, y, frame)
-    fun open(text: String, offset: Int) {
+    val cell = point.second * frame.cols + point.first
+    val start = if (frame.cells[cell].width == 0 && point.first > 0 && frame.cells[cell - 1].width == 2) cell - 1 else cell
+    link(Pair(start % frame.cols, point.second), frame.cells[start].flags and 256 == 0, frame) { text ->
       if (text.isNotBlank() && text.length <= 8192) emit("topFileLink", Arguments.createMap().apply {
-        putString("terminalHandle", terminalHandle); putString("text", text); putInt("offset", offset)
+        putString("terminalHandle", terminalHandle); putString("text", text)
       })
     }
-    if (frame.cells[point.second * frame.cols + point.first].flags and 256 != 0) {
-      hyperlink(point) { open(it, -1) }
-    } else frame.fileLinkRow(point.first, point.second)?.let { (text, offset) -> open(text, offset) }
   }
   fun select(kind: Int, start: Pair<Int, Int>, end: Pair<Int, Int> = start) {
     sink?.let { TerminalCoordinator.select(terminalHandle, it, kind, start.first, start.second, end.first, end.second) }
@@ -287,11 +287,13 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
     val reset = active.inputReset
     TerminalCoordinator.copy(terminalHandle, active) { text -> post { if (sink === active && active.inputReset === reset) done(text) } }
   }
-  fun hyperlink(point: Pair<Int, Int>, done: (String) -> Unit) {
+  fun hyperlink(point: Pair<Int, Int>, done: (String) -> Unit) = link(point, false, done = done)
+  private fun link(point: Pair<Int, Int>, plaintext: Boolean, frame: TerminalFrame? = null, done: (String) -> Unit) {
     val active = sink ?: return
     val reset = active.inputReset
-    TerminalCoordinator.hyperlink(terminalHandle, active, point.first, point.second) { uri ->
-      post { if (sink === active && active.inputReset === reset) done(uri) }
+    val stillVisible = frame?.let { tapped -> { active.frames.acquire() === tapped && active.inputReset === reset } }
+    TerminalCoordinator.link(terminalHandle, active, point.first, point.second, plaintext, stillVisible) { target ->
+      post { if (sink === active && active.inputReset === reset && stillVisible?.invoke() != false) done(target) }
     }
   }
   fun paste(text: String) {

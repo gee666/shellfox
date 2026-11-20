@@ -1,6 +1,9 @@
 use anyhow::{Context, Result, bail, ensure};
 use shellfox_core::WslLaunchAccount;
-use shellfox_files::{CHUNK_BYTES, TransferReply, TransferRequest, wsl_files_ipc::{self as wire, Reply, Request}};
+use shellfox_files::{
+    CHUNK_BYTES, TransferReply, TransferRequest,
+    wsl_files_ipc::{self as wire, Reply, Request},
+};
 use shellfox_terminal::wsl::OsWsl;
 use std::{
     io::{BufReader, Write},
@@ -135,7 +138,9 @@ impl Worker {
             _ => bail!("Invalid WSL transfer response"),
         };
         match &mut reply {
-            TransferReply::Chunk(chunk) if chunk.data.is_empty() && bytes.len() <= CHUNK_BYTES => chunk.data = bytes,
+            TransferReply::Chunk(chunk) if chunk.data.is_empty() && bytes.len() <= CHUNK_BYTES => {
+                chunk.data = bytes
+            }
             TransferReply::Chunk(_) => bail!("Invalid WSL transfer chunk"),
             _ if !bytes.is_empty() => bail!("Unexpected WSL transfer payload"),
             _ => {}

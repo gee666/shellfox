@@ -6,7 +6,6 @@ pub(super) enum Input {
     History,
     Settle,
     Delete,
-    Python,
     Agent,
 }
 impl Input {
@@ -15,7 +14,6 @@ impl Input {
             Self::History => "Sessions per page",
             Self::Settle => "Settle after (hours)",
             Self::Delete => "Delete settled after (hours)",
-            Self::Python => "Python path",
             Self::Agent => "Add agent",
         }
     }
@@ -27,42 +25,36 @@ pub(super) struct Forms {
 }
 impl Forms {
     pub fn new(cx: &mut App) -> Self {
-        let fields: BTreeMap<_, _> = [
-            Input::History,
-            Input::Settle,
-            Input::Delete,
-            Input::Python,
-            Input::Agent,
-        ]
-        .into_iter()
-        .map(|key| {
-            let field = Field::settings_input(
-                match key {
-                    Input::History => Some(crate::field::NumberKind::History),
-                    Input::Settle | Input::Delete => Some(crate::field::NumberKind::Hours),
-                    _ => None,
-                },
-                cx,
-            );
-            field.update(cx, |field, cx| {
-                field.configure(
-                    crate::field::FieldOptions {
-                        placeholder: Some(
-                            if key == Input::Agent {
-                                "Process name or absolute executable path"
-                            } else {
-                                ""
-                            }
-                            .into(),
-                        ),
-                        ..Default::default()
+        let fields: BTreeMap<_, _> = [Input::History, Input::Settle, Input::Delete, Input::Agent]
+            .into_iter()
+            .map(|key| {
+                let field = Field::settings_input(
+                    match key {
+                        Input::History => Some(crate::field::NumberKind::History),
+                        Input::Settle | Input::Delete => Some(crate::field::NumberKind::Hours),
+                        _ => None,
                     },
                     cx,
-                )
-            });
-            (key, field)
-        })
-        .collect();
+                );
+                field.update(cx, |field, cx| {
+                    field.configure(
+                        crate::field::FieldOptions {
+                            placeholder: Some(
+                                if key == Input::Agent {
+                                    "Process name or absolute executable path"
+                                } else {
+                                    ""
+                                }
+                                .into(),
+                            ),
+                            ..Default::default()
+                        },
+                        cx,
+                    )
+                });
+                (key, field)
+            })
+            .collect();
         Self {
             fields,
             seen: BTreeMap::new(),
@@ -74,10 +66,6 @@ impl Forms {
             (Input::History, settings.history_page_size.to_string()),
             (Input::Settle, settings.session_settle_hours.to_string()),
             (Input::Delete, settings.session_delete_hours.to_string()),
-            (
-                Input::Python,
-                settings.python_path.clone().unwrap_or_default(),
-            ),
         ] {
             if self.errors.contains_key(&key) {
                 continue;
@@ -119,17 +107,6 @@ impl SettingsPanel {
             cx.notify();
             return;
         }
-        if key == Input::Python
-            && !text.trim().is_empty()
-            && (!text.starts_with('/') || text.chars().any(|ch| ch <= '\u{1f}' || ch == '\u{7f}'))
-        {
-            self.forms.errors.insert(
-                key,
-                "Use an absolute Python path, or leave empty for auto-detect.".into(),
-            );
-            cx.notify();
-            return;
-        }
         let patch = match key {
             Input::History => text
                 .parse::<f64>()
@@ -156,14 +133,6 @@ impl SettingsPanel {
                         }
                     }
                 }),
-            Input::Python => Some(SettingsPatch {
-                python_path: Some(if text.trim().is_empty() {
-                    None
-                } else {
-                    Some(text.clone())
-                }),
-                ..Default::default()
-            }),
             Input::Agent => None,
         };
         if let Some(patch) = patch {

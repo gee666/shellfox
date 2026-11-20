@@ -1,5 +1,17 @@
 use super::*;
 impl ApprovalControl {
+    pub(crate) async fn authorize_pair_async(
+        &self,
+        peer: PeerIdentity,
+        client: ClientId,
+        now: u64,
+    ) -> Result<Actor, AppError> {
+        // A durable change temporarily closes the policy. Pair must not treat
+        // that fence as a genuine denial of this attempt.
+        let _commit = self.management.lock().await;
+        self.authorize_async(peer, client, now).await
+    }
+
     pub async fn load(store: &PrivateApprovalStore) -> Result<Self, AppError> {
         let loaded = store.load_policy().await?;
         if loaded.migrated {
@@ -218,8 +230,8 @@ fn deny_attempts(state: &mut State, peer_id: &str) {
     state.pending.remove(peer_id);
     if let Some(attempts) = state.attempts.get_mut(peer_id) {
         let now = crate::backend::now_millis();
-        for client in attempts.seen.keys() {
-            attempts.denied.insert(*client, now + DENIED_TTL);
+        for (client, _) in attempts.seen.drain() {
+            attempts.denied.insert(client, now + DENIED_TTL);
         }
     }
 }

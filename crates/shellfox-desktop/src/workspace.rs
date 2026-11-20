@@ -272,7 +272,7 @@ impl Root {
         if !self.navigation.select_session(snapshot, id) {
             return;
         }
-        self.settings = false;
+        self.hide_settings(cx);
         self.pending_recent = Some(RecentSelection::Session(id));
         self.follow_wsl_file_tab(cx);
         self.reveal_sidebar_session(id, cx);

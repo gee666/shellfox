@@ -2,11 +2,14 @@ use gpui::{Image, ImageFormat};
 use std::sync::Arc;
 #[path = "files_avif.rs"]
 mod avif;
+#[path = "files_ico.rs"]
+mod ico;
 
 pub(crate) enum Preview {
     Binary {
         path: String,
         size: u64,
+        revision: String,
     },
     Image {
         path: String,
@@ -42,7 +45,7 @@ pub(super) fn raster_image(mime_type: &str, mut bytes: Vec<u8>) -> Option<Arc<Im
         let decoded = if mime_type == "image/avif" {
             avif::decode(&bytes)?
         } else {
-            image::load_from_memory_with_format(&bytes, image::ImageFormat::Ico).ok()?
+            ico::decode(&bytes)?
         };
         bytes.clear();
         decoded

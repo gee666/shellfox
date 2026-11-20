@@ -97,7 +97,9 @@ impl<'a> Rows<'a> {
                         })
                         .cursor_pointer()
                         .hover(|style| style.bg(palette.hover))
-                        .tooltip(crate::assets::tooltip(entry.path.clone(), palette))
+                        .when(!self.files.tree.keyboard_focus, |row| {
+                            row.tooltip(crate::assets::tooltip(entry.path.clone(), palette))
+                        })
                         .on_click(cx.listener(move |root, _, window, cx| {
                             window.focus(&focus);
                             activate(root, kind, path.clone(), cx);
@@ -120,14 +122,12 @@ impl<'a> Rows<'a> {
                 Some(Branch::Ready(children)) => self.listing(children, depth + 1, cx),
                 Some(Branch::Failed(error)) => {
                     let path = entry.path.clone();
-                    self.push(
-                        message(error.clone(), palette).child(
-                            super::super::text_button("retry-branch", "Retry folder", palette)
-                                .on_click(cx.listener(move |root, _, _, cx| {
-                                    root.load_file_branch(path.clone(), cx)
-                                })),
-                        ),
-                    );
+                    self.push(retry_message(
+                        error.clone(),
+                        palette,
+                        "retry-branch",
+                        cx.listener(move |root, _, _, cx| root.load_file_branch(path.clone(), cx)),
+                    ));
                 }
                 None => {}
             }
@@ -188,11 +188,26 @@ impl<'a> Rows<'a> {
 }
 
 pub(super) fn message(text: impl Into<gpui::SharedString>, palette: Palette) -> gpui::Div {
-    div()
-        .px(px(8.))
-        .py(px(5.))
-        .text_color(palette.muted)
-        .child(text.into())
+    message_style(palette).child(text.into())
+}
+
+pub(super) fn retry_message(
+    text: impl Into<gpui::SharedString>,
+    palette: Palette,
+    id: &'static str,
+    on_retry: impl Fn(&gpui::ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> impl IntoElement {
+    message_style(palette)
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(px(4.))
+        .child(div().max_w_full().child(text.into()))
+        .child(super::super::text_button(id, "Retry folder", palette).on_click(on_retry))
+}
+
+fn message_style(palette: Palette) -> gpui::Div {
+    div().px(px(8.)).py(px(5.)).text_color(palette.muted)
 }
 
 fn activate(root: &mut Root, kind: EntryKind, path: String, cx: &mut Context<Root>) {

@@ -1,10 +1,6 @@
 //! Hard line breaks inside TUI table columns. Underline only the hit column.
-use super::{
-    link_ranges::{web_match, LinkRange},
-    links::safe_web_url,
-    terminal_file_link,
-};
-use shellfox_ghostty_vt::{RowMetadata, Screen, ViewportPoint};
+use super::{file, safe_web_url, web_match, LinkRange};
+use crate::{RowMetadata, Screen, ViewportPoint};
 use std::ops::Range;
 
 const BORDERS: &str = "│┃║┆┇┊┋╎╏";
@@ -29,14 +25,14 @@ impl Kind {
                         .then(|| start..start + token(tail, "<>\"'`").len())
                 })
                 .last(),
-            Self::File => terminal_file_link::file_start(text),
+            Self::File => file::file_start(text),
         }
     }
 
     fn target(self, text: &str) -> Option<(Range<usize>, &str)> {
         match self {
             Self::Web => web_match(text).find(|(_, text)| safe_web_url(text).is_some()),
-            Self::File => terminal_file_link::file_match(text).next(),
+            Self::File => file::file_match(text).next(),
         }
     }
 
@@ -186,6 +182,7 @@ pub(super) fn column_link_at(
     screen: &Screen,
     rows: &[RowMetadata],
     hit: ViewportPoint,
+    web: bool,
     files: bool,
 ) -> Option<LinkRange> {
     let first = usize::from(hit.y).saturating_sub(CHAIN_ROWS);
@@ -193,7 +190,7 @@ pub(super) fn column_link_at(
     let supplies = (first..=last)
         .map(|y| regions(screen, rows, y as u16))
         .collect::<Vec<_>>();
-    [Some(Kind::Web), files.then_some(Kind::File)]
+    [web.then_some(Kind::Web), files.then_some(Kind::File)]
         .into_iter()
         .flatten()
         .find_map(|kind| {
@@ -284,7 +281,7 @@ fn column_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shellfox_ghostty_vt::Terminal;
+    use crate::Terminal;
     #[test]
     fn hard_wrapped_web_and_file_links_do_not_bleed_into_adjacent_columns() {
         let mut term = Terminal::new(42, 5).unwrap();
@@ -298,7 +295,7 @@ mod tests {
         .unwrap();
         let screen = term.render().unwrap();
         let hit = |x, y| {
-            column_link_at(&screen, &[], ViewportPoint { x, y }, true).map(|link| link.target)
+            column_link_at(&screen, &[], ViewportPoint { x, y }, true, true).map(|link| link.target)
         };
         assert_eq!(hit(4, 1).as_deref(), Some("https://example.com/abc?d=2"));
         assert_eq!(hit(2, 3).as_deref(), Some("src/main/terminal.rs:8:4"));

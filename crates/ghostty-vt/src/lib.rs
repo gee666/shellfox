@@ -12,6 +12,7 @@ mod mouse;
 mod presentation;
 mod recovery;
 mod selection;
+pub mod terminal_links;
 pub use input::{Key, KeyAction, KeyEvent, Modifiers};
 pub use input_v2::{InvalidKeyV2, KeyActionV2, KeyEventV2, ModifiersV2, PhysicalKey};
 pub use metadata::{

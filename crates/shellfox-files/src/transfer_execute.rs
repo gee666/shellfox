@@ -4,7 +4,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case", tag = "operation", content = "input", deny_unknown_fields)]
+#[serde(
+    rename_all = "snake_case",
+    tag = "operation",
+    content = "input",
+    deny_unknown_fields
+)]
 pub enum TransferRequest {
     BeginRead(BeginRead),
     BeginWrite(BeginWrite),
@@ -26,7 +31,12 @@ impl TransferRequest {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case", tag = "operation", content = "output", deny_unknown_fields)]
+#[serde(
+    rename_all = "snake_case",
+    tag = "operation",
+    content = "output",
+    deny_unknown_fields
+)]
 pub enum TransferReply {
     ReadStarted(ReadStarted),
     WriteStarted(WriteStarted),
@@ -47,16 +57,24 @@ impl TransferRegistry {
         Ok(match request {
             TransferRequest::BeginRead(mut input) => {
                 let service = capability(&input.path)?;
-                input.path = service.browser_existing(&Location { path: input.path })?.path;
+                input.path = service
+                    .browser_existing(&Location { path: input.path })?
+                    .path;
                 TransferReply::ReadStarted(self.begin_read(actor, service, &input, auth)?)
             }
             TransferRequest::BeginWrite(input) => {
                 let service = capability(&input.path)?;
                 TransferReply::WriteStarted(self.begin_write(actor, service, &input, auth)?)
             }
-            TransferRequest::Read(input) => TransferReply::Chunk(self.read_chunk(actor, &input, auth)?),
-            TransferRequest::Write(input) => TransferReply::Progress(self.write_chunk(actor, &input, auth)?),
-            TransferRequest::Finish(input) => TransferReply::Finished(self.finish_write(actor, &input, auth)?),
+            TransferRequest::Read(input) => {
+                TransferReply::Chunk(self.read_chunk(actor, &input, auth)?)
+            }
+            TransferRequest::Write(input) => {
+                TransferReply::Progress(self.write_chunk(actor, &input, auth)?)
+            }
+            TransferRequest::Finish(input) => {
+                TransferReply::Finished(self.finish_write(actor, &input, auth)?)
+            }
             TransferRequest::Cancel(input) => {
                 self.cancel(actor, &input)?;
                 TransferReply::Cancelled

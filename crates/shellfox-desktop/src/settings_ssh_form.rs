@@ -50,9 +50,10 @@ impl SettingsPanel {
             .child(crate::assets::icon("more"));
         let mut key_actions = div()
             .absolute()
-            .right_0()
-            .top_0()
-            .bottom_0()
+            .right(px(1.))
+            .top(px(1.))
+            .bottom(px(1.))
+            .bg(p.input_bg)
             .flex()
             .items_center()
             .child(choose);

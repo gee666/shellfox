@@ -63,6 +63,7 @@ export function SettingsPanel({ client, settings, profiles, defaultProfileId, on
   const [agentError, setAgentError] = useState('');
   const probe = useStore(client.store, state => state.snapshot?.probe);
   const linux = probe?.platform === 'linux';
+  const shells = profiles.filter(profile => !profile.elevation);
   const errors = validateSettingsDraft(draft);
   const change = controller.update;
   function updateRule(id: string, patch: Partial<ProcessRule>) { change(current => ({ ...current, processRules: current.processRules.map(rule => rule.id === id ? { ...rule, ...patch } : rule) })); }
@@ -108,7 +109,7 @@ export function SettingsPanel({ client, settings, profiles, defaultProfileId, on
       <label>Delete settled after (hours)<input type="number" min={1} max={87600} step="any" value={Number.isFinite(draft.sessionDeleteHours) ? draft.sessionDeleteHours : ''} onChange={event => change(current => ({ ...current, sessionDeleteHours: event.target.valueAsNumber }))} /></label>{fieldError('sessionDeleteHours')}
     </section>
     </div><div role="tabpanel" id="settings-panel-Terminals" aria-labelledby="settings-tab-Terminals" hidden={tab !== 'Terminals'} inert={tab !== 'Terminals'}>
-    <section><h3>Default shell</h3><select aria-label="Default shell" value={draft.terminalProfileId ?? defaultProfileId ?? ''} onChange={event => change(current => ({ ...current, terminalProfileId: event.target.value }))}>{!profiles.length && <option value="">No shells available</option>}{profiles.filter(profile => !profile.elevation).map(profile => <option key={profile.id} value={profile.id} disabled={!profile.available} title={profile.unavailableReason ?? undefined}>{profile.label}</option>)}</select><p className="settings-hint settings-control-note">Used for new local terminals.</p>{fieldError('shell')}</section>
+    <section><h3>Default shell</h3><select aria-label="Default shell" disabled={!shells.length} value={draft.terminalProfileId ?? defaultProfileId ?? ''} onChange={event => change(current => ({ ...current, terminalProfileId: event.target.value }))}>{!shells.length && <option value="">No shells available</option>}{shells.map(profile => <option key={profile.id} value={profile.id} disabled={!profile.available} title={profile.unavailableReason ?? undefined}>{profile.label}</option>)}</select><p className="settings-hint settings-control-note">Used for new local terminals.</p>{fieldError('shell')}</section>
     <section><button className="text-button" onClick={() => setEnvironmentOpen(true)}>Add Environment Variables (all terminals)</button>{fieldError('terminalEnv')}</section>
     {linux && <section><h3>Python</h3><input aria-label="Python path" value={draft.pythonPath ?? ''} placeholder={probe.python?.detected ?? 'Not found'} onChange={event => change(current => ({ ...current, pythonPath: event.target.value.trim() ? event.target.value : null }))} /><p className="settings-hint">Used to safely close terminals. Leave empty for auto-detect.</p>{fieldError('python')}{probe.python?.reason && <small className="settings-hint">{probe.python.reason}</small>}</section>}
     </div><div role="tabpanel" id="settings-panel-Agents" aria-labelledby="settings-tab-Agents" hidden={tab !== 'Agents'} inert={tab !== 'Agents'}>

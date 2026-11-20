@@ -61,7 +61,7 @@ impl Host {
         Ok(true)
     }
 
-    /// Import a COPY of an Electron database. Profile/Python configuration is
+    /// Import a COPY of an Electron database. Profile configuration is
     /// retained even when unavailable here; discovery still gates later launch.
     /// Passwords/private credentials are not settings and are never imported.
     /// Only explicit IncludeGlobalEnvironment consent copies possible env secrets.
@@ -119,11 +119,11 @@ pub(crate) fn read(db: &Connection, policy: SettingsImportPolicy) -> Result<Sett
         .map_err(crate::storage::storage_error)?;
     let mut value: serde_json::Value = serde_json::from_str(&encoded)
         .map_err(|_| Error::new(ErrorCode::Validation, "Invalid legacy settings."))?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| Error::new(ErrorCode::Validation, "Invalid legacy settings."))?;
+    object.remove("pythonPath");
     if policy == SettingsImportPolicy::ExcludeEnvironment {
-        // Do not deserialize old multiline/invalid/secret environment values.
-        let object = value
-            .as_object_mut()
-            .ok_or_else(|| Error::new(ErrorCode::Validation, "Invalid legacy settings."))?;
         object.insert("terminalEnv".into(), serde_json::json!([]));
     }
     let mut settings: Settings = serde_json::from_value(value)

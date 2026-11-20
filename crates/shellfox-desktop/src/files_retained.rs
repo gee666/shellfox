@@ -14,43 +14,47 @@ impl Files {
         self.pending_file_action = None;
         self.save_and_continue = false;
         self.confirm_focus.forget();
-        if self.busy {
+        // A save already owns its destination. Hiding its panel must not cancel it
+        // or discard its receipt. Reads, on the other hand, are presentation work.
+        if self.busy && !self.saving() {
             self.request += 1;
             self.busy = false;
             self.location
                 .update(cx, |field, cx| field.set_read_only(false, cx));
             if let Some(operation) = self.operation.take() {
-                operation.cancel();
-                if let Some(editor) = &mut self.editor {
-                    editor.reload_required = true;
-                    self.document_error =
-                        Some("Save was not confirmed. Reload before saving again.".into());
-                } else if let Some(ImageEditor::Ready(draft)) = &mut self.image_editor {
-                    draft.reload_required = true;
-                    draft.error =
-                        Some("Image save was not confirmed. Reload before saving again.".into());
-                } else {
-                    self.document_error =
-                        Some("File load was cancelled when switching hosts.".into());
+                if matches!(operation, super::FileOperation::Open(_)) {
+                    self.document_error = Some("File load was cancelled when switching scopes.".into());
                 }
+                operation.cancel();
             }
         }
-        if let Some(image) = &mut self.image_editor {
-            match image {
-                ImageEditor::Loading => self.image_editor = None,
-                ImageEditor::Ready(draft) => {
-                    draft.working = false;
-                    draft.anchor = None;
-                }
-                ImageEditor::Failed(_) => {}
-            }
+        if let Some(ImageEditor::Ready(draft)) = &mut self.image_editor {
+            draft.anchor = None;
         }
         self.tree.cancel_loading();
     }
 }
 
 impl Root {
-    /// Move only presentation state. Peer I/O retains its original admission and is never rebound.
+    pub(super) fn file_write_recipient(
+        &mut self,
+        request: u64,
+        backend: &DocumentBackend,
+    ) -> Option<(&mut Files, bool)> {
+        let matches = |files: &Files| {
+            files.request == request && files.saving() && files.backend.same_origin(backend)
+        };
+        if self.files.as_ref().is_some_and(matches) {
+            let presented = self.files_source_current();
+            return self.files.as_mut().map(|files| {
+                let presented = presented && files.visible;
+                (files, presented)
+            });
+        }
+        self.retained_files.iter_mut().find(|files| matches(files)).map(|files| (files, false))
+    }
+
+    /// Move only presentation state. Reconnecting separately revalidates the file.
     pub(crate) fn sync_file_source(&mut self, cx: &mut Context<Self>) {
         let source = self.peers.selected.clone();
         let epoch = self.source_selection_epoch();
@@ -62,11 +66,10 @@ impl Root {
             return;
         }
         self.remember_panel(cx);
-        if let Some(index) = self
-            .retained_files
-            .iter()
-            .rposition(|files| files.source == source)
-        {
+        let active = self.retained_files.iter().rposition(|files| {
+            files.source == source && self.active_file_tab(&files.backend)
+        });
+        if let Some(index) = active.or_else(|| self.retained_files.iter().rposition(|files| files.source == source)) {
             self.restore_panel(index);
         }
     }
@@ -119,6 +122,7 @@ impl Root {
     }
 
     pub(crate) fn follow_peer_file_tab(&mut self, cx: &mut Context<Self>) {
+        self.sync_file_source(cx);
         if !self.files.as_ref().is_some_and(|files| files.visible && files.source == self.peers.selected) {
             return;
         }
@@ -127,6 +131,48 @@ impl Root {
             self.select_file_scope(backend, cx);
             if self.files.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
                 self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
+            }
+        }
+    }
+
+    pub(crate) fn reconcile_peer_file_catalog(
+        &mut self,
+        peer: &shellfox_protocol::AuthenticatedPeerId,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::root::source::{Source, sessions, viewable_tab};
+        let Some(snapshot) = self.peers.peers.get(peer).and_then(|state| state.snapshot.as_ref()) else { return };
+        let source = Source::Peer(peer.clone());
+        let removable = |files: &Files| {
+            files.source == source && !files.dirty(cx) && !files.busy && files.transfer.is_none()
+                && !files.image_editor.as_ref().is_some_and(ImageEditor::transforming)
+                && files.backend.peer_file_scope().is_some_and(|scope| {
+                    !sessions(snapshot).any(|session| session.id.to_string() == scope.session.to_string()
+                        && session.tabs.iter().any(|tab| tab.id.to_string() == scope.tab.to_string() && viewable_tab(tab)))
+                })
+        };
+        self.retained_files.retain(|files| !removable(files));
+        if self.files.as_ref().is_some_and(removable) {
+            let visible = self.files.take().is_some_and(|files| files.visible);
+            if visible && self.peers.selected == source {
+                self.show_selected_file_scope(cx);
+            }
+        }
+    }
+
+    pub(crate) fn reveal_dirty_file_on_close(&mut self, cx: &mut Context<Self>) {
+        if !self.files.as_ref().is_some_and(|files| files.dirty(cx)) {
+            let Some(index) = self.retained_files.iter().position(|files| files.dirty(cx)) else { return };
+            let original = self.retained_files.remove(index);
+            self.remember_panel(cx);
+            self.files = Some(original);
+        }
+        let Some(source) = self.files.as_ref().map(|files| files.source.clone()) else { return };
+        if self.peers.choose(source).is_ok() {
+            let epoch = self.source_selection_epoch();
+            if let Some(files) = &mut self.files {
+                files.source_epoch = epoch;
+                files.visible = true;
             }
         }
     }
@@ -173,6 +219,7 @@ impl Root {
 
     fn remember_panel(&mut self, cx: &mut Context<Self>) {
         if let Some(mut files) = self.files.take() {
+            files.check_cached_revision |= files.dirty(cx);
             files.suspend_presentation(cx);
             self.retained_files.retain(|retained| {
                 retained.source != files.source

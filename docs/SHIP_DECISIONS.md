@@ -33,10 +33,36 @@ Ship Shellfox on Rust + GPUI + libghostty-vt. The desktop app must match the Ele
 - Keep going until everything is done. Don't pause for status questions.
 - Parity means intended behavior and look. Don't copy Electron's bugs or slowness.
 - Remote automation replay: completed runs that aren't elevated are visible read-only to approved devices, the same eligibility as ordinary sessions. Record that provenance at launch.
-- HTML preview: render in a sandboxed webview (wry: WebView2, WKWebView, WebKitGTK) with Electron's iframe sandbox rules. If embedding isn't possible under a Wayland compositor, fall back to the source view.
-- Android: the Rust/Ghostty native terminal becomes the default once it matches the WebView terminal. The WebView path is then removed.
+- HTML preview: keep Linux's editable Source fallback and its notice where WebKitGTK cannot embed. Do not patch GPUI's window system for this now; native preview still uses the opaque sandbox.
+- Remote Files: reconnect an established peer automatically and reattach only after checking the original file scope and revision. Never save automatically or replay a write.
+- Android defaults to the native V1 Rust client and official Ghostty engine. ManagerV2/Native002 remains experimental. Switch iOS after its simulator check, then delete the WebView terminal and unused TS client together.
 - macOS/iOS: build and test in GitHub Actions on the experiment branch. Pushing the branch and running CI is allowed. Releases are not.
 - Release version: the first Rust release is 0.10.0.
+- Rust uses a native Linux PTY and supervisor even for imported GNOME Terminal settings. Drop the legacy Linux Python preference on import. WSL guest Python requirements stay in place.
+
+## Status after harness crash (2026-11-19)
+
+Done or verified:
+- remote automation replay;
+- local and remote WSL Files;
+- `shellfox ssh` (russh);
+- macOS PTY, with both macOS CI jobs green;
+- Android native default terminal;
+- Linux desktop parity sweep;
+- version 0.10.0;
+- Go test fixed paths.
+
+Resumed lanes:
+- pairing simplification, then one final review;
+- P4 Files, Linux runtime;
+- P5 Settings, last 6 rows;
+- Android wrapped links;
+- Apple CI, iOS native default and WebView removal.
+
+Open:
+- P1: 7 Windows input rows, blocked by the user's open Windows Security (PickerHost) window;
+- Admin PowerShell needs one user-approved UAC run;
+- final installers rebuilt from final source.
 
 ## Current state (2026-11-18 assessment)
 
@@ -54,4 +80,4 @@ Open defects:
 
 Linux: built on Nov 18 from an older snapshot. Needs a fresh build and smoke test.
 
-Android: the default build still uses the TS/WebView client. The Rust path is opt-in. No end-to-end run against a Rust host yet.
+Android: native V1 ran against a Rust host on an isolated x86_64 emulator over the Go test tailnet with adb reverse. The APK also builds for arm64-v8a. iOS still defaults to WebView pending its native simulator run.

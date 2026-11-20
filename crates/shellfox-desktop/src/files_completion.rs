@@ -1,12 +1,71 @@
-use crate::{directory::completion::Completion, field::Field, root::Root};
-use gpui::{Context, Entity, ScrollHandle, Window};
-use std::time::Duration;
+use super::{Files, list::ListingError};
+use crate::{directory::completion::Completion, field::Field, root::Root, theme::Palette};
+use gpui::{
+    App, Context, Entity, FocusHandle, ScrollHandle, Subscription, Window, div, prelude::*, px,
+};
+use std::{cell::RefCell, time::Duration};
+
+pub(crate) struct BrowserFocus {
+    pub region: FocusHandle,
+    pub toggle: FocusHandle,
+    pub line: FocusHandle,
+    pub browse: FocusHandle,
+}
+
+impl BrowserFocus {
+    pub fn new(cx: &App) -> Self {
+        Self {
+            region: cx.focus_handle(),
+            toggle: cx.focus_handle(),
+            line: cx.focus_handle(),
+            browse: cx.focus_handle(),
+        }
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct FileCompletion {
     pub state: Completion,
     pub scroll: ScrollHandle,
     pub seen: (String, bool),
+    focus_subscriptions: RefCell<Option<[Subscription; 2]>>,
+}
+
+impl FileCompletion {
+    pub(crate) fn track_focus(
+        &self,
+        field: &Entity<Field>,
+        window: &mut Window,
+        cx: &mut Context<Root>,
+    ) {
+        let mut subscriptions = self.focus_subscriptions.borrow_mut();
+        if subscriptions.is_some() {
+            return;
+        }
+        let focus = field.read(cx).edit_focus();
+        let id = field.entity_id();
+        let on_focus = cx.on_focus(&focus, window, move |root, _, cx| {
+            if let Some(files) = root
+                .files
+                .as_mut()
+                .filter(|files| files.location.entity_id() == id)
+            {
+                files.completion.state.reset();
+                root.query_file_matches(false, cx);
+            }
+        });
+        let on_blur = cx.on_blur(&focus, window, move |root, _, cx| {
+            if let Some(files) = root
+                .files
+                .as_mut()
+                .filter(|files| files.location.entity_id() == id)
+            {
+                files.completion.state.dismiss();
+                cx.notify();
+            }
+        });
+        *subscriptions = Some([on_focus, on_blur]);
+    }
 }
 
 impl Root {
@@ -27,13 +86,20 @@ impl Root {
         if files.busy {
             return;
         }
-        files.listing_error = None;
+        if files
+            .listing_error
+            .as_ref()
+            .is_some_and(|error| error.retry.is_none())
+        {
+            files.listing_error = None;
+        }
         files.missing_folder = None;
         self.query_file_matches(false, cx);
     }
 
     pub(crate) fn reopen_file_completion(&mut self, cx: &mut Context<Self>) {
-        if let Some(files) = &mut self.files {
+        let Some(files) = &mut self.files else { return };
+        if files.completion.state.reopen() {
             files.completion.state.reset();
             self.query_file_matches(false, cx);
         }
@@ -57,9 +123,7 @@ impl Root {
         }
         let input = &files.location.read(cx).text;
         match key {
-            "escape" if !files.completion.state.visible(input).is_empty() => {
-                files.completion.state.dismiss()
-            }
+            "escape" => files.completion.state.dismiss(),
             "up" | "down" if files.completion.state.move_active(input, key == "up") => {
                 files
                     .completion
@@ -68,7 +132,7 @@ impl Root {
             }
             "tab" if shift && files.backend.is_local() => {
                 files.completion.state.dismiss();
-                window.focus(&files.browse_focus);
+                window.focus(&files.browser_focus.browse);
             }
             "tab" if !shift => {
                 if files.completion.state.dismissed {
@@ -83,7 +147,6 @@ impl Root {
             "enter" => {
                 if let Some(value) = files.completion.state.choose(input, None) {
                     accept(files, value, cx);
-                    self.submit_file_path(cx);
                 } else {
                     return false;
                 }
@@ -100,15 +163,14 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(files) = &mut self.files
-            && !files.busy
-        {
-            let input = &files.location.read(cx).text;
-            if let Some(value) = files.completion.state.choose(input, Some(index)) {
-                accept(files, value, cx);
-                files.location.read(cx).focus(window);
-                cx.notify();
-            }
+        let Some(files) = self.files.as_mut().filter(|files| !files.busy) else {
+            return;
+        };
+        let input = &files.location.read(cx).text;
+        if let Some(value) = files.completion.state.choose(input, Some(index)) {
+            accept(files, value, cx);
+            files.location.read(cx).focus(window);
+            cx.notify();
         }
     }
 
@@ -175,11 +237,14 @@ impl Root {
                             if let Some(value) = files.completion.state.tab() {
                                 accept(files, value, cx);
                             } else {
-                                files.listing_error = Some((path.clone(), "No matching folders".into()));
+                                files.listing_error =
+                                    Some(ListingError::message("No matching folders"));
                             }
                         }
                     }
-                    Err(error) if cycle => files.listing_error = Some((path.clone(), error.to_string())),
+                    Err(error) if cycle => {
+                        files.listing_error = Some(ListingError::message(error.to_string()));
+                    }
                     Err(_) => {}
                 }
                 cx.notify();
@@ -190,9 +255,73 @@ impl Root {
     }
 }
 
-fn accept(files: &mut super::Files, value: String, cx: &mut Context<Root>) {
+fn accept(files: &mut Files, value: String, cx: &mut Context<Root>) {
     files.completion.seen = (value.clone(), false);
+    files
+        .completion
+        .scroll
+        .scroll_to_item(files.completion.state.active());
     files
         .location
         .update(cx, |field, cx| field.set_text(value, cx));
+}
+
+pub(crate) fn completion_list(
+    matches: &[String],
+    files: &Files,
+    palette: Palette,
+    window: &Window,
+    cx: &mut Context<Root>,
+) -> impl IntoElement {
+    let active = files.completion.state.active();
+    let max_height = (f32::from(window.viewport_size().height) * 0.35).min(240.);
+    div()
+        .id("file-directory-completions")
+        .absolute()
+        .top(px(35.))
+        .left(px(4.))
+        .right(px(4.))
+        .occlude()
+        .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+            window.prevent_default()
+        })
+        .track_scroll(&files.completion.scroll)
+        .overflow_y_scroll()
+        .max_h(px(max_height))
+        .p(px(2.))
+        .border_1()
+        .border_color(palette.input_border)
+        .rounded(px(2.))
+        .bg(palette.input_bg)
+        .font_family("Cascadia Code")
+        .text_size(px(12.))
+        .line_height(px(20.))
+        .children(matches.iter().enumerate().map(|(index, value)| {
+            div()
+                .id(("file-match", index))
+                .flex()
+                .items_center()
+                .h(px(26.))
+                .gap(px(6.))
+                .px(px(6.))
+                .border_1()
+                .border_color(gpui::transparent_black())
+                .when(index == active, |style| {
+                    style
+                        .bg(palette.accent.opacity(0.12))
+                        .border_color(palette.accent)
+                })
+                .hover(|style| style.bg(palette.hover))
+                .cursor_pointer()
+                .child(
+                    crate::assets::icon("folder")
+                        .size(px(16.))
+                        .flex_shrink_0()
+                        .text_color(palette.muted),
+                )
+                .child(div().min_w_0().truncate().child(value.clone()))
+                .on_click(cx.listener(move |root, _, window, cx| {
+                    root.choose_file_completion(index, window, cx)
+                }))
+        }))
 }

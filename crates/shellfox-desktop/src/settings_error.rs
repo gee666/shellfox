@@ -4,7 +4,6 @@ pub(super) enum Field {
     History,
     Settle,
     Delete,
-    Python,
     Shell,
     Accent,
     Background,
@@ -18,8 +17,6 @@ impl Field {
             Self::Settle
         } else if patch.session_delete_hours.is_some() {
             Self::Delete
-        } else if patch.python_path.is_some() {
-            Self::Python
         } else if patch.terminal_profile_id.is_some() {
             Self::Shell
         } else if patch.accent_color.is_some() {
@@ -35,7 +32,6 @@ impl Field {
             Self::History => Some(Input::History),
             Self::Settle => Some(Input::Settle),
             Self::Delete => Some(Input::Delete),
-            Self::Python => Some(Input::Python),
             _ => None,
         }
     }
@@ -44,7 +40,7 @@ impl Field {
             Self::History | Self::Settle | Self::Delete | Self::Accent | Self::Background => {
                 Category::General
             }
-            Self::Python | Self::Shell => Category::Terminals,
+            Self::Shell => Category::Terminals,
             Self::Agents => Category::Agents,
         }
     }
@@ -69,7 +65,6 @@ impl SettingsPanel {
                 Category::General => [Input::History, Input::Settle, Input::Delete]
                     .iter()
                     .any(|field| self.forms.errors.contains_key(field)),
-                Category::Terminals => self.forms.errors.contains_key(&Input::Python),
                 _ => false,
             }
     }

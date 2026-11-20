@@ -72,7 +72,7 @@ impl Backend {
         // client namespace. Approval records/device permissions remain shared.
         let mut actor = self
             .approvals
-            .authorize_async(peer.clone(), approval_client, now)
+            .authorize_pair_async(peer.clone(), approval_client, now)
             .await
             .map_err(application)?;
         let existing = observer

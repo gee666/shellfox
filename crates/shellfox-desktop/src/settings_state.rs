@@ -146,7 +146,6 @@ fn merge(target: &mut SettingsPatch, patch: SettingsPatch) {
     macro_rules! update{($($field:ident),*)=>{$(if patch.$field.is_some(){target.$field=patch.$field;})*};}
     update!(
         version,
-        python_path,
         accent_color,
         background_color,
         adapter_id,
@@ -169,7 +168,6 @@ fn preserve_external(
     macro_rules! keep{($($field:ident),*)=>{$(if sent.$field.is_none()&&base.$field!=current.$field{target.$field.clone_from(&current.$field);})*};}
     keep!(
         version,
-        python_path,
         accent_color,
         background_color,
         adapter_id,

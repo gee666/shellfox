@@ -16,6 +16,26 @@ pub(super) fn selected(
         }
     }
 }
+fn prompt(cx: &App) -> impl Future<Output = anyhow::Result<Option<Vec<PathBuf>>>> + use<> {
+    let reply = match fixture::value("KEY").as_deref() {
+        Some("cancel") => Err(Ok(None)),
+        Some("error") => Err(Err(anyhow::anyhow!("Fixture key picker failed."))),
+        Some(path) => Err(Ok(Some(vec![PathBuf::from(path)]))),
+        None => Ok(cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Choose SSH key file".into()),
+        })),
+    };
+    async move {
+        match reply {
+            Ok(native) => native.await?,
+            Err(fixture) => fixture,
+        }
+    }
+}
+
 impl SettingsPanel {
     pub(super) fn choose_ssh_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.operations.frozen() || self.ssh.pending {
@@ -29,12 +49,7 @@ impl SettingsPanel {
         self.ssh.pending = true;
         self.ssh.error = None;
         let lease = self.operations.begin();
-        let prompt = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Choose SSH key file".into()),
-        });
+        let prompt = prompt(cx);
         cx.spawn_in(window, async move |panel, cx| {
             let result = prompt.await;
             let _ = panel.update_in(cx, |panel, _, cx| {
@@ -53,7 +68,7 @@ impl SettingsPanel {
                     return;
                 }
                 match result {
-                    Ok(Ok(paths)) => match selected(paths) {
+                    Ok(paths) => match selected(paths) {
                         Ok(Some(selected)) => panel.request_aux(
                             api::Request::ValidateSshKey(selected),
                             aux::After::Key,
@@ -73,7 +88,7 @@ impl SettingsPanel {
                             }
                         }
                     },
-                    _ => {
+                    Err(_) => {
                         panel.ssh.pending = false;
                         panel.ssh.error = Some("SSH key file picker could not complete.".into());
                         if let Some(editor) = &panel.ssh.editor {

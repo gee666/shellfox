@@ -10,6 +10,22 @@ static int viewport_ref(SfVt *vt, uint16_t x, uint16_t y, GhosttyGridRef *out) {
     return ghostty_terminal_grid_ref(vt->terminal, point, out);
 }
 
+int sf_viewport_rows(SfVt *vt, uint8_t *flags, size_t count) {
+    if (vt->callback_error) return vt->callback_error;
+    if (count != vt->height) return GHOSTTY_INVALID_VALUE;
+    for (uint16_t y = 0; y < vt->height; y++) {
+        GhosttyGridRef ref = {0};
+        GhosttyRow row;
+        bool wrapped, continuation;
+        TRY(viewport_ref(vt, 0, y, &ref));
+        TRY(ghostty_grid_ref_row(&ref, &row));
+        TRY(ghostty_row_get(row, GHOSTTY_ROW_DATA_WRAP, &wrapped));
+        TRY(ghostty_row_get(row, GHOSTTY_ROW_DATA_WRAP_CONTINUATION, &continuation));
+        flags[y] = (wrapped ? 1 : 0) | (continuation ? 2 : 0);
+    }
+    return GHOSTTY_SUCCESS;
+}
+
 int sf_selection(SfVt *vt, const SfSelection *input) {
     if (vt->callback_error) return vt->callback_error;
     if (!input) return ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL);

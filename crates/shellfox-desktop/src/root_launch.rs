@@ -53,7 +53,7 @@ impl Root {
             window.activate_window();
         }
         if matches!(target, LaunchTarget::Session { .. }) {
-            self.settings = false;
+            self.hide_settings(cx);
             self.pending_recent = None;
             if !self.is_local_source() {
                 self.select_local_source(window, cx);
