@@ -12,7 +12,8 @@ import { peerEnv, startRustPeer, viewerFlags } from './macos-p4-rust-peer.mjs';
 
 const keyboard = { a: 0, s: 1, z: 6, x: 7, c: 8, b: 11, e: 14,
   enter: 36, escape: 53, right: 124, down: 125, up: 126 };
-const named = (tree, name) => tree.find(node => node.title === name || node.description === name);
+const named = (tree, name) => tree.find(node => node.title === name || node.description === name ||
+  (node.role === 'AXStaticText' && node.value === name));
 const observed = (shot, value) => shot.lines.find(row => row.text.toLowerCase().includes(value.toLowerCase()));
 
 export async function runRust({ binary, cli, helper, testcontrol, project, dir, env, window, checkNetwork, section }) {
@@ -106,7 +107,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await go(project, project);
       await focusPath(path.join(project, 'uni'));
       await eventually('named directory suggestion', tree, rows => rows.some(row =>
-        [row.title, row.description].some(label => label?.replace(/\/$/, '') === unique)));
+        [row.title, row.description, row.value].some(label => label?.replace(/\/$/, '') === unique)));
       await shot('03-suggestion');
       key('down');
       key('enter');
@@ -179,7 +180,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       assert.ok(preview.colors.asset, 'The local SVG must render in the native capture');
       assert.ok(Math.abs(preview.colors.asset.width / preview.scale - 24) <= 2);
       assert.ok(Math.abs(preview.colors.asset.height / preview.scale - 12) <= 2);
-      assert.ok(observed(preview, 'unavailable preview assets'));
+      await node('2 unavailable preview assets');
       await clickText('Containment probe');
       const blocked = await shot('10-html-after-probe', shot => observed(shot, marker));
       assert.equal(blocked.windowCount, preview.windowCount);

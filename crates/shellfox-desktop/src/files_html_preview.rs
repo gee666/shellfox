@@ -1,4 +1,4 @@
-use crate::{files::DocumentBackend, root::Root, theme::Palette};
+use crate::{accessibility::{Role, SemanticFrame, SemanticNode}, files::DocumentBackend, root::Root, theme::Palette};
 use gpui::{AnyElement, Context, div, prelude::*, px};
 use percent_encoding::percent_decode_str;
 use shellfox_files::EditorCancellation;
@@ -50,7 +50,7 @@ impl HtmlPreview {
         }
     }
 
-    pub fn render(&self, surface: &Surface, palette: Palette) -> AnyElement {
+    pub fn render(&self, surface: &Surface, palette: Palette, frame: &SemanticFrame) -> AnyElement {
         let status = self.prepared.borrow();
         let message = match status.as_ref() {
             Some(Ok(prepared)) => {
@@ -62,7 +62,15 @@ impl HtmlPreview {
                     .when(!prepared.warnings.is_empty(), |body| {
                         let expanded = self.warnings_open.get();
                         let open = self.warnings_open.clone();
-                        let count = prepared.warnings.len();
+                        let caption = format!("{} unavailable preview assets", prepared.warnings.len());
+                        let text = div().child(format!("{} {caption}", if expanded { "▾" } else { "▸" }));
+                        let label = match (frame.id_for("files/html-warnings"), frame.id_for("root/files")) {
+                            (Ok(id), Ok(parent)) => frame.wrap(SemanticNode::new(id, Some(parent), Role::Label, caption), text).into_any_element(),
+                            (Err(error), _) | (_, Err(error)) => {
+                                frame.reject(error);
+                                text.into_any_element()
+                            }
+                        };
                         body.child(
                             div()
                                 .id("html-preview-warnings")
@@ -70,10 +78,7 @@ impl HtmlPreview {
                                 .py(px(4.))
                                 .text_color(palette.muted)
                                 .cursor_pointer()
-                                .child(format!(
-                                    "{} {count} unavailable preview assets",
-                                    if expanded { "▾" } else { "▸" }
-                                ))
+                                .child(label)
                                 .on_click(move |_, _, cx| {
                                     open.set(!open.get());
                                     cx.refresh_windows();

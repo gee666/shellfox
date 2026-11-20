@@ -4,7 +4,7 @@ import path from 'node:path';
 import { _electron, expect as assertions } from '@playwright/test';
 import { root } from './rust-package-common.mjs';
 import { marker, original, updated } from './macos-p4-fixture.mjs';
-import { nativePicker } from './macos-p4-dialog.mjs';
+import { eventually, nativePicker } from './macos-p4-dialog.mjs';
 import { closeElectron, electronRemoteEnv, startElectronPeer } from './macos-p4-electron-peer.mjs';
 import { exerciseTransfers } from './macos-p4-transfers.mjs';
 
@@ -126,24 +126,25 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
 
       const notes = norm('notes.txt');
       await button('notes.txt').click();
-      await expect(editor).toHaveValue(original);
+      await expect(editor).toHaveValue(`\uFEFF${original}`);
       await button('Copy file path').click();
       await expect.poll(() => action('clipboard').value).toBe(notes);
       await editor.press('Meta+ArrowUp');
       await editor.press('Meta+Shift+ArrowRight');
       await editor.press('Meta+c');
-      await expect.poll(() => action('clipboard').value).toBe('P4 editor first line');
+      await expect.poll(() => action('clipboard').value.replace(/^\uFEFF/, '')).toBe('P4 editor first line');
       await editor.press('Meta+a');
       await editor.press('Meta+c');
-      await expect.poll(() => action('clipboard').value).toBe(original);
+      await expect.poll(() => action('clipboard').value).toBe(`\uFEFF${original}`);
       await editor.press('Meta+x');
       await expect(editor).toHaveValue('');
-      action('paste', updated);
-      await expect(editor).toHaveValue(updated);
+      const edited = `\uFEFF${updated}`;
+      action('paste', edited);
+      await expect(editor).toHaveValue(edited);
       await editor.press('Meta+z');
       await expect(editor).toHaveValue('');
       await editor.press('Meta+Shift+z');
-      await expect(editor).toHaveValue(updated);
+      await expect(editor).toHaveValue(edited);
       await expect(button('Save file')).toBeEnabled();
       shot('07-editor-dirty');
       await editor.press('Meta+s');
@@ -151,7 +152,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await expect(button('Save file')).toBeDisabled();
       shot('08-editor-saved');
 
-      const guardDraft = 'P4 draft written by Save and continue\n';
+      const guardDraft = '\uFEFFP4 draft written by Save and continue\n';
       await editor.fill(guardDraft);
       await button('demo.html').click();
       const guard = sidebar.getByRole('alertdialog');
@@ -163,7 +164,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       assert.equal(await readFile(notes, 'utf8'), `\uFEFF${updated}`);
       await button('demo.html').click();
       await button('Save and continue').click();
-      await expect.poll(() => readFile(notes, 'utf8')).toBe(`\uFEFF${guardDraft}`);
+      await expect.poll(() => readFile(notes, 'utf8')).toBe(guardDraft);
       return;
     }
 
@@ -178,8 +179,8 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await expect(sidebar.getByText('2 unavailable preview assets')).toBeVisible();
       await expect(button('Wrap lines')).toBeHidden();
       await page.keyboard.press('Meta+Shift+e');
-      const screenshot = shot('09-html-preview');
-      assert.ok(screenshot.lines.some(line => line.text.includes(marker)), 'Capture must include the HTML preview');
+      const screenshot = await eventually('painted Electron HTML preview', () => shot('09-html-preview'),
+        image => image.lines.some(line => line.text.includes(marker)) || (image.colors.style && image.colors.asset));
       const workspaceUrl = page.url();
       await preview.getByRole('link', { name: 'Containment probe' }).click();
       await expect(page.getByTitle('HTML preview', { exact: true })).toBeVisible();

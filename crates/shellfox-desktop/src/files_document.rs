@@ -72,7 +72,7 @@ impl Root {
                         editor.text.read(cx).snapshot_text(),
                         palette,
                         window,
-                        &self.html_preview,
+                        self,
                         cx,
                     ))
                     .into_any_element();

@@ -57,7 +57,7 @@ impl TextPreview {
         text: Arc<str>,
         palette: Palette,
         window: &gpui::Window,
-        surface: &html::Surface,
+        root: &Root,
         cx: &mut Context<Root>,
     ) -> AnyElement {
         let mut cache = self.cached.borrow_mut();
@@ -79,7 +79,7 @@ impl TextPreview {
                 .render(path, backend, images, palette, window, cx)
                 .into_any_element(),
             Some(Content::Svg(image)) => render_image(image.clone()),
-            Some(Content::Html(html)) => html.render(surface, palette),
+            Some(Content::Html(html)) => html.render(&root.html_preview, palette, &root.semantic_context.frame()),
             _ => div()
                 .p(px(8.))
                 .text_color(palette.muted)

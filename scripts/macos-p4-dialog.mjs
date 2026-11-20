@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export async function eventually(label, read, predicate, ms = 20_000) {
@@ -38,7 +39,10 @@ export function nativePicker(action) {
     choose,
     confirmOpen,
     async save(name) {
-      await eventually('sanitize and prefill download filename', read, rows => rows.some(row => row.role === 'AXTextField' && row.value === name));
+      // The collapsed AppKit save panel can hide the suffix. Verify the
+      // actual path, including its extension, after confirming the save.
+      await eventually('sanitize and prefill download filename', read, rows => rows.some(row =>
+        row.role === 'AXTextField' && (row.value === name || (row.focused && row.value === path.parse(name).name))));
       try { action('press', 'Save'); }
       catch (error) {
         // AppKit can display the overwrite sheet without completing AXPress.
