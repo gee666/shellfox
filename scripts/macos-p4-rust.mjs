@@ -78,7 +78,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     action('resize-content', 40, 40, 1200, 760);
     const startup = await shot('01-startup');
     assert.deepEqual(startup.contentSize, [1200, 760]);
-    clickNode(await node('Files', value => value?.role === 'AXButton'));
+    clickNode(await node('Files', value => value?.enabled === true && Boolean(value.rect)));
     const pane = await node('File sidebar');
     assert.equal(pane.rect.width, 420);
     await go(project, project);

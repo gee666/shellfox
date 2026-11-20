@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, existsSync, openSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileHash, run } from './rust-package-common.mjs';
+import { fileHash, root, run } from './rust-package-common.mjs';
 import { eventually } from './macos-p4-dialog.mjs';
 
 const port = '42762';
@@ -77,8 +77,13 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
       owner.live();
       return existsSync(path.join(host, 'rust-service-v1/endpoint.json'));
     }, Boolean);
-    hostCLI('session', 'create', '--cwd', a, '--profile', 'login-shell', '--title', 'P4 peer A');
-    hostCLI('session', 'create', '--cwd', b, '--profile', 'login-shell', '--title', 'P4 peer B');
+    for (const [cwd, title] of [[a, 'P4 peer A'], [b, 'P4 peer B']]) {
+      hostCLI('session', 'create', '--cwd', cwd, '--profile', 'login-shell', '--title', title);
+      const session = hostCLI('session', 'list').find(item => item.title === title);
+      const [tab] = hostCLI('tab', 'list', session.id);
+      run('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...hostFlags, 'attach', tab.id],
+        { ...hostOptions, timeout: 60_000 });
+    }
     assert.equal(hostCLI('host', 'network', 'on', '--hostname', hostName).enabled, true);
     const connected = () => eventually('P4 green peer connection', () => status(viewer).peers.find(row => row.id === peer.id), row => row?.connection === 'connected');
     return {

@@ -133,7 +133,7 @@ jobs:
       - name: Require a logged-in Aqua session for P4
         run: |
           mkdir -p tmp/lane-apple/p4
-          xcrun swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.2" scripts/macos-p4-window.swift -o tmp/lane-apple/p4/window-probe
+          xcrun swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.2" scripts/macos-p4-window.swift scripts/macos-p4-display.swift -o tmp/lane-apple/p4/window-probe
           tmp/lane-apple/p4/window-probe preflight tmp/lane-apple/p4/preflight.png
         timeout-minutes: 5
       - uses: pnpm/action-setup@v4

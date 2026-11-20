@@ -5,7 +5,7 @@ import ScreenCaptureKit
 import UniformTypeIdentifiers
 import Vision
 
-private struct ProbeError: Error, CustomStringConvertible {
+struct ProbeError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
 }
@@ -62,8 +62,34 @@ private func ownedWindow(_ owner: pid_t) throws -> AXUIElement {
     return window
 }
 
-private func pressButton(_ owner: pid_t, _ name: String) throws {
+private func nativeDialogs(_ owner: pid_t) -> [AXUIElement] {
+    var visited = 0
+    var dialogs = [AXUIElement]()
     var queue = ownedWindows(owner)
+    while let element = queue.popLast(), visited < 1500 {
+        visited += 1
+        let role: String? = attribute(element, kAXRoleAttribute)
+        let subrole: String? = attribute(element, kAXSubroleAttribute)
+        if role == "AXSheet" || subrole == "AXDialog" || subrole == "AXSystemDialog" {
+            dialogs.append(element)
+        }
+        let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
+        queue.append(contentsOf: children.reversed())
+    }
+    return dialogs
+}
+
+private func dialogOwner(_ owner: pid_t) throws -> pid_t {
+    var modalPID: pid_t = 0
+    guard let dialog = nativeDialogs(owner).last,
+          AXUIElementGetPid(dialog, &modalPID) == .success, modalPID > 1 else {
+        throw ProbeError("No native modal attached to the owned application")
+    }
+    return modalPID
+}
+
+private func pressButton(_ owner: pid_t, _ name: String) throws {
+    var queue = nativeDialogs(owner)
     var visited = 0
     while let element = queue.popLast(), visited < 1500 {
         visited += 1
@@ -194,31 +220,6 @@ private func capture(_ owner: pid_t, _ target: String, _ area: CGRect) async thr
 }
 
 @MainActor
-private func makeRoomForFixtures() async throws {
-    func fits() -> Bool {
-        guard let visible = NSScreen.main?.visibleFrame else { return false }
-        // Room for a 1200×760 content area, its title bar and the window margin.
-        return visible.width >= 1240 && visible.height >= 820
-    }
-    if fits() { return }
-    let display = CGMainDisplayID()
-    let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
-    let modes = (CGDisplayCopyAllDisplayModes(display, options) as? [CGDisplayMode]) ?? []
-    let candidates = modes.filter { $0.width >= 1280 && $0.height >= 900 }
-        .sorted { $0.width * $0.height < $1.width * $1.height }
-    for mode in candidates.prefix(12) {
-        guard CGDisplaySetDisplayMode(display, mode, nil) == .success else { continue }
-        try await Task.sleep(for: .milliseconds(400))
-        if fits() {
-            print("P4 Aqua display: \(mode.width)×\(mode.height) points")
-            return
-        }
-    }
-    let available = Set(modes.map { "\($0.width)×\($0.height)" }).sorted().joined(separator: ", ")
-    throw ProbeError("The runner cannot fit the required 1200×760 P4 content viewport. Available display modes: \(available). Use an isolated graphical Mac with a larger display.")
-}
-
-@MainActor
 private func aquaProbe(_ app: NSApplication, _ output: String) async throws {
     guard ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" else {
         throw ProbeError("Display setup is only for the isolated CI runner")
@@ -262,6 +263,9 @@ private struct WindowProbe {
             if args.count == 3 && args[1] == "preflight" {
                 try await aquaProbe(application, args[2]); return
             }
+            if args.count == 2 && args[1] == "verify-display" {
+                try requireFixtureDisplay(); return
+            }
             guard args.count >= 3, let owner = pid_t(args[1]), owner > 1, let app = NSRunningApplication(processIdentifier: owner) else {
                 throw ProbeError("Expected an owned GUI PID and action")
             }
@@ -276,15 +280,17 @@ private struct WindowProbe {
                 guard app.activate(options: []) else { throw ProbeError("Could not activate the owned app") }
                 return
             case "key": try key(owner, values); return
+            case "dialog-key": try key(dialogOwner(owner), values); return
             case "press":
                 guard let name = values.first else { throw ProbeError("Missing native button name") }
                 try pressButton(owner, name); return
-            case "paste":
+            case "paste", "dialog-paste":
                 guard let text = values.first else { throw ProbeError("Missing clipboard fixture") }
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 guard pasteboard.setString(text, forType: .string) else { throw ProbeError("Could not set the fixture clipboard") }
-                try key(owner, ["9", "c"][...]); return
+                let target = args[2] == "dialog-paste" ? try dialogOwner(owner) : owner
+                try key(target, ["9", "c"][...]); return
             case "clipboard": result = ["value": NSPasteboard.general.string(forType: .string) ?? ""]
             case "click": try click(owner, values, window); return
             case "capture":

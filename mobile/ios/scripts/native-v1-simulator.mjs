@@ -104,8 +104,14 @@ try {
     return existsSync(endpoint);
   });
   assert.deepEqual(await local('session', 'list'), []);
-  console.log('Creating the fixture PTY and enabling the host listener');
+  console.log('Creating the fixture session and starting its PTY through a local tty');
   await local('session', 'create', '--cwd', project, '--profile', 'login-shell', '--title', 'iOS native CI');
+  const [session] = await local('session', 'list');
+  const [tab] = await local('tab', 'list', session.id);
+  // Session creation records metadata only. A local attach starts the shell,
+  // verifies echo, and detaches without leaving a controller behind.
+  command('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'attach', tab.id],
+    { timeout: 60_000, stdio: 'inherit' });
   assert.equal((await local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci')).enabled, true);
   await until('the host fixture on the private test tailnet', 30_000, async () => {
     live(host, 'Rust host');

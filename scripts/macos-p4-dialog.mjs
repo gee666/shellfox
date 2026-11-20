@@ -15,7 +15,7 @@ export async function eventually(label, read, predicate, ms = 20_000) {
 const label = row => row.title || row.description;
 
 export function nativePicker(action) {
-  const key = (code, modifiers = '-') => action('key', code, modifiers);
+  const key = (code, modifiers = '-') => action('dialog-key', code, modifiers);
   const read = () => action('windows');
   const cancelButton = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Cancel');
   const dialog = rows => cancelButton(rows) && rows.some(row =>
@@ -26,7 +26,7 @@ export function nativePicker(action) {
     key(5, 'cs'); // Finder's Go to Folder sheet.
     await eventually('native Go to Folder input', read, rows => Boolean(textEntry(rows)));
     key(0, 'c');
-    action('paste', target);
+    action('dialog-paste', target);
     const entered = rows => textEntry(rows)?.value?.replace(/\/$/, '') === target;
     await eventually('native picker received the fixture path', read, entered);
     key(36);
@@ -34,7 +34,7 @@ export function nativePicker(action) {
   };
   return {
     wait: () => eventually('owned native file dialog', read, dialog),
-    cancel: async () => { key(53); await dismissed(); },
+    cancel: async () => { action('press', 'Cancel'); await dismissed(); },
     choose: async target => { await go(target); key(36); await dismissed(); },
     async uploadFrom(directory, filename) {
       await go(directory);
@@ -54,9 +54,9 @@ export function nativePicker(action) {
       await eventually('native overwrite confirmation', read, confirmation);
       if (accept) action('press', 'Replace');
       else {
-        key(53);
+        action('press', 'Cancel');
         const remaining = await eventually('overwrite confirmation dismissed', read, rows => !confirmation(rows));
-        if (dialog(remaining)) key(53);
+        if (dialog(remaining)) action('press', 'Cancel');
       }
       await dismissed();
     },
