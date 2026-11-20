@@ -79,6 +79,38 @@ func dialogOwner(_ owner: pid_t) throws -> pid_t {
     return modalPID
 }
 
+private func findAX(_ roots: [AXUIElement], _ matches: (AXUIElement) -> Bool) -> AXUIElement? {
+    var queue = roots
+    var visited = 0
+    while let element = queue.popLast(), visited < 1500 {
+        visited += 1
+        if matches(element) { return element }
+        let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
+        queue.append(contentsOf: children.reversed())
+    }
+    return nil
+}
+
+func focusText(_ window: AXUIElement, _ name: String) throws {
+    guard let entry = findAX([window], { element in
+        let role: String? = attribute(element, kAXRoleAttribute)
+        let title: String? = attribute(element, kAXTitleAttribute)
+        return (role == kAXTextFieldRole || role == kAXTextAreaRole) && title == name
+    }), AXUIElementSetAttributeValue(entry, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success else {
+        throw ProbeError("Could not focus \(name) in the owned window")
+    }
+}
+
+func setDialogText(_ owner: pid_t, _ text: String) throws {
+    guard let entry = findAX(nativeDialogs(owner), { element in
+        let role: String? = attribute(element, kAXRoleAttribute)
+        let focused: Bool? = attribute(element, kAXFocusedAttribute)
+        return focused == true && (role == kAXTextFieldRole || role == kAXComboBoxRole)
+    }), AXUIElementSetAttributeValue(entry, kAXValueAttribute as CFString, text as CFString) == .success else {
+        throw ProbeError("Could not type into the owned native picker")
+    }
+}
+
 func pressControl(_ owner: pid_t, _ name: String, modal: Bool) throws {
     var queue = modal ? nativeDialogs(owner) : ownedWindows(owner)
     var visited = 0

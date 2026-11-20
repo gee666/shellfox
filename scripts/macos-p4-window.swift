@@ -124,13 +124,18 @@ private struct WindowProbe {
             guard args.count >= 3, let owner = pid_t(args[1]), owner > 1, let app = NSRunningApplication(processIdentifier: owner) else {
                 throw ProbeError("Expected an owned GUI PID and action")
             }
-            let window = try ownedWindow(owner)
             let values = args.dropFirst(3)
             let result: Any
             switch args[2] {
-            case "tree": result = tree(window)
+            case "tree": result = try tree(ownedWindow(owner))
             case "windows": result = ownedWindows(owner).flatMap(tree)
-            case "resize-content": try resizeContent(window, values); return
+            case "resize-content": try resizeContent(ownedWindow(owner), values); return
+            case "focus-text":
+                guard let name = values.first else { throw ProbeError("Missing text control name") }
+                try focusText(ownedWindow(owner), name); return
+            case "dialog-value":
+                guard let text = values.first else { throw ProbeError("Missing picker path") }
+                try setDialogText(owner, text); return
             case "activate":
                 guard app.activate(options: []) else { throw ProbeError("Could not activate the owned app") }
                 return
@@ -143,23 +148,16 @@ private struct WindowProbe {
             case "press", "press-control":
                 guard let name = values.first else { throw ProbeError("Missing native control name") }
                 try pressControl(owner, name, modal: args[2] == "press"); return
-            case "paste", "dialog-paste":
+            case "paste":
                 guard let text = values.first else { throw ProbeError("Missing clipboard fixture") }
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 guard pasteboard.setString(text, forType: .string) else { throw ProbeError("Could not set the fixture clipboard") }
-                if args[2] == "dialog-paste" {
-                    let modal = try dialogOwner(owner)
-                    try requireFrontmost([owner, modal])
-                    try key(modal, ["9", "c"][...], throughWindowServer: true)
-                } else {
-                    try key(owner, ["9", "c"][...])
-                }
-                return
+                try key(owner, ["9", "c"][...]); return
             case "clipboard": result = ["value": NSPasteboard.general.string(forType: .string) ?? ""]
-            case "click": try click(owner, values, window); return
+            case "click": try click(owner, values, ownedWindow(owner)); return
             case "capture":
-                guard let target = values.first, let bounds = rectangle(window) else {
+                guard let target = values.first, let bounds = rectangle(try ownedWindow(owner)) else {
                     throw ProbeError("Missing screenshot path or owned window bounds")
                 }
                 result = try await capture(owner, target, bounds)

@@ -20,17 +20,16 @@ export function nativePicker(action) {
   const cancelButton = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Cancel');
   const dialog = rows => cancelButton(rows) && rows.some(row =>
     row.subrole === 'AXDialog' || row.role === 'AXDialog' || row.role === 'AXSheet');
-  const dismissed = () => eventually('native picker dismissed', read, rows => !dialog(rows));
+  const dismissed = () => eventually('native picker dismissed', read, rows => rows.length > 0 && !dialog(rows));
   const textEntry = rows => rows.find(row => row.focused && ['AXTextField', 'AXComboBox'].includes(row.role));
   const go = async target => {
     key(5, 'cs'); // Cmd+Shift+G opens Go to Folder from any picker control.
     await eventually('native Go to Folder input', read, rows => Boolean(textEntry(rows)));
-    key(0, 'c');
-    action('dialog-paste', target);
     const entered = rows => textEntry(rows)?.value?.replace(/\/$/, '') === target;
+    action('dialog-value', target);
     await eventually('native picker received the fixture path', read, entered);
     key(36);
-    await eventually('native Go to Folder sheet closed', read, rows => !entered(rows));
+    await eventually('native Go to Folder sheet closed', read, rows => rows.length > 0 && !entered(rows));
   };
   return {
     wait: () => eventually('owned native file dialog', read, dialog),

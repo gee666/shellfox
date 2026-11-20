@@ -39,9 +39,13 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   const clickNode = ({ rect }) => click({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
   const shot = (name, want = () => true) => eventually(`Rust screenshot ${name}`, () => action('capture', path.join(dir, `${name}.png`)), want);
   const clickText = async (name, match = shot => observed(shot, name)) => click(match(await shot(`before-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`, match)));
-  const fillPath = async value => {
-    clickNode(await node('Folder path'));
+  const focusPath = async () => {
+    await node('Folder path');
+    action('focus-text', 'Folder path');
     await node('Folder path', field => field?.focused === true);
+  };
+  const fillPath = async value => {
+    await focusPath();
     key('a', 'c');
     action('paste', value);
     await node('Folder path', field => field?.value === value);
@@ -84,7 +88,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     const pane = await node('File sidebar');
     assert.equal(pane.rect.width, 420);
     await go(project, project);
-    clickNode(await node('Folder path'));
+    await focusPath();
     key('b', 'cs');
     await node('File sidebar', value => !value);
     await node('Files', value => value?.focused === true);
