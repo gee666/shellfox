@@ -130,9 +130,11 @@ private struct WindowProbe {
             case "tree": result = try tree(ownedWindow(owner))
             case "windows": result = ownedWindows(owner).flatMap(tree)
             case "resize-content": try resizeContent(ownedWindow(owner), values); return
-            case "focus-text":
+            case "focus-text", "fill-text":
                 guard let name = values.first else { throw ProbeError("Missing text control name") }
-                try focusText(ownedWindow(owner), name); return
+                let text = values.dropFirst().first
+                guard args[2] != "fill-text" || text != nil else { throw ProbeError("Missing text control value") }
+                try editTextControl(ownedWindow(owner), name, value: text); return
             case "dialog-value":
                 guard let text = values.first else { throw ProbeError("Missing picker path") }
                 try setDialogText(owner, text); return

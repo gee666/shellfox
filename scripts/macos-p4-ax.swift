@@ -91,13 +91,16 @@ private func findAX(_ roots: [AXUIElement], _ matches: (AXUIElement) -> Bool) ->
     return nil
 }
 
-func focusText(_ window: AXUIElement, _ name: String) throws {
+func editTextControl(_ window: AXUIElement, _ name: String, value: String?) throws {
     guard let entry = findAX([window], { element in
         let role: String? = attribute(element, kAXRoleAttribute)
         let title: String? = attribute(element, kAXTitleAttribute)
         return (role == kAXTextFieldRole || role == kAXTextAreaRole) && title == name
     }), AXUIElementSetAttributeValue(entry, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success else {
         throw ProbeError("Could not focus \(name) in the owned window")
+    }
+    if let value, AXUIElementSetAttributeValue(entry, kAXValueAttribute as CFString, value as CFString) != .success {
+        throw ProbeError("Could not set \(name) in the owned window")
     }
 }
 

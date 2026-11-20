@@ -39,19 +39,14 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   const clickNode = ({ rect }) => click({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
   const shot = (name, want = () => true) => eventually(`Rust screenshot ${name}`, () => action('capture', path.join(dir, `${name}.png`)), want);
   const clickText = async (name, match = shot => observed(shot, name)) => click(match(await shot(`before-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`, match)));
-  const focusPath = async () => {
+  const focusPath = async value => {
     await node('Folder path');
-    action('focus-text', 'Folder path');
-    await node('Folder path', field => field?.focused === true);
-  };
-  const fillPath = async value => {
-    await focusPath();
-    key('a', 'c');
-    action('paste', value);
-    await node('Folder path', field => field?.value === value);
+    if (value === undefined) action('focus-text', 'Folder path');
+    else action('fill-text', 'Folder path', value);
+    await node('Folder path', field => field?.focused && (value === undefined || field.value === value));
   };
   const go = async (value, folder) => {
-    await fillPath(value);
+    await focusPath(value);
     key('escape');
     key('enter');
     if (folder) await node('Folder path', field => field?.value === folder);
@@ -109,7 +104,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     key('e', 'cs');
     await node('Folder path');
 
-    await fillPath(path.join(project, 'uni'));
+    await focusPath(path.join(project, 'uni'));
     await shot('03-suggestion', shot => observed(shot, 'unique-folder'));
     key('down');
     key('enter');
