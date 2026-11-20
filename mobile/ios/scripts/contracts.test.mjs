@@ -96,6 +96,12 @@ test('Fabric uses generated descriptors, props and coarse event types only', () 
   assert.match(native, /concreteComponentDescriptorProvider<ShellfoxRustTerminalComponentDescriptor>/);
   assert.match(native, /static_pointer_cast<const ShellfoxRustTerminalEventEmitter>/);
 });
+test('the Fabric accessibility node reads the displayed terminal frame', () => {
+  const wrapper = read('mobile/ios/ShellfoxRust/ShellfoxRustTerminalComponentView.mm');
+  const terminal = read('mobile/ios/ShellfoxRust/SFTerminalView.mm');
+  assert.match(wrapper, /accessibilityValue\s*\{\s*return _terminal\.accessibilityValue;/);
+  assert.match(terminal, /accessibilityValue\s*\{[^}]*\[_painter text:\*_frame range:/);
+});
 test('all iOS slices and Pods retain the installed RN minimum', () => {
   assert.equal(minimumIOS(), '15.1');
   assert.deepEqual(slices.map(s => s.target), ['aarch64-apple-ios', 'aarch64-apple-ios-sim', 'x86_64-apple-ios']);

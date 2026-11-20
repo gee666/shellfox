@@ -77,6 +77,9 @@ using namespace facebook::react;
   return self;
 }
 - (NSObject *)accessibilityElement { return _terminal; }
+// Fabric exposes this wrapper as the accessibility node. Its default getter
+// reads React props, not the terminal's current frame.
+- (NSString *)accessibilityValue { return _terminal.accessibilityValue; }
 - (void)updateProps:(const Props::Shared &)props oldProps:(const Props::Shared &)oldProps {
   const auto &next = *std::static_pointer_cast<const ShellfoxRustTerminalProps>(props);
   _terminal.readOnly = next.readOnly;
