@@ -61,7 +61,9 @@ func nativeDialogs(_ owner: pid_t) -> [AXUIElement] {
         visited += 1
         let role: String? = attribute(element, kAXRoleAttribute)
         let subrole: String? = attribute(element, kAXSubroleAttribute)
-        if role == "AXSheet" || subrole == "AXDialog" || subrole == "AXSystemDialog" {
+        let title: String = attribute(element, kAXTitleAttribute) ?? ""
+        let standalonePicker = role == kAXWindowRole && ["Open", "Save", "Save As"].contains(title)
+        if role == "AXSheet" || subrole == "AXDialog" || subrole == "AXSystemDialog" || standalonePicker {
             dialogs.append(element)
         }
         let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []

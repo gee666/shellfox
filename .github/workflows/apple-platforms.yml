@@ -177,6 +177,7 @@ jobs:
         timeout-minutes: 45
       - name: Compare local Files, native preview and peer transfers in both apps
         run: |
+          node --test scripts/macos-p4-dialog.test.mjs
           p4="$PWD/tmp/lane-apple/p4"
           node scripts/macos-p4-files.mjs \
             --rust "$CARGO_TARGET_DIR/debug/shellfox" \

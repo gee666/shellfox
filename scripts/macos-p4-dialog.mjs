@@ -19,7 +19,8 @@ export function nativePicker(action) {
   const read = () => action('windows');
   const cancelButton = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Cancel');
   const dialog = rows => cancelButton(rows) && rows.some(row =>
-    row.subrole === 'AXDialog' || row.role === 'AXDialog' || row.role === 'AXSheet');
+    row.subrole === 'AXDialog' || row.role === 'AXDialog' || row.role === 'AXSheet' ||
+    (row.role === 'AXWindow' && ['Open', 'Save', 'Save As'].includes(row.title)));
   const dismissed = () => eventually('native picker dismissed', read, rows => rows.length > 0 && !dialog(rows));
   const textEntry = rows => rows.find(row => row.focused && ['AXTextField', 'AXComboBox'].includes(row.role));
   const go = async target => {
@@ -27,7 +28,8 @@ export function nativePicker(action) {
     await eventually('native Go to Folder input', read, rows => Boolean(textEntry(rows)));
     const entered = rows => textEntry(rows)?.value?.replace(/\/$/, '') === target;
     action('dialog-value', target);
-    await eventually('native picker received the fixture path', read, entered);
+    await eventually('native picker resolved the fixture path', read, rows => entered(rows) &&
+      rows.some(row => label(row) === 'Go to:' || row.value === 'Go to:'));
     key(36);
     await eventually('native Go to Folder sheet closed', read, rows => rows.length > 0 && !entered(rows));
   };
