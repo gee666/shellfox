@@ -9,6 +9,7 @@ use std::os::unix::{
 };
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const READY_SOCKET: &str = "TEST_MACOS_DOUBLE_FORK_SOCKET";
@@ -17,13 +18,15 @@ const NEW_GROUP: &str = "TEST_MACOS_NEW_GROUP";
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
         fs::create_dir_all(&base).unwrap();
-        let dir = base.join(format!("macpty-{:x}", stamp));
+        let dir = base.join(format!("macpty-{:x}-{stamp:x}-{sequence:x}", std::process::id()));
         fs::create_dir(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         Self(dir.canonicalize().unwrap())

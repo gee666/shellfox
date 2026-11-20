@@ -14,7 +14,9 @@ const read = file => readFile(file).catch(error => {
   throw error;
 });
 
-export async function exerciseTransfers({ parent, home, remote, picker, openUpload, openDownload, selectRemote, cancelUpload, idle, shot }) {
+export async function exerciseTransfers({ parent, home, remote, picker, openUpload, openDownload, selectRemote, cancelUpload, idle, shot,
+  chooseCancelProbe = async () => { await picker.wait(); await picker.choose(cancelName); },
+}) {
   const upload = path.join(parent, 'upload');
   const download = path.join(home, 'Downloads');
   await Promise.all([upload, download].map(dir => mkdir(dir, { recursive: true, mode: 0o700 })));
@@ -62,8 +64,7 @@ export async function exerciseTransfers({ parent, home, remote, picker, openUplo
   const large = await open(path.join(upload, cancelName), 'wx');
   try { await large.truncate(48 * 1024 * 1024); } finally { await large.close(); }
   await openUpload();
-  await picker.wait();
-  await picker.choose(cancelName);
+  await chooseCancelProbe();
   const partials = () => readdir(remote).then(names => names.filter(name => stage.test(name)));
   await eventually('an active host upload stage contains bytes', async () => {
     const stages = await partials();

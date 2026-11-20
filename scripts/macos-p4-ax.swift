@@ -267,5 +267,6 @@ func click(_ owner: pid_t, _ args: ArraySlice<String>, _ window: AXUIElement, mo
         }
         if type != .mouseMoved { event.setIntegerValueField(.mouseEventClickState, value: 1) }
         event.post(tap: .cghidEventTap)
+        if type != .leftMouseUp { Thread.sleep(forTimeInterval: 0.04) }
     }
 }

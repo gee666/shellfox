@@ -231,6 +231,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
         await shot('20-peer-binary', capture => observed(capture, 'Binary file'));
       },
       cancelUpload: () => press('Cancel transfer'),
+      chooseCancelProbe: () => node('Cancel transfer', value => value?.enabled === true),
       idle: () => node('Upload file', value => value?.enabled === true),
     });
     await go(path.join(peer.a, 'scope.txt'), peer.a);
