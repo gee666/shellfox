@@ -86,7 +86,7 @@ async function record(section, app, scenario) {
 }
 try {
   // A shortcut or picker failure must not hide a separate preview or transfer defect.
-  for (const section of ['workspace', 'preview', 'transfers']) {
+  for (const section of ['shortcuts', 'workspace', 'preview', 'transfers']) {
     await mkdir(path.join(dir, section), { mode: 0o700 });
     const scale = await record(section, 'rust', async () => runRust({ ...await setup(section, 'rust'), binary: rust, cli, helper, testcontrol }));
     await record(section, 'electron', async () => runElectron({ ...await setup(section, 'electron'),

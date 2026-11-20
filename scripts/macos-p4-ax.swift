@@ -114,8 +114,9 @@ func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
             let text: String? = attribute(element, key)
             return text == name
         }
-    }), let row = rectangle(entry), !row.isEmpty, let dialog = dialogs.last else {
-        throw ProbeError("No visible \(name) in the owned native picker")
+    }), let row = rectangle(entry), !row.isEmpty, let dialog = dialogs.last,
+    let bounds = rectangle(dialog) else {
+        throw ProbeError("No \(name) in the owned native picker")
     }
     // In list/column view the label can be nested under a selectable row.
     var item: AXUIElement? = entry
@@ -127,8 +128,26 @@ func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
         }
         item = attribute(element, kAXParentAttribute)
     }
+    var target = row
+    if !bounds.contains(CGPoint(x: target.midX, y: target.midY)) {
+        // AppKit column view exposes offscreen file labels. Scroll the native
+        // file browser to its current directory, not the application's view.
+        _ = AXUIElementPerformAction(entry, "AXScrollToVisible" as CFString)
+        if let bar = findAX([dialog], { element in
+            let role: String? = attribute(element, kAXRoleAttribute)
+            guard role == kAXScrollBarRole, let rect = rectangle(element) else { return false }
+            return rect.width > rect.height && bounds.intersects(rect)
+        }) {
+            _ = AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, NSNumber(value: 1.0))
+        }
+        for _ in 0..<12 {
+            if let frame = rectangle(entry) { target = frame }
+            if bounds.contains(CGPoint(x: target.midX, y: target.midY)) { break }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
     let pid = try dialogOwner(owner)
-    try click(owner, [String(Double(row.midX)), String(Double(row.midY))][...], dialog, modal: pid)
+    try click(owner, [String(Double(target.midX)), String(Double(target.midY))][...], dialog, modal: pid)
 }
 
 func pressControl(_ owner: pid_t, _ name: String, modal: Bool) throws {
@@ -181,15 +200,31 @@ func key(_ owner: pid_t, _ args: ArraySlice<String>, throughWindowServer: Bool =
         throw ProbeError("Expected the virtual key code and modifiers")
     }
     let source = CGEventSource(stateID: .hidSystemState)
-    for down in [true, false] {
-        guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else {
+    var chord: [(UInt16, CGEventFlags)] = []
+    if modifiers.contains("c") { chord.append((55, .maskCommand)) }
+    if modifiers.contains("s") { chord.append((56, .maskShift)) }
+    var flags: CGEventFlags = []
+    func post(_ virtualKey: UInt16, down: Bool, modifier: Bool = false) throws {
+        guard let event = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: down) else {
             throw ProbeError("Could not create keyboard event")
         }
-        if modifiers.contains("c") { event.flags.insert(.maskCommand) }
-        if modifiers.contains("s") { event.flags.insert(.maskShift) }
+        if modifier { event.type = .flagsChanged }
+        event.flags = flags
         if throughWindowServer { event.post(tap: .cghidEventTap) }
         else { event.postToPid(owner) }
     }
+    defer {
+        for (modifier, mask) in chord.reversed() {
+            flags.remove(mask)
+            try? post(modifier, down: false, modifier: true)
+        }
+    }
+    for (modifier, mask) in chord {
+        flags.insert(mask)
+        try post(modifier, down: true, modifier: true)
+    }
+    try post(code, down: true)
+    try post(code, down: false)
 }
 
 @MainActor

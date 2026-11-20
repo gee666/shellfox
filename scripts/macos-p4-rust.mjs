@@ -86,13 +86,22 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     const pane = await node('File sidebar');
     assert.equal(pane.rect.width, 420);
     await go(project, project);
-    if (section === 'workspace') {
+    if (section === 'shortcuts') {
       await focusPath();
       key('b', 'cs');
       await node('File sidebar', value => !value);
       await node('Files', value => value?.focused === true);
       key('b', 'cs');
       await node('Folder path', field => field?.value === project);
+      key('e', 'cs');
+      await node('Folder path', field => !field);
+      await node('File sidebar');
+      key('e', 'cs');
+      await node('Folder path', field => field?.value === project);
+      await shot('shortcuts');
+      return startup.scale;
+    }
+    if (section === 'workspace') {
       await shot('02-files', shot => observed(shot, 'notes.txt'));
       const dialog = await browse();
       await writeFile(path.join(dir, 'native-folder-picker.json'), JSON.stringify(dialog, null, 2));
@@ -103,11 +112,6 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await picker.choose('unique-folder');
       await node('Folder path', field => field?.value === unique);
       await go(project, project);
-      key('e', 'cs');
-      await node('Folder path', field => !field);
-      key('e', 'cs');
-      await node('Folder path');
-
       await focusPath(path.join(project, 'uni'));
       await shot('03-suggestion', shot => observed(shot, 'unique-folder'));
       key('down');

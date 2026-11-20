@@ -65,6 +65,22 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     const filesToolbar = page.getByRole('button', { name: 'Files', exact: true });
     await filesToolbar.click();
     await expect(sidebar).toBeVisible();
+    if (section === 'shortcuts') {
+      await go(project);
+      await field.focus();
+      await page.keyboard.press('Meta+Shift+b');
+      await expect(sidebar).toBeHidden();
+      await expect(filesToolbar).toBeFocused();
+      await page.keyboard.press('Meta+Shift+b');
+      await expect(field).toHaveValue(project);
+      await page.keyboard.press('Meta+Shift+e');
+      await expect(browser).toBeHidden();
+      await expect(sidebar).toBeVisible();
+      await page.keyboard.press('Meta+Shift+e');
+      await expect(field).toHaveValue(project);
+      shot('shortcuts');
+      return;
+    }
     if (section === 'workspace') {
       assert.equal((await sidebar.boundingBox()).width, 420);
       assert.equal((await sidebar.locator('.file-sidebar-header').boundingBox()).height, 32);
@@ -74,12 +90,6 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       const labels = await sidebar.locator('.file-sidebar-header button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')));
       assert.deepEqual(labels, ['Toggle file browser', 'Open in system explorer', 'Maximize file', 'Close file sidebar']);
       await go(project);
-      await field.focus();
-      await page.keyboard.press('Meta+Shift+b');
-      await expect(sidebar).toBeHidden();
-      await expect(filesToolbar).toBeFocused();
-      await page.keyboard.press('Meta+Shift+b');
-      await expect(field).toHaveValue(project);
       await button('Browse folders').click();
       const dialog = await picker.wait();
       await writeFile(path.join(dir, 'native-folder-picker.json'), JSON.stringify(dialog, null, 2));
@@ -94,10 +104,6 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await expect(field).toHaveValue(project);
       await expect(button('notes.txt')).toBeVisible();
       shot('02-files');
-      await page.keyboard.press('Meta+Shift+e');
-      await expect(browser).toBeHidden();
-      await page.keyboard.press('Meta+Shift+e');
-      await expect(browser).toBeVisible();
       await field.fill(norm('uni'));
       await expect(browser.getByRole('option')).toContainText('unique-folder');
       await field.press('ArrowDown');
