@@ -168,6 +168,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await go(html);
       await press('Save and continue');
       await eventually('save and continue committed draft bytes', () => readFile(notes, 'utf8'), data => data === `\uFEFF${guardDraft}`);
+      await node('Edit source');
       return startup.scale;
     }
 
@@ -271,18 +272,39 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await press('Close file sidebar');
     await press('Discard changes');
     await node('File sidebar', value => !value);
+    await press('Local sessions');
     return startup.scale;
   } catch (error) {
     failure = error;
     try { action('capture', path.join(dir, 'last-screen.png')); } catch { /* Best effort. */ }
     throw error;
   } finally {
-    await peer?.close();
-    if (child.exitCode === null && child.signalCode === null && child.pid) {
-      try { action('close-window'); } catch { child.kill('SIGTERM'); }
-      const stopped = await Promise.race([exited, delay(15_000, null, { ref: false })]);
-      if (!stopped) child.kill('SIGTERM');
-      if (!failure) assert.equal(stopped?.code, 0, 'Owned Rust desktop did not exit cleanly');
+    try {
+      if (child.pid && child.exitCode === null && child.signalCode === null) {
+        let closeError;
+        try { action('close-window'); } catch (error) { closeError = error; }
+        let confirmed = false;
+        const stopped = await eventually('owned Rust desktop exited', async () => {
+          const result = await Promise.race([exited, delay(200, null)]);
+          if (result || failure || confirmed) return result;
+          try {
+            if (named(tree(), 'Close shells and quit')?.enabled === true) {
+              action('press-control', 'Close shells and quit');
+              confirmed = true;
+            }
+          } catch (error) { closeError ??= error; }
+          return null;
+        }, Boolean, 30_000).catch(error => {
+          if (!failure) {
+            try { action('capture', path.join(dir, 'close-screen.png')); } catch { /* Best effort. */ }
+            throw closeError ?? error;
+          }
+        });
+        if (!failure) assert.equal(stopped?.code, 0, `Owned Rust desktop exit: ${JSON.stringify(stopped)}`);
+      }
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      await peer?.close();
     }
   }
 }
