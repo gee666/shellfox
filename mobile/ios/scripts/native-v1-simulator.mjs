@@ -5,6 +5,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { fileHash, root, run, scratchRoot } from '../../../scripts/rust-package-common.mjs';
+import { listenerStopped, requestListenerStop } from '../../../scripts/confirmed-network-outage.mjs';
 
 const execute = promisify(execFile);
 const port = '42761';
@@ -176,7 +177,11 @@ try {
   // Withdraw the real embedded host listener while the simulator is attached.
   // The local host and its PTY stay running throughout the outage.
   await delay(750);
-  assert.equal((await local('host', 'network', 'off')).enabled, false);
+  await requestListenerStop(local);
+  await until('the original listener helper to exit', 30_000, async () => {
+    live(tests, 'Native v1 UI test');
+    return listenerStopped(await local('host', 'network', 'status'));
+  }, 1_000);
   await delay(12_000);
   live(tests, 'Native v1 UI test');
   assert.equal((await local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci')).enabled, true);

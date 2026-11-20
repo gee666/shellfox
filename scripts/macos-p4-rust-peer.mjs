@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileHash, root, run } from './rust-package-common.mjs';
 import { eventually } from './macos-p4-dialog.mjs';
+import { listenerStopped, requestListenerStop } from './confirmed-network-outage.mjs';
 
 const port = '42762';
 const origin = `http://127.0.0.1:${port}`;
@@ -98,7 +99,8 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
         await connected();
       },
       async cycleListener(duringOutage) {
-        assert.equal(hostCLI('host', 'network', 'off').enabled, false);
+        await requestListenerStop(hostCLI);
+        await eventually('original P4 listener helper stopped', () => status(hostCLI), listenerStopped);
         try {
           await eventually('P4 viewer noticed the host listener outage', current, row => row?.connection === 'reconnecting');
           await duringOutage();

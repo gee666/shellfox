@@ -177,7 +177,7 @@ jobs:
         timeout-minutes: 45
       - name: Compare local Files, native preview and peer transfers in both apps
         run: |
-          node --test scripts/macos-p4-dialog.test.mjs
+          node --test scripts/macos-p4-dialog.test.mjs scripts/confirmed-network-outage.test.mjs
           p4="$PWD/tmp/lane-apple/p4"
           node scripts/macos-p4-files.mjs \
             --rust "$CARGO_TARGET_DIR/debug/shellfox" \
@@ -229,7 +229,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
           node scripts/mobile-terminal.mjs
-          node --test mobile/ios/scripts/contracts.test.mjs
+          node --test mobile/ios/scripts/contracts.test.mjs scripts/confirmed-network-outage.test.mjs
         timeout-minutes: 10
       - name: Identify the Xcode SDK
         id: sdk
