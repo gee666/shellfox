@@ -183,10 +183,12 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       const screenshot = await eventually('painted Electron HTML preview', () => shot('09-html-preview'),
         image => image.lines.some(line => line.text.includes(marker)) || (image.colors.style && image.colors.asset));
       const workspaceUrl = page.url();
+      const windowCount = app.windows().length;
       await preview.getByRole('link', { name: 'Containment probe' }).click();
       await expect(page.getByTitle('HTML preview', { exact: true })).toBeVisible();
       assert.equal(page.url(), workspaceUrl);
-      assert.equal(shot('10-html-after-probe').windowCount, screenshot.windowCount);
+      assert.equal(app.windows().length, windowCount);
+      shot('10-html-after-probe');
       await checkNetwork('Electron iframe');
       // Chromium can replace a CSP-denied child with a blank error document.
       // Keep this reference behavior separate from the WKWebView retention check.
@@ -234,8 +236,9 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     await expect(sidebar).toBeHidden();
     peer = await startElectronPeer({ binary, main, env: appEnv, parent: dir, client: page });
     const session = name => page.getByRole('button', { name: `Select session P4 peer ${name}`, exact: true });
+    const openTerminalFolder = () => page.getByRole('button', { name: 'Open terminal folder', exact: true }).click();
     await session('A').click();
-    await filesToolbar.click();
+    await openTerminalFolder();
     await expect.poll(() => field.inputValue()).toBe(peer.a);
     await exerciseTransfers({ parent: dir, home: env.HOME, remote: peer.a, picker, shot,
       openUpload: () => button('Upload file').click(),
@@ -253,11 +256,13 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     await expect(editor).toHaveValue('Draft on peer A\n');
     await editor.fill(draft);
     await session('B').click();
+    await openTerminalFolder();
     await expect(field).toHaveValue(peer.b);
     await button('scope.txt').click();
     await expect(editor).toHaveValue('Original on peer B\n');
     await page.locator('[data-machine-id="local"] .session-section-toggle').click();
     await session('A').click();
+    await openTerminalFolder();
     await expect(editor).toHaveValue(draft);
     await peer.cycleListener(() => shot('24-peer-listener-offline'));
     await expect(editor).toHaveValue(draft);
@@ -265,9 +270,12 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     assert.equal(await readFile(savedPeerFile, 'utf8'), 'Draft on peer A\n');
     shot('24-peer-draft-retained');
     await session('B').click();
+    await openTerminalFolder();
+    await expect(field).toHaveValue(peer.b);
     const external = 'Written by the isolated peer host while the draft was hidden\n';
     await writeFile(savedPeerFile, external);
     await session('A').click();
+    await openTerminalFolder();
     await expect(editor).toHaveValue(draft);
     await expect(sidebar.getByRole('alert')).toContainText('changed on disk');
     assert.equal(await readFile(savedPeerFile, 'utf8'), external);

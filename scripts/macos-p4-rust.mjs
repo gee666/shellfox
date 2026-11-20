@@ -11,7 +11,7 @@ import { exerciseTransfers } from './macos-p4-transfers.mjs';
 import { peerEnv, startRustPeer, viewerFlags } from './macos-p4-rust-peer.mjs';
 
 const keyboard = { a: 0, s: 1, z: 6, x: 7, c: 8, b: 11, e: 14,
-  enter: 36, escape: 53, right: 124, down: 125, up: 126 };
+  escape: 53, right: 124, up: 126 };
 const named = (tree, name) => tree.find(node => node.title === name || node.description === name ||
   (node.role === 'AXStaticText' && node.value === name));
 const observed = (shot, value) => shot.lines.find(row => row.text.toLowerCase().includes(value.toLowerCase()));
@@ -106,13 +106,12 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await shot('02-native-folder', shot => observed(shot, 'sentinel.txt'));
       await go(project, project);
       await focusPath(path.join(project, 'uni'));
-      await eventually('named directory suggestion', tree, rows => rows.some(row =>
-        [row.title, row.description, row.value].some(label => label?.replace(/\/$/, '') === unique)));
+      const suggestion = await eventually('named directory suggestion', tree, rows => rows.find(row =>
+        row.role === 'AXButton' && [row.title, row.description].some(label => label?.replace(/\/$/, '') === unique)));
       await shot('03-suggestion');
-      key('down');
-      key('enter');
+      await press(suggestion.title ?? suggestion.description);
       await node('Folder path', field => field?.value?.replace(/\/$/, '') === unique);
-      key('enter');
+      await press('Open path');
       await shot('03-completion', shot => observed(shot, 'sentinel.txt'));
       await go(project, project);
       await shot('04-before-folder-error', shot => observed(shot, 'gone'));
@@ -197,6 +196,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await editor(await readFile(html, 'utf8'));
       await shot('11-html-source', shot => !observed(shot, marker));
       await press('Preview file');
+      await shot('11-html-preview-restored', shot => observed(shot, marker));
       action('resize-content', 40, 40, 1100, 720);
       await shot('12-html-resized', shot => shot.contentSize[0] === 1100 && shot.contentSize[1] === 720 && observed(shot, marker));
       action('resize-content', 40, 40, 1200, 760);
@@ -204,7 +204,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await go(path.join(project, 'preview.md'), project);
       await shot('13-markdown', shot => observed(shot, 'P4 Markdown heading'));
       await go(path.join(project, 'remote.svg'), project);
-      await shot('14-svg', shot => observed(shot, 'remote.svg'));
+      await shot('14-svg', shot => shot.colors.svg);
       await checkNetwork('Rust standalone SVG');
       await go(path.join(project, 'oversize.txt'));
       await shot('15-oversize-text', shot => observed(shot, 'Retry file'));
@@ -220,10 +220,9 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await node('File sidebar', value => !value);
     peer = await startRustPeer({ cli, helper, testcontrol, env, parent: dir, viewerData: data });
     await peer.connect();
-    await clickText('P4 peer A');
-    await press('Files');
-    await node('File sidebar');
-    await go(peer.a, peer.a);
+    await press('Select session P4 peer A');
+    await press('Open terminal folder');
+    await node('Folder path', field => field?.value === peer.a);
     await exerciseTransfers({ parent: dir, home: env.HOME, remote: peer.a, picker, shot,
       openUpload: () => press('Upload file'),
       openDownload: () => press('Download selected file'),
@@ -240,22 +239,27 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     key('a', 'c');
     action('paste', draft);
     await editor(draft);
-    await clickText('P4 peer B');
-    await node('Folder path');
-    await go(path.join(peer.b, 'scope.txt'), peer.b);
+    await press('Select session P4 peer B');
+    await press('Open terminal folder');
+    await node('Folder path', field => field?.value === peer.b);
+    await press('scope.txt');
     await editor('Original on peer B\n');
-    await clickText('Local', capture => capture.lines.find(row => row.x < capture.frame.x + 220 && /^local\b/i.test(row.text)));
-    await clickText('P4 peer A');
+    await press('Local sessions');
+    await press('Select session P4 peer A');
+    await press('Open terminal folder');
     await editor(draft);
     await peer.cycleListener(() => shot('24-peer-listener-offline'));
     await editor(draft);
     const savedPeerFile = path.join(peer.a, 'scope.txt');
     assert.equal(await readFile(savedPeerFile, 'utf8'), 'Draft on peer A\n');
     await shot('24-peer-draft-retained');
-    await clickText('P4 peer B');
+    await press('Select session P4 peer B');
+    await press('Open terminal folder');
+    await node('Folder path', field => field?.value === peer.b);
     const external = 'Written by the isolated peer host while the draft was hidden\n';
     await writeFile(savedPeerFile, external);
-    await clickText('P4 peer A');
+    await press('Select session P4 peer A');
+    await press('Open terminal folder');
     await editor(draft);
     await shot('25-peer-draft-conflict', capture => capture.lines.some(line => /changed on disk|file conflict/i.test(line.text)));
     assert.equal(await readFile(savedPeerFile, 'utf8'), external);

@@ -106,6 +106,16 @@ impl Root {
             .into_iter()
             .find(|control| frame.id_for(control.key()).ok() == Some(action.target))
         else {
+            if !files.browser || files.busy { return false; }
+            let location = files.location.read(cx);
+            if location.is_composing() || !location.is_focused(window) { return false; }
+            if let Some(index) = files.completion.state.visible(&location.text).iter().position(|value| {
+                let key = crate::files::completion::completion_key(value);
+                frame.id_for(&key).ok() == Some(action.target)
+            }) {
+                self.choose_file_completion(index, window, cx);
+                return true;
+            }
             return false;
         };
         let can_transfer = !files.backend.is_local()

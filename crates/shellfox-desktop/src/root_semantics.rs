@@ -144,6 +144,22 @@ impl Root {
             }
         }
     }
+    pub(crate) fn workspace_button<E: IntoElement>(
+        &self,
+        key: &str,
+        name: impl Into<String>,
+        child: E,
+    ) -> AnyElement {
+        let frame = self.semantic_context.frame();
+        match frame.id_for(key) {
+            Ok(id) => {
+                let mut node = SemanticNode::new(id, Some(frame.root_id()), Role::Button, name);
+                node.data.add_action(crate::accessibility::Action::Click);
+                frame.wrap(node, child).into_any_element()
+            }
+            Err(error) => { frame.reject(error); child.into_any_element() }
+        }
+    }
     pub(crate) fn finish_semantic_root<E: IntoElement>(
         &self,
         child: E,
@@ -209,6 +225,7 @@ impl Root {
                 || self.handle_tab_control_semantic_action(&action, window, cx)
                 || self.handle_files_control(&action, window, cx)
                 || self.handle_files_row(&action, window, cx)
+                || self.handle_workspace_navigation(&action, window, cx)
             {
                 continue;
             }

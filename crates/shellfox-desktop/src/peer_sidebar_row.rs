@@ -1,10 +1,46 @@
 use super::*;
 use crate::root::peer::sidebar_layout::RowFocus;
-use crate::{assets::inline_ellipsis, root::peer::session_dialog::Editor, session_menu::Item};
+use crate::{accessibility::{SemanticAction, SemanticActionKind}, assets::inline_ellipsis,
+    root::peer::session_dialog::Editor, session_menu::Item};
 use gpui::{Bounds, KeyDownEvent, Pixels};
 use std::{cell::Cell, rc::Rc};
 
+fn workspace_session_key(peer: &shellfox_protocol::AuthenticatedPeerId, session: m::Id) -> String {
+    format!("workspace/peer/{}/session/{session}", peer.as_str())
+}
+
 impl Root {
+    pub(crate) fn handle_workspace_navigation(
+        &mut self, action: &SemanticAction, window: &mut Window, cx: &mut Context<Self>,
+    ) -> bool {
+        if !matches!(action.kind, SemanticActionKind::Click) || self.settings || self.dialog.is_some() || self.closing_window {
+            return false;
+        }
+        let frame = self.semantic_context.frame();
+        let matches = |key: &str| frame.id_for(key).ok() == Some(action.target);
+        if matches("workspace/peer/terminal-folder") && !self.is_local_source() {
+            self.open_peer_terminal_folder(cx);
+            return true;
+        }
+        if matches("workspace/local/sessions") && self.sidebar && self.snapshot.is_some() {
+            self.toggle_local_group(window, cx);
+            return true;
+        }
+        let target = self.peers.peers.iter().find_map(|(peer, state)| {
+            if !state.remembered || state.phase != source::Phase::Connected || self.peer_ui.collapsed.contains(peer) {
+                return None;
+            }
+            let session = source::sessions(state.snapshot.as_ref()?)
+                .find(|session| matches(&workspace_session_key(peer, session.id)))?;
+            Some((source::PeerCycle { peer: peer.clone(), generation: state.cycle }, session.id))
+        });
+        if let Some((cycle, id)) = target {
+            self.activate_peer_session(cycle, id, window, cx);
+            return true;
+        }
+        false
+    }
+
     pub(in crate::root::peer) fn peer_sidebar_row(
         &self,
         cycle: &source::PeerCycle,
@@ -160,7 +196,9 @@ impl Root {
             .children(id.to_string().parse().ok().map(|id| {
                 self.sidebar_ui.visibility.marker(crate::session_visibility::PollingTarget::Peer(cycle.peer.clone(), id))
             }))
-            .child(copy)
+            .child(if editing.is_some() { copy.into_any_element() } else {
+                self.workspace_button(&workspace_session_key(&cycle.peer, id), format!("Select session {}", session.title), copy)
+            })
             .child(
                 icon_button(
                     "peer-session-settle",

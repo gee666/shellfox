@@ -116,12 +116,12 @@ impl Root {
                 tabs.child(div().flex_1())
                     .child(self.render_files_toggle(true, palette, cx))
                     .when(visible_selected.is_some(), |tabs| {
-                        tabs.child(
+                        tabs.child(self.workspace_button("workspace/peer/terminal-folder", "Open terminal folder",
                             icon_button("peer-terminal-folder", "folder-terminal", palette)
                                 .tab_index(0)
                                 .tooltip(tooltip("Open terminal folder", palette))
                                 .on_click(cx.listener(|root, _, _, cx| root.open_peer_terminal_folder(cx))),
-                        )
+                        ))
                     })
             }));
         } else if files_available {

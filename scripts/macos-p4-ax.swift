@@ -23,15 +23,27 @@ func rectJSON(_ rect: CGRect) -> [String: CGFloat] {
 func tree(_ window: AXUIElement) -> [[String: Any]] {
     var queue = [window]
     var result = [[String: Any]]()
+    let strings = [("role", kAXRoleAttribute), ("subrole", kAXSubroleAttribute), ("title", kAXTitleAttribute),
+                   ("description", kAXDescriptionAttribute), ("help", kAXHelpAttribute), ("value", kAXValueAttribute)]
+    let fields = strings + [("focused", kAXFocusedAttribute), ("enabled", kAXEnabledAttribute)]
+    let names = fields.map { $0.1 } as CFArray
     while let element = queue.popLast(), result.count < 1500 {
         var row = [String: Any]()
-        for (key, name) in [("role", kAXRoleAttribute), ("subrole", kAXSubroleAttribute), ("title", kAXTitleAttribute),
-                            ("description", kAXDescriptionAttribute), ("help", kAXHelpAttribute), ("value", kAXValueAttribute)] {
-            if let value: String = attribute(element, name) { row[key] = value }
+        var batch: CFArray?
+        if AXUIElementCopyMultipleAttributeValues(element, names, [], &batch) == .success,
+           let values = batch as? [Any], values.count == fields.count {
+            for ((key, _), raw) in zip(fields, values) {
+                if key == "focused" || key == "enabled" { row[key] = raw as? Bool }
+                else { row[key] = raw as? String }
+            }
+        } else {
+            for (key, name) in strings {
+                if let value: String = attribute(element, name) { row[key] = value }
+            }
+            if let focused: Bool = attribute(element, kAXFocusedAttribute) { row["focused"] = focused }
+            if let enabled: Bool = attribute(element, kAXEnabledAttribute) { row["enabled"] = enabled }
         }
         if let rect = rectangle(element) { row["rect"] = rectJSON(rect) }
-        if let focused: Bool = attribute(element, kAXFocusedAttribute) { row["focused"] = focused }
-        if let enabled: Bool = attribute(element, kAXEnabledAttribute) { row["enabled"] = enabled }
         result.append(row)
         let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
         queue.append(contentsOf: children.reversed())
@@ -209,7 +221,7 @@ func key(_ owner: pid_t, _ args: ArraySlice<String>, throughWindowServer: Bool =
             throw ProbeError("Could not create keyboard event")
         }
         if modifier { event.type = .flagsChanged }
-        event.flags = flags
+        event.flags = event.flags.subtracting([.maskCommand, .maskShift, .maskControl, .maskAlternate, .maskAlphaShift]).union(flags)
         if throughWindowServer { event.post(tap: .cghidEventTap) }
         else { event.postToPid(owner) }
     }

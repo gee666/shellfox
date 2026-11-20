@@ -266,6 +266,8 @@ fn accept(files: &mut Files, value: String, cx: &mut Context<Root>) {
         .update(cx, |field, cx| field.set_text(value, cx));
 }
 
+pub(crate) fn completion_key(value: &str) -> String { format!("files/completion/{value}") }
+
 pub(crate) fn completion_list(
     root: &Root,
     matches: &[String],
@@ -326,10 +328,11 @@ pub(crate) fn completion_list(
                 .on_click(cx.listener(move |root, _, window, cx| {
                     root.choose_file_completion(index, window, cx)
                 }));
-            match (frame.id_for(&format!("files/completion/{index}")), frame.id_for("root/files")) {
+            match (frame.id_for(&completion_key(value)), frame.id_for("root/files")) {
                 (Ok(id), Ok(parent)) => {
-                    let mut node = SemanticNode::new(id, Some(parent), Role::ListBoxOption, value.clone());
+                    let mut node = SemanticNode::new(id, Some(parent), Role::Button, value.clone());
                     node.data.set_selected(index == active);
+                    node.data.add_action(crate::accessibility::Action::Click);
                     frame.wrap(node, row).into_any_element()
                 }
                 (Err(error), _) | (_, Err(error)) => {

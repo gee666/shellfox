@@ -89,9 +89,20 @@ final class NativeV1UITests: XCTestCase {
     let edit = app.buttons["files-mode"]
     // A Files request can wait behind the current long poll before it starts.
     XCTAssertTrue(edit.waitForExistence(timeout: 65), app.debugDescription)
+    let renderedFile = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "initial fixture text")).firstMatch
+    XCTAssertTrue(renderedFile.waitForExistence(timeout: 30), app.debugDescription)
     XCTAssertEqual(edit.label, "Edit source")
+    wait("the file mode button is interactive") { edit.isEnabled && edit.isHittable }
     edit.tap()
-    let source = app.textViews["file-source"].firstMatch
+    let source = app.descendants(matching: .any)["file-source"].firstMatch
+    if !source.waitForExistence(timeout: 5), edit.label == "Edit source" {
+      // The toolbar can relayout as the code preview finishes mounting.
+      // Use the same command through the visible file actions menu.
+      app.buttons["More file actions"].tap()
+      let menuEdit = app.descendants(matching: .any)["files-menu"].firstMatch.buttons["Edit source"]
+      XCTAssertTrue(menuEdit.waitForExistence(timeout: 10), app.debugDescription)
+      menuEdit.tap()
+    }
     XCTAssertTrue(source.waitForExistence(timeout: 20), app.debugDescription)
     XCTAssertTrue(value(source).contains("initial fixture text"))
     source.tap()

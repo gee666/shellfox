@@ -156,7 +156,7 @@ impl Root {
         if let Some(snapshot) = &self.snapshot {
             let count = snapshot.sessions.len();
             let shown = self.session_pages.saturating_mul(self.history_page_size);
-            list = list.child(
+            list = list.child(self.workspace_button("workspace/local/sessions", "Local sessions",
                 div()
                     .id("local-section")
                     .track_focus(&self.sidebar_ui.group)
@@ -190,7 +190,7 @@ impl Root {
                     .on_click(
                         cx.listener(|root, _, window, cx| root.toggle_local_group(window, cx)),
                     ),
-            );
+            ));
             if self.local_expanded {
                 list = self.render_sidebar_page(list, shown, palette, window, cx);
                 if shown < count {
@@ -311,7 +311,7 @@ impl Root {
         height
     }
 
-    fn toggle_local_group(&mut self, _window: &mut gpui::Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_local_group(&mut self, _window: &mut gpui::Window, cx: &mut Context<Self>) {
         if !self.is_local_source() {
             self.select_local_source(_window, cx);
         }

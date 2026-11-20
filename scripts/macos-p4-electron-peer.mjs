@@ -16,6 +16,14 @@ const value = result => {
 };
 
 export async function closeElectron(app) {
+  // The comparison may fail with a fixture draft left open. Suppress only
+  // teardown prompts, after all close/save assertions have finished.
+  for (const page of app.windows()) page.on('dialog', dialog => { void dialog.accept().catch(() => {}); });
+  await Promise.race([app.evaluate(({ BrowserWindow }) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.on('will-prevent-unload', event => event.preventDefault());
+    }
+  }).catch(() => {}), delay(3_000, undefined, { ref: false })]);
   const closed = app.close().then(() => true);
   try {
     assert.ok(await Promise.race([closed, delay(10_000, false, { ref: false })]), 'Owned Electron did not quit');

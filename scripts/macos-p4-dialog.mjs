@@ -4,12 +4,18 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 export async function eventually(label, read, predicate, ms = 20_000) {
   const deadline = Date.now() + ms;
-  let last;
+  let last, timeout;
   while (Date.now() < deadline) {
-    last = await read();
-    if (predicate(last)) return last;
+    try {
+      last = await read();
+      if (predicate(last)) return last;
+    } catch (error) {
+      if (!String(error).includes('ETIMEDOUT')) throw error;
+      timeout = error;
+    }
     await delay(300);
   }
+  if (last === undefined && timeout) throw timeout;
   assert.fail(`${label}: ${JSON.stringify(last)?.slice(0, 4000)}`);
 }
 

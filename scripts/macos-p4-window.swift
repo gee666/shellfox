@@ -11,7 +11,7 @@ struct ProbeError: Error, CustomStringConvertible {
 }
 
 private func colors(_ image: CGImage) throws -> [String: [String: CGFloat]] {
-    let targets = [("style", 20, 120, 40), ("asset", 65, 19, 211)]
+    let targets = [("style", 20, 120, 40), ("asset", 65, 19, 211), ("svg", 0, 128, 0)]
     let width = image.width, height = image.height
     var pixels = [UInt8](repeating: 0, count: width * height * 4)
     return try pixels.withUnsafeMutableBytes { buffer in
