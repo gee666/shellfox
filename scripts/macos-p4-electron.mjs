@@ -258,8 +258,9 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     await session('B').click();
     await openTerminalFolder();
     await expect(field).toHaveValue(peer.b);
-    await button('scope.txt').click();
-    await expect(editor).toHaveValue('Original on peer B\n');
+    // A directory change in this shared peer panel must not replace the draft.
+    await expect(editor).toHaveValue(draft);
+    assert.equal(await readFile(path.join(peer.b, 'scope.txt'), 'utf8'), 'Original on peer B\n');
     await page.locator('[data-machine-id="local"] .session-section-toggle').click();
     await session('A').click();
     await openTerminalFolder();
@@ -269,15 +270,14 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     const savedPeerFile = path.join(peer.a, 'scope.txt');
     assert.equal(await readFile(savedPeerFile, 'utf8'), 'Draft on peer A\n');
     shot('24-peer-draft-retained');
-    await session('B').click();
-    await openTerminalFolder();
-    await expect(field).toHaveValue(peer.b);
+    await page.locator('[data-machine-id="local"] .session-section-toggle').click();
     const external = 'Written by the isolated peer host while the draft was hidden\n';
     await writeFile(savedPeerFile, external);
     await session('A').click();
-    await openTerminalFolder();
     await expect(editor).toHaveValue(draft);
-    await expect(sidebar.getByRole('alert')).toContainText('changed on disk');
+    const save = button('Save file');
+    if (await save.isEnabled()) await save.click();
+    await expect(sidebar.getByRole('alert')).toContainText(/changed on disk|file conflict/i);
     assert.equal(await readFile(savedPeerFile, 'utf8'), external);
     shot('25-peer-draft-conflict');
     await button('Close file sidebar').click();
