@@ -259,9 +259,13 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await writeFile(savedPeerFile, external);
     await press('Select session P4 peer A');
     await editor(draft);
-    await focusEditor(draft);
-    key('s', 'c');
-    await shot('25-peer-draft-conflict', capture => capture.lines.some(line => /changed on disk|file conflict/i.test(line.text)));
+    const conflict = rows => rows.some(row => [row.title, row.description, row.value].some(label =>
+      typeof label === 'string' && /changed on disk|file conflict/i.test(label)));
+    const visible = await eventually('draft revision checked after returning to the source', tree,
+      rows => conflict(rows) || named(rows, 'Save file')?.enabled);
+    if (!conflict(visible)) await press('Save file');
+    await eventually('conflict refused the stale draft', tree, conflict);
+    await shot('25-peer-draft-conflict');
     assert.equal(await readFile(savedPeerFile, 'utf8'), external);
     await press('Close file sidebar');
     await clickText('Discard changes');

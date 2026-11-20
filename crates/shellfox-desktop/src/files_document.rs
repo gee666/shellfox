@@ -45,7 +45,8 @@ impl Root {
                     .items_center()
                     .gap(px(6.))
                     .text_color(palette.status_color(0xf87171))
-                    .child(div().child(error.clone()))
+                    .child(self.semantic_region("files/document-error", crate::accessibility::Role::Label,
+                        error.clone(), div().child(error.clone())))
                     .when(files.opened_path().is_none() && path.is_some(), |style| {
                         style.child(
                             text_button("retry-file", "Retry file", palette)
@@ -214,7 +215,7 @@ fn file_toolbar(
             ))
         })
         .when_some(files.editor.as_ref(), |bar, editor| {
-            bar.child(
+            bar.child(Control::Save.wrap(root, "Save file", dirty && !files.busy && !editor.reload_required, None,
                 control("save-file", "save", palette)
                     .tooltip(crate::assets::tooltip(
                         if saving {
@@ -228,7 +229,7 @@ fn file_toolbar(
                         button.opacity(0.4)
                     })
                     .on_click(cx.listener(|root, _, _, cx| root.save_file(cx))),
-            )
+            ))
         })
         .child(
             control("reload-file", "reload", palette)

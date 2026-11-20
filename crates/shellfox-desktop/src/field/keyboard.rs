@@ -79,14 +79,10 @@ impl Field {
             }
             self.replace(None, "");
         } else if matches!(key, "left" | "right" | "home" | "end" | "up" | "down") {
-            let target = self.wrapped_navigation(key, command).unwrap_or_else(|| {
+            let (key, document) = navigation_action(key, command, cfg!(target_os = "macos"));
+            let target = self.wrapped_navigation(key, document).unwrap_or_else(|| {
                 navigation_target(
-                    &self.text,
-                    self.selection.clone(),
-                    self.cursor,
-                    key,
-                    mods.shift,
-                    command,
+                    &self.text, self.selection.clone(), self.cursor, key, mods.shift, document,
                 )
             });
             self.set_cursor(target, mods.shift);
@@ -129,6 +125,19 @@ fn next(text: &str, cursor: usize) -> usize {
         .next()
         .map_or(cursor, |ch| cursor + ch.len_utf8())
 }
+fn navigation_action(key: &str, command: bool, mac: bool) -> (&str, bool) {
+    if mac && command {
+        return match key {
+            "left" => ("home", false),
+            "right" => ("end", false),
+            "up" => ("home", true),
+            "down" => ("end", true),
+            _ => (key, command),
+        };
+    }
+    (key, command)
+}
+
 fn navigation_target(
     text: &str,
     selected: Range<usize>,
@@ -247,6 +256,16 @@ mod tests {
             gpui::Modifiers::default()
         ));
     }
+    #[test]
+    fn mac_command_arrows_select_line_edges_or_document_edges() {
+        assert_eq!(navigation_action("left", true, true), ("home", false));
+        assert_eq!(navigation_action("right", true, true), ("end", false));
+        assert_eq!(navigation_action("up", true, true), ("home", true));
+        assert_eq!(navigation_action("down", true, true), ("end", true));
+        assert_eq!(navigation_action("right", false, true), ("right", false));
+        assert_eq!(navigation_action("home", true, false), ("home", true));
+    }
+
     #[test]
     fn select_all_arrow_collapses_to_the_correct_edge() {
         assert_eq!(navigation_target("a😀b", 0..6, 6, "left", false, false), 0);

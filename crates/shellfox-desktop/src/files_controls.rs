@@ -14,6 +14,7 @@ pub(super) enum Control {
     Close,
     Maximize,
     CopyPath,
+    Save,
     Source,
     Preview,
     Upload,
@@ -22,13 +23,14 @@ pub(super) enum Control {
 }
 
 impl Control {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::Browse,
         Self::SubmitPath,
         Self::Browser,
         Self::Close,
         Self::Maximize,
         Self::CopyPath,
+        Self::Save,
         Self::Source,
         Self::Preview,
         Self::Upload,
@@ -44,6 +46,7 @@ impl Control {
             Self::Close => "files/close",
             Self::Maximize => "files/maximize",
             Self::CopyPath => "files/copy-path",
+            Self::Save => "files/save",
             Self::Source => "files/text-source",
             Self::Preview => "files/text-preview",
             Self::Upload => "files/upload",
@@ -137,6 +140,7 @@ impl Root {
                 self.toggle_file_maximized(window, cx)
             }
             Control::CopyPath if files.opened_path().is_some() => self.copy_open_file_path(cx),
+            Control::Save if !files.busy && files.editor.as_ref().is_some_and(|editor| editor.dirty(cx) && !editor.reload_required) => self.save_file(cx),
             Control::Source | Control::Preview
                 if files
                     .editor

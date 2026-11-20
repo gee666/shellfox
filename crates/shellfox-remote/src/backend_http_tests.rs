@@ -22,7 +22,11 @@ async fn send(address: std::net::SocketAddr, name: &str, extra_headers: &str) ->
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
     let headers = format!("POST {} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\nx-shellfox-peer: {}\r\nx-shellfox-timestamp: {}\r\nx-shellfox-signature: {}\r\n{}\r\n",request.path,request.body.len(),request.peer,request.timestamp,request.signature,extra_headers);
     stream.write_all(headers.as_bytes()).await.unwrap();
-    stream.write_all(&request.body).await.unwrap();
+    if extra_headers.is_empty() {
+        stream.write_all(&request.body).await.unwrap();
+    }
+    // The malformed-header cases are rejected before the body. Sending one
+    // anyway lets Darwin reset the socket when the server closes unread data.
     let mut bytes = vec![];
     stream.read_to_end(&mut bytes).await.unwrap();
     let body = bytes
