@@ -10,7 +10,7 @@ export async function eventually(label, read, predicate, ms = 20_000) {
       last = await read();
       if (predicate(last)) return last;
     } catch (error) {
-      if (!String(error).includes('ETIMEDOUT')) throw error;
+      if (!/ETIMEDOUT|No accessible window from the owned fixture/.test(String(error))) throw error;
       timeout = error;
     }
     await delay(300);

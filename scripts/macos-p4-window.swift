@@ -155,13 +155,14 @@ private struct WindowProbe {
             case "press", "press-control":
                 guard let name = values.first else { throw ProbeError("Missing native control name") }
                 try pressControl(owner, name, modal: args[2] == "press"); return
-            case "paste":
+            case "copy", "paste":
                 guard let text = values.first else { throw ProbeError("Missing clipboard fixture") }
                 try requireFrontmost([owner])
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 guard pasteboard.setString(text, forType: .string) else { throw ProbeError("Could not set the fixture clipboard") }
-                try key(owner, ["9", "c"][...], throughWindowServer: true); return
+                if args[2] == "paste" { try key(owner, ["9", "c"][...], throughWindowServer: true) }
+                return
             case "clipboard": result = ["value": NSPasteboard.general.string(forType: .string) ?? ""]
             case "click": try click(owner, values, ownedWindow(owner)); return
             case "capture":

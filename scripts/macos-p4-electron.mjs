@@ -138,7 +138,8 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await expect.poll(() => action('clipboard').value.replace(/^\uFEFF/, '')).toBe(original);
       await editor.press('Meta+x');
       await expect(editor).toHaveValue('');
-      action('paste', updated);
+      action('copy', updated);
+      await editor.press('Meta+v');
       await expect(editor).toHaveValue(updated);
       await editor.press('Meta+z');
       await expect(editor).toHaveValue('');

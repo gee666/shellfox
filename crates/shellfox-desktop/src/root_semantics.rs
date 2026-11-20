@@ -223,6 +223,7 @@ impl Root {
                 || self.handle_sidebar_settings_action(&action, window, cx)
                 || self.handle_tab_semantic_action(&action, window, cx)
                 || self.handle_tab_control_semantic_action(&action, window, cx)
+                || self.handle_file_confirmation_control(&action, cx)
                 || self.handle_files_control(&action, window, cx)
                 || self.handle_files_row(&action, window, cx)
                 || self.handle_workspace_navigation(&action, window, cx)

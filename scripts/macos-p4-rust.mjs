@@ -53,7 +53,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await node('Folder path');
     if (value === undefined) action('focus-text', 'Folder path');
     else action('fill-text', 'Folder path', value);
-    await node('Folder path', field => field?.focused && (value === undefined || field.value === value));
+    await node('Folder path', field => value === undefined ? field?.focused === true : field?.value === value);
   };
   const go = async (value, folder) => {
     await focusPath(value);
@@ -161,11 +161,11 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await editor(guardDraft);
       await go(html);
       await shot('08-open-with-draft', shot => observed(shot, 'Save changes to notes.txt'));
-      key('escape');
+      await press('Cancel');
       await editor(guardDraft);
       assert.equal(await readFile(notes, 'utf8'), `\uFEFF${updated}`);
       await go(html);
-      await clickText('Save and continue');
+      await press('Save and continue');
       await eventually('save and continue committed draft bytes', () => readFile(notes, 'utf8'), data => data === `\uFEFF${guardDraft}`);
       return startup.scale;
     }
@@ -268,7 +268,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await shot('25-peer-draft-conflict');
     assert.equal(await readFile(savedPeerFile, 'utf8'), external);
     await press('Close file sidebar');
-    await clickText('Discard changes');
+    await press('Discard changes');
     await node('File sidebar', value => !value);
     return startup.scale;
   } catch (error) {

@@ -1,5 +1,10 @@
 use super::text_button;
-use crate::{files::pending::basename, root::Root, theme::Palette};
+use crate::{
+    accessibility::{SemanticAction, SemanticActionKind},
+    files::pending::basename,
+    root::Root,
+    theme::Palette,
+};
 use gpui::{
     AnyElement, AnyWindowHandle, Context, FocusHandle, KeyDownEvent, Window, div, prelude::*, px,
 };
@@ -59,7 +64,67 @@ impl ConfirmationFocus {
     }
 }
 
+fn image_dirty(files: &crate::files::Files) -> bool {
+    files
+        .image_editor
+        .as_ref()
+        .is_some_and(crate::files::image_editor::ImageEditor::dirty)
+}
+
+fn can_save(files: &crate::files::Files) -> bool {
+    !image_dirty(files)
+        && files
+            .editor
+            .as_ref()
+            .is_some_and(|editor| !editor.reload_required)
+}
+
 impl Root {
+    pub(crate) fn handle_file_confirmation_control(
+        &mut self,
+        action: &SemanticAction,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !matches!(action.kind, SemanticActionKind::Click)
+            || self.settings
+            || self.dialog.is_some()
+        {
+            return false;
+        }
+        let Some(files) = self.files.as_ref().filter(|files| {
+            files.visible && files.pending_file_action.is_some() && files.operation.is_none()
+        }) else {
+            return false;
+        };
+        let can_save = can_save(files);
+        let frame = self.semantic_context.frame();
+        let matches = |key| frame.id_for(key).ok() == Some(action.target);
+        if matches("files/confirm/cancel") {
+            self.dismiss_file_action(cx);
+        } else if matches("files/confirm/discard") {
+            self.discard_and_continue_file_action(cx);
+        } else if can_save && matches("files/confirm/save") {
+            self.save_and_continue_file_action(cx);
+        } else {
+            return false;
+        }
+        true
+    }
+
+    fn confirmation_button(
+        &self,
+        key: &str,
+        label: &'static str,
+        busy: bool,
+        button: impl IntoElement,
+    ) -> AnyElement {
+        if busy {
+            button.into_any_element()
+        } else {
+            self.workspace_button(key, label, button)
+        }
+    }
+
     pub(super) fn file_confirmation(
         &self,
         palette: Palette,
@@ -82,15 +147,7 @@ impl Root {
             *files.confirm_focus.previous.borrow_mut() = window.focused(cx);
         }
         let name = files.opened_path().map_or("this file", basename);
-        let image_dirty = files
-            .image_editor
-            .as_ref()
-            .is_some_and(crate::files::image_editor::ImageEditor::dirty);
-        let can_save = !image_dirty
-            && files
-                .editor
-                .as_ref()
-                .is_some_and(|editor| !editor.reload_required);
+        let can_save = can_save(files);
         let count = if can_save { 3 } else { 2 };
         if !buttons[..count]
             .iter()
@@ -99,7 +156,7 @@ impl Root {
             let cancel = buttons[0].clone();
             window.defer(cx, move |window, _| window.focus(&cancel));
         }
-        let prompt = if image_dirty {
+        let prompt = if image_dirty(files) {
             "Save the image using its controls before continuing, or discard its changes.".into()
         } else {
             format!("Save changes to {name}?")
@@ -168,29 +225,44 @@ impl Root {
                         .gap(px(4.))
                         .mt(px(12.))
                         .child(
-                            text_button("cancel-file-action", "Cancel", palette)
-                                .track_focus(&buttons[0])
-                                .when(busy, |button| button.opacity(0.4))
-                                .on_click(
-                                    cx.listener(|root, _, _, cx| root.dismiss_file_action(cx)),
-                                ),
+                            self.confirmation_button(
+                                "files/confirm/cancel",
+                                "Cancel",
+                                busy,
+                                text_button("cancel-file-action", "Cancel", palette)
+                                    .track_focus(&buttons[0])
+                                    .when(busy, |button| button.opacity(0.4))
+                                    .on_click(
+                                        cx.listener(|root, _, _, cx| root.dismiss_file_action(cx)),
+                                    ),
+                            ),
                         )
                         .child(
-                            text_button("discard-file-action", "Discard changes", palette)
-                                .track_focus(&buttons[1])
-                                .when(busy, |button| button.opacity(0.4))
-                                .on_click(cx.listener(|root, _, _, cx| {
-                                    root.discard_and_continue_file_action(cx)
-                                })),
+                            self.confirmation_button(
+                                "files/confirm/discard",
+                                "Discard changes",
+                                busy,
+                                text_button("discard-file-action", "Discard changes", palette)
+                                    .track_focus(&buttons[1])
+                                    .when(busy, |button| button.opacity(0.4))
+                                    .on_click(cx.listener(|root, _, _, cx| {
+                                        root.discard_and_continue_file_action(cx)
+                                    })),
+                            ),
                         )
                         .when(can_save, |row| {
                             row.child(
-                                text_button("save-file-action", "Save and continue", palette)
-                                    .track_focus(&buttons[2])
-                                    .when(busy, |button| button.opacity(0.4))
-                                    .on_click(cx.listener(|root, _, _, cx| {
-                                        root.save_and_continue_file_action(cx)
-                                    })),
+                                self.confirmation_button(
+                                    "files/confirm/save",
+                                    "Save and continue",
+                                    busy,
+                                    text_button("save-file-action", "Save and continue", palette)
+                                        .track_focus(&buttons[2])
+                                        .when(busy, |button| button.opacity(0.4))
+                                        .on_click(cx.listener(|root, _, _, cx| {
+                                            root.save_and_continue_file_action(cx)
+                                        })),
+                                ),
                             )
                         }),
                 )
