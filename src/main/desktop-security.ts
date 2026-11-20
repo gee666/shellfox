@@ -20,8 +20,8 @@ export function secureDesktopWindow(window: BrowserWindow): void {
   const { webContents } = window;
   webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   webContents.on('will-navigate', event => event.preventDefault());
-  // Cancel a preview's self-navigation before Chromium replaces the painted
-  // document with a blank page after blocking the destination in CSP.
+  // The renderer may load previews, but an existing preview cannot replace
+  // itself with a different document. Keep the frame-src CSP in place.
   webContents.on('will-frame-navigate', event => {
     if (!event.isMainFrame && !permitPreviewNavigation(event.url, event.initiator, webContents.mainFrame)) {
       event.preventDefault();

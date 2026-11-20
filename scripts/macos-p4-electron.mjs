@@ -180,10 +180,17 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await page.keyboard.press('Meta+Shift+e');
       const screenshot = shot('09-html-preview');
       assert.ok(screenshot.lines.some(line => line.text.includes(marker)), 'Capture must include the HTML preview');
+      const workspaceUrl = page.url();
       await preview.getByRole('link', { name: 'Containment probe' }).click();
-      await expect(preview.getByText(marker, { exact: true })).toBeVisible();
+      await expect(page.getByTitle('HTML preview', { exact: true })).toBeVisible();
+      assert.equal(page.url(), workspaceUrl);
       assert.equal(shot('10-html-after-probe').windowCount, screenshot.windowCount);
       await checkNetwork('Electron iframe');
+      // Chromium can replace a CSP-denied child with a blank error document.
+      // Keep this reference behavior separate from the WKWebView retention check.
+      await button('Source').click();
+      await button('Preview').click();
+      await expect(preview.getByText(marker, { exact: true })).toBeVisible();
       await button('Maximize file').click();
       await expect(sidebar).toHaveAttribute('data-maximized', 'true');
       await expect(preview.getByText(marker, { exact: true })).toBeVisible();

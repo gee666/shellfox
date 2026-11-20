@@ -2,14 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { nativePicker } from './macos-p4-dialog.mjs';
 
-const desktop = { role: 'AXWindow', title: 'Shellfox' };
 const openPanel = { role: 'AXWindow', subrole: 'AXStandardWindow', title: 'Open' };
 const cancel = { role: 'AXButton', title: 'Cancel' };
 
 test('recognizes and cancels the standalone AppKit panel', async () => {
   let visible = true;
   const picker = nativePicker((action, label) => {
-    if (action === 'windows') return visible ? [desktop, openPanel, cancel] : [desktop];
+    if (action === 'dialogs') return visible ? [openPanel, cancel] : [];
     assert.deepEqual([action, label], ['press', 'Cancel']);
     visible = false;
   });
@@ -25,9 +24,9 @@ test('selects an exact AppKit row in the preconfigured directory and waits for O
   let selected = false;
   let reads = 0;
   const picker = nativePicker((action, value) => {
-    if (action === 'windows') return visible ? [desktop, openPanel, cancel,
+    if (action === 'dialogs') return visible ? [openPanel, cancel,
       { role: 'AXStaticText', value: name }, { role: 'AXButton', title: 'Open', enabled: selected && ++reads > 1 },
-    ] : [desktop];
+    ] : [];
     if (action === 'select-entry') {
       assert.equal(value, name);
       selected = true;

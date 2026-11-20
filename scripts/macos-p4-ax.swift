@@ -53,10 +53,10 @@ func ownedWindow(_ owner: pid_t) throws -> AXUIElement {
     return window
 }
 
-func nativeDialogs(_ owner: pid_t) -> [AXUIElement] {
+func nativeDialogs(_ owner: pid_t, windows: [AXUIElement]? = nil) -> [AXUIElement] {
     var visited = 0
     var dialogs = [AXUIElement]()
-    var queue = ownedWindows(owner)
+    var queue = windows ?? ownedWindows(owner)
     while let element = queue.popLast(), visited < 1500 {
         visited += 1
         let role: String? = attribute(element, kAXRoleAttribute)
@@ -66,10 +66,18 @@ func nativeDialogs(_ owner: pid_t) -> [AXUIElement] {
         if role == "AXSheet" || subrole == "AXDialog" || subrole == "AXSystemDialog" || standalonePicker {
             dialogs.append(element)
         }
+        // File lists and web documents cannot contain AppKit modal windows.
+        if let role, ["AXOutline", "AXTable", "AXScrollArea", "AXWebArea"].contains(role) { continue }
         let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
         queue.append(contentsOf: children.reversed())
     }
     return dialogs
+}
+
+func dialogRows(_ owner: pid_t) throws -> [[String: Any]] {
+    let windows = ownedWindows(owner)
+    guard !windows.isEmpty else { throw ProbeError("No accessible window from the owned fixture") }
+    return nativeDialogs(owner, windows: windows).flatMap(tree)
 }
 
 func dialogOwner(_ owner: pid_t) throws -> pid_t {

@@ -15,12 +15,12 @@ export async function eventually(label, read, predicate, ms = 20_000) {
 const label = row => row.title || row.description;
 
 export function nativePicker(action) {
-  const read = () => action('windows');
+  const read = () => action('dialogs');
   const cancelButton = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Cancel');
   const dialog = rows => cancelButton(rows) && rows.some(row =>
     row.subrole === 'AXDialog' || row.role === 'AXDialog' || row.role === 'AXSheet' ||
     (row.role === 'AXWindow' && ['Open', 'Save', 'Save As'].includes(row.title)));
-  const dismissed = () => eventually('native picker dismissed', read, rows => rows.length > 0 && !dialog(rows));
+  const dismissed = () => eventually('native picker dismissed', read, rows => rows.length === 0);
   const choose = async name => {
     await eventually(`native picker lists ${name}`, read, rows => rows.some(row => label(row) === name || row.value === name));
     action('select-entry', name);

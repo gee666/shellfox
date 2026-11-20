@@ -128,7 +128,7 @@ private struct WindowProbe {
             let result: Any
             switch args[2] {
             case "tree": result = try tree(ownedWindow(owner))
-            case "windows": result = ownedWindows(owner).flatMap(tree)
+            case "dialogs": result = try dialogRows(owner)
             case "close-window":
                 let window = try ownedWindow(owner)
                 guard let button: AXUIElement = attribute(window, kAXCloseButtonAttribute),
