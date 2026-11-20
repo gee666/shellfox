@@ -141,7 +141,10 @@ private struct WindowProbe {
             case "activate":
                 guard app.activate(options: []) else { throw ProbeError("Could not activate the owned app") }
                 return
-            case "key": try key(owner, values); return
+            case "key":
+                try requireFrontmost([owner])
+                try key(owner, values, throughWindowServer: true)
+                return
             case "dialog-key":
                 let modal = try dialogOwner(owner)
                 try requireFrontmost([owner, modal])
@@ -152,10 +155,11 @@ private struct WindowProbe {
                 try pressControl(owner, name, modal: args[2] == "press"); return
             case "paste":
                 guard let text = values.first else { throw ProbeError("Missing clipboard fixture") }
+                try requireFrontmost([owner])
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 guard pasteboard.setString(text, forType: .string) else { throw ProbeError("Could not set the fixture clipboard") }
-                try key(owner, ["9", "c"][...]); return
+                try key(owner, ["9", "c"][...], throughWindowServer: true); return
             case "clipboard": result = ["value": NSPasteboard.general.string(forType: .string) ?? ""]
             case "click": try click(owner, values, ownedWindow(owner)); return
             case "capture":
