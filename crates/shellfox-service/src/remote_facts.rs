@@ -289,7 +289,15 @@ fn same_runtime(left: &[RuntimeFactIdentity], right: &[RuntimeFactIdentity]) -> 
             .zip(right)
             .all(|(a, b)| a.identity == b.identity && a.phase == b.phase)
 }
-pub(super) fn requires_facts(command: &OwnerCommand) -> bool {
+pub(super) fn requires_facts(
+    command: &OwnerCommand,
+    has_runtime: impl FnOnce(wire::TabId) -> bool,
+) -> bool {
+    if let OwnerCommand::Execute { command: wire::RemoteCommand::AttachTerminal(input), .. } = command {
+        // Only a cold attach needs to resolve a launch profile. A live attach
+        // validates and adopts the runtime on this same owner turn.
+        return !has_runtime(input.tab_id);
+    }
     if capabilities_only(command) && matches!(command, OwnerCommand::Execute { .. }) {
         return true;
     }

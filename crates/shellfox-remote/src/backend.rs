@@ -184,10 +184,11 @@ impl Backend {
             }
             return Ok(json!({"disconnected":true}));
         }
-        let mut actor = self
-            .approvals
-            .authorize_async(peer.clone(), client, now)
-            .await?;
+        let mut actor = if request.path == "/v1/pair" {
+            self.approvals.authorize_pair_async(peer.clone(), client, now).await?
+        } else {
+            self.approvals.authorize_async(peer.clone(), client, now).await?
+        };
         if let Some(command) = &command {
             crate::policy::authorize(actor.permission, command)?;
         }

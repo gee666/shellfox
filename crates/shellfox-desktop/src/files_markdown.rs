@@ -1,17 +1,20 @@
 use super::markdown_image::MarkdownImage;
 use crate::{files::DocumentBackend, root::Root, theme::Palette};
-use gpui::{
-    AnyElement, Context, Entity, FontStyle, FontWeight, HighlightStyle, InteractiveText,
-    StyledText, div, prelude::*, px,
-};
+use gpui::{AnyElement, ClickEvent, Context, Entity, FontWeight, StyledText, div, prelude::*, px};
 use pulldown_cmark::{Event, Options, Parser, Tag};
+#[path = "files_markdown_anchors.rs"]
+mod anchors;
 #[path = "files_markdown_blocks.rs"]
 mod blocks;
-use std::{collections::HashMap, ops::Range};
+#[path = "files_markdown_inline.rs"]
+mod inline;
+#[path = "files_markdown_selection.rs"]
+mod selection;
+use std::collections::HashMap;
 pub(super) type Images = HashMap<(String, String), Entity<MarkdownImage>>;
 
 #[derive(Default)]
-pub(super) struct Markdown(Vec<Node>);
+pub(super) struct Markdown(Vec<Node>, anchors::Anchors, selection::Selection);
 
 enum Node {
     Group(Tag<'static>, Vec<Node>),
@@ -25,7 +28,8 @@ impl Markdown {
         let options = Options::ENABLE_GFM
             | Options::ENABLE_STRIKETHROUGH
             | Options::ENABLE_TABLES
-            | Options::ENABLE_TASKLISTS;
+            | Options::ENABLE_TASKLISTS
+            | Options::ENABLE_HEADING_ATTRIBUTES;
         for event in Parser::new_ext(without_frontmatter(source), options) {
             let node = match event.into_static() {
                 Event::Start(tag) => {
@@ -45,7 +49,7 @@ impl Markdown {
                 .map_or(&mut root, |(_, children)| children)
                 .push(node);
         }
-        Self(root)
+        Self(root, Default::default(), Default::default())
     }
 
     pub fn render(
@@ -57,7 +61,12 @@ impl Markdown {
         window: &gpui::Window,
         cx: &mut Context<Root>,
     ) -> impl IntoElement {
+        self.1.clear();
+        let focus = self.2.start_frame(cx);
+        let selection = self.2.clone();
         let mut renderer = Renderer {
+            anchors: &self.1,
+            selection: &self.2,
             document_path,
             backend,
             images,
@@ -65,8 +74,36 @@ impl Markdown {
             window,
             cx,
             next_id: 0,
+            block_index: 0,
         };
         div()
+            .id("file-markdown-preview")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .track_scroll(&self.1.scroll)
+            .track_focus(&focus)
+            .on_key_down(move |event, window, cx| {
+                let modifiers = event.keystroke.modifiers;
+                let primary = if cfg!(target_os = "macos") {
+                    modifiers.platform
+                } else {
+                    modifiers.control
+                };
+                if !primary || modifiers.alt || modifiers.shift {
+                    return;
+                }
+                match event.keystroke.key.as_str() {
+                    "a" => {
+                        selection.select_all();
+                        cx.refresh_windows();
+                    }
+                    "c" if selection.copy(cx) => {}
+                    _ => return,
+                }
+                window.prevent_default();
+                cx.stop_propagation();
+            })
             .flex()
             .flex_col()
             .min_w_0()
@@ -74,11 +111,16 @@ impl Markdown {
             .py(px(12.))
             .text_size(px(12.))
             .line_height(px(18.6))
-            .children(self.0.iter().map(|node| renderer.block(node)))
+            .children(self.0.iter().enumerate().map(|(index, node)| {
+                renderer.block_index = index;
+                renderer.block(node)
+            }))
     }
 }
 
 struct Renderer<'a, 'b> {
+    anchors: &'a anchors::Anchors,
+    selection: &'a selection::Selection,
     document_path: &'a str,
     backend: &'a DocumentBackend,
     images: &'a mut Images,
@@ -86,6 +128,7 @@ struct Renderer<'a, 'b> {
     window: &'a gpui::Window,
     cx: &'a mut Context<'b, Root>,
     next_id: usize,
+    block_index: usize,
 }
 
 impl Renderer<'_, '_> {
@@ -95,32 +138,37 @@ impl Renderer<'_, '_> {
     }
 
     fn inline(&mut self, nodes: &[Node]) -> AnyElement {
-        if !nodes
-            .iter()
-            .any(|node| matches!(node, Node::Group(Tag::Image { .. }, _)))
-        {
-            return self.styled_inline(nodes);
+        self.inline_content(nodes, true)
+    }
+
+    fn inline_content(&mut self, nodes: &[Node], autolink: bool) -> AnyElement {
+        let mut parts = inline::parts(nodes, self.palette, autolink);
+        if parts.len() == 1 && matches!(parts[0], inline::Part::Text(_)) {
+            if let Some(inline::Part::Text(text)) = parts.pop() {
+                return self.styled_inline(text, true);
+            }
         }
-        let mut parts = Vec::new();
-        let mut start = 0;
-        for (index, node) in nodes.iter().enumerate() {
-            let Node::Group(Tag::Image { dest_url, .. }, children) = node else {
-                continue;
-            };
-            if start < index {
-                parts.push(self.styled_inline(&nodes[start..index]));
-            }
-            let mut alt = Inline::default();
-            for child in children {
-                alt.push(child, HighlightStyle::default(), self.palette);
-            }
-            let name = if alt.text.is_empty() {
-                dest_url.to_string()
-            } else {
-                alt.text
-            };
-            let key = (dest_url.to_string(), name);
-            let asset = self.images.entry(key.clone()).or_insert_with(|| {
+        let mut new_block = true;
+        div()
+            .flex()
+            .flex_wrap()
+            .min_w_0()
+            .items_baseline()
+            .children(parts.into_iter().map(|part| match part {
+                inline::Part::Text(text) => {
+                    self.styled_inline(text, std::mem::take(&mut new_block))
+                }
+                inline::Part::Image { source, alt, link } => self.inline_image(source, alt, link),
+            }))
+            .into_any_element()
+    }
+
+    fn inline_image(&mut self, source: String, alt: String, link: Option<String>) -> AnyElement {
+        let key = (source, alt);
+        let asset = self
+            .images
+            .entry(key.clone())
+            .or_insert_with(|| {
                 MarkdownImage::load(
                     self.backend.clone(),
                     self.document_path.to_owned(),
@@ -128,139 +176,103 @@ impl Renderer<'_, '_> {
                     key.1,
                     self.cx,
                 )
-            });
-            parts.push(asset.clone().into_any_element());
-            start = index + 1;
+            })
+            .clone();
+        let image = div().min_w_0().max_w_full().child(asset);
+        if let Some(link) = link {
+            let activate = self.link_handler();
+            return image
+                .id(("md-image-link", self.id()))
+                .cursor_pointer()
+                .on_click(move |_, _, cx| activate(&link, cx))
+                .into_any_element();
         }
-        if start < nodes.len() {
-            parts.push(self.styled_inline(&nodes[start..]));
-        }
-        div()
-            .flex()
-            .flex_wrap()
-            .min_w_0()
-            .items_center()
-            .children(parts)
-            .into_any_element()
+        image.into_any_element()
     }
 
-    fn styled_inline(&mut self, nodes: &[Node]) -> AnyElement {
-        let mut inline = Inline::default();
-        for node in nodes {
-            inline.push(node, HighlightStyle::default(), self.palette);
-        }
-        let styled = StyledText::new(inline.text).with_highlights(inline.styles);
-        if inline.links.is_empty() {
-            return styled.into_any_element();
-        }
-        let (ranges, links): (Vec<_>, Vec<_>) = inline.links.into_iter().unzip();
-        let id = self.id();
+    fn link_handler(&self) -> impl Fn(&str, &mut gpui::App) + use<> {
         let entity = self.cx.entity();
         let path = self.document_path.to_owned();
-        InteractiveText::new(("md-link", id), styled)
-            .on_click(ranges, move |index, _, cx| {
-                let Some(href) = links.get(index) else {
+        let anchors = self.anchors.clone();
+        move |href, cx| match link_destination(&path, href) {
+            Some(Link::External(url)) => cx.open_url(&url),
+            Some(Link::Anchor(id)) => {
+                if anchors.jump(&id) {
+                    cx.refresh_windows();
+                }
+            }
+            Some(Link::File(path)) => {
+                entity.update(cx, |root, cx| root.request_open_file(path, cx))
+            }
+            None => {}
+        }
+    }
+
+    fn styled_inline(&mut self, inline: inline::Inline, new_block: bool) -> AnyElement {
+        let block = self.selection.append(&inline.text, new_block);
+        let background = gpui::Hsla {
+            a: 0.35,
+            ..self.palette.accent
+        };
+        let styles = self.selection.highlights(&block, inline.styles, background);
+        let styled = StyledText::new(inline.text).with_highlights(styles);
+        let layout = styled.layout().clone();
+        let row = self
+            .selection
+            .interactive(block, layout.clone(), styled.into_any_element());
+        if inline.links.is_empty() {
+            return row.into_any_element();
+        }
+        let activate = self.link_handler();
+        let selection = self.selection.clone();
+        row.cursor_pointer()
+            .on_click(move |event, _, cx| {
+                let ClickEvent::Mouse(event) = event else {
                     return;
                 };
-                match link_destination(&path, href) {
-                    Some(Link::External(url)) => cx.open_url(&url),
-                    Some(Link::File(path)) => {
-                        entity.update(cx, |root, cx| root.request_open_file(path, cx))
-                    }
-                    None => {}
+                if event.up.modifiers.shift || selection.has_text() {
+                    return;
+                }
+                let (Ok(start), Ok(end)) = (
+                    layout.index_for_position(event.down.position),
+                    layout.index_for_position(event.up.position),
+                ) else {
+                    return;
+                };
+                if let Some((_, href)) = inline
+                    .links
+                    .iter()
+                    .find(|(range, _)| range.contains(&start) && range.contains(&end))
+                {
+                    activate(href, cx);
                 }
             })
             .into_any_element()
     }
 }
 
-#[derive(Default)]
-struct Inline {
-    text: String,
-    styles: Vec<(Range<usize>, HighlightStyle)>,
-    links: Vec<(Range<usize>, String)>,
-}
-impl Inline {
-    fn push(&mut self, node: &Node, mut style: HighlightStyle, palette: Palette) {
-        match node {
-            Node::Group(tag, children) => {
-                match tag {
-                    Tag::Strong => style.font_weight = Some(FontWeight::BOLD),
-                    Tag::Emphasis => style.font_style = Some(FontStyle::Italic),
-                    Tag::Strikethrough => {
-                        style.strikethrough = Some(gpui::StrikethroughStyle {
-                            thickness: px(1.),
-                            color: None,
-                        })
-                    }
-                    Tag::Link { .. } => {
-                        style.color = Some(palette.accent);
-                        style.underline = Some(gpui::UnderlineStyle {
-                            thickness: px(1.),
-                            color: None,
-                            wavy: false,
-                        });
-                    }
-                    _ => {}
-                }
-                let start = self.text.len();
-                if let Tag::Image { dest_url, .. } = tag {
-                    self.text.push_str("Image unavailable: ");
-                    if children.is_empty() {
-                        self.text.push_str(dest_url);
-                    }
-                }
-                for child in children {
-                    self.push(child, style, palette);
-                }
-                if let Tag::Link { dest_url, .. } = tag
-                    && self.text.len() > start
-                {
-                    self.links
-                        .push((start..self.text.len(), dest_url.to_string()));
-                }
-            }
-            Node::Atom(event) => {
-                let start = self.text.len();
-                match event {
-                    Event::Text(text)
-                    | Event::Code(text)
-                    | Event::Html(text)
-                    | Event::InlineHtml(text)
-                    | Event::InlineMath(text)
-                    | Event::DisplayMath(text) => self.text.push_str(text),
-                    Event::TaskListMarker(checked) => {
-                        self.text.push_str(if *checked { "☑ " } else { "☐ " })
-                    }
-                    Event::SoftBreak => self.text.push(' '),
-                    Event::HardBreak => self.text.push('\n'),
-                    _ => {}
-                }
-                if self.text.len() > start && style != HighlightStyle::default() {
-                    self.styles.push((start..self.text.len(), style));
-                }
-            }
-        }
-    }
-}
-
 fn without_frontmatter(text: &str) -> &str {
     let trimmed = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let mut lines = trimmed.split_inclusive('\n');
-    if !lines
-        .next()
-        .is_some_and(|line| line.trim_end_matches(['\r', '\n', '\t', ' ']) == "---")
-    {
+    let mut lines = trimmed.split_inclusive(['\r', '\n']);
+    let Some(first) = lines.next() else {
+        return text;
+    };
+    if first.trim_end_matches(['\r', '\n', '\t', ' ']) != "---" {
         return text;
     }
-    let mut consumed = trimmed.find('\n').map_or(trimmed.len(), |end| end + 1);
+    let mut consumed = first.len();
     for line in lines {
         consumed += line.len();
         if matches!(
             line.trim_end_matches(['\r', '\n', '\t', ' ']),
             "---" | "..."
         ) {
-            return &trimmed[consumed..];
+            let rest = &trimmed[consumed..];
+            return if line.ends_with('\r') {
+                rest.strip_prefix('\n').unwrap_or(rest)
+            } else {
+                rest
+            };
         }
     }
     text
@@ -270,18 +282,40 @@ fn without_frontmatter(text: &str) -> &str {
 enum Link {
     External(String),
     File(String),
+    Anchor(String),
 }
 fn link_destination(path: &str, href: &str) -> Option<Link> {
-    if href.is_empty() || href.starts_with('#') {
+    if href.is_empty() {
         return None;
     }
+    if let Some(anchor) = href.strip_prefix('#') {
+        return Some(Link::Anchor(
+            percent_encoding::percent_decode_str(anchor)
+                .decode_utf8()
+                .ok()?
+                .into_owned(),
+        ));
+    }
     if let Ok(url) = url::Url::parse(href) {
-        return matches!(url.scheme(), "http" | "https").then(|| Link::External(url.into()));
+        let has_web_prefix = href.split_once("://").is_some_and(|(scheme, _)| {
+            scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+        });
+        return (has_web_prefix
+            && url.has_host()
+            && href.encode_utf16().take(2049).count() <= 2048
+            && !href.chars().any(char::is_control))
+        .then(|| Link::External(url.into()));
     }
     let path_end = path.rfind(['/', '\\']).map_or(0, |index| index + 1);
     let target = percent_encoding::percent_decode_str(href.split('#').next()?)
         .decode_utf8()
         .ok()?;
+    if target.starts_with(['/', '\\'])
+        || target.as_bytes().get(1) == Some(&b':')
+        || target.chars().any(char::is_control)
+    {
+        return None;
+    }
     Some(Link::File(format!("{}{target}", &path[..path_end])))
 }
 

@@ -20,6 +20,7 @@ internal class ClientPollLane(
   var operation: String? = null
     private set
   val drained: Boolean get() = operation == null && mutations.isEmpty()
+  val failedPoll: Boolean get() = uncertain != null
 
   fun connection(connected: Boolean, authority: String) {
     if (this.authority != authority) { epoch++; this.authority = authority }
@@ -31,6 +32,15 @@ internal class ClientPollLane(
     waiting.addLast(Waiting(epoch, start, done))
     // Admission waits for the original result and owner processing. Canceling
     // an SDK operation would drop its future, not drain its delivery result.
+  }
+  fun prepareV1Fence() {
+    if (uncertain == null) return
+    // V1 reconnect and disconnect fence the entire native generation. A failed
+    // poll may not admit regular work, but it cannot keep that generation alive.
+    operation = null
+    uncertain = null
+    connected = false
+    epoch++
   }
   fun retire() {
     retired = true; connected = false; epoch++

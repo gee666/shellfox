@@ -47,6 +47,8 @@ mod field_semantics;
 mod forms;
 #[path = "settings_general.rs"]
 mod general;
+#[path = "settings_fixture.rs"]
+mod fixture;
 #[path = "settings_key_picker.rs"]
 mod key_picker;
 #[path = "settings_keyboard.rs"]
@@ -58,14 +60,14 @@ mod login;
 #[path = "settings_native_gateway.rs"]
 mod native_gateway;
 #[path = "settings_native.rs"]
-mod native_services;
+pub(crate) mod native_services;
 #[path = "settings_native_ssh.rs"]
 mod native_ssh;
 #[cfg(test)]
 #[path = "settings_native_ssh_tests.rs"]
 mod native_ssh_tests;
 #[path = "settings_native_state.rs"]
-mod native_state;
+pub(crate) mod native_state;
 #[cfg(test)]
 #[path = "settings_native_tests.rs"]
 mod native_tests;
@@ -87,8 +89,12 @@ mod remote_login_view;
 mod remote_page;
 #[path = "settings_remote_peers.rs"]
 mod remote_peers;
+#[path = "settings_remote_peer_row.rs"]
+mod remote_peer_row;
 #[path = "settings_remote_poll.rs"]
 mod remote_poll;
+#[path = "settings_pairing.rs"]
+pub(crate) mod pairing;
 #[path = "settings_rule_edits.rs"]
 mod rule_edits;
 #[path = "settings_rules.rs"]

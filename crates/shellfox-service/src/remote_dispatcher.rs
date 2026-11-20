@@ -33,7 +33,7 @@ impl OwnerDispatcher for RemoteDispatcher {
             }
         }
         if let Ok(request) = self.receiver.try_recv() {
-            if super::facts::requires_facts(&request.command) {
+            if super::facts::requires_facts(&request.command, |tab| service.terminals.contains_key(&tab)) {
                 if let Some(facts) = &mut self.facts {
                     facts.admit(service, request);
                     return;

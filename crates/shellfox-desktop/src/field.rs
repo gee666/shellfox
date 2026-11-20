@@ -55,6 +55,7 @@ pub struct Field {
     number_kind: Option<NumberKind>,
     wrap_width: Option<f32>,
     wrap_layout: Option<wrap::WrapLayout>,
+    reveal_source: bool,
     font_size: f32,
     preferred_font: Option<gpui::SharedString>,
     line_height: f32,
@@ -102,6 +103,7 @@ impl Field {
             number_kind: None,
             wrap_width: None,
             wrap_layout: None,
+            reveal_source: false,
             font_size: 13.,
             preferred_font: None,
             line_height: 20.,
@@ -304,6 +306,7 @@ impl Field {
 impl Render for Field {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_wrap(window);
+        self.reveal_source_position();
         self.update_horizontal(window);
         paint::render(self, window, cx)
     }

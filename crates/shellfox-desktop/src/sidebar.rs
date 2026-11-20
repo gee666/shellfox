@@ -316,7 +316,7 @@ impl Root {
             self.select_local_source(_window, cx);
         }
         self.local_expanded = !self.local_expanded;
-        self.settings = false;
+        self.hide_settings(cx);
         cx.notify();
     }
 

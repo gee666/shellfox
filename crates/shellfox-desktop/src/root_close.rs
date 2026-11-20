@@ -83,7 +83,9 @@ impl Root {
         if guard == WindowCloseGuard::Ready {
             return false;
         }
-        if let Some(files) = &mut self.files {
+        if guard == WindowCloseGuard::DirtyFile {
+            self.reveal_dirty_file_on_close(cx);
+        } else if let Some(files) = &mut self.files {
             files.visible = true;
         }
         self.error = Some(

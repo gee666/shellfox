@@ -32,6 +32,18 @@ it('has five compact categories and exposes only the selected panel to assistive
   expect(screen.queryByRole('tabpanel', { name: 'General' })).not.toBeInTheDocument();
 });
 
+it('disables the empty shell selector when there are no non-elevated profiles', () => {
+  const f = setup('Terminals');
+  for (const catalog of [[], profiles.map(profile => ({ ...profile, elevation: 'administrator' as const }))]) {
+    f.rerender(<SettingsPanel {...f.props} profiles={catalog} defaultProfileId={null} />);
+    const select = screen.getByRole('combobox', { name: 'Default shell' });
+    expect(select).toHaveDisplayValue('No shells available');
+    expect(select).toBeDisabled();
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    expect(f.client.settings.store.getState().draft?.terminalProfileId).toBe(f.props.settings.terminalProfileId);
+  }
+});
+
 it('separates remote access and SSH, with approval counts only on remote access', () => {
   const f = setup(), fixture = remoteFixture();
   fixture.state.pending = [1, 2].map(index => ({ id: `pending-${index}`, hostname: `Client ${index}`, addresses: [], online: true }));

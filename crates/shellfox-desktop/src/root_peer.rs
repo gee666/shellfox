@@ -37,6 +37,8 @@ pub(crate) mod terminal;
 mod v1_stream;
 #[path = "peer_workspace.rs"]
 mod workspace;
+#[path = "peer_pairing.rs"]
+mod pairing;
 #[derive(Default)]
 pub(crate) struct PeerUi {
     #[cfg(feature = "experimental-shellfox-native")]
@@ -55,6 +57,8 @@ pub(crate) struct PeerUi {
     #[cfg(feature = "experimental-shellfox-native")]
     pub attaching: HashSet<AuthenticatedPeerId>,
     pub pending: HashSet<AuthenticatedPeerId>,
+    pair_watches: HashMap<AuthenticatedPeerId, (uuid::Uuid, shellfox_protocol::CancellationToken)>,
+    inventory_generation: u64,
     inventory_catalogs: HashSet<AuthenticatedPeerId>,
     legacy: HashMap<AuthenticatedPeerId, std::sync::Arc<crate::host_client::peer_v1::V1Binding>>,
     pub pending_create: Option<AuthenticatedPeerId>,
@@ -102,6 +106,7 @@ impl Root {
             return;
         };
         self.peers.inventory_pending = true;
+        let generation = self.peer_ui.inventory_generation;
         cx.spawn_in(window, async move |root, cx| {
             let reply = client
                 .execute(shellfox_service::native::NativeAction::Remote(
@@ -110,17 +115,10 @@ impl Root {
                 .await;
             let _ = root.update_in(cx, |root, window, cx| {
                 root.peers.inventory_pending = false;
-                if let Ok(shellfox_service::native::NativeResponse::Remote(state)) = reply {
-                    root.peers.inventory(&state.peers);
-                    root.peer_ui.sidebar_layout.borrow_mut().retain(|peer, _| root.peers.peers.contains_key(peer));
-                    root.warm_connected_catalogs(&state, window, cx);
-                    root.update_pending_access(
-                        state.pending.iter().map(|pending| {
-                            (pending.peer.id.as_str(), pending.peer.hostname.as_str())
-                        }),
-                        cx,
-                    );
-                    cx.notify();
+                if generation == root.peer_ui.inventory_generation {
+                    if let Ok(shellfox_service::native::NativeResponse::Remote(state)) = reply {
+                        root.accept_peer_remote(state, window, cx);
+                    }
                 }
             });
         })
@@ -153,7 +151,7 @@ impl Root {
                 && self.peer_ui.inventory_catalogs.insert(id.clone())
                 && source.phase != source::Phase::Connected
             {
-                self.connect_peer(id, false, window, cx);
+                self.connect_catalog(id, window, cx);
             }
         }
     }
@@ -178,7 +176,7 @@ impl Root {
         for view in self.peer_ui.views.values() {
             view.update(cx, |view, _| view.visible(false));
         }
-        self.settings = false;
+        self.hide_settings(cx);
         if let Err(error) = self.peers.choose(source::Source::Peer(peer.clone())) {
             self.error = Some(error.to_string());
             return;
@@ -192,7 +190,7 @@ impl Root {
         }
         #[cfg(not(feature = "experimental-shellfox-native"))]
         self.hide_v1_terminals(cx);
-        self.connect_peer(peer, false, window, cx);
+        self.connect_peer(peer, window, cx);
     }
     fn resume_peer_selection(
         &mut self,
@@ -203,6 +201,7 @@ impl Root {
         if self.peers.selected != source::Source::Peer(peer.clone()) {
             return;
         }
+        self.follow_peer_file_tab(cx);
         let Some(state) = self.peers.peers.get(peer) else {
             return;
         };
@@ -273,6 +272,11 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some(state) = self.peers.peers.get(&peer) else { return; };
+        if state.connection_action() != Some(source::ConnectionAction::Disconnect) {
+            return;
+        }
+        let owner_connected = state.owner_connected;
         self.retire_peer_views(&peer, cx);
         if let Err(error) = self.peers.retire(&peer) {
             self.error = Some(error.to_string());
@@ -287,10 +291,21 @@ impl Root {
             return;
         };
         cx.spawn_in(window, async move |root, cx| {
-            let result = host.disconnect_peer(&peer).await;
-            let _ = root.update_in(cx, |root, _, cx| {
-                if let Err(error) = result {
+            use shellfox_service::{native::{NativeAction, NativeResponse}, remote::native::RemoteRequest};
+            let local = host.disconnect_peer(&peer).await;
+            let owner = if owner_connected {
+                host.execute(NativeAction::Remote(RemoteRequest::Disconnect { peer_id: peer.as_str().into() })).await.map(Some)
+            } else {
+                Ok(None)
+            };
+            let _ = root.update_in(cx, |root, window, cx| {
+                if let Err(error) = local {
                     root.error = Some(format!("Peer withdrawal failed: {error:#}"));
+                }
+                match owner {
+                    Ok(Some(NativeResponse::Remote(state))) => root.accept_peer_remote(state, window, cx),
+                    Err(error) => root.error = Some(format!("Peer withdrawal failed: {error:#}")),
+                    _ => {}
                 }
                 cx.notify();
             });

@@ -21,7 +21,7 @@ pub(super) fn project(snapshot: wire::ManagerSnapshot) -> anyhow::Result<m::Snap
     let settings = snapshot.settings;
     let settings = m::Settings {
         version: settings.version,
-        python_path: Some(settings.python_path),
+        python_path: None,
         accent_color: settings.accent_color,
         background_color: Some(settings.background_color),
         adapter_id: settings.adapter_id,

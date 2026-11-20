@@ -18,8 +18,6 @@ pub struct Catalog {
     pub profiles: Vec<Profile>,
     pub default_profile_id: Option<String>,
     pub platform: String,
-    pub python_detected: Option<String>,
-    pub python_reason: Option<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColorKind {
@@ -124,12 +122,21 @@ pub struct SshInput {
 }
 pub enum Request {
     RemoteState,
-    ConfigureRemote { enabled: bool, hostname: String },
-    Login { auth_key: Option<String> },
+    ConfigureRemote {
+        enabled: bool,
+        hostname: String,
+    },
+    Login {
+        auth_key: Option<String>,
+    },
     Connect(String),
     CancelAttempt(String),
-    ContinueAttempt(String),
+    ResumeAccess(String),
     Disconnect(String),
+    ContinuePair {
+        id: String,
+        permit: shellfox_service::remote::native::PairingPermit,
+    },
     Approve(String),
     Reject(String),
     Revoke(String),
@@ -142,6 +149,10 @@ pub enum Request {
 }
 pub enum Response {
     Remote(RemoteState),
+    ConnectedRequest {
+        state: RemoteState,
+        result: shellfox_service::remote::native::ConnectResult,
+    },
     SshProfiles(Vec<SshProfile>),
     SshImported {
         profiles: Vec<SshProfile>,

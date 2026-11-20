@@ -1,6 +1,6 @@
 use crate::{editor_composition::EditorOutcome, field::Field, root::Root};
 use gpui::{Context, Entity};
-use shellfox_files::{EditorCancellation, FileList};
+use shellfox_files::FileList;
 use std::sync::Arc;
 #[path = "document_backend.rs"]
 mod backend;
@@ -11,6 +11,7 @@ pub(crate) mod completion;
 mod editor_ops;
 #[path = "files_editor_state.rs"]
 mod editor_state;
+pub(crate) use editor_state::FileOperation;
 #[path = "files_list.rs"]
 pub(crate) mod list;
 #[path = "files_pending.rs"]
@@ -32,6 +33,8 @@ pub(crate) mod image_editor;
 mod layout_prefs;
 #[path = "files_retained.rs"]
 mod retained;
+#[path = "files_resume.rs"]
+mod resume;
 #[path = "files_scrollbar.rs"]
 pub(crate) mod scrollbar;
 #[path = "files_text_preview.rs"]
@@ -68,14 +71,17 @@ pub struct Files {
     pub(crate) backend: DocumentBackend,
     pub(crate) source_epoch: u64,
     pub(crate) source: crate::root::source::Source,
-    pub operation: Option<EditorCancellation>,
+    pub(crate) operation: Option<FileOperation>,
+    pub(crate) resume_conflict: bool,
+    check_cached_revision: bool,
+    resume_retry: Option<std::time::Instant>,
     pub(crate) transfer: Option<Arc<transfer::Transfer>>,
     pub location: Entity<Field>,
     pub(crate) completion: completion::FileCompletion,
-    pub(crate) browse_focus: gpui::FocusHandle,
+    pub(crate) browser_focus: completion::BrowserFocus,
     pub listing: Option<FileList>,
     pub(crate) tree: tree::Tree,
-    pub listing_error: Option<(String, String)>,
+    pub(crate) listing_error: Option<list::ListingError>,
     pub missing_folder: Option<String>,
     pub(crate) missing_focus: [gpui::FocusHandle; 2],
     pub editor: Option<Editor>,
@@ -102,12 +108,19 @@ pub struct Files {
 }
 impl Drop for Files {
     fn drop(&mut self) {
+        if let Some(operation) = &self.operation {
+            operation.cancel();
+        }
         if let Some(transfer) = &self.transfer {
             transfer.cancel.cancel();
         }
     }
 }
 impl Files {
+    pub(crate) fn saving(&self) -> bool {
+        matches!(self.operation, Some(FileOperation::Save(_)))
+    }
+
     pub(crate) fn opened_path(&self) -> Option<&str> {
         self.editor
             .as_ref()
@@ -141,7 +154,11 @@ impl Root {
             panels.clone().any(|files| files.dirty(cx)),
             panels
                 .into_iter()
-                .any(|files| files.busy || files.transfer.is_some()),
+                .any(|files| {
+                    (files.busy && !matches!(files.operation, Some(FileOperation::Revalidate(_))))
+                        || files.transfer.is_some()
+                        || files.image_editor.as_ref().is_some_and(image_editor::ImageEditor::transforming)
+                }),
         )
     }
     pub(crate) fn files_source_current(&self) -> bool {
@@ -151,7 +168,11 @@ impl Root {
                 self.source_selection_epoch(),
                 f.backend.is_local(),
                 self.is_local_source(),
-            ) && self.active_file_tab(&f.backend) && f.backend.check_current().is_ok()
+            ) && f.source == self.peers.selected
+                && (f.backend.is_local() || self.peers.selected_peer().is_some_and(|(_, state)| {
+                    state.phase == crate::root::source::Phase::Connected
+                }))
+                && self.active_file_tab(&f.backend) && f.backend.check_current().is_ok()
         })
     }
     fn active_file_tab(&self, backend: &DocumentBackend) -> bool {
@@ -198,54 +219,21 @@ impl Root {
         }
         if self.files_source_current() {
             if let Some(files) = &mut self.files {
+                files.check_cached_revision |= files.visible && files.dirty(cx);
                 files.visible = !files.visible;
+                if !files.visible {
+                    files.completion.state.dismiss();
+                }
             }
             cx.notify();
             return;
         }
-        let Some((backend, preferred)) = self.prepare_files(cx) else {
-            return;
-        };
-        let epoch = self.source_selection_epoch();
-        if let Some(files) = &mut self.files {
-            files.busy = true;
+        if let Some(path) = self.prepare_files(cx) {
+            self.list_files(path, cx);
         }
-        let task_backend = backend.clone();
-        let task = cx
-            .background_executor()
-            .spawn(async move { task_backend.initial_path(preferred).await });
-        cx.spawn(async move |root, cx| {
-            let result = task.await;
-            let _ = root.update(cx, |root, cx| {
-                if !root.files_result_current(epoch, &backend) {
-                    if let Some(f) = &mut root.files
-                        && f.source_epoch == epoch
-                        && f.backend.same_origin(&backend)
-                    {
-                        f.busy = false;
-                    }
-                    cx.notify();
-                    return;
-                }
-                if let Some(f) = &mut root.files {
-                    f.busy = false;
-                }
-                match result {
-                    Ok(path) => root.list_files(path, cx),
-                    Err(error) => {
-                        root.error = Some(format!("Files source unavailable: {error:#}"));
-                        cx.notify();
-                    }
-                }
-            });
-        })
-        .detach();
-        cx.notify();
     }
-    pub(super) fn prepare_files(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> Option<(DocumentBackend, Option<String>)> {
+
+    fn prepare_files(&mut self, cx: &mut Context<Self>) -> Option<String> {
         self.sync_file_source(cx);
         if self.files.as_ref().is_some_and(|f| f.busy) {
             if let Some(files) = &mut self.files {
@@ -267,8 +255,9 @@ impl Root {
             return None;
         }
         let (backend, preferred) = self.selected_document_backend(cx)?;
-        self.initialize_file_panel(backend.clone(), cx);
-        Some((backend, preferred))
+        let path = list::initial_folder(preferred, backend.is_wsl());
+        self.initialize_file_panel(backend, cx);
+        Some(path)
     }
 
     pub(super) fn initialize_file_panel(
@@ -288,10 +277,13 @@ impl Root {
             source_epoch: epoch,
             source: self.peers.selected.clone(),
             operation: None,
+            resume_conflict: false,
+            check_cached_revision: false,
+            resume_retry: None,
             transfer: None,
             location,
             completion: Default::default(),
-            browse_focus: cx.focus_handle(),
+            browser_focus: completion::BrowserFocus::new(cx),
             listing: None,
             tree: tree::Tree::new(),
             listing_error: None,

@@ -65,6 +65,28 @@ pub(super) async fn approval_owner(data: &std::path::Path) -> crate::owner::Serv
 }
 
 #[tokio::test]
+async fn first_attach_of_a_running_remote_tab_does_not_wait_for_projected_facts() {
+    let data = crate::tests::scratch();
+    let mut owner = approval_owner(data.path()).await;
+    let metadata = native_metadata::Fixture::new();
+    let peer = PeerIdentity { id: "n-first-attach".into(), hostname: "fixture".into() };
+    let (approvals, _store) = approve_peer(&owner, &metadata, &peer).await;
+    let actor = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let tab_id = wire::TabId::new();
+    let attach = OwnerCommand::Execute {
+        actor,
+        command: RemoteCommand::AttachTerminal(wire::AttachTerminal {
+            tab_id,
+            after_sequence: None,
+            generation: None,
+        }),
+    };
+    assert!(!super::facts::requires_facts(&attach, |id| id == tab_id));
+    assert!(super::facts::requires_facts(&attach, |_| false));
+    owner.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
     let scratch = crate::tests::scratch();
     let approval_data = crate::tests::scratch();

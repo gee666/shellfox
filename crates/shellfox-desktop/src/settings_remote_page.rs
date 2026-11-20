@@ -25,7 +25,7 @@ pub(super) fn connection_badge(
 impl SettingsPanel {
     pub(super) fn remote_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
-        if self.services.is_none() {
+        if self.services.is_none() || fixture::value("REMOTE").as_deref() == Some("unsupported") {
             return div().into_any_element();
         }
         let state = self.remote.state.clone();

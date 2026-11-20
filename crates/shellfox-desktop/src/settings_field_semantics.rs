@@ -53,12 +53,7 @@ impl SettingsPanel {
                 .iter()
                 .any(|key| self.forms.fields[key].entity_id() == id),
             Category::Agents => self.forms.fields[&Input::Agent].entity_id() == id,
-            Category::Terminals => {
-                self.catalog
-                    .as_ref()
-                    .is_some_and(|catalog| catalog.platform == "linux")
-                    && self.forms.fields[&Input::Python].entity_id() == id
-            }
+            Category::Terminals => false,
             Category::RemoteAccess => {
                 let Some(state) = &self.remote.state else {
                     return false;

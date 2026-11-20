@@ -2,6 +2,12 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(super) enum After {
     Remote(u64, remote::ErrorSection),
+    RemoteConnect {
+        epoch: u64,
+        generation: u64,
+        started: std::time::Instant,
+    },
+    RemoteCancel(u64),
     RemoteRead(u64),
     Login(u64),
     RetryLogin(u64),
@@ -11,8 +17,8 @@ pub(super) enum After {
     Key,
 }
 impl SettingsPanel {
-    pub(super) fn load_auxiliary(&mut self, cx: &mut Context<Self>) {
-        if !self.remote.pending && !self.remote.reading {
+    pub(super) fn load_remote(&mut self, cx: &mut Context<Self>) {
+        if !self.remote.pending && !self.remote.reading && fixture::value("REMOTE").is_none() {
             self.remote.reading = true;
             self.request_aux(
                 api::Request::RemoteState,
@@ -20,6 +26,10 @@ impl SettingsPanel {
                 cx,
             );
         }
+    }
+
+    pub(super) fn load_auxiliary(&mut self, cx: &mut Context<Self>) {
+        self.load_remote(cx);
         if !self.ssh.reading
             && !self.ssh.pending
             && self.ssh.editor.is_none()
@@ -43,10 +53,9 @@ impl SettingsPanel {
             self.aux_error(
                 after,
                 "This settings capability is unavailable on the connected host.".into(),
+                cx,
             );
-            if !self.ssh.pending
-                && let Some(editor) = &self.ssh.editor
-            {
+            if let Some(editor) = self.ssh.editor.as_ref().filter(|_| !self.ssh.pending) {
                 editor.configure_fields(self.operations.frozen(), cx);
             }
             cx.notify();
@@ -63,13 +72,23 @@ impl SettingsPanel {
                 if matches!(after, After::RemoteRead(_)) {
                     panel.remote.reading = false;
                 }
-                if let After::Remote(epoch, _)
-                | After::RemoteRead(epoch)
-                | After::Login(epoch)
-                | After::RetryLogin(epoch) = after
-                    && epoch != panel.remote.epoch
-                {
-                    return;
+                match after {
+                    After::RemoteRead(epoch) if epoch != panel.remote.epoch => {
+                        if panel.visible && !panel.operations.frozen() {
+                            panel.load_remote(cx);
+                        }
+                        return;
+                    }
+                    After::Remote(epoch, _)
+                    | After::RemoteConnect { epoch, .. }
+                    | After::RemoteCancel(epoch)
+                    | After::Login(epoch)
+                    | After::RetryLogin(epoch)
+                        if epoch != panel.remote.epoch =>
+                    {
+                        return;
+                    }
+                    _ => {}
                 }
                 if let After::SshRead(epoch) = after {
                     panel.ssh.reading = false;
@@ -81,9 +100,15 @@ impl SettingsPanel {
                     }
                 }
                 match after {
-                    After::Remote(_, _) | After::Login(_) | After::RetryLogin(_) => {
+                    After::Remote(_, _)
+                    | After::RemoteConnect { .. }
+                    | After::RemoteCancel(_)
+                    | After::Login(_)
+                    | After::RetryLogin(_) => {
                         panel.remote.pending = false;
-                        panel.remote.inflight_peer = None;
+                        if !matches!(after, After::RemoteConnect { .. }) {
+                            panel.remote.connecting_peer = None;
+                        }
                         panel.remote.login_request = false;
                     }
                     After::Ssh | After::Import | After::Key => panel.ssh.pending = false,
@@ -91,11 +116,9 @@ impl SettingsPanel {
                 }
                 match result {
                     Ok(response) => panel.accept_aux(after, response, cx),
-                    Err(error) => panel.aux_error(after, error.to_string()),
+                    Err(error) => panel.aux_error(after, error.to_string(), cx),
                 }
-                if !panel.ssh.pending
-                    && let Some(editor) = &panel.ssh.editor
-                {
+                if let Some(editor) = panel.ssh.editor.as_ref().filter(|_| !panel.ssh.pending) {
                     editor.configure_fields(panel.operations.frozen(), cx);
                 }
                 cx.notify();
@@ -103,7 +126,7 @@ impl SettingsPanel {
         })
         .detach();
     }
-    fn aux_error(&mut self, after: After, message: String) {
+    fn aux_error(&mut self, after: After, message: String, cx: &mut Context<Self>) {
         match after {
             After::Login(_) => {
                 self.remote.pending = false;
@@ -115,10 +138,26 @@ impl SettingsPanel {
                     self.remote.fail(section, &message);
                 }
             }
+            After::RemoteConnect { .. } => {
+                self.remote.pending = false;
+                self.remote.connecting_peer = None;
+                if self.visible {
+                    self.remote.fail(remote::ErrorSection::Machines, &message);
+                }
+            }
             After::RetryLogin(_) => {
                 self.remote.pending = false;
                 if self.visible {
                     self.remote.fail(remote::ErrorSection::Access, &message);
+                }
+            }
+            After::RemoteCancel(_) => {
+                self.remote.pending = false;
+                if self.visible {
+                    self.remote.fail(remote::ErrorSection::Machines, &message);
+                    if self.services.is_some() && !self.operations.frozen() {
+                        self.load_remote(cx);
+                    }
                 }
             }
             After::RemoteRead(_) => {
@@ -138,7 +177,37 @@ impl SettingsPanel {
     fn accept_aux(&mut self, after: After, response: api::Response, cx: &mut Context<Self>) {
         match (after, response) {
             (
-                After::Remote(_, _) | After::RemoteRead(_) | After::Login(_) | After::RetryLogin(_),
+                After::RemoteConnect {
+                    epoch,
+                    generation,
+                    started,
+                },
+                api::Response::ConnectedRequest { state, result },
+            ) => {
+                if let Some(peer) = self.remote.connecting_peer.take() {
+                    self.watch_pairing(peer, &state, result, started, generation, cx);
+                }
+                self.accept_aux(
+                    After::Remote(epoch, remote::ErrorSection::Machines),
+                    api::Response::Remote(state),
+                    cx,
+                );
+            }
+            (After::RemoteConnect { epoch, .. }, api::Response::Remote(state)) => {
+                // Attached hosts have an unchanged wire reply and no creation receipt.
+                self.remote.connecting_peer = None;
+                self.accept_aux(
+                    After::Remote(epoch, remote::ErrorSection::Machines),
+                    api::Response::Remote(state),
+                    cx,
+                );
+            }
+            (
+                After::Remote(_, _)
+                | After::RemoteCancel(_)
+                | After::RemoteRead(_)
+                | After::Login(_)
+                | After::RetryLogin(_),
                 api::Response::Remote(state),
             ) => {
                 if self
@@ -184,6 +253,7 @@ impl SettingsPanel {
                 let retry = matches!(after, After::RetryLogin(_))
                     && self.visible
                     && self.remote.login_attempt.is_none();
+                self.remote.pairing_scope.retain_attempts(&state);
                 self.remote.state = Some(state);
                 self.remote.read_error = None;
                 if retry {
@@ -250,6 +320,7 @@ impl SettingsPanel {
             _ => self.aux_error(
                 after,
                 "Unexpected settings capability response from host.".into(),
+                cx,
             ),
         }
     }

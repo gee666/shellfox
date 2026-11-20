@@ -3,7 +3,7 @@ use super::{api, native_gateway::Gateway};
 use crate::host_client::HostClient;
 use shellfox_service::remote::native::{AuthKey, RemoteRequest};
 use std::sync::Arc;
-pub(super) struct NativeServices {
+pub(crate) struct NativeServices {
     gateway: Arc<dyn Gateway>,
 }
 impl NativeServices {
@@ -38,6 +38,12 @@ impl api::SettingsServices for NativeServices {
                 .execute(shellfox_service::native::NativeAction::Remote(request))
                 .await?;
             match response {
+                shellfox_service::native::NativeResponse::RemoteConnect { state, result } => {
+                    Ok(api::Response::ConnectedRequest {
+                        state: super::native_state::project(state),
+                        result,
+                    })
+                }
                 shellfox_service::native::NativeResponse::Remote(state) => {
                     Ok(api::Response::Remote(super::native_state::project(state)))
                 }
@@ -64,10 +70,16 @@ pub(super) fn bind(request: api::Request) -> anyhow::Result<RemoteRequest> {
                 .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid remote attempt ID."))?,
         },
-        api::Request::ContinueAttempt(id) => RemoteRequest::Continue {
+        api::Request::ResumeAccess(id) => RemoteRequest::Continue {
             attempt_id: id
                 .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid remote attempt ID."))?,
+        },
+        api::Request::ContinuePair { id, permit } => RemoteRequest::ContinueDesktopPair {
+            attempt_id: id
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid remote attempt ID."))?,
+            permit,
         },
         api::Request::Disconnect(peer_id) => RemoteRequest::Disconnect { peer_id },
         api::Request::Reject(peer_id) => RemoteRequest::Reject { peer_id },

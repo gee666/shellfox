@@ -1,56 +1,16 @@
-//! Settings validation only. Catalog reads construct commands but never launch
-//! shells, Python, UAC or arbitrary executables. Installation belongs to the owner.
+//! Settings validation only. Catalog reads never launch executables.
 use shellfox_core::{Error, ErrorCode, Result, Settings, SettingsShell};
-use shellfox_host::{normalize_settings_profile, SettingsProfile, SettingsRuntime};
+use shellfox_host::{SettingsProfile, SettingsRuntime, normalize_settings_profile};
 use shellfox_protocol::CancellationToken;
 use shellfox_terminal::{
-    default_shell_profile, discover_shell_profiles, shell_profile, ShellProfile, ShellProfileId,
+    ShellProfile, ShellProfileId, default_shell_profile, discover_shell_profiles, shell_profile,
 };
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 pub const SETTINGS_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SettingsPythonTarget<'a> {
-    LinuxLocal,
-    Wsl { profile_id: &'a str },
-}
-/// An injected provider must use a scoped owned probe, honor this deadline and
-/// token, and confirm descendant cleanup before returning on ANY result. It must
-/// not call Host, spawn an uncontained child, or persist probe output/credentials.
-pub struct SettingsPythonRequest<'a> {
-    pub configured: Option<&'a str>,
-    pub target: SettingsPythonTarget<'a>,
-    pub deadline: Instant,
-    pub ownership_lost: &'a CancellationToken,
-}
-impl SettingsPythonRequest<'_> {
-    pub fn check_owned(&self) -> Result<()> {
-        check(self.ownership_lost, self.deadline)
-    }
-}
-pub trait SettingsPythonValidation: Send + Sync {
-    fn validate(&self, request: SettingsPythonRequest<'_>) -> Result<()>;
-}
-/// Explicit native gate until the host has an owned Python probe provider.
-/// Windows local PowerShell/Cmd settings never invoke this provider.
-pub struct UnavailableSettingsPythonValidation;
-impl SettingsPythonValidation for UnavailableSettingsPythonValidation {
-    fn validate(&self, request: SettingsPythonRequest<'_>) -> Result<()> {
-        request.check_owned()?;
-        Err(Error::new(
-            ErrorCode::Unsupported,
-            "An owned Python validation provider is unavailable.",
-        ))
-    }
-}
-
 pub struct SettingsRuntimeAdapter {
     lost: CancellationToken,
-    python: Arc<dyn SettingsPythonValidation>,
     probe_timeout: Duration,
     #[cfg(windows)]
     wsl_catalog: crate::windows_profiles::WslCatalogCache,
@@ -58,17 +18,19 @@ pub struct SettingsRuntimeAdapter {
 impl SettingsRuntimeAdapter {
     /// Pass the FINAL native ownership token, after the service receives it and
     /// before readiness is published. Do not install against a temporary token.
-    pub fn new(lost: CancellationToken, python: Arc<dyn SettingsPythonValidation>) -> Self {
+    pub fn new(lost: CancellationToken) -> Self {
         Self {
             lost,
-            python,
             probe_timeout: SETTINGS_PROBE_TIMEOUT,
             #[cfg(windows)]
             wsl_catalog: Default::default(),
         }
     }
     #[cfg(windows)]
-    pub(crate) fn with_wsl_catalog(mut self, catalog: crate::windows_profiles::WslCatalogCache) -> Self {
+    pub(crate) fn with_wsl_catalog(
+        mut self,
+        catalog: crate::windows_profiles::WslCatalogCache,
+    ) -> Self {
         self.wsl_catalog = catalog;
         self
     }
@@ -81,32 +43,6 @@ impl SettingsRuntimeAdapter {
         self.probe_timeout = timeout;
         Ok(self)
     }
-    fn python(
-        &self,
-        candidate: &Settings,
-        target: SettingsPythonTarget<'_>,
-        deadline: Instant,
-    ) -> Result<()> {
-        check(&self.lost, deadline)?;
-        let result = self.python.validate(SettingsPythonRequest {
-            configured: candidate.python_path.as_deref(),
-            target,
-            deadline,
-            ownership_lost: &self.lost,
-        });
-        // Cancellation/deadline wins even when a provider returns success/error.
-        check(&self.lost, deadline)?;
-        result.map_err(|error| {
-            Error::new(
-                if error.code == ErrorCode::Unsupported {
-                    ErrorCode::Unsupported
-                } else {
-                    ErrorCode::Validation
-                },
-                "Python validation did not confirm safe process ownership.",
-            )
-        })
-    }
     fn normalize_owned(
         &self,
         previous: &Settings,
@@ -118,13 +54,18 @@ impl SettingsRuntimeAdapter {
             || candidate.shell_id != previous.shell_id
             || candidate.shell_executable != previous.shell_executable
             || candidate.adapter_id != previous.adapter_id;
-        if cfg!(target_os = "linux") && candidate.python_path != previous.python_path {
-            self.python(&candidate, SettingsPythonTarget::LinuxLocal, deadline)?;
-        }
         check(&self.lost, deadline)?;
         #[cfg(windows)]
-        if let Some(id) = candidate.terminal_profile_id.as_ref().and_then(Option::as_deref).filter(|id| id.starts_with("wsl:")) {
-            let selected = self.wsl_catalog.ready().and_then(|profiles| profiles.settings_profile(id));
+        if let Some(id) = candidate
+            .terminal_profile_id
+            .as_ref()
+            .and_then(Option::as_deref)
+            .filter(|id| id.starts_with("wsl:"))
+        {
+            let selected = self
+                .wsl_catalog
+                .ready()
+                .and_then(|profiles| profiles.settings_profile(id));
             return match selected {
                 Ok(selected) => {
                     let id = selected.id.clone();
@@ -148,13 +89,8 @@ impl SettingsRuntimeAdapter {
             };
         check(&self.lost, deadline)?;
         if selected.id() == ShellProfileId::Wsl && selection_changed {
-            self.python(
-                &candidate,
-                SettingsPythonTarget::Wsl {
-                    profile_id: selected.id().as_str(),
-                },
-                deadline,
-            )?;
+            // WSL profile changes must come from the owned per-distro catalog above.
+            return Err(unavailable_profile());
         }
         let mut profiles: Vec<_> = catalog.iter().filter_map(settings_profile).collect();
         // shell_profile rechecks the executable using CURRENT shared discovery.

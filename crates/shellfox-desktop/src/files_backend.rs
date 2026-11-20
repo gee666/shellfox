@@ -80,7 +80,7 @@ impl Root {
                 match profile.filter(|profile| *profile == "wsl" || profile.starts_with("wsl:")) {
                     Some(profile) => {
                         let guest = shellfox_files::WslBrowserScope::for_tab(cwd.as_deref().unwrap_or("/"), profile)?;
-                        cwd = Some(guest.guest_cwd().to_owned());
+                        cwd = Some(if cwd.is_some() { guest.guest_cwd() } else { "." }.to_owned());
                         Some(PeerFileScope { session: session.id.to_string().parse()?, tab: tab.id.to_string().parse()?, guest })
                     }
                     None => None,

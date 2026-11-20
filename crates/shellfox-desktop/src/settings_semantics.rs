@@ -248,7 +248,8 @@ impl SettingsPanel {
         use controls::Action;
         match action {
             Action::CloseSettings => "Close settings".into(),
-            Action::SelectCategory(category) => category.label().into(),
+            Action::SelectCategory(category) if label.is_empty() => category.label().into(),
+            Action::SelectCategory(_) => label.into(),
             Action::ToggleUpdates => "Automatic updates".into(),
             Action::Accent(color) => format!("Use {color}"),
             Action::Background(color) => format!("Use background {color}"),
@@ -310,6 +311,7 @@ impl SettingsPanel {
             ),
             Action::Ssh(ssh::Operation::ChooseKey) => "Choose key file".into(),
             Action::Ssh(ssh::Operation::ClearKey) => "Clear key file".into(),
+            Action::Remote(remote::Operation::ToggleEnabled) => "Allow remote access".into(),
             Action::Remote(remote::Operation::Forget(id)) => {
                 let name = self
                     .remote

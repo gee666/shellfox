@@ -164,10 +164,10 @@ impl Field {
         if !Arc::ptr_eq(&layout.text, &self.snapshot.text) {
             *layout = HorizontalLayout::build(&self.snapshot, &measure);
         }
-        if std::mem::take(&mut self.follow_horizontal)
-            && self.focus.is_focused(window)
-            && let Some(line) = self.snapshot.line(self.snapshot.row(self.cursor))
-        {
+        if self.focus.is_focused(window) && std::mem::take(&mut self.follow_horizontal) {
+            let Some(line) = self.snapshot.line(self.snapshot.row(self.cursor)) else {
+                return;
+            };
             let x = layout.x_for_cursor(self.cursor, line, &measure);
             let previous = -f32::from(self.scroll.offset().x);
             let visible = (viewport - 16.).max(1.);

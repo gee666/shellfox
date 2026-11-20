@@ -129,7 +129,7 @@ impl Root {
             error,
             _focus: [observe, blur, focused],
         }));
-        self.settings = false;
+        self.hide_settings(cx);
         self.session_menu = None;
         focus.focus(window);
         // The input has not been painted yet, so its first focus event may not fire.

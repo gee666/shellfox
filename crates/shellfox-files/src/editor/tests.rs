@@ -5,7 +5,7 @@ use std::{
 };
 struct Fixture {
     root: PathBuf,
-    session: EditorSession,
+    session: Arc<EditorSession>,
 }
 impl Fixture {
     fn new() -> Self {
@@ -22,7 +22,7 @@ impl Fixture {
         registry.initialize_journal(root.join("metadata")).unwrap();
         Self {
             root,
-            session: EditorSession::new(capability, Arc::new(Mutex::new(registry))),
+            session: Arc::new(EditorSession::new(capability, Arc::new(Mutex::new(registry)))),
         }
     }
     fn location(&self) -> Location {
@@ -51,7 +51,7 @@ impl Drop for Fixture {
                 TransferRegistry::new(TransferLimits::default()).unwrap(),
             )),
         );
-        drop(std::mem::replace(&mut self.session, empty));
+        drop(std::mem::replace(&mut self.session, Arc::new(empty)));
         fs::remove_dir_all(&self.root).unwrap();
     }
 }
@@ -214,6 +214,49 @@ fn document_read_uses_content_kind_and_chunked_limits() {
         read().unwrap_err().message,
         "Text preview is limited to 8 MiB. Use Download for larger files."
     );
+    f.clean();
+}
+
+#[test]
+fn image_and_asset_reads_use_the_chunked_limit_and_release_rejected_transfers() {
+    let f = Fixture::new();
+    let cancel = EditorCancellation::default();
+    let image = f.path().with_file_name("preview.png");
+    fs::write(&image, b"\x89PNG\r\n\x1a\n").unwrap();
+    let file = fs::OpenOptions::new().write(true).open(&image).unwrap();
+    let location = Location {
+        path: "preview.png".into(),
+    };
+    let asset = crate::AssetRequest {
+        path: "document.md".into(),
+        asset_path: location.path.clone(),
+    };
+    fs::write(f.path().with_file_name(&asset.path), "![preview](preview.png)").unwrap();
+    let beyond_inline = 2 * 1024 * 1024 + 1;
+    file.set_len(beyond_inline).unwrap();
+    assert!(matches!(
+        f.session.read_document(&location, &cancel).unwrap(),
+        ReadResult::Image { size, mime_type, .. } if size == beyond_inline && mime_type == "image/png"
+    ));
+    assert_eq!(
+        f.session.read_asset(&asset, cancel.clone()).unwrap().size,
+        beyond_inline
+    );
+    file.set_len(TRANSFER_IMAGE_BYTES + 1).unwrap();
+    for error in [
+        f.session.read_document(&location, &cancel).unwrap_err(),
+        f.session.read_asset(&asset, cancel.clone()).unwrap_err(),
+    ] {
+        assert_eq!(error.code, ErrorCode::Unsupported);
+        assert_eq!(
+            error.message,
+            "Image and asset preview is limited to 64 MiB. Use Download for larger files."
+        );
+    }
+    file.set_len(8).unwrap();
+    assert_eq!(f.session.read_asset(&asset, cancel).unwrap().size, 8);
+    drop(file);
+    fs::remove_file(image).unwrap();
     f.clean();
 }
 

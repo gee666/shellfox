@@ -52,6 +52,13 @@ it('keeps host conflicts visible and rejects oversized/invalid edits before send
   expect(transport.calls('/v1/request')).toHaveLength(1);
   expect(client.getState().status).toBe('connected');
 });
+it('keeps its view after a guest file permission denial', async () => {
+  transport.operation = async () => JSON.stringify(failure('ACCESS_DENIED', 'The path belongs to another distribution.'));
+  expect(await client.files.list(location)).toMatchObject({ ok: false, error: { code: 'ACCESS_DENIED' } });
+  expect(client.getState().status).toBe('connected');
+  transport.operation = async () => JSON.stringify(success({ path: '/work', parentPath: '/', entries: [], truncated: false }));
+  expect(await client.files.list({ ...location, path: '.' })).toMatchObject({ ok: true });
+});
 it('opens the host home without a running session', async () => {
   transport.operation = async () => JSON.stringify(success({ path: '/home/host', parentPath: '/home', entries: [], truncated: false }));
   expect(await client.files.list({ path: '~' })).toMatchObject({ ok: true });

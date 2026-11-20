@@ -1,26 +1,43 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use shellfox_ssh::{ConnectionOptions, ImportSession, UnsupportedProxy};
 use std::collections::HashMap;
+#[cfg(all(windows, debug_assertions, feature = "test-putty-source"))]
+#[path = "native_provider_putty_fixture.rs"]
+mod fixture;
 #[cfg(windows)]
 #[path = "native_provider_putty_registry.rs"]
 mod windows;
 
 pub(super) fn import_sessions() -> Result<Vec<ImportSession>> {
-        #[cfg(windows)]
-        let (entries, user) = (windows::read()?, std::env::var("USERNAME").ok());
-        #[cfg(not(windows))]
-        let (entries, user) = {
-            let home = std::env::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("Home directory is unavailable."))?;
-            (
-                read_directory(&home.join(".putty/sessions"))?,
-                std::env::var("USER").ok(),
-            )
-        };
-        Ok(entries
-            .into_iter()
-            .filter_map(|(name, values)| parse(&name, &values, user.as_deref()))
-            .collect())
+    #[cfg(windows)]
+    {
+        let user = std::env::var("USERNAME").ok();
+        #[cfg(all(debug_assertions, feature = "test-putty-source"))]
+        if std::env::args_os().any(|arg| arg == "--ui-acceptance") {
+            return import_from(fixture::read, user.as_deref());
+        }
+        import_from(windows::read, user.as_deref())
+    }
+    #[cfg(not(windows))]
+    {
+        let user = std::env::var("USER").ok();
+        let home = std::env::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("Home directory is unavailable."))?;
+        import_from(
+            || read_directory(&home.join(".putty/sessions")),
+            user.as_deref(),
+        )
+    }
+}
+
+fn import_from(
+    read: impl FnOnce() -> Result<Entries>,
+    user: Option<&str>,
+) -> Result<Vec<ImportSession>> {
+    Ok(read()?
+        .into_iter()
+        .filter_map(|(name, values)| parse(&name, &values, user))
+        .collect())
 }
 
 const MAX_SESSIONS: usize = 10_000;

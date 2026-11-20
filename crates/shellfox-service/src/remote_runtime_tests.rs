@@ -2,6 +2,8 @@
 mod retained;
 #[path = "remote_runtime_saved_tests.rs"]
 mod saved;
+#[path = "remote_runtime_pair_tests.rs"]
+mod pairing;
 use super::*;
 use shellfox_transport::{LoopbackOrigin, Secret, VerifiedHelper};
 use std::path::Path;
@@ -59,6 +61,8 @@ struct FakeNetwork {
     allow_stop: AtomicBool,
     allowed: AtomicBool,
     online: AtomicBool,
+    peer_outage: AtomicBool,
+    pairs: AtomicUsize,
     disconnects: AtomicUsize,
 }
 struct Factory(Arc<FakeNetwork>);
@@ -89,7 +93,7 @@ impl RemoteNetwork for FakeNetwork {
                 id: "n-peer".into(),
                 hostname: "offline peer".into(),
                 addresses: vec!["100.64.0.2".into()],
-                online: true,
+                online: !self.peer_outage.load(Ordering::SeqCst),
             }])
         })
     }
@@ -124,6 +128,9 @@ impl OutboundTransport for FakeNetwork {
         limits: wire::RequestLimits,
     ) -> wire::TransportFuture<'a> {
         Box::pin(async move {
+            if endpoint == wire::Endpoint::Pair {
+                self.pairs.fetch_add(1, Ordering::SeqCst);
+            }
             let response = match endpoint {
                 wire::Endpoint::Discover => {
                     serde_json::json!({"ok":true,"value":{"service":"shellfox","protocolVersion":1}})
@@ -138,10 +145,15 @@ impl OutboundTransport for FakeNetwork {
                     self.disconnects.fetch_add(1, Ordering::SeqCst);
                     serde_json::json!({"ok":true,"value":{"disconnected":true}})
                 }
-                wire::Endpoint::Events => {
-                    limits.cancel.cancelled().await;
-                    return Err(wire::TransportError::Cancelled);
-                }
+                wire::Endpoint::Events => loop {
+                    if self.peer_outage.load(Ordering::SeqCst) {
+                        return Err(wire::TransportError::Unavailable);
+                    }
+                    tokio::select! {
+                        _ = limits.cancel.cancelled() => return Err(wire::TransportError::Cancelled),
+                        _ = tokio::time::sleep(Duration::from_millis(25)) => {}
+                    }
+                },
                 _ => panic!("control actor must not issue terminal mutations"),
             };
             Ok(serde_json::to_vec(&response).unwrap())
@@ -182,6 +194,8 @@ fn fixture() -> (
         allow_stop: AtomicBool::new(true),
         allowed: AtomicBool::new(false),
         online: AtomicBool::new(false),
+        peer_outage: AtomicBool::new(false),
+        pairs: AtomicUsize::new(0),
         disconnects: AtomicUsize::new(0),
     });
     let directory =

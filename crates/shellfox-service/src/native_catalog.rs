@@ -11,17 +11,9 @@ use tokio::sync::oneshot;
 const MAX_JOBS: usize = 4;
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub enum NativePythonFact {
-    Unknown { reason: String },
-    Detected { executable: String },
-    NotFound { reason: String },
-}
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct NativeLaunchCatalog {
     pub probe: shellfox_protocol::NativeProbe,
     pub profiles: shellfox_protocol::TerminalProfiles,
-    pub python: NativePythonFact,
 }
 #[derive(Default)]
 pub(crate) struct NativeCatalogState {
@@ -95,9 +87,6 @@ impl Service {
                     Ok(NativeLaunchCatalog {
                         probe: facts.probe,
                         profiles: facts.profiles,
-                        python: NativePythonFact::Unknown {
-                            reason: "No owner-validated Python detection was performed.".into(),
-                        },
                     })
                 })?;
             Ok(Job {

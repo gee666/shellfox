@@ -100,7 +100,6 @@ impl NativeSourceFactsProjector {
             Ok(ManagerFactsResult {
                 facts: ManagerFacts {
                     settings: Some(SettingsFacts {
-                        python_path: settings.python_path,
                         adapter_id: settings.adapter_id,
                         shell_id: settings.shell_id,
                         shell_executable: settings.shell_executable,

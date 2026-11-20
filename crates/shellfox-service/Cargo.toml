@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
+test-putty-source = []
 experimental-shellfox-native = ["shellfox-runtime/experimental-shellfox-native", "shellfox-mobile/experimental-shellfox-native"]
 
 [dependencies]

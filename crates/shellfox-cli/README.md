@@ -72,7 +72,7 @@ Quote titles containing spaces. Creation requires an explicit profile, so it nev
 & $cli @common settings set '{"historyPageSize":16,"terminalProfileId":"cmd"}'
 ```
 
-Global fields include `accentColor`, `backgroundColor`, `pythonPath`, `adapterId`, `shellId`, `shellExecutable`, `terminalProfileId`, `terminalEnv`, `processRules`, retention hours, and `autoUpdate`. The service resolves changed launch settings through trusted discovery. It rejects arbitrary executables and unavailable selections instead of executing metadata. The parser rejects unknown fields, invalid values, duplicate flags, relative global paths, and extra arguments before contacting the service. `--help` works without paths or a running host.
+Global fields include `accentColor`, `backgroundColor`, `adapterId`, `shellId`, `shellExecutable`, `terminalProfileId`, `terminalEnv`, `processRules`, retention hours, and `autoUpdate`. The service resolves changed launch settings through trusted discovery. It rejects arbitrary executables and unavailable selections instead of executing metadata. The parser rejects unknown fields, invalid values, duplicate flags, relative global paths, and extra arguments before contacting the service. `--help` works without paths or a running host.
 
 ## Local launch and raw automation
 

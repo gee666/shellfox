@@ -36,7 +36,7 @@ pub enum NativeAccepted {
     Owner(NativeOwnerReply),
     Remote(
         oneshot::Receiver<
-            std::result::Result<crate::remote::native::RemoteResponse, shellfox_protocol::AppError>,
+            std::result::Result<crate::remote::native::RemoteReceipt, shellfox_protocol::AppError>,
         >,
     ),
 }
@@ -80,7 +80,10 @@ impl Future for NativeAccepted {
             },
             Self::Remote(receiver) => match Pin::new(receiver).poll(context) {
                 Poll::Pending => Poll::Pending,
-                Poll::Ready(Ok(Ok(state))) => Poll::Ready(Ok(NativeResponse::Remote(state))),
+                Poll::Ready(Ok(Ok(receipt))) => Poll::Ready(Ok(match receipt.connect {
+                    Some(result) => NativeResponse::RemoteConnect { state: receipt.state, result },
+                    None => NativeResponse::Remote(receipt.state),
+                })),
                 Poll::Ready(Ok(Err(error))) => Poll::Ready(Err(anyhow::anyhow!("Remote control request failed: {}", error.message))),
                 Poll::Ready(Err(_)) => Poll::Ready(Err(anyhow::anyhow!("Remote control reply lost after acceptance; outcome is uncertain and action was not retried."))),
             },

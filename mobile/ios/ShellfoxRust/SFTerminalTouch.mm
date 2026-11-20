@@ -22,26 +22,6 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
     std::clamp(floor(point.y / cell.height), 0.0, double(view->_frame->rows - 1)));
 }
 
-static void FileLinkRow(SFTerminalView *view, CGPoint point) {
-  if (!view->_frame || !view.fileLink) return;
-  const auto &frame = *view->_frame;
-  CGPoint cell = CellPoint(view, point);
-  NSMutableString *row = [NSMutableString new];
-  NSUInteger lastGlyph = 0;
-  int offset = 0;
-  for (size_t x = 0; x < frame.cols; ++x) {
-    const auto &glyph = frame.cells[size_t(cell.y) * frame.cols + x];
-    if (glyph.width) {
-      lastGlyph = row.length;
-      NSString *text = [[NSString alloc] initWithBytes:glyph.text.data() length:glyph.text.size() encoding:NSUTF8StringEncoding];
-      [row appendString:text.length ? text : @" "];
-    }
-    if (row.length > 8192) return;
-    if (x == size_t(cell.x)) offset = int(lastGlyph);
-  }
-  view.fileLink(row, offset);
-}
-
 @implementation SFTerminalView (Touch)
 - (void)installGestures {
   UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tap:)];
@@ -54,9 +34,9 @@ static void FileLinkRow(SFTerminalView *view, CGPoint point) {
   [self addGestureRecognizer:scroll];
 }
 - (void)tap:(UITapGestureRecognizer *)gesture {
-  [self selectAt:CGPointZero to:CGPointZero kind:0];
   CGPoint point = [gesture locationInView:self];
-  if (!self.selecting) FileLinkRow(self, point);
+  if (!self.selecting) [self fileLinkAt:point];
+  [self selectAt:CGPointZero to:CGPointZero kind:0];
   if (!self.inputReady) { [self focusInputForAction:SFFocusSurface attempt:NO]; return; }
   [self focusInputForAction:SFFocusSurface attempt:YES];
   CGSize cell = _painter.cellSize;
@@ -216,6 +196,28 @@ static void FileLinkRow(SFTerminalView *view, CGPoint point) {
   }
   [self send:@{@"type":@"paste", @"text":text}];
 }
+- (void)fileLinkAt:(CGPoint)point {
+  auto frame = _frame;
+  if (!frame || !self.fileLink) return;
+  CGSize size = _painter.cellSize;
+  if (point.x < 0 || point.y < 0 || point.x >= frame->cols * size.width ||
+      point.y >= frame->rows * size.height) return;
+  CGPoint cell = CellPoint(self, point);
+  NSUInteger binding = _binding;
+  __weak SFTerminalView *weakSelf = self;
+  [self withTerminal:^(SFTerminal *terminal) {
+    if (terminal.dirty) return;
+    SFTextOutput text{[NSMutableData new]};
+    if (sfm_terminal_file_link(terminal.handle, (uint16_t)cell.x, (uint16_t)cell.y,
+      CopyText, &text) != SFM_OK || text.failed || !text.data.length || text.data.length > 8192) return;
+    NSString *target = [[NSString alloc] initWithData:text.data encoding:NSUTF8StringEncoding];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      SFTerminalView *view = weakSelf;
+      if (target && view && view->_binding == binding && view->_frame == frame && view.window && view.fileLink)
+        view.fileLink(target);
+    });
+  }];
+}
 - (void)openLinkAt:(CGPoint)point {
   if (!_frame) return;
   CGPoint cell = CellPoint(self, point);
@@ -229,7 +231,7 @@ static void FileLinkRow(SFTerminalView *view, CGPoint point) {
     if ([value.lowercaseString hasPrefix:@"file:"]) {
       dispatch_async(dispatch_get_main_queue(), ^{
         SFTerminalView *view = weakSelf;
-        if (view && view->_binding == binding && view.window && view.fileLink) view.fileLink(value, -1);
+        if (view && view->_binding == binding && view.window && view.fileLink) view.fileLink(value);
       });
       return;
     }

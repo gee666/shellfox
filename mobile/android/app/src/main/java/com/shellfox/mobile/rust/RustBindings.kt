@@ -22,5 +22,6 @@ internal object RustBindings {
   external fun select(handle: Long, kind: Int, sx: Int, sy: Int, ex: Int, ey: Int)
   external fun copy(handle: Long): ByteArray
   external fun hyperlink(handle: Long, x: Int, y: Int): ByteArray
+  external fun fileLink(handle: Long, x: Int, y: Int): ByteArray
   external fun mouseTracking(handle: Long): Boolean
 }

@@ -20,10 +20,8 @@ impl Root {
                     .is_some_and(|deadline| deadline.is_some_and(|time| time <= now));
                 (state.remembered
                     && state.online
-                    && matches!(
-                        state.phase,
-                        source::Phase::Reconnecting | source::Phase::AwaitingApproval
-                    )
+                    && state.owner_connected
+                    && state.phase == source::Phase::Reconnecting
                     && !state.pending
                     && due)
                     .then(|| (id.clone(), state.phase))
@@ -42,7 +40,7 @@ impl Root {
                 self.error = Some(error.to_string());
                 continue;
             }
-            self.connect_peer(id, false, window, cx);
+            self.connect_catalog(id, window, cx);
         }
         let peers: Vec<_> = self
             .peers
@@ -85,8 +83,10 @@ impl Root {
                     }
                     match result {
                         Ok(snapshot) => {
-                            if let Err(error) = root.peers.catalog(&cycle, snapshot) {
-                                root.notify_machine_error(&error.to_string(), cx);
+                            match root.peers.catalog(&cycle, snapshot) {
+                                Ok(true) => root.reconcile_peer_file_catalog(&cycle.peer, cx),
+                                Ok(false) => {}
+                                Err(error) => root.notify_machine_error(&error.to_string(), cx),
                             }
                         }
                         Err(error) => {

@@ -1,6 +1,20 @@
 use super::EditorFile;
-use shellfox_files::{WriteResult, WriteText};
+use shellfox_files::{EditorCancellation, WriteResult, WriteText};
 use std::sync::Arc;
+
+pub(crate) enum FileOperation {
+    Open(EditorCancellation),
+    Revalidate(EditorCancellation),
+    Save(EditorCancellation),
+}
+
+impl FileOperation {
+    pub(super) fn cancel(&self) {
+        match self {
+            Self::Open(cancel) | Self::Revalidate(cancel) | Self::Save(cancel) => cancel.cancel(),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct SaveSnapshot {

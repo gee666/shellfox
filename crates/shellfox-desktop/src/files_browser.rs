@@ -1,7 +1,9 @@
-use super::{control, text_button};
+use super::{icon_button, text_button, text_button_enabled};
 use crate::{
     files::{
         Files,
+        completion::completion_list,
+        list::ListingView,
         resizer::{ResizeAxis, files_resizer},
     },
     root::Root,
@@ -10,13 +12,13 @@ use crate::{
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 #[path = "files_browser_rows.rs"]
 mod rows;
-use rows::{Rows, message};
+use rows::{Rows, message, retry_message};
 
 impl Root {
     pub(super) fn file_browser(
         &self,
         palette: Palette,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let Some(files) = &self.files else {
@@ -27,7 +29,10 @@ impl Root {
             .listing
             .as_ref()
             .and_then(|listing| listing.parent_path.clone());
-        let busy = files.busy && files.operation.is_none();
+        files.completion.track_focus(&files.location, window, cx);
+        let busy = files.busy;
+        let loading =
+            files.tree.loading || (files.listing.is_none() && busy && files.operation.is_none());
         let home = if files.backend.is_local() {
             std::env::home_dir().and_then(|path| path.into_os_string().into_string().ok())
         } else {
@@ -36,12 +41,12 @@ impl Root {
                 .and_then(|(_, peer)| peer.home.clone())
         }
         .unwrap_or_else(|| "~".into());
-        let focused = files.location.read(cx).is_focused(window);
-        let match_list = files
-            .completion
-            .state
-            .visible(&files.location.read(cx).text);
+        let location = files.location.read(cx);
+        let completion_focused = location.is_focused(window) && !location.is_composing();
+        let match_list = files.completion.state.visible(&location.text);
         let line = div()
+            .track_focus(&files.browser_focus.line)
+            .tab_stop(false)
             .h(px(30.))
             .flex()
             .items_center()
@@ -52,21 +57,20 @@ impl Root {
             .line_height(px(22.))
             .bg(palette.input_bg)
             .border_1()
-            .border_color(if focused || files.browse_focus.is_focused(window) {
+            .border_color(if files.browser_focus.line.contains_focused(window, cx) {
                 palette.accent
             } else {
                 palette.input_border
             })
             .rounded(px(2.))
             .child(
-                text_button("parent-folder", "↑", palette)
-                    .when(parent.is_none() || busy, |style| style.opacity(0.4))
+                text_button_enabled("parent-folder", "↑", palette, parent.is_some() && !busy)
                     .tooltip(crate::assets::tooltip("Parent folder", palette))
-                    .on_click(cx.listener(move |root, _, _, cx| {
-                        if let Some(path) = &parent {
-                            root.list_files(path.clone(), cx);
-                        }
-                    })),
+                    .when_some(parent.filter(|_| !busy), |button, path| {
+                        button.on_click(
+                            cx.listener(move |root, _, _, cx| root.list_files(path.clone(), cx)),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -89,50 +93,72 @@ impl Root {
             )
             .when(files.backend.is_local(), |line| {
                 line.child(
-                    control("browse-files", "folder", palette)
-                        .track_focus(&files.browse_focus)
-                        .tab_stop(true)
+                    icon_button("browse-files", "folder", palette, !busy)
                         .tooltip(crate::assets::tooltip("Browse folders", palette))
-                        .on_click(cx.listener(|root, _, window, cx| root.browse_files(window, cx))),
+                        .when(!busy, |button| {
+                            button.track_focus(&files.browser_focus.browse).on_click(
+                                cx.listener(|root, _, window, cx| root.browse_files(window, cx)),
+                            )
+                        }),
                 )
             })
             .child(
-                text_button("files-go", "Go", palette)
+                text_button_enabled("files-go", "Go", palette, !busy)
                     .tooltip(crate::assets::tooltip("Open path", palette))
-                    .on_click(cx.listener(|root, _, _, cx| root.submit_file_path(cx))),
+                    .when(!busy, |button| {
+                        button.on_click(cx.listener(|root, _, _, cx| root.submit_file_path(cx)))
+                    }),
             )
             .child(
-                text_button("refresh-files", "↻", palette)
+                text_button_enabled("refresh-files", "↻", palette, !busy)
                     .tooltip(crate::assets::tooltip("Refresh files", palette))
-                    .on_click(cx.listener(|root, _, _, cx| {
-                        if let Some(path) = root.files.as_ref().and_then(|files| {
-                            files.listing.as_ref().map(|listing| listing.path.clone())
-                        }) {
-                            root.list_files(path, cx);
-                        }
-                    })),
+                    .when(!busy, |button| {
+                        button.on_click(cx.listener(|root, _, _, cx| {
+                            if let Some(path) = root.files.as_ref().and_then(|files| {
+                                files
+                                    .listing_error
+                                    .as_ref()
+                                    .and_then(|error| error.retry.clone())
+                                    .or_else(|| {
+                                        files.listing.as_ref().map(|listing| listing.path.clone())
+                                    })
+                            }) {
+                                root.list_files(path, cx);
+                            }
+                        }))
+                    }),
             )
             .when(
                 !files.backend.is_local() && files.document_path.is_none(),
                 |line| line.child(super::transfer_view::inline(files, true, palette, cx)),
             );
         let mut tree = Rows::new(files, palette);
-        if files.listing.is_none() && busy {
-            tree.push(message("Loading folder…", palette));
-        }
-        if let Some((path, error)) = &files.listing_error {
-            let path = path.clone();
-            let retry = files.listing.is_none();
-            tree.push(message(error.clone(), palette).when(retry, |message| {
-                message.child(
-                    text_button("retry-directory", "Retry folder", palette).on_click(
-                        cx.listener(move |root, _, _, cx| root.list_files(path.clone(), cx)),
-                    ),
-                )
-            }));
-        }
-        if let Some(listing) = &files.listing {
-            tree.listing(listing, 0, cx);
+        match ListingView::new(
+            loading,
+            files.listing.as_ref(),
+            files.listing_error.as_ref(),
+        ) {
+            ListingView::Loading => tree.push(message("Loading folder…", palette)),
+            ListingView::Retry { message, path } => {
+                let path = path.to_owned();
+                tree.push(retry_message(
+                    message.to_owned(),
+                    palette,
+                    "retry-directory",
+                    cx.listener(move |root, _, _, cx| root.list_files(path.clone(), cx)),
+                ));
+            }
+            ListingView::Rows {
+                listing,
+                message: notice,
+            } => {
+                if let Some(notice) = notice {
+                    tree.push(message(notice.to_owned(), palette));
+                }
+                if let Some(listing) = listing {
+                    tree.listing(listing, 0, cx);
+                }
+            }
         }
         div()
             .flex()
@@ -141,6 +167,8 @@ impl Root {
             .child(
                 div()
                     .relative()
+                    .track_focus(&files.browser_focus.region)
+                    .tab_stop(false)
                     .capture_key_down(cx.listener(|root, _: &gpui::KeyDownEvent, _, cx| {
                         set_keyboard_focus(root, true, cx)
                     }))
@@ -170,7 +198,7 @@ impl Root {
                     })
                     .child(tree.render())
                     .when(
-                        focused
+                        completion_focused
                             && !busy
                             && files.missing_folder.is_none()
                             && !match_list.is_empty(),
@@ -190,69 +218,14 @@ impl Root {
 }
 
 fn set_keyboard_focus(root: &mut Root, visible: bool, cx: &mut Context<Root>) {
-    if let Some(files) = &mut root.files
-        && files.tree.keyboard_focus != visible
+    if let Some(files) = root
+        .files
+        .as_mut()
+        .filter(|files| files.tree.keyboard_focus != visible)
     {
         files.tree.keyboard_focus = visible;
         cx.notify();
     }
-}
-
-fn completion_list(
-    matches: &[String],
-    files: &Files,
-    palette: Palette,
-    window: &Window,
-    cx: &mut Context<Root>,
-) -> impl IntoElement {
-    let active = files.completion.state.active();
-    let max_height = (f32::from(window.viewport_size().height) * 0.35).min(240.);
-    div()
-        .id("file-directory-completions")
-        .absolute()
-        .top(px(35.))
-        .left(px(4.))
-        .right(px(4.))
-        .occlude()
-        .track_scroll(&files.completion.scroll)
-        .overflow_y_scroll()
-        .max_h(px(max_height))
-        .p(px(2.))
-        .border_1()
-        .border_color(palette.input_border)
-        .rounded(px(2.))
-        .bg(palette.input_bg)
-        .font_family("Cascadia Code")
-        .text_size(px(12.))
-        .line_height(px(20.))
-        .children(matches.iter().enumerate().map(|(index, value)| {
-            div()
-                .id(("file-match", index))
-                .flex()
-                .items_center()
-                .h(px(26.))
-                .gap(px(6.))
-                .px(px(6.))
-                .border_1()
-                .border_color(gpui::transparent_black())
-                .when(index == active, |style| {
-                    style
-                        .bg(palette.accent.opacity(0.12))
-                        .border_color(palette.accent)
-                })
-                .hover(|style| style.bg(palette.hover))
-                .cursor_pointer()
-                .child(
-                    crate::assets::icon("folder")
-                        .size(px(16.))
-                        .flex_shrink_0()
-                        .text_color(palette.muted),
-                )
-                .child(div().min_w_0().truncate().child(value.clone()))
-                .on_click(cx.listener(move |root, _, window, cx| {
-                    root.choose_file_completion(index, window, cx)
-                }))
-        }))
 }
 
 fn missing_folder(

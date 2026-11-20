@@ -44,6 +44,16 @@ class ClientPollLaneTest {
     assertFalse(admitted); assertTrue(failed); assertFalse(f.lane.drained)
     assertEquals("poll-1", f.lane.operation); assertEquals(1, f.starts)
   }
+  @Test fun v1GenerationFenceCanReconnectAfterAFailedPoll() {
+    val f = Fixture(); f.tick()
+    f.lane.complete("poll-1", 5, false)
+    f.lane.prepareV1Fence()
+    f.lane.submit({ "reconnect" }) { id, error -> assertNull(error); assertEquals("reconnect", id) }
+    f.tick(); assertEquals(1, f.starts)
+    f.lane.complete("reconnect", 0, true)
+    f.lane.connection(true, "replacement-binding")
+    f.tick(); assertEquals(2, f.starts)
+  }
   @Test fun recoveryAndBackgroundPauseNewPollsWithoutDiscardingInflight() {
     val f = Fixture(); f.tick(false); assertEquals(0, f.starts)
     f.tick(); f.tick(false); assertEquals("poll-1", f.lane.operation)

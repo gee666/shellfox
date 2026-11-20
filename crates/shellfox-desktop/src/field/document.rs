@@ -15,20 +15,32 @@ impl Field {
         entity
     }
     pub(crate) fn goto_source_position(&mut self, line: usize, column: Option<usize>) {
-        let row = line
-            .saturating_sub(1)
-            .min(self.snapshot.line_count().saturating_sub(1));
-        if let Some(range) = self.snapshot.line(row) {
-            let offset = source_offset(
-                self.text[range.clone()].trim_end_matches('\r'),
-                column.unwrap_or(1),
-            );
-            self.set_cursor(range.start + offset, false);
-            self.scroll.set_offset(gpui::point(
-                gpui::px(0.),
-                gpui::px(-((row.saturating_sub(3)) as f32) * self.line_height),
-            ));
+        self.set_cursor(
+            source_position(&self.snapshot, line, column.unwrap_or(1)),
+            false,
+        );
+        self.reveal_source = true;
+    }
+
+    pub(super) fn reveal_source_position(&mut self) {
+        if !std::mem::take(&mut self.reveal_source) {
+            return;
         }
+        // The logical line can be far above the caret after soft wrapping.
+        let row = self.visual_row(self.cursor);
+        let viewport = f32::from(self.scroll.bounds().size.height);
+        let lead = if viewport > 0. {
+            ((viewport - self.multiline_text_inset()) / self.line_height).floor() as usize
+        } else {
+            4
+        };
+        self.scroll.set_offset(gpui::point(
+            gpui::px(0.),
+            gpui::px(
+                -(row.saturating_sub(lead.saturating_sub(1).min(3)) as f32) * self.line_height,
+            ),
+        ));
+        self.follow_horizontal = true;
     }
 
     pub(crate) fn show_file_location(&mut self, path: String, cx: &mut gpui::Context<Self>) {
@@ -67,6 +79,15 @@ impl Field {
     }
 }
 
+fn source_position(snapshot: &Snapshot, line: usize, column: usize) -> usize {
+    let row = line
+        .saturating_sub(1)
+        .min(snapshot.line_count().saturating_sub(1));
+    snapshot.line(row).map_or(0, |range| {
+        range.start + source_offset(snapshot.text[range.clone()].trim_end_matches('\r'), column)
+    })
+}
+
 fn source_offset(line: &str, column: usize) -> usize {
     let mut remaining = column.saturating_sub(1);
     for (offset, ch) in line.char_indices() {
@@ -87,5 +108,17 @@ mod tests {
         assert_eq!(source_offset("a🦊z", 3), 1);
         assert_eq!(source_offset("a🦊z", 4), 5);
         assert_eq!(source_offset("a🦊z", 99), 6);
+    }
+
+    #[test]
+    fn clamps_both_coordinates_on_the_original_source() {
+        let snapshot = Snapshot::new("first\r\na🦊z\r\nlast");
+        assert_eq!(source_position(&snapshot, 0, 0), 0);
+        assert_eq!(source_position(&snapshot, 2, 4), 12);
+        assert_eq!(source_position(&snapshot, 2, usize::MAX), 13);
+        assert_eq!(
+            source_position(&snapshot, usize::MAX, usize::MAX),
+            snapshot.text.len()
+        );
     }
 }

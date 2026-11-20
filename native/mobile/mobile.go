@@ -15,10 +15,12 @@ import (
 	"shellfox.local/tailscale-helper/controlurl"
 	"shellfox.local/tailscale-helper/nethealth"
 	"tailscale.com/client/local"
+	"tailscale.com/envknob"
 	"tailscale.com/tsnet"
 )
 
 const requestTimeout = 30 * time.Second
+const defaultControlURL = "https://controlplane.tailscale.com"
 
 var singleton struct {
 	sync.Mutex
@@ -26,25 +28,26 @@ var singleton struct {
 }
 
 type node struct {
-	server     *tsnet.Server
-	client     *local.Client
-	ctx        context.Context
-	cancel     context.CancelFunc
-	requests   chan struct{}
-	polls      chan struct{}
-	directory  string
-	hostname   string
-	controlURL string
-	discovery  *hostDiscovery
-	transports transportPool
-	health     *nethealth.Monitor
-	healthDone chan struct{}
+	server       *tsnet.Server
+	client       *local.Client
+	ctx          context.Context
+	cancel       context.CancelFunc
+	requests     chan struct{}
+	polls        chan struct{}
+	directory    string
+	hostname     string
+	controlURL   string
+	restoreRelay func()
+	discovery    *hostDiscovery
+	transports   transportPool
+	health       *nethealth.Monitor
+	healthDone   chan struct{}
 }
 
 // Start opens the persistent node in an absolute, app-private directory.
 // It does not wait for login, advertise a service, or open an inbound listener.
 func Start(stateDirectory, hostname string) error {
-	return start(stateDirectory, hostname, "https://controlplane.tailscale.com")
+	return start(stateDirectory, hostname, defaultControlURL)
 }
 
 // StartWithControlServer explicitly selects an isolated loopback control server.
@@ -79,6 +82,20 @@ func start(stateDirectory, hostname, controlURL string) error {
 	if err := configureRuntime(stateDirectory); err != nil {
 		return err
 	}
+	var restoreRelay func()
+	if controlURL != defaultControlURL {
+		// A loopback fixture reaches its relay via adb reverse or the simulator host.
+		// Its advertised physical endpoints aren't part of the test network.
+		const knob = "TS_DEBUG_NEVER_DIRECT_UDP"
+		previous := os.Getenv(knob)
+		envknob.Setenv(knob, "true")
+		restoreRelay = func() { envknob.Setenv(knob, previous) }
+		defer func() {
+			if singleton.node == nil {
+				restoreRelay()
+			}
+		}()
+	}
 	s := &tsnet.Server{Dir: stateDirectory, Hostname: hostname, Store: store,
 		ControlURL: controlURL,
 		Logf:       func(string, ...interface{}) {}, UserLogf: func(string, ...interface{}) {}}
@@ -104,7 +121,8 @@ func start(stateDirectory, hostname, controlURL string) error {
 	n := &node{
 		server: s, client: client, ctx: ctx, cancel: cancel,
 		requests: make(chan struct{}, 12), polls: make(chan struct{}, 64),
-		directory: filepath.Clean(stateDirectory), hostname: hostname, controlURL: controlURL, discovery: newHostDiscovery(store),
+		directory: filepath.Clean(stateDirectory), hostname: hostname, controlURL: controlURL,
+		restoreRelay: restoreRelay, discovery: newHostDiscovery(store),
 		health: monitor, healthDone: make(chan struct{}),
 	}
 	singleton.node = n
@@ -165,6 +183,9 @@ func stopLocked() error {
 		return nil
 	}
 	singleton.node = nil
+	if n.restoreRelay != nil {
+		defer n.restoreRelay()
+	}
 	n.cancel()
 	n.transports.close()
 	if n.healthDone != nil {

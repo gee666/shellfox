@@ -1,4 +1,7 @@
-use crate::{files::list::Navigation, root::Root};
+use crate::{
+    files::{list::Navigation, terminal_links::LinkOrigin},
+    root::Root,
+};
 use gpui::{Context, Window};
 use shellfox_files::EntryKind;
 
@@ -27,14 +30,59 @@ impl Root {
         if let Some(files) = &mut self.files {
             files.visible = visible;
         }
-        self.navigate_files(path, Navigation::Terminal(self.navigation.epoch()), cx);
+        self.navigate_files(
+            path,
+            Navigation::Terminal(LinkOrigin::Local(self.navigation.epoch())),
+            cx,
+        );
     }
 
-    pub(crate) fn toggle_file_browser(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn open_peer_terminal_folder(&mut self, cx: &mut Context<Self>) {
+        let Some((peer, state)) = self.peers.selected_peer() else {
+            return;
+        };
+        let (Some(tab), Some(&navigation)) =
+            (state.selected_tab, self.peer_ui.navigation.get(peer))
+        else {
+            return;
+        };
+        let origin = LinkOrigin::Peer {
+            tab,
+            navigation,
+            source: self.source_selection_epoch(),
+        };
+        if !self.link_is_current(origin) {
+            return;
+        }
+        let Ok((backend, cwd)) = self.peer_file_backend() else {
+            return;
+        };
+        let path = if backend.is_wsl() {
+            ".".into()
+        } else if let Some(cwd) = cwd {
+            cwd
+        } else {
+            self.error = Some("The remote tab has no reported current directory.".into());
+            cx.notify();
+            return;
+        };
+        self.select_file_scope(backend, cx);
+        self.navigate_files(path, Navigation::Terminal(origin), cx);
+    }
+
+    pub(crate) fn toggle_file_browser(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.require_files_source(cx) {
             return;
         }
         if let Some(files) = &mut self.files {
+            if files.browser {
+                files.completion.state.dismiss();
+                if files.browser_focus.region.contains_focused(window, cx)
+                    || files.height_focus.is_focused(window)
+                {
+                    window.focus(&files.browser_focus.toggle);
+                }
+            }
             files.browser = !files.browser;
             if files.maximized {
                 files.browser_before_maximize = files.browser;
@@ -52,6 +100,7 @@ impl Root {
                 files.browser = files.browser_before_maximize;
             } else {
                 files.browser_before_maximize = files.browser;
+                files.completion.state.dismiss();
                 files.browser = false;
                 files.maximized = true;
             }
@@ -237,6 +286,10 @@ impl Root {
             .as_ref()
             .is_some_and(|files| files.location.read(cx).is_composing())
         {
+            if key == "tab" {
+                window.prevent_default();
+                cx.stop_propagation();
+            }
             return;
         }
         if self.file_completion_key(key, event.keystroke.modifiers.shift, window, cx) {
@@ -260,11 +313,12 @@ impl Root {
 
     pub(crate) fn submit_file_path(&mut self, cx: &mut Context<Self>) {
         let Some(files) = &self.files else { return };
-        let path = files.location.read(cx).text.trim();
-        let path = if path.is_empty() { "~" } else { path }.to_owned();
-        if files.missing_folder.is_some() {
+        let location = files.location.read(cx);
+        if files.busy || files.missing_folder.is_some() || location.is_composing() {
             return;
         }
+        let path = location.text.trim();
+        let path = if path.is_empty() { "~" } else { path }.to_owned();
         if files.backend.is_wsl() && (path == "~" || path.starts_with("~/")) {
             if self.use_host_file_scope(cx) {
                 self.navigate_files(path, Navigation::Input, cx);

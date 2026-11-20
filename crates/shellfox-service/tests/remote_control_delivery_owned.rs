@@ -110,7 +110,7 @@ fn accepted_mutation_dropped_before_dequeue_executes_original_backend_once() -> 
     stopped?;
     let state = observed?;
     ensure!(
-        state.hostname == "accepted-once" && backend.saves.load(Ordering::SeqCst) == 1,
+        state.state.hostname == "accepted-once" && backend.saves.load(Ordering::SeqCst) == 1,
         "Accepted mutation was skipped or repeated"
     );
     ensure!(backend

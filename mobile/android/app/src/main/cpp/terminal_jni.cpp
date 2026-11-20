@@ -86,12 +86,18 @@ extern "C" JNIEXPORT jbyteArray JNICALL JNI(copy)(JNIEnv* env, jobject, jlong ha
   if (out.failed) { fail(env, "Native selection too large"); return nullptr; }
   return bytes(env, out.data);
 }
-extern "C" JNIEXPORT jbyteArray JNICALL JNI(hyperlink)(JNIEnv* env, jobject, jlong handle, jint x, jint y) {
+static jbyteArray copyLink(JNIEnv* env, jlong handle, jint x, jint y, decltype(&sfm_terminal_hyperlink) read) {
   if (x < 0 || y < 0 || x > 511 || y > 511) { fail(env, "Invalid link position"); return nullptr; }
   Copy out;
-  if (!status(env, sfm_terminal_hyperlink(static_cast<SfmHandle>(handle), x, y, encoded, &out))) return nullptr;
+  if (!status(env, read(static_cast<SfmHandle>(handle), x, y, encoded, &out))) return nullptr;
   if (out.failed) { fail(env, "Native link too large"); return nullptr; }
   return bytes(env, out.data);
+}
+extern "C" JNIEXPORT jbyteArray JNICALL JNI(hyperlink)(JNIEnv* env, jobject, jlong handle, jint x, jint y) {
+  return copyLink(env, handle, x, y, sfm_terminal_hyperlink);
+}
+extern "C" JNIEXPORT jbyteArray JNICALL JNI(fileLink)(JNIEnv* env, jobject, jlong handle, jint x, jint y) {
+  return copyLink(env, handle, x, y, sfm_terminal_file_link);
 }
 extern "C" JNIEXPORT jboolean JNICALL JNI(mouseTracking)(JNIEnv* env, jobject, jlong handle) {
   uint8_t enabled = 0;

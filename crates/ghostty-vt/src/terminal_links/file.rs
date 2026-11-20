@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TerminalFileLink {
+pub struct TerminalFileLink {
     pub path: String,
     pub line: Option<usize>,
     pub column: Option<usize>,
@@ -64,7 +64,7 @@ fn file_url_position(hash: &str) -> Option<(usize, Option<usize>)> {
     }
 }
 
-pub(super) fn parse(value: &str) -> Option<TerminalFileLink> {
+pub fn parse(value: &str) -> Option<TerminalFileLink> {
     let value = value.trim();
     if value.is_empty() || value.len() > 8192 || value.chars().any(char::is_control) {
         return None;

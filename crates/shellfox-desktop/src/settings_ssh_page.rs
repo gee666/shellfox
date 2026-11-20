@@ -122,24 +122,24 @@ impl SettingsPanel {
                 .gap(px(12.))
                 .child(
                     controls::column(1.)
-                        .truncate()
                         .text_color(p.foreground)
-                        .child(profile.name.clone()),
+                        .child(crate::assets::ellipsis(profile.name.clone(), 16.)),
                 )
                 .child(
                     controls::column(1.5)
-                        .truncate()
                         .text_size(px(11.))
                         .font_family("Cascadia Code")
                         .text_color(p.muted)
-                        .child(address),
+                        .child(crate::assets::ellipsis(address, 16.)),
                 )
                 .child(
                     controls::column(1.)
-                        .truncate()
                         .text_size(px(10.))
                         .text_color(p.muted)
-                        .child(profile.remote_cwd.clone().unwrap_or_default()),
+                        .child(crate::assets::ellipsis(
+                            profile.remote_cwd.clone().unwrap_or_default(),
+                            16.,
+                        )),
                 );
             let edit = self
                 .text_button(
@@ -210,9 +210,7 @@ impl SettingsPanel {
                     .child("No connections yet."),
             );
         }
-        if self.ssh.editor.is_none()
-            && let Some(error) = &self.ssh.error
-        {
+        if let Some(error) = self.ssh.error.as_ref().filter(|_| self.ssh.editor.is_none()) {
             page = page.child(controls::hint(error.clone(), p).text_color(gpui::rgb(0xfc8397)));
         }
         page.child(

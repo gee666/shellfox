@@ -1,7 +1,5 @@
-mod link_columns;
 mod link_gesture;
 mod link_menu;
-mod link_ranges;
 mod links;
 mod open;
 mod peer;
@@ -10,8 +8,7 @@ mod runtime;
 mod screen;
 mod scrollbar;
 mod status_overlay;
-mod terminal_file_link;
-pub(crate) use terminal_file_link::TerminalFileLink;
+pub(crate) use shellfox_ghostty_vt::terminal_links::TerminalFileLink;
 pub(crate) use status_overlay::TerminalRecovery;
 mod selection;
 mod semantic_selection;

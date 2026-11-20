@@ -52,6 +52,7 @@ impl Root {
             settings: false,
             sidebar: true,
             layout_keys: 0,
+            layout_focus: cx.focus_handle(),
             sidebar_width: 220.,
             resizing_sidebar: false,
             local_expanded: true,
@@ -89,6 +90,10 @@ impl Root {
             }
             return root;
         }
+        // GPUI dispatches unfocused keys at its own root, above our capture handler.
+        root.layout_focus.focus(window);
+        cx.on_focus_lost(window, |root, window, _| root.layout_focus.focus(window))
+            .detach();
         let Some(config) = options.endpoint else {
             root.error = Some(
                 "The shared host requires --helper PATH and --helper-sha256 TRUSTED_DIGEST.".into(),
@@ -144,7 +149,7 @@ impl Root {
                                         }
                                         crate::settings::SettingsEvent::BackgroundSaveFailed(error) => root.notify_operation_error(error, cx),
                                         crate::settings::SettingsEvent::CloseRequested => {
-                                            root.settings = false;
+                                            root.hide_settings(cx);
                                             root.focus_selected(window, cx);
                                             cx.notify();
                                         }

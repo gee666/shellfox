@@ -1,8 +1,8 @@
-use super::{Preview, pending::FileAction};
+use super::{FileOperation, Preview, pending::FileAction};
 use crate::root::Root;
 use gpui::{Bounds, Context, Image, Pixels, RenderImage};
 use image::RgbaImage;
-use shellfox_files::{EditorCancellation, ImageWrite};
+use shellfox_files::{EditorCancellation, ErrorCode, FileError, ImageWrite};
 use std::{cell::Cell, rc::Rc, sync::Arc};
 #[path = "files_image_pixels.rs"]
 mod pixels;
@@ -10,7 +10,7 @@ pub(crate) use pixels::Crop;
 pub(crate) use pixels::Transform;
 
 pub(crate) enum ImageEditor {
-    Loading,
+    Loading(Rc<()>),
     Failed(String),
     Ready(Draft),
 }
@@ -32,6 +32,10 @@ impl ImageEditor {
     pub fn dirty(&self) -> bool {
         matches!(self, Self::Ready(draft) if draft.edits > 0)
     }
+    pub(crate) fn transforming(&self) -> bool {
+        matches!(self, Self::Ready(draft) if draft.working)
+    }
+
     fn ready_mut(&mut self) -> Option<&mut Draft> {
         match self {
             Self::Ready(draft) => Some(draft),
@@ -105,9 +109,8 @@ impl Root {
         };
         let origin = image.clone();
         let input = origin.clone();
-        let backend = files.backend.clone();
-        let epoch = files.source_epoch;
-        files.image_editor = Some(ImageEditor::Loading);
+        let load = Rc::new(());
+        files.image_editor = Some(ImageEditor::Loading(load.clone()));
         let task = cx.background_executor().spawn(async move {
             let pixels = pixels::decode(&input)?;
             let frame = pixels::frame(&pixels);
@@ -116,17 +119,11 @@ impl Root {
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
-                if !root.files_result_current(epoch, &backend) {
-                    return;
-                }
-                let Some(files) = &mut root.files else {
-                    return;
-                };
-                if !matches!(files.image_editor, Some(ImageEditor::Loading))
-                    || !same_image(&files.preview, &origin)
-                {
-                    return;
-                }
+                let target = root.files.iter_mut().chain(&mut root.retained_files).find(|files| {
+                    matches!(&files.image_editor, Some(ImageEditor::Loading(id)) if Rc::ptr_eq(id, &load))
+                        && same_image(&files.preview, &origin)
+                });
+                let Some(files) = target else { return };
                 files.image_editor = Some(match result {
                     Ok((pixels, frame)) => ImageEditor::Ready(Draft::new(pixels, frame)),
                     Err(error) => ImageEditor::Failed(error.to_string()),
@@ -178,8 +175,7 @@ impl Root {
         draft.working = true;
         let current = draft.current.clone();
         let input = current.clone();
-        let backend = files.backend.clone();
-        let epoch = files.source_epoch;
+        let draft_id = draft.bounds.clone();
         let task = cx.background_executor().spawn(async move {
             let pixels = pixels::apply(&input, action)?;
             let frame = pixels::frame(&pixels);
@@ -188,20 +184,11 @@ impl Root {
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
-                if !root.files_result_current(epoch, &backend) {
-                    return;
-                }
-                let Some(draft) = root
-                    .files
-                    .as_mut()
-                    .and_then(|files| files.image_editor.as_mut())
-                    .and_then(ImageEditor::ready_mut)
-                else {
-                    return;
-                };
-                if !Arc::ptr_eq(&draft.current, &current) {
-                    return;
-                }
+                let target = root.files.iter_mut().chain(&mut root.retained_files)
+                    .filter_map(|files| files.image_editor.as_mut().and_then(ImageEditor::ready_mut))
+                    .find(|draft| draft.working && Rc::ptr_eq(&draft.bounds, &draft_id)
+                        && Arc::ptr_eq(&draft.current, &current));
+                let Some(draft) = target else { return };
                 draft.working = false;
                 match result {
                     Ok((pixels, frame)) => {
@@ -248,11 +235,10 @@ impl Root {
         let pixels = draft.current.clone();
         let backend = files.backend.clone();
         let worker = backend.clone();
-        let epoch = files.source_epoch;
         files.request += 1;
         let request_id = files.request;
         let cancel = EditorCancellation::default();
-        files.operation = Some(cancel.clone());
+        files.operation = Some(FileOperation::Save(cancel.clone()));
         files.busy = true;
         draft.error = None;
         let task = cx.background_executor().spawn(async move {
@@ -278,43 +264,32 @@ impl Root {
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
-                let current = root.files_result_current(epoch, &backend);
-                let Some(files) = &mut root.files else {
-                    return;
-                };
-                if files.request != request_id || !files.backend.same_origin(&backend) {
-                    return;
-                }
+                let Some((files, _)) = root.file_write_recipient(request_id, &backend) else { return };
                 files.operation = None;
                 files.busy = false;
                 let Some(draft) = files.image_editor.as_mut().and_then(ImageEditor::ready_mut)
                 else {
                     return;
                 };
-                if !current {
-                    draft.reload_required = true;
-                    draft.error = Some(
-                        "Image save belongs to a retired source. Reload before saving again."
-                            .into(),
-                    );
-                } else {
-                    match result {
-                        Ok(preview) => {
-                            let mut prepared = Some(preview);
-                            if let Err(error) = backend.commit_if_current(|| {
-                                std::mem::swap(&mut files.preview, &mut prepared)
-                            }) {
-                                draft.reload_required = true;
-                                draft.error =
-                                    Some(format!("Image save outcome unconfirmed: {error:#}"));
-                            } else {
-                                draft.original.clone_from(&draft.current);
-                                draft.baseline_frame.clone_from(&draft.frame);
-                                draft.edits = 0;
-                                draft.clean_selection();
-                            }
+                match result {
+                    Ok(preview) => {
+                        let mut prepared = Some(preview);
+                        if let Err(error) = backend.commit_if_current(|| {
+                            std::mem::swap(&mut files.preview, &mut prepared)
+                        }) {
+                            draft.reload_required = true;
+                            draft.error = Some(format!("Image save outcome unconfirmed: {error:#}"));
+                        } else {
+                            draft.original.clone_from(&draft.current);
+                            draft.baseline_frame.clone_from(&draft.frame);
+                            draft.edits = 0;
+                            draft.clean_selection();
                         }
-                        Err(error) => draft.error = Some(error.to_string()),
+                    }
+                    Err(error) => {
+                        draft.reload_required = !error.downcast_ref::<FileError>()
+                            .is_some_and(|error| error.code == ErrorCode::FileConflict);
+                        draft.error = Some(error.to_string());
                     }
                 }
                 cx.notify();

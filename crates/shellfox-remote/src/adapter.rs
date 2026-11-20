@@ -111,7 +111,6 @@ pub struct ManagerFacts {
 }
 #[derive(Clone, Debug)]
 pub struct SettingsFacts {
-    pub python_path: Option<String>,
     pub adapter_id: wire::AdapterId,
     pub shell_id: wire::ShellId,
     pub shell_executable: Option<String>,

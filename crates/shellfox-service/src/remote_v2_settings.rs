@@ -3,7 +3,7 @@ use super::*;
 pub(super) fn project(settings: &shellfox_core::Settings) -> v2::Settings {
     v2::Settings {
         version: settings.version,
-        python_path: Some(settings.python_path.clone()),
+        python_path: None,
         accent_color: settings.accent_color.clone(),
         background_color: Some(settings.background_color.clone()),
         adapter_id: match settings.adapter_id {

@@ -10,7 +10,8 @@ pub(super) enum Operation {
     UseKey,
     Connect(String),
     CancelAttempt(String),
-    ContinueAttempt(String),
+    ResumeAccess(String),
+    CancelPair(String),
     Disconnect(String),
     Approve(String),
     Reject(String),
@@ -38,7 +39,9 @@ impl Operation {
     }
     pub fn section(&self) -> ErrorSection {
         match self {
-            Self::Connect(_) | Self::Disconnect(_) | Self::Forget(_) => ErrorSection::Machines,
+            Self::Connect(_) | Self::CancelPair(_) | Self::Disconnect(_) | Self::Forget(_) => {
+                ErrorSection::Machines
+            }
             Self::Approve(_) | Self::Reject(_) | Self::ConfirmRevoke(_) => ErrorSection::Clients,
             _ => ErrorSection::Access,
         }
@@ -62,7 +65,8 @@ pub(super) struct RemoteView {
     pub login_started: Option<std::time::Instant>,
     pub reading: bool,
     pub polling: bool,
-    pub inflight_peer: Option<String>,
+    pub connecting_peer: Option<String>,
+    pub pairing_scope: pairing::Scope,
 }
 impl RemoteView {
     pub fn new(cx: &mut App) -> Self {
@@ -85,7 +89,8 @@ impl RemoteView {
             login_started: None,
             reading: false,
             polling: false,
-            inflight_peer: None,
+            connecting_peer: None,
+            pairing_scope: Default::default(),
         };
         view.auth.update(cx, |field, cx| {
             field.configure(
@@ -99,6 +104,23 @@ impl RemoteView {
         view.login_address
             .update(cx, |field, cx| field.set_read_only(true, cx));
         view
+    }
+
+    pub fn connected(&self, id: &str) -> bool {
+        self.state.as_ref().is_some_and(|state| {
+            state.peers.iter().any(|peer| {
+                peer.id == id && peer.connection == api::Connection::Connected
+            })
+        })
+    }
+
+    pub fn can_resume_access(&self, id: &str) -> bool {
+        !self.pending
+            && self.state.as_ref().is_some_and(|state| {
+                state.attempts.iter().any(|attempt| {
+                    attempt.id == id && matches!(attempt.kind, api::RemoteAttemptKind::Resume)
+                })
+            })
     }
 
     pub fn retry_release_id(&self) -> Option<&str> {

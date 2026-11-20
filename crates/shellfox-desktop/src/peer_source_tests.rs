@@ -1,4 +1,5 @@
 use super::*;
+use shellfox_service::remote::native::RemoteConnection;
 fn peer(id: &str) -> shellfox_service::remote::native::RemotePeer {
     shellfox_service::remote::native::RemotePeer {
         id: id.into(),
@@ -19,14 +20,66 @@ fn settings_approval_shows_in_sidebar_without_replacing_an_active_window_cycle()
     let mut remote = peer(id.as_str());
     let mut state = PeerSources::default();
     remote.connection = RemoteConnection::AwaitingApproval;
+    let attempt = uuid::Uuid::from_u128(1);
+    remote.attempt_id = Some(attempt);
     state.inventory(&[remote.clone()]);
     assert_eq!(state.peers[&id].phase, Phase::AwaitingApproval);
+    assert_eq!(state.peers[&id].owner_pair_attempt, Some(attempt));
     let cycle = state.begin(&id).unwrap();
-    remote.connection = RemoteConnection::Disconnected;
+    remote.attempt_id = Some(uuid::Uuid::from_u128(2));
     state.inventory(&[remote]);
     assert!(state.current(&cycle));
     assert!(state.peers[&id].pending);
     assert_eq!(state.peers[&id].phase, Phase::AwaitingApproval);
+    assert_eq!(state.peers[&id].owner_pair_attempt, None);
+}
+
+#[test]
+fn a_retired_settings_attempt_cannot_cancel_a_later_attempt() {
+    use shellfox_service::remote::native::RemoteConnection;
+    let id = AuthenticatedPeerId::new("n-work").unwrap();
+    let mut remote = peer(id.as_str());
+    remote.connection = RemoteConnection::Connecting;
+    remote.attempt_id = Some(uuid::Uuid::from_u128(1));
+    let mut state = PeerSources::default();
+    state.inventory(&[remote.clone()]);
+    assert_eq!(state.peers[&id].owner_pair_attempt, remote.attempt_id);
+    state.retire(&id).unwrap();
+    remote.attempt_id = Some(uuid::Uuid::from_u128(2));
+    state.inventory(&[remote]);
+    assert_eq!(state.peers[&id].connection_action(), Some(ConnectionAction::Cancel(uuid::Uuid::from_u128(2))));
+}
+
+#[test]
+fn workspace_retry_only_cancels_its_displayed_owner_receipt() {
+    let id = AuthenticatedPeerId::new("n-retry").unwrap();
+    let mut remote = peer(id.as_str());
+    remote.connection = RemoteConnection::Rejected;
+    let old = Uuid::from_u128(1);
+    remote.attempt_id = Some(old);
+    let mut state = PeerSources::default();
+    state.inventory(&[remote.clone()]);
+    assert_eq!(state.peers[&id].connection_action(), Some(ConnectionAction::Retry));
+
+    let cycle = state.begin(&id).unwrap();
+    assert_eq!(state.peers[&id].connection_action(), None);
+    let retry = Uuid::from_u128(2);
+    remote.connection = RemoteConnection::AwaitingApproval;
+    remote.attempt_id = Some(retry);
+    state.inventory(&[remote.clone()]);
+    assert_eq!(state.peers[&id].connection_action(), None);
+
+    state.phase(&cycle, Phase::Disconnected, None);
+    state.inventory(&[remote.clone()]);
+    assert_eq!(state.peers[&id].connection_action(), Some(ConnectionAction::Cancel(retry)));
+    assert!(!state.peers[&id].owner_connected);
+
+    // If approval wins the race, the owner returns Connected without an attempt.
+    remote.connection = RemoteConnection::Connected;
+    remote.attempt_id = None;
+    state.inventory(&[remote]);
+    assert_ne!(state.peers[&id].connection_action(), Some(ConnectionAction::Cancel(retry)));
+    assert!(state.peers[&id].owner_connected);
 }
 
 fn snapshot() -> m::Snapshot {

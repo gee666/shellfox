@@ -214,6 +214,10 @@ pub enum NativeResponse {
     Ssh(crate::ssh::Response),
     System(crate::system::SystemNativeResponse),
     Remote(crate::remote::native::RemoteResponse),
+    RemoteConnect {
+        state: crate::remote::native::RemoteResponse,
+        result: crate::remote::native::ConnectResult,
+    },
     Changed(Option<ChangedEvent>),
     Attached(Attachment),
     Observed(NativeObserverAttachment),

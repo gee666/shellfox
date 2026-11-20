@@ -78,6 +78,8 @@ impl Render for Root {
         }
         let mut content = div()
             .relative()
+            .track_focus(&self.layout_focus)
+            .tab_stop(false)
             .flex()
             .size_full()
             .overflow_hidden()

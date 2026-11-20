@@ -46,6 +46,16 @@ class NativeTerminalFixtureTest {
     }
     assertTrue(selected.contains("native界"))
   }
+  @Test fun eitherHalfOfAWrappedPlaintextPathResolvesThroughJni() {
+    val path = "./src/deep/界/terminal.rs:12:4"
+    assertEquals(0, RustBindings.submit(terminal, 1, "$path\r\nnot a link".toByteArray()))
+    native {
+      RustBindings.pumpFrame(terminal)
+      assertEquals(path, RustBindings.fileLink(terminal, 12, 0).toString(Charsets.UTF_8))
+      assertEquals(path, RustBindings.fileLink(terminal, 1, 1).toString(Charsets.UTF_8))
+      assertTrue(RustBindings.fileLink(terminal, 1, 2).isEmpty())
+    }
+  }
   @Test fun preeditIsEmptyAndGhosttyEncodesApplicationCursorAndBracketedPaste() {
     RustBindings.submit(terminal, 1, "\u001b[?1h\u001b[?2004h".toByteArray())
     native {

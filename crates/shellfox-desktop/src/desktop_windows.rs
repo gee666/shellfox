@@ -19,6 +19,46 @@ pub(crate) fn caption(cx: &App) -> &'static str {
     if crate::app_host::adapter::get(cx).is_some_and(|host| host.is_attached()) { ATTACHED_WINDOW_TITLE } else { WINDOW_TITLE }
 }
 
+pub(crate) fn bootstrap(options: Options, initial: InitialSelection, trace: bool, cx: &mut App) {
+    #[cfg(target_os = "linux")]
+    if gpui::guess_compositor() == "Wayland" && cx.displays().is_empty() {
+        use std::time::{Duration, Instant};
+        // GPUI receives wl_output events only after its launch callback returns.
+        let executor = cx.background_executor().clone();
+        cx.spawn(async move |cx| {
+            let deadline = Instant::now() + Duration::from_millis(500);
+            while Instant::now() < deadline {
+                match cx.update(|cx| !cx.displays().is_empty()) {
+                    Ok(true) => break,
+                    Ok(false) => {
+                        executor.timer(Duration::from_millis(16)).await;
+                    }
+                    Err(_) => return,
+                }
+            }
+            let _ = cx.update(|cx| open_bootstrap(options, initial, trace, cx));
+        })
+        .detach();
+        return;
+    }
+    open_bootstrap(options, initial, trace, cx);
+}
+
+fn open_bootstrap(options: Options, initial: InitialSelection, trace: bool, cx: &mut App) {
+    crate::trace_ui_init(trace, "desktop_windows::open begin");
+    match open(options, initial, cx) {
+        Ok(window) => {
+            crate::trace_ui_init(trace, "desktop_windows::open returned Ok");
+            crate::launch_runtime::set_bootstrap(window, cx);
+        }
+        Err(error) => {
+            crate::trace_ui_init(trace, "desktop_windows::open returned Err");
+            crate::app_startup::record_init_failure(error, cx);
+            cx.quit();
+        }
+    }
+}
+
 pub(crate) fn open(
     options: Options,
     initial: InitialSelection,

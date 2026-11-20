@@ -37,6 +37,11 @@ pub(crate) fn hyperlink_at(handle: u64, point: ViewportPoint) -> engine::Result<
         owned.terminal.hyperlink_at(point).map_err(map_error)
     })
 }
+fn file_link_at(handle: u64, point: ViewportPoint) -> engine::Result<Option<String>> {
+    engine::with_engine(handle, |owned| {
+        owned.terminal.file_link_at(point).map_err(map_error)
+    })
+}
 pub(crate) fn mouse_tracking(handle: u64) -> engine::Result<bool> {
     engine::with_engine(handle, |owned| {
         owned.terminal.mouse_tracking().map_err(map_error)
@@ -107,6 +112,21 @@ pub extern "C" fn sfm_terminal_hyperlink(
         let callback = callback.ok_or(Status::Invalid)?;
         let uri = hyperlink_at(handle, ViewportPoint { x, y })?.unwrap_or_default();
         callback(context, uri.as_ptr(), uri.len());
+        Ok(())
+    })
+}
+#[no_mangle]
+pub extern "C" fn sfm_terminal_file_link(
+    handle: u64,
+    x: u16,
+    y: u16,
+    callback: Option<BytesFn>,
+    context: *mut c_void,
+) -> i32 {
+    boundary(|| {
+        let callback = callback.ok_or(Status::Invalid)?;
+        let target = file_link_at(handle, ViewportPoint { x, y })?.unwrap_or_default();
+        callback(context, target.as_ptr(), target.len());
         Ok(())
     })
 }

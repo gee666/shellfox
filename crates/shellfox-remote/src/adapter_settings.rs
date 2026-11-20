@@ -28,7 +28,6 @@ pub fn manager_snapshot_with_settings_visible(
     let settings = persisted_settings(settings)?;
     let mut actual = facts.clone();
     actual.settings = Some(SettingsFacts {
-        python_path: settings.python_path.clone(),
         adapter_id: settings.adapter_id,
         shell_id: settings.shell_id,
         shell_executable: settings.shell_executable.clone(),

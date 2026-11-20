@@ -53,7 +53,7 @@ impl SettingsPanel {
                 .child(self.button(
                     "resume-remote-access",
                     "Continue",
-                    Action::Remote(Operation::ContinueAttempt(attempt.id.clone())),
+                    Action::Remote(Operation::ResumeAccess(attempt.id.clone())),
                     cx,
                 ))
                 .child(self.button(

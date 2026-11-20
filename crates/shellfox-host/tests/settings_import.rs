@@ -35,7 +35,6 @@ impl Scratch {
     fn config(&self) -> Settings {
         let mut config = Settings {
             auto_update: false,
-            python_path: Some("/old/system/python3".into()),
             accent_color: "#AaBB01".into(),
             background_color: "#012345".into(),
             adapter_id: SettingsAdapter::EmbeddedPty,
@@ -61,11 +60,10 @@ impl Scratch {
             script_path_suffixes: vec![],
             process_names: None,
         });
+        let mut old = serde_json::to_value(&config).unwrap();
+        old["pythonPath"] = json!("/old/system/python3");
         self.source_db()
-            .execute(
-                "UPDATE settings SET value=?",
-                [serde_json::to_string(&config).unwrap()],
-            )
+            .execute("UPDATE settings SET value=?", [old.to_string()])
             .unwrap();
         config
     }
@@ -105,6 +103,7 @@ fn all_five_copy_versions_preserve_user_configuration_but_not_runtime_or_secrets
             "not-imported",
             "987654321",
             "source-only-secret",
+            "/old/system/python3",
         ] {
             assert!(!text.contains(excluded));
         }

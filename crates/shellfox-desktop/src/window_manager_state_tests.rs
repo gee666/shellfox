@@ -87,6 +87,18 @@ fn wayland_restores_size_and_maximize_without_importing_an_x11_origin() {
 }
 
 #[test]
+fn wayland_fits_an_unplaced_window_on_each_available_output() {
+    let output = |width, height| Monitor {
+        work_area: Rect { x: 0, y: 0, width, height },
+        ..primary()
+    };
+    let displays = [output(0, 0), output(1920, 720), output(1200, 960)];
+    let limit = wayland_output_limit(&displays).unwrap();
+    assert_eq!((limit.work_area.width, limit.work_area.height), (1200, 720));
+    assert!(wayland_output_limit(&[]).is_none());
+}
+
+#[test]
 fn wayland_clamps_default_and_saved_bounds_to_the_logical_output() {
     let monitor = Monitor {
         work_area: Rect { x: 0, y: 0, width: 1200, height: 760 },

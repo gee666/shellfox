@@ -10,4 +10,5 @@ experimental-shellfox-native = ["shellfox-ghostty-vt-sys/experimental-shellfox-n
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+url = "2"
 shellfox-ghostty-vt-sys = { path = "../ghostty-vt-sys" }

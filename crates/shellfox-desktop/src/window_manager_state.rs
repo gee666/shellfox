@@ -130,6 +130,18 @@ pub fn restore_bounds(
     })
 }
 #[cfg(any(target_os = "linux", test))]
+pub(crate) fn wayland_output_limit(monitors: &[Monitor]) -> Option<Monitor> {
+    let mut outputs = monitors.iter().filter(|monitor| monitor.valid());
+    let mut limit = outputs.next()?.clone();
+    // The compositor chooses the output, so fit the window on every output.
+    for output in outputs {
+        limit.work_area.width = limit.work_area.width.min(output.work_area.width);
+        limit.work_area.height = limit.work_area.height.min(output.work_area.height);
+    }
+    Some(limit)
+}
+
+#[cfg(any(target_os = "linux", test))]
 pub(crate) fn restore_size_only(saved: Option<WindowState>, primary: &Monitor) -> Result<RestoredBounds> {
     let saved = saved.filter(|state| state.valid()).map(|state| WindowState {
         x: primary.work_area.x,

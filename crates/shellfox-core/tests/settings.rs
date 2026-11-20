@@ -9,7 +9,10 @@ fn defaults_match_current_electron_settings_and_all_bundled_rules() {
     let settings = Settings::default();
     settings.validate().unwrap();
     assert_eq!(settings.version, 1);
-    assert_eq!(settings.python_path, None);
+    assert!(serde_json::to_value(&settings)
+        .unwrap()
+        .get("pythonPath")
+        .is_none());
     assert_eq!(settings.shell_executable, None);
     assert_eq!(settings.terminal_profile_id, None);
     assert!(settings.auto_update);
@@ -48,14 +51,17 @@ fn defaults_match_current_electron_settings_and_all_bundled_rules() {
 }
 #[test]
 fn patch_preserves_omissions_and_distinguishes_nullable_clears() {
-    let settings = Settings::default().patched(patch(json!({"pythonPath":"/usr/bin/python3","shellExecutable":"/bin/bash","terminalProfileId":"wsl:An opaque distro (dev)"}))).unwrap();
+    let settings = Settings::default()
+        .patched(patch(
+            json!({"shellExecutable":"/bin/bash","terminalProfileId":"wsl:An opaque distro (dev)"}),
+        ))
+        .unwrap();
     assert_eq!(settings.patched(patch(json!({}))).unwrap(), settings);
     let cleared = settings
         .patched(patch(
-            json!({"pythonPath":null,"shellExecutable":null,"terminalProfileId":null}),
+            json!({"shellExecutable":null,"terminalProfileId":null}),
         ))
         .unwrap();
-    assert_eq!(cleared.python_path, None);
     assert_eq!(cleared.shell_executable, None);
     assert_eq!(cleared.terminal_profile_id, Some(None));
     for field in [
@@ -83,7 +89,6 @@ fn patch_preserves_omissions_and_distinguishes_nullable_clears() {
 fn complete_dto_read_defaults_are_not_patch_write_defaults() {
     let mut value = serde_json::to_value(Settings::default()).unwrap();
     for field in [
-        "pythonPath",
         "backgroundColor",
         "historyPageSize",
         "sessionSettleHours",
@@ -111,7 +116,6 @@ fn validation_rejects_invalid_settings_without_command_execution_fields() {
         json!({"historyPageSize":101}),
         json!({"sessionSettleHours":0.5}),
         json!({"sessionDeleteHours":87601}),
-        json!({"pythonPath":"relative"}),
         json!({"terminalProfileId":""}),
         json!({"shellExecutable":"https://bad.test/program"}),
         json!({"terminalEnv":[{"name":"A","value":"a\nb"}]}),
@@ -122,6 +126,9 @@ fn validation_rejects_invalid_settings_without_command_execution_fields() {
         );
     }
     assert!(serde_json::from_value::<SettingsPatch>(json!({"command":"touch unsafe"})).is_err());
+    assert!(
+        serde_json::from_value::<SettingsPatch>(json!({"pythonPath":"/usr/bin/python3"})).is_err()
+    );
     let mut invalid = settings.clone();
     invalid.session_settle_hours = f64::NAN;
     assert!(invalid.validate().is_err());

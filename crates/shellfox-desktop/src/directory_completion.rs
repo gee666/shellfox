@@ -119,6 +119,25 @@ mod tests {
     }
 
     #[test]
+    fn dismiss_before_results_invalidates_the_pending_request() {
+        let mut list = Completion::default();
+        list.cancel();
+        let request = list.ticket;
+        assert!(list.visible("wor").is_empty());
+
+        list.dismiss();
+        assert_ne!(list.ticket, request);
+        assert!(list.dismissed);
+        assert!(list.tab().is_none());
+
+        list.reset();
+        list.arrive(vec!["work/".into(), "workshop/".into()]);
+        assert_eq!(list.tab().as_deref(), Some("work/"));
+        assert_eq!(list.tab().as_deref(), Some("workshop/"));
+        assert_eq!(list.tab().as_deref(), Some("work/"));
+    }
+
+    #[test]
     fn sole_exact_match_is_hidden_but_tab_can_complete_it_and_then_query_children() {
         let mut list = Completion::default();
         list.arrive(vec!["a/".into()]);

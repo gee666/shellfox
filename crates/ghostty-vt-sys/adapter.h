@@ -59,6 +59,7 @@ int sf_mouse(SfVt *vt, const SfMouse *mouse, uint8_t *out, size_t cap, size_t *l
 int sf_selection(SfVt *vt, const SfSelection *selection);
 int sf_copy_selection(SfVt *vt, uint8_t *out, size_t cap, size_t *len);
 int sf_hyperlink(SfVt *vt, uint16_t x, uint16_t y, uint8_t *out, size_t cap, size_t *len);
+int sf_viewport_rows(SfVt *vt, uint8_t *flags, size_t count);
 int sf_adapter_storage_new(SfVt *vt);
 #ifdef SHELLFOX_EXPERIMENTAL_NATIVE
 int sf_experimental_native_borrow(SfVt *vt, GhosttyTerminal *out);

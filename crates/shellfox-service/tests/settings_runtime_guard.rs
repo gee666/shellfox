@@ -2,14 +2,12 @@
 use shellfox_core::{ErrorCode, Result, SessionId, Settings, SettingsPatch};
 use shellfox_host::{Host, SettingsRuntime};
 use shellfox_protocol::CancellationToken;
-use shellfox_service::settings_runtime::{
-    SettingsRuntimeAdapter, UnavailableSettingsPythonValidation,
-};
+use shellfox_service::settings_runtime::SettingsRuntimeAdapter;
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -64,8 +62,7 @@ fn rejects_lost_commit(at: LoseAt) {
     let snapshot = host.snapshot().unwrap();
     let lost = CancellationToken::new();
     let commits = Arc::new(AtomicUsize::new(0));
-    let adapter =
-        SettingsRuntimeAdapter::new(lost.clone(), Arc::new(UnavailableSettingsPythonValidation));
+    let adapter = SettingsRuntimeAdapter::new(lost.clone());
     host.install_settings_runtime(Arc::new(LosingRuntime {
         adapter,
         lost: lost.clone(),

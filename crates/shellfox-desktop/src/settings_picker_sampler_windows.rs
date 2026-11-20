@@ -11,7 +11,7 @@ use windows::Win32::{
 };
 
 /// Keep receiving the user's pointer click even when it lands outside the picker window.
-pub(super) struct Capture(HWND);
+pub(in super::super) struct Capture(HWND);
 
 impl Capture {
     pub fn new(window: &Window) -> anyhow::Result<Self> {

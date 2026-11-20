@@ -17,13 +17,8 @@ impl SettingsPanel {
                         return true;
                     }
                     panel.refresh(cx);
-                    if panel.services.is_some() && !panel.remote.pending && !panel.remote.reading {
-                        panel.remote.reading = true;
-                        panel.request_aux(
-                            api::Request::RemoteState,
-                            aux::After::RemoteRead(panel.remote.epoch),
-                            cx,
-                        );
+                    if panel.services.is_some() {
+                        panel.load_remote(cx);
                     }
                     true
                 });
@@ -80,7 +75,15 @@ impl SettingsPanel {
         if self.operations.frozen() {
             return;
         }
-        self.visible = false;
+        self.dismiss(cx);
+        cx.emit(SettingsEvent::CloseRequested);
+    }
+
+    pub(super) fn dismiss(&mut self, cx: &mut Context<Self>) {
+        if !std::mem::replace(&mut self.visible, false) {
+            return;
+        }
+        self.stop_pairing();
         self.color_picker = None;
         self.save_ready = true;
         self.begin_save(cx);
@@ -108,7 +111,6 @@ impl SettingsPanel {
         }
         self.environment = None;
         self.environment_subscription = None;
-        cx.emit(SettingsEvent::CloseRequested);
         cx.notify();
     }
 }

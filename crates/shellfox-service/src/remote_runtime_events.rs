@@ -86,6 +86,7 @@ impl Manager {
                                 .retain(|a| !matches!(a.kind, AttemptKind::Login));
                             self.state.login_url = None;
                             self.discover();
+                            self.recover_established_peers();
                         }
                     }
                     Err(error) => {
@@ -99,13 +100,20 @@ impl Manager {
                 id,
                 peer,
                 result,
+                activation,
             } if epoch == self.epoch => {
-                if !self.connections.get(&peer).is_some_and(|c| c.id == id) {
-                    return;
-                }
+                let Some(connection) = self.connections.get_mut(&peer)
+                    .filter(|c| c.id == id && !c.cancel.is_cancelled()) else { return };
                 if let Some(target) = self.state.peers.iter_mut().find(|p| p.id == peer) {
+                    let result = result.and_then(|()| {
+                        activation.activate(
+                            self.stop.is_cancelled() || self.lost.is_cancelled(),
+                            std::time::Instant::now(),
+                        )
+                    });
                     match result {
                         Ok(()) => {
+                            connection.established = true;
                             target.connection = RemoteConnection::Connected;
                             target.host_confirmed = true;
                             target.last_error = None;
@@ -114,10 +122,15 @@ impl Manager {
                         }
                         Err(error) => {
                             target.connection = match error.code {
-                                ErrorCode::ApprovalRequired => RemoteConnection::AwaitingApproval,
-                                ErrorCode::AccessDenied => RemoteConnection::Rejected,
+                                ErrorCode::ApprovalRequired if !connection.established => RemoteConnection::AwaitingApproval,
+                                ErrorCode::AccessDenied | ErrorCode::ApprovalRequired => RemoteConnection::Rejected,
+                                ErrorCode::NativeUnavailable if connection.established => RemoteConnection::Reconnecting,
                                 _ => RemoteConnection::Disconnected,
                             };
+                            if matches!(target.connection, RemoteConnection::Rejected) {
+                                target.attempt_id = None;
+                                self.state.attempts.retain(|a| a.id != id);
+                            }
                             target.last_error = Some(error);
                         }
                     }
@@ -129,11 +142,12 @@ impl Manager {
                 peer,
                 error,
             } if epoch == self.epoch && self.connections.get(&peer).is_some_and(|c| c.id == id) => {
+                self.cancel_outgoing_peer(&peer);
                 if let Some(target) = self.state.peers.iter_mut().find(|p| p.id == peer) {
-                    target.connection = if error.code == ErrorCode::AccessDenied {
-                        RemoteConnection::Rejected
-                    } else {
-                        RemoteConnection::Reconnecting
+                    target.connection = match error.code {
+                        ErrorCode::AccessDenied | ErrorCode::ApprovalRequired => RemoteConnection::Rejected,
+                        ErrorCode::NativeUnavailable | ErrorCode::TargetLost => RemoteConnection::Reconnecting,
+                        _ => RemoteConnection::Disconnected,
                     };
                     target.last_error = Some(error);
                 }

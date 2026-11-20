@@ -76,7 +76,7 @@ impl OwnerClient {
             Ok(receive) => receive
                 .await
                 .context("Accepted operator response lost; outcome unknown, not retried")?
-                .map(|state| operator::RemoteOperatorState::from(&state)),
+                .map(|receipt| operator::RemoteOperatorState::from(&receipt.state)),
             Err(error) => Err(error),
         };
         if let Ok(state) = &result {

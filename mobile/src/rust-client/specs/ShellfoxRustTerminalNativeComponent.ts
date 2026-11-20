@@ -14,7 +14,6 @@ export interface NativeProps extends ViewProps {
   onFileLink?: CodegenTypes.DirectEventHandler<Readonly<{
     terminalHandle: string;
     text: string;
-    offset: CodegenTypes.Int32;
   }>>;
   modifiers?: CodegenTypes.Int32;
   fontSize?: CodegenTypes.Float;

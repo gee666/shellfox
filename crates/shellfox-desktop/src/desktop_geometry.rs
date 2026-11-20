@@ -38,12 +38,13 @@ impl WindowHistory {
         cx: &mut App,
         mut options: WindowOptions,
     ) -> (WindowOptions, Option<WindowTracker>) {
-        let Some(history) = cx.try_global::<Self>() else {
+        let Some(history) = cx.try_global::<Self>().filter(|history| !history.claimed) else {
+            #[cfg(target_os = "linux")]
+            if gpui::guess_compositor() == "Wayland" {
+                platform::configure(cx, None, &mut options);
+            }
             return (options, None);
         };
-        if history.claimed {
-            return (options, None);
-        }
         let saved = history.saved;
         let client = history.client.clone();
         cx.global_mut::<Self>().claimed = true;
