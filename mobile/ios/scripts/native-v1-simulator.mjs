@@ -181,9 +181,11 @@ try {
     live(tests, 'Native v1 UI test');
     return listenerStopped(await local('host', 'network', 'status'));
   }, 1_000);
+  console.log('The original Rust listener helper has exited');
   await delay(12_000);
   live(tests, 'Native v1 UI test');
   assert.equal((await local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci')).enabled, true);
+  console.log('Rust host accepted listener restore');
   await until('native v1 UI tests to finish', 12 * 60_000, () => tests.finished);
   assert.equal(tests.status, 0, tests.output);
   assert.match(readFileSync(fixture, 'utf8'), /saved-from-ios/, 'Rust host did not commit the simulator file save');

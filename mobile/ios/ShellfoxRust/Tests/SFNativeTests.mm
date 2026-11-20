@@ -19,6 +19,7 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
 @property(nonatomic) BOOL busyResize;
 @property(nonatomic, strong) NSMutableArray<NSString *> *sent;
 @property(nonatomic, strong) NSMutableArray<NSNumber *> *hints;
+@property(nonatomic, copy) void (^onConsumed)(uint64_t);
 @end
 @implementation SFTestInputSink
 - (instancetype)init {
@@ -33,7 +34,10 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
   if (self.busyResize) return SFM_BUSY;
   [self.sent addObject:@"resize"]; return SFM_OK;
 }
-- (SfmStatus)consumedTerminal:(NSString *)terminal sequence:(uint64_t)sequence { return SFM_CLIENT_EMPTY; }
+- (SfmStatus)consumedTerminal:(NSString *)terminal sequence:(uint64_t)sequence {
+  if (self.onConsumed) self.onConsumed(sequence);
+  return SFM_CLIENT_EMPTY;
+}
 - (SfmStatus)recoveryReady:(NSString *)terminal ready:(uint8_t *)ready { *ready = 0; return SFM_OK; }
 - (void)terminalFailed:(NSString *)terminal status:(SfmStatus)status {}
 @end
@@ -73,6 +77,39 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
   }];
   XCTAssertTrue(accepted);
   [self waitForExpectations:@[done] timeout:5];
+}
+- (void)testOffscreenBoundTerminalDrainsOutputWithoutPublishingAFrame {
+  SFOwner *owner = [SFOwner shared];
+  SFTestInputSink *sink = [SFTestInputSink new];
+  XCTestExpectation *drained = [self expectationWithDescription:@"credit for offscreen output"];
+  XCTestExpectation *closed = [self expectationWithDescription:@"offscreen owner cleanup"];
+  __block SFTerminal *terminal = nil;
+  __block BOOL notified = NO;
+  sink.onConsumed = ^(uint64_t sequence) {
+    if (sequence != 1 || notified) return;
+    notified = YES;
+    [drained fulfill];
+  };
+  XCTAssertTrue([owner enqueue:^{
+    SFTerminal *created = nil;
+    XCTAssertEqual([owner create:20 rows:5 result:&created], SFM_OK);
+    terminal = created;
+    terminal.sink = sink;
+    terminal.visible = NO;
+    terminal.mailbox->active.store(false);
+    const uint8_t text[] = "offscreen";
+    XCTAssertEqual(sfm_terminal_submit(terminal.handle, 1, text, sizeof(text) - 1), SFM_OK);
+  }]);
+  [self waitForExpectations:@[drained] timeout:3];
+  XCTAssertTrue([owner enqueue:^{
+    XCTAssertTrue(terminal.mailbox->take() == nullptr);
+    terminal.sink = nil;
+    // Clean up even if the earlier assertion timed out.
+    XCTAssertEqual(sfm_terminal_pump(terminal.handle, nullptr, nullptr), SFM_OK);
+    XCTAssertEqual([owner close:terminal.identifier], SFM_OK);
+    [closed fulfill];
+  }]);
+  [self waitForExpectations:@[closed] timeout:3];
 }
 - (void)testMailboxReplacesPendingFrameAndRetainsDisplayedFrame {
   shellfox::Mailbox mailbox;

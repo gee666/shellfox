@@ -146,20 +146,24 @@ static void CopyFrame(void *context, const SfmFrame *source) {
             terminal.mailbox->ready.store(false);
           }
         }
-        if ((!terminal.retiring && (!terminal.visible || !terminal.mailbox->active.load())) ||
+        BOOL presenting = !terminal.retiring && terminal.visible && terminal.mailbox->active.load();
+        // Detach waits for the parser, including when UIKit has removed its view.
+        // Keep consuming accepted output without copying a frame for an offscreen terminal.
+        if ((!presenting && !terminal.sink && !terminal.retiring) ||
           (terminal.recovering && !terminal.recoveryInstalled)) continue;
-        if (!terminal.retiring && terminal.viewportUnaccepted && !terminal.recovering && !terminal.readOnly)
+        if (presenting && terminal.viewportUnaccepted && !terminal.recovering && !terminal.readOnly)
           [self resize:terminal.identifier columns:terminal.viewportColumns rows:terminal.viewportRows];
         SfmProgress before = {};
         SfmStatus status = sfm_terminal_progress(terminal.handle, &before);
-        if (status == SFM_OK && (before.queued_chunks || terminal.dirty)) {
+        if (status == SFM_OK && (before.queued_chunks || (presenting && terminal.dirty))) {
           status = sfm_terminal_pump(terminal.handle, PumpError, (__bridge void *)terminal);
           SfmProgress after = {};
           if (status == SFM_OK) status = sfm_terminal_progress(terminal.handle, &after);
-          if (status == SFM_OK && (after.consumed_sequence != terminal.delivered || terminal.dirty)) {
-            if (!terminal.retiring) status = sfm_terminal_frame(terminal.handle, CopyFrame, (__bridge void *)terminal);
+          if (status == SFM_OK) {
+            if (presenting && (after.consumed_sequence != terminal.delivered || terminal.dirty))
+              status = sfm_terminal_frame(terminal.handle, CopyFrame, (__bridge void *)terminal);
             terminal.delivered = after.consumed_sequence;
-            terminal.dirty = NO;
+            terminal.dirty = !presenting;
           }
         }
         // Retry credit even on idle ticks. BUSY accepts nothing and ACK can fail asynchronously.
@@ -171,7 +175,7 @@ static void CopyFrame(void *context, const SfmFrame *source) {
             [terminal.sink recoveryReady:terminal.identifier ready:&ready] == SFM_OK && ready) {
             terminal.recovering = NO; terminal.recoveryInstalled = NO;
             terminal.mailbox->ready.store(true);
-            [self resize:terminal.identifier columns:terminal.viewportColumns rows:terminal.viewportRows];
+            if (presenting) [self resize:terminal.identifier columns:terminal.viewportColumns rows:terminal.viewportRows];
           }
         }
         if (status != SFM_OK) {
