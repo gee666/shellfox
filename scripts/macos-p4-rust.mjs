@@ -44,8 +44,11 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   };
   const focusEditor = async value => {
     await editor(value);
-    action('focus-text', 'File contents');
-    await node('File contents', field => field?.focused === true);
+    await eventually('File contents focused', () => {
+      const field = named(tree(), 'File contents');
+      if (field && !field.focused) action('focus-text', 'File contents');
+      return field;
+    }, field => field?.focused === true);
   };
   const shot = (name, want = () => true) => eventually(`Rust screenshot ${name}`, () => action('capture', path.join(dir, `${name}.png`)), want);
   const clickText = async (name, match = shot => observed(shot, name)) => click(match(await shot(`before-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`, match)));
@@ -282,19 +285,24 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     try {
       if (child.pid && child.exitCode === null && child.signalCode === null) {
         let closeError;
-        try { action('close-window'); } catch (error) { closeError = error; }
+        let nextClose = Date.now();
         let confirmed = false;
         const stopped = await eventually('owned Rust desktop exited', async () => {
           const result = await Promise.race([exited, delay(200, null)]);
-          if (result || failure || confirmed) return result;
+          if (result || confirmed || Date.now() < nextClose) return result;
+          nextClose = Date.now() + 2_000;
           try {
             if (named(tree(), 'Close shells and quit')?.enabled === true) {
               action('press-control', 'Close shells and quit');
               confirmed = true;
+            } else {
+              // Hiding a peer terminal can still leave an in-flight detach.
+              // The close guard rejects the request until that receipt arrives.
+              action('close-window');
             }
-          } catch (error) { closeError ??= error; }
+          } catch (error) { closeError = error; }
           return null;
-        }, Boolean, 30_000).catch(error => {
+        }, Boolean, 40_000).catch(error => {
           if (!failure) {
             try { action('capture', path.join(dir, 'close-screen.png')); } catch { /* Best effort. */ }
             throw closeError ?? error;
