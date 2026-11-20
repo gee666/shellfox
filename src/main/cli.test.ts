@@ -14,9 +14,12 @@ it('assigns different request IDs to same-folder invocations', () => {
   const a = parseCli(['--new-session','--cwd','C:\\work']); const b = parseCli(['--new-session','--cwd','C:\\work']);
   expect(a.ok && b.ok && a.value.request.kind==='new-session' && b.value.request.kind==='new-session' && a.value.request.requestId!==b.value.request.requestId).toBe(true);
 });
-it('separates known runtime switches without swallowing unknown product flags', () => {
-  expect(productArguments(['--inspect=0','--remote-debugging-port=0','--new-session','--cwd','C:\\work'])).toEqual(['--new-session','--cwd','C:\\work']);
-  expect(productArguments(['--run=evil'])).toEqual(['--run=evil']);
+it('drops the dev entry after removing known runtime switches and preserves unknown product flags', () => {
+  const userArgs = ['--new-session', '--cwd', '/work'];
+  expect(productArguments(['Electron', '--inspect=0', '--remote-debugging-port=0', '/repo/tmp/build-test/main/index.cjs', ...userArgs], false, 'darwin')).toEqual(userArgs);
+  expect(productArguments(['electron.exe', '.', '--inspect=0', ...userArgs], false, 'win32')).toEqual(userArgs);
+  expect(productArguments(['Shellfox', '-psn_0_49319', 'start', '.', '--run=extra'], true, 'darwin')).toEqual(['start', '.', '--run=extra']);
+  expect(productArguments(['electron', '--run=extra', '.', ...userArgs], false, 'linux')).toEqual(['--run=extra', ...userArgs]);
 });
 it('rejects forwarded extras', () => expect(validateForwarded({version:1,kind:'show',cwd:'C:\\work'}).ok).toBe(false));
 it('gates test flags and enforces isolated test paths', () => {

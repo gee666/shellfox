@@ -54,7 +54,7 @@ const appData = __TEST_BUILD__ && process.env.SHELLFOX_TEST_APP_DATA && path.res
 const productData = path.join(appData, 'Shellfox');
 if (process.platform === 'win32') app.setAppUserModelId('com.squirrel.shellfox.Shellfox');
 app.setPath('userData', productData);
-const args = productArguments(process.argv.slice(app.isPackaged ? 1 : 2));
+const args = productArguments(process.argv, app.isPackaged);
 const lifecycle = installerEvent(args);
 const explorerIntegration = (isolatedData?: string) => {
   const testKey = isolatedData ? 'Software\\Shellfox\\Tests\\' + createHash('sha256').update(isolatedData).digest('hex') + '\\Explorer' : null;

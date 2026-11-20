@@ -10,9 +10,15 @@ export const cliRequestSchema = z.discriminatedUnion('kind', [
   z.object({ version: z.literal(1), kind: z.literal('show') }).strict(),
   z.object({ version: z.literal(1), kind: z.literal('new-session'), requestId: idSchema, cwd: pathSchema }).strict(),
 ]);
-// Electron/Playwright runtime switches are not product flags or directory values.
-export function productArguments(args: string[]): string[] {
-  return args.filter(arg => !/^--(?:inspect(?:-brk)?|remote-debugging-port)=\d+$/.test(arg));
+// Electron can retain runtime switches before the unpackaged entry in process.argv.
+export function productArguments(argv: readonly string[], packaged: boolean, platform = process.platform): string[] {
+  const args = argv.slice(1).filter(arg =>
+    !/^--(?:inspect(?:-brk)?|remote-debugging-port)=\d+$/.test(arg)
+    && !(platform === 'darwin' && /^-psn_\d+_\d+$/.test(arg)));
+  if (packaged) return args;
+  const entry = args.findIndex(arg => !arg.startsWith('-'));
+  if (entry !== -1) args.splice(entry, 1);
+  return args;
 }
 export interface ParsedCli { request: CliRequest; userData?: string; backend?: 'fake' | 'real' }
 export function parseCli(args: string[], options: { testMode?: boolean; testBuild?: boolean; projectRoot?: string; cwd?: string } = {}): Result<ParsedCli> {

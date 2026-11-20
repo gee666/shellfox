@@ -102,6 +102,10 @@ try {
   console.log('Creating the fixture PTY and enabling the host listener');
   local('session', 'create', '--cwd', project, '--profile', 'login-shell', '--title', 'iOS native CI');
   assert.equal(local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci').enabled, true);
+  await until('the host fixture on the private test tailnet', 30_000, () => {
+    live(host, 'Rust host');
+    return local('host', 'network', 'status').status === 'online';
+  });
   console.log(`Booting ${simulator.name} (${simulator.udid})`);
   if (simulator.state !== 'Booted') sim('boot', simulator.udid);
   command('xcrun', ['simctl', 'bootstatus', simulator.udid, '-b'], { timeout: 240_000, stdio: 'inherit' });

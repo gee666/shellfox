@@ -152,9 +152,9 @@ private func colors(_ image: CGImage) throws -> [String: [String: CGFloat]] {
 }
 
 @MainActor
-private func capture(_ owner: pid_t, _ target: String, _ ax: AXUIElement) async throws -> [String: Any] {
+private func capture(_ owner: pid_t, _ target: String, _ area: CGRect) async throws -> [String: Any] {
     let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-    guard let area = rectangle(ax), let window = content.windows.first(where: {
+    guard let window = content.windows.first(where: {
         $0.owningApplication?.processID == owner && abs($0.frame.width - area.width) < 4 && abs($0.frame.height - area.height) < 4
     }) else { throw ProbeError("ScreenCaptureKit cannot see the owned window") }
     let filter = SCContentFilter(desktopIndependentWindow: window)
@@ -188,17 +188,46 @@ private func capture(_ owner: pid_t, _ target: String, _ ax: AXUIElement) async 
             "lines": lines, "colors": try colors(image)]
 }
 
+@MainActor
+private func aquaProbe(_ app: NSApplication, _ output: String) async throws {
+    let window = NSWindow(contentRect: CGRect(x: 45, y: 45, width: 640, height: 220),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.title = "Shellfox P4 fixture preflight"
+    window.makeKeyAndOrderFront(nil)
+    app.activate(ignoringOtherApps: true)
+    defer { window.orderOut(nil) }
+    let owner = ProcessInfo.processInfo.processIdentifier
+    try await Task.sleep(for: .milliseconds(350))
+    _ = try await capture(owner, output, window.frame)
+    try key(owner, ["111", "-"][...]) // F12, posted only to this probe.
+    guard receivesPreflightKey(app) else { throw ProbeError("Aqua did not deliver PID-targeted keyboard input to the owned probe window.") }
+}
+
+@MainActor
+private func receivesPreflightKey(_ app: NSApplication) -> Bool {
+    let stop = Date().addingTimeInterval(2)
+    while let event = app.nextEvent(matching: .keyDown, until: stop, inMode: .default, dequeue: true) {
+        if event.keyCode == 111 { return true }
+    }
+    return false
+}
+
 @main
 private struct WindowProbe {
     @MainActor static func main() async {
         do {
+            // ScreenCaptureKit and Quartz expect a WindowServer connection in a CLI probe too.
+            let application = NSApplication.shared
+            application.setActivationPolicy(.accessory)
             guard AXIsProcessTrusted(), CGPreflightScreenCaptureAccess(),
                   let session = CGSessionCopyCurrentDictionary() as? [String: Any],
                   session[kCGSessionOnConsoleKey as String] as? Bool == true else {
                 throw ProbeError("P4 requires a logged-in Aqua session with Accessibility and Screen Recording permissions. Use an isolated graphical runner with those permissions.")
             }
             let args = CommandLine.arguments
-            if args.count == 2 && args[1] == "preflight" { return }
+            if args.count == 3 && args[1] == "preflight" {
+                try await aquaProbe(application, args[2]); return
+            }
             guard args.count >= 3, let owner = pid_t(args[1]), owner > 1, let app = NSRunningApplication(processIdentifier: owner) else {
                 throw ProbeError("Expected an owned GUI PID and action")
             }
@@ -225,8 +254,10 @@ private struct WindowProbe {
             case "clipboard": result = ["value": NSPasteboard.general.string(forType: .string) ?? ""]
             case "click": try click(owner, values, window); return
             case "capture":
-                guard let target = values.first else { throw ProbeError("Missing screenshot path") }
-                result = try await capture(owner, target, window)
+                guard let target = values.first, let bounds = rectangle(window) else {
+                    throw ProbeError("Missing screenshot path or owned window bounds")
+                }
+                result = try await capture(owner, target, bounds)
             default: throw ProbeError("Unknown window probe action: \(args[2])")
             }
             FileHandle.standardOutput.write(try JSONSerialization.data(withJSONObject: result))

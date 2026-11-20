@@ -134,7 +134,7 @@ jobs:
         run: |
           mkdir -p tmp/lane-apple/p4
           xcrun swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.2" scripts/macos-p4-window.swift -o tmp/lane-apple/p4/window-probe
-          tmp/lane-apple/p4/window-probe preflight
+          tmp/lane-apple/p4/window-probe preflight tmp/lane-apple/p4/preflight.png
         timeout-minutes: 5
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -192,6 +192,7 @@ jobs:
         with:
           name: macos-p4-files-${{ matrix.arch }}
           path: |
+            tmp/lane-apple/p4/preflight.png
             tmp/lane-apple/p4/files-*/**/*.png
             tmp/lane-apple/p4/files-*/**/*.json
             tmp/lane-apple/p4/files-*/**/*.log

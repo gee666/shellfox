@@ -21,7 +21,7 @@ for (const key of ['rust', 'cli', 'helper', 'electron', 'electron-project', 'art
 const lane = await realpath(path.join(scratchRoot, 'lane-apple/p4'));
 assert.equal(await realpath(args.artifacts), lane);
 assert.equal(await realpath(args.probe), path.join(lane, 'window-probe'));
-run(args.probe, ['preflight'], { timeout: 10_000 });
+assert.equal(await realpath(path.join(lane, 'preflight.png')), path.join(lane, 'preflight.png'));
 const [rust, cli, helper, electron, testcontrol, remoteHelper] = await Promise.all(
   [args.rust, args.cli, args.helper, args.electron, args.testcontrol, args['electron-remote-helper']].map(file => realpath(file)));
 assert.equal(rust, path.join(scratchRoot, 'lane-apple/target/debug/shellfox'));
