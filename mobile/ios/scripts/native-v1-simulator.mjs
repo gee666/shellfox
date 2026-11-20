@@ -124,11 +124,6 @@ try {
   // verifies echo, and detaches without leaving a controller behind.
   command('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'attach', tab.id],
     { timeout: 60_000, stdio: 'inherit' });
-  assert.equal((await local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci')).enabled, true);
-  await until('the host fixture on the private test tailnet', 30_000, async () => {
-    live(host, 'Rust host');
-    return (await local('host', 'network', 'status')).status === 'online';
-  }, 1_000);
   console.log(`Booting ${simulator.name} (${simulator.udid})`);
   if (simulator.state !== 'Booted') sim('boot', simulator.udid);
   command('xcrun', ['simctl', 'bootstatus', simulator.udid, '-b'], { timeout: 240_000, stdio: 'inherit' });
@@ -145,15 +140,27 @@ try {
     live(tests, 'Native v1 UI test');
     return tests.startedTest;
   }, 1_000);
+  // Publish the listener once the test starts. Simulator installation can take
+  // several minutes; the test should discover a fresh listener, not an idle one.
+  console.log('Publishing the isolated Rust listener for iPad discovery');
+  assert.equal((await local('host', 'network', 'on', '--hostname', 'shellfox-ios-ci')).enabled, true);
+  let lastNetworkStatus;
   const pending = await until('the simulator pairing request', 180_000, async () => {
     live(tests, 'Native v1 UI test');
     live(host, 'Rust host');
+    live(control, 'Control plane');
     let state;
     try { state = await local('host', 'network', 'status'); }
     catch (error) {
       if (!error.killed || error.signal !== 'SIGTERM') throw error;
       console.warn('Host status read timed out while XCTest was running; retrying the read');
       return undefined;
+    }
+    const summary = JSON.stringify({ status: state.status, enabled: state.enabled,
+      peers: state.peers.map(peer => ({ hostname: peer.hostname, online: peer.online })), pending: state.pending.length });
+    if (summary !== lastNetworkStatus) {
+      console.log(`iPad discovery: ${summary}`);
+      lastNetworkStatus = summary;
     }
     assert.ok(state.pending.length <= 1, 'Multiple peers in a private test tailnet');
     return state.pending[0];
