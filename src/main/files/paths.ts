@@ -5,7 +5,7 @@ import { fileLocationSchema } from '../../shared/file-schemas';
 import { parseWslUnc } from '../../shared/wsl-path';
 
 export class FileError extends Error {
-  constructor(readonly code: 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'ACCESS_DENIED' | 'FILE_CONFLICT', message: string) { super(message); }
+  constructor(readonly code: 'VALIDATION' | 'NOT_FOUND' | 'UNSUPPORTED' | 'ACCESS_DENIED' | 'FILE_CONFLICT' | 'TARGET_LOST', message: string) { super(message); }
 }
 export interface FileSessionContext {
   session(id: string): { cwd: string } | undefined;

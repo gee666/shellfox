@@ -137,8 +137,14 @@ export class FileTransfers {
         requireValid(valid); entry.offset += written; return { offset: entry.offset };
       }
       return await this.finishWrite(entry, valid);
-    } catch (error) { entry.cancelled = true; throw error; }
-    finally { entry.busy = false; if (entry.cancelled) await this.remove(entry); }
+    } catch (error) {
+      const cancelledOnly = entry.cancelled && !this.disposed && actor.valid() && entry.valid();
+      entry.cancelled = true;
+      // The transfer may be cancelled while its peer approval is still live.
+      // Reserve ACCESS_DENIED for actual authorization failures.
+      if (cancelledOnly) throw new FileError('TARGET_LOST', 'File transfer was cancelled.');
+      throw error;
+    } finally { entry.busy = false; if (entry.cancelled) await this.remove(entry); }
   }
   private async beginRead(actor: FileActor, input: FileTransferInput<'beginFileRead'>): Promise<FileTransferValue<'beginFileRead'>> {
     const { assetPath, ...location } = input, target = await resolveFileTarget(this.context, location);

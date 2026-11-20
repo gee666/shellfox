@@ -72,6 +72,16 @@ it('binds handles to their initiating owner, rejects bad offsets and deletes par
   expect(await f.send('finishFileWrite', { transferId: next.transferId })).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
   expect(await readdir(f.root)).toEqual([]);
 });
+it('cancels an active chunk without turning a live peer into an authorization failure', async () => {
+  const f = await fixture(), file = path.join(f.root, 'unfinished.bin');
+  const { transferId } = value(await f.send('beginFileWrite', { path: file, size: 1, mode: 'create', content: 'file' }));
+  const write = f.send('writeFileChunk', { transferId, offset: 0, data: 'YQ==' });
+  expect(await f.send('cancelFileTransfer', { transferId })).toMatchObject({ ok: true, value: { cancelled: true } });
+  expect(await write).toMatchObject({ ok: false, error: { code: 'TARGET_LOST' } });
+  expect(await readdir(f.root)).toEqual([]);
+  const next = value(await f.send('beginFileWrite', { path: file, size: 0, mode: 'create', content: 'file' }));
+  expect(await f.send('finishFileWrite', { transferId: next.transferId })).toMatchObject({ ok: true, value: { size: 0 } });
+});
 it('enforces upload quotas and concurrent handle limits before opening more staging files', async () => {
   const f = await fixture(1024), input = { path: path.join(f.root, 'one'), size: 1024, mode: 'create' as const, content: 'file' as const };
   const first = value(await f.send('beginFileWrite', input));
