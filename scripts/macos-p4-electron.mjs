@@ -135,16 +135,17 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       await expect.poll(() => action('clipboard').value.replace(/^\uFEFF/, '')).toBe('P4 editor first line');
       await editor.press('Meta+a');
       await editor.press('Meta+c');
-      await expect.poll(() => action('clipboard').value).toBe(`\uFEFF${original}`);
+      await expect.poll(() => action('clipboard').value.replace(/^\uFEFF/, '')).toBe(original);
       await editor.press('Meta+x');
       await expect(editor).toHaveValue('');
-      const edited = `\uFEFF${updated}`;
-      action('paste', edited);
-      await expect(editor).toHaveValue(edited);
+      action('paste', updated);
+      await expect(editor).toHaveValue(updated);
       await editor.press('Meta+z');
       await expect(editor).toHaveValue('');
       await editor.press('Meta+Shift+z');
-      await expect(editor).toHaveValue(edited);
+      await expect(editor).toHaveValue(updated);
+      // Electron exposes BOM as part of the editor's text, unlike Rust.
+      await editor.fill(`\uFEFF${updated}`);
       await expect(button('Save file')).toBeEnabled();
       shot('07-editor-dirty');
       await editor.press('Meta+s');

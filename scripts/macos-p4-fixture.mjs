@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, truncate, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
 
@@ -67,7 +67,9 @@ export async function createFiles(parent, url) {
   });
 });`),
     writeFile(path.join(project, 'oversize.txt'), Buffer.alloc(8 * 1024 * 1024 + 1, 'x')),
-    writeFile(path.join(project, 'oversize.png'), Buffer.alloc(64 * 1024 * 1024 + 1)),
   ]);
+  const largeImage = path.join(project, 'oversize.png');
+  await copyFile(new URL('../resources/icon/icon-16.png', import.meta.url), largeImage);
+  await truncate(largeImage, 64 * 1024 * 1024 + 1);
   return project;
 }

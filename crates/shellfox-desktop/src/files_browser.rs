@@ -133,7 +133,7 @@ impl Root {
                 !files.backend.is_local() && files.document_path.is_none(),
                 |line| line.child(super::transfer_view::inline(self, files, true, palette, cx)),
             );
-        let mut tree = Rows::new(files, palette);
+        let mut tree = Rows::new(self, files, palette);
         match ListingView::new(
             loading,
             files.listing.as_ref(),

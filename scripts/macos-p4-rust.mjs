@@ -118,10 +118,11 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
       await shot('04-before-folder-error', shot => observed(shot, 'gone'));
       await rename(path.join(project, 'gone'), path.join(project, 'moved'));
       try {
-        await clickText('gone');
-        await shot('05-folder-error', shot => observed(shot, 'Retry folder'));
+        await press('gone');
+        await node('Retry folder');
+        await shot('05-folder-error');
       } finally { await rename(path.join(project, 'moved'), path.join(project, 'gone')); }
-      await clickText('Retry folder');
+      await press('Retry folder');
       await shot('06-folder-retry', shot => observed(shot, 'Empty folder'));
 
       const notes = path.join(project, 'notes.txt');

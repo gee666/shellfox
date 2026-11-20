@@ -126,16 +126,8 @@ func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
     let bounds = rectangle(dialog) else {
         throw ProbeError("No \(name) in the owned native picker")
     }
-    // In list/column view the label can be nested under a selectable row.
-    var item: AXUIElement? = entry
-    for _ in 0..<4 {
-        guard let element = item else { break }
-        let role: String? = attribute(element, kAXRoleAttribute)
-        if role == kAXRowRole || role == kAXCellRole {
-            if AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, kCFBooleanTrue) == .success { return }
-        }
-        item = attribute(element, kAXParentAttribute)
-    }
+    // Some AppKit rows acknowledge AXSelected without changing Open's state.
+    // Hit the actual file label after making its bounding box visible instead.
     var target = row
     if !bounds.contains(CGPoint(x: target.midX, y: target.midY)) {
         // AppKit column view exposes offscreen file labels. Scroll the native
