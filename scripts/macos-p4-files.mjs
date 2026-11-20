@@ -61,25 +61,39 @@ async function environment(parent) {
 
 const probe = await startContainmentProbe();
 const failed = [];
-const setup = async name => {
-  const target = path.join(dir, name);
+const setup = async (section, name) => {
+  const target = path.join(dir, section, name);
   const env = await environment(target);
   const project = await createFiles(target, probe.url);
-  return { dir: target, env, project, window, async checkNetwork(label) {
+  return { dir: target, env, project, window, section, async checkNetwork(label) {
     await delay(1_000);
     assert.deepEqual(probe.requests, [], `${label} contacted the loopback server`);
   } };
 };
-let scale;
+async function record(section, app, scenario) {
+  console.log(`P4 ${section}: ${app}`);
+  try {
+    const result = await scenario();
+    console.log(`P4 ${section}: ${app} passed`);
+    return result;
+  } catch (error) {
+    failed.push(error);
+    console.error(`P4 ${section}: ${app} failed`, error);
+    return undefined;
+  } finally {
+    await writeFile(path.join(dir, section, `${app}-loopback.json`), JSON.stringify(probe.requests.splice(0)));
+  }
+}
 try {
-  try { scale = await runRust({ ...await setup('rust'), binary: rust, cli, helper, testcontrol }); }
-  catch (error) { failed.push(error); console.error(error); }
-  await writeFile(path.join(dir, 'rust-loopback.json'), JSON.stringify(probe.requests.splice(0)));
-  try { await runElectron({ ...await setup('electron'), binary: electronBinary, main: electron, projectRoot: electronProject, remoteHelper, scale }); }
-  catch (error) { failed.push(error); console.error(error); }
-  await writeFile(path.join(dir, 'electron-loopback.json'), JSON.stringify(probe.requests));
+  // A shortcut or picker failure must not hide a separate preview or transfer defect.
+  for (const section of ['workspace', 'preview', 'transfers']) {
+    await mkdir(path.join(dir, section), { mode: 0o700 });
+    const scale = await record(section, 'rust', async () => runRust({ ...await setup(section, 'rust'), binary: rust, cli, helper, testcontrol }));
+    await record(section, 'electron', async () => runElectron({ ...await setup(section, 'electron'),
+      binary: electronBinary, main: electron, projectRoot: electronProject, remoteHelper, scale }));
+  }
 } finally {
   await probe.close();
 }
 if (failed.length) throw new AggregateError(failed, `Mac Files runtime failed; evidence: ${dir}`);
-console.log('Both macOS apps passed the paired Files, edit/save and native preview checks.');
+console.log('Both macOS apps passed Files, editor, native preview and peer transfers.');
