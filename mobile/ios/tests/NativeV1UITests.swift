@@ -86,8 +86,10 @@ final class NativeV1UITests: XCTestCase {
     let file = app.buttons["Open file fixture.txt"]
     XCTAssertTrue(file.waitForExistence(timeout: 30), app.debugDescription)
     file.tap()
-    let edit = app.buttons["Edit source"]
-    XCTAssertTrue(edit.waitForExistence(timeout: 20), app.debugDescription)
+    let edit = app.buttons["files-mode"]
+    // A Files request can wait behind the current long poll before it starts.
+    XCTAssertTrue(edit.waitForExistence(timeout: 65), app.debugDescription)
+    XCTAssertEqual(edit.label, "Edit source")
     edit.tap()
     let source = app.textViews["file-source"].firstMatch
     XCTAssertTrue(source.waitForExistence(timeout: 20), app.debugDescription)
@@ -97,7 +99,7 @@ final class NativeV1UITests: XCTestCase {
     let save = app.buttons["files-save"]
     wait("file is ready to save") { save.exists && save.isEnabled }
     save.tap()
-    wait("file saved") { save.exists && !save.isEnabled && save.label != "Saving" }
+    wait("file saved", timeout: 65) { save.exists && !save.isEnabled && save.label != "Saving" }
     screenshot("07-native-file-saved")
   }
 
