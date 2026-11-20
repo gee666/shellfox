@@ -235,8 +235,11 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
         await go(path.join(peer.a, name), peer.a);
         await shot('20-peer-binary', capture => observed(capture, 'Binary file'));
       },
+      async startCancellationProbe() {
+        await press('Upload file');
+        await node('Cancel transfer', value => value?.enabled === true);
+      },
       cancelUpload: () => press('Cancel transfer'),
-      chooseCancelProbe: () => node('Cancel transfer', value => value?.enabled === true),
       idle: () => node('Upload file', value => value?.enabled === true),
     });
     await go(path.join(peer.a, 'scope.txt'), peer.a);
@@ -254,7 +257,14 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await press('Select session P4 peer A');
     await go(peer.a, peer.a);
     await editor(draft);
-    await peer.cycleListener(() => shot('24-peer-listener-offline'));
+    const peerSession = 'Select session P4 peer A';
+    await node(peerSession);
+    await peer.cycleListener(async () => {
+      await eventually('desktop observed the stopped peer listener', tree,
+        rows => named(rows, 'Peer connection') && !named(rows, peerSession), 75_000);
+      await shot('24-peer-listener-offline');
+    });
+    await node(peerSession);
     await editor(draft);
     const savedPeerFile = path.join(peer.a, 'scope.txt');
     assert.equal(await readFile(savedPeerFile, 'utf8'), 'Draft on peer A\n');

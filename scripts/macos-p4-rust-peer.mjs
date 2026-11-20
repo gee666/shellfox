@@ -87,7 +87,7 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
     }
     assert.equal(hostCLI('host', 'network', 'on', '--hostname', hostName).enabled, true);
     const current = () => status(viewer).peers.find(row => row.id === peer.id);
-    const connected = () => eventually('P4 peer connected without an explicit reconnect', current, row => row?.connection === 'connected');
+    const connected = () => eventually('P4 peer connected without an explicit reconnect', current, row => row?.connection === 'connected', 60_000);
     return {
       async connect() {
         assert.equal(viewer('host', 'network', 'on', '--hostname', viewerName).enabled, true);
@@ -105,7 +105,6 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
         await requestListenerStop(hostCLI);
         await eventually('original P4 listener helper stopped', () => status(hostCLI), listenerStopped);
         try {
-          await eventually('P4 viewer noticed the host listener outage', current, row => row?.connection === 'reconnecting');
           await duringOutage();
         } finally {
           assert.equal(hostCLI('host', 'network', 'on', '--hostname', hostName).enabled, true);

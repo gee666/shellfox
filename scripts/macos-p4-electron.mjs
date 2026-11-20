@@ -249,6 +249,19 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
         await button(name).click();
         await expect(button('Download selected file')).toBeEnabled();
       },
+      async startCancellationProbe(source) {
+        // The ordinary upload above exercises the real picker. Start this probe
+        // without waiting for a modal to dismiss while the upload completes.
+        await app.evaluate(({ dialog }, fixture) => {
+          const showOpen = dialog.showOpenDialog;
+          dialog.showOpenDialog = (_window, options) => {
+            dialog.showOpenDialog = showOpen;
+            if (options.title !== 'Upload file') throw new Error('Expected the owned upload picker');
+            return Promise.resolve({ canceled: false, filePaths: [fixture] });
+          };
+        }, source);
+        await button('Upload file').click();
+      },
       cancelUpload: () => button('Cancel file transfer').click(),
       idle: () => expect(button('Upload file')).toBeEnabled(),
     });

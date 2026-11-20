@@ -156,6 +156,11 @@ func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
             Thread.sleep(forTimeInterval: 0.05)
         }
     }
+    try clickDialogPoint(owner, dialog, target)
+}
+
+@MainActor
+private func clickDialogPoint(_ owner: pid_t, _ dialog: AXUIElement, _ target: CGRect) throws {
     var modalPID: pid_t = 0
     guard AXUIElementGetPid(dialog, &modalPID) == .success, modalPID > 1 else {
         throw ProbeError("No native modal attached to the owned application")
@@ -163,16 +168,34 @@ func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
     try click(owner, [String(Double(target.midX)), String(Double(target.midY))][...], dialog, modal: modalPID)
 }
 
+@MainActor
 func pressControl(_ owner: pid_t, _ name: String, modal: Bool) throws {
-    var queue = modal ? nativeDialogs(owner) : ownedWindows(owner)
+    let dialogs = modal ? nativeDialogs(owner) : []
+    if name == "Save", let dialog = dialogs.last {
+        guard let button = findAX([dialog], { element in
+            let role: String? = attribute(element, kAXRoleAttribute)
+            guard role == kAXButtonRole else { return false }
+            let title: String? = attribute(element, kAXTitleAttribute)
+            let enabled: Bool? = attribute(element, kAXEnabledAttribute)
+            return title == name && enabled == true
+        }), let target = rectangle(button) else {
+            throw ProbeError("No enabled Save button in the owned native dialog")
+        }
+        // AXPress can wait for the overwrite sheet it just opened. Send one click instead.
+        try clickDialogPoint(owner, dialog, target)
+        return
+    }
+    var queue = modal ? dialogs : ownedWindows(owner)
     var visited = 0
     while let element = queue.popLast(), visited < 1500 {
         visited += 1
         let role: String? = attribute(element, kAXRoleAttribute)
-        let title: String? = attribute(element, kAXTitleAttribute)
-        let description: String? = attribute(element, kAXDescriptionAttribute)
-        if role == kAXButtonRole || (!modal && role == kAXCheckBoxRole), title == name || description == name {
-            if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success { return }
+        if role == kAXButtonRole || (!modal && role == kAXCheckBoxRole) {
+            let title: String? = attribute(element, kAXTitleAttribute)
+            let description: String? = attribute(element, kAXDescriptionAttribute)
+            if title == name || description == name {
+                if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success { return }
+            }
         }
         let children: [AXUIElement] = attribute(element, kAXChildrenAttribute) ?? []
         queue.append(contentsOf: children)
