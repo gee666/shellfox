@@ -34,19 +34,28 @@ fn backend(prepared: bool) -> Backend {
 async fn post(address: std::net::SocketAddr, request: Vector) -> (u16, Vec<u8>) {
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
     let head=format!("POST {} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nx-shellfox-peer: {}\r\nx-shellfox-timestamp: {}\r\nx-shellfox-signature: {}\r\n\r\n",request.path,request.body.len(),request.peer,request.timestamp,request.signature);
-    stream.write_all(head.as_bytes()).await.unwrap();
-    stream.write_all(request.body.as_bytes()).await.unwrap();
+    let request = [head.as_bytes(), request.body.as_bytes()].concat();
+    stream.write_all(&request).await.unwrap();
     let mut bytes = Vec::new();
-    stream.read_to_end(&mut bytes).await.unwrap();
+    // A rejected route can close with unread request bytes. Darwin sometimes
+    // reports a reset after the complete response rather than reporting EOF.
+    if let Err(error) = stream.read_to_end(&mut bytes).await {
+        assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset);
+    }
     let end = bytes.windows(4).position(|b| b == b"\r\n\r\n").unwrap();
-    let status = std::str::from_utf8(&bytes[..end])
-        .unwrap()
-        .split_whitespace()
-        .nth(1)
-        .unwrap()
+    let mut headers = std::str::from_utf8(&bytes[..end]).unwrap().lines();
+    let status = headers.next().unwrap().split_whitespace().nth(1).unwrap().parse().unwrap();
+    let length: usize = headers
+        .filter_map(|line| line.split_once(':'))
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .expect("explicit response length")
+        .1
+        .trim()
         .parse()
         .unwrap();
-    (status, bytes[end + 4..].to_vec())
+    let body = &bytes[end + 4..];
+    assert_eq!(body.len(), length, "the response must not be truncated");
+    (status, body.to_vec())
 }
 #[tokio::test]
 async fn production_tcp_v2_signed_discovery_and_application_error_are_not_legacy_wrapped() {

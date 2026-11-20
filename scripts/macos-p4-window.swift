@@ -84,11 +84,15 @@ private func number(_ string: String) throws -> CGFloat {
     return CGFloat(value)
 }
 
-private func resize(_ window: AXUIElement, _ args: ArraySlice<String>) throws {
+private let regularChrome: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
+
+@MainActor
+private func resizeContent(_ window: AXUIElement, _ args: ArraySlice<String>) throws {
     let values = try args.map(number)
     guard values.count == 4 else { throw ProbeError("Expected x y width height") }
     var position = CGPoint(x: values[0], y: values[1])
-    var size = CGSize(width: values[2], height: values[3])
+    var size = NSWindow.frameRect(forContentRect: CGRect(x: 0, y: 0, width: values[2], height: values[3]),
+                                  styleMask: regularChrome).size
     guard let point = AXValueCreate(.cgPoint, &position), let extent = AXValueCreate(.cgSize, &size),
           AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, point) == .success,
           AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, extent) == .success else {
@@ -183,13 +187,43 @@ private func capture(_ owner: pid_t, _ target: String, _ area: CGRect) async thr
         return ["text": text, "x": window.frame.minX + bounds.midX * window.frame.width,
                 "y": window.frame.minY + (1 - bounds.midY) * window.frame.height]
     }
-    return ["scale": scale, "frame": rectJSON(window.frame), "pixelWidth": image.width,
+    let contentFrame = NSWindow.contentRect(forFrameRect: window.frame, styleMask: regularChrome)
+    return ["scale": scale, "frame": rectJSON(window.frame), "contentSize": [contentFrame.width, contentFrame.height], "pixelWidth": image.width,
             "pixelHeight": image.height, "windowCount": content.windows.filter { $0.owningApplication?.processID == owner }.count,
             "lines": lines, "colors": try colors(image)]
 }
 
 @MainActor
+private func makeRoomForFixtures() async throws {
+    func fits() -> Bool {
+        guard let visible = NSScreen.main?.visibleFrame else { return false }
+        // Room for a 1200×760 content area, its title bar and the window margin.
+        return visible.width >= 1240 && visible.height >= 820
+    }
+    if fits() { return }
+    let display = CGMainDisplayID()
+    let options = [kCGDisplayShowDuplicateLowResolutionModes as String: true] as CFDictionary
+    let modes = (CGDisplayCopyAllDisplayModes(display, options) as? [CGDisplayMode]) ?? []
+    let candidates = modes.filter { $0.width >= 1280 && $0.height >= 900 }
+        .sorted { $0.width * $0.height < $1.width * $1.height }
+    for mode in candidates.prefix(12) {
+        guard CGDisplaySetDisplayMode(display, mode, nil) == .success else { continue }
+        try await Task.sleep(for: .milliseconds(400))
+        if fits() {
+            print("P4 Aqua display: \(mode.width)×\(mode.height) points")
+            return
+        }
+    }
+    let available = Set(modes.map { "\($0.width)×\($0.height)" }).sorted().joined(separator: ", ")
+    throw ProbeError("The runner cannot fit the required 1200×760 P4 content viewport. Available display modes: \(available). Use an isolated graphical Mac with a larger display.")
+}
+
+@MainActor
 private func aquaProbe(_ app: NSApplication, _ output: String) async throws {
+    guard ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" else {
+        throw ProbeError("Display setup is only for the isolated CI runner")
+    }
+    try await makeRoomForFixtures()
     let window = NSWindow(contentRect: CGRect(x: 45, y: 45, width: 640, height: 220),
                           styleMask: [.titled], backing: .buffered, defer: false)
     window.title = "Shellfox P4 fixture preflight"
@@ -237,7 +271,7 @@ private struct WindowProbe {
             switch args[2] {
             case "tree": result = tree(window)
             case "windows": result = ownedWindows(owner).flatMap(tree)
-            case "resize": try resize(window, values); return
+            case "resize-content": try resizeContent(window, values); return
             case "activate":
                 guard app.activate(options: []) else { throw ProbeError("Could not activate the owned app") }
                 return

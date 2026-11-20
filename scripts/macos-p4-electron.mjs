@@ -29,8 +29,8 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     const owner = await app.evaluate(({ app, BrowserWindow }, { width, height }) => {
       const win = BrowserWindow.getAllWindows()[0];
       win.unmaximize();
-      win.setContentSize(width, height);
       win.setPosition(40, 40);
+      win.setContentSize(width, height);
       win.show();
       win.focus();
       return { pid: process.pid, executable: process.execPath, userData: app.getPath('userData') };

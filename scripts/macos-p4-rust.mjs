@@ -75,10 +75,9 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
         try { return tree(); } catch { return []; }
       }, rows => rows.length > 1, 55_000)]);
     action('activate');
-    action('resize', 40, 40, 1200, 760);
+    action('resize-content', 40, 40, 1200, 760);
     const startup = await shot('01-startup');
-    assert.equal(startup.frame.width, 1200);
-    assert.equal(startup.frame.height, 760);
+    assert.deepEqual(startup.contentSize, [1200, 760]);
     clickNode(await node('Files', value => value?.role === 'AXButton'));
     const pane = await node('File sidebar');
     assert.equal(pane.rect.width, 420);
@@ -189,9 +188,9 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await editor(await readFile(html, 'utf8'));
     await shot('11-html-source', shot => !observed(shot, marker));
     toggle.preview();
-    action('resize', 40, 40, 1100, 720);
-    await shot('12-html-resized', shot => shot.frame.width === 1100 && observed(shot, marker));
-    action('resize', 40, 40, 1200, 760);
+    action('resize-content', 40, 40, 1100, 720);
+    await shot('12-html-resized', shot => shot.contentSize[0] === 1100 && shot.contentSize[1] === 720 && observed(shot, marker));
+    action('resize-content', 40, 40, 1200, 760);
     key('e', 'cs');
     await go(path.join(project, 'preview.md'), project);
     await shot('13-markdown', shot => observed(shot, 'P4 Markdown heading'));
