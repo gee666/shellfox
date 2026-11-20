@@ -2,6 +2,7 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export const support = dirname(fileURLToPath(import.meta.url));
 export const project = resolve(support, '../../..');
@@ -15,6 +16,27 @@ export const archives = Object.freeze({
   'libghostty-vt-1.0.1.tar.gz': '333dfce97641ef9b536bb9e08907ad86abaaada50e8f7417b70d9284adef37aa',
   'libghostty-vt-1.0.1-deps.tar.gz': '91a4e10960a52bf5bf4b15aa2a2cddaff8a89d6cd903d3055bda4fd17de3356d',
 });
+
+export async function fetchPinnedBytes(url, { request = fetch, pause = delay } = {}) {
+  let last;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await request(url, { signal: AbortSignal.timeout(120_000) });
+      if (response.ok) return Buffer.from(await response.arrayBuffer());
+      const error = new Error(`Download failed: HTTP ${response.status} for ${url}`);
+      if (response.status !== 429 && response.status < 500) throw error;
+      last = error;
+    } catch (error) {
+      if (error?.name !== 'TimeoutError' && error?.name !== 'TypeError') throw error;
+      last = error;
+    }
+    if (attempt < 3) {
+      console.warn(`Retrying pinned archive download ${url} after ${last.message}`);
+      await pause(attempt * 1_000);
+    }
+  }
+  throw last;
+}
 
 export function verifyArchive(name, data) {
   const expected = archives[name];

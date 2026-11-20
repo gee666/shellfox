@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import test from 'node:test';
-import { archives, project, vendor, verifyArchive, verifyInputs, verifyManifest } from './archives.mjs';
+import { archives, fetchPinnedBytes, project, vendor, verifyArchive, verifyInputs, verifyManifest } from './archives.mjs';
 import { assertZigVersion, buildArgs, sourceBuildEnv, targets } from './prepare.mjs';
 
 const manifest = readFileSync(join(vendor, 'SHA256SUMS'));
@@ -11,6 +11,30 @@ const signature = readFileSync(join(vendor, 'SHA256SUMS.minisig'), 'utf8');
 
 test('retained official archives match pins and signed upstream manifest', () => {
   verifyInputs();
+});
+
+test('retries a transport timeout and a transient HTTP result before returning the bytes', async () => {
+  let calls = 0;
+  const waits = [];
+  const data = await fetchPinnedBytes('https://example.invalid/pinned', {
+    async request() {
+      calls++;
+      if (calls === 1) throw new DOMException('test timeout', 'TimeoutError');
+      return calls === 2 ? new Response(null, { status: 503 }) : new Response('fixture');
+    },
+    async pause(ms) { waits.push(ms); },
+  });
+  assert.equal(data.toString(), 'fixture');
+  assert.deepEqual(waits, [1000, 2000]);
+});
+
+test('does not retry a permanent download failure', async () => {
+  let calls = 0;
+  await assert.rejects(fetchPinnedBytes('https://example.invalid/pinned', {
+    async request() { calls++; return new Response(null, { status: 404 }); },
+    async pause() { assert.fail('unexpected retry'); },
+  }), /HTTP 404/);
+  assert.equal(calls, 1);
 });
 
 test('a corrupted archive is rejected before extraction', () => {

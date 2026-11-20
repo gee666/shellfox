@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync,
 import { delimiter, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { archives, project, release, support, vendor, verifyArchive, verifyInputs, version, zigVersion } from './archives.mjs';
+import { archives, fetchPinnedBytes, project, release, support, vendor, verifyArchive, verifyInputs, version, zigVersion } from './archives.mjs';
 import { applyExperimental, experimentalBuildArgs, experimentalRecipe, sourceTreeDigest, verifyExperimentalInputs, writeExperimentalManifest } from './experimental.mjs';
 
 export const targets = Object.freeze({
@@ -77,9 +77,7 @@ async function fetchArchives() {
         console.log(`Verified ${name}`);
         continue;
       }
-      const response = await fetch(`${release}${name}`, { signal: AbortSignal.timeout(120_000) });
-      if (!response.ok) throw new Error(`Download failed: ${response.status} ${response.url}`);
-      const data = Buffer.from(await response.arrayBuffer());
+      const data = await fetchPinnedBytes(`${release}${name}`);
       verifyArchive(name, data);
       const temporary = join(scratch, name);
       writeFileSync(temporary, data, { flag: 'wx' });

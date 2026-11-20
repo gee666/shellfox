@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fetchPinnedBytes } from '../crates/ghostty-vt-sys/build-support/archives.mjs';
 import { nativeTarget, root, run, scratchRoot, sha256 } from './rust-package-common.mjs';
 import { wslFilesTarget } from './rust-package-wsl-files.mjs';
 
@@ -13,9 +14,7 @@ export async function withPinnedZig(useZig) {
   mkdirSync(scratchRoot, { recursive: true });
   const work = mkdtempSync(path.join(scratchRoot, 'rust-package-prereqs-'));
   try {
-    const response = await fetch(pin.url, { signal: AbortSignal.timeout(120_000) });
-    if (!response.ok) throw new Error(`Zig download failed: HTTP ${response.status}`);
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = await fetchPinnedBytes(pin.url);
     if (sha256(bytes) !== pin.sha256) throw new Error('Zig archive SHA-256 mismatch');
     const archive = path.join(work, path.basename(new URL(pin.url).pathname));
     writeFileSync(archive, bytes);
