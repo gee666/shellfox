@@ -10,10 +10,15 @@ use crate::{
 use gpui::{AnyElement, Context, Div, Stateful, Window, div, prelude::*, px};
 #[path = "files_browser.rs"]
 mod browser;
+#[path = "files_controls.rs"]
+mod controls;
+use controls::Control;
 #[path = "files_confirm_view.rs"]
 pub(crate) mod confirmation;
 #[path = "files_document.rs"]
 mod document;
+#[path = "files_picker.rs"]
+pub(super) mod picker;
 #[path = "files_transfer_view.rs"]
 mod transfer_view;
 
@@ -195,7 +200,8 @@ impl Root {
             .bg(palette.sidebar)
             .border_b_1()
             .border_color(palette.border)
-            .child(
+            .child(Control::Browser.wrap(
+                self, "Toggle file browser", true, Some(&files.browser_focus.toggle),
                 control(
                     if files.browser {
                         "collapse-file-browser"
@@ -226,7 +232,7 @@ impl Root {
                     palette,
                 ))
                 .on_click(cx.listener(|root, _, window, cx| root.toggle_file_browser(window, cx))),
-            )
+            ))
             .child(div().flex_1())
             .when(files.backend.is_local(), |header| {
                 header.child(
@@ -236,7 +242,8 @@ impl Root {
                 )
             });
         if !narrow || files.maximized {
-            header = header.child(
+            header = header.child(Control::Maximize.wrap(
+                self, if files.maximized { "Restore file" } else { "Maximize file" }, true, None,
                 control(
                     if files.maximized {
                         "restore-file"
@@ -264,16 +271,17 @@ impl Root {
                 .on_click(
                     cx.listener(|root, _, window, cx| root.toggle_file_maximized(window, cx)),
                 ),
-            );
+            ));
         }
-        header = header.child(
+        header = header.child(Control::Close.wrap(
+            self, "Close file sidebar", true, None,
             text_button("hide-files", "×", palette)
                 .w(px(24.))
                 .tooltip(crate::assets::tooltip("Close file sidebar", palette))
                 .on_click(
                     cx.listener(|root, _, _, cx| root.request_file_action(FileAction::Hide, cx)),
                 ),
-        );
+        ));
         panel = panel.child(header);
         if files.browser {
             panel = panel.child(self.file_browser(palette, window, cx));

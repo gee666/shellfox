@@ -1,4 +1,4 @@
-use super::{control, text_button};
+use super::{Control, control, text_button};
 use crate::{
     files::{Files, Preview, pending::basename, text_preview::{image_error, render_image}},
     root::Root,
@@ -61,7 +61,7 @@ impl Root {
         let available_preview =
             preview.filter(|preview| preview.available(&self.html_preview, window));
         if let Some(path) = path {
-            document = document.child(file_toolbar(files, path, available_preview, palette, cx));
+            document = document.child(file_toolbar(self, files, path, available_preview, palette, cx));
         }
         if let Some(editor) = &files.editor {
             if let Some(preview) = available_preview.filter(|preview| preview.showing) {
@@ -150,9 +150,18 @@ impl Root {
         }
         document.into_any_element()
     }
+
+    pub(super) fn copy_open_file_path(&mut self, cx: &mut Context<Self>) {
+        if !self.require_files_source(cx) { return; }
+        if let Some(path) = self.files.as_ref().and_then(Files::opened_path) {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.to_owned()));
+            self.notify_info(cx, "Path copied");
+        }
+    }
 }
 
 fn file_toolbar(
+    root: &Root,
     files: &Files,
     path: &str,
     preview: Option<&crate::files::text_preview::TextPreview>,
@@ -189,16 +198,11 @@ fn file_toolbar(
                 .child(label),
         )
         .when(files.opened_path().is_some(), |bar| {
-            bar.child(
+            bar.child(Control::CopyPath.wrap(root, "Copy file path", true, None,
                 control("copy-file-path", "copy", palette)
                     .tooltip(crate::assets::tooltip("Copy file path", palette))
-                    .on_click(cx.listener(move |root, _, _, cx| {
-                        if root.require_files_source(cx) {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.clone()));
-                            root.notify_info(cx, "Path copied");
-                        }
-                    })),
-            )
+                    .on_click(cx.listener(|root, _, _, cx| root.copy_open_file_path(cx))),
+            ))
         })
         .when_some(files.editor.as_ref(), |bar, editor| {
             bar.child(
@@ -224,7 +228,7 @@ fn file_toolbar(
                 .on_click(cx.listener(|root, _, _, cx| root.reload_file(cx))),
         )
         .when(!files.backend.is_local(), |bar| {
-            bar.child(super::transfer_view::inline(files, false, palette, cx))
+            bar.child(super::transfer_view::inline(root, files, false, palette, cx))
         })
         .when(files.backend.is_local(), |bar| {
             bar.child(

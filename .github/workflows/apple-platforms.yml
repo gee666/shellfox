@@ -162,7 +162,7 @@ jobs:
           cargo test --locked -p shellfox-desktop --bin shellfox files::
           cargo test --locked -p shellfox-desktop --test macos-folder-picker
           cargo test --locked -p shellfox-files --all-targets
-          cargo build --locked -p shellfox-desktop --bin shellfox -p shellfox-cli --bin shellfox-cli
+          cargo build --locked -p shellfox-desktop --features shellfox-desktop/test-macos-p4 --bin shellfox -p shellfox-cli --bin shellfox-cli
           node scripts/tailscale.mjs build
           pnpm build:test
           p4="$PWD/tmp/lane-apple/p4"

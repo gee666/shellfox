@@ -135,20 +135,15 @@ private struct WindowProbe {
                 let text = values.dropFirst().first
                 guard args[2] != "fill-text" || text != nil else { throw ProbeError("Missing text control value") }
                 try editTextControl(ownedWindow(owner), name, value: text); return
-            case "dialog-value":
-                guard let text = values.first else { throw ProbeError("Missing picker path") }
-                try setDialogText(owner, text); return
+            case "select-entry":
+                guard let name = values.first else { throw ProbeError("Missing picker entry name") }
+                try selectDialogEntry(owner, name); return
             case "activate":
                 guard app.activate(options: []) else { throw ProbeError("Could not activate the owned app") }
                 return
             case "key":
                 try requireFrontmost([owner])
                 try key(owner, values, throughWindowServer: true)
-                return
-            case "dialog-key":
-                let modal = try dialogOwner(owner)
-                try requireFrontmost([owner, modal])
-                try key(modal, values, throughWindowServer: true)
                 return
             case "press", "press-control":
                 guard let name = values.first else { throw ProbeError("Missing native control name") }

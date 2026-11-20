@@ -207,6 +207,7 @@ impl Root {
                 || self.handle_sidebar_settings_action(&action, window, cx)
                 || self.handle_tab_semantic_action(&action, window, cx)
                 || self.handle_tab_control_semantic_action(&action, window, cx)
+                || self.handle_files_control(&action, window, cx)
             {
                 continue;
             }

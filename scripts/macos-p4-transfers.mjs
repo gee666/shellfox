@@ -14,11 +14,10 @@ const read = file => readFile(file).catch(error => {
   throw error;
 });
 
-export async function exerciseTransfers({ parent, remote, picker, openUpload, openDownload, selectRemote, cancelUpload, idle, shot }) {
+export async function exerciseTransfers({ parent, home, remote, picker, openUpload, openDownload, selectRemote, cancelUpload, idle, shot }) {
   const upload = path.join(parent, 'upload');
-  const cancel = path.join(parent, 'cancel-upload');
-  const download = path.join(parent, 'download');
-  await Promise.all([upload, cancel, download].map(dir => mkdir(dir, { recursive: true, mode: 0o700 })));
+  const download = path.join(home, 'Downloads');
+  await Promise.all([upload, download].map(dir => mkdir(dir, { recursive: true, mode: 0o700 })));
   const payload = Buffer.alloc(transferBytes, 73);
   payload[0] = 0;
   payload[payload.length - 1] = 255;
@@ -35,7 +34,7 @@ export async function exerciseTransfers({ parent, remote, picker, openUpload, op
   assert.equal(await read(target), null, 'Cancelling the native upload picker must not upload');
   await openUpload();
   await picker.wait();
-  await picker.uploadFrom(upload, transferName);
+  await picker.choose(transferName);
   await eventually('host received the exact multi-chunk upload', () => read(target), bytes => bytes?.equals(payload));
   await idle();
   await shot('21-peer-file-uploaded');
@@ -48,23 +47,23 @@ export async function exerciseTransfers({ parent, remote, picker, openUpload, op
   assert.deepEqual(await readFile(destination), untouched);
   await openDownload();
   await picker.wait();
-  await picker.downloadTo(download, transferName);
+  await picker.save(transferName);
   await picker.replace(false);
   await idle();
   assert.deepEqual(await readFile(destination), untouched, 'Declining the native overwrite must preserve local bytes');
   await openDownload();
   await picker.wait();
-  await picker.downloadTo(download, transferName);
+  await picker.save(transferName);
   await picker.replace(true);
   await eventually('download committed exact bytes to the chosen local file', () => read(destination), bytes => bytes?.equals(payload));
   await idle();
   await shot('22-peer-file-downloaded');
 
-  const large = await open(path.join(cancel, cancelName), 'wx');
+  const large = await open(path.join(upload, cancelName), 'wx');
   try { await large.truncate(48 * 1024 * 1024); } finally { await large.close(); }
   await openUpload();
   await picker.wait();
-  await picker.uploadFrom(cancel, cancelName);
+  await picker.choose(cancelName);
   const partials = () => readdir(remote).then(names => names.filter(name => stage.test(name)));
   await eventually('an active host upload stage contains bytes', async () => {
     const stages = await partials();

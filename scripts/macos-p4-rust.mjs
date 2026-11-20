@@ -19,7 +19,8 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   const data = path.join(dir, 'host');
   const argv = ['--shell', '--data-dir', data, '--desktop-dir', path.join(dir, 'desktop'),
     '--device-config-root', path.join(dir, 'device'), '--helper', helper, '--helper-sha256', fileHash(helper), ...viewerFlags];
-  const child = spawn(binary, argv, { cwd: project, env: { ...env, ...peerEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(binary, argv, { cwd: project, env: { ...env, ...peerEnv, SHELLFOX_P4_PICKER_ROOT: dir },
+    stdio: ['ignore', 'pipe', 'pipe'] });
   const output = createWriteStream(path.join(dir, 'process.log'));
   child.stdout.pipe(output, { end: false });
   child.stderr.pipe(output, { end: false });
@@ -36,7 +37,15 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   const node = (name, apply = value => Boolean(value)) => eventually(name,
     () => named(tree(), name), apply);
   const editor = expected => node('File contents', field => field?.value === expected);
-  const clickNode = ({ rect }) => click({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+  const press = async name => {
+    await node(name, control => control?.enabled === true);
+    action('press-control', name);
+  };
+  const focusEditor = async value => {
+    await editor(value);
+    action('focus-text', 'File contents');
+    await node('File contents', field => field?.focused === true);
+  };
   const shot = (name, want = () => true) => eventually(`Rust screenshot ${name}`, () => action('capture', path.join(dir, `${name}.png`)), want);
   const clickText = async (name, match = shot => observed(shot, name)) => click(match(await shot(`before-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`, match)));
   const focusPath = async value => {
@@ -51,13 +60,8 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     key('enter');
     if (folder) await node('Folder path', field => field?.value === folder);
   };
-  const headerControl = async (inset) => {
-    const { rect } = await node('File sidebar');
-    click({ x: rect.x + rect.width - inset, y: rect.y + 16 });
-  };
   const browse = async () => {
-    const { rect } = await node('Folder path');
-    click({ x: rect.x + rect.width + 15, y: rect.y + rect.height / 2 });
+    await press('Browse folders');
     return picker.wait();
   };
   const togglePreview = async () => {
@@ -78,8 +82,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     action('resize-content', 40, 40, 1200, 760);
     const startup = await shot('01-startup');
     assert.deepEqual(startup.contentSize, [1200, 760]);
-    await node('Files', value => value?.enabled === true);
-    action('press-control', 'Files');
+    await press('Files');
     const pane = await node('File sidebar');
     assert.equal(pane.rect.width, 420);
     await go(project, project);
@@ -96,7 +99,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await node('Folder path', field => field?.value === project);
     await browse();
     const unique = path.join(project, 'unique-folder');
-    await picker.choose(unique);
+    await picker.choose('unique-folder');
     await node('Folder path', field => field?.value === unique);
     await go(project, project);
     key('e', 'cs');
@@ -124,14 +127,12 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     const notes = path.join(project, 'notes.txt');
     await go(notes, project);
     await editor(original);
-    key('e', 'cs');
+    await press('Toggle file browser');
     await node('Folder path', value => !value);
-    const panel = (await node('File sidebar')).rect;
-    // Copy path is the fifth compact toolbar button from the right in local text mode.
-    click({ x: panel.x + panel.width - 124, y: panel.y + 32 + 17 });
+    await press('Copy file path');
     await eventually('copied local path', () => action('clipboard').value, value => value === notes);
-    key('e', 'cs');
-    clickNode(await editor(original));
+    await press('Toggle file browser');
+    await focusEditor(original);
     key('up', 'c');
     key('right', 'cs');
     key('c', 'c');
@@ -154,7 +155,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
 
     const html = path.join(project, 'demo.html');
     const guardDraft = 'P4 draft written by Save and continue\n';
-    clickNode(await editor(updated));
+    await focusEditor(updated);
     key('a', 'c');
     action('paste', guardDraft);
     await editor(guardDraft);
@@ -166,7 +167,8 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await go(html, project);
     await clickText('Save and continue');
     await eventually('save and continue committed draft bytes', () => readFile(notes, 'utf8'), data => data === `\uFEFF${guardDraft}`);
-    key('e', 'cs');
+    await press('Toggle file browser');
+    await node('Folder path', field => !field);
     const preview = await shot('09-html-preview', shot => observed(shot, marker));
     assert.ok(preview.colors.style, 'Imported CSS must render in the native capture');
     assert.ok(preview.colors.asset, 'The local SVG must render in the native capture');
@@ -178,10 +180,10 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     assert.equal(blocked.windowCount, preview.windowCount);
     await checkNetwork('Rust WKWebView');
     // Maximize/restore must keep the native preview in the live panel, not leave it floating.
-    await headerControl(43);
+    await press('Maximize file');
     await node('File sidebar', value => value?.rect?.width === 1200);
     await shot('10-html-maximized', shot => observed(shot, marker));
-    await headerControl(43);
+    await press('Restore file');
     await node('File sidebar', value => value?.rect?.width === pane.rect.width);
     await shot('10-html-restored', shot => observed(shot, marker));
     const toggle = await togglePreview();
@@ -192,7 +194,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     action('resize-content', 40, 40, 1100, 720);
     await shot('12-html-resized', shot => shot.contentSize[0] === 1100 && shot.contentSize[1] === 720 && observed(shot, marker));
     action('resize-content', 40, 40, 1200, 760);
-    key('e', 'cs');
+    await press('Toggle file browser');
     await go(path.join(project, 'preview.md'), project);
     await shot('13-markdown', shot => observed(shot, 'P4 Markdown heading'));
     await go(path.join(project, 'remote.svg'), project);
@@ -205,36 +207,26 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await writeFile(path.join(dir, 'checks.json'), JSON.stringify({ editorBytes: `\uFEFF${guardDraft}`, scale: startup.scale,
       frame: startup.frame, htmlPreview: preview, loopbackRequests: 0 }, null, 2));
 
-    key('b', 'cs');
+    await press('Close file sidebar');
     await node('File sidebar', value => !value);
     peer = await startRustPeer({ cli, helper, testcontrol, env, parent: dir, viewerData: data });
     await peer.connect();
     await clickText('P4 peer A');
-    key('b', 'cs');
+    await press('Files');
     await node('File sidebar');
     await go(peer.a, peer.a);
-    let hasDocument = false;
-    const transferControl = async (inset, offset) => {
-      const { rect } = await node('File sidebar');
-      click({ x: rect.x + rect.width - inset, y: rect.y + offset });
-    };
-    const toolbarY = 32 + 17;
-    await exerciseTransfers({ parent: dir, remote: peer.a, picker, shot,
-      openUpload: () => hasDocument ? transferControl(43, toolbarY) : transferControl(22, 32 + 18),
-      openDownload: () => transferControl(16, toolbarY),
+    await exerciseTransfers({ parent: dir, home: env.HOME, remote: peer.a, picker, shot,
+      openUpload: () => press('Upload file'),
+      openDownload: () => press('Download selected file'),
       async selectRemote(name) {
         await go(path.join(peer.a, name), peer.a);
         await shot('20-peer-binary', capture => observed(capture, 'Binary file'));
-        key('e', 'cs');
-        await node('Folder path', field => !field);
-        hasDocument = true;
       },
-      cancelUpload: () => transferControl(17, toolbarY),
-      idle: picker.dismissed,
+      cancelUpload: () => press('Cancel transfer'),
+      idle: () => node('Upload file', value => value?.enabled === true),
     });
-    key('e', 'cs');
     await go(path.join(peer.a, 'scope.txt'), peer.a);
-    clickNode(await editor('Draft on peer A\n'));
+    await focusEditor('Draft on peer A\n');
     const draft = 'Unsaved P4 peer draft\n';
     key('a', 'c');
     action('paste', draft);
@@ -258,7 +250,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
     await editor(draft);
     await shot('25-peer-draft-conflict', capture => capture.lines.some(line => /changed on disk|file conflict/i.test(line.text)));
     assert.equal(await readFile(savedPeerFile, 'utf8'), external);
-    await headerControl(16);
+    await press('Close file sidebar');
     await clickText('Discard changes');
     await node('File sidebar', value => !value);
     return startup.scale;

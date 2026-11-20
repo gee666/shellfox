@@ -15,40 +15,26 @@ export async function eventually(label, read, predicate, ms = 20_000) {
 const label = row => row.title || row.description;
 
 export function nativePicker(action) {
-  const key = (code, modifiers = '-') => action('dialog-key', code, modifiers);
   const read = () => action('windows');
   const cancelButton = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Cancel');
   const dialog = rows => cancelButton(rows) && rows.some(row =>
     row.subrole === 'AXDialog' || row.role === 'AXDialog' || row.role === 'AXSheet' ||
     (row.role === 'AXWindow' && ['Open', 'Save', 'Save As'].includes(row.title)));
   const dismissed = () => eventually('native picker dismissed', read, rows => rows.length > 0 && !dialog(rows));
-  const textEntry = rows => rows.find(row => row.focused && ['AXTextField', 'AXComboBox'].includes(row.role));
-  const go = async target => {
-    key(5, 'cs'); // Cmd+Shift+G opens Go to Folder from any picker control.
-    await eventually('native Go to Folder input', read, rows => Boolean(textEntry(rows)));
-    const entered = rows => textEntry(rows)?.value?.replace(/\/$/, '') === target;
-    action('dialog-value', target);
-    await eventually('native picker resolved the fixture path', read, rows => entered(rows) &&
-      rows.some(row => label(row) === 'Go to:' || row.value === 'Go to:'));
-    key(36);
-    await eventually('native Go to Folder sheet closed', read, rows => rows.length > 0 && !entered(rows));
+  const choose = async name => {
+    await eventually(`native picker lists ${name}`, read, rows => rows.some(row => label(row) === name || row.value === name));
+    action('select-entry', name);
+    await eventually('native Open enabled', read, rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Open' && row.enabled));
+    action('press', 'Open');
+    await dismissed();
   };
   return {
     wait: () => eventually('owned native file dialog', read, dialog),
     cancel: async () => { action('press', 'Cancel'); await dismissed(); },
-    choose: async target => { await go(target); key(36); await dismissed(); },
-    async uploadFrom(directory, filename) {
-      await go(directory);
-      await eventually('fixture file is in the native upload picker', read, rows => rows.some(row => label(row) === filename || row.value === filename));
-      // Each fixture upload directory holds exactly one file.
-      key(0, 'c');
-      action('press', 'Open');
-      await dismissed();
-    },
-    async downloadTo(directory, name) {
-      await go(directory);
-      await eventually('sanitize and prefill download filename', read, rows => rows.some(row => row.value === name));
-      key(36);
+    choose,
+    async save(name) {
+      await eventually('sanitize and prefill download filename', read, rows => rows.some(row => row.role === 'AXTextField' && row.value === name));
+      action('press', 'Save');
     },
     async replace(accept) {
       const confirmation = rows => rows.some(row => row.role === 'AXButton' && label(row) === 'Replace');

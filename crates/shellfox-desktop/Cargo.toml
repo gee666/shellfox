@@ -21,6 +21,7 @@ path = "src/accessibility_test_root.rs"
 test-putty-source = ["shellfox-service/test-putty-source"]
 test-settings-browser = []
 test-settings-ui = []
+test-macos-p4 = []
 experimental-shellfox-native = ["shellfox-service/experimental-shellfox-native", "shellfox-ghostty-vt/experimental-shellfox-native", "shellfox-mobile/experimental-shellfox-native"]
 
 [dependencies]

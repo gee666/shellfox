@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { _electron, expect as assertions } from '@playwright/test';
 import { root } from './rust-package-common.mjs';
@@ -13,6 +13,8 @@ const dimensions = { width: 1200, height: 760 };
 
 export async function runElectron({ binary, main, projectRoot, remoteHelper, project, dir, env, window, checkNetwork, scale }) {
   const data = path.join(dir, 'user-data');
+  const downloads = path.join(env.HOME, 'Downloads');
+  await mkdir(downloads, { mode: 0o700, recursive: true });
   const appEnv = { ...env, ...await electronRemoteEnv(dir, remoteHelper), SHELLFOX_PROJECT_ROOT: projectRoot,
     SHELLFOX_TEST_MODE: '1', SHELLFOX_TEST_VISIBLE: '1', SHELLFOX_TEST_ROOT: root,
     SHELLFOX_TEST_APP_DATA: path.join(dir, 'app-data'), SHELLFOX_TEST_LATEST_RELEASE: '' };
@@ -26,7 +28,14 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
   let failure, peer;
   try {
     const page = await app.firstWindow({ timeout: 60_000 });
-    const owner = await app.evaluate(({ app, BrowserWindow }, { width, height }) => {
+    const owner = await app.evaluate(({ app, BrowserWindow, dialog }, { width, height, project, uploads, downloads }) => {
+      app.setPath('downloads', downloads);
+      const showOpen = dialog.showOpenDialog.bind(dialog);
+      dialog.showOpenDialog = (parent, options) => showOpen(parent, {
+        ...options,
+        defaultPath: options.properties?.includes('openDirectory') ? project
+          : options.title === 'Upload file' ? uploads : options.defaultPath,
+      });
       const win = BrowserWindow.getAllWindows()[0];
       win.unmaximize();
       win.setPosition(40, 40);
@@ -34,7 +43,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
       win.show();
       win.focus();
       return { pid: process.pid, executable: process.execPath, userData: app.getPath('userData') };
-    }, dimensions);
+    }, { ...dimensions, project, uploads: path.join(dir, 'upload'), downloads });
     assert.deepEqual(owner, { pid, executable: binary, userData: data });
     await expect.poll(() => page.evaluate(() => [innerWidth, innerHeight])).toEqual([1200, 760]);
     const sidebar = page.getByRole('complementary', { name: 'File sidebar' });
@@ -77,7 +86,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     await expect(field).toHaveValue(project);
     await button('Browse folders').click();
     await picker.wait();
-    await picker.choose(norm('unique-folder'));
+    await picker.choose('unique-folder');
     await expect(field).toHaveValue(norm('unique-folder'));
     await expect(button('sentinel.txt')).toBeVisible();
     await button('Parent folder').click();
@@ -203,7 +212,7 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     await session('A').click();
     await filesToolbar.click();
     await expect.poll(() => field.inputValue()).toBe(peer.a);
-    await exerciseTransfers({ parent: dir, remote: peer.a, picker, shot,
+    await exerciseTransfers({ parent: dir, home: env.HOME, remote: peer.a, picker, shot,
       openUpload: () => button('Upload file').click(),
       openDownload: () => button('Download selected file').click(),
       async selectRemote(name) {

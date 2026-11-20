@@ -19,31 +19,24 @@ test('recognizes and cancels the standalone AppKit panel', async () => {
   assert.equal(visible, false);
 });
 
-test('waits for AppKit to resolve the path before confirming it', async () => {
-  const target = '/private/fixture';
-  let step = 'panel', path = '', scans = 0;
-  const picker = nativePicker((action, argument) => {
-    if (action === 'windows') {
-      const rows = [desktop];
-      if (step !== 'closed') rows.push(openPanel, cancel);
-      if (step === 'go') {
-        rows.push({ role: 'AXTextField', focused: true, value: path });
-        if (path && ++scans > 1) rows.push({ role: 'AXStaticText', value: 'Go to:' });
-      }
-      return rows;
-    }
-    if (action === 'dialog-value') {
-      path = argument;
+test('selects an exact AppKit row in the preconfigured directory and waits for Open', async () => {
+  const name = 'fixture.txt';
+  let visible = true;
+  let selected = false;
+  let reads = 0;
+  const picker = nativePicker((action, value) => {
+    if (action === 'windows') return visible ? [desktop, openPanel, cancel,
+      { role: 'AXStaticText', value: name }, { role: 'AXButton', title: 'Open', enabled: selected && ++reads > 1 },
+    ] : [desktop];
+    if (action === 'select-entry') {
+      assert.equal(value, name);
+      selected = true;
       return;
     }
-    assert.equal(action, 'dialog-key');
-    if (argument === 5) step = 'go';
-    else if (step === 'go') {
-      assert.ok(scans > 1);
-      assert.equal(path, target);
-      step = 'panel';
-    } else step = 'closed';
+    assert.deepEqual([action, value], ['press', 'Open']);
+    assert.ok(reads > 1);
+    visible = false;
   });
-  await picker.choose(target);
-  assert.equal(step, 'closed');
+  await picker.choose(name);
+  assert.equal(visible, false);
 });

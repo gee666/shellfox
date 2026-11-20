@@ -1,4 +1,4 @@
-use super::{icon_button, text_button, text_button_enabled};
+use super::{Control, icon_button, text_button, text_button_enabled};
 use crate::{
     files::{
         Files,
@@ -92,7 +92,8 @@ impl Root {
                     .child(files.location.clone()),
             )
             .when(files.backend.is_local(), |line| {
-                line.child(
+                line.child(Control::Browse.wrap(
+                    self, "Browse folders", !busy, Some(&files.browser_focus.browse),
                     icon_button("browse-files", "folder", palette, !busy)
                         .tooltip(crate::assets::tooltip("Browse folders", palette))
                         .when(!busy, |button| {
@@ -100,7 +101,7 @@ impl Root {
                                 cx.listener(|root, _, window, cx| root.browse_files(window, cx)),
                             )
                         }),
-                )
+                ))
             })
             .child(
                 text_button_enabled("files-go", "Go", palette, !busy)
@@ -130,7 +131,7 @@ impl Root {
             )
             .when(
                 !files.backend.is_local() && files.document_path.is_none(),
-                |line| line.child(super::transfer_view::inline(files, true, palette, cx)),
+                |line| line.child(super::transfer_view::inline(self, files, true, palette, cx)),
             );
         let mut tree = Rows::new(files, palette);
         match ListingView::new(

@@ -106,14 +106,29 @@ func editTextControl(_ window: AXUIElement, _ name: String, value: String?) thro
     }
 }
 
-func setDialogText(_ owner: pid_t, _ text: String) throws {
-    guard let entry = findAX(nativeDialogs(owner), { element in
-        let role: String? = attribute(element, kAXRoleAttribute)
-        let focused: Bool? = attribute(element, kAXFocusedAttribute)
-        return focused == true && (role == kAXTextFieldRole || role == kAXComboBoxRole)
-    }), AXUIElementSetAttributeValue(entry, kAXValueAttribute as CFString, text as CFString) == .success else {
-        throw ProbeError("Could not type into the owned native picker")
+@MainActor
+func selectDialogEntry(_ owner: pid_t, _ name: String) throws {
+    let dialogs = nativeDialogs(owner)
+    guard let entry = findAX(dialogs, { element in
+        [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute].contains { key in
+            let text: String? = attribute(element, key)
+            return text == name
+        }
+    }), let row = rectangle(entry), !row.isEmpty, let dialog = dialogs.last else {
+        throw ProbeError("No visible \(name) in the owned native picker")
     }
+    // In list/column view the label can be nested under a selectable row.
+    var item: AXUIElement? = entry
+    for _ in 0..<4 {
+        guard let element = item else { break }
+        let role: String? = attribute(element, kAXRoleAttribute)
+        if role == kAXRowRole || role == kAXCellRole {
+            if AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, kCFBooleanTrue) == .success { return }
+        }
+        item = attribute(element, kAXParentAttribute)
+    }
+    let pid = try dialogOwner(owner)
+    try click(owner, [String(Double(row.midX)), String(Double(row.midY))][...], dialog, modal: pid)
 }
 
 func pressControl(_ owner: pid_t, _ name: String, modal: Bool) throws {
@@ -178,7 +193,7 @@ func key(_ owner: pid_t, _ args: ArraySlice<String>, throughWindowServer: Bool =
 }
 
 @MainActor
-func click(_ owner: pid_t, _ args: ArraySlice<String>, _ window: AXUIElement) throws {
+func click(_ owner: pid_t, _ args: ArraySlice<String>, _ window: AXUIElement, modal: pid_t? = nil) throws {
     let values = try args.map(number)
     guard values.count == 2 else { throw ProbeError("Expected x y") }
     let point = CGPoint(x: values[0], y: values[1])
@@ -192,10 +207,11 @@ func click(_ owner: pid_t, _ args: ArraySlice<String>, _ window: AXUIElement) th
               let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return false }
         return frame.contains(point)
     }
-    guard target?[kCGWindowOwnerPID as String] as? pid_t == owner else {
+    let allowed = [owner] + (modal.map { [$0] } ?? [])
+    guard let targetPID = target?[kCGWindowOwnerPID as String] as? pid_t, allowed.contains(targetPID) else {
         throw ProbeError("The owned fixture is not the topmost window at the click position")
     }
-    try requireFrontmost([owner])
+    try requireFrontmost(allowed)
     let source = CGEventSource(stateID: .hidSystemState)
     // Let WindowServer translate screen coordinates into AppKit window coordinates.
     for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {

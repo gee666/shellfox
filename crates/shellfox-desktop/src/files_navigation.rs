@@ -127,7 +127,7 @@ impl Root {
         }
         let epoch = files.source_epoch;
         let backend = files.backend.clone();
-        let prompt = cx.prompt_for_paths(gpui::PathPromptOptions {
+        let prompt = crate::files_view::picker::open(window, cx, gpui::PathPromptOptions {
             files: false,
             directories: true,
             multiple: false,
@@ -142,16 +142,14 @@ impl Root {
                     return;
                 }
                 match result {
-                    Ok(Ok(Some(paths))) => {
-                        if let Some(path) = paths.first() {
-                            if backend.is_wsl() && !root.use_host_file_scope(cx) {
-                                return;
-                            }
-                            root.list_files(path.to_string_lossy().into_owned(), cx);
+                    Ok(Some(path)) => {
+                        if backend.is_wsl() && !root.use_host_file_scope(cx) {
+                            return;
                         }
+                        root.list_files(path.to_string_lossy().into_owned(), cx);
                     }
-                    Ok(Ok(None)) => {}
-                    _ => root.error = Some("Folder picker failed.".into()),
+                    Ok(None) => {}
+                    Err(_) => root.error = Some("Folder picker failed.".into()),
                 }
                 cx.notify();
             });

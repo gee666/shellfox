@@ -104,7 +104,7 @@ impl Root {
         files.transfer = Some(state.clone());
         match direction {
             TransferDirection::Upload => {
-                let picker = cx.prompt_for_paths(PathPromptOptions {
+                let picker = crate::files_view::picker::open(window, cx, PathPromptOptions {
                     files: true,
                     directories: false,
                     multiple: false,
@@ -112,10 +112,7 @@ impl Root {
                 });
                 cx.spawn_in(window, async move |root, cx| {
                     let result = async {
-                        let Some(path) = picker.await??.and_then(|paths| paths.into_iter().next())
-                        else {
-                            return Ok(None);
-                        };
+                        let Some(path) = picker.await? else { return Ok(None); };
                         call.backend.check_current()?;
                         let task = cx.background_executor().spawn(io::upload(
                             call.backend.clone(),
