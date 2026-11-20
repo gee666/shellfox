@@ -46,7 +46,9 @@ func main() {
 	control := &testcontrol.Server{
 		ExplicitBaseURL:  controlURL,
 		AllNodesSameUser: true,
-		Logf:             logger.Discard,
+		// Fixture peers need online map entries before mobile host discovery probes them.
+		AllOnline: true,
+		Logf:      logger.Discard,
 		DERPMap: &tailcfg.DERPMap{Regions: map[tailcfg.DERPRegionID]*tailcfg.DERPRegion{1: {
 			RegionID: 1, RegionCode: "shellfox-ci", Nodes: []*tailcfg.DERPNode{{
 				Name: "local", RegionID: 1, HostName: "127.0.0.1", IPv4: "127.0.0.1", IPv6: "none",
