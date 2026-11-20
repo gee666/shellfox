@@ -47,15 +47,15 @@ final class NativeV1UITests: XCTestCase {
 
     XCUIDevice.shared.orientation = .landscapeLeft
     wait("simulator rotated") { app.frame.width > app.frame.height }
+    let connection = app.descendants(matching: .any)["connection-status"].firstMatch
+    wait("connected before the outage") { connection.exists && connection.label == "Connection connected" }
     focusKeyboard(app, terminal: terminal)
     runFixture("l", app: app)
     let landscape = try terminalGrid(terminal, marker: "SF_IOS_LANDSCAPE")
     XCTAssertGreaterThan(landscape.columns, portrait.columns)
     screenshot("03-native-resized-landscape")
 
-    let connection = app.descendants(matching: .any)["connection-status"].firstMatch
-    wait("connected before the outage") { connection.exists && connection.label == "Connection connected" }
-    runFixture("o", app: app)
+    // The landscape probe queues the host-side outage after reporting its dimensions.
     wait("the attached simulator observed real host loss") {
       connection.exists && ["Connection disconnected", "Connection reconnecting..."].contains(connection.label)
     }

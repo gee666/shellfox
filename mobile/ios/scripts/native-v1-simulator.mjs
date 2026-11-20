@@ -85,8 +85,7 @@ writeFileSync(fixture, 'initial fixture text\n', { flag: 'wx' });
 // the existing login shell so the retained token proves PTY continuity.
 const commands = {
   p: "SFX_CI_TOKEN=retained; printf 'SF_IOS_PORTRAIT:'; stty size\n",
-  l: "printf 'SF_IOS_LANDSCAPE:'; stty size\n",
-  o: 'printf ready > .ios-outage-ready\n',
+  l: "printf 'SF_IOS_LANDSCAPE:'; stty size; sleep 5; printf ready > .ios-outage-ready\n",
   r: "printf 'SF_IOS_RECONNECTED:%s\\n' \"$SFX_CI_TOKEN\"\n",
   f: "printf 'SF_IOS_RESUMED:%s\\n' \"$SFX_CI_TOKEN\"\n",
 };
