@@ -16,10 +16,7 @@ import java.util.concurrent.RejectedExecutionException
 /** Promise strings contain the Go library's bounded JSON, never SDK diagnostics. */
 class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   private val control = executor(1)
-  // No operation queue: a queued terminal mutation could run after JS timed out.
-  private val requests = immediateExecutor(12, "ShellfoxNetworkRequest")
-  // Polls cannot occupy operation workers. Idle poll threads expire after a minute.
-  private val polls = immediateExecutor(64, "ShellfoxNetworkPoll")
+  private val discovery = immediateExecutor(12, "ShellfoxDiscovery")
   @Volatile private var invalidated = false
   private val networkProvider = AndroidNetworkProvider(context)
 
@@ -103,22 +100,10 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
   }
 
   @ReactMethod
-  fun peers(promise: Promise) = submit(requests, promise) { Mobile.peers() }
+  fun peers(promise: Promise) = submit(discovery, promise) { Mobile.peers() }
 
   @ReactMethod
-  fun hosts(promise: Promise) = submit(requests, promise) { Mobile.hosts() }
-
-  @ReactMethod
-  fun request(peerId: String, path: String, body: String, promise: Promise) {
-    val endpoint = MobileEndpoint.fromPath(path)
-    if (endpoint == null) {
-      promise.reject("NETWORK_ERROR", "Network operation failed.")
-      return
-    }
-    submit(if (endpoint.isPoll) polls else requests, promise) {
-      withPairApprovalWakeLock(reactApplicationContext, path, 35_000L) { Mobile.request(peerId, path, body) }
-    }
-  }
+  fun hosts(promise: Promise) = submit(discovery, promise) { Mobile.hosts() }
 
   @ReactMethod
   fun stop(promise: Promise) = submit(control, promise) {
@@ -140,8 +125,7 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
       try { Mobile.stop() } catch (_: Exception) { /* Bridge is already closed. */ }
     }, "ShellfoxNetworkStop").apply { isDaemon = true }.start()
     control.shutdown()
-    requests.shutdown()
-    polls.shutdown()
+    discovery.shutdown()
     super.invalidate()
   }
 }

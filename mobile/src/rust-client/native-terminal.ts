@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { idSchema, resultSchema, responseSchemas, terminalAttachmentSchema } from '../../../src/shared/schemas';
 import type { TerminalEvent } from '../../../src/shared/contracts';
 import type { RemoteRequestPayload } from '../../../src/shared/remote-contracts';
-import type { MobileTerminalApi, TerminalBridgeState } from '../terminal/bridge';
+import type { MobileTerminalApi, TerminalViewState } from '../terminal/terminal-view-props';
 import type { UploadIdentity } from '../terminal/upload';
 import { TerminalOperationError } from '../terminal/errors';
 import { RustTerminalAdapter, type TerminalHandle, type NativeTerminalBinding } from './adapter';
@@ -25,7 +25,7 @@ export type NativeExecute = <M extends RustRemoteMethod>(method: M, payload: Rem
 /** Local presentation continuity only. Never grants readiness, ownership or input. */
 export type NativeLayoutPresentation = Readonly<{kind:'layoutRecovery';phase:'pending'|'validated';identity:UploadIdentity}>
   | Readonly<{kind:'layoutRetired';phase?:never;identity?:never;outcome:LayoutComparisonOutcome}>;
-export type NativeViewStateListener = (state:TerminalBridgeState,presentation?:NativeLayoutPresentation)=>void;
+export type NativeViewStateListener = (state:TerminalViewState,presentation?:NativeLayoutPresentation)=>void;
 export type NativeViewSession = Pick<NativeTerminalSession, 'tabId' | 'handle' | 'readOnly' | 'getState' | 'nativeState' | 'getIdentity' | 'subscribeError' | 'configure' | 'takeControl' | 'input' | 'close'> & {
   subscribe(listener:NativeViewStateListener):()=>void;
 };
@@ -83,9 +83,9 @@ export class NativeTerminalSession {
   private closing?: Promise<void>;
   private attaching?: Promise<void>;
   private metadata?: NativeAttachment;
-  private state: TerminalBridgeState = 'attaching';
+  private state: TerminalViewState = 'attaching';
   private parserReady = false;
-  private readonly listeners = new Set<(state: TerminalBridgeState) => void>();
+  private readonly listeners = new Set<(state: TerminalViewState) => void>();
   private readonly errors = new Set<(error: Error) => void>();
 
   constructor(readonly tabId: string, readonly handle: TerminalHandle, readonly readOnly: boolean,
@@ -105,7 +105,7 @@ export class NativeTerminalSession {
     if (this.closed) throw new Error('Native terminal is closed.');
   }
 
-  getState(): TerminalBridgeState { return this.state; }
+  getState(): TerminalViewState { return this.state; }
   nativeState(state: NativeTerminalState): void {
     if (!this.closed) this.parserReady = state === 'ready';
   }
@@ -114,7 +114,7 @@ export class NativeTerminalSession {
     return !this.closed && !this.readOnly && this.parserReady && this.state === 'attached' && value?.control === 'owned'
       ? { tabId: value.tabId, generation: value.generation, controlEpoch: value.controlEpoch } : null;
   }
-  subscribe(listener: (state: TerminalBridgeState) => void): () => void {
+  subscribe(listener: (state: TerminalViewState) => void): () => void {
     this.listeners.add(listener); return () => { this.listeners.delete(listener); };
   }
   subscribeError(listener: (error: Error) => void): () => void {
@@ -193,7 +193,7 @@ export class NativeTerminalSession {
     return this.closing;
   }
 
-  private change(state: TerminalBridgeState): void {
+  private change(state: TerminalViewState): void {
     if (this.state === state) return;
     this.state = state;
     if (state !== 'attached') this.parserReady = false;

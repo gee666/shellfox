@@ -35,7 +35,7 @@ Ship Shellfox on Rust + GPUI + libghostty-vt. The desktop app must match the Ele
 - Remote automation replay: completed runs that aren't elevated are visible read-only to approved devices, the same eligibility as ordinary sessions. Record that provenance at launch.
 - HTML preview: keep Linux's editable Source fallback and its notice where WebKitGTK cannot embed. Do not patch GPUI's window system for this now; native preview still uses the opaque sandbox.
 - Remote Files: reconnect an established peer automatically and reattach only after checking the original file scope and revision. Never save automatically or replay a write.
-- Android defaults to the native V1 Rust client and official Ghostty engine. ManagerV2/Native002 remains experimental. Switch iOS after its simulator check, then delete the WebView terminal and unused TS client together.
+- Android and iOS default to the native V1 Rust client and official Ghostty engine. The WebView terminal and unused TypeScript client are removed. ManagerV2/Native002 remains experimental.
 - macOS/iOS: build and test in GitHub Actions on the experiment branch. Pushing the branch and running CI is allowed. Releases are not.
 - Release version: the first Rust release is 0.10.0.
 - Rust uses a native Linux PTY and supervisor even for imported GNOME Terminal settings. Drop the legacy Linux Python preference on import. WSL guest Python requirements stay in place.
@@ -57,7 +57,7 @@ Resumed lanes:
 - P4 Files, Linux runtime;
 - P5 Settings, last 6 rows;
 - Android wrapped links;
-- Apple CI, iOS native default and WebView removal.
+- Apple CI for the native mobile default and macOS Files parity.
 
 Open:
 - P1: 7 Windows input rows, blocked by the user's open Windows Security (PickerHost) window;
@@ -80,4 +80,4 @@ Open defects:
 
 Linux: built on Nov 18 from an older snapshot. Needs a fresh build and smoke test.
 
-Android: native V1 ran against a Rust host on an isolated x86_64 emulator over the Go test tailnet with adb reverse. The APK also builds for arm64-v8a. iOS still defaults to WebView pending its native simulator run.
+Android: native V1 ran against a Rust host on an isolated x86_64 emulator over the Go test tailnet with adb reverse. The APK also builds for arm64-v8a. The iPad simulator passed native V1 pairing, PTY input and resize, listener outage and reattach, and Files save in Apple CI.

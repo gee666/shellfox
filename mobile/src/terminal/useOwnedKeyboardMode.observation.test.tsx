@@ -3,14 +3,14 @@ import {act,renderHook} from '@testing-library/react';
 import {beforeEach,describe,expect,it,vi} from 'vitest';
 import type {NativeViewDriver,NativeViewSession} from '../rust-client/native-terminal';
 import {terminalHandleSchema} from '../rust-client/adapter';
-import type {TerminalBridgeState} from './bridge';
+import type {TerminalViewState} from './terminal-view-props';
 import {keyboardClearReasonSchema} from './keyboard-retirement';
 import {useOwnedKeyboardMode} from './useOwnedKeyboardMode';
 const calls=vi.hoisted(()=>({dismiss:vi.fn()}));
 vi.mock('react-native',()=>({Keyboard:{dismiss:calls.dismiss}}));
 function fixture(){
   const identity={tabId:'20000000-0000-4000-8000-000000000001',generation:'30000000-0000-4000-8000-000000000001',controlEpoch:1};
-  let liveIdentity:typeof identity|null=identity,state:TerminalBridgeState='attached';
+  let liveIdentity:typeof identity|null=identity,state:TerminalViewState='attached';
   const view:NativeViewSession={tabId:identity.tabId,handle:terminalHandleSchema.parse('100'),readOnly:false,
     getState:vi.fn(()=>state),getIdentity:vi.fn(()=>liveIdentity),nativeState:vi.fn(),
     subscribe:()=>()=>undefined,subscribeError:()=>()=>undefined,configure:vi.fn(async()=>undefined),
@@ -21,7 +21,7 @@ function fixture(){
   const rendered=renderHook(({scope,visible})=>useOwnedKeyboardMode(scope,visible),{initialProps:{scope:context,visible:false}});
   return{...rendered,context,view,driver,originalIdentity:identity,
     setIdentity:(next:typeof identity|null)=>{liveIdentity=next;},
-    bridge:(next:TerminalBridgeState)=>{state=next;},
+    bridge:(next:TerminalViewState)=>{state=next;},
     visibility:(visible:boolean)=>rendered.rerender({scope:context,visible})};
 }
 beforeEach(()=>{vi.clearAllMocks();});

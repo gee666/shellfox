@@ -65,9 +65,6 @@ jobs:
       - name: Mobile updater and build contracts
         run: pnpm test:unit mobile/src && node --test scripts/mobile-build.test.mjs scripts/mobile-e2e-controls.test.mjs
         timeout-minutes: 5
-      - name: Bundled terminal browser tests
-        run: pnpm test:mobile:terminal
-        timeout-minutes: 5
       - name: Native mobile tests
         run: pnpm test:mobile:native
         timeout-minutes: 10
@@ -98,9 +95,9 @@ jobs:
           SHELLFOX_ANDROID_CERT_SHA256: ${{ secrets.SHELLFOX_ANDROID_CERT_SHA256 }}
       - name: Build isolated native terminal fixture
         working-directory: mobile/android
-        env:
-          ENTRY_FILE: e2e/terminal-entry.js
-        run: ./gradlew --no-daemon --console=plain -PreactNativeArchitectures=x86_64 :app:assembleTerminalTest
+        run: >-
+          ./gradlew --no-daemon --console=plain -PshellfoxAndroidTestBuildType=nativeFixture
+          -PreactNativeArchitectures=x86_64 :app:assembleNativeFixture :app:assembleNativeFixtureAndroidTest
         timeout-minutes: 10
       - name: Enable emulator acceleration
         run: |
@@ -115,7 +112,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
-            node scripts/mobile-terminal-native-e2e.mjs --serial emulator-5554 --apk mobile/android/app/build/outputs/apk/terminalTest/app-terminalTest.apk
+            (cd mobile/android && ANDROID_SERIAL=emulator-5554 ./gradlew --no-daemon --console=plain -PshellfoxAndroidTestBuildType=nativeFixture -PreactNativeArchitectures=x86_64 -Pandroid.testInstrumentationRunnerArguments.class=com.shellfox.mobile.rust.NativeTerminalFixtureTest :app:connectedNativeFixtureAndroidTest)
             node scripts/mobile-e2e.mjs --apk "$(find tmp/mobile-artifacts -name '*.apk' -print -quit)"
       - name: Mobile failure diagnostics
         if: failure()
@@ -124,7 +121,7 @@ jobs:
           name: mobile-diagnostics
           path: |
             tmp/mobile-e2e
-            tmp/mobile-terminal-native-e2e
+            mobile/android/app/build/outputs/androidTest-results/connected/nativeFixture/
             tmp/mobile-artifacts/apksigner-verification.txt
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4

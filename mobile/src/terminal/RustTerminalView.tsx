@@ -9,7 +9,7 @@ import type { NativeLayoutPresentation, NativeViewDriver, NativeViewSession } fr
 import { useTheme } from '../theme';
 import { Button } from '../ui';
 import type { TerminalViewProps } from './terminal-view-props';
-import type { TerminalBridgeState } from './bridge';
+import type { TerminalViewState } from './terminal-view-props';
 import { terminalFontSize, utf8Size, type TerminalKey } from './protocol';
 import { TerminalKeys } from './TerminalKeys';
 import { SpecialKeyboard } from './SpecialKeyboard';
@@ -26,7 +26,7 @@ import {retirementNotice} from './keyboard-retirement';
 export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, fontSize,
   modifierReleaseDelayMs = 1000, connectionEpoch, takeoverIntent, onTakeoverIntentConsumed,
   onError, onState, onFileOpen, showKeyboardDiagnostics = false,
-}: Omit<TerminalViewProps, 'api' | 'subscribeTerminal'> & { driver: NativeViewDriver; showKeyboardDiagnostics?: boolean }) {
+}: Omit<TerminalViewProps, 'api'> & { driver: NativeViewDriver; showKeyboardDiagnostics?: boolean }) {
   const { colors, palette } = useTheme();
   const insets = useSafeAreaInsets();
   const container = useRef<React.ComponentRef<typeof View>>(null);
@@ -35,7 +35,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
   const callbacks = useRef({ onError, onState, onTakeoverIntentConsumed, theme: palette.terminal });
   callbacks.current = { onError, onState, onTakeoverIntentConsumed, theme: palette.terminal };
   const [session, setSession] = useState<NativeViewSession | null>(null);
-  const [state, setState] = useState<TerminalBridgeState>('attaching');
+  const [state, setState] = useState<TerminalViewState>('attaching');
   const [nativeReady, setNativeReady] = useState(false);
   const [focusObservation,setFocusObservation]=useState<FocusActionObservation|null>(null);
   const {mode: keyboardMode, retirement: keyboardRetirement, actionIntent: keyboardActionIntent, choose: chooseKeyboardMode, clear: clearKeyboardMode,
@@ -61,7 +61,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
     insert: text => { void current.current?.input({ type: 'paste', text }).catch(report); },
   });
   const invalidateAttachment = attachment.invalidate;
-  const changeState = useCallback((next: TerminalBridgeState, presentation?: NativeLayoutPresentation) => {
+  const changeState = useCallback((next: TerminalViewState, presentation?: NativeLayoutPresentation) => {
     const view = current.current;
     const retainKeyboard = view && presentation?.phase === 'pending' && layoutKeyboardPending(view, presentation);
     setState(next);

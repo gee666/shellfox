@@ -4,7 +4,7 @@ import {terminalHandleSchema,type TerminalHandle} from '../adapter';
 import {encodeTerminalInput,terminalInputSchema,type TerminalInput} from '../input';
 import type {NativeTerminalState} from '../native-events';
 import type {NativeLayoutPresentation,NativeViewStateListener} from '../native-terminal';
-import type {TerminalBridgeState} from '../../terminal/bridge';
+import type {TerminalViewState} from '../../terminal/terminal-view-props';
 import type {UploadIdentity} from '../../terminal/upload';
 import type {LayoutComparisonOutcome} from '../../terminal/keyboard-retirement';
 import type {ManagerNativeBinding} from './native';
@@ -25,7 +25,7 @@ export class ManagerSurface {
   private presentationOrigin?:ManagerAttachment;
   private layoutPresentation?:LayoutPresentation;
   private parserReady=false;
-  private state:TerminalBridgeState='attaching';
+  private state:TerminalViewState='attaching';
   private readonly listeners=new Set<NativeViewStateListener>();
   private readonly errors=new Set<(error:Error)=>void>();
   private constructor(readonly tabId:string,readonly handle:TerminalHandle,readonly readOnly:boolean,
@@ -41,7 +41,7 @@ export class ManagerSurface {
     }
   }
   get terminalHandle():TerminalHandle{return this.handle;}
-  getState():TerminalBridgeState{return this.state;}
+  getState():TerminalViewState{return this.state;}
   nativeState(value:NativeTerminalState){
     this.parserReady=!this.closed&&value==='ready';
     if(this.parserReady&&this.state==='attached'&&this.host.current()&&this.metadata)
@@ -155,7 +155,7 @@ export class ManagerSurface {
     this.retirePresentation();const error=value instanceof Error?value:new Error('Manager surface failed.');
     for(const listener of this.errors){try{listener(error);}catch{}}
   }
-  private change(state:TerminalBridgeState,presentation?:NativeLayoutPresentation){
+  private change(state:TerminalViewState,presentation?:NativeLayoutPresentation){
     this.state=state;for(const listener of this.listeners){try{listener(state,presentation);}catch{}}
   }
 }

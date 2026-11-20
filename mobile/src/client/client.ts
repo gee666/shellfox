@@ -1,25 +1,14 @@
 import { failure, type AppError, type TerminalApi, type TerminalEvent } from '../../../src/shared/contracts';
-import type { RemoteHostEvent, RemoteMethod, RemotePeer, RemoteRequestPayload, RemoteResponse } from '../../../src/shared/remote-contracts';
+import type { RemoteHostEvent, RemoteMethod, RemoteRequestPayload, RemoteResponse } from '../../../src/shared/remote-contracts';
 import { remoteForwardRequestSchema, remotePairResponseSchema, remotePeerIdSchema, remotePollResponseSchema, remotePayloadSchemas } from '../../../src/shared/remote-schemas';
 import { idSchema, requestSchemas, responseSchemas } from '../../../src/shared/schemas';
 import { RemoteOperations } from './operations';
 import { uploadResponseCompatibility } from '../../../src/shared/terminal-upload-schemas';
 import { connectionError, encodeBody, parseJson, parseResponse, RemoteClientError, untilStopped, waitForRetry, type NativeRemoteTransport, type RemotePath } from './protocol';
 
-export interface ClientState {
-  readonly peerId: string;
-  readonly status: RemotePeer['connection'];
-  readonly lastError: AppError | null;
-  /** Changes on every successful pairing. All terminal views must be reattached. */
-  readonly connectionId: string | null;
-}
-export interface RemoteClientOptions {
-  /** Supply cryptographically random UUIDs from the native platform. Never persist these. */
-  createClientId(): string;
-  approvalRetryMs?: number;
-  reconnectDelayMs?: number;
-  maxReconnectDelayMs?: number;
-}
+import type { ClientState, HostClient, RemoteClientOptions } from './host-client';
+export type { ClientState, RemoteClientOptions } from './host-client';
+
 interface Cycle { clientId: string; abort: AbortController; pending: number; native: Set<Promise<unknown>>; failure?: AppError }
 interface Run { clientId: string; abort: AbortController; cycle?: Cycle; suspended: boolean; pairing: boolean; restart: boolean; resume?: () => void }
 interface VisibilityRequest { cycle: Cycle; next: RemoteRequestPayload<'setVisibleSessions'> | null; promise: Promise<RemoteResponse<'setVisibleSessions'>> }
@@ -29,7 +18,7 @@ const fileMethods = new Set<RemoteMethod>([
 ]);
 
 /** One authenticated host view and event poll per peer, independent of React/UI lifetime. */
-export class RemoteClient extends RemoteOperations {
+export class RemoteClient extends RemoteOperations implements HostClient {
   private state: ClientState;
   private run?: Run;
   private readonly listeners = new Set<(event: RemoteHostEvent) => void>();

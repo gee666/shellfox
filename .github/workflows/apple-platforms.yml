@@ -225,10 +225,9 @@ jobs:
         with:
           go-version: '1.27.3'
           cache: false
-      - name: Install dependencies, generate terminal page and test RN native contracts
+      - name: Install dependencies and test RN native contracts
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
-          node scripts/mobile-terminal.mjs
           node --test mobile/ios/scripts/contracts.test.mjs scripts/confirmed-network-outage.test.mjs
         timeout-minutes: 10
       - name: Identify the Xcode SDK

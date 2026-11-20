@@ -9,9 +9,6 @@ const nativeSchema = z.object({
   peers: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
   hosts: z.custom<() => Promise<string>>((value) => typeof value === 'function'),
   login: z.custom<(authKey: string) => Promise<string>>((value) => typeof value === 'function'),
-  request: z.custom<(peerId: string, path: string, body: string) => Promise<string>>(
-    (value) => typeof value === 'function',
-  ),
   stop: z.custom<() => Promise<void>>((value) => typeof value === 'function'),
   logout: z.custom<() => Promise<void>>((value) => typeof value === 'function'),
 });

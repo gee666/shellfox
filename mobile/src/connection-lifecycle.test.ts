@@ -12,10 +12,15 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('react-native', () => ({ AppState: mocks.appState }));
 vi.mock('./network', () => ({
-  nativeNetwork: { start: mocks.start, request: mocks.request },
+  nativeNetwork: { start: mocks.start },
   networkStatus: mocks.status,
   discoverHosts: async () => ({ peers: await mocks.peers(), discovering: false }),
 }));
+vi.mock('./rust-client/create-v1-client', async () => {
+  const { RemoteClient } = await import('./client/client');
+  return { createNativeV1Client: (peerId: string, options: import('./client/host-client').RemoteClientOptions) =>
+    new RemoteClient(peerId, { request: mocks.request }, options) };
+});
 vi.mock('./preferences', () => ({
   defaultPreferences: { hostname: 'test-phone', remembered: [], fontSize: 14 },
   loadPreferences: async () => ({ hostname: 'test-phone', remembered: [], fontSize: 14 }),

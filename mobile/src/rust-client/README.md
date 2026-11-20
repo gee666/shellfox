@@ -1,14 +1,12 @@
 # Rust-backed mobile presentation
 
-`useShellfox` uses the native V1 client on Android through `client/factory.android.ts`.
-`TerminalView.android.tsx` uses the Ghostty Fabric view without a WebView fallback.
-The same screens still handle sessions, files, settings and approval. Embedded Go
-owns authenticated tailnet transport. The factory checks the Rust module ABI,
-required methods and Fabric registration before connecting.
+`useShellfox` uses the native V1 client on Android and iOS. `TerminalView`
+renders the Ghostty Fabric view on both platforms. The same screens handle
+sessions, files, settings and approval. Embedded Go owns authenticated tailnet
+transport. The factory checks the Rust module ABI, required methods and Fabric
+registration before connecting.
 
-On iOS, the WebView stays the default until the native V1 simulator check passes.
-To exercise the native V1 path on a simulator, launch with `--shellfox-native-v1`.
-For an isolated tailnet pass `--shellfox-control-url http://127.0.0.1:<port>` too.
+For an isolated iOS simulator fixture, pass `--shellfox-control-url http://127.0.0.1:<port>`.
 ManagerV2 remains a separate experimental build and launch profile.
 
 ## Native client and terminal flow

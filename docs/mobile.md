@@ -4,7 +4,7 @@ The React Native app is under `mobile/`. Android builds produce a universal APK 
 
 Sessions use compact title/path rows and the shared desktop status-dot logic. Search opens from the header icon. Settings includes the same accent/background presets, custom-color history, picker, contrast calculation, and terminal palette as the desktop app. Colors are local to the mobile client and never change host settings.
 
-The terminal row has separate system-keyboard and special-key icons. They toggle independently but never remain open together. The special panel provides modifiers, function keys, navigation and editing keys through xterm's encoder. The same accessory row presents touch directory suggestions above the keyboard in the session dialog. OK resolves the path first; a missing directory prompts for recursive creation. No returns to the unchanged draft. Tap the tab plus to use the default shell, or hold it to choose a profile.
+The terminal row has separate system-keyboard and special-key icons. They toggle independently but never remain open together. The special panel provides modifiers, function keys, navigation and editing keys through Ghostty's encoder. The same accessory row presents touch directory suggestions above the keyboard in the session dialog. OK resolves the path first; a missing directory prompts for recursive creation. No returns to the unchanged draft. Tap the tab plus to use the default shell, or hold it to choose a profile.
 
 Both clients show live directory matches. Desktop arrows choose a candidate, the first Enter accepts it, and the next submits the chosen directory. Tab completion remains available. A sole exact match is hidden; ambiguous siblings stay visible. Mobile suggestions select the path without creating a session.
 
@@ -20,15 +20,14 @@ The host validates approval, client identity, terminal generation and control ep
 
 ## Native text input
 
-Android and iOS use a mobile-only DOM edit adapter for native keyboards. It consumes `beforeinput`/`input` edits once instead of also letting xterm schedule textarea-diff timers for key code 229. Composition, autocorrect and paste preserve their edit semantics; intentionally repeated text is not deduplicated. The adapter lives under `mobile/src/terminal/` and is not imported by desktop. Desktop text input and IME composition use xterm's built-in handling.
+Android and iOS use native input and rendering with Ghostty. The native
+adapter handles composition, paste, deletion and accessory keys. Desktop
+Electron text input still uses xterm's built-in handling.
 
-The Android terminal fixture can exercise real Gboard taps with `--gboard`:
-
-```sh
-node scripts/mobile-terminal-native-e2e.mjs --serial emulator-5554 --apk mobile/android/app/build/outputs/apk/terminalTest/app-terminalTest.apk --gboard
-```
-
-That optional check requires the documented portrait 1080x2400 API 35 AVD and Gboard. It captures native DOM edits and terminal input through CDP, enabled only by the isolated `terminalTest` Android source set. Preview and release apps do not include that diagnostic provider. The fixture also selects a real document, validates its bytes across multiple chunks, inserts the returned path without submitting a command, and cancels a second picker. Its upload endpoint is a deterministic test fixture, not a live Tailscale host. Authenticated host HTTP tests cover the storage and permission path separately. Two-device Tailscale transfer, real cloud-provider cancellation and native iOS behavior still need device acceptance.
+The Android `nativeFixture` tests run against production C ABI, JNI and
+Ghostty code in an isolated package. The iOS simulator UI test exercises
+connect, approval, terminal input, rotation, reconnect and Files against an
+isolated Rust host. See the platform terminal READMEs for the exact scope.
 
 ## Local Android build
 
@@ -43,9 +42,9 @@ node scripts/mobile-native.mjs test
 node scripts/mobile-build.mjs --test
 ```
 
-`--test` builds the `preview` variant. It embeds the JavaScript bundle and terminal HTML, disables developer support, and signs with the scaffold's debug keystore. It needs no Metro server. The APK is written to `tmp/mobile-artifacts/shellfox-mobile-<version>-android-test.apk`, with a `.sha256` sidecar. It is never uploaded as the stable APK. `--test` is rejected on GitHub tag refs.
+`--test` builds the `preview` variant. It embeds the JavaScript bundle, disables developer support, and signs with the scaffold's debug keystore. It needs no Metro server. The APK is written to `tmp/mobile-artifacts/shellfox-mobile-<version>-android-test.apk`, with a `.sha256` sidecar. It is never uploaded as the stable APK. `--test` is rejected on GitHub tag refs.
 
-The build script generates terminal HTML, sets up gomobile when absent, builds the native AAR, invokes the pinned Gradle wrapper, then checks the actual APK with `apksigner` and `aapt`. It verifies the package name, version, signer, non-debuggable status and both ABIs before copying the artifact. A failed build removes its publishable output.
+The build script sets up gomobile when absent, builds the native AAR, invokes the pinned Gradle wrapper, then checks the actual APK with `apksigner` and `aapt`. It verifies the package name, version, signer, non-debuggable status and both ABIs before copying the artifact. A failed build removes its publishable output.
 
 Prerequisites:
 
@@ -69,7 +68,7 @@ On macOS with Xcode 16.1 or newer, an iOS SDK, Go, and CocoaPods installed:
 
 ```sh
 pnpm install --frozen-lockfile
-node scripts/mobile-terminal.mjs
+node mobile/ios/scripts/build-rust.mjs --fetch-zig
 node scripts/mobile-native.mjs setup
 node scripts/mobile-native.mjs build ios
 cd mobile/ios
@@ -77,9 +76,9 @@ pod install
 open ShellfoxMobile.xcworkspace
 ```
 
-Choose a development team in Xcode and run the app on a simulator or device. The local pod links the generated `Mobile.xcframework`; the same React Native screens and host protocol run on both platforms. iOS does not request a device-wide VPN entitlement or promise background terminal connectivity. On return to the foreground, it reconnects to the host-owned shells. APK installation is Android-only.
+Run on an unsigned simulator, or configure development signing for an owned device. The local pod links the generated `Mobile.xcframework`; the same React Native screens and host protocol run on both platforms. iOS does not request a device-wide VPN entitlement or promise background terminal connectivity. On return to the foreground, it reconnects to the host-owned shells. APK installation is Android-only.
 
-The Xcode app version currently matches root `0.9.7`, build `9007`. Until iOS distribution is automated, update both Xcode configurations when changing the root release version. These sources have not been compiled on this Windows development machine. A Mac build and iOS device acceptance are still required. iOS is intentionally absent from GitHub release builds.
+The Xcode project version matches the root package version. iOS build and simulator checks run in Apple platform acceptance, not the GitHub release workflow. Physical-device acceptance is separate.
 
 ## Emulator and E2E
 

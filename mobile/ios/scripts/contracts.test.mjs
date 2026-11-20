@@ -147,7 +147,7 @@ test('observer profile is explicit, delivery-only and keeps the canonical native
   assert.match(polling, /connection\[@"binding"\]/);
   assert.match(polling, /@"observer-v2"/);
 });
-test('both native carriers use exact routes and preserve real HTTP status without native fallback', () => {
+test('the Rust Go transport uses exact routes and preserves real HTTP status', () => {
   const policy = read('mobile/ios/ShellfoxRust/SFNetworkPolicy.h');
   const allow = policy.split('static inline BOOL SFNetworkPathPoll')[0];
   const paths = [...allow.matchAll(/@"(\/v[12]\/[^\"]+)"/g)].map(m => m[1]).sort();
@@ -159,12 +159,10 @@ test('both native carriers use exact routes and preserve real HTTP status withou
   const transport = read('mobile/ios/ShellfoxRust/SFGoTransport.mm');
   assert.match(transport, /@implementation SFGoHTTPResponse[\s\S]*?@end\s*@interface SFGoRequest/);
   assert.doesNotMatch(read('mobile/ios/ShellfoxRust/ShellfoxRustNative.podspec'), /-fcxx-modules/);
-  const legacy = read('mobile/ios/ShellfoxMobile/ShellfoxNetwork.mm');
-  for (const text of [transport, legacy]) {
-    assert.match(text, /SFNetworkPathPoll\(path\)/);
-    assert.match(text, /SFNetworkPathFiniteCompletion\(path\)/);
-  }
-  assert.match(legacy, /SFNetworkPathAllowed\(path\)/);
+  assert.match(transport, /SFNetworkPathAllowed\(route\)/);
+  assert.match(transport, /SFNetworkPathPoll\(path\)/);
+  assert.match(transport, /SFNetworkPathFiniteCompletion\(path\)/);
+  assert.doesNotMatch(read('mobile/ios/ShellfoxMobile/ShellfoxNetwork.mm'), /RCT_REMAP_METHOD\(request,/);
   assert.match(transport, /MobileRequestWithStatus\(peer, path, body, error\)/);
   assert.match(transport, /\[result statusCode\]/);
   assert.match(transport, /\[result body\]/);

@@ -23,8 +23,9 @@ test('exact carrier paths and admission classes agree with canonical observer-v2
     ['/v1/pair', '/v1/disconnect', '/v2/pair', '/v2/disconnect']);
   assert.match(kotlin('MobileEndpoint'), /it\.path == path/);
   assert.match(kotlin('MobileEndpoint'), new RegExp(`DEADLINE_MS = ${contract.limits.deadlineMs}`));
-  assert.match(kotlin('ShellfoxNetworkModule'), /MobileEndpoint\.fromPath\(path\)/);
-  assert.match(kotlin('ShellfoxNetworkModule'), /if \(endpoint\.isPoll\) polls else requests/);
+  assert.doesNotMatch(kotlin('ShellfoxNetworkModule'), /fun request\(/);
+  assert.match(rustKotlin('NativeGoTransport'), /MobileEndpoint\.fromPath\(route\)/);
+  assert.match(rustKotlin('NativeGoTransport'), /if \(endpoint\.isPoll\) polls else requests/);
   assert.match(kotlin('PairApprovalWakeLock'), /needsBackgroundCompletion/);
   assert.match(kotlin('PairApprovalWakeLock'), /coerceIn\(1L, 35000L\)/);
   assert.match(kotlin('PairApprovalWakeLock'), /finally .*wakeLock\.release/);

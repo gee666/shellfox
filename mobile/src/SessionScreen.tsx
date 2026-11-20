@@ -12,7 +12,7 @@ import { tabDot } from '../../src/shared/terminal-status';
 import { StatusIndicator } from './StatusIndicator';
 import { ConnectionStatus } from './ConnectionStatus';
 import { TerminalOperationError } from './terminal/errors';
-import type { TerminalBridgeState } from './terminal/bridge';
+import type { TerminalViewState } from './terminal/terminal-view-props';
 import { isConnectionFailure } from './connection-status';
 import { RemoteClientError } from './client/protocol';
 import { FolderButton } from './FileTransferBar';
@@ -56,7 +56,7 @@ export function SessionScreen({
   const consumeIntent = useCallback((id: string) => setFocusIntent(value => value?.id === id ? null : value), []);
   const client = machine.client;
   const terminalApi = client.terminalApi;
-  const subscribeTerminal = client.subscribeTerminal;
+
   useEffect(() => {
     setFocusIntent(value => {
       if (!value) return value;
@@ -69,10 +69,10 @@ export function SessionScreen({
   const terminalKey = `${machine.peer.id}/${sessionId}/${active?.id ?? ''}/${active?.generation ?? ''}/${machine.state.connectionId ?? ''}`;
   const currentTerminalKey = useRef(terminalKey);
   currentTerminalKey.current = terminalKey;
-  const [terminalPhase, setTerminalPhase] = useState<{ key: string; state: TerminalBridgeState } | null>(null);
+  const [terminalPhase, setTerminalPhase] = useState<{ key: string; state: TerminalViewState } | null>(null);
   const [terminalError, setTerminalError] = useState<{ key: string; message: string } | null>(null);
   const phase = terminalPhase?.key === terminalKey ? terminalPhase.state : canAttach || !metadataCurrent || active?.lifecycle === 'launching' ? 'attaching' : 'closed';
-  const onTerminalState = useCallback((state: TerminalBridgeState) => {
+  const onTerminalState = useCallback((state: TerminalViewState) => {
     if (currentTerminalKey.current !== terminalKey) return;
     setTerminalPhase(previous => previous?.key === terminalKey && previous.state === state ? previous : { key: terminalKey, state });
     if (state === 'attached' || state === 'closed' || state === 'blocked') setTerminalError(previous => previous?.key === terminalKey ? null : previous);
@@ -272,7 +272,7 @@ export function SessionScreen({
               key={`${active.id}/${active.generation ?? ''}`}
               api={terminalApi}
               uploadApi={client}
-              subscribeTerminal={subscribeTerminal}
+
               tabId={active.id}
               readOnly={isAutomationView(active)}
               takeoverIntent={focusIntent?.connectionId === machine.state.connectionId && focusIntent?.tabId === active.id

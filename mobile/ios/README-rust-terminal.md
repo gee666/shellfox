@@ -1,6 +1,6 @@
 # iOS Rust terminal
 
-This implementation adds a Fabric terminal and TurboModule to the existing RN 0.88 application. The explicit additive observer source route is documented separately in [README-observer-v2.md](README-observer-v2.md); v1 remains the default and observer parsers never fit locally. It does not use a WebView to render Ghostty. Keep the existing WebView route as an explicit transition choice until Android and iOS pass acceptance. A Windows source/codegen check is not iOS acceptance.
+This implementation adds a Fabric terminal and TurboModule to the existing RN 0.88 application. The explicit additive observer source route is documented separately in [README-observer-v2.md](README-observer-v2.md); v1 remains the default and observer parsers never fit locally. The terminal renders Ghostty through a native view. A Windows source or codegen check is not iOS acceptance.
 
 ## Registration and build dependencies
 
@@ -94,7 +94,7 @@ The standalone header contract can also be syntax-checked from an x64 MSVC devel
 
 ## Native v1 simulator smoke
 
-`Apple platform acceptance` on `experiment/ghostty-rust` builds a separate simulator bundle with the regular app code. The runner launches it with `--shellfox-native-v1 --shellfox-control-url` against a loopback Tailscale test control plane and a Rust CLI host. The test approves the simulator through the host CLI and checks shell input, output and PTY size before and after iPad rotation. It stops and restarts the real host network listener, proves the attached session reconnects to the same shell, then backgrounds and foregrounds the app. It also checks that a file edit made in the app changed the host file on disk. The run uploads the XCTest result and screenshots in `ios-simulator-results`. It does not change the default iOS terminal or use a real tailnet or signing identity.
+`Apple platform acceptance` on `experiment/ghostty-rust` builds a separate simulator bundle with the regular app code. The runner launches it with `--shellfox-control-url` against a loopback Tailscale test control plane and a Rust CLI host. The test approves the simulator through the host CLI and checks shell input, output and PTY size before and after iPad rotation. It stops and restarts the real host network listener, proves the attached session reconnects to the same shell, then backgrounds and foregrounds the app. It also checks that a file edit made in the app changed the host file on disk. The run uploads the XCTest result and screenshots in `ios-simulator-results`. It exercises the default terminal without using a real tailnet or signing identity.
 
 ## Verification status
 
@@ -112,4 +112,4 @@ The shared event schema now includes the current reset geometry/readiness fields
 
 Blocked here: CocoaPods evaluation, Swift/Objective-C++ compilation, iOS Rust/Ghostty linking, unsigned simulator application build, XCTest execution, real IME/candidate keyboards, international hardware layouts, VoiceOver, touch selection, screenshots, sustained-output measurements and suspend/reconnect behavior. The build script confirms this with a Windows platform error. No native compile or runtime pass is claimed.
 
-Acceptance must include native and transitional clients against isolated fixtures: full-screen TUIs, takeover/readonly, detach/reattach, lost replay, split UTF-8/ANSI, theme changes, keyboard/safe-area resizing, CJK/dead keys/AltGr/emoji, paste policy, native selection/copy/links, VoiceOver, background/foreground reconnect and slow-consumer pressure. Keep both platform native implementations and the explicit transition route until those checks pass.
+Use isolated fixtures for further device checks: full-screen TUIs, takeover/readonly, detach/reattach, lost replay, split UTF-8/ANSI, theme changes, keyboard/safe-area resizing, CJK/dead keys/AltGr/emoji, paste policy, native selection/copy/links, VoiceOver, background/foreground reconnect and slow-consumer pressure.

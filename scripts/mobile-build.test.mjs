@@ -83,9 +83,9 @@ describe('mobile release contract', () => {
     const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
     const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
     assert.match(build, /delete env\.ENTRY_FILE/);
-    assert.match(gradle, /terminalTest \{[\s\S]*?applicationIdSuffix ["']\.terminaltest["']/);
-    assert.match(workflow, /:app:assembleTerminalTest/);
-    assert.match(workflow, /mobile-terminal-native-e2e\.mjs --serial emulator-5554/);
+    assert.match(gradle, /nativeFixture \{[\s\S]*?applicationIdSuffix ["']\.nativefixture["']/);
+    assert.match(workflow, /:app:assembleNativeFixture :app:assembleNativeFixtureAndroidTest/);
+    assert.match(workflow, /ANDROID_SERIAL=emulator-5554 .*:app:connectedNativeFixtureAndroidTest/);
   });
   it('keeps iOS source versions aligned with the distributable apps', () => {
     const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
@@ -102,9 +102,6 @@ describe('mobile release contract', () => {
     const mobile = workflow.slice(workflow.indexOf('  mobile:'), workflow.indexOf('  package:'));
     assert.ok(mobile.indexOf('- name: Install browser test prerequisites') >= 0);
     assert.ok(mobile.indexOf('- name: Install browser test prerequisites') < mobile.indexOf('- name: Mobile updater and build contracts'));
-    const desktop = workflow.slice(workflow.indexOf('  package:'));
-    assert.ok(desktop.indexOf('- name: Browser unit-test prerequisites') >= 0);
-    assert.ok(desktop.indexOf('- name: Browser unit-test prerequisites') < desktop.indexOf('- name: Unit tests'));
     const embedded = readFileSync('.github/workflows/embedded-packages.yml', 'utf8');
     assert.ok(embedded.indexOf('- name: Browser unit-test prerequisites') >= 0);
     assert.ok(embedded.indexOf('- name: Browser unit-test prerequisites') < embedded.indexOf('run: pnpm test:unit'));
@@ -161,7 +158,8 @@ describe('mobile release contract', () => {
     const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
     assert.match(gradle, /preview \{[\s\S]*?initWith release[\s\S]*?signingConfig signingConfigs\.debug[\s\S]*?debuggable false/);
     assert.match(gradle, /Release APK requires all SHELLFOX_UPLOAD_\*/);
-    assert.match(gradle, /implementation\(files\("\.\.\/\.\.\/\.\.\/tmp\/mobile-native\/android\/shellfox-mobile\.aar"\)\)/);
+    assert.match(gradle, /getOrElse\("\.\.\/\.\.\/\.\.\/tmp\/mobile-native\/android"\)/);
+    assert.match(gradle, /implementation\(files\(new File\(goAndroidDir, "shellfox-mobile\.aar"\)\)\)/);
   });
 });
 

@@ -1,7 +1,7 @@
 # Observer-v2 mobile source integration
 
-This is a separate, explicit delivery-only facade. Existing `createHostClient`
-and `useShellfox` defaults remain v1 with `webview-transition`. The new
+This is a separate, explicit delivery-only facade. `useShellfox` defaults to
+native v1. The
 `createProfileClient` returns a discriminated profile/client result; an observer
 is not a v1 HostClient and cannot feed invented SessionDto rows to legacy screens.
 The native module remains `NativeShellfoxRustClient`.

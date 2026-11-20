@@ -1,6 +1,6 @@
-import { createHostClient, type HostClient, type EngineSelection, type RemoteClientOptions } from '../../client/factory';
-import type { NativeRemoteTransport } from '../../client/protocol';
-import { nativeAvailability } from '../availability';
+import type { HostClient, RemoteClientOptions } from '../../client/host-client';
+import { nativeAvailability, type EngineSelection } from '../availability';
+import { createNativeV1Client } from '../create-v1-client';
 import { ObserverV2Client } from './client';
 import type { ObserverNativeBinding } from './native';
 import { createManagerProfileClient } from '../manager-v2/factory';
@@ -16,10 +16,10 @@ export type ProfileClient =
   | Readonly<{ profile: 'manager-v2'; client: ManagerV2Client }>;
 
 /** Separate factory result. Observer facts are never coerced into a v1 MachineView. */
-export async function createProfileClient(peerId: string, transport: NativeRemoteTransport,
-  options: RemoteClientOptions, selection: ProfileSelection = { profile: 'v1' },
+export async function createProfileClient(peerId: string, options: RemoteClientOptions,
+  selection: ProfileSelection = { profile: 'v1' },
 ): Promise<ProfileClient> {
-  if (selection.profile === 'v1') return { profile: 'v1', client: createHostClient(peerId, transport, options, selection.engine) };
+  if (selection.profile === 'v1') return { profile: 'v1', client: createNativeV1Client(peerId, options, selection.engine) };
   if(selection.profile==='manager-v2')return {profile:'manager-v2',client:await createManagerProfileClient(peerId,options.createClientId(),selection.engine)};
   const available = nativeAvailability(selection.engine);
   if (!available.available) throw new Error(available.reason);

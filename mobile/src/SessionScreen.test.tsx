@@ -10,7 +10,7 @@ import { RemoteClientError } from './client';
 import { TestTransport } from './client/test-fixtures';
 import type { MachineView, ShellfoxModel } from './useShellfox';
 import type { MenuConfig } from './ActionMenu';
-import type { TerminalBridgeState } from './terminal/bridge';
+import type { TerminalViewState } from './terminal/terminal-view-props';
 import { TerminalOperationError } from './terminal/errors';
 import { SessionScreen, type SessionControlIntent } from './SessionScreen';
 
@@ -18,7 +18,7 @@ type NativeProps = {
   children?: ReactNode; accessibilityLabel?: string; accessibilityRole?: string; disabled?: boolean;
   onPress?: () => void; onLongPress?: () => void; testID?: string;
 };
-type TerminalProps = { tabId: string; onFileOpen?: (target: { path: string; line?: number; column?: number }) => void; readOnly?: boolean; takeoverIntent?: string; onTakeoverIntentConsumed?: (id: string) => void; onError: (error: Error) => void; onState: (state: TerminalBridgeState) => void };
+type TerminalProps = { tabId: string; onFileOpen?: (target: { path: string; line?: number; column?: number }) => void; readOnly?: boolean; takeoverIntent?: string; onTakeoverIntentConsumed?: (id: string) => void; onError: (error: Error) => void; onState: (state: TerminalViewState) => void };
 let terminalProps: TerminalProps | null = null;
 vi.mock('react-native', () => ({
   Alert: { alert: vi.fn() },

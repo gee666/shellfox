@@ -17,7 +17,7 @@ final class NativeV1UITests: XCTestCase {
 
   func testNativeV1OnOwnedRustHost() throws {
     let app = XCUIApplication(bundleIdentifier: bundleID)
-    app.launchArguments = ["--shellfox-native-v1", "--shellfox-control-url", control]
+    app.launchArguments = ["--shellfox-control-url", control]
     app.launchEnvironment["TS_DEBUG_ALWAYS_USE_DERP"] = "true"
     app.launch()
 

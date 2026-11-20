@@ -1,6 +1,6 @@
 # Remote protocol client
 
-`RemoteClient` is a remote-only TypeScript client. It imports contracts and Zod schemas from `../../../src/shared`, with no React Native, Electron, Node or UI imports in production code.
+`RemoteClient` is the TypeScript v1 protocol client for the Files QA bundle and host compatibility tests. Android and iOS use `RustHostClient` in the app.
 
 ## Native boundary
 
@@ -25,7 +25,7 @@ The JS runtime must provide `TextEncoder`, `AbortController` and timers. The exi
 ```ts
 import { RemoteClient } from './client';
 
-const client = new RemoteClient(peer.id, nativeNetwork, {
+const client = new RemoteClient(peer.id, transport, {
   createClientId: uuid,
 });
 
@@ -83,18 +83,7 @@ Session and tab dots use desktop activity semantics. A matched agent is green, a
 
 Activity travels over the client's single event stream, independently of terminal attachments and ownership. On every successful pair, including a reconnect to a surviving host view, the host queues current activity for its live non-elevated tabs, at most 64. Queued activity coalesces per tab and survives terminal frame cleanup. Pairing also retires any older host event poll without letting it drain the replacement stream's activity. Mobile clears busy flags on disconnect, then rebuilds them from these events. No extra status requests or per-tab polling are needed. Hosts without this recovery fix only send transitions, so a reconnect during continuous output can miss the earlier busy event.
 
-## Terminal WebView
-
-```tsx
-<TerminalView
-  api={client.terminalApi}
-  subscribeTerminal={client.subscribeTerminal}
-  tabId={tabId}
-  connectionEpoch={connection.connectionId ?? ''}
-  fontSize={fontSize}
-  onError={onError}
-/>
-```
+## Test terminal consumers
 
 `terminalApi` and `subscribeTerminal` are stable bound references. The API contains `attachTerminal`, `takeTerminalControl`, `writeTerminal`, `resizeTerminal`, `acknowledgeTerminal` and `detachTerminal`, with the existing `TerminalApi` signatures. `subscribeTerminal` emits the existing `TerminalEvent` directly, without a peer wrapper. `subscribe` emits the existing `RemoteHostEvent` envelope.
 

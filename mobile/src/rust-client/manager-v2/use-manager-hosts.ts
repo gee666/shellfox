@@ -5,7 +5,6 @@ import type {EngineSelection} from '../availability';
 import {createProfileClient} from '../observer-v2/factory';
 import type {ObserverSnapshot} from '../observer-v2/catalog';
 import type {ManagerV2Client,ManagerState} from './client';
-import {nativeNetwork} from '../../network';
 
 type Engine=Extract<EngineSelection,{engine:'rust-native'}>;
 export interface ManagerHost {peerId:string;client:ManagerV2Client;state:ManagerState;snapshot:ObserverSnapshot|null;confirmed:boolean}
@@ -40,7 +39,7 @@ export function useManagerHosts(engine:Engine,report:(cause:unknown)=>void,onPai
         if(retirements.current.get(peerId)===retirement)retirements.current.delete(peerId);
       }
       if(!client){
-        const selected=await createProfileClient(peerId,nativeNetwork,{createClientId:uuid},{profile:'manager-v2',engine});
+        const selected=await createProfileClient(peerId,{createClientId:uuid},{profile:'manager-v2',engine});
         if(selected.profile!=='manager-v2')throw new Error('Manager profile was not selected.');
         client=selected.client;
         if(!valid()){await client.close();throw new Error('Manager connection was retired.');}

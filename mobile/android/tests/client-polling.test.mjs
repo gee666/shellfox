@@ -30,7 +30,9 @@ test('iOS invalidation retains lifetime and pumps retired views until actual cli
  const lifetime=owner.slice(owner.indexOf('- (void)retireLifetimes'),owner.indexOf('- (BOOL)enqueue:'));
  assert.match(lifetime,/if \(lifetime.clients.count\) continue;[\s\S]*\[self close:identifier\]/);
  assert.doesNotMatch(lifetime,/removeAllObjects/);
- assert.match(owner,/!terminal.retiring && \(!terminal.visible/);
+ assert.match(owner,/presenting = !terminal.retiring && terminal.visible && terminal.mailbox->active.load\(\)/);
+ assert.match(owner,/!presenting && !terminal.sink && !terminal.retiring/);
+ assert.match(owner,/before.queued_chunks \|\| \(presenting && terminal.dirty\)/);
  assert.match(owner,/if \(terminal.sink \|\| terminal.closeAttempted\) return SFM_BUSY/);
  assert.match(store,/client.disconnectFinished && client.closeStatus == SFM_OK && !client.nativeCloseAttempted/);
  assert.doesNotMatch(store,/client.closeStatus = SFM_BUSY/);

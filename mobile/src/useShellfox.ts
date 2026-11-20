@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import { isAttachmentPickerOpen } from './attachment-picker-lifecycle';
 import { v4 as uuid } from 'uuid';
 import type { ManagerSnapshot } from '../../src/shared/contracts';
-import { createHostClient, type HostClient, type ClientState } from './client/factory';
+import type { HostClient, ClientState } from './client/host-client';
 import { createNativeV1Client } from './rust-client/create-v1-client';
 import { RemoteClientError } from './client/protocol';
 import { isConnectionFailure } from './connection-status';
@@ -14,7 +14,7 @@ import { defaultPreferences, loadPreferences, savePreferences, type Preferences 
 export interface MachineView { peer: NetworkPeer; client: HostClient; state: ClientState; snapshot: ManagerSnapshot | null; snapshotConnectionId: string | null; busyTabIds: Record<string, boolean> }
 interface SnapshotRefresh { connectionId: string | null; promise: Promise<void>; next?: SnapshotRefresh }
 export const errorMessage = (error: unknown): string => error instanceof Error ? error.message : 'Something went wrong.';
-export function useShellfox(enableV1Clients = true, controlURL?: string, nativeV1 = false) {
+export function useShellfox(enableV1Clients = true, controlURL?: string) {
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [ready, setReady] = useState(false);
   const [preferencesLoaded, setPreferencesLoaded] = useState(false);
@@ -120,7 +120,7 @@ export function useShellfox(enableV1Clients = true, controlURL?: string, nativeV
     if (!enableV1Clients) throw new Error('The V1 client is not selected.');
     const found = clients.current.get(peer.id); if (found) return found.client;
     const options = { createClientId: uuid };
-    const client = nativeV1 ? createNativeV1Client(peer.id, options) : createHostClient(peer.id, nativeNetwork, options);
+    const client = createNativeV1Client(peer.id, options);
     const unsubState = client.subscribeState(state => {
       if (!alive.current) return;
       const denied = state.status === 'rejected' || state.status === 'awaiting-approval';
@@ -150,7 +150,7 @@ export function useShellfox(enableV1Clients = true, controlURL?: string, nativeV
     clients.current.set(peer.id, { client, dispose: () => { unsubState(); unsubEvents(); client.stop(); } });
     setMachines(items => [...items, { peer, client, state: client.getState(), snapshot: null, snapshotConnectionId: null, busyTabIds: {} }]);
     return client;
-  }, [refresh, enableV1Clients, nativeV1]);
+  }, [refresh, enableV1Clients]);
 
   const networkFailure = useCallback((message: string) => {
     const working = [...clients.current.values()].some(({ client }) => client.getState().status === 'connected');

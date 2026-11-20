@@ -1,11 +1,13 @@
 import type { TerminalFileTarget } from '../../../src/shared/terminal-file-links';
-import type { MobileTerminalApi, SubscribeTerminal, TerminalBridgeState } from './bridge';
+import type { MobileTerminalApi } from '../client/host-client';
 import type { TerminalUploadApi } from './upload';
+
+export type { MobileTerminalApi } from '../client/host-client';
+export type TerminalViewState = 'attaching' | 'attached' | 'closed' | 'reconnecting' | 'blocked';
 
 export interface TerminalViewProps {
   api: MobileTerminalApi;
   uploadApi?: TerminalUploadApi;
-  subscribeTerminal: SubscribeTerminal;
   tabId: string;
   readOnly?: boolean;
   fontSize: number;
@@ -16,6 +18,6 @@ export interface TerminalViewProps {
   /** Change after a remote reconnect to retire the old delivery view. */
   connectionEpoch: string | number;
   onError?: (error: Error) => void;
-  onState?: (state: TerminalBridgeState) => void;
+  onState?: (state: TerminalViewState) => void;
   onFileOpen?: (target: TerminalFileTarget) => void;
 }

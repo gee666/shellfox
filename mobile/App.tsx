@@ -17,8 +17,8 @@ import type { FileOpenRequest } from './src/file-browser-types';
 
 const ManagerApp = React.lazy(() => import('./src/rust-client/manager-v2/ManagerApp').then(module => ({ default: module.ManagerApp })));
 
-function Shellfox({ controlURL, nativeV1 }: { controlURL?: string; nativeV1?: boolean }) {
-  const model = useShellfox(true, controlURL, nativeV1);
+function Shellfox({ controlURL }: { controlURL?: string }) {
+  const model = useShellfox(true, controlURL);
   return (
     <ThemeProvider accentColor={model.preferences.accentColor} backgroundColor={model.preferences.backgroundColor}>
       <ShellfoxView model={model} />
@@ -171,14 +171,14 @@ function ShellfoxView({ model }: { model: ShellfoxModel }) {
 const managerSelection = z.object({ profile:z.literal('manager-v2'), engine:z.object({
   engine:z.literal('rust-native'), accepted:z.object({android:z.boolean(),ios:z.boolean()}).strict(),
 }).strict() }).strict();
-export default function App({ shellfoxProfileSelection, shellfoxControlURL, shellfoxNativeV1 }: {
-  shellfoxProfileSelection?: string; shellfoxControlURL?: string; shellfoxNativeV1?: boolean;
+export default function App({ shellfoxProfileSelection, shellfoxControlURL }: {
+  shellfoxProfileSelection?: string; shellfoxControlURL?: string;
 }) {
   const selected = shellfoxProfileSelection === undefined ? undefined : managerSelection.parse(JSON.parse(shellfoxProfileSelection));
   return (
     <SafeAreaProvider>
       {selected ? <React.Suspense fallback={<View />}><ManagerApp engine={selected.engine} controlURL={shellfoxControlURL} /></React.Suspense>
-        : <Shellfox controlURL={shellfoxControlURL} nativeV1={shellfoxNativeV1} />}
+        : <Shellfox controlURL={shellfoxControlURL} />}
     </SafeAreaProvider>
   );
 }

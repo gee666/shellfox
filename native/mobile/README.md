@@ -44,9 +44,7 @@ Go exports:
 - `Stop() error`, which preserves node identity.
 - `Logout() error`, which logs out and stops. Call `Start` again before another login. A failed logout is reported rather than claiming credentials were removed.
 
-`RequestWithStatus` and its result are not yet present in the staged v1 artifacts or native bridge contract. Java, Objective-C and C ABI consumers must wait for matching reviewed bindings and newly rebuilt/pinned artifacts on all supported mobile targets. Do not relabel the old artifacts or infer support from their existing version labels.
-
-`NativeModules.ShellfoxNetwork` exposes promise methods `start(hostname)`, `status()`, `login(authKey)`, `peers()`, `request(peerId, path, body)`, `stop()`, and `logout()`. Start and login resolve to status JSON text. Peers and request also resolve to JSON text; stop and logout resolve without a value. Native errors are intentionally generic. The renderer validates decoded JSON with shared schemas.
+The Rust client calls the Go request functions through the Android and iOS native bridges. `NativeModules.ShellfoxNetwork` handles network setup, status and discovery. It does not accept peer requests from JavaScript.
 
 The native library shares health and bounded recovery code with `native/tailscale/nethealth` through a local Go module replacement. A rebuilt mobile native library must include that module. See its [health and recovery notes](../tailscale/nethealth/README.md). Missing mobile interface enumeration is treated as unknown, not proof that a live control connection is down. Local SDK control recovery preserves node identity, listeners and preferences and does not replay enrollment keys.
 

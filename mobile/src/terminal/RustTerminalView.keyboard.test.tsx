@@ -6,7 +6,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {RustTerminalView} from './RustTerminalView';
 import type {NativeViewDriver, NativeViewSession, NativeViewStateListener} from '../rust-client/native-terminal';
 import {terminalHandleSchema} from '../rust-client/adapter';
-import type {TerminalBridgeState} from './bridge';
+import type {TerminalViewState} from './terminal-view-props';
 import type {UploadIdentity} from './upload';
 
 interface UiProps {children?: ReactNode; accessibilityLabel?: string; onPress?: () => void; disabled?: boolean; accessibilityState?: {selected?: boolean}}
@@ -46,7 +46,7 @@ let nextHandle=100;
 function ownedView(tabId:string,readOnly:boolean){
   let identity:UploadIdentity={tabId,generation:'30000000-0000-4000-8000-000000000001',controlEpoch:1};
   let parserReady=false,closed=false,owned=true;
-  let bridgeState:TerminalBridgeState='attached';
+  let bridgeState:TerminalViewState='attached';
   const listeners=new Set<NativeViewStateListener>();
   let lastListener:NativeViewStateListener|undefined;
   const errors=new Set<(error:Error)=>void>();
@@ -61,7 +61,7 @@ function ownedView(tabId:string,readOnly:boolean){
   return {session,originalIdentity:{...identity},stateCallback:()=>lastListener,
     ownership:(allowed:boolean)=>{act(()=>{owned=allowed;});},
     owner:(next:Partial<UploadIdentity>,mutate=false)=>{act(()=>{identity=mutate?Object.assign(identity,next):{...identity,...next};});},
-    bridge:(next:TerminalBridgeState)=>{act(()=>{bridgeState=next;for(const listener of listeners)listener(next);});},
+    bridge:(next:TerminalViewState)=>{act(()=>{bridgeState=next;for(const listener of listeners)listener(next);});},
     error:()=>{act(()=>{for(const listener of errors)listener(new Error('Fixture view failed'));});},
   };
 }

@@ -1,10 +1,8 @@
 #import <Foundation/Foundation.h>
 #import <CommonCrypto/CommonDigest.h>
-#import <UIKit/UIKit.h>
 #import <React/RCTBridgeModule.h>
 #import <React/RCTInvalidating.h>
 #import <Mobile/Mobile.h>
-#import "../ShellfoxRust/SFNetworkPolicy.h"
 
 static NSURL *SFNetworkStateDirectory(NSString *name, NSError **error) {
   NSURL *base = [[NSFileManager defaultManager] URLForDirectory:NSApplicationSupportDirectory
@@ -22,8 +20,7 @@ static NSURL *SFNetworkStateDirectory(NSString *name, NSError **error) {
 
 @implementation ShellfoxNetwork {
   NSOperationQueue *_control;
-  dispatch_semaphore_t _requestSlots;
-  dispatch_semaphore_t _pollSlots;
+  dispatch_semaphore_t _discoverySlots;
   NSLock *_lock;
   NSUInteger _pending;
   BOOL _invalidated;
@@ -39,8 +36,7 @@ RCT_EXPORT_MODULE(ShellfoxNetwork)
     _control = [NSOperationQueue new];
     _control.maxConcurrentOperationCount = 1;
     _control.qualityOfService = NSQualityOfServiceUserInitiated;
-    _requestSlots = dispatch_semaphore_create(12);
-    _pollSlots = dispatch_semaphore_create(64);
+    _discoverySlots = dispatch_semaphore_create(12);
   }
   return self;
 }
@@ -74,13 +70,10 @@ RCT_EXPORT_MODULE(ShellfoxNetwork)
   }];
 }
 
-- (void)submitConcurrent:(BOOL)poll
-                    work:(id (^)(NSError **))work
-                 resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject {
-  dispatch_semaphore_t slots = poll ? _pollSlots : _requestSlots;
-  // Admission happens now, not after a queued JS operation has timed out.
-  if (dispatch_semaphore_wait(slots, DISPATCH_TIME_NOW) != 0) {
+- (void)submitDiscovery:(id (^)(NSError **))work
+               resolve:(RCTPromiseResolveBlock)resolve
+                reject:(RCTPromiseRejectBlock)reject {
+  if (dispatch_semaphore_wait(_discoverySlots, DISPATCH_TIME_NOW) != 0) {
     reject(@"NETWORK_BUSY", @"Too many pending network operations.", nil);
     return;
   }
@@ -93,7 +86,7 @@ RCT_EXPORT_MODULE(ShellfoxNetwork)
       id result = stopped ? nil : work(&error);
       if (stopped || error) reject(@"NETWORK_ERROR", @"Network operation failed.", nil);
       else resolve(result ?: [NSNull null]);
-      dispatch_semaphore_signal(slots);
+      dispatch_semaphore_signal(self->_discoverySlots);
     }
   });
 }
@@ -147,47 +140,14 @@ RCT_REMAP_METHOD(login,
 RCT_REMAP_METHOD(peers,
                  peersResolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
-  [self submitConcurrent:NO work:^id(NSError **error) { return MobilePeers(error); }
+  [self submitDiscovery:^id(NSError **error) { return MobilePeers(error); }
        resolve:resolve reject:reject];
 }
 
 RCT_REMAP_METHOD(hosts,
                  hostsResolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
-  [self submitConcurrent:NO work:^id(NSError **error) { return MobileHosts(error); }
-       resolve:resolve reject:reject];
-}
-
-RCT_REMAP_METHOD(request,
-                 requestPeerId:(NSString *)peerId
-                 path:(NSString *)path
-                 body:(NSString *)body
-                 resolver:(RCTPromiseResolveBlock)resolve
-                 rejecter:(RCTPromiseRejectBlock)reject) {
-  if (!SFNetworkPathAllowed(path)) { reject(@"NETWORK_ERROR", @"Network operation failed.", nil); return; }
-  if (SFNetworkPathFiniteCompletion(path)) {
-    // iOS grants a finite completion window, not indefinite background networking.
-    dispatch_async(dispatch_get_main_queue(), ^{
-      __block UIBackgroundTaskIdentifier task = UIBackgroundTaskInvalid;
-      void (^finish)(void) = ^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-          if (task != UIBackgroundTaskInvalid) {
-            [[UIApplication sharedApplication] endBackgroundTask:task];
-            task = UIBackgroundTaskInvalid;
-          }
-        });
-      };
-      task = [[UIApplication sharedApplication] beginBackgroundTaskWithName:@"Shellfox approval" expirationHandler:finish];
-      [self submitConcurrent:SFNetworkPathPoll(path)
-                       work:^id(NSError **error) { return MobileRequest(peerId, path, body, error); }
-                    resolve:^(id value) { finish(); resolve(value); }
-                     reject:^(NSString *code, NSString *message, NSError *error) { finish(); reject(code, message, error); }];
-    });
-    return;
-  }
-  // Long-polls must never occupy the workers used for terminal input or peers.
-  [self submitConcurrent:SFNetworkPathPoll(path)
-                    work:^id(NSError **error) { return MobileRequest(peerId, path, body, error); }
+  [self submitDiscovery:^id(NSError **error) { return MobileHosts(error); }
        resolve:resolve reject:reject];
 }
 

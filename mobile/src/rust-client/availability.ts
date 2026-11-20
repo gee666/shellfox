@@ -1,15 +1,12 @@
 import { TurboModuleRegistry, UIManager } from 'react-native';
 import type { Spec } from './specs/NativeShellfoxRustClient';
 
-export type EngineSelection =
-  | Readonly<{ engine: 'webview-transition' }>
-  | Readonly<{ engine: 'rust-native'; accepted: Readonly<{ android: boolean; ios: boolean }> }>;
+export type EngineSelection = Readonly<{ engine: 'rust-native'; accepted: Readonly<{ android: boolean; ios: boolean }> }>;
 export type NativeAvailability =
   | Readonly<{ available: true; native: Spec }>
   | Readonly<{ available: false; reason: string }>;
 
 export function nativeAvailability(selection: EngineSelection): NativeAvailability {
-  if (selection.engine === 'webview-transition') return { available: false, reason: 'WebView transition selected.' };
   if (!selection.accepted.android || !selection.accepted.ios) {
     return { available: false, reason: 'Native terminals require Android and iOS acceptance.' };
   }

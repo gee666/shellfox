@@ -92,7 +92,6 @@ export function main(args = process.argv.slice(2)) {
         '-alias', 'androiddebugkey', '-storepass', 'android'], root, true, 30_000);
       if (actual === createHash('sha256').update(debugCert).digest('hex')) throw new Error('Debug certificate is forbidden for releases.');
     }
-    run(process.execPath, ['scripts/mobile-terminal.mjs']);
     const gomobile = env.SHELLFOX_GOMOBILE || path.join(scratch, 'mobile-native/go/bin/gomobile' + (process.platform === 'win32' ? '.exe' : ''));
     if (!existsSync(gomobile)) run(process.execPath, ['scripts/mobile-native.mjs', 'setup']);
     run(process.execPath, ['scripts/mobile-native.mjs', 'build', 'android']);
