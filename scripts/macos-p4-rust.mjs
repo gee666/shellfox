@@ -41,6 +41,7 @@ export async function runRust({ binary, cli, helper, testcontrol, project, dir, 
   const clickText = async (name, match = shot => observed(shot, name)) => click(match(await shot(`before-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`, match)));
   const fillPath = async value => {
     clickNode(await node('Folder path'));
+    await node('Folder path', field => field?.focused === true);
     key('a', 'c');
     action('paste', value);
     await node('Folder path', field => field?.value === value);

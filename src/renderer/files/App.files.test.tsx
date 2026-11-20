@@ -170,7 +170,7 @@ it('ignores a delayed loopback directory reply from WSL tab A after Files opens 
     expect(openFolder).toBeDisabled();
 
     await f.user.click(screen.getByRole('tab', { name: /Scope B$/ }));
-    await f.user.click(screen.getByRole('button', { name: 'Files', exact: true }));
+    await f.user.click(screen.getByRole('button', { name: 'Files' }));
     const path = await screen.findByRole('combobox', { name: 'Folder path' });
     await waitFor(() => expect(path).toHaveValue('/guest/b'));
     expect(f.files.list).toHaveBeenLastCalledWith({ sessionId: item.id, tabId: tabB.id, path: '/guest/b' });

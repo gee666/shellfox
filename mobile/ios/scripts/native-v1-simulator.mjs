@@ -141,7 +141,7 @@ try {
     '-resultBundlePath', result, '-parallel-testing-enabled', 'NO']);
   // Simulator install and XCTest startup can take minutes. Do not compete for
   // runner resources by launching CLI status queries before the test is running.
-  await until('XCTest to start the simulator scenario', 360_000, () => {
+  await until('XCTest to start the simulator scenario', 10 * 60_000, () => {
     live(tests, 'Native v1 UI test');
     return tests.startedTest;
   }, 1_000);

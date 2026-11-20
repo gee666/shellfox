@@ -117,7 +117,14 @@ func resizeContent(_ window: AXUIElement, _ args: ArraySlice<String>) throws {
     }
 }
 
-func key(_ owner: pid_t, _ args: ArraySlice<String>) throws {
+@MainActor
+func requireFrontmost(_ owners: [pid_t]) throws {
+    guard let front = NSWorkspace.shared.frontmostApplication, owners.contains(front.processIdentifier) else {
+        throw ProbeError("The fixture or its native dialog must have keyboard focus before posting input")
+    }
+}
+
+func key(_ owner: pid_t, _ args: ArraySlice<String>, throughWindowServer: Bool = false) throws {
     guard let key = args.first, let code = UInt16(key), let modifiers = args.dropFirst().first else {
         throw ProbeError("Expected the virtual key code and modifiers")
     }
@@ -128,10 +135,12 @@ func key(_ owner: pid_t, _ args: ArraySlice<String>) throws {
         }
         if modifiers.contains("c") { event.flags.insert(.maskCommand) }
         if modifiers.contains("s") { event.flags.insert(.maskShift) }
-        event.postToPid(owner)
+        if throughWindowServer { event.post(tap: .cghidEventTap) }
+        else { event.postToPid(owner) }
     }
 }
 
+@MainActor
 func click(_ owner: pid_t, _ args: ArraySlice<String>, _ window: AXUIElement) throws {
     let values = try args.map(number)
     guard values.count == 2 else { throw ProbeError("Expected x y") }
@@ -141,22 +150,22 @@ func click(_ owner: pid_t, _ args: ArraySlice<String>, _ window: AXUIElement) th
     }
     let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
     let target = windows.first { entry in
-        guard entry[kCGWindowOwnerPID as String] as? pid_t == owner,
+        guard entry[kCGWindowLayer as String] as? Int == 0,
               let bounds = entry[kCGWindowBounds as String] as? [String: Any],
               let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return false }
         return frame.contains(point)
     }
-    guard let number = target?[kCGWindowNumber as String] as? NSNumber else {
-        throw ProbeError("Quartz did not find an owned native window under the requested click")
+    guard target?[kCGWindowOwnerPID as String] as? pid_t == owner else {
+        throw ProbeError("The owned fixture is not the topmost window at the click position")
     }
+    try requireFrontmost([owner])
     let source = CGEventSource(stateID: .hidSystemState)
+    // Let WindowServer translate screen coordinates into AppKit window coordinates.
     for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
         guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left) else {
             throw ProbeError("Could not create mouse event")
         }
-        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: number.int64Value)
-        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: number.int64Value)
         if type != .mouseMoved { event.setIntegerValueField(.mouseEventClickState, value: 1) }
-        event.postToPid(owner)
+        event.post(tap: .cghidEventTap)
     }
 }

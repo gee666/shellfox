@@ -23,7 +23,7 @@ export function nativePicker(action) {
   const dismissed = () => eventually('native picker dismissed', read, rows => !dialog(rows));
   const textEntry = rows => rows.find(row => row.focused && ['AXTextField', 'AXComboBox'].includes(row.role));
   const go = async target => {
-    key(44); // Typing / in an open/save panel starts Go to Folder.
+    key(5, 'cs'); // Cmd+Shift+G opens Go to Folder from any picker control.
     await eventually('native Go to Folder input', read, rows => Boolean(textEntry(rows)));
     key(0, 'c');
     action('dialog-paste', target);

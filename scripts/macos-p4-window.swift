@@ -135,7 +135,11 @@ private struct WindowProbe {
                 guard app.activate(options: []) else { throw ProbeError("Could not activate the owned app") }
                 return
             case "key": try key(owner, values); return
-            case "dialog-key": try key(dialogOwner(owner), values); return
+            case "dialog-key":
+                let modal = try dialogOwner(owner)
+                try requireFrontmost([owner, modal])
+                try key(modal, values, throughWindowServer: true)
+                return
             case "press", "press-control":
                 guard let name = values.first else { throw ProbeError("Missing native control name") }
                 try pressControl(owner, name, modal: args[2] == "press"); return
@@ -144,8 +148,14 @@ private struct WindowProbe {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
                 guard pasteboard.setString(text, forType: .string) else { throw ProbeError("Could not set the fixture clipboard") }
-                let target = args[2] == "dialog-paste" ? try dialogOwner(owner) : owner
-                try key(target, ["9", "c"][...]); return
+                if args[2] == "dialog-paste" {
+                    let modal = try dialogOwner(owner)
+                    try requireFrontmost([owner, modal])
+                    try key(modal, ["9", "c"][...], throughWindowServer: true)
+                } else {
+                    try key(owner, ["9", "c"][...])
+                }
+                return
             case "clipboard": result = ["value": NSPasteboard.general.string(forType: .string) ?? ""]
             case "click": try click(owner, values, window); return
             case "capture":
