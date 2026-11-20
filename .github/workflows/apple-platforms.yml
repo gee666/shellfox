@@ -154,6 +154,8 @@ jobs:
         shell: bash
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: ''
+          GOCACHE: ${{ github.workspace }}/tmp/go-cache
+          GOMODCACHE: ${{ github.workspace }}/tmp/go-mod
           P4_ELECTRON_HELPER_REV: be0aa03c92c553e5b3d3a9bdb75f63eddd83868b
         run: |
           cargo check --locked --workspace --all-targets
@@ -172,7 +174,7 @@ jobs:
           git archive "$P4_ELECTRON_HELPER_REV" native/tailscale | tar -x -C "$legacy/src"
           (cd "$legacy/src/native/tailscale" && CGO_ENABLED=0 GOTMPDIR="$legacy/go-work" go build -mod=readonly \
             -o "$legacy/tmp/tailscale/darwin-${{ matrix.arch }}/shellfox-tailscale" .)
-        timeout-minutes: 30
+        timeout-minutes: 45
       - name: Compare local Files, native preview and peer transfers in both apps
         run: |
           p4="$PWD/tmp/lane-apple/p4"
