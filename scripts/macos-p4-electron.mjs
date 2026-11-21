@@ -54,7 +54,11 @@ export async function runElectron({ binary, main, projectRoot, remoteHelper, pro
     const shot = name => action('capture', path.join(dir, `${name}.png`));
     const norm = name => path.join(project, name);
     const go = async (target, folder = target) => {
+      // The first listing replaces '~' with its canonical path. Wait before
+      // selecting the input text so the listing cannot collapse the selection.
+      await expect(button('Parent folder')).toBeEnabled();
       await field.fill(target);
+      await expect(field).toHaveValue(target);
       await field.press('Escape');
       await button('Open path').click();
       await expect(field).toHaveValue(folder);
