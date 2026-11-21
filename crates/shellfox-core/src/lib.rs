@@ -1,5 +1,6 @@
 //! Portable Shellfox metadata contracts. This crate cannot launch local processes.
 mod approval_store;
+mod directory_title;
 mod error;
 mod ids;
 mod model;
@@ -14,6 +15,7 @@ pub mod window_state;
 mod wsl_launch;
 pub use wsl_launch::{WslLaunchAccount, WslLaunchBinding};
 pub use approval_store::*;
+pub use directory_title::directory_session_title;
 pub use error::*;
 pub use ids::*;
 pub use model::*;

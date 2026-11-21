@@ -97,7 +97,7 @@ describe('mobile release contract', () => {
     assert.deepEqual(names, [expected.name, expected.name]);
     assert.deepEqual(codes, [expected.code, expected.code]);
   });
-  it('installs browser prerequisites before browser-backed unit suites', () => {
+  it('installs browser prerequisites before the mobile and Electron unit suites', () => {
     const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
     const mobile = workflow.slice(workflow.indexOf('  mobile:'), workflow.indexOf('  package:'));
     assert.ok(mobile.indexOf('- name: Install browser test prerequisites') >= 0);
@@ -158,8 +158,12 @@ describe('mobile release contract', () => {
     const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
     assert.match(gradle, /preview \{[\s\S]*?initWith release[\s\S]*?signingConfig signingConfigs\.debug[\s\S]*?debuggable false/);
     assert.match(gradle, /Release APK requires all SHELLFOX_UPLOAD_\*/);
-    assert.match(gradle, /getOrElse\("\.\.\/\.\.\/\.\.\/tmp\/mobile-native\/android"\)/);
+  });
+  it('uses the selected Go Android directory for the embedded AAR and assets', () => {
+    const gradle = readFileSync('mobile/android/app/build.gradle', 'utf8');
+    assert.match(gradle, /def goAndroidDir = file\(providers\.gradleProperty\("shellfoxGoAndroidDir"\)\s*\.getOrElse\("\.\.\/\.\.\/\.\.\/tmp\/mobile-native\/android"\)\)/);
     assert.match(gradle, /implementation\(files\(new File\(goAndroidDir, "shellfox-mobile\.aar"\)\)\)/);
+    assert.match(gradle, /sourceSets\.main\.assets\.srcDirs \+= \[new File\(goAndroidDir, "assets"\)\]/);
   });
 });
 

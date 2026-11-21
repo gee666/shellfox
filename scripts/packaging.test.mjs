@@ -289,19 +289,29 @@ test('node-pty prerequisite refuses Debug and prebuild loader fallback instead o
     const rebuild = readFileSync('scripts/rebuild.mjs', 'utf8');
     const postInstall = rebuild.indexOf("runNode('node_modules/node-pty/scripts/post-install.js'");
     const prepare = rebuild.indexOf('prepareDarwinPtyHelper(ptyDir)');
-    const smoke = rebuild.indexOf("runNode('node_modules/electron/cli.js'");
+    const smoke = rebuild.indexOf("runNode('node_modules/electron/cli.js', ['scripts/native-load-smoke.cjs']");
     assert.ok(postInstall >= 0 && postInstall < prepare && prepare < smoke);
-    assert.ok(readFileSync('src/main/terminal/supervisor-native.test.ts', 'utf8').includes('verifyBuiltUnixPty(require)'));
-    assert.ok(readFileSync('scripts/native-load-smoke.cjs', 'utf8').includes("pty.spawn('/bin/sh', ['-c', 'exit 7']"));
+    const nativeSmoke = readFileSync('scripts/native-load-smoke.cjs', 'utf8');
+    assert.match(nativeSmoke, /verifyBuiltUnixPty\(require\);\s+const pty = require\('node-pty'\);/);
+    assert.match(nativeSmoke, /pty\.spawn\('\/bin\/sh', \['-c', 'exit 7'\]/);
+    assert.match(nativeSmoke, /assert\.equal\(event\.exitCode, 7\)/);
   } finally { await rm(scratch, { recursive: true, force: true }); }
 });
-test('Darwin release collects packaged close diagnostics before independent lifecycle regression', () => {
+test('Rust desktop release smokes extracted installers on both Mac architectures before upload', () => {
   const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
-  assert.ok(workflow.includes('id: make'));
-  assert.ok(workflow.indexOf('- name: Packaged native smoke\n') < workflow.indexOf('- name: macOS supervisor lifecycle regression'));
-  const lifecycle = workflow.slice(workflow.indexOf('- name: macOS supervisor lifecycle regression'), workflow.indexOf('- name: Upload build failure diagnostics'));
-  assert.ok(lifecycle.includes("!cancelled() && matrix.platform == 'darwin' && steps.make.outcome == 'success'"));
-  assert.ok(!lifecycle.includes('continue-on-error'));
+  const job = /^  package:\r?\n([\s\S]*?)(?=^  release:)/m.exec(workflow)?.[1];
+  assert.ok(job, 'Missing desktop package job');
+  assert.match(job, /platform: darwin, arch: arm64, target: aarch64-apple-darwin/);
+  assert.match(job, /platform: darwin, arch: x64, target: x86_64-apple-darwin/);
+  const steps = job.split(/^      - /m);
+  const build = steps.findIndex(step => /^\s+run: node scripts\/package-rust\.mjs\s*$/m.test(step));
+  const smoke = steps.findIndex(step => /^\s+run: node scripts\/package-rust-smoke\.mjs\s*$/m.test(step));
+  const upload = steps.findIndex(step => /^uses: actions\/upload-artifact@/m.test(step));
+  assert.ok(build >= 0 && build < smoke && smoke < upload, 'Build, smoke, then upload the Rust installers');
+  assert.match(steps[upload], /^\s+path: tmp\/rust-installers\/\s*$/m);
+  for (const index of [build, smoke, upload]) {
+    assert.doesNotMatch(steps[index], /^\s+(?:if|continue-on-error):/m, 'Each step must run on every target and require the prior steps to pass');
+  }
 });
 test('Darwin helper source contracts point to existing backend-owned sources', () => {
   for (const helper of darwinHelpers) {

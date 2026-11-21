@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { failure, success, type ManagerApi } from '../../shared/contracts';
 import type { FileApi } from '../../shared/file-contracts';
@@ -10,7 +11,9 @@ import { FileTree } from './FileTree';
 beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }));
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 async function tick(ms = 120) { await act(async () => { vi.advanceTimersByTime(ms); }); }
-async function setup() {
+type StartPath = Pick<ComponentProps<typeof FileTree>, 'sessionId' | 'tabId' | 'initialDirectory' | 'directoryRequest'>;
+
+async function setup(start: StartPath = {}) {
   const base = mockApi().api;
   base.completeDirectory.mockResolvedValue(success({ matches: ['/home/child/', '/home/other/'] }));
   const files = {
@@ -23,7 +26,7 @@ async function setup() {
   const createDirectory = vi.fn<NonNullable<ManagerApi['createDirectory']>>(async input => success({ cwd: input.path }));
   const api: ManagerApi = { ...base, files, createDirectory };
   const onOpen = vi.fn(), onFolderChange = vi.fn();
-  const view = render(<FileTree api={api} onOpen={onOpen} onFolderChange={onFolderChange} />);
+  const view = render(<FileTree api={api} onOpen={onOpen} onFolderChange={onFolderChange} {...start} />);
   await act(async () => {});
   const input = screen.getByRole('combobox', { name: 'Folder path' });
   const enter = async () => { await act(async () => {
@@ -38,6 +41,24 @@ it('uses the shared path picker and lists host home with no session identity', a
   expect(f.files.list).toHaveBeenCalledExactlyOnceWith({ path: '~' });
   expect(f.input).toHaveValue('/home'); expect(f.onFolderChange).toHaveBeenLastCalledWith('/home');
   expect(f.api.getHomeDirectory).toHaveBeenCalledOnce();
+});
+
+it('uses the terminal folder request instead of the launch cwd', async () => {
+  const listing = { path: '/guest/current', parentPath: '/guest', entries: [], truncated: false };
+  const f = await setup({ sessionId: 'wsl', tabId: 'active-tab', initialDirectory: '/guest/launch',
+    directoryRequest: { id: 'request', path: listing.path, listing } });
+  expect(f.input).toHaveValue(listing.path);
+  expect(f.files.list).not.toHaveBeenCalled();
+});
+
+it.each([
+  { name: 'launch cwd without a request', start: { initialDirectory: '/guest/launch' }, path: '/guest/launch' },
+  { name: 'scoped current directory without a launch cwd', start: {}, path: '.' },
+])('starts with $name', async ({ start, path }) => {
+  const scope = { sessionId: 'wsl', tabId: 'active-tab' };
+  const f = await setup({ ...scope, ...start });
+  expect(f.files.list).toHaveBeenCalledExactlyOnceWith({ ...scope, path });
+  expect(f.input).toHaveValue(path);
 });
 
 it.each(['', '~'])('opens host home after clearing %j suggestions with Escape', async path => {

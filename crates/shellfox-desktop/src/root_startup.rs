@@ -36,6 +36,7 @@ impl Root {
             navigation: crate::window_manager::WindowSelection::new(initial),
             tab_scroll: crate::chrome::TabScroll::default(),
             pending_recent: None,
+            activating_session: None,
             views: HashMap::new(),
             attaching: HashSet::new(),
             failures: HashMap::new(),

@@ -14,7 +14,7 @@ pub(crate) enum Source {
     Local,
     Peer(AuthenticatedPeerId),
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct PeerCycle {
     pub peer: AuthenticatedPeerId,
     pub generation: u64,

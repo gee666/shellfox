@@ -8,7 +8,7 @@ import { useVisibleSessions } from './visible-sessions';
 import { machineState } from './machine-state';
 
 export function MachineSidebar({ controller, selectedMachine, onSelect, pageSize, scrollContainer, root }: {
-  controller: RemoteController; selectedMachine: string; onSelect: (id: string) => void; pageSize: number; scrollContainer: RefObject<HTMLDivElement | null>; root: RefObject<HTMLDivElement | null>;
+  controller: RemoteController; selectedMachine: string; onSelect: (id: string) => (() => boolean); pageSize: number; scrollContainer: RefObject<HTMLDivElement | null>; root: RefObject<HTMLDivElement | null>;
 }) {
   const { state, runtimes } = useStore(controller.store);
   return <>{state?.peers.filter(peer => peer.remembered).map(peer => <MachineSection key={peer.id} peer={peer} runtime={runtimes[peer.id]} controller={controller}
@@ -16,7 +16,7 @@ export function MachineSidebar({ controller, selectedMachine, onSelect, pageSize
 }
 
 function MachineSection({ peer, runtime, controller, selected, onSelect, pageSize, scrollContainer, root }: {
-  peer: RemotePeer; runtime?: MachineRuntime; controller: RemoteController; selected: boolean; onSelect: () => void; pageSize: number; scrollContainer: RefObject<HTMLDivElement | null>; root: RefObject<HTMLDivElement | null>;
+  peer: RemotePeer; runtime?: MachineRuntime; controller: RemoteController; selected: boolean; onSelect: () => (() => boolean); pageSize: number; scrollContainer: RefObject<HTMLDivElement | null>; root: RefObject<HTMLDivElement | null>;
 }) {
   const [expanded, setExpanded] = useState(true);
   const [pending, setPending] = useState(false);
@@ -39,7 +39,7 @@ function MachineSection({ peer, runtime, controller, selected, onSelect, pageSiz
 }
 
 function ConnectedMachine({ runtime, selected, label, onSelect, pageSize, controls, scrollContainer, root, machineId }: {
-  runtime: MachineRuntime; selected: boolean; label: string; onSelect: () => void; pageSize: number; controls: ReactNode; scrollContainer: RefObject<HTMLDivElement | null>; root: RefObject<HTMLDivElement | null>; machineId: string;
+  runtime: MachineRuntime; selected: boolean; label: string; onSelect: () => (() => boolean); pageSize: number; controls: ReactNode; scrollContainer: RefObject<HTMLDivElement | null>; root: RefObject<HTMLDivElement | null>; machineId: string;
 }) {
   useVisibleSessions(runtime.client.api, root, machineId);
   const state = useStore(runtime.client.store);

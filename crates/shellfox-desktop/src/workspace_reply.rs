@@ -1,5 +1,20 @@
 //! Focus only the actual operation reply, correlated by original metadata receipt.
-use shellfox_host::{CreationRequestReceipt, SessionId, Snapshot, TabId};
+use super::ActivationFence;
+use shellfox_host::{CreationRequestReceipt, SessionId, Snapshot, TabId, TabState};
+
+pub(super) fn activation_reopens_history(
+    requested: (SessionId, ActivationFence),
+    selected: Option<SessionId>,
+    current: ActivationFence,
+    reply: &Snapshot,
+) -> bool {
+    let (session_id, fence) = requested;
+    current == fence
+        && selected == Some(session_id)
+        && reply.sessions.iter().any(|session| {
+            session.id == session_id && session.tabs.iter().all(|tab| tab.state == TabState::Archived)
+        })
+}
 #[derive(Clone, Copy)]
 pub(super) enum ReplyIntent {
     None,

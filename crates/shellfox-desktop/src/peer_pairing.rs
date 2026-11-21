@@ -17,6 +17,11 @@ impl Root {
     ) {
         self.peer_ui.inventory_generation += 1;
         self.peers.inventory(&state.peers);
+        if self.peer_ui.pending_create.as_ref().is_some_and(|id| {
+            self.peers.peers.get(id).is_none_or(source::PeerState::creation_connection_failed)
+        }) {
+            self.peer_ui.pending_create = None;
+        }
         self.peer_ui
             .sidebar_layout
             .borrow_mut()
@@ -170,6 +175,9 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.peer_ui.pending_create.as_ref() == Some(peer) {
+            self.peer_ui.pending_create = None;
+        }
         if let Some(state) = self.peers.peers.get_mut(peer) {
             state.error = Some(message);
         }

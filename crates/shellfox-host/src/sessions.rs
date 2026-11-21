@@ -78,12 +78,12 @@ impl Host {
     }
 }
 pub(crate) fn directory_title(cwd: &str) -> String {
-    cwd.trim_end_matches(['/', '\\'])
-        .rsplit(['/', '\\'])
-        .find(|s| !s.is_empty())
-        .filter(|s| s.encode_utf16().count() <= 200)
-        .unwrap_or("Session")
-        .into()
+    let title = shellfox_core::directory_session_title(cwd);
+    if title.is_empty() || title.encode_utf16().count() > 200 {
+        "Session".into()
+    } else {
+        title.into()
+    }
 }
 pub(crate) fn remove_session(data: &mut Data, id: SessionId) {
     data.sessions.retain(|s| s.id != id);

@@ -40,6 +40,18 @@ Ship Shellfox on Rust + GPUI + libghostty-vt. The desktop app must match the Ele
 - Release version: the first Rust release is 0.10.0.
 - Rust uses a native Linux PTY and supervisor even for imported GNOME Terminal settings. Drop the legacy Linux Python preference on import. WSL guest Python requirements stay in place.
 
+## Completion status (2026-11-20)
+
+- Parity checklists done: P1 27/27, P2 done, P3 done (documented limits: GL-10 renderer model, GL-11 tooltip clamp, TB-01 remote replay delivered later), P4 43/44 + 1 accepted, P5 done (T04 obsolete).
+- Linux desktop parity sweep done. Known difference: GTK caption styling. Linux HTML preview falls back to the source view with a notice.
+- Android and iOS default to the native Rust/Ghostty terminal. The WebView terminal is removed. Apple CI is green at 8d8b1bb.
+- Windows and Linux x64 0.10.0 installers are verified in tmp/release/. macOS installers are built by CI.
+- Open items that need the user: one Administrator PowerShell UAC approval run; authorizing the release; after acceptance, removing the Electron sources.
+
+## Electron removal
+
+The Electron sources (src/main, src/renderer, src/preload, forge config) stay as the parity reference and rollback path until the user accepts the first Rust release. Then they're removed in one cleanup, together with their tests, Electron packaging scripts and dependencies.
+
 ## Status after harness crash (2026-11-19)
 
 Done or verified:

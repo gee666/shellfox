@@ -5,7 +5,7 @@ use shellfox_protocol::AuthenticatedPeerId;
 
 pub(super) struct NewSessionMenu {
     position: Point<Pixels>,
-    active: usize,
+    active: Option<usize>,
     show_focus: bool,
 }
 struct Choice {
@@ -15,6 +15,31 @@ struct Choice {
     enabled: bool,
     selected: bool,
     color: gpui::Hsla,
+}
+
+fn move_target_focus(enabled: &[usize], current: Option<usize>, key: &str) -> Option<usize> {
+    let first = *enabled.first()?;
+    let index = current.and_then(|current| enabled.iter().position(|item| *item == current));
+    match (key, index) {
+        ("up", Some(index)) => Some(enabled[(index + enabled.len() - 1) % enabled.len()]),
+        ("down", Some(index)) => Some(enabled[(index + 1) % enabled.len()]),
+        ("up" | "end", _) => enabled.last().copied(),
+        _ => Some(first),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::move_target_focus;
+
+    #[test]
+    fn target_focus_skips_disabled_machines_and_has_nowhere_to_go_if_all_disabled() {
+        assert_eq!(move_target_focus(&[], None, "down"), None);
+        assert_eq!(move_target_focus(&[1, 3], None, "down"), Some(1));
+        assert_eq!(move_target_focus(&[1, 3], Some(1), "down"), Some(3));
+        assert_eq!(move_target_focus(&[1, 3], Some(3), "down"), Some(1));
+        assert_eq!(move_target_focus(&[1, 3], Some(1), "up"), Some(3));
+    }
 }
 
 impl Root {
@@ -78,9 +103,6 @@ impl Root {
             .iter()
             .position(|item| item.enabled && item.selected)
             .or_else(|| choices.iter().position(|item| item.enabled));
-        let Some(active) = active else {
-            return;
-        };
         let position = self.sidebar_ui.new_session_anchor.get().map_or_else(
             || window.mouse_position(),
             |bounds: Bounds<Pixels>| gpui::point(bounds.left(), bounds.bottom() + px(5.)),
@@ -163,7 +185,7 @@ impl Root {
                     .when(!choice.selected && id.is_some(), |style| {
                         style.child(div().size(px(5.)).rounded_full().bg(choice.color))
                     })
-                    .when(menu.show_focus && menu.active == index, |style| {
+                    .when(menu.show_focus && menu.active == Some(index), |style| {
                         style
                             .border_1()
                             .border_color(palette.accent)
@@ -220,7 +242,7 @@ impl Root {
                         return;
                     };
                     let choices = root.session_targets(palette);
-                    if let Some(choice) = choices.get(menu.active).filter(|choice| choice.enabled) {
+                    if let Some(choice) = menu.active.and_then(|index| choices.get(index)).filter(|choice| choice.enabled) {
                         root.select_session_target(choice.id.clone(), window, cx);
                         window.prevent_default();
                         cx.stop_propagation();
@@ -247,25 +269,12 @@ impl Root {
             .filter(|(_, item)| item.enabled)
             .map(|(index, _)| index)
             .collect();
-        if enabled.is_empty() {
-            self.close_new_session_menu(window, cx);
-            return;
-        }
-        let index = enabled
-            .iter()
-            .position(|index| *index == menu.active)
-            .unwrap_or(0);
         match event.keystroke.key.as_str() {
             "escape" | "tab" => self.close_new_session_menu(window, cx),
             "enter" | "space" => {}
             key @ ("up" | "down" | "home" | "end") => {
                 menu.show_focus = true;
-                menu.active = enabled[match key {
-                    "up" => (index + enabled.len() - 1) % enabled.len(),
-                    "down" => (index + 1) % enabled.len(),
-                    "home" => 0,
-                    _ => enabled.len() - 1,
-                }];
+                menu.active = move_target_focus(&enabled, menu.active, key);
             }
             _ => return,
         }

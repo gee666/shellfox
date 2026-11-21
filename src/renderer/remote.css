@@ -7,6 +7,8 @@
 .machine-section-heading > .session-section-toggle { flex: 1 1 0; min-width: 0; width: auto; justify-content: flex-start; gap: 6px; padding-left: 9px; }
 .machine-controls { display: flex; align-items: center; flex: 0 0 auto; gap: 4px; }
 .machine-section-heading .section-chevron { display: inline-flex; flex: 0 0 12px; overflow: visible; }
+.machine-section-heading .section-summary { display: inline-flex; min-width: 0; align-items: baseline; gap: 3px; }
+.machine-section-heading .section-count { flex: 0 0 auto; white-space: nowrap; }
 .machine-section-heading .section-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .machine-connection-button { width: 24px; height: 24px; }
 .machine-connection-dot { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: var(--muted); opacity: .55; }

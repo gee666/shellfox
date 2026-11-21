@@ -2,6 +2,12 @@ import type { ManagerApi, ManagerSnapshot, TerminalProfileDto } from '../shared/
 import { getTerminalApi } from './api';
 import type { ManagerClient } from './store';
 
+export function directorySessionTitle(cwd: string, platform: string): string {
+  if (platform !== 'win32') return cwd.replace(/\/+$/, '').split('/').at(-1) || cwd;
+  if (/^[A-Za-z]:[\\/]+$/.test(cwd) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+[\\/]*$/.test(cwd)) return cwd;
+  return cwd.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || cwd;
+}
+
 export interface SessionCreationTarget {
   machineId: string; name: string; api: ManagerApi; client: ManagerClient; profileId: string | null; platform: string;
 }

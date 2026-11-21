@@ -15,7 +15,7 @@ export function shortenHome(cwd: string) {
   return cwd.replace(/^[a-z]:[\\/]Users[\\/][^\\/]+(?=[\\/]|$)/i, '~').replace(/^\/home\/[^/]+(?=\/|$)|^\/Users\/[^/]+(?=\/|$)/, '~');
 }
 export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, onSelect, label = 'Local', remote = false, actions, onSectionSelect, scrollContainer }: {
-  client: ManagerClient; sessions: SessionDto[]; selectedId: string | null; busy: Record<string, boolean>; pageSize: number; onSelect?: () => void;
+  client: ManagerClient; sessions: SessionDto[]; selectedId: string | null; busy: Record<string, boolean>; pageSize: number; onSelect?: () => (() => boolean);
   label?: string; remote?: boolean; actions?: ReactNode; onSectionSelect?: () => void; scrollContainer?: RefObject<HTMLDivElement | null>;
 }) {
   const [expanded, setExpanded] = useState(true);
@@ -50,16 +50,20 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
   }
   /** The backend serializes activation and returns an existing shell if one is live. */
   async function open(session: SessionDto) {
-    onSelect?.();
+    const stillOnMachine = onSelect?.();
+    const current = client.store.getState();
+    const opening = current.openingSessionIds[session.id];
+    if (opening && current.selectedId === session.id) return;
     client.select(session);
+    const { selectionEpoch } = client.store.getState();
     const hasOpenTabs = session.tabs.some(tab => isViewableTab(tab));
-    if (hasOpenTabs && session.adapterId !== 'embedded-pty') return;
-    if (client.store.getState().openingSessionIds[session.id]) return;
+    if (opening || (hasOpenTabs && session.adapterId !== 'embedded-pty')) return;
     client.store.setState(state => ({ openingSessionIds: { ...state.openingSessionIds, [session.id]: true } }));
     try {
       const result = await request(() => client.api.activateSession({ sessionId: session.id }));
+      const latest = client.store.getState();
+      if (latest.selectedId !== session.id || latest.selectionEpoch !== selectionEpoch || stillOnMachine?.() === false) return;
       if (!result.ok) { notify(result.error); return; }
-      if (client.store.getState().selectedId !== session.id) return;
       client.accept(result.value);
       if (!hasOpenTabs) {
         const tab = result.value.tabs.find(item => isViewableTab(item));
@@ -123,7 +127,7 @@ export function SessionSidebar({ client, sessions, selectedId, busy, pageSize, o
   // A short machine section cannot contain a bottom-aligned confirmation.
   const deleteLayer = deleting ? ownScrollRef.current?.closest('.sidebar-content') : null;
   return <div className="sidebar-scroll" ref={ownScrollRef}>
-    <div className="machine-section-heading"><button className="session-section-toggle" aria-expanded={expanded} onClick={() => { setExpanded(value => !value); onSectionSelect?.(); }}><span className={`section-chevron${expanded ? ' expanded' : ''}`}><Icon name="chevron" /></span><span className="section-label">{label} · {sessions.length}</span></button>{actions}</div>
+    <div className="machine-section-heading"><button className="session-section-toggle" aria-label={`${label} · ${sessions.length}`} aria-expanded={expanded} onClick={() => { setExpanded(value => !value); onSectionSelect?.(); }}><span className={`section-chevron${expanded ? ' expanded' : ''}`}><Icon name="chevron" /></span>{remote ? <span className="section-summary"><span className="section-label" title={label}>{label}</span><span className="section-count">· {sessions.length}</span></span> : <span className="section-label">{label} · {sessions.length}</span>}</button>{actions}</div>
     {expanded && <div role="region" aria-label={`${label} sessions`}>{shown.length ? <WindowedSessionList sessions={shown} scrollRef={scrollRef} selectedId={selectedId} retainedIds={retainedIds} renderRow={row} /> : <p className="empty-small">No sessions, press +</p>}{shown.length < sessions.length && <button className="text-button session-more" onClick={more}>Show more</button>}</div>}
     {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
       <button role="menuitem" disabled={action.pending} onClick={() => void pin(menu.session, !menu.session.pinnedAt)}>{menu.session.pinnedAt ? 'Unpin' : 'Pin to top'}</button>

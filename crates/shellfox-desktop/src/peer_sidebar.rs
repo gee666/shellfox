@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    assets::{ellipsis, icon_button, icon_sized, tooltip},
+    assets::{ellipsis, icon_button, icon_sized, inline_ellipsis, tooltip},
     sidebar::row::{shorten_home, status_label},
     tab_activity::status_dot,
 };
@@ -200,11 +200,8 @@ impl Root {
                 more,
                 cx,
             );
-            let heading = if connected {
-                format!("{} · {}", state.hostname, rows.len())
-            } else {
-                state.hostname.clone()
-            };
+            let count = connected.then(|| format!("· {}", rows.len()));
+            let hostname = state.hostname.clone();
             let target = peer.clone();
             let toggle = peer.clone();
             let host = state.hostname.as_str();
@@ -256,10 +253,13 @@ impl Root {
                             .child(
                                 div()
                                     .min_w_0()
-                                    .truncate()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(3.))
                                     .relative()
                                     .top(px(1.))
-                                    .child(heading),
+                                    .child(div().min_w_0().child(inline_ellipsis(hostname, 14.)))
+                                    .children(count.map(|count| div().flex_shrink_0().child(count))),
                             )
                             .on_click(cx.listener(move |root, _, window, cx| {
                                 if !root.peer_ui.collapsed.remove(&target) {

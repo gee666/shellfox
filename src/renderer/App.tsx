@@ -24,7 +24,7 @@ import { createRemoteController } from './remote-controller';
 import { MachineSidebar } from './MachineSidebar';
 import { NewSessionButton } from './NewSessionButton';
 import { MachineConnectionPanel } from './MachineConnectionPanel';
-import { canCreateSession, type SessionCreationTarget } from './session-creation';
+import { canCreateSession, directorySessionTitle, type SessionCreationTarget } from './session-creation';
 import { useFilePanels } from './files/use-file-panels';
 import { filePanelScope } from './files/file-panel-scope';
 import './remote.css';
@@ -45,6 +45,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const remote = useMemo(() => createRemoteController(remoteApi, api), [remoteApi, api]);
   const machines = useStore(remote.store);
   const [machineId, setMachineId] = useState('local');
+  const machineSelection = useRef({ id: 'local' });
   const runtime = machineId === 'local' ? undefined : machines.runtimes[machineId];
   const activeClient = runtime?.client ?? client;
   const activeState = useStore(activeClient.store);
@@ -59,7 +60,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('General');
   const [directory, setDirectory] = useState<SessionCreationTarget | null>(null);
-  const [creationTarget, setCreationTarget] = useState<string | null>(null);
+  const [creationTarget, setCreationTarget] = useState<{ id: string } | null>(null);
   const priorRequests = useRef(new Set<string>());
   const requestSerial = useRef(0);
   const [profiles, setProfiles] = useState<TerminalProfileDto[]>([]);
@@ -163,16 +164,26 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   const localCanCreate = canCreateSession(snapshot, api, profiles, defaultProfileId);
   const currentPeer = machines.state?.peers.find(peer => peer.id === machineId);
   const requestCount = machines.state?.pending.length ?? 0;
-  function chooseMachine(id: string) { setMachineId(id); setDirectory(null); setCreationTarget(null); setSettingsOpen(false); }
+  function chooseMachine(id: string) {
+    if (machineSelection.current.id !== id) machineSelection.current = { id };
+    const selection = machineSelection.current;
+    setMachineId(id); setDirectory(null); setCreationTarget(null); setSettingsOpen(false);
+    return () => machineSelection.current === selection;
+  }
+  function connectMachine(peerId: string) {
+    if (remoteApi) return remote.run(() => remoteApi.connect({ peerId }), { peerAction: { peerId, kind: 'connect' } });
+  }
   async function prepareSession(id: string) {
-    chooseMachine(id); setCreationTarget(id);
-    if (id !== 'local' && remoteApi && machines.state?.peers.find(peer => peer.id === id)?.connection !== 'connected') {
-      const result = await remote.run(() => remoteApi.connect({ peerId: id }));
-      if (!result.ok) setCreationTarget(current => current === id ? null : current);
+    const target = { id };
+    chooseMachine(id); setCreationTarget(target);
+    if (id !== 'local' && machines.state?.peers.find(peer => peer.id === id)?.connection !== 'connected') {
+      const result = await connectMachine(id);
+      if (!result?.ok) setCreationTarget(current => current === target ? null : current);
     }
   }
   useEffect(() => {
-    if (!creationTarget || creationTarget !== machineId) return;
+    if (creationTarget?.id !== machineId) return;
+    if (currentPeer?.connection === 'rejected') { setCreationTarget(null); return; }
     if (!hostSnapshot || !canCreate) return;
     setDirectory({ machineId, name: machineId === 'local' ? 'Local' : currentPeer?.hostname ?? machineId, api: hostApi, client: activeClient,
       profileId: effectiveProfile, platform: hostSnapshot.probe.platform });
@@ -180,13 +191,13 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
   }, [creationTarget, machineId, currentPeer?.connection, currentPeer?.hostname, hostSnapshot, canCreate, hostApi, activeClient, effectiveProfile]);
   async function cancelConnection() {
     setCreationTarget(null);
-    if (remoteApi && machineId !== 'local') await remote.run(() => remoteApi.disconnect({ peerId: machineId }));
+    if (remoteApi && machineId !== 'local') await remote.run(() => remoteApi.disconnect({ peerId: machineId }), { peerAction: { peerId: machineId, kind: 'disconnect' } });
   }
   async function create(cwd: string): Promise<boolean> {
     const target = directory;
     if (!target) return false;
     const client = target.machineId === 'local' ? target.client : remote.store.getState().runtimes[target.machineId]?.client ?? target.client;
-    const title = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || cwd;
+    const title = directorySessionTitle(cwd, target.platform);
     const result = await action.run(() => target.api.createSession({ cwd, title, requestId: crypto.randomUUID() }));
     if (!result?.ok) { client.refresh(); return false; }
     let session = result.value;
@@ -254,7 +265,7 @@ function ConnectedApp({ api }: { api: ManagerApi }) {
         <div className="workspace-terminal-region">
           {!selected && <div className="terminal-tab-strip empty-workspace-toolbar"><button className={`icon-button files-toggle${files.isOpen(machineId) ? ' active' : ''}`} aria-label="Files" title={`Files (${layoutShortcutHint('files')})`} aria-pressed={files.isOpen(machineId)} disabled={!filesAvailable} onClick={toggleFiles}><Icon name="folder" /></button></div>}
           {selected ? <TerminalWorkspace visible={!settingsOpen} key={`${machineId}:${selected.id}`} session={selected} client={activeClient} registry={activeRegistry} profiles={hostProfiles} defaultProfileId={effectiveProfile} platform={hostSnapshot?.probe.platform} available={available}
-            filesOpen={files.isOpen(machineId)} onToggleFiles={filesAvailable ? toggleFiles : undefined} onOpenTerminalFolder={filesAvailable ? tabId => void openTerminalFolder(tabId) : undefined} openingTerminalFolder={folderAction.pending} /> : machineId !== 'local' && !runtime ? <MachineConnectionPanel peer={currentPeer} creating={creationTarget === machineId} onRetry={() => { if (remoteApi) void remote.run(() => remoteApi.connect({ peerId: machineId })); }} onCancel={() => void cancelConnection()} /> : activeState.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
+            filesOpen={files.isOpen(machineId)} onToggleFiles={filesAvailable ? toggleFiles : undefined} onOpenTerminalFolder={filesAvailable ? tabId => void openTerminalFolder(tabId) : undefined} openingTerminalFolder={folderAction.pending} /> : machineId !== 'local' && !runtime ? <MachineConnectionPanel peer={currentPeer} creating={creationTarget?.id === machineId} onRetry={() => void connectMachine(machineId)} onCancel={() => void cancelConnection()} /> : activeState.loading ? <TerminalLoading /> : <TerminalPlaceholder />}
         </div>
         {files.render(machineId)}
       </div>

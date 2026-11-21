@@ -191,7 +191,7 @@ impl Root {
         };
         match ProfileId::new(profile_id) {
             Ok(profile_id) => {
-                let title = peer::session_title(&cwd);
+                let title = shellfox_core::directory_session_title(&cwd).to_owned();
                 self.submit_native(
                     NativeAction::Metadata(HostRequest::CreateSession(CreateSession {
                         request_id: SessionId::new(),

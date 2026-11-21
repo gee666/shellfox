@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { useStore } from 'zustand';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { failure, success } from '../shared/contracts';
@@ -183,13 +183,37 @@ describe('session actions', () => {
     expect(fixture.api.closeTab).not.toHaveBeenCalled();
   });
 
-  it('ignores an activation result after selecting a different session', async () => {
-    const { user, fixture, client } = await setup([session(1), session(2)]);
+  it('deduplicates the same row without blocking a newer selection while its reply is pending', async () => {
+    const first = session(1, { tabs: [] }), last = session(2, { tabs: [] });
+    const { user, fixture, client } = await setup([first, last]);
     const pending = deferred<Awaited<ReturnType<ManagerClient['api']['activateSession']>>>();
-    fixture.api.activateSession.mockReturnValueOnce(pending.promise);
-    await user.click(select(1)); await user.click(select(2));
+    const latest = deferred<Awaited<ReturnType<ManagerClient['api']['activateSession']>>>();
+    fixture.api.activateSession.mockReturnValueOnce(pending.promise).mockReturnValueOnce(latest.promise);
+    const selectTab = vi.spyOn(client, 'selectTab');
+    await user.click(select(1));
+    await user.click(select(1));
+    await user.click(select(2));
+    expect(fixture.api.activateSession.mock.calls).toEqual([[{ sessionId: first.id }], [{ sessionId: last.id }]]);
+    const reopened = session(2);
+    await act(async () => { latest.resolve(success(reopened)); });
     await act(async () => { pending.resolve(success(session(1))); });
-    expect(client.store.getState().selectedId).toBe(session(2).id);
+    expect(client.store.getState().selectedId).toBe(last.id);
+    expect(client.store.getState().activeTabIds[first.id]).toBeUndefined();
+    expect(selectTab).toHaveBeenCalledExactlyOnceWith(reopened, reopened.tabs[0]!.id);
+  });
+
+  it('does not publish the old activation after returning to the same session', async () => {
+    const first = session(1, { tabs: [] }), last = session(2);
+    const { user, fixture, client } = await setup([first, last]);
+    const delayed = deferred<Awaited<ReturnType<ManagerClient['api']['activateSession']>>>();
+    fixture.api.activateSession.mockReturnValueOnce(delayed.promise);
+    await user.click(select(1));
+    await user.click(select(2));
+    await user.click(select(1));
+    await act(async () => { delayed.resolve(success(session(1))); });
+    expect(client.store.getState().selectedId).toBe(first.id);
+    expect(client.store.getState().activeTabIds[first.id]).toBeUndefined();
+    expect(fixture.api.activateSession.mock.calls.filter(([request]) => request.sessionId === first.id)).toHaveLength(1);
   });
 
   it('does not activate legacy external sessions that already have a terminal', async () => {

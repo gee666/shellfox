@@ -57,6 +57,7 @@ pub(crate) struct PeerUi {
     #[cfg(feature = "experimental-shellfox-native")]
     pub attaching: HashSet<AuthenticatedPeerId>,
     pub pending: HashSet<AuthenticatedPeerId>,
+    opening: sidebar_actions::PeerActivations,
     pair_watches: HashMap<AuthenticatedPeerId, (uuid::Uuid, shellfox_protocol::CancellationToken)>,
     inventory_generation: u64,
     inventory_catalogs: HashSet<AuthenticatedPeerId>,
@@ -317,6 +318,7 @@ impl Root {
         // Terminal retirement: old views never resume after uncertain poll I/O.
         self.peer_ui.paused.insert(peer.clone());
         self.peer_ui.pending.remove(peer);
+        self.peer_ui.opening.retire(peer);
         #[cfg(not(feature = "experimental-shellfox-native"))]
         self.peer_ui.metadata_polls.remove(peer);
         #[cfg(feature = "experimental-shellfox-native")]

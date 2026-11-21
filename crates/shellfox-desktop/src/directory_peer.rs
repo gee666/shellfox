@@ -179,7 +179,7 @@ impl Root {
         }
         let source_epoch = self.source_selection_epoch();
         let request = wire::CreateSession {
-            title: Some(session_title(&cwd)),
+            title: Some(shellfox_core::directory_session_title(&cwd).to_owned()),
             cwd,
             request_id: SessionId::new(),
         };
@@ -232,13 +232,4 @@ impl Root {
         })
         .detach();
     }
-}
-
-pub(super) fn session_title(cwd: &str) -> String {
-    cwd.trim_end_matches(['/', '\\'])
-        .rsplit(['/', '\\'])
-        .next()
-        .filter(|title| !title.is_empty())
-        .unwrap_or(cwd)
-        .to_owned()
 }

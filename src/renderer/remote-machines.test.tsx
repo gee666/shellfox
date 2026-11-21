@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import './terminal-test-mocks';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { failure, success } from '../shared/contracts';
+import type { RemotePeer } from '../shared/remote-contracts';
 import { responseSchemas } from '../shared/schemas';
 import { App } from './App';
 import { openSettingsTab } from './settings-test-navigation';
-import { mockApi } from './test-fixtures';
+import { deferred, mockApi, profiles } from './test-fixtures';
 import { remoteFixture } from './remote-test-fixtures';
 
 afterEach(() => { cleanup(); delete window.shellfoxRemote; });
@@ -36,6 +37,18 @@ describe('remote machines', () => {
     await user.click(machine); expect(screen.getByRole('button', { name: 'Select session Remote session' })).toBeVisible();
   });
 
+  it('keeps the session count separate from the truncated machine name', async () => {
+    const { remote } = await setup();
+    const hostname = 'a-long-workstation-name-that-does-not-fit-in-the-sidebar';
+    act(() => remote.emit({ type: 'state', state: { ...remote.state,
+      peers: remote.state.peers.map(peer => peer.id === 'workstation' ? { ...peer, hostname } : peer),
+    } }));
+    const connected = screen.getByRole('button', { name: `${hostname} · 1` });
+    expect(within(connected).getByTitle(hostname)).toHaveTextContent(hostname);
+    expect(within(connected).getByText('· 1')).toHaveClass('section-count');
+    expect(screen.getByRole('button', { name: 'Linux server' })).not.toHaveTextContent('·');
+  });
+
   it('isolates equal session and tab IDs and routes terminal actions to the selected host', async () => {
     const { local, remote, user } = await setup();
     await user.click(screen.getByRole('button', { name: 'Select session Remote session' }));
@@ -48,6 +61,19 @@ describe('remote machines', () => {
     await user.click(screen.getByRole('button', { name: 'Select session Session 1' }));
     expect(screen.getByRole('button', { name: 'Select session Session 1' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Select session Remote session' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('ignores a late local activation failure after selection moves to a peer', async () => {
+    const { local, user } = await setup();
+    const pending = deferred<Awaited<ReturnType<typeof local.api.activateSession>>>();
+    local.api.activateSession.mockReturnValueOnce(pending.promise);
+    await user.click(screen.getByRole('button', { name: 'Select session Session 1' }));
+    expect(local.api.activateSession).toHaveBeenCalledOnce();
+    const peerRow = screen.getByRole('button', { name: 'Select session Remote session' });
+    await user.click(peerRow);
+    await act(async () => { pending.resolve(failure('INTERNAL', 'Delayed failure from the local row.')); });
+    expect(peerRow).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Delayed failure from the local row.')).not.toBeInTheDocument();
   });
 
   it('keeps same-ID terminal output separate and only detaches an attached remote terminal on disconnect', async () => {
@@ -86,11 +112,37 @@ describe('remote machines', () => {
     expect(local.api.createSession).not.toHaveBeenCalled();
     await user.click(screen.getByRole('menuitem', { name: /Workstation/ }));
     const input = await screen.findByRole('combobox', { name: 'Folder path' });
-    expect(screen.getByText('Workstation')).toBeVisible(); expect(screen.queryByRole('button', { name: 'Browse folders' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('dialog', { name: 'New session' })).getByText('Workstation')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Browse folders' })).not.toBeInTheDocument();
     fireEvent.change(input, { target: { value: '/srv/new-project' } });
     await act(async () => { fireEvent.submit(input.closest('form')!); });
     expect(remote.request).toHaveBeenCalledWith(expect.objectContaining({ peerId: 'workstation', method: 'createSession' }));
     expect(local.api.createSession).not.toHaveBeenCalled(); expect(local.api.resolveDirectory).not.toHaveBeenCalled();
+  });
+
+  it('does not reopen a rejected folder request on an ordinary connection retry', async () => {
+    const { remote, user } = await setup();
+    const stateWith = (connection: RemotePeer['connection']) => ({
+      ...remote.state, peers: remote.state.peers.map(peer => peer.id === 'workstation' ? { ...peer, connection } : peer),
+    });
+    remote.request.mockImplementation(async ({ method }) => {
+      if (method === 'getSnapshot') return responseSchemas.getSnapshot.parse(success(remote.remoteSnapshot));
+      if (method === 'getTerminalProfiles') return responseSchemas.getTerminalProfiles.parse(success({ profiles, defaultProfileId: 'pwsh', lifetime: 'app-owned', shellSurvival: false }));
+      if (method === 'getHomeDirectory') return success({ cwd: '/srv' });
+      return failure('UNSUPPORTED', 'Unavailable.');
+    });
+    await user.click(screen.getByRole('button', { name: 'Disconnect Workstation' }));
+    vi.mocked(remote.api.connect).mockResolvedValueOnce(success(stateWith('awaiting-approval')));
+    await user.click(screen.getByRole('button', { name: 'New session' }));
+    await user.click(screen.getByRole('menuitem', { name: /Workstation/ }));
+    expect(await screen.findByText('Your folder prompt will open once the connection is ready.')).toBeVisible();
+    act(() => remote.emit({ type: 'state', state: stateWith('rejected') }));
+    await user.click(await screen.findByRole('button', { name: 'Request access again' }));
+    expect(await screen.findByRole('button', { name: 'Select session Remote session' })).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Folder path' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'New session' }));
+    await user.click(screen.getByRole('menuitem', { name: /Workstation/ }));
+    expect(await screen.findByRole('combobox', { name: 'Folder path' })).toBeVisible();
   });
 
   it('can choose Local while viewing a remote session and keeps its native picker', async () => {

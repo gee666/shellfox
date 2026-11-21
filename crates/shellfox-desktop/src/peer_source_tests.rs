@@ -82,6 +82,28 @@ fn workspace_retry_only_cancels_its_displayed_owner_receipt() {
     assert!(state.peers[&id].owner_connected);
 }
 
+#[test]
+fn folder_request_survives_pairing_but_not_rejection_or_an_offline_peer() {
+    let id = AuthenticatedPeerId::new("folder-host").unwrap();
+    let mut remote = peer(id.as_str());
+    let mut sources = PeerSources::default();
+    remote.connection = RemoteConnection::AwaitingApproval;
+    sources.inventory(&[remote.clone()]);
+    assert!(!sources.peers[&id].creation_connection_failed());
+
+    remote.connection = RemoteConnection::Rejected;
+    sources.inventory(&[remote.clone()]);
+    assert!(sources.peers[&id].creation_connection_failed());
+
+    let retry = sources.begin(&id).unwrap();
+    assert!(!sources.peers[&id].creation_connection_failed());
+    sources.phase(&retry, Phase::Disconnected, None);
+    remote.connection = RemoteConnection::Disconnected;
+    remote.online = false;
+    sources.inventory(&[remote]);
+    assert!(sources.peers[&id].creation_connection_failed());
+}
+
 fn snapshot() -> m::Snapshot {
     let raw: serde_json::Value = serde_json::from_str(include_str!(
         "../../shellfox-protocol/tests/fixtures/observer_v2/snapshot.json"

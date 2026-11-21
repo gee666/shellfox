@@ -5,9 +5,18 @@ mod attach;
 pub(crate) mod refresh;
 #[path = "workspace_reply.rs"]
 mod reply;
+#[path = "workspace_selection.rs"]
+mod selection;
 use gpui::{Context, Window};
 use shellfox_host::{AddTab, HostRequest, ProfileId, SessionId, TabId};
 use shellfox_service::native::{NativeAction, NativeResponse};
+
+/// A reply may change focus only while both the machine and its selection are current.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ActivationFence {
+    pub source: u64,
+    pub navigation: u64,
+}
 
 #[derive(Clone, Copy)]
 pub(crate) enum RecentSelection {
@@ -25,6 +34,13 @@ pub(crate) enum AfterAction {
     Create,
 }
 impl Root {
+    fn local_activation_fence(&self) -> ActivationFence {
+        ActivationFence {
+            source: self.source_selection_epoch(),
+            navigation: self.navigation.epoch(),
+        }
+    }
+
     pub(crate) fn default_profile(&self) -> String {
         let saved = self.snapshot
             .as_ref()
@@ -73,7 +89,7 @@ impl Root {
         if background {
             self.refresh_admission.begin();
         }
-        let selection_epoch = self.navigation.epoch();
+        let selection_fence = self.local_activation_fence();
         let (reply_intent, creation_request) = match &action {
             NativeAction::Metadata(HostRequest::CreateSession(request)) => {
                 (reply::ReplyIntent::Create, Some(request.request_id))
@@ -91,9 +107,12 @@ impl Root {
             _ => None,
         };
         let activated_session = match &action {
-            NativeAction::Metadata(HostRequest::ActivateSession { session_id }) => Some(*session_id),
+            NativeAction::Metadata(HostRequest::ActivateSession { session_id }) => {
+                Some((*session_id, self.local_activation_fence()))
+            }
             _ => None,
         };
+        self.activating_session = activated_session;
         let before_close = match &action {
             NativeAction::CloseTab { tab }
             | NativeAction::CloseTerminal(shellfox_core::TerminalIdentity { tab_id: tab, .. }) => self
@@ -128,14 +147,15 @@ impl Root {
                 };
                 root.action_pending = false;
                 root.user_action_pending = false;
+                root.activating_session = None;
                 match result {
                     Ok(NativeResponse::Snapshot(snapshot)) => {
-                        let selection_current = root.navigation.epoch() == selection_epoch;
+                        let selection_current = root.local_activation_fence() == selection_fence;
                         let receipt_value = receipt.as_ref().and_then(|result| result.as_ref().ok()).copied();
                         let focus = reply::focus_target(reply_intent, receipt_value, &snapshot, selection_current);
                         let receipt_unavailable = creation_request.is_some() && !matches!(receipt_value, Some(shellfox_host::CreationRequestReceipt::SessionCreated {..}));
-                        let selected_tab_closed = before_close.as_ref().is_some_and(|(before, tab)| {
-                            root.navigation.tab_closed(before, *tab, selection_epoch)
+                        let selected_tab_closed = selection_current && before_close.as_ref().is_some_and(|(before, tab)| {
+                            root.navigation.tab_closed(before, *tab, selection_fence.navigation)
                         });
                         let renamed_tab = match root.dialog {
                             Some(crate::root::Dialog::RenameTab { id, .. }) if matches!(after, AfterAction::Dialog) => Some(id),
@@ -145,10 +165,13 @@ impl Root {
                             Some(crate::root::Dialog::RenameSession { id, .. }) if matches!(after, AfterAction::Dialog) => Some(id),
                             _ => None,
                         };
-                        let open_history = selection_current && activated_session.is_some_and(|id| {
-                            root.selected_session() == Some(id) && snapshot.sessions.iter().any(|session| {
-                                session.id == id && session.tabs.iter().all(|tab| tab.state == shellfox_core::TabState::Archived)
-                            })
+                        let open_history = activated_session.filter(|request| {
+                            reply::activation_reopens_history(
+                                *request,
+                                root.selected_session(),
+                                root.local_activation_fence(),
+                                &snapshot,
+                            )
                         });
                         let preferences_changed = root
                             .snapshot
@@ -198,7 +221,7 @@ impl Root {
                             }
                             if let Some(tab) = reserved_tab {
                                 root.submit_reserved_tab(tab, &client, window, cx);
-                            } else if open_history && let Some(id) = activated_session {
+                            } else if let Some((id, _)) = open_history {
                                 root.add_tab(id, window, cx);
                             }
                         } else if reserved_tab.is_some() {
@@ -208,7 +231,13 @@ impl Root {
                     Ok(_) => {
                         root.error = Some("Host returned an unexpected metadata response.".into())
                     }
-                    Err(_) if matches!(after, AfterAction::Remember) => {},
+                    Err(error) if matches!(after, AfterAction::Remember) => {
+                        if activated_session.is_some_and(|(id, fence)| {
+                            root.selected_session() == Some(id) && root.local_activation_fence() == fence
+                        }) {
+                            root.notify_operation_error(&error, cx);
+                        }
+                    },
                     Err(error) if matches!(after, AfterAction::Refresh) && root.snapshot.is_none() => {
                         root.notify_error(Some("initial-workspace".into()), None, format!("Host operation failed: {error:#}"), cx);
                     }
@@ -255,68 +284,6 @@ impl Root {
             window,
             cx,
         );
-    }
-    pub(crate) fn select_session(
-        &mut self,
-        id: SessionId,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !self.is_local_source(){self.select_local_source(window,cx);}
-        if self.closing_window {
-            return;
-        }
-        let Some(snapshot) = &self.snapshot else {
-            return;
-        };
-        if !self.navigation.select_session(snapshot, id) {
-            return;
-        }
-        self.hide_settings(cx);
-        self.pending_recent = Some(RecentSelection::Session(id));
-        self.follow_wsl_file_tab(cx);
-        self.reveal_sidebar_session(id, cx);
-        self.ensure_terminal(window, cx);
-        self.flush_recent(window, cx);
-        cx.notify();
-    }
-    pub(crate) fn select_tab(&mut self, id: TabId, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closing_window {
-            return;
-        }
-        let Some(snapshot) = &self.snapshot else {
-            return;
-        };
-        let Some(session) = snapshot
-            .sessions
-            .iter()
-            .find(|session| session.tabs.iter().any(|tab| tab.id == id))
-        else {
-            return;
-        };
-        if !self.navigation.select_tab(snapshot, session.id, id) {
-            return;
-        }
-        self.pending_recent = Some(RecentSelection::Tab(id));
-        self.follow_wsl_file_tab(cx);
-        self.ensure_terminal(window, cx);
-        self.flush_recent(window, cx);
-        cx.notify();
-    }
-    pub(crate) fn flush_recent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.action_pending || self.closing_window {
-            return;
-        }
-        let Some(recent) = self.pending_recent.take() else {
-            return;
-        };
-        let action = match recent {
-            RecentSelection::Session(id) => {
-                NativeAction::Metadata(HostRequest::ActivateSession { session_id: id })
-            }
-            RecentSelection::Tab(id) => NativeAction::SelectTab { tab: id },
-        };
-        self.submit_native(action, AfterAction::Remember, window, cx);
     }
     pub(crate) fn add_tab(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
         let profile = self.snapshot.as_ref()
