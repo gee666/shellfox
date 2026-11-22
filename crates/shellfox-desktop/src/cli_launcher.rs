@@ -186,25 +186,50 @@ struct WindowsShims {
     posix: String,
 }
 
+/// First words that open the desktop instead of running the CLI, as in 0.9.
+#[cfg(any(windows, target_os = "macos", test))]
+const DESKTOP_VERBS: [&str; 6] = [
+    "start",
+    "add",
+    "new",
+    "create",
+    "--new-session",
+    "--new-window",
+];
+
+/// POSIX tail shared by the Git Bash/WSL and macOS shims; `$exe` and `$cli` are set.
+#[cfg(any(windows, target_os = "macos", test))]
+fn posix_router() -> String {
+    format!(
+        "case \"${{1:-}}\" in\n  {})\n    \"$exe\" \"$@\" </dev/null >/dev/null 2>&1 &\n    exit 0\n    ;;\nesac\nexec \"$cli\" \"$@\"\n",
+        DESKTOP_VERBS.join("|")
+    )
+}
+
 #[cfg(any(windows, test))]
 fn windows_shims(exe: &str, cli: &str) -> WindowsShims {
     let cmd_quote = |s: &str| s.replace('%', "%%");
     let ps_quote = |s: &str| s.replace('\'', "''");
     let sh_quote = |s: &str| format!("'{}'", s.replace('\\', "/").replace('\'', "'\\''"));
+    let (exe_cmd, cli_cmd) = (cmd_quote(exe), cmd_quote(cli));
     let (exe_ps, cli_ps) = (ps_quote(exe), ps_quote(cli));
     let (exe_sh, cli_sh) = (sh_quote(exe), sh_quote(cli));
+    let verbs_ps = DESKTOP_VERBS.map(|verb| format!("'{verb}'")).join(",");
     WindowsShims {
+        // `start` keeps the console free while the GUI runs.
         cmd: format!(
-            "@echo off\r\nrem Shellfox/rust-cli-v1\r\nsetlocal DisableDelayedExpansion\r\n\"{}\" %*\r\nexit /b %errorlevel%\r\n",
-            cmd_quote(exe)
+            "@echo off\r\nrem Shellfox/rust-cli-v1\r\nsetlocal DisableDelayedExpansion\r\nfor %%A in ({}) do if /i \"%~1\"==\"%%A\" (\r\n  start \"\" \"{exe_cmd}\" %*\r\n  exit /b 0\r\n)\r\n\"{cli_cmd}\" %*\r\nexit /b %errorlevel%\r\n",
+            DESKTOP_VERBS.join(" ")
         ),
+        // PowerShell does not wait for GUI programs.
         powershell: format!(
-            "# Shellfox/rust-cli-v1\nif ($args.Count -gt 0 -and $args[0] -ceq 'ssh') {{ & '{cli_ps}' @args }} else {{ & '{exe_ps}' @args }}\nexit $LASTEXITCODE\n"
+            "# Shellfox/rust-cli-v1\nif ($args.Count -gt 0 -and @({verbs_ps}) -contains $args[0]) {{ & '{exe_ps}' @args; exit 0 }}\n& '{cli_ps}' @args\nexit $LASTEXITCODE\n"
         ),
         // Git Bash and MSYS run C:/ paths directly. WSL reaches this file
         // through the PATH block Electron added to its startup files.
         posix: format!(
-            "#!/bin/sh\n# Shellfox/rust-cli-v1\nexe={exe_sh}\ncli={cli_sh}\nif [ -n \"${{WSL_DISTRO_NAME:-}}\" ]; then\n  exe=$(wslpath -u \"$exe\") && cli=$(wslpath -u \"$cli\") || exit 1\nfi\nif [ \"${{1:-}}\" = ssh ]; then\n  exec \"$cli\" \"$@\"\nfi\nexec \"$exe\" \"$@\"\n"
+            "#!/bin/sh\n# Shellfox/rust-cli-v1\nexe={exe_sh}\ncli={cli_sh}\nif [ -n \"${{WSL_DISTRO_NAME:-}}\" ]; then\n  exe=$(wslpath -u \"$exe\") && cli=$(wslpath -u \"$cli\") || exit 1\nfi\n{}",
+            posix_router()
         ),
     }
 }
@@ -237,7 +262,8 @@ pub(crate) fn install_mac() -> Result<()> {
     let cli = quote(executable.with_file_name("shellfox-cli"))?;
     let owner = "# Shellfox/rust-cli-v1";
     let script = format!(
-        "#!/bin/sh\n{owner}\nif [ \"${{1:-}}\" = ssh ]; then\n  exec {cli} \"$@\"\nfi\nexec {desktop} \"$@\"\n"
+        "#!/bin/sh\n{owner}\nexe={desktop}\ncli={cli}\n{}",
+        posix_router()
     );
     install_file(
         &home.join(".local/bin/shellfox"),
@@ -251,22 +277,68 @@ pub(crate) fn install_mac() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn shims_forward_ssh_and_preserve_exit_status() {
+    fn shims_run_the_cli_and_open_desktop_launches_in_the_gui() {
         let shims = windows_shims(
             r"C:\Program Files\Shellfox.exe",
             r"C:\O'Brien%\bin\shellfox-cli.exe",
         );
-        assert!(shims.cmd.contains(r#""C:\Program Files\Shellfox.exe" %*"#));
-        assert!(shims.cmd.ends_with("exit /b %errorlevel%\r\n"));
+        assert!(
+            shims
+                .cmd
+                .contains(r#"start "" "C:\Program Files\Shellfox.exe" %*"#)
+        );
+        assert!(shims.cmd.ends_with(concat!(
+            r#""C:\O'Brien%%\bin\shellfox-cli.exe" %*"#,
+            "\r\nexit /b %errorlevel%\r\n"
+        )));
         assert!(
             shims
                 .powershell
-                .contains(r"'C:\O''Brien%\bin\shellfox-cli.exe' @args")
+                .contains(r"& 'C:\O''Brien%\bin\shellfox-cli.exe' @args")
         );
         assert!(shims.powershell.ends_with("exit $LASTEXITCODE\n"));
         assert!(shims.posix.contains(
             "exe='C:/Program Files/Shellfox.exe'\ncli='C:/O'\\''Brien%/bin/shellfox-cli.exe'\n"
         ));
         assert!(shims.posix.contains(r#"exe=$(wslpath -u "$exe")"#));
+        assert!(shims.posix.ends_with("exec \"$cli\" \"$@\"\n"));
+    }
+
+    /// Runs the generated cmd and PowerShell shims against a stand-in CLI.
+    #[cfg(windows)]
+    #[test]
+    fn windows_shims_forward_cli_output_and_exit_status() {
+        let root = tempfile::tempdir().unwrap();
+        let cli = root.path().join("fake cli%.cmd");
+        std::fs::write(&cli, "@echo off\r\necho cli:%*\r\nexit /b 7\r\n").unwrap();
+        let shims = windows_shims(r"C:\missing\Shellfox.exe", cli.to_str().unwrap());
+        std::fs::write(root.path().join("shellfox.cmd"), &shims.cmd).unwrap();
+        std::fs::write(root.path().join("shellfox.ps1"), &shims.powershell).unwrap();
+        let system =
+            std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32");
+        let cmd = Command::new(system.join("cmd.exe"))
+            .arg("/d")
+            .arg("/c")
+            .arg(root.path().join("shellfox.cmd"))
+            .args(["session", "list"])
+            .output()
+            .unwrap();
+        assert_eq!(cmd.status.code(), Some(7));
+        assert_eq!(
+            String::from_utf8_lossy(&cmd.stdout).trim(),
+            "cli:session list"
+        );
+        let ps = Command::new(system.join("WindowsPowerShell/v1.0/powershell.exe"))
+            .env_remove("PSModulePath")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(root.path().join("shellfox.ps1"))
+            .args(["session", "list"])
+            .output()
+            .unwrap();
+        assert_eq!(ps.status.code(), Some(7));
+        assert_eq!(
+            String::from_utf8_lossy(&ps.stdout).trim(),
+            "cli:session list"
+        );
     }
 }
