@@ -5,9 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-[features]
-experimental-shellfox-native = ["shellfox-ghostty-vt-sys/experimental-shellfox-native"]
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 url = "2"

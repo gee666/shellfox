@@ -8,9 +8,6 @@ license.workspace = true
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]
 
-[features]
-experimental-shellfox-native = ["shellfox-ghostty-vt/experimental-shellfox-native"]
-
 [dependencies]
 shellfox-ghostty-vt = { path = "../ghostty-vt" }
 shellfox-protocol = { path = "../shellfox-protocol" }

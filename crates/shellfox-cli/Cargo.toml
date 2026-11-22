@@ -6,9 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
-[features]
-experimental-shellfox-native = ["shellfox-service/experimental-shellfox-native", "dep:shellfox-ghostty-vt", "shellfox-ghostty-vt/experimental-shellfox-native", "shellfox-mobile/experimental-shellfox-native"]
-
 [dependencies]
 anyhow.workspace = true
 crossterm = "0.29"
@@ -23,7 +20,6 @@ shellfox-core = { path = "../shellfox-core" }
 shellfox-protocol = { path = "../shellfox-protocol" }
 shellfox-client = { path = "../shellfox-client" }
 shellfox-mobile = { path = "../shellfox-mobile" }
-shellfox-ghostty-vt = { path = "../ghostty-vt", optional = true }
 shellfox-service = { path = "../shellfox-service" }
 shellfox-terminal = { path = "../shellfox-terminal" }
 shellfox-ssh = { path = "../shellfox-ssh" }

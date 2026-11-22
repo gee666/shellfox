@@ -7870,7 +7870,6 @@ dependencies = [
  "sha2 0.10.9",
  "shellfox-client",
  "shellfox-core",
- "shellfox-ghostty-vt",
  "shellfox-mobile",
  "shellfox-protocol",
  "shellfox-service",
