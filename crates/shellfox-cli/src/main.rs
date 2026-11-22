@@ -88,9 +88,7 @@ fn run(arguments: Vec<OsString>) -> Result<i32> {
         .enable_all()
         .build()?;
     if matches!(&args.command, args::Command::Serve) {
-        commands::serve(args, &runtime, || {
-            eprintln!("Host ready. Remote backend available; network activation remains explicit.")
-        })
+        commands::serve(args, &runtime, || {})
     } else {
         runtime.block_on(commands::run(args))
     }
