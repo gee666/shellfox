@@ -1,16 +1,11 @@
 use super::*;
-use crate::host_client::{
-    peer::{Connection, SourceAdmission},
-    peer_v1::V1Binding,
-};
+use crate::host_client::peer_v1::V1Binding;
 use shellfox_protocol as wire;
 use std::sync::Arc;
 
+/// Requests against one connected peer, through its V1 binding.
 #[derive(Clone)]
-pub(crate) enum PeerApi {
-    Legacy(Arc<V1Binding>),
-    Manager(Arc<Connection>, SourceAdmission),
-}
+pub(crate) struct PeerApi(Arc<V1Binding>);
 
 pub(crate) struct PeerCallError {
     pub message: String,
@@ -26,44 +21,25 @@ impl From<anyhow::Error> for PeerCallError {
 }
 
 impl PeerApi {
-    pub(crate) async fn snapshot(&self) -> anyhow::Result<m::Snapshot> {
-        match self {
-            Self::Legacy(binding) => catalog_v1::project(binding.v1_snapshot().await?),
-            Self::Manager(connection, admission) => {
-                connection
-                    .execute_admitted(admission, &m::GetSnapshot(wire::GetSnapshot {}))
-                    .await
-            }
-        }
+    pub(crate) fn binding(&self) -> &Arc<V1Binding> {
+        &self.0
     }
 
-    /// The two requests describe the same operation. Outside the selected
-    /// branch no request is sent, including on denial or unknown outcomes.
-    pub(crate) async fn call<L: wire::Request, M: m::Request, T>(
+    pub(crate) async fn snapshot(&self) -> anyhow::Result<m::Snapshot> {
+        catalog_v1::project(self.0.v1_snapshot().await?)
+    }
+
+    pub(crate) async fn call<R: wire::Request, T>(
         &self,
-        legacy: L,
-        manager: M,
-        project_legacy: impl FnOnce(L::Response) -> T,
-        project_manager: impl FnOnce(M::Response) -> T,
+        request: R,
+        project: impl FnOnce(R::Response) -> T,
     ) -> Result<T, PeerCallError> {
-        match self {
-            Self::Legacy(binding) => match binding.v1_reply(&legacy).await? {
-                wire::Reply::Success(value) => Ok(project_legacy(value)),
-                wire::Reply::Failure(error) => Err(PeerCallError {
-                    message: error.message,
-                    code: Some(error.code),
-                }),
-            },
-            Self::Manager(connection, admission) => match connection
-                .execute_admitted_reply(admission, &manager)
-                .await?
-            {
-                m::Reply::Success(value) => Ok(project_manager(value)),
-                m::Reply::Failure(error) => Err(PeerCallError {
-                    message: error.message,
-                    code: Some(error.code),
-                }),
-            },
+        match self.0.v1_reply(&request).await? {
+            wire::Reply::Success(value) => Ok(project(value)),
+            wire::Reply::Failure(error) => Err(PeerCallError {
+                message: error.message,
+                code: Some(error.code),
+            }),
         }
     }
 }
@@ -83,19 +59,8 @@ impl Root {
             state.phase == source::Phase::Connected,
             "Peer is not connected."
         );
-        if let Some(binding) = self.legacy_peer_binding(&cycle.peer) {
-            return Ok(PeerApi::Legacy(binding));
-        }
-        let witness = state
-            .origin
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Peer catalog origin is unavailable."))?;
-        let connection = self
-            .host
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Host is unavailable."))?
-            .peer_existing(&cycle.peer)?;
-        let admission = connection.admit_source_with(witness)?;
-        Ok(PeerApi::Manager(connection, admission))
+        self.legacy_peer_binding(&cycle.peer)
+            .map(PeerApi)
+            .ok_or_else(|| anyhow::anyhow!("Peer is not connected."))
     }
 }

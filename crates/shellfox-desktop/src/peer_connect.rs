@@ -1,18 +1,14 @@
 use super::*;
-use crate::host_client::{peer::LegacyPeerRequired, peer_v1::V1Binding};
-use shellfox_client::{
-    ConnectionStatus,
-    manager_v2::{FallbackPolicy, ManagerBindingWitness, Status},
-};
+use crate::host_client::peer_v1::V1Binding;
+use shellfox_client::ConnectionStatus;
 use shellfox_protocol as wire;
 
 struct Connected {
     snapshot: m::Snapshot,
-    witness: Option<ManagerBindingWitness>,
     home: Option<String>,
 }
 
-async fn connect_legacy(binding: &V1Binding) -> anyhow::Result<Connected> {
+async fn connect(binding: &V1Binding) -> anyhow::Result<Connected> {
     binding.connect().await?;
     let snapshot = catalog_v1::project(binding.v1_snapshot().await?)?;
     let home = binding
@@ -20,11 +16,7 @@ async fn connect_legacy(binding: &V1Binding) -> anyhow::Result<Connected> {
         .await
         .ok()
         .map(|home| home.cwd);
-    Ok(Connected {
-        snapshot,
-        witness: None,
-        home,
-    })
+    Ok(Connected { snapshot, home })
 }
 
 impl Root {
@@ -40,7 +32,18 @@ impl Root {
         if self.peer_ui.frozen || self.closing_window {
             return;
         }
-        let mut legacy = self.legacy_peer_binding(&peer);
+        let binding = match self.legacy_peer_binding(&peer) {
+            Some(binding) => Ok(binding),
+            None => host.shared_peer_v1(&peer),
+        };
+        let binding = match binding {
+            Ok(binding) => binding,
+            Err(error) => {
+                self.error = Some(error.to_string());
+                cx.notify();
+                return;
+            }
+        };
         let retry_rejected = self
             .peers
             .peers
@@ -49,12 +52,6 @@ impl Root {
         if retry_rejected {
             host.retry_rejected_v1(&peer);
             self.retire_peer_views(&peer, cx);
-            if legacy.is_none()
-                && let Ok(connection) = host.peer_existing(&peer)
-                && let Err(error) = connection.reconnect()
-            {
-                self.error = Some(error.to_string());
-            }
         }
         let cycle = match self.peers.begin(&peer) {
             Ok(value) => value,
@@ -65,68 +62,18 @@ impl Root {
             }
         };
         cx.spawn_in(window, async move |root, cx| {
-            let result = match &legacy {
-                Some(binding) => connect_legacy(binding).await,
-                None => {
-                    let result = async {
-                        let connection = host.peer_connection(peer.clone())?;
-                        let origin = connection
-                            .connect_with_policy(FallbackPolicy::OfferLegacy)
-                            .await?;
-                        let snapshot = connection.snapshot(&origin).await?;
-                        let home = connection
-                            .execute(&origin, &m::GetHomeDirectory(wire::GetHomeDirectory {}))
-                            .await
-                            .ok()
-                            .map(|home| home.cwd);
-                        anyhow::Ok(Connected {
-                            snapshot,
-                            witness: Some(origin.witness),
-                            home,
-                        })
-                    }
-                    .await;
-                    match result {
-                        Err(error) if error.is::<LegacyPeerRequired>() => {
-                            match host.shared_peer_v1(&peer) {
-                                Ok(binding) => {
-                                    let result = connect_legacy(&binding).await;
-                                    legacy = Some(binding);
-                                    result
-                                }
-                                Err(error) => Err(error),
-                            }
-                        }
-                        result => result,
-                    }
-                }
+            let result = connect(&binding).await;
+            let mut phase = match binding.state().status {
+                ConnectionStatus::AwaitingApproval => source::Phase::AwaitingApproval,
+                ConnectionStatus::Rejected => source::Phase::Rejected,
+                _ => source::Phase::Reconnecting,
             };
-            let mut phase = legacy
-                .as_ref()
-                .map(|binding| match binding.state().status {
-                    ConnectionStatus::AwaitingApproval => source::Phase::AwaitingApproval,
-                    ConnectionStatus::Rejected => source::Phase::Rejected,
-                    _ => source::Phase::Reconnecting,
-                })
-                .unwrap_or_else(|| {
-                    host.peer_existing(&peer)
-                        .map_or(source::Phase::Disconnected, |connection| {
-                            match connection.status() {
-                                Status::AwaitingApproval => source::Phase::AwaitingApproval,
-                                Status::Rejected => source::Phase::Rejected,
-                                _ => source::Phase::Reconnecting,
-                            }
-                        })
-                });
+            let mut keep = true;
             if phase == source::Phase::AwaitingApproval {
                 // Approval was lost between the owner gate and opening this view.
                 // Withdraw the secondary view; only owner attempts wait for approval.
-                if legacy.is_some() {
-                    let _ = host.disconnect_peer(&peer).await;
-                    legacy = None;
-                } else if let Ok(connection) = host.peer_existing(&peer) {
-                    let _ = connection.disconnect().await;
-                }
+                let _ = host.disconnect_peer(&peer).await;
+                keep = false;
                 phase = source::Phase::Rejected;
             }
             let _ = root.update_in(cx, |root, window, cx| {
@@ -134,18 +81,13 @@ impl Root {
                     return;
                 }
                 root.peer_ui.paused.remove(&cycle.peer);
-                if let Some(binding) = legacy {
+                if keep {
                     root.peer_ui.legacy.insert(peer.clone(), binding);
                 }
                 match result {
-                    Ok(Connected {
-                        witness,
-                        snapshot,
-                        home,
-                    }) => {
+                    Ok(Connected { snapshot, home }) => {
                         root.peers.phase(&cycle, source::Phase::Connected, None);
                         if let Some(state) = root.peers.peers.get_mut(&cycle.peer) {
-                            state.origin = witness;
                             state.home = home;
                         }
                         match root.peers.catalog(&cycle, snapshot) {

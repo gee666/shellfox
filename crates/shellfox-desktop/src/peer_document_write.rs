@@ -2,7 +2,7 @@ use super::*;
 use shellfox_client::FileWriteCursor;
 use std::io::{Cursor, Read};
 
-impl<T: OutboundTransport> PeerDocumentBackend<T> {
+impl PeerDocumentBackend {
     pub async fn write(
         &self,
         input: &WriteText,

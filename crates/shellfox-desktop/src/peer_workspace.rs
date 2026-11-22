@@ -2,14 +2,11 @@ use super::*;
 use crate::{
     assets::{icon_button, tooltip},
     chrome::button,
-    host_client::peer::{Connection, SourceAdmission},
 };
 use anyhow::{Result, anyhow, ensure};
-use std::sync::Arc;
+use metadata::PeerApi;
 impl Root {
-    pub(crate) fn peer_context(
-        &self,
-    ) -> Result<(source::PeerCycle, Arc<Connection>, SourceAdmission)> {
+    pub(crate) fn selected_peer_api(&self) -> Result<(source::PeerCycle, PeerApi)> {
         ensure!(
             !self.peer_ui.frozen,
             "Peer operations are frozen for window close."
@@ -18,28 +15,12 @@ impl Root {
             .peers
             .selected_peer()
             .ok_or_else(|| anyhow!("No peer source is selected."))?;
-        ensure!(
-            state.phase == source::Phase::Connected,
-            "Peer is not connected."
-        );
-        let witness = state
-            .origin
-            .as_ref()
-            .ok_or_else(|| anyhow!("Peer catalog origin is unavailable."))?;
-        let connection = self
-            .host
-            .as_ref()
-            .ok_or_else(|| anyhow!("Host is unavailable."))?
-            .peer_existing(peer)?;
-        let admission = connection.admit_source_with(witness)?;
-        Ok((
-            source::PeerCycle {
-                peer: peer.clone(),
-                generation: state.cycle,
-            },
-            connection,
-            admission,
-        ))
+        let cycle = source::PeerCycle {
+            peer: peer.clone(),
+            generation: state.cycle,
+        };
+        let api = self.peer_api(&cycle)?;
+        Ok((cycle, api))
     }
     pub(crate) fn ensure_peer_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_v1_terminal(window, cx);

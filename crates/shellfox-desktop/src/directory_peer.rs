@@ -17,12 +17,7 @@ impl PeerDirectory {
     pub(super) async fn complete(&self, path: String) -> Result<Vec<String>, paths::PathError> {
         let request = wire::CompleteDirectory { path };
         self.api
-            .call(
-                request.clone(),
-                m::CompleteDirectory(request),
-                |value| value.matches,
-                |value| value.matches,
-            )
+            .call(request, |value| value.matches)
             .await
             .map_err(path_error)
     }
@@ -39,22 +34,12 @@ impl PeerDirectory {
                 tab_id: None,
             };
             self.api
-                .call(
-                    request.clone(),
-                    m::CreateDirectory(request),
-                    |value| value.cwd,
-                    |value| value.cwd,
-                )
+                .call(request, |value| value.cwd)
                 .await
         } else {
             let request = wire::ResolveDirectory { path };
             self.api
-                .call(
-                    request.clone(),
-                    m::ResolveDirectory(request),
-                    |value| value.cwd,
-                    |value| value.cwd,
-                )
+                .call(request, |value| value.cwd)
                 .await
         }
         .map_err(path_error)
@@ -108,12 +93,7 @@ impl Root {
         }
         cx.spawn_in(window, async move |root, cx| {
             let profile = if embedded {
-                api.call(
-                    wire::GetTerminalProfiles {},
-                    m::GetTerminalProfiles(wire::GetTerminalProfiles {}),
-                    |value| value,
-                    |value| value,
-                )
+                api.call(wire::GetTerminalProfiles {}, |value| value)
                 .await
                 .and_then(|catalog| {
                     let profile = configured.or(catalog.default_profile_id);
@@ -185,15 +165,12 @@ impl Root {
         };
         cx.spawn_in(window, async move |root, cx| {
             let result = async {
-                let (session, has_tabs) = target.api.call(request.clone(), m::CreateSession(request),
-                    |session| anyhow::Ok((session.id.to_string().parse()?, session.tabs.iter().any(|tab| !matches!(tab.lifecycle, wire::TabLifecycle::Closed)))),
-                    |entry| {
-                        let has_tabs = matches!(&entry, m::CatalogEntry::Session { value } if value.tabs.iter().any(|tab| !matches!(tab.facts.lifecycle.known(), Some(wire::TabLifecycle::Closed))));
-                        anyhow::Ok((entry.id(), has_tabs))
-                    }).await.map_err(|error| anyhow::anyhow!(error.message))??;
+                let (session, has_tabs) = target.api.call(request,
+                    |session| anyhow::Ok((session.id.to_string().parse::<m::Id>()?, session.tabs.iter().any(|tab| !matches!(tab.lifecycle, wire::TabLifecycle::Closed)))),
+                    ).await.map_err(|error| anyhow::anyhow!(error.message))??;
                 let tab_error = if has_tabs { None } else {
                     let request = wire::AddTab { session_id: session.to_string().parse()?, title: None, cwd: None, profile_id: target.fallback_profile };
-                    target.api.call(request.clone(), m::AddTab(request), |_| (), |_| ()).await.err().map(|error| error.message)
+                    target.api.call(request, |_| ()).await.err().map(|error| error.message)
                 };
                 let snapshot = target.api.snapshot().await?;
                 anyhow::Ok((session, snapshot, tab_error))

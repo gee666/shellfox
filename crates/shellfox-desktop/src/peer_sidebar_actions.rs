@@ -203,7 +203,7 @@ impl Root {
         }
         cx.spawn_in(window, async move |root, cx| {
             let request = wire::ActivateSession { session_id };
-            let result = match api.call(request.clone(), m::ActivateSession(request), |_| (), |_| ()).await {
+            let result = match api.call(request, |_| ()).await {
                 Ok(()) => api.snapshot().await.map_err(|error| error.to_string()),
                 Err(error) => Err(error.message),
             };
@@ -255,8 +255,7 @@ impl Root {
             macro_rules! perform {
                 ($method:ident, $request:expr) => {{
                     let request = $request;
-                    api.call(request.clone(), m::$method(request), |_| (), |_| ())
-                        .await
+                    api.call(request, |_| ()).await
                 }};
             }
             let result = match mutation {

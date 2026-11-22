@@ -88,17 +88,8 @@ impl DocumentBackend {
         }
     }
 
-    pub fn peer(
-        connection: Arc<crate::host_client::peer::Connection>,
-        admission: crate::host_client::peer::SourceAdmission,
-        scope: Option<PeerFileScope>,
-    ) -> Result<Self> {
-        Ok(Self::Peer(peer::PeerDocumentBackend::new(
-            connection, admission, scope,
-        )?))
-    }
-    pub fn legacy(binding: Arc<crate::host_client::peer_v1::V1Binding>, scope: Option<PeerFileScope>) -> Result<Self> {
-        Ok(Self::Peer(peer::PeerDocumentBackend::legacy(binding, scope)?))
+    pub fn peer(binding: Arc<crate::host_client::peer_v1::V1Binding>, scope: Option<PeerFileScope>) -> Result<Self> {
+        Ok(Self::Peer(peer::PeerDocumentBackend::new(binding, scope)?))
     }
     pub fn peer_backend(&self) -> Option<&Arc<peer::PeerDocumentBackend>> {
         match self {

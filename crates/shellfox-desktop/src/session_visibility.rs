@@ -4,7 +4,7 @@ use crate::root::{
 };
 use gpui::{Bounds, Context, IntoElement, Pixels, Window, canvas, prelude::*, px};
 use shellfox_core::SessionId;
-use shellfox_protocol::{AuthenticatedPeerId, SetVisibleSessions, manager_v2 as m};
+use shellfox_protocol::{AuthenticatedPeerId, SetVisibleSessions};
 use shellfox_service::native::NativeAction;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -180,12 +180,7 @@ impl Root {
             };
             cx.spawn(async move |root, cx| {
                 let _ = api
-                    .call(
-                        report.clone(),
-                        m::SetVisibleSessions(report),
-                        |_| (),
-                        |_| (),
-                    )
+                    .call(report, |_| ())
                     .await;
                 let _ = root.update(cx, |root, _| {
                     if let Some((generation, lane)) =

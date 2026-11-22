@@ -2,7 +2,7 @@
 use super::*;
 impl Root {
     pub(super) fn add_peer_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (cycle, connection, admission) = match self.peer_context() {
+        let (cycle, api) = match self.selected_peer_api() {
             Ok(value) => value,
             Err(error) => {
                 self.error = Some(error.to_string());
@@ -32,40 +32,26 @@ impl Root {
         self.peer_ui.pending.insert(cycle.peer.clone());
         cx.spawn_in(window, async move |root, cx| {
             let result = async {
-                let before = connection
-                    .execute_admitted(
-                        &admission,
-                        &m::GetSnapshot(shellfox_protocol::GetSnapshot {}),
-                    )
-                    .await?;
-                let entry = connection
-                    .execute_admitted(
-                        &admission,
-                        &m::AddTab(shellfox_protocol::AddTab {
-                            session_id,
-                            title: None,
-                            profile_id: None,
-                            cwd: None,
-                        }),
-                    )
-                    .await?;
+                let before = api.snapshot().await?;
+                api.call(
+                    shellfox_protocol::AddTab {
+                        session_id,
+                        title: None,
+                        profile_id: None,
+                        cwd: None,
+                    },
+                    |_| (),
+                )
+                .await
+                .map_err(|error| anyhow::anyhow!(error.message))?;
                 let old: HashSet<_> = source::sessions(&before)
                     .flat_map(|session| session.tabs.iter().map(|tab| tab.id))
                     .collect();
-                let tab = match entry {
-                    m::CatalogEntry::Session { value } => value
-                        .tabs
-                        .iter()
-                        .find(|tab| !old.contains(&tab.id))
-                        .map(|tab| tab.id),
-                    _ => None,
-                };
-                let snapshot = connection
-                    .execute_admitted(
-                        &admission,
-                        &m::GetSnapshot(shellfox_protocol::GetSnapshot {}),
-                    )
-                    .await?;
+                let snapshot = api.snapshot().await?;
+                let tab = source::sessions(&snapshot)
+                    .find(|value| value.id == session)
+                    .and_then(|value| value.tabs.iter().find(|tab| !old.contains(&tab.id)))
+                    .map(|tab| tab.id);
                 anyhow::Ok((tab, snapshot))
             }
             .await;
@@ -92,7 +78,6 @@ impl Root {
                             Ok(())
                         }) {
                             root.error = Some(error.to_string());
-                        } else {
                         }
                     }
                     Err(error) => {

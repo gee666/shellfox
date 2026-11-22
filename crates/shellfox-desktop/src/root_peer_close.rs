@@ -4,7 +4,7 @@ use gpui::{App, Context};
 impl Root {
     pub(crate) fn peer_pending_operations(&self, _cx: &App) -> bool {
         if !self.peer_ui.pending.is_empty() || self.peers.peers.values().any(|peer| peer.pending) { return true; }
-        { self.peer_ui.v1_views.values().any(|view| view.read(_cx).peer_pending()) }
+        self.peer_ui.v1_views.values().any(|view| view.read(_cx).peer_pending())
     }
     /// False means busy or still draining an ORIGINAL in-flight poll. The
     /// staged freeze stays set while draining; cancel explicitly with false.

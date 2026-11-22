@@ -24,22 +24,13 @@ impl Root {
                     && state.phase == source::Phase::Reconnecting
                     && !state.pending
                     && due)
-                    .then(|| (id.clone(), state.phase))
+                    .then(|| id.clone())
             })
             .collect();
-        for (id, phase) in retries {
+        for id in retries {
             self.peer_ui
                 .metadata_polls
                 .insert(id.clone(), Some(now + Duration::from_secs(2)));
-            if phase == source::Phase::Reconnecting
-                && self.legacy_peer_binding(&id).is_none()
-                && let Some(host) = &self.host
-                && let Ok(connection) = host.peer_existing(&id)
-                && let Err(error) = connection.reconnect()
-            {
-                self.error = Some(error.to_string());
-                continue;
-            }
             self.connect_catalog(id, window, cx);
         }
         let peers: Vec<_> = self

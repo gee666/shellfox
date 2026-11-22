@@ -1,7 +1,7 @@
 use super::*;
 use shellfox_client::FileReadCursor;
 
-impl<T: OutboundTransport> PeerDocumentBackend<T> {
+impl PeerDocumentBackend {
     pub async fn read(&self, path: &str, cancel: &EditorCancellation) -> Result<ReadResult> {
         let mut cursor = self.begin_read(path, None, cancel).await?;
         let result = self.read_preview(&mut cursor, cancel).await;

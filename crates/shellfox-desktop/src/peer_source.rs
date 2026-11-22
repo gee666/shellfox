@@ -38,7 +38,6 @@ pub(crate) struct PeerState {
     pub cycle: u64,
     pub snapshot: Option<m::Snapshot>,
     catalog_cycle: Option<u64>,
-    pub origin: Option<shellfox_client::manager_v2::ManagerBindingWitness>,
     pub selected_session: Option<m::Id>,
     pub selected_tab: Option<m::Id>,
     pub selection_committed: bool,
@@ -102,7 +101,6 @@ impl PeerSources {
                 cycle: 0,
                 snapshot: None,
                 catalog_cycle: None,
-                origin: None,
                 selected_session: None,
                 selected_tab: None,
                 selection_committed: false,
@@ -143,7 +141,6 @@ impl PeerSources {
         state.pending = true;
         state.owner_pair_attempt = None;
         state.error = None;
-        state.origin = None;
         Ok(PeerCycle {
             peer: peer.clone(),
             generation: state.cycle,
@@ -166,7 +163,6 @@ impl PeerSources {
         state.error = error;
         state.pending = false;
         if phase != Phase::Connected {
-            state.origin = None;
         }
         if matches!(phase, Phase::Disconnected | Phase::Rejected) {
             state.snapshot = None;
@@ -285,7 +281,6 @@ impl PeerSources {
             state.error = None;
             state.snapshot = None;
             state.catalog_cycle = None;
-            state.origin = None;
             // Selection IDs are UI preferences, never a retained binding.
         }
         Ok(())

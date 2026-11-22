@@ -184,7 +184,6 @@ fn pending_approval_rejection_and_reconnect_never_keep_live_catalog_authority() 
         let peer = &state.peers[&id];
         assert_eq!(peer.phase, phase);
         assert!(peer.snapshot.is_none());
-        assert!(peer.origin.is_none());
         assert!(!peer.pending);
         assert!(!state.catalog(&cycle, snapshot()).unwrap());
     }
@@ -263,7 +262,6 @@ fn explicit_disconnect_restores_only_the_same_viewable_session_and_tab() {
     assert_eq!(saved.selected_session, Some(id));
     assert_eq!(saved.selected_tab, Some(tab));
     assert!(saved.snapshot.is_none());
-    assert!(saved.origin.is_none());
     assert!(sources.select(&old, id, Some(tab)).is_err());
 
     let new = sources.begin(&peer_id).unwrap();

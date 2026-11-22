@@ -57,10 +57,7 @@ impl Root {
     }
 
     pub(super) fn peer_file_backend_for(&self, use_tab: bool) -> anyhow::Result<(DocumentBackend, Option<String>)> {
-        use crate::root::{
-            peer::metadata::PeerApi,
-            source::{PeerCycle, sessions},
-        };
+        use crate::root::source::{PeerCycle, sessions};
         let (peer, state) = self
             .peers
             .selected_peer()
@@ -88,12 +85,7 @@ impl Root {
             }
             _ => None,
         };
-        let backend = match self.peer_api(&cycle)? {
-            PeerApi::Legacy(binding) => DocumentBackend::legacy(binding, scope)?,
-            PeerApi::Manager(connection, admission) => {
-                DocumentBackend::peer(connection, admission, scope)?
-            }
-        };
+        let backend = DocumentBackend::peer(self.peer_api(&cycle)?.binding().clone(), scope)?;
         Ok((backend, cwd))
     }
 }
