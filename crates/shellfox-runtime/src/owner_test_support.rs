@@ -9,8 +9,6 @@ pub(super) fn owner() -> Owner {
         },
         limits: GridLimits::default(),
         terminal: Terminal::new(80, 24).unwrap(),
-        #[cfg(feature = "experimental-shellfox-native")]
-        native_creation: None,
         presentations: presentation::Presentations::new(),
         layouts: layout::Layouts::new(80, 24),
         pty: None,

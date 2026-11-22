@@ -34,13 +34,6 @@ pub struct RecoveryCut {
     pub rows: u16,
     pub layout_revision: u64,
 }
-#[cfg(feature = "experimental-shellfox-native")]
-#[derive(Debug)]
-pub struct StampedNative0Recovery {
-    pub snapshot: shellfox_ghostty_vt::extension::NativeSnapshot,
-    pub limits: shellfox_ghostty_vt::extension::SnapshotLimits,
-    pub cut: RecoveryCut,
-}
 #[derive(Debug)]
 pub struct StampedRecovery {
     pub bytes: Vec<u8>,

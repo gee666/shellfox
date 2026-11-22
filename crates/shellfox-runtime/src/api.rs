@@ -117,10 +117,6 @@ pub enum Command {
         observer: ObserverLease,
         capability: AnsiRecoveryCapability,
     },
-    #[cfg(feature = "experimental-shellfox-native")]
-    ObserverRecoverNative0Stamped {
-        observer: ObserverLease,
-    },
     ObserverLayoutAck {
         observer: ObserverLease,
         recovery_id: crate::RecoveryId,
@@ -207,10 +203,6 @@ pub enum Command {
         lease: Lease,
         capability: AnsiRecoveryCapability,
     },
-    #[cfg(feature = "experimental-shellfox-native")]
-    RecoverNative0Stamped {
-        lease: Lease,
-    },
     ControllerLayoutAck {
         lease: Lease,
         recovery_id: crate::RecoveryId,
@@ -294,8 +286,6 @@ pub enum Response {
     Presentation(std::sync::Arc<crate::ViewFrame>),
     Input(crate::InputReceipt),
     Recovery(crate::StampedRecovery),
-    #[cfg(feature = "experimental-shellfox-native")]
-    Native0Recovery(Box<crate::StampedNative0Recovery>),
     Applied,
     Replay(Vec<Chunk>),
     Ansi {

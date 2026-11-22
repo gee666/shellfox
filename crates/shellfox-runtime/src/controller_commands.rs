@@ -11,10 +11,22 @@ impl Owner {
             .recover(lease)
             .map_err(RuntimeError::control)?;
         if capability == AnsiRecoveryCapability::RemoteV1 {
-            let geometry = self.terminal.recovery_info().map_err(crate::commands::engine)?;
-            return Ok(Response::RemoteV1Ansi { bytes, last_sequence, cols: geometry.cols, rows: geometry.rows });
+            let geometry = self
+                .terminal
+                .recovery_info()
+                .map_err(crate::commands::engine)?;
+            return Ok(Response::RemoteV1Ansi {
+                bytes,
+                last_sequence,
+                cols: geometry.cols,
+                rows: geometry.rows,
+            });
         }
-        Ok(Response::Ansi { capability, bytes, last_sequence })
+        Ok(Response::Ansi {
+            capability,
+            bytes,
+            last_sequence,
+        })
     }
     pub(crate) fn recovery_bytes(
         &mut self,
@@ -82,44 +94,6 @@ impl Owner {
             .recover(lease)
             .map_err(RuntimeError::control)?;
         Ok(Response::Recovery(snapshot))
-    }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn native0_snapshot(
-        &mut self,
-    ) -> Result<
-        (
-            shellfox_ghostty_vt::extension::NativeSnapshot,
-            shellfox_ghostty_vt::extension::SnapshotLimits,
-        ),
-        RuntimeError,
-    > {
-        self.native_creation
-            .as_ref()
-            .ok_or_else(|| RuntimeError {
-                code: ErrorCode::Unsupported,
-                message: "This source was not explicitly created with Native0 recovery.".into(),
-            })?
-            .capture(&mut self.terminal)
-    }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn controller_native0_stamped_recovery(
-        &mut self,
-        lease: Lease,
-    ) -> Result<Response, RuntimeError> {
-        let (snapshot, limits) = self.native0_snapshot()?;
-        let cut = self
-            .layouts
-            .controller_native0_recovery(lease, self.delivery.current_sequence())?;
-        self.delivery
-            .recover(lease)
-            .map_err(RuntimeError::control)?;
-        Ok(Response::Native0Recovery(Box::new(
-            StampedNative0Recovery {
-                snapshot,
-                limits,
-                cut,
-            },
-        )))
     }
     pub(crate) fn controller_layout_ack(
         &mut self,

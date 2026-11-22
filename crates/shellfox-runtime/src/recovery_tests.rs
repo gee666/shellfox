@@ -3,14 +3,19 @@ use super::*;
 #[test]
 fn v1_snapshot_restores_alternate_buffer_cursor_and_reported_modes() {
     let mut source = Terminal::new(30, 8).unwrap();
-    source.feed(b"main\x1b[?1049h\x1b[?2004h\x1b[?1h\x1b[?1000h\x1b[?25l\x1b[3;4Halt\x1b[4;9H").unwrap();
+    source
+        .feed(b"main\x1b[?1049h\x1b[?2004h\x1b[?1h\x1b[?1000h\x1b[?25l\x1b[3;4Halt\x1b[4;9H")
+        .unwrap();
     let snapshot = remote_v1_ansi(&mut source).unwrap();
     assert!(snapshot.starts_with(b"\x18\x1bc\x1b[?1049h"));
     let mut view = Terminal::new(30, 8).unwrap();
     view.feed(&snapshot).unwrap();
     assert!(view.recovery_info().unwrap().alternate);
     assert!(view.mouse_tracking().unwrap());
-    assert_eq!(view.render().unwrap().cursor, source.render().unwrap().cursor);
+    assert_eq!(
+        view.render().unwrap().cursor,
+        source.render().unwrap().cursor
+    );
     assert!(snapshot.windows(8).any(|w| w == b"\x1b[?2004h"));
     assert!(snapshot.windows(5).any(|w| w == b"\x1b[?1h"));
 }

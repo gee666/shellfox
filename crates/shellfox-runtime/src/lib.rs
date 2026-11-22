@@ -42,15 +42,11 @@ mod layout_api;
 mod metadata;
 mod stamped_recovery;
 pub use inspection::{InspectionFailure, InspectionPoll, InspectionTicket, ProcessInspection};
-#[cfg(feature = "experimental-shellfox-native")]
-pub use layout_api::StampedNative0Recovery;
 pub use layout_api::{
     ControllerGeometryStamp, ControllerRevocation, LayoutStamp, RecoveryCut, RecoveryId,
     StampedRecovery,
 };
 pub use metadata::RuntimeMetadata;
-#[cfg(feature = "experimental-shellfox-native")]
-pub use recovery::Native0RuntimeConfig;
 mod observer_commands;
 mod observers;
 mod owner;
@@ -134,30 +130,6 @@ impl Runtime {
     ) -> Result<Self, StartError> {
         Self::start_owned(identity, config, limits, hooks)
     }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub fn start_native0_program_with_limits_and_hooks(
-        identity: Identity,
-        config: PtyConfig,
-        limits: GridLimits,
-        hooks: RuntimeHooks,
-        native: Native0RuntimeConfig,
-    ) -> Result<Self, StartError> {
-        Self::start_owned_configured(
-            identity, config, limits, hooks, Some(native),
-            #[cfg(windows)]
-            None,
-        )
-    }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub fn native0_engine_identity(
-    ) -> Result<shellfox_ghostty_vt::extension::EngineIdentity, RuntimeError> {
-        shellfox_ghostty_vt::extension::VerifiedNativeExtension::verify()
-            .map(|verified| verified.identity())
-            .map_err(|_| RuntimeError {
-                code: ErrorCode::Unsupported,
-                message: "Native002 local engine verification failed.".into(),
-            })
-    }
     #[cfg(windows)]
     pub fn start_administrator(
         identity: Identity,
@@ -165,12 +137,7 @@ impl Runtime {
         helper: shellfox_terminal::elevated::InteractiveHelper,
         hooks: RuntimeHooks,
     ) -> Result<Self, StartError> {
-        Self::start_owned_configured(
-            identity, config, GridLimits::default(), hooks,
-            #[cfg(feature = "experimental-shellfox-native")]
-            None,
-            Some(helper),
-        )
+        Self::start_owned_configured(identity, config, GridLimits::default(), hooks, Some(helper))
     }
     fn start_owned(
         identity: Identity,
@@ -183,8 +150,6 @@ impl Runtime {
             config,
             limits,
             hooks,
-            #[cfg(feature = "experimental-shellfox-native")]
-            None,
             #[cfg(windows)]
             None,
         )
@@ -194,7 +159,6 @@ impl Runtime {
         config: PtyConfig,
         limits: GridLimits,
         hooks: RuntimeHooks,
-        #[cfg(feature = "experimental-shellfox-native")] native: Option<Native0RuntimeConfig>,
         #[cfg(windows)] administrator: Option<shellfox_terminal::elevated::InteractiveHelper>,
     ) -> Result<Self, StartError> {
         limits
@@ -225,8 +189,6 @@ impl Runtime {
                     outgoing,
                     owner_shared,
                     owner::OwnerServices {
-                        #[cfg(feature = "experimental-shellfox-native")]
-                        native,
                         inspection: Some(inspection_publisher),
                         hooks,
                         #[cfg(windows)]

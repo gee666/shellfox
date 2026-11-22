@@ -32,7 +32,13 @@ impl LiveOutputSink for ObserveInput {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.request.store(request.0, Ordering::Relaxed);
         self.bytes.store(encoded.len() as u64, Ordering::Relaxed);
-        self.single_byte.store(match encoded { [byte] => u64::from(*byte), _ => u64::MAX }, Ordering::Relaxed);
+        self.single_byte.store(
+            match encoded {
+                [byte] => u64::from(*byte),
+                _ => u64::MAX,
+            },
+            Ordering::Relaxed,
+        );
         if self.fail.load(Ordering::Relaxed) {
             Err(LiveOutputFailure)
         } else {
@@ -147,14 +153,20 @@ fn xterm_nul_reaches_the_conpty_write_boundary_as_one_byte() {
     host.until(|host| String::from_utf8_lossy(&host.output).contains("RUNTIME_IDLE_READY"));
     // GPUI may carry Shift+2 as an already shifted key on Windows.
     for (key, shift) in [(' ', false), ('2', true), ('@', false)] {
-        let response = host.request(Command::Key {
-            lease: host.lease,
-            event: KeyEvent {
-                key: Key::Character(key),
-                modifiers: Modifiers { control: true, shift, ..Default::default() },
-                ..Default::default()
-            },
-        }).unwrap();
+        let response = host
+            .request(Command::Key {
+                lease: host.lease,
+                event: KeyEvent {
+                    key: Key::Character(key),
+                    modifiers: Modifiers {
+                        control: true,
+                        shift,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            })
+            .unwrap();
         assert_eq!(receipt(response).accepted_bytes, 1, "{key:?}");
         assert_eq!(observer.bytes.load(Ordering::Relaxed), 1);
         assert_eq!(observer.single_byte.load(Ordering::Relaxed), 0);

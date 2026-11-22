@@ -46,13 +46,6 @@ impl Owner {
                 self.dirty = true;
                 return Ok(Response::Claimed(lease));
             }
-            #[cfg(feature = "experimental-shellfox-native")]
-            Command::ObserverRecoverNative0Stamped { .. } => return self.observer_command(command),
-            #[cfg(feature = "experimental-shellfox-native")]
-            Command::RecoverNative0Stamped { lease } => {
-                self.delivery.check(*lease).map_err(RuntimeError::control)?;
-                return self.controller_native0_stamped_recovery(*lease);
-            }
             Command::Presentation { .. } => {
                 if let Command::Presentation { view, action } = command {
                     return self.presentation_command(view, action);
@@ -106,11 +99,6 @@ impl Owner {
             _ => {}
         }
         match command {
-            #[cfg(feature = "experimental-shellfox-native")]
-            Command::RecoverNative0Stamped { .. }
-            | Command::ObserverRecoverNative0Stamped { .. } => {
-                unreachable!("native recovery dispatched above")
-            }
             Command::RecoverStamped { capability, .. } => {
                 return self.controller_stamped_recovery(lease, capability)
             }

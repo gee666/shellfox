@@ -65,7 +65,10 @@ fn startup_error(error: helper::AdapterError) -> RuntimeError {
 }
 
 fn administrator_diagnostic(message: impl std::fmt::Display) {
-    let _ = writeln!(std::io::stderr().lock(), "Administrator PowerShell: {message}");
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "Administrator PowerShell: {message}"
+    );
 }
 
 fn command_error(error: helper::AdapterError) -> RuntimeError {

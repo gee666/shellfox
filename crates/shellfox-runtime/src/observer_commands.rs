@@ -40,22 +40,6 @@ impl Owner {
                 observer,
                 capability,
             } => self.stamped_recovery(observer, capability),
-            #[cfg(feature = "experimental-shellfox-native")]
-            Command::ObserverRecoverNative0Stamped { observer } => {
-                self.observers.check(observer)?;
-                let (snapshot, limits) = self.native0_snapshot()?;
-                let cut = self
-                    .layouts
-                    .native0_recovery(observer, self.delivery.current_sequence())?;
-                self.observers.recover(observer, &self.delivery)?;
-                Ok(Response::Native0Recovery(Box::new(
-                    StampedNative0Recovery {
-                        snapshot,
-                        limits,
-                        cut,
-                    },
-                )))
-            }
             Command::ObserverLayoutAck {
                 observer,
                 recovery_id,

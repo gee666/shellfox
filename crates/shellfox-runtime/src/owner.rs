@@ -8,9 +8,6 @@ mod event_tests;
 #[cfg(test)]
 #[path = "owner_key_v2_tests.rs"]
 mod key_v2_tests;
-#[cfg(all(test, feature = "experimental-shellfox-native"))]
-#[path = "native_recovery_tests.rs"]
-mod native_recovery_tests;
 #[cfg(test)]
 #[path = "owner_recovery_audit_tests.rs"]
 mod recovery_audit_tests;
@@ -25,15 +22,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[path = "external_start.rs"]
-mod external_start;
 #[cfg(windows)]
 #[path = "elevated_pty.rs"]
 mod elevated_pty;
+#[path = "external_start.rs"]
+mod external_start;
 pub(crate) use external_start::{run as run_external, ExternalStartServices};
 pub(crate) struct OwnerServices {
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub native: Option<crate::Native0RuntimeConfig>,
     pub inspection: Option<inspection::InspectionPublisher>,
     pub hooks: RuntimeHooks,
     #[cfg(windows)]
@@ -45,8 +40,6 @@ pub(crate) struct Owner {
     pub identity: Identity,
     pub limits: GridLimits,
     pub terminal: Terminal,
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) native_creation: Option<crate::recovery::Native0Creation>,
     pub presentations: presentation::Presentations,
     pub layouts: layout::Layouts,
     pub pty: Option<PtySession>,
@@ -77,17 +70,8 @@ pub(crate) fn run(
     shared: Arc<Shared>,
     services: OwnerServices,
 ) {
-    #[cfg(feature = "experimental-shellfox-native")]
-    let created = match services.native {
-        Some(native) => crate::recovery::Native0Creation::create(config.cols, config.rows, native)
-            .map(|(terminal, creation)| (terminal, Some(creation))),
-        None => Terminal::new(config.cols, config.rows)
-            .map(|terminal| (terminal, None))
-            .map_err(RuntimeError::unavailable),
-    };
-    #[cfg(not(feature = "experimental-shellfox-native"))]
-    let created = Terminal::new(config.cols, config.rows).map_err(RuntimeError::unavailable);
-    let created = match created {
+    let terminal = match Terminal::new(config.cols, config.rows).map_err(RuntimeError::unavailable)
+    {
         Ok(terminal) => terminal,
         Err(error) => {
             *shared.phase.lock().unwrap_or_else(|e| e.into_inner()) = Phase::Closed;
@@ -95,16 +79,10 @@ pub(crate) fn run(
             return;
         }
     };
-    #[cfg(feature = "experimental-shellfox-native")]
-    let (terminal, native_creation) = created;
-    #[cfg(not(feature = "experimental-shellfox-native"))]
-    let terminal = created;
     let mut owner = Owner {
         identity,
         limits,
         terminal,
-        #[cfg(feature = "experimental-shellfox-native")]
-        native_creation,
         presentations: presentation::Presentations::new(),
         layouts: layout::Layouts::new(config.cols, config.rows),
         pty: None,

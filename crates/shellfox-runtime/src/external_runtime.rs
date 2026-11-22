@@ -4,8 +4,6 @@ use std::time::Duration;
 struct StartupOptions {
     wait: Duration,
     display_policy: ExternalDisplayPolicy,
-    #[cfg(feature = "experimental-shellfox-native")]
-    native: Option<Native0RuntimeConfig>,
     #[cfg(test)]
     before_ready: Option<fn()>,
 }
@@ -14,8 +12,6 @@ impl Default for StartupOptions {
         Self {
             wait: Duration::from_secs(5),
             display_policy: ExternalDisplayPolicy::RawBytes,
-            #[cfg(feature = "experimental-shellfox-native")]
-            native: None,
             #[cfg(test)]
             before_ready: None,
         }
@@ -62,25 +58,6 @@ impl Runtime {
             config,
             StartupOptions {
                 display_policy: policy,
-                ..Default::default()
-            },
-            hooks,
-        )
-    }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub fn start_external_with_native0(
-        identity: Identity,
-        config: ExternalConfig,
-        policy: ExternalDisplayPolicy,
-        hooks: RuntimeHooks,
-        native: Native0RuntimeConfig,
-    ) -> Result<Self, ExternalStartError> {
-        start_hooked(
-            identity,
-            config,
-            StartupOptions {
-                display_policy: policy,
-                native: Some(native),
                 ..Default::default()
             },
             hooks,
@@ -172,12 +149,7 @@ fn start_hooked(
                 outgoing,
                 owner_shared,
                 source_owner,
-                owner::ExternalStartServices {
-                    ready,
-                    hooks,
-                    #[cfg(feature = "experimental-shellfox-native")]
-                    native: options.native,
-                },
+                owner::ExternalStartServices { ready, hooks },
             )
         })
         .map_err(ExternalStartError::before)?;

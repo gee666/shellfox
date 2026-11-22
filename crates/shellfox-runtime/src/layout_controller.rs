@@ -23,14 +23,6 @@ impl Layouts {
             sequence,
         )
     }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn controller_native0_recovery(
-        &mut self,
-        lease: Lease,
-        sequence: u64,
-    ) -> Result<RecoveryCut, RuntimeError> {
-        self.stamp_for(PresentationLease::Controller(lease), sequence)
-    }
     pub(crate) fn controller_validate_ack(
         &self,
         lease: Lease,

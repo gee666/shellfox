@@ -3,8 +3,6 @@ use crate::external::{ExternalConfig, ExternalOwner};
 pub(crate) struct ExternalStartServices {
     pub ready: SyncSender<Result<(), RuntimeError>>,
     pub hooks: RuntimeHooks,
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub native: Option<Native0RuntimeConfig>,
 }
 pub(crate) fn run(
     identity: Identity,
@@ -16,17 +14,9 @@ pub(crate) fn run(
     services: ExternalStartServices,
 ) {
     let ready = services.ready;
-    let create = || Terminal::new(config.cols, config.rows).map_err(RuntimeError::unavailable);
-    #[cfg(feature = "experimental-shellfox-native")]
-    let created = match services.native {
-        Some(native) => crate::recovery::Native0Creation::create(config.cols, config.rows, native)
-            .map(|(terminal, native)| (terminal, Some(native))),
-        None => create().map(|terminal| (terminal, None)),
-    };
-    #[cfg(not(feature = "experimental-shellfox-native"))]
-    let created = create();
-    let created = match created {
-        Ok(created) => created,
+    let terminal = match Terminal::new(config.cols, config.rows).map_err(RuntimeError::unavailable)
+    {
+        Ok(terminal) => terminal,
         Err(error) => {
             *shared
                 .phase
@@ -37,16 +27,10 @@ pub(crate) fn run(
             return;
         }
     };
-    #[cfg(feature = "experimental-shellfox-native")]
-    let (terminal, native_creation) = created;
-    #[cfg(not(feature = "experimental-shellfox-native"))]
-    let terminal = created;
     let mut owner = Owner {
         identity,
         limits: config.limits,
         terminal,
-        #[cfg(feature = "experimental-shellfox-native")]
-        native_creation,
         presentations: presentation::Presentations::new(),
         layouts: layout::Layouts::new(config.cols, config.rows),
         pty: None,

@@ -185,14 +185,6 @@ impl Layouts {
             layout_revision: stamp.revision,
         })
     }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn native0_recovery(
-        &mut self,
-        observer: ObserverLease,
-        sequence: u64,
-    ) -> Result<RecoveryCut, RuntimeError> {
-        self.stamp_for(PresentationLease::Observer(observer), sequence)
-    }
     pub(crate) fn validate_ack(
         &self,
         observer: ObserverLease,

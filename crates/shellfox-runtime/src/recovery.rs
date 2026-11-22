@@ -4,35 +4,6 @@ use shellfox_ghostty_vt::{Terminal, FORMAT_EXTRAS_ALL};
 
 pub(crate) const MAX_RECOVERY_BYTES: usize = 4 * 1024 * 1024;
 
-#[cfg(feature = "experimental-shellfox-native")]
-impl crate::Runtime {
-    /// Explicit new-source factory for trusted remote-eligible composition.
-    /// This requests non-elevation on Unix before any PTY/supervisor creation.
-    /// It grants no remote authority and never upgrades an existing source.
-    /// Ordinary/local constructors keep their caller's Local/sudo behavior.
-    pub fn start_remote_eligible_native0_program_with_limits_and_hooks(
-        identity: crate::Identity,
-        config: shellfox_terminal::PtyConfig,
-        limits: crate::GridLimits,
-        hooks: crate::RuntimeHooks,
-        native: crate::Native0RuntimeConfig,
-    ) -> Result<Self, crate::StartError> {
-        #[cfg(unix)]
-        let config = {
-            let mut config = config;
-            config.unix_privilege = crate::UnixPrivilegeMode::NonElevating;
-            config
-        };
-        Self::start_native0_program_with_limits_and_hooks(
-            identity,
-            config,
-            limits,
-            hooks,
-            native,
-        )
-    }
-}
-
 // CAN cancels an unfinished receiver sequence before RIS clears old content,
 // history, margins and modes. Do not complete an old OSC with ST: that could
 // execute a clipboard request left in the receiver's parser.
@@ -67,14 +38,24 @@ pub(crate) fn remote_v1_ansi(terminal: &mut Terminal) -> Result<Vec<u8>, Runtime
     let budget = BUDGET.saturating_sub(RESET.len() + prefix.len() + continuation.len());
     // Formatter extras place the cursor and restore the available DEC modes
     // (including cursor keys, cursor visibility, bracketed paste and mouse).
-    let formatted = terminal.format_vt(FORMATTER_EXTRAS, budget).or_else(|_| {
-        // Large scrollback need not make the live terminal inaccessible.
-        let screen = terminal.render()?;
-        let bytes = crate::ansi::visible_screen(&screen)
-            .map_err(|_| shellfox_ghostty_vt::Error(-6))?;
-        if bytes.len() <= budget { Ok(bytes) } else { Err(shellfox_ghostty_vt::Error(-6)) }
-    }).map_err(|_| RuntimeError::validation("Terminal snapshot exceeds the v1 recovery limit."))?;
-    let mut bytes = Vec::with_capacity(RESET.len() + prefix.len() + formatted.len() + continuation.len());
+    let formatted = terminal
+        .format_vt(FORMATTER_EXTRAS, budget)
+        .or_else(|_| {
+            // Large scrollback need not make the live terminal inaccessible.
+            let screen = terminal.render()?;
+            let bytes =
+                crate::ansi::visible_screen(&screen).map_err(|_| shellfox_ghostty_vt::Error(-6))?;
+            if bytes.len() <= budget {
+                Ok(bytes)
+            } else {
+                Err(shellfox_ghostty_vt::Error(-6))
+            }
+        })
+        .map_err(|_| {
+            RuntimeError::validation("Terminal snapshot exceeds the v1 recovery limit.")
+        })?;
+    let mut bytes =
+        Vec::with_capacity(RESET.len() + prefix.len() + formatted.len() + continuation.len());
     bytes.extend_from_slice(RESET);
     bytes.extend_from_slice(prefix);
     bytes.extend_from_slice(&formatted);
@@ -113,100 +94,6 @@ fn bounded_active_buffer_ansi(
     bytes.extend_from_slice(&continuation);
     Ok(bytes)
 }
-
-#[cfg(feature = "experimental-shellfox-native")]
-mod native0 {
-    use super::*;
-    use shellfox_ghostty_vt::extension::{
-        NativeSnapshot, RestorationConfig, SnapshotLimits, TerminalProfile, VerifiedNativeExtension,
-    };
-    /// Required, explicit source-creation configuration. Not inferred from an
-    /// incoming recovery request or retroactively applied to an existing source.
-    #[derive(Debug, Clone, Copy)]
-    pub struct Native0RuntimeConfig {
-        configuration: RestorationConfig,
-        limits: SnapshotLimits,
-    }
-    impl Native0RuntimeConfig {
-        pub fn new(
-            configuration: RestorationConfig,
-            limits: SnapshotLimits,
-        ) -> Result<Self, RuntimeError> {
-            if limits.max_encoded_bytes > MAX_RECOVERY_BYTES
-                || limits.max_continuation_bytes > 65536
-                || limits.max_allocation_bytes > 512 * 1024 * 1024
-                || limits.max_work_units > 100_000_000_000
-                || limits.max_cells > 16 * 1024 * 1024
-                || limits.max_history_rows > 1_048_576
-                || limits.max_columns > 4096
-                || limits.max_rows > 4096
-                || limits.max_pixel_width > 65536
-                || limits.max_pixel_height > 65536
-                || limits.max_page_rows > 65535
-                || limits.max_pages > 65536
-                || limits.max_records > 1_048_576
-                || configuration.runtime_image_storage_limit > usize::MAX as u64
-            {
-                return Err(RuntimeError::validation(
-                    "Native0 creation/configuration budget is unsupported.",
-                ));
-            }
-            Ok(Self {
-                configuration,
-                limits,
-            })
-        }
-        pub fn configuration(self) -> RestorationConfig {
-            self.configuration
-        }
-        pub fn limits(self) -> SnapshotLimits {
-            self.limits
-        }
-    }
-    pub(crate) struct Native0Creation {
-        verified: VerifiedNativeExtension,
-        config: Native0RuntimeConfig,
-    }
-    impl Native0Creation {
-        pub(crate) fn create(
-            cols: u16,
-            rows: u16,
-            config: Native0RuntimeConfig,
-        ) -> Result<(Terminal, Self), RuntimeError> {
-            let verified = VerifiedNativeExtension::verify().map_err(unavailable)?;
-            let terminal = verified
-                .new_native_terminal(
-                    cols,
-                    rows,
-                    TerminalProfile::Native,
-                    config.configuration,
-                    config.limits.max_continuation_bytes,
-                )
-                .map_err(unavailable)?;
-            Ok((terminal, Self { verified, config }))
-        }
-        pub(crate) fn capture(
-            &self,
-            terminal: &mut Terminal,
-        ) -> Result<(NativeSnapshot, SnapshotLimits), RuntimeError> {
-            let (snapshot, _report) = terminal
-                .encode_native_snapshot(
-                    &self.verified,
-                    self.config.limits,
-                    self.config.configuration,
-                )
-                .map_err(unavailable)?;
-            Ok((snapshot, self.config.limits))
-        }
-    }
-    fn unavailable(_error: impl std::fmt::Display) -> RuntimeError {
-        RuntimeError{code:crate::ErrorCode::Unsupported,message:"Native0 recovery is unsupported under the verified source profile/configuration/budgets.".into()}
-    }
-}
-#[cfg(feature = "experimental-shellfox-native")]
-pub(crate) use native0::Native0Creation;
-#[cfg(feature = "experimental-shellfox-native")]
-pub use native0::Native0RuntimeConfig;
 
 #[cfg(test)]
 #[path = "recovery_tests.rs"]
