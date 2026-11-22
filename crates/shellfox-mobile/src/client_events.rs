@@ -103,6 +103,8 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
         if let Ok(bytes) = serde_json::to_vec(&event) {
             s.event_bytes += bytes.len();
             s.events.push_back(bytes);
+            drop(s);
+            mobile.wake();
         }
     }
 }

@@ -100,6 +100,7 @@ pub unsafe extern "C" fn sfm_client_close(
                 return Err(STALE);
             }
             s.closed = true;
+            mobile.waker.set(handle, None, std::ptr::null_mut());
             for token in s.operations.values() {
                 token.cancel.cancel();
             }

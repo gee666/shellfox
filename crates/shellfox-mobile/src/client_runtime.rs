@@ -25,11 +25,19 @@ pub(super) const RESULT_RESERVE: usize = shellfox_protocol::MAX_RESPONSE_BYTES +
 pub(super) const SMALL_RESERVE: usize = 16 * 1024;
 const EVENT_BUDGET: usize = 32 * 1024 * 1024;
 
+impl Mobile {
+    /// Ask the native owner for a dispatch/read_event pass.
+    pub fn wake(&self) {
+        self.waker.wake(self.id);
+    }
+}
+
 pub(super) struct Mobile {
     pub id: u64,
     pub driver: Driver,
     pub state: Mutex<State>,
     pub dispatch_gate: Mutex<()>,
+    pub waker: super::waker::Waker,
     request_slots: tokio::sync::Semaphore,
     mutation_slots: tokio::sync::Semaphore,
 }

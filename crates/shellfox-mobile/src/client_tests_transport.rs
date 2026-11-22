@@ -175,3 +175,40 @@ fn reconnect_fences_async_native_tokens_and_uses_fresh_identity() {
     }
     assert!(found);
 }
+#[test]
+fn waker_fires_for_queued_requests_and_results_until_close() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    unsafe extern "C" fn wake(context: *mut c_void, _: u64) {
+        unsafe { &*context.cast::<AtomicUsize>() }.fetch_add(1, Ordering::SeqCst);
+    }
+    fn settle(wakes: &AtomicUsize, at_least: usize) {
+        let start = Instant::now();
+        while wakes.load(Ordering::SeqCst) < at_least {
+            assert!(start.elapsed() < Duration::from_secs(5), "no wake");
+            std::thread::yield_now();
+        }
+    }
+    let mut h = Harness::new();
+    let wakes = Box::leak(Box::new(AtomicUsize::new(0)));
+    let context = std::ptr::from_ref(wakes).cast_mut().cast();
+    assert_eq!(
+        unsafe { sfm_client_set_waker(h.handle, Some(wake), context) },
+        0
+    );
+    settle(wakes, 1);
+    h.dispatch();
+    let mut op = 0;
+    assert_eq!(unsafe { sfm_client_connect(h.handle, &mut op) }, 0);
+    settle(wakes, 2);
+    let req = h.request();
+    assert_eq!(h.complete(&req, PAIR), 0);
+    settle(wakes, 3);
+    h.event();
+    h.close();
+    let after = wakes.load(Ordering::SeqCst);
+    assert_eq!(
+        unsafe { sfm_client_set_waker(h.handle, Some(wake), context) },
+        STALE
+    );
+    assert_eq!(wakes.load(Ordering::SeqCst), after);
+}

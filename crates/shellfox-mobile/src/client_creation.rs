@@ -42,6 +42,7 @@ fn create_mode(peer: shellfox_protocol::AuthenticatedPeerId, creator: Creator) -
         },
         state: Mutex::new(State::default()),
         dispatch_gate: Mutex::new(()),
+        waker: Default::default(),
         request_slots: tokio::sync::Semaphore::new(8),
         mutation_slots: tokio::sync::Semaphore::new(4),
     });

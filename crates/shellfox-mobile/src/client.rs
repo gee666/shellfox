@@ -33,6 +33,9 @@ mod terminal_abi;
 mod transport;
 #[path = "client_uploads.rs"]
 mod uploads;
+#[path = "client_waker.rs"]
+mod waker;
+pub use waker::WakeFn;
 pub use lifecycle::*;
 pub use terminal_abi::*;
 #[cfg(test)]
@@ -132,6 +135,27 @@ pub extern "C" fn sfm_client_cancel(handle: u64, operation: u64) -> i32 {
     })
 }
 /// # Safety
+/// `wake` and `context` must stay callable from any thread until replaced,
+/// cleared with NULL, or the client is closed. See the C header.
+#[no_mangle]
+pub unsafe extern "C" fn sfm_client_set_waker(
+    handle: u64,
+    wake: Option<WakeFn>,
+    context: *mut c_void,
+) -> i32 {
+    boundary(|| {
+        let mobile = registry_lookup(handle)?;
+        // Close clears the waker under the same lock, so none survives it.
+        let s = mobile.state.lock().map_err(|_| PANIC)?;
+        if s.closed {
+            return Err(STALE);
+        }
+        mobile.waker.set(handle, wake, context);
+        drop(s);
+        Ok(())
+    })
+}
+/// # Safety
 /// Callbacks must obey the borrowed-pointer/no-unwind contract in the C header.
 #[no_mangle]
 pub unsafe extern "C" fn sfm_client_dispatch(
@@ -143,6 +167,7 @@ pub unsafe extern "C" fn sfm_client_dispatch(
     boundary(|| {
         let mobile = registry_lookup(handle)?;
         let _dispatch = mobile.dispatch_gate.lock().map_err(|_| PANIC)?;
+        mobile.waker.rearm();
         transport::dispatch(
             &mobile,
             request.ok_or(INVALID)?,

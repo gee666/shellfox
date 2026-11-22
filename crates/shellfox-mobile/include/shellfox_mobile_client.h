@@ -64,9 +64,18 @@ SfmStatus sfm_client_operation(SfmClientHandle client,
  */
 SfmStatus sfm_client_poll(SfmClientHandle client, uint64_t *operation_id);
 SfmStatus sfm_client_cancel(SfmClientHandle client, uint64_t operation_id);
-/* Call regularly on a native worker, including after completion/cancel. At most
- * 32 callbacks/call. No callback can occur outside dispatch/close. Do not reenter
- * dispatch/close from callbacks. complete/cancel may be called inline.
+/* Called from any Rust thread when dispatch or read_event has new work. It must
+ * not block or call back into Rust: post a pass to the native owner thread.
+ * Wakes coalesce until the next sfm_client_dispatch, so start each owner pass
+ * with dispatch. Registering runs one wake; NULL clears it. Close clears it too,
+ * and no wake runs after close or a clearing call returns.
+ */
+typedef void (*SfmClientWakeFn)(void *context, SfmClientHandle client);
+SfmStatus sfm_client_set_waker(SfmClientHandle client, SfmClientWakeFn wake,
+    void *context);
+/* Call on the native owner pass, including after completion/cancel. At most
+ * 32 callbacks/call. No request/cancel callback occurs outside dispatch/close.
+ * Do not reenter dispatch/close from callbacks. complete/cancel may be called inline.
  */
 SfmStatus sfm_client_dispatch(SfmClientHandle client, SfmClientRequestFn request,
     SfmClientCancelFn cancel, void *context);

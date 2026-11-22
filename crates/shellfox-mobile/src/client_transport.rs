@@ -27,13 +27,18 @@ struct Flight {
 impl Drop for Flight {
     fn drop(&mut self) {
         if let Some(mobile) = self.mobile.upgrade() {
-            if let Ok(mut s) = mobile.state.lock() {
-                if let Some(pending) = s.requests.remove(&self.request) {
-                    s.outbound.retain(|id| *id != self.request);
-                    if pending.dispatched {
-                        s.cancels.push_back((pending.generation, self.request));
-                    }
+            let cancelled = mobile.state.lock().is_ok_and(|mut s| {
+                let Some(pending) = s.requests.remove(&self.request) else {
+                    return false;
+                };
+                s.outbound.retain(|id| *id != self.request);
+                if pending.dispatched {
+                    s.cancels.push_back((pending.generation, self.request));
                 }
+                pending.dispatched
+            });
+            if cancelled {
+                mobile.wake();
             }
         }
     }
@@ -91,6 +96,7 @@ impl OutboundTransport for NativeTransport {
                 s.outbound.push_back(request);
                 (request, receive)
             };
+            mobile.wake();
             let _flight = Flight {
                 mobile: self.0.clone(),
                 request,
