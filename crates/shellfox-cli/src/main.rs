@@ -4,6 +4,7 @@ mod attach;
 mod automation;
 mod automation_args;
 mod commands;
+mod desktop_host;
 mod headless_layout;
 mod headless_package;
 mod headless_update;
@@ -39,8 +40,11 @@ fn main() {
             std::process::exit(1);
         }
     }
-    let watch = parent_watch::claim();
     let mut arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if arguments.first().is_some_and(|flag| flag == shellfox_service::local::LocalBootstrap::DESKTOP_HOST_FLAG) {
+        std::process::exit(desktop_host::run(&arguments[1..]));
+    }
+    let watch = parent_watch::claim();
     headless_layout::strip_node_entry(&mut arguments);
     match headless_layout::forward(&arguments) {
         Ok(Some(code)) => std::process::exit(code),

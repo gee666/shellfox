@@ -64,6 +64,12 @@ impl LocalBootStop {
     }
 }
 impl LocalBootstrap {
+    /// `shellfox-cli` flag for the host process that the desktop UI starts.
+    pub const DESKTOP_HOST_FLAG: &str = "--desktop-host";
+    /// The desktop host's stdout line once its local API admits clients.
+    pub const DESKTOP_HOST_READY: &str = "shellfox-desktop-host-ready";
+    /// Written by the UI to the desktop host's stdin before it stops the host.
+    pub const DESKTOP_HOST_QUIT: u8 = b'q';
     /// Plans/retains the original preparation before any helper or creation.
     pub fn plan(data: &Path, helper: &Path, digest: [u8; 32]) -> Result<Self> {
         preflight_boot_paths(data, helper)?;
@@ -118,6 +124,50 @@ impl LocalBootstrap {
             shutdown: Some(shutdown),
             endpoint: Some(self.boot.endpoint_report()),
         });
+    }
+    /// A foreground host process: serve on this thread until Stop, then retry
+    /// cleanup until it is confirmed, also after a panic. `ready` runs once, when
+    /// local clients are first admitted; it receives why remote is unavailable.
+    pub fn serve_foreground(
+        data: &Path,
+        helper: &Path,
+        digest: [u8; 32],
+        remote: RemoteBootOptions,
+        runtime: &tokio::runtime::Runtime,
+        ready: impl FnOnce(Option<crate::remote::RemoteUnavailableReason>),
+    ) -> Result<()> {
+        let mut bootstrap = Self::plan(data, helper, digest)?;
+        let clean = std::cell::Cell::new(false);
+        let ready = std::cell::Cell::new(Some(ready));
+        let report = |report: LocalBootReport| {
+            clean.set(report.status == LocalBootStatus::NoOwnerClean);
+            let unavailable = match report.status {
+                LocalBootStatus::Ready => None,
+                LocalBootStatus::ReadyLocalOnly { remote_unavailable } => Some(remote_unavailable),
+                LocalBootStatus::NoOwnerClean | LocalBootStatus::RetainedCleanup => return,
+            };
+            if let Some(ready) = ready.take() {
+                ready(unavailable);
+            }
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            runtime.block_on(bootstrap.run_remote(remote, |_| {}, &report))
+        }))
+        .unwrap_or_else(|_| {
+            Err(bootstrap.retain_error(anyhow::anyhow!(
+                "Host execution panicked; original cleanup retained."
+            )))
+        });
+        while !clean.get() {
+            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                runtime.block_on(bootstrap.cleanup(&report));
+            }))
+            .is_err()
+            {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+        result
     }
 }
 pub use crate::remote::SourceFactsInstaller;
