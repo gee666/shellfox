@@ -158,7 +158,7 @@ impl Platform {
             Self::Deb { .. } => {
                 for (field, expected) in [
                     ("Package", "shellfox".to_owned()),
-                    ("Version", _version.to_string()),
+                    ("Version", deb_version(_version)),
                     ("Architecture", deb_arch().into()),
                 ] {
                     let actual = capture(
@@ -193,6 +193,23 @@ impl Platform {
             stage,
         })
     }
+}
+/// Same mapping as scripts/release-version.mjs: test builds use "~" so they
+/// sort below their final release.
+#[cfg(any(target_os = "linux", test))]
+fn deb_version(version: &Version) -> String {
+    let core = format!("{}.{}.{}", version.major, version.minor, version.patch);
+    if version.pre.is_empty() {
+        core
+    } else {
+        format!("{core}~{}", version.pre)
+    }
+}
+#[cfg(test)]
+#[test]
+fn deb_versions_match_the_package_mapping() {
+    assert_eq!(deb_version(&Version::new(0, 10, 0)), "0.10.0");
+    assert_eq!(deb_version(&Version::parse("0.10.0-beta.1").unwrap()), "0.10.0~beta.1");
 }
 fn deb_arch() -> &'static str {
     if cfg!(target_arch = "aarch64") {
