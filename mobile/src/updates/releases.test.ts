@@ -46,4 +46,13 @@ describe('stable APK release validation', () => {
     expect(isNewerVersion('0.9.1', '0.9.0')).toBe(true);
     expect(isNewerVersion('0.9.0', '0.10.0')).toBe(false);
   });
+  it('offers the final release to test builds but never offers a test build', () => {
+    expect(isNewerVersion('0.10.0', '0.10.0-beta.2')).toBe(true);
+    expect(isNewerVersion('0.10.1', '0.10.0-rc.1')).toBe(true);
+    expect(isNewerVersion('0.9.15', '0.10.0-beta.1')).toBe(false);
+    expect(isNewerVersion('0.10.0', '0.10.0')).toBe(false);
+    expect(isNewerVersion('0.10.0-beta.2', '0.10.0-beta.1')).toBe(false);
+    expect(isNewerVersion('0.10.0', '0.10.0-dev.1')).toBe(false);
+    expect(parseAndroidRelease({ ...release, prerelease: true }, '0.8.0')).toBeNull();
+  });
 });

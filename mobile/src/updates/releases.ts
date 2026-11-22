@@ -14,19 +14,24 @@ const releaseSchema = z.object({
 
 export interface AndroidUpdate { version: string; url: string; sha256: string; size: number }
 
+// Test builds (X.Y.Z-beta.N) are installed by hand and updated to stable releases.
+const testBuild = /^(.+)-(?:alpha|beta|rc)\.[1-9]\d?$/;
+
 function components(version: string): number[] | null {
   if (!stableVersion.test(version)) return null;
   const parts = version.split('.').map(Number);
   return parts.every(Number.isSafeInteger) ? parts : null;
 }
 
+/** A stable candidate is newer than a higher stable version's test build. */
 export function isNewerVersion(candidate: string, current: string): boolean {
-  const next = components(candidate), installed = components(current);
+  const core = testBuild.exec(current)?.[1];
+  const next = components(candidate), installed = components(core ?? current);
   if (!next || !installed) return false;
   for (let i = 0; i < 3; i++) {
     if (next[i] !== installed[i]) return next[i]! > installed[i]!;
   }
-  return false;
+  return core !== undefined;
 }
 
 export function parseAndroidRelease(body: unknown, current: string): AndroidUpdate | null {
