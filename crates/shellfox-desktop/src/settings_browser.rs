@@ -22,8 +22,7 @@ impl SettingsPanel {
         if result.is_err() {
             self.remote.login.browser_failed();
         }
-        // GPUI dispatches to the local platform. Its API has no completion ACK;
-        // this never emits Applied/Opened or claims authentication/readiness.
+        // GPUI reports no completion, so success is never assumed here.
     }
 }
 #[cfg(test)]

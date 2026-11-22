@@ -2,11 +2,9 @@ use gpui::{Bounds, Context, Pixels, Task, Window, fill, point, px, size};
 use shellfox_runtime::{CursorShape, CursorVisual, Identity, PresentationLease};
 use std::time::{Duration, Instant};
 
-// Shipped xterm DOM CSS uses a 1s step-end cycle with its transition at 50%.
-// Source: @xterm/xterm/src/browser/renderer/dom/DomRenderer.ts, blink keyframes.
+// xterm blinks the cursor on a 1 s cycle, visible for the first half.
 const BLINK_INTERVAL: Duration = Duration::from_millis(500);
-// Local reset events are UI state, not invented producer paint revisions.
-// Same-content/unrelated-row DOM span replacement parity remains unproven.
+// The counter restarts the blink after a local selection change.
 type CursorKey = (Option<(Identity, PresentationLease)>, CursorVisual, u64);
 
 fn phase_at(elapsed: Duration) -> bool {

@@ -23,7 +23,7 @@ pub(super) fn document(
 ) -> Option<Result<crate::accessibility::SemanticNode, crate::accessibility::SemanticError>> {
     field.semantic.as_ref().map(|binding| {
         if virtualized {
-            // This is NOT a partial TextPattern. Full large-document AT is a separate reviewed producer.
+            // Large documents expose no text to assistive technology rather than a partial copy.
             let mut node = unavailable_document(binding);
             node.focus = Some(field.focus.clone());
             Ok(node)
