@@ -11,12 +11,12 @@ mod colors;
 mod input;
 pub use input::XtermInputMode;
 mod interaction;
-mod key_v2;
+mod key;
 mod metadata;
 mod presentation;
 mod recovery;
 pub use interaction::{Mouse, Selection};
-pub use key_v2::{InvalidKeyV2, KeyActionV2, KeyV2, ModifiersV2, PhysicalKey};
+pub use key::{validate_text, InvalidKey, KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 pub use metadata::{
     TerminalMetadata, MAX_METADATA_CWD_BYTES, MAX_METADATA_TITLE_BYTES, MAX_METADATA_TITLE_UNITS,
     MAX_PENDING_BELLS, MAX_RAW_TITLE_BYTES,
@@ -62,16 +62,6 @@ pub struct Cell {
     pub selected: bool,
     pub has_hyperlink: bool,
 }
-pub struct Key<'a> {
-    pub key: u32,
-    pub action: u32,
-    pub mods: u32,
-    pub consumed_mods: u32,
-    pub unshifted: u32,
-    pub composing: bool,
-    pub text: &'a str,
-}
-
 unsafe extern "C" {
     fn sf_status(vt: *mut c_void) -> i32;
     fn sf_new(cols: u16, rows: u16, out: *mut *mut c_void) -> i32;

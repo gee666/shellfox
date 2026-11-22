@@ -48,13 +48,34 @@ int sf_xterm_input_mode(SfVt *vt, uint8_t id, uint8_t *out) {
     return r;
 }
 
+static int mode_enabled(SfVt *vt, GhosttyMode id, uint8_t *out) {
+    GhosttyTerminalModeConfig mode = {0};
+    mode.mode = id;
+    int r = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_MODE, &mode);
+    if (!r) *out = mode.value;
+    return r;
+}
+
+/* Every paste here is an explicit user action, so multi-line text is not
+   refused when bracketed paste is off (Ghostty's own app would ask first).
+   The encoder still replaces ESC/NUL/DEL and frames per mode 2004. */
 int sf_paste(SfVt *vt, uint8_t *text, size_t text_len,
              uint8_t *out, size_t cap, size_t *len) {
+    if (!vt || !len || (text_len && !text) || (cap && !out)) return GHOSTTY_INVALID_VALUE;
     if (vt->callback_error) return vt->callback_error;
-    GhosttyTerminalModeConfig mode = {0};
-    mode.mode = GHOSTTY_MODE_BRACKETED_PASTE;
-    int r = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_MODE, &mode);
+    uint8_t bracketed = 0;
+    int r = mode_enabled(vt, GHOSTTY_MODE_BRACKETED_PASTE, &bracketed);
     if (r) return r;
-    if (!mode.value && !ghostty_paste_is_safe((const char *)text, text_len)) return GHOSTTY_REJECTED;
-    return ghostty_paste_encode((char *)text, text_len, mode.value, out, cap, len);
+    return ghostty_paste_encode((char *)text, text_len, bracketed, out, cap, len);
+}
+
+/* Writes nothing unless the application enabled focus reporting (1004). */
+int sf_focus(SfVt *vt, uint8_t focused, uint8_t *out, size_t cap, size_t *len) {
+    if (!vt || !len || (cap && !out) || focused > 1) return GHOSTTY_INVALID_VALUE;
+    *len = 0;
+    if (vt->callback_error) return vt->callback_error;
+    uint8_t enabled = 0;
+    int r = mode_enabled(vt, GHOSTTY_MODE_FOCUS_EVENT, &enabled);
+    if (r || !enabled) return r;
+    return ghostty_focus_encode(focused ? GHOSTTY_FOCUS_GAINED : GHOSTTY_FOCUS_LOST, out, cap, len);
 }

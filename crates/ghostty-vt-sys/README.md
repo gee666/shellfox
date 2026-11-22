@@ -185,15 +185,18 @@ with the bundled dependencies. Linux and macOS shared-library overrides need
 application-specific library packaging and loader configuration; this build
 script does not add global RPATHs or loader environment variables.
 
-## Typed KeyV2 and opt-in public input probe
+## Typed key input and opt-in public input probe
 
-`KeyV2`, `PhysicalKey`, `KeyActionV2` and `ModifiersV2` add typed input without
-changing the old `Key` fields or the `sf_key` C signature. Both encoder paths
-validate physical IDs, action, both modifier masks, Unicode scalar and text
-before invoking the shared public encoder. C repeats numeric checks before
-narrowing or allocating a public event. All 1024 known modifier patterns survive,
-including side-only releases. No modifier-side coherence or consumed-subset rule
-is inferred. Layout UTF-8 is borrowed only for the synchronous encode call.
+`KeyEvent`, `PhysicalKey`, `KeyAction` and `KeyModifiers` are the only key
+input. The types make physical IDs, actions and modifier masks valid by
+construction; `KeyEvent::validate` checks the scalar and text before the public
+encoder runs. C repeats numeric checks before narrowing or allocating a public
+event. All 1024 known modifier patterns survive, including side-only releases.
+Layout UTF-8 is borrowed only for the synchronous encode call.
+
+Paste is always an explicit user action, so `encode_paste` never refuses
+multi-line text. Ghostty still replaces ESC/NUL/DEL and frames per mode 2004.
+`encode_focus` returns nothing unless the application enabled mode 1004.
 
 The encode allocation bound is one MiB, not Runtime's 64-KiB write cap. Encoding
 returns one owned vector; it does not write, split, or authorize a larger Runtime
@@ -203,16 +206,16 @@ The default build does not compile the C input probe. To compile it against the
 same selected headers/library as the adapter and run its Rust test entry point:
 
 ```sh
-CARGO_TARGET_DIR=tmp/vt-input-check SHELLFOX_VT_INPUT_V2_PROBE=1 \
+CARGO_TARGET_DIR=tmp/vt-input-check SHELLFOX_VT_KEY_PROBE=1 \
   cargo test --locked -p shellfox-ghostty-vt-sys -p shellfox-ghostty-vt --all-targets
 ```
 
-The enabled build fails if `tests/input_v2_public.c` is absent. The C probe checks
+The enabled build fails if `tests/key_public.c` is absent. The C probe checks
 all 176 named public discriminants, C widths, every known active/consumed mask,
 all actions and borrowed text/scalar/composition getters. It compares the adapter
 with direct public encoder output in six terminal configurations. Rust tests
 crosscheck every physical variant name/ID against the compiled C assertions,
-exercise V2 and old input behavior, and check allocation bounds and sticky errors.
+exercise input behavior, and check allocation bounds and sticky errors.
 The probe hook does not change the selected prefix, dependency, default engine,
 normal Desktop outputs or any application keyboard-capture path.
 

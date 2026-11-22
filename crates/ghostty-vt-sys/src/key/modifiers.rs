@@ -1,10 +1,13 @@
-use super::InvalidKeyV2;
+use super::InvalidKey;
 
 /// The ten defined public GhosttyMods bits. Side bits do not assert that
 /// their corresponding base modifier is down, particularly on release.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ModifiersV2(u16);
-impl ModifiersV2 {
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(try_from = "u32", into = "u32")]
+pub struct KeyModifiers(u16);
+impl KeyModifiers {
     pub const NONE: Self = Self(0);
     pub const SHIFT: Self = Self(1 << 0);
     pub const CONTROL: Self = Self(1 << 1);
@@ -18,13 +21,13 @@ impl ModifiersV2 {
     pub const SUPER_SIDE: Self = Self(1 << 9);
 
     /// Preserves every defined-bit pattern, including right-side-only masks.
-    pub fn try_from_bits(bits: u32) -> Result<Self, InvalidKeyV2> {
+    pub fn try_from_bits(bits: u32) -> Result<Self, InvalidKey> {
         if bits & !0x03ff != 0 {
-            return Err(InvalidKeyV2::ModifierBits(bits));
+            return Err(InvalidKey::ModifierBits(bits));
         }
         u16::try_from(bits)
             .map(Self)
-            .map_err(|_| InvalidKeyV2::ModifierBits(bits))
+            .map_err(|_| InvalidKey::ModifierBits(bits))
     }
     pub const fn bits(self) -> u16 {
         self.0
@@ -32,16 +35,37 @@ impl ModifiersV2 {
     pub const fn contains(self, flag: Self) -> bool {
         self.0 & flag.0 == flag.0
     }
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+    /// Adds or removes `flag`.
+    pub fn set(&mut self, flag: Self, on: bool) {
+        if on {
+            self.0 |= flag.0;
+        } else {
+            self.0 &= !flag.0;
+        }
+    }
 }
-impl TryFrom<u32> for ModifiersV2 {
-    type Error = InvalidKeyV2;
+impl TryFrom<u32> for KeyModifiers {
+    type Error = InvalidKey;
     fn try_from(bits: u32) -> Result<Self, Self::Error> {
         Self::try_from_bits(bits)
     }
 }
-impl std::ops::BitOr for ModifiersV2 {
+impl From<KeyModifiers> for u32 {
+    fn from(mods: KeyModifiers) -> Self {
+        u32::from(mods.bits())
+    }
+}
+impl std::ops::BitOr for KeyModifiers {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self {
         Self(self.0 | rhs.0)
+    }
+}
+impl std::ops::BitOrAssign for KeyModifiers {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
     }
 }

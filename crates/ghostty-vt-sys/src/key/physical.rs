@@ -1,19 +1,23 @@
-use super::InvalidKeyV2;
+use super::InvalidKey;
 
 macro_rules! physical_keys {
     ($($name:ident = $code:literal,)*) => {
         /// Layout-independent physical identity from public libghostty-vt 1.0.1.
         #[repr(u32)]
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+        #[serde(try_from = "u32", into = "u32")]
         pub enum PhysicalKey { $($name = $code,)* }
         impl PhysicalKey {
             pub const ALL: [Self; 176] = [$(Self::$name,)*];
             pub const fn code(self) -> u32 { self as u32 }
         }
+        impl From<PhysicalKey> for u32 {
+            fn from(key: PhysicalKey) -> Self { key.code() }
+        }
         impl TryFrom<u32> for PhysicalKey {
-            type Error = InvalidKeyV2;
+            type Error = InvalidKey;
             fn try_from(code: u32) -> Result<Self, Self::Error> {
-                match code { $($code => Ok(Self::$name),)* _ => Err(InvalidKeyV2::PhysicalKey(code)) }
+                match code { $($code => Ok(Self::$name),)* _ => Err(InvalidKey::PhysicalKey(code)) }
             }
         }
     };

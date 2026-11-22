@@ -150,12 +150,15 @@ impl Terminal {
     }
     pub fn encode_key(&mut self, event: &KeyEvent) -> Result<Vec<u8>> {
         self.engine.status().map_err(Error)?;
-        self.engine.encode_key(event.native()?).map_err(Error)
+        self.engine.encode_key(&event.native()?).map_err(Error)
     }
-    /// Encodes with the terminal's current bracketed-paste mode. Unsafe
-    /// unbracketed multiline input is rejected, not silently confirmed.
+    /// Encodes a user paste with the terminal's bracketed-paste mode.
     pub fn encode_paste(&mut self, text: &str) -> Result<Vec<u8>> {
         self.engine.encode_paste(text).map_err(Error)
+    }
+    /// Focus report, or nothing when the application has not enabled mode 1004.
+    pub fn encode_focus(&mut self, focused: bool) -> Result<Vec<u8>> {
+        self.engine.encode_focus(focused).map_err(Error)
     }
     pub fn scroll(&mut self, delta: isize) -> Result<()> {
         self.engine.scroll(delta).map_err(Error)

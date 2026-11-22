@@ -103,7 +103,7 @@ impl Key {
     }
 }
 impl KeyEvent {
-    pub(crate) fn native(&self) -> Result<sys::Key<'_>> {
+    pub(crate) fn native(&self) -> Result<sys::KeyEvent<'_>> {
         let text = self.text.as_deref().unwrap_or("");
         if text
             .chars()
@@ -111,19 +111,21 @@ impl KeyEvent {
         {
             return Err(Error(-2));
         }
-        if self.unshifted_codepoint != 0 && char::from_u32(self.unshifted_codepoint).is_none() {
-            return Err(Error(-2));
-        }
-        Ok(sys::Key {
-            key: self.key.code()?,
+        let unshifted_codepoint = match self.unshifted_codepoint {
+            0 => None,
+            value => Some(char::from_u32(value).ok_or(Error(-2))?),
+        };
+        let mods = |m: Modifiers| sys::KeyModifiers::try_from_bits(m.bits()).map_err(|_| Error(-2));
+        Ok(sys::KeyEvent {
+            physical: sys::PhysicalKey::try_from(self.key.code()?).map_err(|_| Error(-2))?,
             action: match self.action {
-                KeyAction::Press => 1,
-                KeyAction::Release => 0,
-                KeyAction::Repeat => 2,
+                KeyAction::Press => sys::KeyAction::Press,
+                KeyAction::Release => sys::KeyAction::Release,
+                KeyAction::Repeat => sys::KeyAction::Repeat,
             },
-            mods: self.modifiers.bits(),
-            consumed_mods: self.consumed_modifiers.bits(),
-            unshifted: self.unshifted_codepoint,
+            modifiers: mods(self.modifiers)?,
+            consumed_modifiers: mods(self.consumed_modifiers)?,
+            unshifted_codepoint,
             composing: self.composing,
             text,
         })

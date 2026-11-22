@@ -206,7 +206,7 @@ static int compare(GhosttyKeyEncoder encoder, GhosttyKeyEvent event, SfVt *vt,
 }
 
 #define CHECK(condition) do { if (!(condition)) { failure = __LINE__; goto done; } } while (0)
-int sf_input_v2_public_probe(void) {
+int sf_key_public_probe(void) {
     GhosttyKeyEvent event = NULL;
     GhosttyKeyEncoder encoder = NULL;
     GhosttyTerminal terminal = NULL;

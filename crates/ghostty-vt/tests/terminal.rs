@@ -80,7 +80,8 @@ fn ghostty_key_modes_ctrl_c_release_and_paste() -> Result<(), Box<dyn std::error
     key.action = KeyAction::Release;
     assert!(terminal.encode_key(&key)?.is_empty());
     assert_eq!(terminal.encode_paste("hello")?, b"hello");
-    assert_eq!(terminal.encode_paste("a\nb").unwrap_err(), Error(-7));
+    // User paste is never refused; unbracketed newlines become CR, ESC a space.
+    assert_eq!(terminal.encode_paste("a\nb\x1b")?, b"a\rb ");
     terminal.feed(b"\x1b[?2004h")?;
     assert_eq!(terminal.encode_paste("a\nb")?, b"\x1b[200~a\nb\x1b[201~");
     Ok(())

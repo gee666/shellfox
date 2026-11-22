@@ -6,12 +6,12 @@ mod install;
 use std::{env, error::Error, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rustc-check-cfg=cfg(sf_input_v2_public_probe)");
+    println!("cargo:rustc-check-cfg=cfg(sf_key_public_probe)");
     for name in [
         "GHOSTTY_VT_DIR",
         "GHOSTTY_VT_LIB_DIR",
         "GHOSTTY_VT_LINK_KIND",
-        "SHELLFOX_VT_INPUT_V2_PROBE",
+        "SHELLFOX_VT_KEY_PROBE",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -94,13 +94,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     if kind == "static" {
         cc.define("GHOSTTY_STATIC", None);
     }
-    let input_v2_probe =
-        env::var_os("SHELLFOX_VT_INPUT_V2_PROBE").as_deref() == Some(std::ffi::OsStr::new("1"));
-    if input_v2_probe {
-        let probe = root.join("tests/input_v2_public.c");
+    let key_probe =
+        env::var_os("SHELLFOX_VT_KEY_PROBE").as_deref() == Some(std::ffi::OsStr::new("1"));
+    if key_probe {
+        let probe = root.join("tests/key_public.c");
         if !probe.is_file() {
             return Err(
-                "SHELLFOX_VT_INPUT_V2_PROBE=1 requires Maurice's tests/input_v2_public.c source"
+                "SHELLFOX_VT_KEY_PROBE=1 requires tests/key_public.c"
                     .into(),
             );
         }
@@ -108,8 +108,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         cc.file(compiler_path::for_compiler(&probe));
     }
     cc.try_compile("shellfox_ghostty_vt_adapter")?;
-    if input_v2_probe {
-        println!("cargo:rustc-cfg=sf_input_v2_public_probe");
+    if key_probe {
+        println!("cargo:rustc-cfg=sf_key_public_probe");
     }
     if os == "macos" && kind == "static" {
         // ld can prefer the sibling dylib when directly linking the sys test
