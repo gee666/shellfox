@@ -120,7 +120,7 @@ Update as the same user that runs the host, with write access to the installatio
 - On the first start, the host imports settings, sessions, SSH profiles, device approvals, the remote hostname and the Tailscale node identity from the 0.9 files in the data root, so paired phones keep working without a new login. The 0.9 files are not changed.
 - Running terminals are not carried over. Saved sessions come back without their shells, as after any 0.9 restart.
 
-Rollback works for 30 days: stop the host and delete `headless-update.json`, and the original 0.9 package starts on its untouched data. After 30 days the host deletes the imported 0.9 files (`manager.sqlite3*`, `remote.json`, `ssh-profiles.json`, `tailscale/` and similar). That prevents a 0.9 host and this host from ever running with the same Tailscale identity. Unknown files and the `rust-v1` directory are kept.
+Rollback works for 30 days: stop the host and delete `headless-update.json`, and the original 0.9 package starts on its untouched data. Changes made in 0.9 after a rollback are not imported again when you return to this version. After 30 days the host deletes the imported 0.9 files (`manager.sqlite3*`, `remote.json`, `ssh-profiles.json`, `tailscale/` and similar). That prevents a 0.9 host and this host from ever running with the same Tailscale identity. Unknown files and the `rust-v1` directory are kept.
 
 Windows ARM64 has no headless archive in this release, so 0.9 installations there stay on 0.9.15.
 

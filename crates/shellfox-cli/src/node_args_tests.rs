@@ -124,3 +124,21 @@ fn option_values_are_never_globals_and_errors_are_validation() {
     );
     assert!(parse_words(&["--host", "local", "session", "list"]).is_ok());
 }
+
+#[test]
+fn old_host_terminal_shims_and_path_spellings_resolve_like_0_9() {
+    let shim = parse_words(&["--shellfox-default-user-data", "/srv/a", "session", "list"]).unwrap();
+    assert_eq!(shim.user_data, std::path::absolute("/srv/a").unwrap());
+    let explicit = parse_words(&[
+        "--shellfox-default-user-data",
+        "/srv/a",
+        "--user-data",
+        "/srv/b",
+        "version",
+    ])
+    .unwrap();
+    assert_eq!(explicit.user_data, std::path::absolute("/srv/b").unwrap());
+    assert!(parse_words(&["--shellfox-default-user-data", "a\nb", "version"]).is_err());
+    let messy = parse_words(&["--user-data", "/srv/x/../data/./", "version"]).unwrap();
+    assert_eq!(messy.user_data, std::path::absolute("/srv/data").unwrap());
+}

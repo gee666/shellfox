@@ -69,6 +69,21 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
                 .to_owned(),
         );
     }
+    // 0.9.x host terminals run `main.cjs --shellfox-default-user-data DIR ARGS`.
+    let mut launcher_default = None;
+    if words
+        .first()
+        .is_some_and(|word| word == "--shellfox-default-user-data")
+    {
+        let value = words
+            .get(1)
+            .filter(|v| !v.is_empty() && !v.contains(['\0', '\r', '\n']));
+        let value = value
+            .cloned()
+            .ok_or_else(|| CliError::usage("Invalid launcher user data directory."))?;
+        launcher_default = Some(value);
+        words.drain(..2);
+    }
     let (mut json, mut yes, mut host, mut user_data) = (false, false, None, None);
     let mut rest = Vec::new();
     let mut index = 0;
@@ -131,7 +146,7 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
     }
     let action = action(&rest, json)?;
     Ok(Invocation {
-        user_data: user_data_root(user_data)?,
+        user_data: user_data_root(user_data.or(launcher_default))?,
         json,
         yes,
         action,
@@ -146,13 +161,31 @@ fn user_data_root(explicit: Option<String>) -> Result<PathBuf> {
         Some(path) if path.as_os_str().is_empty() => {
             Err(CliError::usage("Invalid user data directory."))
         }
-        Some(path) => Ok(std::path::absolute(path)?),
+        Some(path) => Ok(resolve(&std::path::absolute(path)?)),
         None => Ok(shellfox_service::app_paths::default_data_root()?
             .ancestors()
             .nth(2)
             .context("Missing Shellfox data root")?
             .to_owned()),
     }
+}
+
+/// Node's `path.resolve`: no `.`, `..` or trailing separator, so startup names match 0.9.x.
+fn resolve(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if out.parent().is_some() {
+                    out.pop();
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Rust host state lives beside, never inside, the 0.9.x files.

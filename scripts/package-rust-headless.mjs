@@ -125,7 +125,8 @@ export function packageHeadless({ profile, stage, artifacts, version, target, si
     write(directory, 'README.txt', README);
     const archive = path.join(artifacts, headlessAsset(version));
     if (win) run(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/tar.exe'), ['-a', '-cf', archive, '-C', work, headlessRoot]);
-    else run('tar', ['-czf', archive, '-C', work, headlessRoot]);
+    // macOS bsdtar must not add AppleDouble ._ files or extended attributes.
+    else run('tar', ['-czf', archive, ...(platform === 'darwin' ? ['--no-mac-metadata'] : []), '-C', work, headlessRoot], { env: { COPYFILE_DISABLE: '1' } });
     writeFileSync(archive + '.sha256', `${fileHash(archive)}  ${path.basename(archive)}\n`);
     return archive;
   } finally { rmSync(work, { recursive: true, force: true }); }

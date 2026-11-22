@@ -127,16 +127,34 @@ where
             .rand_bytes(6)
             .tempdir_in(parent)?;
         let archive = work.path().join(package::asset_name(version));
-        fetch(archive.clone()).await?;
-        let destination = work.path().join("installation");
-        std::fs::create_dir(&destination)?;
-        let installation = package::extract(&archive, &destination, &root_name())?;
-        package::validate(&installation, version, platform(), arch())?;
-        std::fs::remove_file(&archive)?;
-        let installation = layout::normalize(&installation);
-        layout::activate(anchor, &installation)?;
-        let _ = work.keep();
-        Ok(installation)
+        let installed = async {
+            fetch(archive.clone()).await?;
+            let destination = work.path().join("installation");
+            std::fs::create_dir(&destination)?;
+            let installation = package::extract(&archive, &destination, &root_name())?;
+            package::validate(&installation, version, platform(), arch())?;
+            std::fs::remove_file(&archive)?;
+            let installation = layout::normalize(&installation);
+            layout::activate(anchor, &installation)?;
+            anyhow::Ok(installation)
+        }
+        .await;
+        match installed {
+            Ok(installation) => {
+                let _ = work.keep();
+                Ok(installation)
+            }
+            Err(error) => {
+                let path = work.path().to_owned();
+                match work.close() {
+                    Ok(()) => Err(error),
+                    Err(_) => Err(error.context(format!(
+                        "Remove incomplete staging files at {} before retrying.",
+                        path.display()
+                    ))),
+                }
+            }
+        }
     }
     .await;
     let _ = std::fs::remove_file(&lock);

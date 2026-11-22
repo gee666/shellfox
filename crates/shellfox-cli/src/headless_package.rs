@@ -47,6 +47,7 @@ fn required_files(platform: &str) -> Vec<String> {
         }
         _ => files.extend(
             [
+                "bin/ghostty-vt.dll",
                 "service/run-host.ps1",
                 "util/pagent.exe",
                 "app/node_modules/node-pty/build/Release/conpty.node",
@@ -73,8 +74,10 @@ pub fn validate(root: &Path, version: &str, platform: &str, arch: &str) -> Resul
         build.version == version && build.platform == platform && build.arch == arch,
         "Headless package identity does not match this release or runtime."
     );
-    let runtime: Runtime = serde_json::from_slice(&fs::read(root.join("runtime.json"))?)
-        .context("Invalid headless runtime.json")?;
+    let runtime: Runtime = serde_json::from_slice(&crate::headless_layout::read_small(
+        &root.join("runtime.json"),
+    )?)
+    .context("Invalid headless runtime.json")?;
     ensure!(
         runtime.version == 1
             && runtime.headless

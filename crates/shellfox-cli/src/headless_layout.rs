@@ -84,7 +84,7 @@ pub fn read_build(root: &Path) -> Result<Build> {
     Ok(build)
 }
 
-fn read_small(file: &Path) -> Result<Vec<u8>> {
+pub fn read_small(file: &Path) -> Result<Vec<u8>> {
     let info = fs::symlink_metadata(file)?;
     ensure!(
         info.is_file() && info.len() <= MANIFEST_LIMIT,
@@ -111,18 +111,23 @@ fn optional<T: serde::de::DeserializeOwned>(file: &Path) -> Result<Option<T>> {
 
 /// Node's `realpath` spelling, without Windows' `\\?\` verbatim prefix.
 pub fn normalize(path: &Path) -> PathBuf {
-    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    realpath(path).unwrap_or_else(|_| path.to_owned())
+}
+/// Fails like Node's `realpath`, so a path accepted here is accepted by 0.9.x too.
+fn realpath(path: &Path) -> std::io::Result<PathBuf> {
+    let real = fs::canonicalize(path)?;
     #[cfg(windows)]
     if let Some(text) = real.to_str() {
         if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{rest}"));
+            return Ok(PathBuf::from(format!(r"\\{rest}")));
         }
         if let Some(rest) = text.strip_prefix(r"\\?\") {
-            return PathBuf::from(rest);
+            return Ok(PathBuf::from(rest));
         }
     }
-    real
+    Ok(real)
 }
+// ASCII case folding matches Node's samePath here: both sides are exact realpath output.
 fn same(a: &Path, b: &Path) -> bool {
     if cfg!(windows) {
         a.as_os_str().to_ascii_lowercase() == b.as_os_str().to_ascii_lowercase()
@@ -140,7 +145,10 @@ pub fn validate_version_path(anchor: &Path, installation: &Path) -> Result<()> {
         installation.is_absolute() && anchor.is_absolute(),
         unsafe_path()
     );
-    let (root, stable) = (normalize(installation), normalize(anchor));
+    let (root, stable) = (
+        realpath(installation).map_err(|_| unsafe_path())?,
+        realpath(anchor).map_err(|_| unsafe_path())?,
+    );
     ensure!(
         same(&root, installation) && same(&stable, anchor),
         unsafe_path()
@@ -227,6 +235,10 @@ pub fn activate(anchor: &Path, installation: &Path) -> Result<()> {
     let result = write_private(&temporary, &pointer, true)
         .and_then(|()| Ok(fs::rename(&temporary, anchor.join(POINTER))?));
     let _ = fs::remove_file(&temporary);
+    #[cfg(unix)]
+    if result.is_ok() {
+        fs::File::open(anchor)?.sync_all()?;
+    }
     result
 }
 

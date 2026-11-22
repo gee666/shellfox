@@ -34,11 +34,18 @@ impl Watch {
 }
 
 /// The launcher forwards Ctrl+C semantics to its child; it must not die first.
+/// A registered handler, unlike the NULL "ignore" flag, is not inherited.
 #[cfg(windows)]
 pub fn ignore_console_interrupts() {
-    // SAFETY: a null handler with TRUE only sets this process's ignore flag.
+    use windows_sys::Win32::System::Console::{
+        SetConsoleCtrlHandler, CTRL_BREAK_EVENT, CTRL_C_EVENT,
+    };
+    unsafe extern "system" fn swallow(event: u32) -> i32 {
+        i32::from(event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT)
+    }
+    // SAFETY: registers a static handler for this process only.
     unsafe {
-        windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 1);
+        SetConsoleCtrlHandler(Some(swallow), 1);
     }
 }
 
@@ -47,12 +54,24 @@ mod platform {
     use std::{
         fs::File,
         io::Read,
-        os::fd::{FromRawFd, OwnedFd},
+        os::{
+            fd::{FromRawFd, OwnedFd},
+            unix::fs::FileTypeExt,
+        },
     };
     pub type Link = File;
     pub fn claim(node: Option<String>, _forwarder: Option<String>) -> Option<super::Watch> {
         let fd: i32 = node?.parse().ok().filter(|fd| *fd > 2)?;
-        // SAFETY: Node passes this descriptor to us and nothing else in this
+        // A stale variable must not take over an unrelated descriptor.
+        // SAFETY: the borrowed File is never dropped, so the fd is not closed.
+        let probe = std::mem::ManuallyDrop::new(unsafe { File::from_raw_fd(fd) });
+        if !probe
+            .metadata()
+            .is_ok_and(|info| info.file_type().is_socket())
+        {
+            return None;
+        }
+        // SAFETY: Node passes this socket to us and nothing else in this
         // process has opened or wrapped it yet.
         let inherited = unsafe { OwnedFd::from_raw_fd(fd) };
         // The duplicate is close-on-exec; dropping the original keeps the
@@ -77,7 +96,10 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use windows_sys::Win32::{
-        Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0},
+        Foundation::{
+            CloseHandle, SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
+            WAIT_OBJECT_0,
+        },
         System::{
             Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
@@ -89,7 +111,24 @@ mod platform {
     pub struct Link(HANDLE);
     // SAFETY: a process handle may be waited on and closed from any thread.
     unsafe impl Send for Link {}
+    extern "C" {
+        fn _get_osfhandle(fd: i32) -> isize;
+    }
     pub fn claim(node: Option<String>, forwarder: Option<String>) -> Option<super::Watch> {
+        // Node's IPC pipe is CRT fd N and inheritable. Keep it out of the host's
+        // children, or the 0.9 launcher waits for them after the host exits.
+        if let Some(fd) = node
+            .as_deref()
+            .and_then(|fd| fd.parse::<i32>().ok())
+            .filter(|fd| *fd > 2)
+        {
+            // SAFETY: _get_osfhandle validates the fd; the handle stays owned by the CRT.
+            let handle = unsafe { _get_osfhandle(fd) };
+            if handle != -1 && handle != -2 {
+                // SAFETY: only clears the inherit flag of a handle this process owns.
+                unsafe { SetHandleInformation(handle as HANDLE, HANDLE_FLAG_INHERIT, 0) };
+            }
+        }
         let pid = match forwarder {
             Some(pid) => pid.parse().ok()?,
             None => {
