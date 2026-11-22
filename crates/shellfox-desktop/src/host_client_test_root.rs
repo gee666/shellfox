@@ -1,4 +1,6 @@
 //! Headless verification of the actual native UI client modules, without GPUI init.
+// Only the bin uses some items, so partial roots like this one see them as dead.
+#![allow(dead_code)]
 #[path = "host_client.rs"]
 pub mod host_client;
 #[path = "app_host.rs"]
