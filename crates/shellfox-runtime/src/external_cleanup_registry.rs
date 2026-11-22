@@ -44,6 +44,7 @@ impl Slot {
         false
     }
 }
+const CLEANUP_RETRY: Duration = Duration::from_millis(20);
 pub(crate) struct Registry {
     slots: Mutex<Vec<Arc<Slot>>>,
     wake: SyncSender<()>,
@@ -153,12 +154,22 @@ pub(crate) fn reserve(status: Arc<Mutex<ExternalStatus>>) -> io::Result<Reservat
         let worker = Arc::clone(&registry);
         std::thread::Builder::new()
             .name("shellfox-external-cleanup".into())
-            .spawn(move || loop {
-                match incoming.recv_timeout(Duration::from_millis(20)) {
-                    Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {
-                        worker.retry();
+            .spawn(move || {
+                // Retry on a timer only while a handed-off owner is still running.
+                let mut pending = false;
+                loop {
+                    let woke = if pending {
+                        match incoming.recv_timeout(CLEANUP_RETRY) {
+                            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                            _ => true,
+                        }
+                    } else {
+                        incoming.recv().is_ok()
+                    };
+                    if !woke {
+                        return;
                     }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    pending = worker.retry().pending > 0;
                 }
             })?;
         *global = Some(registry);

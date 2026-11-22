@@ -189,7 +189,7 @@ impl PtySession {
     }
 
     /// Registers the owner wake for queued output and root-process exit. Call once.
-    pub fn set_wake(&self, wake: crate::Wake) -> Result<()> {
+    pub fn set_wake(&self, wake: crate::Wake) -> Result<crate::ExitSignal> {
         let inner = self.inner.as_ref().context("PTY is closed")?;
         inner.output.set_wake(wake.clone());
         let process = inner.child.as_raw_handle().context("PTY child handle missing")?;

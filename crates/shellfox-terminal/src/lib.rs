@@ -42,7 +42,7 @@ pub use error::SpawnError;
 pub use isolation::{validate_isolated_path, IsolationPathKind};
 pub use output::{PtyOutput, OUTPUT_CHUNK_BYTES, OUTPUT_QUEUE_CHUNKS};
 pub use portable_pty::ExitStatus;
-pub use wake::Wake;
+pub use wake::{ExitSignal, Wake};
 pub use profile::{
     default_shell_profile, discover_shell_profiles, shell_profile, ShellProfile, ShellProfileId,
 };

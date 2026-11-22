@@ -16,7 +16,8 @@ impl ExternalOwner {
     }
 }
 impl Owner {
-    pub(crate) fn poll_external(&mut self, budget: usize) {
+    /// Same contract as poll_output.
+    pub(crate) fn poll_external(&mut self, budget: usize) -> bool {
         for _ in 0..budget {
             let received = match self
                 .external
@@ -24,30 +25,31 @@ impl Owner {
                 .and_then(|source| source.receiver.as_ref())
             {
                 Some(receiver) => receiver.try_recv(),
-                None => return,
+                None => return false,
             };
             match received {
                 Ok(ExternalMessage::Data(chunk)) => {
                     if let Err(error) = self.external_data(chunk) {
                         self.fail(error);
-                        return;
+                        return false;
                     }
                 }
                 Ok(ExternalMessage::Finish(last)) => {
                     if let Err(error) = self.finish_external(last) {
                         self.fail(error);
                     }
-                    return;
+                    return false;
                 }
-                Err(TryRecvError::Empty) => return,
+                Err(TryRecvError::Empty) => return false,
                 Err(TryRecvError::Disconnected) => {
                     self.fail(RuntimeError::unavailable(
                         "External source disconnected without ordered finish.",
                     ));
-                    return;
+                    return false;
                 }
             }
         }
+        true
     }
     fn finish_external(&mut self, last: SourceSequence) -> Result<(), RuntimeError> {
         let source = self

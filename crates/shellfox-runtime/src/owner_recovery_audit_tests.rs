@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::mpsc;
 fn claim(owner: &mut Owner) -> Lease {
     match owner
         .command(
@@ -144,7 +143,7 @@ fn dropped_successful_controller_recovery_keeps_same_lease_and_explicit_fresh_re
             .code,
         ErrorCode::Validation
     );
-    let (send, receive) = mpsc::sync_channel(8);
+    let (send, receive) = crate::owner_wake::channel(&owner.shared, 8);
     owner.emit_events(&send);
     assert!(receive.try_recv().is_err());
     let fresh = recovery(&mut owner, control_recover(lease));
@@ -209,7 +208,7 @@ fn dropped_successful_observer_recovery_keeps_real_observer_and_only_exact_fresh
         owner.layouts.controller_ready(lease).is_ok(),
         "observer recovery cannot block the controller input gate"
     );
-    let (send, receive) = mpsc::sync_channel(8);
+    let (send, receive) = crate::owner_wake::channel(&owner.shared, 8);
     owner.emit_events(&send);
     assert!(!receive
         .try_iter()

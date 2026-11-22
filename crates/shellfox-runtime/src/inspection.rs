@@ -6,7 +6,6 @@ use std::sync::{
     mpsc::{self, Receiver, SyncSender, TrySendError},
     Arc, Mutex, TryLockError,
 };
-use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InspectionTicket {
@@ -67,15 +66,10 @@ pub(crate) fn start(
 }
 fn worker(incoming: Receiver<InspectionTicket>, shared: Arc<Mutex<State>>) {
     loop {
-        let ticket = match incoming.recv_timeout(Duration::from_millis(100)) {
-            Ok(ticket) => ticket,
-            Err(mpsc::RecvTimeoutError::Disconnected) => return,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                if shared.lock().unwrap_or_else(|e| e.into_inner()).stopped {
-                    return;
-                }
-                continue;
-            }
+        // Blocks until a request or until the client (the Runtime) is dropped.
+        // A stopped client sends no more requests.
+        let Ok(ticket) = incoming.recv() else {
+            return;
         };
         let capability = {
             let state = shared.lock().unwrap_or_else(|e| e.into_inner());

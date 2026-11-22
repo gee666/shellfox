@@ -81,7 +81,7 @@ impl ExternalStartupOwner {
     }
 }
 fn cancel(runtime: &mut Runtime) {
-    runtime.shared.abandoned.store(true, Ordering::Release);
+    runtime.shared.abandon();
     runtime.external_source.take();
 }
 pub(crate) struct ExternalControl {

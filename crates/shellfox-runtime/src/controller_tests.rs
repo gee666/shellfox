@@ -3,7 +3,6 @@ use super::*;
 mod geometry;
 #[path = "controller_journal_tests.rs"]
 mod journal;
-use std::sync::mpsc;
 fn claim(owner: &mut Owner) -> Lease {
     match owner
         .command(
@@ -178,8 +177,8 @@ fn controller_layout_blocks_post_boundary_bytes_and_full_event_queue_commits_no_
     owner.accept_source_bytes(b"old-grid").unwrap();
     owner.canonical_resize(100, 30).unwrap();
     owner.accept_source_bytes(b"new-grid").unwrap();
-    let (send, receive) = mpsc::sync_channel(1);
-    send.send(Event::Started(Ok(()))).unwrap();
+    let (send, receive) = crate::owner_wake::channel(&owner.shared, 1);
+    send.try_send(Event::Started(Ok(()))).unwrap();
     owner.emit_events(&send);
     assert_eq!(owner.delivery.last_sent(), 0);
     receive.try_recv().unwrap();

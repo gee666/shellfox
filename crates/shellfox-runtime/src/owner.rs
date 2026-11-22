@@ -1,4 +1,4 @@
-use crate::{delivery::Delivery, observers::ObserverHub, *};
+use crate::{delivery::Delivery, observers::ObserverHub, owner_wake::EventSender, *};
 #[cfg(test)]
 #[path = "controller_tests.rs"]
 mod controller_tests;
@@ -21,6 +21,11 @@ use std::{
     sync::mpsc::{Receiver, SyncSender, TryRecvError},
     time::{Duration, Instant},
 };
+
+/// Cleanup retry after a failed teardown.
+const CLEANUP_RETRY: Duration = Duration::from_millis(100);
+/// Poll cadence for states without a notification (see Owner::deadline).
+const POLL_INTERVAL: Duration = Duration::from_millis(2);
 
 #[cfg(windows)]
 #[path = "elevated_pty.rs"]
@@ -57,6 +62,9 @@ pub(crate) struct Owner {
     fatal: bool,
     pub(crate) exit_sent: bool,
     retry_at: Instant,
+    /// Root exit of the owned PTY; None means no wake was registered and the
+    /// owner polls the PTY instead.
+    pub(crate) exit: Option<shellfox_terminal::ExitSignal>,
     inspection: Option<inspection::InspectionPublisher>,
     pub(crate) live_output: hooks::LiveOutput,
 }
@@ -70,12 +78,14 @@ pub(crate) fn run(
     shared: Arc<Shared>,
     services: OwnerServices,
 ) {
+    let events = EventSender::new(events, Arc::clone(&shared));
     let terminal = match Terminal::new(config.cols, config.rows).map_err(RuntimeError::unavailable)
     {
         Ok(terminal) => terminal,
         Err(error) => {
             *shared.phase.lock().unwrap_or_else(|e| e.into_inner()) = Phase::Closed;
-            let _ = events.send(Event::Started(Err(error)));
+            let _ = events.try_send(Event::Started(Err(error)));
+            events.finish_round();
             return;
         }
     };
@@ -100,6 +110,7 @@ pub(crate) fn run(
         fatal: false,
         exit_sent: false,
         retry_at: Instant::now(),
+        exit: None,
         inspection: services.inspection,
         live_output: hooks::LiveOutput::new(services.hooks),
     };
@@ -121,6 +132,8 @@ pub(crate) fn run(
             if let Some(inspection) = &owner.inspection {
                 inspection.bind(pty.inspection_capability());
             }
+            // Without a wake the owner falls back to polling; output is never lost.
+            owner.exit = pty.set_wake(owner.shared.signal.waker()).ok();
             owner.pty = Some(pty);
             owner.set_phase(Phase::Active, None);
             owner.outgoing.push_front(Event::Started(Ok(())));
@@ -151,28 +164,31 @@ pub(crate) fn run(
     }
     drive(owner, incoming, events);
 }
-fn drive(mut owner: Owner, incoming: Receiver<Request>, events: SyncSender<Event>) {
+fn drive(mut owner: Owner, incoming: Receiver<Request>, events: EventSender) {
+    let signal = Arc::clone(&owner.shared.signal);
     loop {
         if owner.shared.abandoned.load(Ordering::Acquire) {
             // No consumer remains. Cancellation may discard output, never ownership.
             if owner.cleanup().is_ok() {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            signal.wait(Some(Instant::now() + CLEANUP_RETRY));
             continue;
         }
         owner.flush(&events);
+        let mut busy = false;
         if owner.fatal {
             if Instant::now() >= owner.retry_at {
                 let _ = owner.cleanup();
-                owner.retry_at = Instant::now() + Duration::from_millis(100);
+                owner.retry_at = Instant::now() + CLEANUP_RETRY;
             }
         } else {
-            owner.poll_output(16);
+            busy |= owner.poll_output(16);
         }
         if owner.outgoing.len() < 2 {
             match incoming.try_recv() {
                 Ok(request) => {
+                    busy = true;
                     let result = request
                         .command
                         .validate(owner.limits)
@@ -188,7 +204,8 @@ fn drive(mut owner: Owner, incoming: Receiver<Request>, events: SyncSender<Event
                     });
                 }
                 Err(TryRecvError::Disconnected) => {
-                    owner.shared.abandoned.store(true, Ordering::Release)
+                    owner.shared.abandoned.store(true, Ordering::Release);
+                    busy = true;
                 }
                 Err(TryRecvError::Empty) => {}
             }
@@ -205,7 +222,43 @@ fn drive(mut owner: Owner, incoming: Receiver<Request>, events: SyncSender<Event
             }
         }
         owner.emit_events(&events);
-        std::thread::sleep(Duration::from_millis(2));
+        let mut round = events.finish_round();
+        if round.full {
+            // Ask for a wake when the consumer takes an event, then retry once:
+            // it may have emptied the channel before seeing the request.
+            owner.shared.needs_space.store(true, Ordering::Release);
+            owner.flush(&events);
+            owner.emit_events(&events);
+            round = events.finish_round();
+            if !round.full {
+                owner.shared.needs_space.store(false, Ordering::Release);
+            }
+        }
+        // A full channel waits for the consumer; otherwise keep going while
+        // the round made progress, since reads and emission are budgeted.
+        if !busy && (round.full || !round.sent) {
+            signal.wait(owner.deadline());
+        }
+    }
+}
+impl Owner {
+    /// The next time the owner must look without being woken. Only states
+    /// that have no notification poll: cleanup retries, Draining (descendant
+    /// and console teardown) and an exited root waiting for its process tree.
+    fn deadline(&self) -> Option<Instant> {
+        if self.shared.abandoned.load(Ordering::Acquire) {
+            return Some(Instant::now());
+        }
+        if self.fatal {
+            return Some(self.retry_at);
+        }
+        #[cfg(windows)]
+        if self.elevated.is_some() {
+            return Some(Instant::now() + POLL_INTERVAL);
+        }
+        self.pty.as_ref()?;
+        let exited = self.exit.as_ref().is_none_or(|exit| exit.exited());
+        (exited || self.phase == Phase::Draining).then(|| Instant::now() + POLL_INTERVAL)
     }
 }
 impl Owner {

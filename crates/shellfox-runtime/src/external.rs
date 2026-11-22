@@ -117,6 +117,7 @@ pub struct ExternalSource {
     identity: crate::Identity,
     status: Arc<Mutex<ExternalStatus>>,
     sender: SyncSender<ExternalMessage>,
+    signal: WakeOnDrop,
     queued: SourceSequence,
     finished: bool,
 }
@@ -161,6 +162,7 @@ impl ExternalSource {
         match self.sender.try_send(ExternalMessage::Data(chunk)) {
             Ok(()) => {
                 self.queued = sequence;
+                self.signal.0.notify();
                 Ok(())
             }
             Err(TrySendError::Full(ExternalMessage::Data(chunk))) => {
@@ -186,11 +188,20 @@ impl ExternalSource {
         match self.sender.try_send(ExternalMessage::Finish(last)) {
             Ok(()) => {
                 self.finished = true;
+                self.signal.0.notify();
                 Ok(())
             }
             Err(TrySendError::Full(_)) => Err(ExternalFinishError::Full),
             Err(TrySendError::Disconnected(_)) => Err(ExternalFinishError::Closed),
         }
+    }
+}
+/// Wakes the owner when the source is dropped. Declared after `sender`, so the
+/// owner observes the disconnected channel when it wakes.
+struct WakeOnDrop(Arc<crate::owner_wake::OwnerSignal>);
+impl Drop for WakeOnDrop {
+    fn drop(&mut self) {
+        self.0.notify();
     }
 }
 pub(crate) struct ExternalOwner {
@@ -208,11 +219,13 @@ pub(crate) fn channel() -> (ExternalSource, ExternalOwner) {
             generation: shellfox_core::Generation::new(),
         },
         crate::ExternalDisplayPolicy::RawBytes,
+        Arc::default(),
     )
 }
 pub(crate) fn channel_with_policy(
     identity: crate::Identity,
     policy: crate::ExternalDisplayPolicy,
+    signal: Arc<crate::owner_wake::OwnerSignal>,
 ) -> (ExternalSource, ExternalOwner) {
     let (sender, receiver) = mpsc::sync_channel(EXTERNAL_FEED_CAPACITY);
     let status = Arc::new(Mutex::new(ExternalStatus::default()));
@@ -228,6 +241,7 @@ pub(crate) fn channel_with_policy(
             identity,
             status: Arc::clone(&status),
             sender,
+            signal: WakeOnDrop(signal),
             queued: SourceSequence(0),
             finished: false,
         },

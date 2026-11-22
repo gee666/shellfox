@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::mpsc;
 
 #[test]
 fn a_one_slot_channel_is_shared_fairly_by_controller_and_observers() {
@@ -15,7 +14,7 @@ fn a_one_slot_channel_is_shared_fairly_by_controller_and_observers() {
         .observers
         .observe(20, Some(0), &owner.delivery)
         .unwrap();
-    let (events, received) = mpsc::sync_channel(1);
+    let (events, received) = crate::owner_wake::channel(&owner.shared, 1);
     let mut counts = [0usize; 3];
     for _ in 0..32 {
         owner.emit_events(&events);

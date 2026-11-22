@@ -1,18 +1,19 @@
 use crate::{owner::Owner, *};
 use shellfox_terminal::{PtyOutput, PtySession};
 impl Owner {
-    pub(crate) fn poll_output(&mut self, budget: usize) {
+    /// Reads at most `budget` chunks. True means the budget ran out and more
+    /// output may be waiting, so the caller must poll again before blocking.
+    pub(crate) fn poll_output(&mut self, budget: usize) -> bool {
         if self.source_kind == SourceKind::ExternalBytes {
-            self.poll_external(budget);
-            return;
+            return self.poll_external(budget);
         }
         #[cfg(windows)]
         if self.elevated.is_some() {
             self.poll_administrator(budget);
-            return;
+            return false;
         }
         if self.pty.is_none() || self.phase == Phase::Closed {
-            return;
+            return false;
         }
         let status = self.pty.as_mut().map(PtySession::try_wait);
         match status {
@@ -21,7 +22,7 @@ impl Owner {
             }
             Some(Err(error)) => {
                 self.fail(RuntimeError::unavailable(error));
-                return;
+                return false;
             }
             _ => {}
         }
@@ -31,27 +32,28 @@ impl Owner {
                 Some(Ok(Some(PtyOutput::Data(bytes)))) => {
                     if let Err(error) = self.accept_source_bytes(&bytes) {
                         self.fail(error);
-                        return;
+                        return false;
                     }
                 }
                 Some(Ok(Some(PtyOutput::Eof))) => {
                     if let Err(error) = self.cleanup() {
                         self.fail(error);
                     }
-                    break;
+                    return false;
                 }
                 Some(Ok(Some(PtyOutput::ReadError(error)))) => {
                     self.fail(RuntimeError::unavailable(error));
-                    break;
+                    return false;
                 }
                 Some(Err(error)) => {
                     self.fail(RuntimeError::unavailable(format!(
                         "PTY disconnected before EOF: {error}"
                     )));
-                    break;
+                    return false;
                 }
-                _ => break,
+                _ => return false,
             }
         }
+        true
     }
 }

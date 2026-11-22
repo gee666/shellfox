@@ -13,7 +13,7 @@ fn resize_after_snapshot_or_journal_overrun_never_releases_current_side_effect_g
     for cols in 101..171 {
         owner.canonical_resize(cols, 30).unwrap();
     }
-    let (send, receive) = mpsc::sync_channel(1);
+    let (send, receive) = crate::owner_wake::channel(&owner.shared, 1);
     owner.emit_events(&send);
     assert!(
         matches!(receive.try_recv().unwrap(),Event::ReplayLost{lease:actual,..} if actual==lease)

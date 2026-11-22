@@ -4,14 +4,7 @@ use shellfox_core::{Generation, SessionId, TabId};
 fn handle() -> (Runtime, Receiver<Request>, Arc<Shared>) {
     let (commands, incoming) = mpsc::sync_channel(COMMAND_CAPACITY);
     let (_, events) = mpsc::sync_channel(EVENT_CAPACITY);
-    let shared = Arc::new(Shared {
-        screen: Mutex::new(None),
-        legacy_requested: AtomicBool::new(false),
-        live_output_status: AtomicU8::new(LiveOutputStatus::Disabled as u8),
-        metadata: Mutex::new(None),
-        phase: Mutex::new(Phase::Active),
-        abandoned: AtomicBool::new(false),
-    });
+    let shared = Arc::new(Shared::new(LiveOutputStatus::Disabled, Phase::Active));
     let runtime = Runtime {
         identity: Identity {
             session_id: SessionId::new(),

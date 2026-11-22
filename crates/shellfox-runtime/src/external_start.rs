@@ -13,6 +13,7 @@ pub(crate) fn run(
     source: ExternalOwner,
     services: ExternalStartServices,
 ) {
+    let events = EventSender::new(events, Arc::clone(&shared));
     let ready = services.ready;
     let terminal = match Terminal::new(config.cols, config.rows).map_err(RuntimeError::unavailable)
     {
@@ -24,6 +25,7 @@ pub(crate) fn run(
                 .unwrap_or_else(|error| error.into_inner()) = Phase::Closed;
             let _ = ready.send(Err(error.clone()));
             let _ = events.try_send(Event::Started(Err(error)));
+            events.finish_round();
             return;
         }
     };
@@ -48,6 +50,7 @@ pub(crate) fn run(
         fatal: false,
         exit_sent: false,
         retry_at: Instant::now(),
+        exit: None,
         inspection: None,
         live_output: hooks::LiveOutput::new(services.hooks),
     };

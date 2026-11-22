@@ -79,7 +79,7 @@ impl Runtime {
         if !status.finished && !status.failed {
             return Err(RuntimeError::validation("External source is not finished."));
         }
-        self.shared.abandoned.store(true, Ordering::Release);
+        self.shared.abandon();
         Ok(())
     }
     pub fn poll_external_closed(&mut self) -> Result<bool, RuntimeError> {
@@ -118,7 +118,9 @@ fn start_hooked(
         })?;
     // Prestarted before parser creation, so even ignored/dropped startup errors
     // transfer the original JoinHandle to a cleanup owner instead of detaching it.
-    let (source, source_owner) = external::channel_with_policy(identity, options.display_policy);
+    let shared = Arc::new(Shared::new(hooks.status(), Phase::Starting));
+    let (source, source_owner) =
+        external::channel_with_policy(identity, options.display_policy, Arc::clone(&shared.signal));
     let status = Arc::clone(&source_owner.status);
     let launch = Arc::clone(&source_owner.launch);
     let cleanup =
@@ -126,14 +128,6 @@ fn start_hooked(
     let (commands, incoming) = mpsc::sync_channel(COMMAND_CAPACITY);
     let (outgoing, events) = mpsc::sync_channel(EVENT_CAPACITY);
     let (ready, started) = mpsc::sync_channel(1);
-    let shared = Arc::new(Shared {
-        screen: Mutex::new(None),
-        legacy_requested: AtomicBool::new(false),
-        live_output_status: AtomicU8::new(hooks.status() as u8),
-        metadata: Mutex::new(None),
-        phase: Mutex::new(Phase::Starting),
-        abandoned: AtomicBool::new(false),
-    });
     let owner_shared = Arc::clone(&shared);
     let thread = std::thread::Builder::new()
         .name("shellfox-external-view".into())

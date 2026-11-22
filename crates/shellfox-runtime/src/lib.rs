@@ -55,6 +55,8 @@ mod presentation;
 mod presentation_api;
 mod presentation_commands;
 pub use presentation_api::*;
+mod owner_wake;
+pub use owner_wake::EventWake;
 mod pty_output;
 #[cfg(test)]
 mod query_tests;
@@ -101,6 +103,26 @@ pub(crate) struct Shared {
     metadata: Mutex<Option<Arc<RuntimeMetadata>>>,
     phase: Mutex<Phase>,
     abandoned: AtomicBool,
+    /// Wakes the owner thread for commands, PTY output, exit and released room.
+    signal: Arc<owner_wake::OwnerSignal>,
+    event_wake: Mutex<Option<EventWake>>,
+    /// The owner found the event channel full and waits for the consumer.
+    needs_space: AtomicBool,
+}
+impl Shared {
+    fn new(live_output_status: LiveOutputStatus, phase: Phase) -> Self {
+        Self {
+            screen: Mutex::new(None),
+            legacy_requested: AtomicBool::new(false),
+            live_output_status: AtomicU8::new(live_output_status as u8),
+            metadata: Mutex::new(None),
+            phase: Mutex::new(phase),
+            abandoned: AtomicBool::new(false),
+            signal: Arc::default(),
+            event_wake: Mutex::new(None),
+            needs_space: AtomicBool::new(false),
+        }
+    }
 }
 impl Runtime {
     /// The caller must register identity with Host before calling start.
@@ -166,14 +188,7 @@ impl Runtime {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
         let (commands, incoming) = mpsc::sync_channel(COMMAND_CAPACITY);
         let (outgoing, events) = mpsc::sync_channel(EVENT_CAPACITY);
-        let shared = Arc::new(Shared {
-            screen: Mutex::new(None),
-            legacy_requested: AtomicBool::new(false),
-            live_output_status: AtomicU8::new(hooks.status() as u8),
-            metadata: Mutex::new(None),
-            phase: Mutex::new(Phase::Starting),
-            abandoned: AtomicBool::new(false),
-        });
+        let shared = Arc::new(Shared::new(hooks.status(), Phase::Starting));
         let (inspection_client, inspection_publisher) = inspection::start(identity)?;
         let (launch, launch_binding) = launch::new(LaunchFactoryPurpose::OwnedPtyProgram);
         let launch_owner = Arc::clone(&launch);
@@ -228,15 +243,32 @@ impl Runtime {
             .map_err(|error| match error {
                 TrySendError::Full(request) => SubmitError::Full(request),
                 TrySendError::Disconnected(request) => SubmitError::Disconnected(request),
-            })
+            })?;
+        self.shared.signal.notify();
+        Ok(())
     }
     pub fn try_recv(&self) -> Result<Event, TryRecvError> {
-        self.events.try_recv()
+        let event = self.events.try_recv()?;
+        self.shared.event_taken();
+        Ok(event)
+    }
+    /// Called from the owner thread after it queues events for try_recv, at
+    /// most once per owner round. Called once now for events already queued.
+    /// The callback must not block.
+    pub fn set_event_wake(&self, wake: EventWake) {
+        *self
+            .shared
+            .event_wake
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(Arc::clone(&wake));
+        wake();
     }
     /// At most one owned UTF-8 cell frame waits here. A slow UI replaces frames,
     /// never queues them. Request Screen to publish an unchanged screen again.
     pub fn take_screen(&self) -> Option<ScreenFrame> {
-        self.shared.legacy_requested.store(true, Ordering::Release);
+        if !self.shared.legacy_requested.swap(true, Ordering::AcqRel) {
+            self.shared.signal.notify();
+        }
         self.shared
             .screen
             .lock()
@@ -275,6 +307,6 @@ impl Drop for Runtime {
         if let Some(client) = &self.inspection {
             client.invalidate();
         }
-        self.shared.abandoned.store(true, Ordering::Release);
+        self.shared.abandon();
     }
 }

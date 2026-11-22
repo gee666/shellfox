@@ -1,8 +1,9 @@
+use crate::owner_wake::EventSender;
 use crate::{observers::ObserverEvent, owner::Owner, *};
-use std::sync::mpsc::{SyncSender, TrySendError};
+use std::sync::mpsc::TrySendError;
 
 impl Owner {
-    pub(crate) fn flush(&mut self, events: &SyncSender<Event>) -> bool {
+    pub(crate) fn flush(&mut self, events: &EventSender) -> bool {
         while let Some(event) = self.outgoing.pop_front() {
             match events.try_send(event) {
                 Ok(()) => {}
@@ -18,7 +19,7 @@ impl Owner {
         }
         true
     }
-    pub(crate) fn emit_events(&mut self, events: &SyncSender<Event>) {
+    pub(crate) fn emit_events(&mut self, events: &EventSender) {
         // Replies and recovery barriers are always queued before dependent data.
         if !self.flush(events) {
             return;
@@ -81,7 +82,7 @@ impl Owner {
             self.emit_observers(events);
         }
     }
-    fn controller_delivery_allowed(&mut self, events: &SyncSender<Event>) -> bool {
+    fn controller_delivery_allowed(&mut self, events: &EventSender) -> bool {
         let Some(lease) = self.delivery.lease() else {
             return true;
         };
@@ -104,7 +105,7 @@ impl Owner {
             },
         )
     }
-    fn emit_observers(&mut self, events: &SyncSender<Event>) {
+    fn emit_observers(&mut self, events: &EventSender) {
         let current = self.delivery.current_sequence();
         let shared = &self.shared;
         // Notify an already-delivered geometry boundary even when no new bytes
@@ -168,7 +169,7 @@ fn layout_event(observer: ObserverLease, notice: crate::layout::LayoutNotice) ->
         },
     }
 }
-fn queued(events: &SyncSender<Event>, shared: &Shared, event: Event) -> bool {
+fn queued(events: &EventSender, shared: &Shared, event: Event) -> bool {
     match events.try_send(event) {
         Ok(()) => true,
         Err(TrySendError::Full(_)) => false,
