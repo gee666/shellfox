@@ -32,6 +32,12 @@ fn absolute(path: &Path) -> Result<PathBuf> {
     Ok(normalized)
 }
 
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::{
+    GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_FLAG_OPEN_REPARSE_POINT,
+};
+
 fn is_link(meta: &fs::Metadata) -> bool {
     if meta.file_type().is_symlink() {
         return true;
@@ -39,7 +45,7 @@ fn is_link(meta: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        if meta.file_attributes() & 0x400 != 0 {
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
             return true;
         }
     }
@@ -89,30 +95,14 @@ fn single_link(file: &File) -> io::Result<bool> {
 #[cfg(windows)]
 fn single_link(file: &File) -> io::Result<bool> {
     use std::{mem::MaybeUninit, os::windows::io::AsRawHandle};
-    #[repr(C)]
-    struct Info {
-        attributes: u32,
-        creation: [u32; 2],
-        access: [u32; 2],
-        write: [u32; 2],
-        volume: u32,
-        size_high: u32,
-        size_low: u32,
-        links: u32,
-        index_high: u32,
-        index_low: u32,
-    }
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetFileInformationByHandle(handle: *mut std::ffi::c_void, info: *mut Info) -> i32;
-    }
-    let mut info = MaybeUninit::<Info>::uninit();
-    // The handle belongs to File and remains open throughout the call.
+    let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+    // SAFETY: the handle belongs to `file` and stays open for the call.
     if unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) } == 0 {
         return Err(io::Error::last_os_error());
     }
+    // SAFETY: the call succeeded and filled the structure.
     let info = unsafe { info.assume_init() };
-    Ok(info.links == 1 && info.attributes & 0x400 == 0)
+    Ok(info.nNumberOfLinks == 1 && info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0)
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -126,17 +116,12 @@ fn options(write: bool) -> OpenOptions {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x0020_0000);
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(0x20000);
-    }
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(0x100);
+        options.custom_flags(libc::O_NOFOLLOW);
     }
     options
 }

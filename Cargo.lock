@@ -8008,12 +8008,14 @@ name = "shellfox-host"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",
  "shellfox-core",
  "tempfile",
  "uuid",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
