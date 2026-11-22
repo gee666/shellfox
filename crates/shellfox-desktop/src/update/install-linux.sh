@@ -27,6 +27,21 @@ while kill -0 "$pid" 2>/dev/null; do
   sleep 0.1
 done
 [ ! -f "$control/cancel" ] || exit 1
+# The UI exits after its terminal host closes its connection, not after the
+# host process is gone. Never let the new UI attach to this version's host.
+host_running() {
+  for proc in /proc/[0-9]*; do
+    [ "$(readlink "$proc/exe" 2>/dev/null)" = "$1" ] || continue
+    [ "$(tr '\0' '\n' < "$proc/cmdline" 2>/dev/null | sed -n 2p)" = --desktop-host ] && return 0
+  done
+  return 1
+}
+tries=0
+while host_running "$(dirname -- "$executable")/shellfox-cli"; do
+  tries=$((tries + 1))
+  [ "$tries" -le 600 ] || failed
+  sleep 0.1
+done
 actual=$(/usr/bin/sha256sum -- "$package") || failed
 [ "${actual%% *}" = "$expected" ] || failed
 if /usr/bin/pkexec /usr/bin/apt-get install -y "$package"; then

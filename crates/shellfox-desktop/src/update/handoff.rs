@@ -69,34 +69,17 @@ impl Prepared {
         let mut command = match &self.platform {
             #[cfg(windows)]
             Platform::Squirrel { updater } => {
-                use std::os::windows::process::CommandExt;
                 let config = control.join("install.json");
+                let exe = std::env::current_exe()?;
+                let app_dir = exe.parent().context("Missing Shellfox version directory")?;
                 fs::write(
                     &config,
                     serde_json::to_vec(&serde_json::json!({
-                        "pid": pid, "file": self.file, "work": self.work.path(), "updateExe": updater,
+                        "pid": pid, "file": self.file, "work": self.work.path(), "updateExe": updater, "appDir": app_dir,
                         "sha256": self.sha256, "control": control, "relaunch": relaunch,
                     }))?,
                 )?;
-                let system =
-                    std::env::var_os("SystemRoot").context("Windows system root is unavailable")?;
-                let mut command = Command::new(
-                    PathBuf::from(system).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
-                );
-                command
-                    .creation_flags(0x0800_0000)
-                    .args([
-                        "-NoLogo",
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-ExecutionPolicy",
-                        "Bypass",
-                        "-File",
-                    ])
-                    .arg(&self.helper)
-                    .arg("-Config")
-                    .arg(config);
-                command
+                windows_helper(&self.helper, &config)?
             }
             #[cfg(target_os = "linux")]
             Platform::Deb { executable } => {
@@ -145,6 +128,30 @@ fn wait_for(child: &mut Child, signal: &Path, timeout: Duration) -> Result<()> {
         std::thread::sleep(Duration::from_millis(25));
     }
 }
+#[cfg(windows)]
+fn windows_helper(helper: &Path, config: &Path) -> Result<Command> {
+    use std::os::windows::process::CommandExt;
+    let system = std::env::var_os("SystemRoot").context("Windows system root is unavailable")?;
+    let mut command =
+        Command::new(PathBuf::from(system).join("System32/WindowsPowerShell/v1.0/powershell.exe"));
+    // A PowerShell 7 PSModulePath inherited from a pwsh terminal hides
+    // Windows PowerShell's own modules, such as Get-FileHash.
+    command
+        .creation_flags(0x0800_0000)
+        .env_remove("PSModulePath")
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+        ])
+        .arg(helper)
+        .arg("-Config")
+        .arg(config);
+    Ok(command)
+}
 #[cfg(unix)]
 fn script_command(helper: &Path, pid: u32, work: &Path) -> Command {
     use std::os::unix::process::CommandExt;
@@ -160,3 +167,7 @@ fn script_command(helper: &Path, pid: u32, work: &Path) -> Command {
 fn relaunch_arg(relaunch: bool) -> &'static str {
     if relaunch { "1" } else { "0" }
 }
+
+#[cfg(all(test, windows))]
+#[path = "handoff_tests.rs"]
+mod tests;

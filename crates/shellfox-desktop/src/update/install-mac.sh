@@ -26,6 +26,22 @@ while kill -0 "$pid" 2>/dev/null; do
   sleep 0.1
 done
 [ ! -f "$control/cancel" ] || exit 1
+# The UI exits after its terminal host closes its connection, not after the
+# host process is gone. Never let the new UI attach to this version's host.
+host_running() {
+  /bin/ps -x -o args= | {
+    while IFS= read -r args; do
+      case "$args" in "$bundle/Contents/MacOS/shellfox-cli --desktop-host "*) exit 0 ;; esac
+    done
+    exit 1
+  }
+}
+tries=0
+while host_running; do
+  tries=$((tries + 1))
+  [ "$tries" -le 600 ] || failed
+  sleep 0.1
+done
 old="$stage/previous.app"
 new="$stage/Shellfox.app"
 /usr/bin/codesign --verify --deep --strict "$new" || failed
