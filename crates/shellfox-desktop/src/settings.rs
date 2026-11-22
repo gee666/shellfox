@@ -314,6 +314,9 @@ impl SettingsPanel {
         for field in fields {
             field.update(cx, |field, cx| field.apply_palette(palette, cx));
         }
+        if let Some(picker) = &self.color_picker {
+            picker.view.update(cx, |picker, cx| picker.set_palette(palette, cx));
+        }
         cx.notify();
     }
 }

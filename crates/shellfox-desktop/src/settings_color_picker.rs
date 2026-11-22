@@ -1,24 +1,32 @@
+//! Compact custom-color popup: preset and saved swatches, a preview and
+//! HEX, RGB and HSL fields that stay in sync. Every change applies live.
 use super::*;
-use gpui::{Bounds, Pixels, Point, Size, point};
+use crate::field::NumberKind;
+use gpui::{Bounds, Hsla, Pixels, point};
 use std::{cell::Cell, rc::Rc};
 
-#[path = "settings_picker_color.rs"]
-mod color;
-#[path = "settings_picker_integration.rs"]
-mod integration;
-#[path = "settings_picker_view.rs"]
-mod view;
+#[path = "settings_color_picker_model.rs"]
+mod model;
+use model::{Rgb, from_hsl, hex, parse_channel, parse_hex, to_hsl};
 
-#[path = "settings_picker_sampler.rs"]
-mod sampler;
-
-use color::{Format, Rgb, hex, hue_at, nearest_hue_x, position_of, well_rgb};
-
-pub(super) const WIDTH: f32 = 234.;
-pub(super) const HEIGHT: f32 = 252.;
-pub(super) const WELL_WIDTH: f32 = 232.;
-pub(super) const WELL_HEIGHT: f32 = 138.;
-pub(super) const SLIDER_WIDTH: f32 = 130.;
+const PAD: f32 = 6.;
+const GAP: f32 = 4.;
+const SWATCH: f32 = 14.;
+const ROW: f32 = 24.;
+const CAPTION: f32 = 26.;
+const CHANNEL: f32 = 40.;
+const PREVIEW: f32 = 34.;
+const WIDTH: f32 = PAD * 2. + PREVIEW + GAP + CAPTION + CHANNEL * 3. + GAP * 2.;
+const HEIGHT: f32 = PAD * 2. + SWATCH + GAP * 2. + ROW * 3. + GAP * 2.;
+const KINDS: [Option<NumberKind>; 7] = [
+    None,
+    Some(NumberKind::Byte),
+    Some(NumberKind::Byte),
+    Some(NumberKind::Byte),
+    Some(NumberKind::Hue),
+    Some(NumberKind::Percent),
+    Some(NumberKind::Percent),
+];
 
 pub(super) type Anchor = Rc<Cell<Option<Bounds<Pixels>>>>;
 
@@ -27,64 +35,57 @@ pub(super) struct Active {
     _subscription: Subscription,
 }
 
-#[derive(Clone)]
 enum Event {
     Color(Rgb),
     Close,
-    SamplingError(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Drag {
-    Well,
-    Hue,
+enum Group {
+    Hex,
+    Rgb,
+    Hsl,
+}
+
+fn group(index: usize) -> Group {
+    match index {
+        0 => Group::Hex,
+        1..=3 => Group::Rgb,
+        _ => Group::Hsl,
+    }
 }
 
 pub(super) struct Picker {
     anchor: Anchor,
+    palette: Palette,
+    presets: Vec<Rgb>,
+    saved: Vec<Rgb>,
     initial: Rgb,
     value: Rgb,
-    hue: f32,
-    hue_x: f32,
-    well: (f32, f32),
-    format: Format,
-    channels: [u16; 3],
-    fields: [Entity<Field>; 3],
-    seen: [String; 3],
-    well_focus: FocusHandle,
+    hsl: [u16; 3],
+    /// HEX, then R G B, then H S L.
+    fields: [Entity<Field>; 7],
+    seen: [String; 7],
     focus_on_open: bool,
-    hue_focus: FocusHandle,
-    sampler_focus: FocusHandle,
-    sampling: Option<sampler::Sampling>,
-    #[cfg(not(windows))]
-    sampling_epoch: u64,
-    format_focus: FocusHandle,
-    drag: Option<Drag>,
     _observations: Vec<Subscription>,
 }
 impl EventEmitter<Event> for Picker {}
 
 impl Picker {
-    fn new(initial: Rgb, anchor: Anchor, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let initial_position = position_of(initial);
-        let format = Format::Rgb;
-        let channels = format.channels(initial);
-        let seen = format.text(initial, channels);
-        let fields = std::array::from_fn(|index| {
-            let field = Field::color_channel(cx);
-            // The picker has its own light document, separate from the workspace palette.
-            let mut palette = Palette::new("#000000", "#ffffff");
-            palette.input_bg = gpui::white();
-            palette.foreground = gpui::black();
-            palette.accent = gpui::transparent_black();
-            palette.input_border = gpui::transparent_black();
-            field.update(cx, |field, cx| {
-                field.apply_palette(palette, cx);
-                field.set_text(seen[index].clone(), cx);
-            });
+    fn new(
+        initial: Rgb,
+        presets: Vec<Rgb>,
+        saved: Vec<Rgb>,
+        palette: Palette,
+        anchor: Anchor,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let fields = KINDS.map(|kind| {
+            let field = Field::color_input(kind, cx);
+            field.update(cx, |field, cx| field.apply_palette(palette, cx));
             field
         });
-        let well_focus = cx.focus_handle();
         let mut observations = Vec::new();
         for (index, field) in fields.iter().enumerate() {
             observations.push(cx.observe_in(field, window, move |picker, field, _, cx| {
@@ -95,87 +96,119 @@ impl Picker {
             let focus = field.read(cx).edit_focus();
             observations.push(cx.on_focus(&focus, window, move |picker, _, cx| {
                 picker.fields[index].update(cx, Field::select_all_text);
-                cx.notify();
             }));
-            observations.push(cx.on_blur(&focus, window, move |picker, _, cx| {
-                picker.sync_fields(cx);
-                cx.notify();
+            observations.push(cx.on_blur(&focus, window, |picker, _, cx| {
+                picker.sync_fields(None, cx);
             }));
         }
-        Self {
+        let mut picker = Self {
             anchor,
+            palette,
+            presets,
+            saved,
             initial,
             value: initial,
-            hue: initial_position.0,
-            hue_x: nearest_hue_x(initial_position.0),
-            well: initial_position.1,
-            format,
-            channels,
+            hsl: to_hsl(initial),
             fields,
-            seen,
-            well_focus,
+            seen: Default::default(),
             focus_on_open: true,
-            hue_focus: cx.focus_handle(),
-            sampler_focus: cx.focus_handle(),
-            sampling: None,
-            #[cfg(not(windows))]
-            sampling_epoch: 0,
-            format_focus: cx.focus_handle(),
-            drag: None,
             _observations: observations,
-        }
+        };
+        picker.sync_fields(None, cx);
+        picker
     }
 
-    fn edit(&mut self, index: usize, cx: &mut Context<Self>) {
-        let Some((_, _, max)) = self.format.fields().get(index) else {
-            return;
-        };
-        let field = &self.fields[index];
-        let mut text = field.read(cx).text.clone();
-        if text == self.seen[index] {
-            return;
-        }
-        if let Some((byte, _)) = text.char_indices().nth(*max) {
-            text.truncate(byte);
-            field.update(cx, |field, cx| field.set_text(text.clone(), cx));
-        }
-        self.seen[index] = text.clone();
-        if let Some(rgb) = self.format.edit(&text, index, &mut self.channels)
-            && rgb != self.value
-        {
-            self.move_to_color(rgb);
-            self.value = rgb;
-            cx.emit(Event::Color(rgb));
+    pub(super) fn set_palette(&mut self, palette: Palette, cx: &mut Context<Self>) {
+        self.palette = palette;
+        for field in &self.fields {
+            field.update(cx, |field, cx| field.apply_palette(palette, cx));
         }
         cx.notify();
     }
 
-    fn sync_fields(&mut self, cx: &mut Context<Self>) {
-        self.seen = self.format.text(self.value, self.channels);
-        for (field, text) in self.fields.iter().zip(&self.seen) {
-            field.update(cx, |field, cx| {
-                if field.text != *text {
-                    field.set_text(text.clone(), cx);
+    fn edit(&mut self, index: usize, cx: &mut Context<Self>) {
+        let text = self.fields[index].read(cx).text.clone();
+        if text == self.seen[index] {
+            return;
+        }
+        self.seen[index] = text.clone();
+        let parsed = match (group(index), KINDS[index]) {
+            (Group::Hex, _) => parse_hex(&text).map(|rgb| (rgb, to_hsl(rgb))),
+            (group, Some(kind)) => {
+                let Some(value) = parse_channel(&text, kind.range().1 as u16) else {
+                    return;
+                };
+                if value.to_string() != text.trim() {
+                    // Out-of-range input is clamped in place.
+                    self.set_field(index, value.to_string(), cx);
                 }
-            });
+                if group == Group::Rgb {
+                    let mut rgb = self.value;
+                    rgb[index - 1] = value as u8;
+                    Some((rgb, to_hsl(rgb)))
+                } else {
+                    let mut hsl = self.hsl;
+                    hsl[index - 4] = value;
+                    Some((from_hsl(hsl), hsl))
+                }
+            }
+            (_, None) => None,
+        };
+        if let Some((rgb, hsl)) = parsed {
+            self.hsl = hsl;
+            self.apply(rgb, Some(group(index)), cx);
         }
     }
 
     fn select(&mut self, rgb: Rgb, cx: &mut Context<Self>) {
-        if self.value != rgb {
-            self.value = rgb;
-            self.channels = self.format.channels(rgb);
-            self.sync_fields(cx);
+        self.hsl = to_hsl(rgb);
+        self.apply(rgb, None, cx);
+    }
+
+    /// Sets the color and refreshes every group except the one being typed in.
+    fn apply(&mut self, rgb: Rgb, editing: Option<Group>, cx: &mut Context<Self>) {
+        let changed = rgb != self.value;
+        self.value = rgb;
+        self.sync_fields(editing, cx);
+        if changed {
             cx.emit(Event::Color(rgb));
         }
         cx.notify();
     }
 
-    fn popup(&self, viewport: Size<Pixels>) -> Bounds<Pixels> {
+    fn sync_fields(&mut self, skip: Option<Group>, cx: &mut Context<Self>) {
+        let [r, g, b] = self.value;
+        let [h, s, l] = self.hsl;
+        let texts = [
+            hex(self.value),
+            r.to_string(),
+            g.to_string(),
+            b.to_string(),
+            h.to_string(),
+            s.to_string(),
+            l.to_string(),
+        ];
+        for (index, text) in texts.into_iter().enumerate() {
+            if Some(group(index)) != skip {
+                self.set_field(index, text, cx);
+            }
+        }
+    }
+
+    fn set_field(&mut self, index: usize, text: String, cx: &mut Context<Self>) {
+        self.seen[index] = text.clone();
+        self.fields[index].update(cx, |field, cx| {
+            if field.text != text {
+                field.set_text(text, cx);
+            }
+        });
+    }
+
+    fn popup(&self, viewport: gpui::Size<Pixels>) -> Bounds<Pixels> {
         let anchor = self.anchor.get().unwrap_or_default();
         let size = gpui::size(px(WIDTH), px(HEIGHT));
-        let below = anchor.bottom();
-        let above = anchor.top() - size.height;
+        let below = anchor.bottom() + px(2.);
+        let above = anchor.top() - size.height - px(2.);
         let y = if below + size.height <= viewport.height || above < px(0.) {
             below
         } else {
@@ -190,143 +223,228 @@ impl Picker {
         )
     }
 
-    fn change_pointer(
-        &mut self,
-        drag: Drag,
-        position: Point<Pixels>,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) {
-        let bounds = self.popup(window.viewport_size());
-        let position = position - bounds.origin;
-        match drag {
-            Drag::Well => {
-                self.well = (
-                    snap(f32::from(position.x) - 1., WELL_WIDTH),
-                    snap(f32::from(position.y) - 1., WELL_HEIGHT),
-                )
-            }
-            Drag::Hue => self.move_hue(f32::from(position.x) - 88.),
-        }
-        self.select_well(cx);
-    }
-
-    fn move_to_color(&mut self, rgb: Rgb) {
-        (self.hue, self.well) = position_of(rgb);
-        self.hue_x = nearest_hue_x(self.hue);
-    }
-
-    fn move_hue(&mut self, x: f32) {
-        self.hue_x = x.floor().clamp(0., SLIDER_WIDTH - 1.);
-        self.hue = hue_at((self.hue_x + 0.5) / SLIDER_WIDTH);
-    }
-
-    fn select_well(&mut self, cx: &mut Context<Self>) {
-        let [_, s, l] = color::hsl(well_rgb(self.hue, self.well.0, self.well.1));
-        self.select(color::from_hsl([(self.hue.round() as u16) % 360, s, l]), cx);
-    }
-
-    fn switch(&mut self, previous: bool, cx: &mut Context<Self>) {
-        self.format = self.format.cycle(previous);
-        self.channels = self.format.channels(self.value);
-        self.sync_fields(cx);
-        cx.notify();
-    }
-
     fn key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .fields
-            .iter()
-            .any(|field| field.read(cx).is_composing())
-        {
+        if self.fields.iter().any(|field| field.read(cx).is_composing()) {
             return;
         }
-        let key = event.keystroke.key.as_str();
-        if self.sampling.is_some() {
-            if key == "escape" {
-                self.sampling = None;
-                cx.notify();
-            }
-            window.prevent_default();
-            cx.stop_propagation();
-            return;
-        }
-        match key {
-            "enter" if self.sampler_focus.is_focused(window) => self.begin_sampling(window, cx),
+        match event.keystroke.key.as_str() {
             "enter" => cx.emit(Event::Close),
             "escape" if self.value == self.initial => cx.emit(Event::Close),
-            "escape" => {
-                self.move_to_color(self.initial);
-                self.select(self.initial, cx);
-            }
+            "escape" => self.select(self.initial, cx),
             "tab" => {
-                let mut handles = vec![
-                    self.well_focus.clone(),
-                    self.sampler_focus.clone(),
-                    self.hue_focus.clone(),
-                ];
-                handles.extend(
-                    self.fields
-                        .iter()
-                        .take(self.format.fields().len())
-                        .map(|field| field.read(cx).edit_focus()),
-                );
-                handles.push(self.format_focus.clone());
-                let current = handles
+                let current = self
+                    .fields
                     .iter()
-                    .position(|handle| handle.is_focused(window))
+                    .position(|field| field.read(cx).is_focused(window))
                     .unwrap_or(0);
-                let step = if event.keystroke.modifiers.shift {
-                    handles.len() - 1
-                } else {
-                    1
-                };
-                handles[(current + step) % handles.len()].focus(window);
-            }
-            "up" | "down" | "space" if self.format_focus.is_focused(window) => {
-                self.switch(key == "up", cx)
-            }
-            "up" | "down" | "left" | "right"
-                if self.well_focus.is_focused(window) || self.hue_focus.is_focused(window) =>
-            {
-                let step = if matches!(key, "right" | "down") {
-                    1.
-                } else {
-                    -1.
-                };
-                let multiplier = if event.keystroke.modifiers.control {
-                    10.
-                } else {
-                    1.
-                };
-                if self.hue_focus.is_focused(window) {
-                    self.move_hue(self.hue_x + step * multiplier);
-                } else if matches!(key, "left" | "right") {
-                    self.well.0 = snap(self.well.0 * WELL_WIDTH + step * multiplier, WELL_WIDTH);
-                } else {
-                    self.well.1 = snap(self.well.1 * WELL_HEIGHT + step * multiplier, WELL_HEIGHT);
-                }
-                self.select_well(cx);
+                let step = if event.keystroke.modifiers.shift { 6 } else { 1 };
+                self.fields[(current + step) % 7].read(cx).focus(window);
             }
             _ => return,
         }
         window.prevent_default();
         cx.stop_propagation();
     }
+
+    fn swatch(&self, id: (&'static str, usize), rgb: Rgb, cx: &Context<Self>) -> impl IntoElement {
+        let p = self.palette;
+        let selected = rgb == self.value;
+        div()
+            .id(id)
+            .size(px(SWATCH))
+            .flex_shrink_0()
+            .rounded(px(2.))
+            .bg(tint(rgb))
+            .border_1()
+            .border_color(if selected { p.foreground } else { p.border })
+            .hover(move |style| style.border_color(p.foreground))
+            .on_click(cx.listener(move |picker, _, _, cx| picker.select(rgb, cx)))
+    }
+
+    fn channel_row(&self, caption: &'static str, fields: &[usize]) -> impl IntoElement {
+        let width = if fields.len() == 1 { CHANNEL * 3. + GAP * 2. } else { CHANNEL };
+        div()
+            .h(px(ROW))
+            .flex()
+            .items_center()
+            .gap(px(GAP))
+            .child(div().w(px(CAPTION)).text_color(self.palette.muted).child(caption))
+            .children(
+                fields
+                    .iter()
+                    .map(|index| div().w(px(width)).child(self.fields[*index].clone())),
+            )
+    }
 }
 
-fn snap(coordinate: f32, length: f32) -> f32 {
-    (coordinate.floor().clamp(0., length - 1.) + 0.5) / length
+fn tint([r, g, b]: Rgb) -> Hsla {
+    gpui::rgb(u32::from_be_bytes([0, r, g, b])).into()
+}
+
+impl Render for Picker {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::mem::take(&mut self.focus_on_open) {
+            self.fields[0].read(cx).focus(window);
+        }
+        let p = self.palette;
+        let viewport = window.viewport_size();
+        let popup = self.popup(viewport);
+        let mut swatches = div().flex().items_center().gap(px(3.));
+        for (index, rgb) in self.presets.iter().enumerate() {
+            swatches = swatches.child(self.swatch(("color-preset", index), *rgb, cx));
+        }
+        if !self.saved.is_empty() {
+            swatches = swatches.child(div().w(px(1.)).h(px(SWATCH)).mx(px(2.)).bg(p.border));
+            for (index, rgb) in self.saved.iter().enumerate() {
+                swatches = swatches.child(self.swatch(("color-saved", index), *rgb, cx));
+            }
+        }
+        let initial = self.initial;
+        // New color on top, the color the popup opened with below. Click it to revert.
+        let preview = div()
+            .w(px(PREVIEW))
+            .h(px(ROW * 3. + GAP * 2.))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .border_1()
+            .border_color(p.border)
+            .child(div().flex_1().bg(tint(self.value)))
+            .child(
+                div()
+                    .id("color-initial")
+                    .flex_1()
+                    .bg(tint(initial))
+                    .on_click(cx.listener(move |picker, _, _, cx| picker.select(initial, cx))),
+            );
+        let rows = div()
+            .flex()
+            .flex_col()
+            .gap(px(GAP))
+            .child(self.channel_row("HEX", &[0]))
+            .child(self.channel_row("RGB", &[1, 2, 3]))
+            .child(self.channel_row("HSL", &[4, 5, 6]));
+        let card = div()
+            .id("color-picker")
+            .absolute()
+            .left(popup.origin.x)
+            .top(popup.origin.y)
+            .w(px(WIDTH))
+            .h(px(HEIGHT))
+            .p(px(PAD))
+            .flex()
+            .flex_col()
+            .gap(px(GAP * 2.))
+            .bg(p.panel)
+            .border_1()
+            .border_color(p.border)
+            .rounded(px(4.))
+            .shadow(vec![gpui::BoxShadow {
+                color: gpui::hsla(0., 0., 0., 0.3),
+                offset: point(px(0.), px(4.)),
+                blur_radius: px(12.),
+                spread_radius: px(0.),
+            }])
+            .text_size(px(11.))
+            .text_color(p.foreground)
+            .child(swatches)
+            .child(div().flex().gap(px(GAP)).child(preview).child(rows));
+        let layer = div()
+            .id("color-picker-backdrop")
+            .w(viewport.width)
+            .h(viewport.height)
+            .occlude()
+            .capture_any_mouse_down(cx.listener(move |_, event: &gpui::MouseDownEvent, _, cx| {
+                if !popup.contains(&event.position) {
+                    cx.emit(Event::Close);
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_key_down(cx.listener(|picker, event, window, cx| picker.key(event, window, cx)))
+            .child(card);
+        gpui::deferred(gpui::anchored().position(point(px(0.), px(0.))).child(layer))
+            .with_priority(60)
+    }
+}
+
+impl SettingsPanel {
+    pub(in crate::settings) fn choose_color(
+        &mut self,
+        kind: api::ColorKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.operations.frozen() || self.color_picker.is_some() {
+            return;
+        }
+        let Some(draft) = &self.draft else { return };
+        let (value, presets, saved): (_, &[&str], _) = match kind {
+            api::ColorKind::Accent => (
+                &draft.value.accent_color,
+                &colors::ACCENTS,
+                self.custom_colors.as_ref().map(|colors| &colors.accent),
+            ),
+            api::ColorKind::Background => (
+                &draft.value.background_color,
+                &colors::BACKGROUNDS,
+                self.custom_colors.as_ref().map(|colors| &colors.background),
+            ),
+        };
+        let Some(initial) = parse_hex(value) else { return };
+        let presets = presets.iter().filter_map(|color| parse_hex(color)).collect();
+        let saved = saved
+            .into_iter()
+            .flatten()
+            .filter_map(|color| parse_hex(color))
+            .collect();
+        let (anchor, palette) = (self.color_anchor(kind).clone(), self.palette);
+        let view = cx.new(|cx| Picker::new(initial, presets, saved, palette, anchor, window, cx));
+        let opener = format!("{kind:?}-chooser");
+        let subscription = cx.subscribe_in(&view, window, move |panel, _, event, window, cx| {
+            match event {
+                Event::Close => {
+                    panel.color_picker = None;
+                    if let Some(focus) = panel.controls.get(&opener) {
+                        focus.focus(window);
+                    }
+                }
+                Event::Color(rgb) => {
+                    let hex = hex(*rgb);
+                    let patch = match kind {
+                        api::ColorKind::Accent => SettingsPatch {
+                            accent_color: Some(hex),
+                            ..Default::default()
+                        },
+                        api::ColorKind::Background => SettingsPatch {
+                            background_color: Some(hex),
+                            ..Default::default()
+                        },
+                    };
+                    panel.stage(patch, cx);
+                }
+            }
+            cx.notify();
+        });
+        self.color_picker = Some(Active {
+            view,
+            _subscription: subscription,
+        });
+        cx.notify();
+    }
+
+    pub(in crate::settings) fn color_anchor(&self, kind: api::ColorKind) -> &Anchor {
+        match kind {
+            api::ColorKind::Accent => &self.accent_anchor,
+            api::ColorKind::Background => &self.background_anchor,
+        }
+    }
 }
 
 pub(super) fn remember_anchor(anchor: Anchor) -> impl IntoElement {
-    gpui::canvas(
-        move |bounds, _, _| anchor.set(Some(bounds)),
-        |_, _, _, _| {},
-    )
-    .absolute()
-    .left(px(-1.))
-    .right(px(-1.))
-    .top(px(-1.))
-    .bottom(px(-1.))
+    gpui::canvas(move |bounds, _, _| anchor.set(Some(bounds)), |_, _, _, _| {})
+        .absolute()
+        .left(px(-1.))
+        .right(px(-1.))
+        .top(px(-1.))
+        .bottom(px(-1.))
 }

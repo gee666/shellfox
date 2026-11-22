@@ -77,14 +77,6 @@ const ICONS: &[(&str, &[u8])] = &[
     ("chevron", include_bytes!("../assets/icons/chevron.svg")),
     ("eye", include_bytes!("../assets/icons/eye.svg")),
     ("eye-off", include_bytes!("../assets/icons/eye-off.svg")),
-    (
-        "color-eyedropper",
-        include_bytes!("../assets/icons/color-eyedropper.svg"),
-    ),
-    (
-        "color-format",
-        include_bytes!("../assets/icons/color-format.svg"),
-    ),
     ("folder", include_bytes!("../assets/icons/folder.svg")),
     ("pin", include_bytes!("../assets/icons/pin.svg")),
     ("settle", include_bytes!("../assets/icons/settle.svg")),
@@ -294,10 +286,6 @@ mod tests {
     fn all_ui_icons_use_existing_svg_geometry_and_fixed_strokes() {
         for (name, bytes) in ICONS {
             let svg = std::str::from_utf8(bytes).unwrap();
-            if name.starts_with("color-") {
-                assert!(svg.contains("fill=\"currentColor\""));
-                continue;
-            }
             if name.starts_with("image-") {
                 assert!(svg.contains("viewBox=\"0 0 24 24\""));
                 assert!(svg.contains("stroke-width=\"1.7\""));
