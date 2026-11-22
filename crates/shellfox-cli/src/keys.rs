@@ -1,9 +1,13 @@
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+//! Crossterm events as Ghostty key events. A Ghostty terminal that knows the
+//! application's modes encodes them; nothing here produces terminal bytes.
+use crossterm::event::{Event, KeyCode, KeyEvent as Crossterm, KeyEventKind, KeyModifiers};
+use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers as Mods, PhysicalKey as P};
 
 #[derive(Debug, PartialEq)]
 pub enum Input {
     Detach,
-    Bytes(Vec<u8>),
+    Key(KeyEvent),
+    Paste(String),
     Ignore,
 }
 
@@ -11,206 +15,107 @@ pub enum Input {
 // Queries are suppressed on the output path, not guessed from ambiguous input.
 pub fn from_event(event: Event) -> Input {
     match event {
-        Event::Key(key) => encode(key),
-        Event::Paste(text) => Input::Bytes(text.into_bytes()),
+        Event::Key(key) => key_input(key),
+        Event::Paste(text) => Input::Paste(text),
         _ => Input::Ignore,
     }
 }
 
-pub fn encode(key: KeyEvent) -> Input {
-    if key.kind == KeyEventKind::Release {
-        return Input::Ignore;
-    }
+pub fn key_input(key: Crossterm) -> Input {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
     // Crossterm's Unix parser represents the legacy 0x1d byte as Ctrl+5.
     if key.code == KeyCode::Char('\u{1d}')
         || (ctrl
             && (key.code == KeyCode::Char(']') || cfg!(unix) && key.code == KeyCode::Char('5')))
     {
-        return Input::Detach;
+        return match key.kind {
+            KeyEventKind::Release => Input::Ignore,
+            _ => Input::Detach,
+        };
     }
-    if key
-        .modifiers
-        .intersects(KeyModifiers::SUPER | KeyModifiers::HYPER | KeyModifiers::META)
-    {
-        return Input::Ignore;
-    }
-    let modifier = 1
-        + u8::from(key.modifiers.contains(KeyModifiers::SHIFT))
-        + 2 * u8::from(alt)
-        + 4 * u8::from(ctrl);
-    let mut bytes = match key.code {
-        KeyCode::Char(c) if ctrl => {
-            let code = match c.to_ascii_uppercase() {
-                '@' | ' ' | '2' => 0,
-                c @ 'A'..='Z' => c as u8 - b'A' + 1,
-                '[' | '3' => 27,
-                '\\' | '4' => 28,
-                '^' | '6' => 30,
-                '_' | '7' | '/' => 31,
-                '?' | '8' => 127,
-                _ => return Input::Ignore,
-            };
-            vec![code]
-        }
-        KeyCode::Char(c) => c.to_string().into_bytes(),
-        KeyCode::Enter => vec![b'\r'],
-        KeyCode::Tab => vec![b'\t'],
-        KeyCode::BackTab => return Input::Bytes(b"\x1b[Z".to_vec()),
-        KeyCode::Backspace => vec![127],
-        KeyCode::Esc => vec![27],
-        KeyCode::Up => return csi('A', modifier),
-        KeyCode::Down => return csi('B', modifier),
-        KeyCode::Right => return csi('C', modifier),
-        KeyCode::Left => return csi('D', modifier),
-        KeyCode::Home => return csi('H', modifier),
-        KeyCode::End => return csi('F', modifier),
-        KeyCode::Insert => return tilde(2, modifier),
-        KeyCode::Delete => return tilde(3, modifier),
-        KeyCode::PageUp => return tilde(5, modifier),
-        KeyCode::PageDown => return tilde(6, modifier),
-        KeyCode::F(n @ 1..=4) => {
-            let final_char = char::from(b'P' + n - 1);
-            return if modifier == 1 {
-                Input::Bytes(format!("\x1bO{final_char}").into_bytes())
-            } else {
-                csi(final_char, modifier)
-            };
-        }
-        KeyCode::F(n @ 5..=12) => {
-            return tilde(
-                [15, 17, 18, 19, 20, 21, 23, 24][usize::from(n - 5)],
-                modifier,
-            )
-        }
-        _ => return Input::Ignore,
+    key_event(key).map_or(Input::Ignore, Input::Key)
+}
+
+pub fn key_event(key: Crossterm) -> Option<KeyEvent> {
+    let mut modifiers = Mods::NONE;
+    modifiers.set(Mods::SHIFT, key.modifiers.contains(KeyModifiers::SHIFT));
+    modifiers.set(Mods::CONTROL, key.modifiers.contains(KeyModifiers::CONTROL));
+    modifiers.set(Mods::ALT, key.modifiers.contains(KeyModifiers::ALT));
+    modifiers.set(Mods::SUPER, key.modifiers.contains(KeyModifiers::SUPER));
+    let action = match key.kind {
+        KeyEventKind::Press => KeyAction::Press,
+        KeyEventKind::Repeat => KeyAction::Repeat,
+        KeyEventKind::Release => KeyAction::Release,
     };
-    if alt {
-        bytes.insert(0, 27);
+    let physical = match key.code {
+        KeyCode::Char(c) => return character(c, modifiers, action),
+        KeyCode::Enter => P::Enter,
+        KeyCode::Tab => P::Tab,
+        KeyCode::BackTab => {
+            modifiers.set(Mods::SHIFT, true);
+            P::Tab
+        }
+        KeyCode::Backspace => P::Backspace,
+        KeyCode::Esc => P::Escape,
+        KeyCode::Up => P::ArrowUp,
+        KeyCode::Down => P::ArrowDown,
+        KeyCode::Left => P::ArrowLeft,
+        KeyCode::Right => P::ArrowRight,
+        KeyCode::Home => P::Home,
+        KeyCode::End => P::End,
+        KeyCode::PageUp => P::PageUp,
+        KeyCode::PageDown => P::PageDown,
+        KeyCode::Insert => P::Insert,
+        KeyCode::Delete => P::Delete,
+        KeyCode::Menu => P::ContextMenu,
+        KeyCode::F(n @ 1..=25) => P::try_from(P::F1.code() + u32::from(n) - 1).ok()?,
+        _ => return None,
+    };
+    Some(KeyEvent {
+        action,
+        ..KeyEvent::press(physical, modifiers)
+    })
+}
+
+/// Crossterm reports the character the layout produced, with Shift applied
+/// and Ctrl not. Its US key position, if it has one, is the physical key.
+fn character(c: char, modifiers: Mods, action: KeyAction) -> Option<KeyEvent> {
+    if c.is_control() {
+        return None;
     }
-    Input::Bytes(bytes)
-}
-
-fn csi(final_char: char, modifier: u8) -> Input {
-    Input::Bytes(
-        if modifier == 1 {
-            format!("\x1b[{final_char}")
-        } else {
-            format!("\x1b[1;{modifier}{final_char}")
-        }
-        .into_bytes(),
-    )
-}
-
-fn tilde(code: u8, modifier: u8) -> Input {
-    Input::Bytes(
-        if modifier == 1 {
-            format!("\x1b[{code}~")
-        } else {
-            format!("\x1b[{code};{modifier}~")
-        }
-        .into_bytes(),
-    )
+    let base = c.to_lowercase().next().unwrap_or(c);
+    let physical = match base {
+        'a'..='z' => P::try_from(P::KeyA.code() + u32::from(base) - u32::from('a')).ok()?,
+        '0'..='9' => P::try_from(P::Digit0.code() + u32::from(base) - u32::from('0')).ok()?,
+        ' ' => P::Space,
+        '`' => P::Backquote,
+        '-' => P::Minus,
+        '=' => P::Equal,
+        '[' => P::BracketLeft,
+        ']' => P::BracketRight,
+        '\\' => P::Backslash,
+        ';' => P::Semicolon,
+        '\'' => P::Quote,
+        ',' => P::Comma,
+        '.' => P::Period,
+        '/' => P::Slash,
+        _ => P::Unidentified,
+    };
+    let shifted = base != c;
+    Some(KeyEvent {
+        physical,
+        action,
+        modifiers,
+        consumed_modifiers: if shifted { Mods::SHIFT } else { Mods::NONE },
+        text: match action {
+            KeyAction::Release => String::new(),
+            _ => c.to_string(),
+        },
+        unshifted_codepoint: Some(base),
+        composing: false,
+    })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn key(code: KeyCode, modifiers: KeyModifiers) -> Input {
-        encode(KeyEvent::new(code, modifiers))
-    }
-    #[test]
-    fn detach_is_local_but_ctrl_c_is_remote_input() {
-        assert_eq!(
-            key(KeyCode::Char(']'), KeyModifiers::CONTROL),
-            Input::Detach
-        );
-        assert_eq!(
-            key(KeyCode::Char('\u{1d}'), KeyModifiers::NONE),
-            Input::Detach
-        );
-        assert_eq!(
-            key(KeyCode::Char('c'), KeyModifiers::CONTROL),
-            Input::Bytes(vec![3])
-        );
-        assert_eq!(
-            key(KeyCode::Char(']'), KeyModifiers::NONE),
-            Input::Bytes(vec![b']'])
-        );
-    }
-    #[cfg(unix)]
-    #[test]
-    fn unix_group_separator_decoded_by_crossterm_detaches() {
-        assert_eq!(
-            key(KeyCode::Char('5'), KeyModifiers::CONTROL),
-            Input::Detach
-        );
-        assert_eq!(
-            key(KeyCode::Char('5'), KeyModifiers::NONE),
-            Input::Bytes(vec![b'5'])
-        );
-    }
-    #[test]
-    fn unicode_alt_and_navigation_keys() {
-        assert_eq!(
-            key(KeyCode::Char('界'), KeyModifiers::NONE),
-            Input::Bytes("界".as_bytes().to_vec())
-        );
-        assert_eq!(
-            key(KeyCode::Char('x'), KeyModifiers::ALT),
-            Input::Bytes(b"\x1bx".to_vec())
-        );
-        assert_eq!(
-            key(KeyCode::Up, KeyModifiers::NONE),
-            Input::Bytes(b"\x1b[A".to_vec())
-        );
-        assert_eq!(
-            key(KeyCode::Left, KeyModifiers::CONTROL),
-            Input::Bytes(b"\x1b[1;5D".to_vec())
-        );
-        assert_eq!(
-            key(KeyCode::F(5), KeyModifiers::NONE),
-            Input::Bytes(b"\x1b[15~".to_vec())
-        );
-        assert_eq!(
-            key(KeyCode::BackTab, KeyModifiers::SHIFT),
-            Input::Bytes(b"\x1b[Z".to_vec())
-        );
-    }
-    #[test]
-    fn response_looking_keys_and_bracketed_paste_are_not_stripped() {
-        let replies = "\x1b[?61;6;7;22c\x1b[12;34R\x1b[4;900;1200t\x1b]10;rgb:ff/ff/ff\x1b\\";
-        let input: Vec<u8> = replies
-            .chars()
-            .flat_map(|c| {
-                match from_event(Event::Key(KeyEvent::new(
-                    KeyCode::Char(c),
-                    KeyModifiers::NONE,
-                ))) {
-                    Input::Bytes(bytes) => bytes,
-                    _ => panic!("User key was classified as a reply"),
-                }
-            })
-            .collect();
-        assert_eq!(input, replies.as_bytes());
-        // Event::Paste is already framed by crossterm. Its payload is opaque,
-        // including literal bracket delimiters and the local detach character.
-        let paste = format!("\x1b[200~{replies}\x1d\n雪🙂\x1b[201~");
-        assert_eq!(
-            from_event(Event::Paste(paste.clone())),
-            Input::Bytes(paste.into_bytes())
-        );
-    }
-
-    #[test]
-    fn release_is_not_repeated_input() {
-        let event = KeyEvent::new_with_kind(
-            KeyCode::Char('a'),
-            KeyModifiers::NONE,
-            KeyEventKind::Release,
-        );
-        assert_eq!(encode(event), Input::Ignore);
-        assert_eq!(key(KeyCode::Null, KeyModifiers::NONE), Input::Ignore);
-    }
-}
+#[path = "keys_tests.rs"]
+mod tests;

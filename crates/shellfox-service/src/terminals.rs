@@ -191,6 +191,27 @@ impl Service {
     pub fn input(&mut self, tab: TabId, attachment: &Attachment, bytes: Vec<u8>) -> Result<()> {
         self.input_with_context(tab, attachment, bytes, true, shellfox_host::CapturedSettlement::Legacy)
     }
+    /// A CLI key, encoded by Ghostty with the terminal's live keyboard modes.
+    pub fn key(&mut self, tab: TabId, attachment: &Attachment, event: shellfox_ghostty_vt::key::KeyEvent) -> Result<()> {
+        let lease = self.lease(tab, attachment)?;
+        let user_initiated = event.action != shellfox_ghostty_vt::key::KeyAction::Release;
+        let admission = crate::activity_integration::InputAdmission::native(user_initiated, false, shellfox_host::CapturedSettlement::Legacy);
+        let response = self.call_input(tab, Command::Key { lease, event }, admission)?;
+        if !matches!(response, Response::Input(receipt) if matches!(receipt.kind, shellfox_runtime::InputKind::Key { .. })) {
+            bail!("Runtime key acceptance was not confirmed; outcome is uncertain and input was not retried.");
+        }
+        Ok(())
+    }
+    /// A CLI paste, framed per the application's bracketed-paste mode.
+    pub fn paste(&mut self, tab: TabId, attachment: &Attachment, text: String) -> Result<()> {
+        let lease = self.lease(tab, attachment)?;
+        let admission = crate::activity_integration::InputAdmission::native(!text.is_empty(), false, shellfox_host::CapturedSettlement::Legacy);
+        let response = self.call_input(tab, Command::Paste { lease, text }, admission)?;
+        if !matches!(response, Response::Input(receipt) if matches!(receipt.kind, shellfox_runtime::InputKind::Paste { .. })) {
+            bail!("Runtime paste acceptance was not confirmed; outcome is uncertain and input was not retried.");
+        }
+        Ok(())
+    }
     fn input_with_context(&mut self, tab: TabId, attachment: &Attachment, bytes: Vec<u8>, user_initiated: bool, settlement: shellfox_host::CapturedSettlement) -> Result<()> {
         let lease = self.lease(tab, attachment)?;
         let length = u32::try_from(bytes.len())?;

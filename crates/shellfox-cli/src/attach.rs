@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-const INPUT_CHUNK: usize = 16 * 1024;
+const PASTE_CHUNK: usize = 16 * 1024;
 
 #[path = "terminal_guard.rs"]
 mod guard;
@@ -52,22 +52,23 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
                 resize(client, tab, &attachment, cols, rows).await?;
                 continue;
             }
-            let bytes = match keys::from_event(event) {
+            // The host's terminal encodes keys and pastes with the modes the
+            // application set, even ones recovery could not replay locally.
+            let attachment = attachment.clone();
+            let request = match keys::from_event(event) {
                 Input::Detach => return Ok(()),
-                Input::Bytes(bytes) => bytes,
+                Input::Key(event) => ExperimentRequest::Key { tab, attachment, event },
+                Input::Paste(text) => {
+                    for text in paste_chunks(&text) {
+                        let attachment = attachment.clone();
+                        let paste = ExperimentRequest::Paste { tab, attachment, text: text.to_owned() };
+                        done(client.execute(paste).await?)?;
+                    }
+                    continue;
+                }
                 Input::Ignore => continue,
             };
-            for bytes in bytes.chunks(INPUT_CHUNK) {
-                done(
-                    client
-                        .execute(ExperimentRequest::Input {
-                            tab,
-                            attachment: attachment.clone(),
-                            bytes: bytes.to_vec(),
-                        })
-                        .await?,
-                )?;
-            }
+            done(client.execute(request).await?)?;
         }
         let mut chunks = match client
             .execute(ExperimentRequest::Poll {
@@ -110,6 +111,23 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     // Dropping the client releases the attachment. Never send CloseTab or Stop.
+}
+
+/// Pastes above the host's 64 KiB input bound go in UTF-8-safe pieces.
+fn paste_chunks(text: &str) -> impl Iterator<Item = &str> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let mut end = rest.len().min(PASTE_CHUNK);
+        while !rest.is_char_boundary(end) {
+            end -= 1;
+        }
+        let (chunk, tail) = rest.split_at(end);
+        rest = tail;
+        Some(chunk)
+    })
 }
 
 async fn resize(

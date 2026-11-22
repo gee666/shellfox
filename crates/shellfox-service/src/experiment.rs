@@ -48,6 +48,17 @@ pub enum ExperimentRequest {
         attachment: Attachment,
         bytes: Vec<u8>,
     },
+    /// Encoded by the host's Ghostty terminal with the application's live modes.
+    Key {
+        tab: TabId,
+        attachment: Attachment,
+        event: shellfox_ghostty_vt::key::KeyEvent,
+    },
+    Paste {
+        tab: TabId,
+        attachment: Attachment,
+        text: String,
+    },
     Resize {
         tab: TabId,
         attachment: Attachment,
@@ -124,6 +135,18 @@ impl Validate for ExperimentRequest {
                 bytes, attachment, ..
             } => {
                 ensure(bytes.len() <= 64 * 1024)?;
+                validate_attachment(attachment)?;
+            }
+            Key {
+                event, attachment, ..
+            } => {
+                ensure(event.text.len() <= 64 * 1024 && event.validate().is_ok())?;
+                validate_attachment(attachment)?;
+            }
+            Paste {
+                text, attachment, ..
+            } => {
+                ensure(text.len() <= 64 * 1024)?;
                 validate_attachment(attachment)?;
             }
             Resize {
@@ -220,6 +243,24 @@ impl Service {
             } => {
                 owner(&attachment, controller)?;
                 self.input(tab, &attachment, bytes)?;
+                ExperimentResponse::Done {}
+            }
+            Key {
+                tab,
+                attachment,
+                event,
+            } => {
+                owner(&attachment, controller)?;
+                self.key(tab, &attachment, event)?;
+                ExperimentResponse::Done {}
+            }
+            Paste {
+                tab,
+                attachment,
+                text,
+            } => {
+                owner(&attachment, controller)?;
+                self.paste(tab, &attachment, text)?;
                 ExperimentResponse::Done {}
             }
             Resize {

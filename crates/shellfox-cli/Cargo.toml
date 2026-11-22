@@ -18,6 +18,7 @@ serde = "1"
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 shellfox-core = { path = "../shellfox-core" }
+shellfox-ghostty-vt = { path = "../ghostty-vt" }
 shellfox-protocol = { path = "../shellfox-protocol" }
 shellfox-client = { path = "../shellfox-client" }
 shellfox-mobile = { path = "../shellfox-mobile" }

@@ -5,6 +5,7 @@ use super::{
 use anyhow::Result;
 use russh::{client, Channel, ChannelMsg, Sig};
 use std::io::{self, Read, Write};
+use std::sync::Mutex;
 use tokio::sync::mpsc;
 
 pub(super) fn output(bytes: &[u8]) -> Result<()> {
@@ -38,13 +39,40 @@ fn redirected_input() -> Result<mpsc::Receiver<io::Result<Vec<u8>>>> {
         })?;
     Ok(recv)
 }
+/// Follows the remote application's modes so keys and pastes are encoded by
+/// Ghostty exactly as the remote terminal state expects. Its replies are
+/// discarded: the user's terminal answers queries.
+struct Mirror(Mutex<shellfox_ghostty_vt::Terminal>);
+impl Mirror {
+    fn new() -> Result<Self> {
+        let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+        Ok(Self(Mutex::new(shellfox_ghostty_vt::Terminal::new(cols.max(1), rows.max(1))?)))
+    }
+    fn with<T>(&self, f: impl FnOnce(&mut shellfox_ghostty_vt::Terminal) -> shellfox_ghostty_vt::Result<T>) -> Result<T> {
+        let mut terminal = self.0.lock().map_err(|_| anyhow::anyhow!("terminal state lock poisoned"))?;
+        Ok(f(&mut terminal)?)
+    }
+    fn feed(&self, bytes: &[u8]) -> Result<()> {
+        self.with(|t| {
+            for chunk in bytes.chunks(1 << 20) {
+                t.feed(chunk)?;
+                t.drain_replies()?;
+            }
+            Ok(())
+        })
+    }
+}
 pub(super) async fn exchange(channel: Channel<client::Msg>, terminal: &Terminal) -> Result<i32> {
     let (mut read, write) = channel.split();
+    let mirror = Mirror::new()?;
     let remote = async {
         let mut exit = None;
         while let Some(message) = read.wait().await {
             match message {
-                ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => output(&data)?,
+                ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => {
+                    output(&data)?;
+                    mirror.feed(&data)?;
+                }
                 ChannelMsg::ExitStatus { exit_status } => exit = Some(exit_status as i32),
                 ChannelMsg::ExitSignal { signal_name, .. } => {
                     exit = Some(signal_status(signal_name))
@@ -56,7 +84,7 @@ pub(super) async fn exchange(channel: Channel<client::Msg>, terminal: &Terminal)
         exit.ok_or_else(|| ConnectionError("connection lost".into()).into())
     };
     let local = async {
-        forward_input(&write, terminal).await?;
+        forward_input(&write, terminal, &mirror).await?;
         std::future::pending().await
     };
     // A blocked paste must not stop us from consuming remote output or exit.
@@ -70,8 +98,8 @@ pub(super) async fn exchange(channel: Channel<client::Msg>, terminal: &Terminal)
 async fn forward_input(
     write: &russh::ChannelWriteHalf<client::Msg>,
     terminal: &Terminal,
+    mirror: &Mirror,
 ) -> Result<()> {
-    use crate::keys::{self, Input};
     use crossterm::event::Event;
     if !terminal.tty {
         let mut input = redirected_input()?;
@@ -84,18 +112,22 @@ async fn forward_input(
     loop {
         match terminal.next_event().await? {
             Event::Resize(cols, rows) => {
+                mirror.with(|t| t.resize(cols.max(1), rows.max(1)))?;
                 write.window_change(cols.into(), rows.into(), 0, 0).await?
             }
             Event::Paste(text) => {
-                write
-                    .data_bytes(format!("\x1b[200~{text}\x1b[201~"))
-                    .await?
+                let bytes = mirror.with(|t| t.encode_paste(&text))?;
+                write.data_bytes(bytes).await?
             }
-            event => match keys::from_event(event) {
-                Input::Bytes(bytes) => write.data_bytes(bytes).await?,
-                Input::Detach => write.data_bytes(vec![29]).await?,
-                Input::Ignore => {}
-            },
+            // SSH has no local detach key: Ctrl+] reaches the remote shell.
+            Event::Key(key) => {
+                let Some(event) = crate::keys::key_event(key) else { continue };
+                let bytes = mirror.with(|t| t.encode_key_event(&event))?;
+                if !bytes.is_empty() {
+                    write.data_bytes(bytes).await?
+                }
+            }
+            _ => {}
         }
     }
 }
