@@ -7,11 +7,6 @@ use std::{
     thread::{self, ThreadId},
 };
 
-#[cfg(feature = "experimental-shellfox-native")]
-#[path = "engine_native_recovery.rs"]
-mod native0;
-#[cfg(feature = "experimental-shellfox-native")]
-pub(crate) use native0::{commit_native0, prepare_native0_pending};
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -28,8 +23,6 @@ pub(crate) struct Shared {
     pub owner: ThreadId,
     pub queue: Mutex<Queue>,
     // Sticky Manager association and passive-parser role, until engine close.
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub passive_manager: std::sync::atomic::AtomicBool,
 }
 pub(crate) struct Owned {
     pub terminal: Terminal,
@@ -98,8 +91,6 @@ pub(crate) fn create(cols: u16, rows: u16) -> Result<u64> {
     let shared = Arc::new(Shared {
         owner: thread::current().id(),
         queue: Mutex::new(Queue::default()),
-        #[cfg(feature = "experimental-shellfox-native")]
-        passive_manager: std::sync::atomic::AtomicBool::new(false),
     });
     ENGINES.with(|engines| {
         engines
@@ -148,13 +139,6 @@ pub(crate) fn reset(id: u64, cols: u16, rows: u16) -> Result<()> {
         let mut engines = engines.try_borrow_mut().map_err(|_| Status::Busy)?;
         let owned = engines.0.get_mut(&id).ok_or(Status::Stale)?;
         let mut q = shared.queue.lock().map_err(|_| Status::Panic)?;
-        #[cfg(feature = "experimental-shellfox-native")]
-        if shared
-            .passive_manager
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err(Status::Invalid);
-        }
         let mut terminal = Terminal::new(cols, rows).map_err(|_| Status::Engine)?;
         if let Some(colors) = &owned.colors {
             terminal.set_colors(colors).map_err(|_| Status::Engine)?;
@@ -196,12 +180,6 @@ pub(crate) fn pump(owned: &mut Owned) -> Result<()> {
         let next = {
             let mut q = owned.shared.queue.lock().map_err(|_| Status::Panic)?;
             match q.chunks.front() {
-                #[cfg(feature = "experimental-shellfox-native")]
-                Some((_, crate::queue::Payload::Native0(_))) if budget == MAX_PUMP => {
-                    let next = q.chunks.pop_front().ok_or(Status::Panic)?;
-                    q.bytes -= next.1.len();
-                    Some(next)
-                }
                 Some((_, bytes)) if bytes.len() <= budget => {
                     let next = q.chunks.pop_front().ok_or(Status::Panic)?;
                     q.bytes -= next.1.len();
@@ -213,16 +191,7 @@ pub(crate) fn pump(owned: &mut Owned) -> Result<()> {
         let Some((sequence, payload)) = next else {
             return Ok(());
         };
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         let crate::queue::Payload::Bytes(bytes) = payload;
-        #[cfg(feature = "experimental-shellfox-native")]
-        let bytes = match payload {
-            crate::queue::Payload::Bytes(bytes) => bytes,
-            crate::queue::Payload::Native0(work) => {
-                let prepared = native0::prepare_work(owned, sequence, *work)?;
-                return commit_native0(owned, prepared);
-            }
-        };
         owned.terminal.feed(&bytes).map_err(|_| Status::Engine)?;
         // This view mirrors the host, which already answers terminal queries.
         owned.terminal.drain_replies().map_err(|_| Status::Engine)?;

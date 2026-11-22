@@ -1,9 +1,6 @@
 //! Native remote client ABI. See include/shellfox_mobile_client.h for ownership.
 #[path = "client_lifecycle.rs"]
 mod lifecycle;
-#[cfg(feature = "experimental-shellfox-native")]
-#[path = "client_manager_recovery.rs"]
-pub(crate) mod manager;
 #[path = "client_mutations.rs"]
 mod mutations;
 #[path = "client_observer.rs"]
@@ -24,17 +21,8 @@ mod observer_owner;
 mod operations;
 #[path = "client_profile.rs"]
 mod profile;
-#[cfg(feature = "experimental-shellfox-native")]
-pub use manager::abi::*;
-#[cfg(feature = "experimental-shellfox-native")]
-pub use manager::{
-    ManagerOwnerView, ManagerPollContext, ManagerRecovery, ManagerRecoveryError,
-    PendingManagerInput, PendingManagerResize, PreparedNative0Install,
-};
 pub use observer::*;
 pub(crate) use profile::observer_bound;
-#[cfg(feature = "experimental-shellfox-native")]
-pub(crate) use terminal::decode_native0;
 #[path = "client_runtime.rs"]
 mod runtime;
 #[path = "client_terminal.rs"]

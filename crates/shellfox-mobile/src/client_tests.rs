@@ -12,9 +12,6 @@ mod bounded_flow;
 mod file_commands;
 #[path = "client_tests_input_ex.rs"]
 mod input_metadata;
-#[cfg(feature = "experimental-shellfox-native")]
-#[path = "client_tests_manager.rs"]
-mod manager_v2;
 #[path = "client_tests_mutations.rs"]
 mod mutation_order;
 #[path = "client_tests_terminal.rs"]

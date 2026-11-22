@@ -1,11 +1,6 @@
 use super::*;
 
 pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json::Value>) {
-    #[cfg(feature = "experimental-shellfox-native")]
-    if mobile.is_manager() {
-        super::super::manager::events::finish(mobile, op, result);
-        return;
-    }
     if mobile.is_observer() {
         super::super::observer::finish_event(mobile, op, result);
         return;

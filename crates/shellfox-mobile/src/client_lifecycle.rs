@@ -116,8 +116,6 @@ pub unsafe extern "C" fn sfm_client_close(
             s.observers.clear();
             s.cancels.drain(..).collect::<Vec<_>>()
         };
-        #[cfg(feature = "experimental-shellfox-native")]
-        super::manager::bindings::retire_all(&mobile)?;
         mobile.close_client();
         remove(handle)?;
         terminal::release(&mobile);

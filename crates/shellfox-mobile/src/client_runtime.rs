@@ -50,11 +50,6 @@ pub(super) struct State {
     pub observers: HashMap<shellfox_protocol::observer_v2::Id, super::observer::DeliveryBinding>,
     pub observer_withdrawing: bool,
     pub observer_disconnect: Option<u64>,
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub managers:
-        HashMap<shellfox_protocol::manager_v2::Id, Arc<super::manager::bindings::NativeBinding>>,
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub manager_catalog: Option<Arc<shellfox_protocol::observer_v2::Snapshot>>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -75,10 +70,6 @@ impl Default for State {
             observers: HashMap::new(),
             observer_withdrawing: false,
             observer_disconnect: None,
-            #[cfg(feature = "experimental-shellfox-native")]
-            managers: HashMap::new(),
-            #[cfg(feature = "experimental-shellfox-native")]
-            manager_catalog: None,
         }
     }
 }
@@ -114,8 +105,6 @@ pub(super) fn remove(id: u64) -> Result<Arc<Mobile>> {
 }
 #[path = "client_creation.rs"]
 mod creation;
-#[cfg(feature = "experimental-shellfox-native")]
-pub(super) use creation::create_manager;
 pub(super) use creation::{create, create_observer};
 pub(super) fn runtime() -> Result<&'static Runtime> {
     static RUNTIME: OnceLock<std::result::Result<Runtime, std::io::Error>> = OnceLock::new();

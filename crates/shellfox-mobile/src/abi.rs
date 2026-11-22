@@ -85,13 +85,6 @@ pub unsafe extern "C" fn sfm_terminal_submit(
         // SAFETY: forwarded C memory contract.
         let data = unsafe { bytes(ptr, length, MAX_CHUNK)? };
         let mut queue = shared.queue.lock().map_err(|_| Status::Panic)?;
-        #[cfg(feature = "experimental-shellfox-native")]
-        if shared
-            .passive_manager
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err(Status::Invalid);
-        }
         queue.submit(sequence, data)
     })
 }

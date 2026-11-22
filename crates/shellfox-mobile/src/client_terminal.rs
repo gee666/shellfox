@@ -89,8 +89,6 @@ fn install(b: &mut Binding, value: &TerminalAttachment, connection: u64) -> Resu
 }
 #[path = "client_recovery.rs"]
 mod recovery;
-#[cfg(feature = "experimental-shellfox-native")]
-pub(crate) use recovery::decode_native0;
 pub(super) use recovery::{ready, ready_handle, reset_done, reset_grid, reset_ticket};
 fn flush(binding: &mut Binding) -> Result<()> {
     let shared = crate::engine::lookup(binding.terminal).map_err(|e| e as i32)?;
