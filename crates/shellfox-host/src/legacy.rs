@@ -4,7 +4,7 @@
 //! Tabs are deliberately omitted, matching `src/main/terminal/service.ts::initialize`,
 //! which deletes every saved tab because saved PIDs cannot restore app-owned handles.
 //! Operations, terminal registrations, commands, credentials, output and window
-//! bindings are never selected. Global environment requires explicit import consent.
+//! bindings are never selected. Saved environment requires explicit import consent.
 
 use std::{collections::HashSet, path::Path, time::Duration};
 
@@ -50,7 +50,7 @@ pub(crate) fn read_legacy(path: &Path, policy: SettingsImportPolicy) -> Result<L
         return Err(storage());
     }
     let settings = crate::settings_legacy::read(&transaction, policy)?;
-    let (sessions, creation_facts) = read_sessions(&transaction, version)?;
+    let (sessions, creation_facts) = read_sessions(&transaction, version, policy)?;
     // A deferred read transaction gives settings and sessions one consistent snapshot.
     transaction.commit().map_err(|_| storage())?;
     Ok(LegacyImport {
@@ -157,10 +157,19 @@ fn validate_table(db: &Connection, table: &str, expected: &str) -> Result<()> {
     Ok(())
 }
 
-fn read_sessions(db: &Connection, version: i64) -> Result<(Vec<Session>, SessionCreationFactMap)> {
+fn read_sessions(
+    db: &Connection,
+    version: i64,
+    policy: SettingsImportPolicy,
+) -> Result<(Vec<Session>, SessionCreationFactMap)> {
     let pin = if version >= 4 { "pinnedAt" } else { "NULL" };
+    let env = if version >= 3 && policy == SettingsImportPolicy::IncludeEnvironment {
+        "CAST(env AS BLOB)"
+    } else {
+        "NULL"
+    };
     let mut statement = db.prepare(&format!(
-        "SELECT id,title,cwd,createdAt,updatedAt,settledAt,{pin},adapterId,shellId FROM sessions ORDER BY id LIMIT 10001"
+        "SELECT id,title,cwd,createdAt,updatedAt,settledAt,{pin},adapterId,shellId,{env} FROM sessions ORDER BY id LIMIT 10001"
     )).map_err(|_| storage())?;
     let mut rows = statement.query([]).map_err(|_| storage())?;
     let mut sessions = Vec::new();
@@ -180,7 +189,13 @@ fn read_sessions(db: &Connection, version: i64) -> Result<(Vec<Session>, Session
             settled_at: row.get(5).map_err(|_| storage())?,
             pinned_at: row.get(6).map_err(|_| storage())?,
             tabs: Vec::new(),
-            env: Vec::new(),
+            env: match row.get::<_, Option<Vec<u8>>>(9).map_err(|_| invalid())? {
+                Some(bytes) if bytes.len() <= 8 * 1024 * 1024 => {
+                    serde_json::from_slice(&bytes).map_err(|_| invalid())?
+                }
+                Some(_) => return Err(invalid()),
+                None => Vec::new(),
+            },
         };
         session.validate()?;
         if !ids.insert(session.id) {

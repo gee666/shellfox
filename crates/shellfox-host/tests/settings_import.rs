@@ -17,7 +17,7 @@ impl Scratch {
             db.execute_batch("CREATE TABLE terminal_metadata (tabId TEXT PRIMARY KEY REFERENCES tabs(id),value TEXT NOT NULL);").unwrap();
         }
         if version >= 3 {
-            db.execute_batch("ALTER TABLE sessions ADD COLUMN env TEXT NOT NULL DEFAULT '[]'; UPDATE sessions SET env='[{\"name\":\"SESSION_SECRET\",\"value\":\"not-imported\"}]';").unwrap();
+            db.execute_batch("ALTER TABLE sessions ADD COLUMN env TEXT NOT NULL DEFAULT '[]'; UPDATE sessions SET env='[{\"name\":\"SESSION_SECRET\",\"value\":\"consent-only\"}]';").unwrap();
         }
         if version >= 4 {
             db.execute_batch("ALTER TABLE sessions ADD COLUMN pinnedAt TEXT;")
@@ -100,7 +100,7 @@ fn all_five_copy_versions_preserve_user_configuration_but_not_runtime_or_secrets
         for excluded in [
             "explicit-consent-only",
             "SESSION_SECRET",
-            "not-imported",
+            "consent-only",
             "987654321",
             "source-only-secret",
             "/old/system/python3",
@@ -120,18 +120,25 @@ fn all_five_copy_versions_preserve_user_configuration_but_not_runtime_or_secrets
     }
 }
 #[test]
-fn global_environment_requires_explicit_consent_and_is_not_session_runtime_adoption() {
+fn saved_environment_requires_explicit_consent_and_is_not_session_runtime_adoption() {
     let dir = Scratch::new(5);
     let expected = dir.config();
     let host = Host::open(dir.0.join("consented")).unwrap();
     let snapshot = host
-        .import_legacy_with_settings(dir.source(), SettingsImportPolicy::IncludeGlobalEnvironment)
+        .import_legacy_with_settings(dir.source(), SettingsImportPolicy::IncludeEnvironment)
         .unwrap();
     assert_eq!(host.global_settings().unwrap(), expected);
-    assert!(snapshot
-        .sessions
-        .iter()
-        .all(|s| s.tabs.is_empty() && s.env.is_empty()));
+    assert!(!snapshot.sessions.is_empty());
+    for session in &snapshot.sessions {
+        assert!(session.tabs.is_empty());
+        assert_eq!(
+            session.env,
+            vec![EnvVar {
+                name: "SESSION_SECRET".into(),
+                value: "consent-only".into()
+            }]
+        );
+    }
     assert_eq!(snapshot.revision, 1);
     assert_eq!(
         host.changed_since(0).unwrap().unwrap().reason,
@@ -167,15 +174,72 @@ fn explicit_environment_consent_does_not_bypass_validation() {
         .unwrap();
     let host = Host::open(dir.0.join("destination")).unwrap();
     assert_eq!(
-        host.import_legacy_with_settings(
-            dir.source(),
-            SettingsImportPolicy::IncludeGlobalEnvironment
-        )
-        .unwrap_err()
-        .code,
+        host.import_legacy_with_settings(dir.source(), SettingsImportPolicy::IncludeEnvironment)
+            .unwrap_err()
+            .code,
         ErrorCode::Validation
     );
     assert_eq!(host.snapshot().unwrap().revision, 0);
     host.import_legacy(dir.source()).unwrap();
     assert!(host.global_settings().unwrap().terminal_env.is_empty());
+}
+#[test]
+fn electron_import_fills_only_unused_stores_and_upgrades_a_settings_only_import() {
+    let dir = Scratch::new(5);
+    let config = dir.config();
+    let fresh = Host::open(dir.0.join("fresh")).unwrap();
+    let report = fresh.import_electron(&dir.source(), true, true).unwrap();
+    assert!(report.settings && report.sessions > 0);
+    assert_eq!(fresh.global_settings().unwrap(), config);
+    assert_eq!(
+        fresh.snapshot().unwrap().sessions[0].env[0].value,
+        "consent-only"
+    );
+    assert!(nothing(
+        fresh.import_electron(&dir.source(), true, true).unwrap()
+    ));
+
+    // The v1 import copied settings only. A later pass adds the sessions once.
+    let upgraded = Host::open(dir.0.join("upgraded")).unwrap();
+    assert!(upgraded.import_electron_settings(&dir.source()).unwrap());
+    let report = upgraded
+        .import_electron(&dir.source(), false, true)
+        .unwrap();
+    assert_eq!(
+        (report.settings, report.sessions),
+        (false, fresh.snapshot().unwrap().sessions.len())
+    );
+    assert_eq!(upgraded.snapshot().unwrap().revision, 2);
+    assert_eq!(
+        upgraded.changed_since(1).unwrap().unwrap().reason,
+        ChangeReason::Sessions
+    );
+
+    // A store the user already changed keeps its own state.
+    let used = Host::open(dir.0.join("used")).unwrap();
+    used.update_preferences(PreferencesPatch {
+        font_size: Some(17.),
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(nothing(
+        used.import_electron(&dir.source(), true, true).unwrap()
+    ));
+    assert!(used.snapshot().unwrap().sessions.is_empty());
+    let after_v1 = Host::open(dir.0.join("after-v1")).unwrap();
+    assert!(after_v1.import_electron_settings(&dir.source()).unwrap());
+    after_v1
+        .update_preferences(PreferencesPatch {
+            font_size: Some(17.),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(nothing(
+        after_v1
+            .import_electron(&dir.source(), false, true)
+            .unwrap()
+    ));
+}
+fn nothing(report: impl std::fmt::Debug) -> bool {
+    format!("{report:?}") == "ElectronImport { settings: false, sessions: 0 }"
 }

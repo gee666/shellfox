@@ -8,8 +8,15 @@ pub enum SettingsImportPolicy {
     /// Safe default. Environment values may contain secrets and are not copied.
     #[default]
     ExcludeEnvironment,
-    /// Caller explicitly approved copying global environment, including secrets.
-    IncludeGlobalEnvironment,
+    /// Caller explicitly approved copying saved global and per-session
+    /// environment variables, including secrets.
+    IncludeEnvironment,
+}
+/// What the Electron first-launch import copied.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ElectronImport {
+    pub settings: bool,
+    pub sessions: usize,
 }
 impl Host {
     /// Import settings only from a private snapshot, without importing sessions or
@@ -38,7 +45,7 @@ impl Host {
             )
             .map_err(crate::storage::storage_error)?;
         validation::ensure(kind == "table", "Invalid Electron settings table.")?;
-        let settings = read(&db, SettingsImportPolicy::IncludeGlobalEnvironment)?;
+        let settings = read(&db, SettingsImportPolicy::IncludeEnvironment)?;
         let mut inner = self.lock()?;
         let tx = inner
             .db
@@ -61,10 +68,64 @@ impl Host {
         Ok(true)
     }
 
+    /// Electron first-launch import from a private snapshot, including saved
+    /// environment. Settings land only in a never-used store. Sessions land only
+    /// while the store has none and has seen at most the earlier settings-only
+    /// import (`settings == false` means that import already ran).
+    pub fn import_electron(
+        &self,
+        snapshot: &std::path::Path,
+        settings: bool,
+        sessions: bool,
+    ) -> Result<ElectronImport> {
+        let (path, _checked_artifacts) = crate::storage_guard::legacy(snapshot)?;
+        let imported = crate::legacy::read_legacy(&path, SettingsImportPolicy::IncludeEnvironment)?;
+        let mut inner = self.lock()?;
+        let runtime = inner.settings_runtime.clone();
+        let tx = inner
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(crate::storage::storage_error)?;
+        let mut data = crate::storage::load(&tx)?;
+        let revision = data.state.revision;
+        let mut result = ElectronImport::default();
+        if settings && revision == 0 {
+            crate::settings_store::project(&imported.settings, &mut data)?;
+            crate::settings_store::write(&tx, &imported.settings)?;
+            result.settings = true;
+        }
+        let unused = revision == 0 || (!settings && revision == 1);
+        if sessions && unused && data.sessions.is_empty() && data.creation_facts.is_empty() {
+            result.sessions = imported.sessions.len();
+            data.sessions = imported.sessions;
+            data.creation_facts = imported.creation_facts;
+            data.repair_selection();
+        }
+        if !result.settings && result.sessions == 0 {
+            return Ok(result);
+        }
+        data.state.revision = revision + 1;
+        data.state.last_change = Some(ChangedEvent {
+            revision: revision + 1,
+            reason: if result.settings {
+                ChangeReason::Settings
+            } else {
+                ChangeReason::Sessions
+            },
+            select_session_id: data.state.selection.session_id,
+        });
+        crate::storage::save(&tx, &data)?;
+        if let Some(runtime) = runtime {
+            runtime.check_commit()?;
+        }
+        tx.commit().map_err(crate::storage::storage_error)?;
+        Ok(result)
+    }
+
     /// Import a COPY of an Electron database. Profile configuration is
     /// retained even when unavailable here; discovery still gates later launch.
     /// Passwords/private credentials are not settings and are never imported.
-    /// Only explicit IncludeGlobalEnvironment consent copies possible env secrets.
+    /// Only explicit IncludeEnvironment consent copies possible env secrets.
     pub fn import_legacy_with_settings(
         &self,
         path: impl AsRef<std::path::Path>,
