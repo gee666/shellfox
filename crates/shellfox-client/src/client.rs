@@ -37,6 +37,7 @@ pub struct Client<T> {
     transport: T,
     peer: AuthenticatedPeerId,
     session: Mutex<Session>,
+    waker: StateWaker,
 }
 impl<T: OutboundTransport> Client<T> {
     pub fn new(peer: AuthenticatedPeerId, client_id: ClientId, transport: T) -> Self {
@@ -59,10 +60,17 @@ impl<T: OutboundTransport> Client<T> {
                 polling: false,
                 pairing: false,
             }),
+            waker: StateWaker::default(),
         }
     }
+    /// Called after status, permission or connection_id changes, on whichever
+    /// task made the change. Must not block or re-enter the client. Replaces
+    /// any previous waker.
+    pub fn set_state_waker(&self, wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
+        self.waker.set(wake);
+    }
     pub fn state(&self) -> ClientState {
-        self.session.lock().expect("client state").state.clone()
+        lock(&self.session, &self.waker).state.clone()
     }
     pub fn peer(&self) -> &AuthenticatedPeerId {
         &self.peer
@@ -73,7 +81,7 @@ impl<T: OutboundTransport> Client<T> {
     /// Reconnect fences in-flight responses. Caller supplies a fresh cryptographic UUID.
     /// It does not resend any mutation or transfer terminal ownership.
     pub fn reconnect(&self, client_id: ClientId) {
-        let mut s = self.session.lock().expect("client state");
+        let mut s = lock(&self.session, &self.waker);
         s.cancel.cancel();
         s.cancel = CancellationToken::new();
         s.cycle += 1;
@@ -88,7 +96,7 @@ impl<T: OutboundTransport> Client<T> {
     }
     /// Stops traffic immediately. Use disconnect() when the transport is still available.
     pub fn suspend(&self) {
-        let mut s = self.session.lock().expect("client state");
+        let mut s = lock(&self.session, &self.waker);
         s.cancel.cancel();
         s.cycle += 1;
         s.pending = 0;
@@ -99,7 +107,7 @@ impl<T: OutboundTransport> Client<T> {
     }
     pub async fn pair(&self) -> Result<Reply<PairResponse>, ClientError> {
         let (id, cycle, cancel) = {
-            let mut s = self.session.lock().expect("client state");
+            let mut s = lock(&self.session, &self.waker);
             if s.pairing || s.polling || s.pending > 0 {
                 return Err(ClientError::TooManyRequests);
             }
@@ -112,6 +120,7 @@ impl<T: OutboundTransport> Client<T> {
         };
         let _guard = CallGuard {
             session: &self.session,
+            waker: &self.waker,
             cycle,
             kind: CallKind::Pair,
             cancel: cancel.clone(),
@@ -119,7 +128,7 @@ impl<T: OutboundTransport> Client<T> {
         let result = self
             .send(Endpoint::Pair, &ViewIdentity { client_id: id }, cancel)
             .await;
-        let mut s = self.session.lock().expect("client state");
+        let mut s = lock(&self.session, &self.waker);
         if s.cycle != cycle {
             return Err(ClientError::StaleConnection);
         }
@@ -166,7 +175,7 @@ impl<T: OutboundTransport> Client<T> {
         connection: u64,
         operation: impl FnOnce() -> R,
     ) -> Result<R, ClientError> {
-        let session = self.session.lock().expect("client state");
+        let session = lock(&self.session, &self.waker);
         if session.state.status != ConnectionStatus::Connected
             || session.state.connection_id != connection
         {
@@ -182,7 +191,7 @@ impl<T: OutboundTransport> Client<T> {
     ) -> Result<Reply<R::Response>, ClientError> {
         request.validate_wire()?;
         let (id, cycle, cancel) = {
-            let mut s = self.session.lock().expect("client state");
+            let mut s = lock(&self.session, &self.waker);
             if s.state.status != ConnectionStatus::Connected {
                 return Err(ClientError::NotConnected);
             }
@@ -197,6 +206,7 @@ impl<T: OutboundTransport> Client<T> {
         };
         let _guard = CallGuard {
             session: &self.session,
+            waker: &self.waker,
             cycle,
             kind: CallKind::Request,
             cancel: cancel.clone(),
@@ -221,7 +231,7 @@ impl<T: OutboundTransport> Client<T> {
                 }
             }
         }
-        let mut s = self.session.lock().expect("client state");
+        let mut s = lock(&self.session, &self.waker);
         if s.cycle != cycle {
             return Err(ClientError::StaleConnection);
         }
@@ -238,7 +248,7 @@ impl<T: OutboundTransport> Client<T> {
     /// Returns validated events without ACKing. The view ACKs only after consuming data.
     pub async fn poll(&self) -> Result<Reply<PollResponse>, ClientError> {
         let (id, cycle, cancel) = {
-            let mut s = self.session.lock().expect("client state");
+            let mut s = lock(&self.session, &self.waker);
             if s.state.status != ConnectionStatus::Connected {
                 return Err(ClientError::NotConnected);
             }
@@ -250,6 +260,7 @@ impl<T: OutboundTransport> Client<T> {
         };
         let _guard = CallGuard {
             session: &self.session,
+            waker: &self.waker,
             cycle,
             kind: CallKind::Poll,
             cancel: cancel.clone(),
@@ -257,7 +268,7 @@ impl<T: OutboundTransport> Client<T> {
         let result = self
             .send(Endpoint::Events, &ViewIdentity { client_id: id }, cancel)
             .await;
-        let mut s = self.session.lock().expect("client state");
+        let mut s = lock(&self.session, &self.waker);
         if s.cycle != cycle {
             return Err(ClientError::StaleConnection);
         }
@@ -272,7 +283,7 @@ impl<T: OutboundTransport> Client<T> {
     /// Withdraws this view only. Never closes tabs, shells or the host.
     pub async fn disconnect(&self) -> Result<Reply<Disconnected>, ClientError> {
         let id = {
-            let mut s = self.session.lock().expect("client state");
+            let mut s = lock(&self.session, &self.waker);
             s.cancel.cancel();
             s.cycle += 1;
             s.pending = 0;

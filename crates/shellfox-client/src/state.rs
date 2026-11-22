@@ -1,5 +1,9 @@
 use shellfox_protocol::*;
-use std::{sync::Mutex, time::Duration};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex, MutexGuard},
+    time::Duration,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConnectionStatus {
@@ -55,8 +59,62 @@ pub(crate) enum CallKind {
     Poll,
     Request,
 }
+pub(crate) type Wake = Arc<dyn Fn() + Send + Sync>;
+/// Optional callback for ClientState changes that matter to a view.
+#[derive(Default)]
+pub(crate) struct StateWaker(Mutex<Option<Wake>>);
+impl StateWaker {
+    pub(crate) fn set(&self, wake: Option<Wake>) {
+        *self.0.lock().expect("client waker") = wake;
+    }
+}
+/// Session lock that calls the waker after the lock is released, if status,
+/// permission or connection_id changed while it was held.
+pub(crate) struct Locked<'a> {
+    guard: Option<MutexGuard<'a, Session>>,
+    before: (ConnectionStatus, Permission, u64),
+    waker: &'a StateWaker,
+}
+fn key(s: &Session) -> (ConnectionStatus, Permission, u64) {
+    (s.state.status, s.state.permission, s.state.connection_id)
+}
+pub(crate) fn lock<'a>(session: &'a Mutex<Session>, waker: &'a StateWaker) -> Locked<'a> {
+    let guard = session.lock().expect("client state");
+    Locked {
+        before: key(&guard),
+        guard: Some(guard),
+        waker,
+    }
+}
+impl Deref for Locked<'_> {
+    type Target = Session;
+    fn deref(&self) -> &Session {
+        self.guard.as_ref().expect("held until drop")
+    }
+}
+impl DerefMut for Locked<'_> {
+    fn deref_mut(&mut self) -> &mut Session {
+        self.guard.as_mut().expect("held until drop")
+    }
+}
+impl Drop for Locked<'_> {
+    fn drop(&mut self) {
+        let Some(guard) = self.guard.take() else {
+            return;
+        };
+        let changed = key(&guard) != self.before;
+        drop(guard);
+        if changed {
+            let wake = self.waker.0.lock().ok().and_then(|wake| wake.clone());
+            if let Some(wake) = wake {
+                wake();
+            }
+        }
+    }
+}
 pub(crate) struct CallGuard<'a> {
     pub(crate) session: &'a Mutex<Session>,
+    pub(crate) waker: &'a StateWaker,
     pub(crate) cycle: u64,
     pub(crate) kind: CallKind,
     pub(crate) cancel: CancellationToken,
@@ -64,7 +122,7 @@ pub(crate) struct CallGuard<'a> {
 impl Drop for CallGuard<'_> {
     fn drop(&mut self) {
         self.cancel.cancel();
-        let mut s = self.session.lock().expect("client state");
+        let mut s = lock(self.session, self.waker);
         if s.cycle != self.cycle {
             return;
         }
