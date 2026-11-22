@@ -61,10 +61,6 @@ int sf_copy_selection(SfVt *vt, uint8_t *out, size_t cap, size_t *len);
 int sf_hyperlink(SfVt *vt, uint16_t x, uint16_t y, uint8_t *out, size_t cap, size_t *len);
 int sf_viewport_rows(SfVt *vt, uint8_t *flags, size_t count);
 int sf_adapter_storage_new(SfVt *vt);
-#ifdef SHELLFOX_EXPERIMENTAL_NATIVE
-int sf_experimental_native_borrow(SfVt *vt, GhosttyTerminal *out);
-int sf_experimental_native_adopt(GhosttyTerminal *owned, SfVt **out);
-#endif
 int sf_new(uint16_t cols, uint16_t rows, SfVt **out);
 void sf_free(SfVt *vt);
 int sf_feed(SfVt *vt, const uint8_t *data, size_t len);

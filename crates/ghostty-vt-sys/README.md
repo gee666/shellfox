@@ -7,13 +7,6 @@ with `cc`, against the official
 downloads Ghostty, invokes Zig, or substitutes a host library for a target library.
 The Rust build dependencies are `cc = "1"` and `sha2 = "0.10"`.
 
-## Experimental Native002 extension
-
-The default remains the official library. Feature `experimental-shellfox-native`
-requires an explicitly verified, private Native002 preparation and expected
-profile. See [the opt-in recipe and limits](build-support/EXPERIMENTAL_NATIVE002.md).
-It does not replace signed archives or accepted staged mobile artifacts.
-
 ## Windows x86_64
 
 The default for `x86_64-pc-windows-msvc` and `x86_64-pc-windows-gnu` is the official
@@ -251,16 +244,15 @@ cargo test -p shellfox-ghostty-vt-sys --locked --offline
 ```
 
 The Cargo `build-support` integration-test target uses `build-support/install.rs`
-and `sha2 = "0.10"` as a dev dependency. Its 22 Windows tests cover installation validation, corrupt archive rejection,
-DLL staging, compiler-path conversion and experimental manifest/header/library
-admission. Path coverage includes Unicode, spaces, UNC roots and preservation of
+and `sha2 = "0.10"` as a dev dependency. Its tests cover installation validation, corrupt archive rejection,
+DLL staging and compiler-path conversion. Path coverage includes Unicode, spaces, UNC roots and preservation of
 device paths. Fixture directories live
 under the repository-root `tmp/` directory and are removed when each test ends.
 
 `.github/workflows/ghostty-experiment.yml` runs the signed-input checks,
 preparation tests, sys/wrapper tests in debug and wrapper tests in release,
 Clippy, workspace formatting and a desktop `cargo check` on Windows x86_64
-MSVC. It is experimental build coverage, not a release or UI acceptance job.
+MSVC. It is build coverage, not a release or UI acceptance job.
 Linux and macOS CI are not configured yet because these source builds have not
 been validated. Mobile source builds also need pinned SDK inputs and runners.
 

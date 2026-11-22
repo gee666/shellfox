@@ -229,8 +229,5 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
 #[path = "compiler-path.rs"]
 mod compiler_path;
 #[cfg(test)]
-#[path = "experimental-install.rs"]
-mod experimental_install;
-#[cfg(test)]
 #[path = "install-tests.rs"]
 mod tests;

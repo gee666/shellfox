@@ -4,7 +4,6 @@ import { delimiter, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { archives, fetchPinnedBytes, project, release, support, vendor, verifyArchive, verifyInputs, version, zigVersion } from './archives.mjs';
-import { applyExperimental, experimentalBuildArgs, experimentalRecipe, sourceTreeDigest, verifyExperimentalInputs, writeExperimentalManifest } from './experimental.mjs';
 
 export const targets = Object.freeze({
   'x86_64-pc-windows-msvc': 'x86_64-windows-gnu',
@@ -115,18 +114,12 @@ function buildSource(options) {
     if (readFileSync(join(source, 'LIB_VERSION'), 'utf8').trim() !== version) {
       throw new Error('Source LIB_VERSION does not match pin');
     }
-    const experimental = options['experimental-shellfox-native'] === true;
-    const patches = experimental ? applyExperimental(source, options.patch ?? 'patch') : null;
-    const recipe = experimental ? experimentalRecipe(target, options['zig-target'] ?? targets[target]) : null;
-    const sourceDigest = experimental ? sourceTreeDigest(source) : null;
     const globalCache = join(scratch, 'global-cache');
     mkdirSync(globalCache);
     const env = sourceBuildEnv(scratch, globalCache);
-    const baseArgs = buildArgs(target, prefix, join(scratch, 'libghostty-vt-1.0.1-deps'),
+    const args = buildArgs(target, prefix, join(scratch, 'libghostty-vt-1.0.1-deps'),
       join(scratch, 'local-cache'), options['zig-target']);
-    const args = recipe ? [...baseArgs.filter(arg => !arg.startsWith('-Doptimize=')), ...experimentalBuildArgs(recipe)] : baseArgs;
     run(zig, args, { cwd: source, env, timeout: 30 * 60_000 });
-    if (experimental && sourceTreeDigest(source) !== sourceDigest) throw new Error('Experimental source changed during build');
     for (const file of ['include/ghostty/vt.h', 'include/ghostty/vt/version.h',
       'lib/pkgconfig/libghostty-vt.pc', 'lib/pkgconfig/libghostty-vt-static.pc',
       ...(target.includes('windows') ? ['lib/ghostty-vt.lib', 'bin/ghostty-vt.dll'] : ['lib/libghostty-vt.a'])]) {
@@ -139,10 +132,8 @@ function buildSource(options) {
       archives, args, androidNdk: process.env.ANDROID_NDK_HOME ?? null,
       sdkroot: process.env.SDKROOT ?? null,
     }, null, 2)}\n`, { flag: 'wx' });
-    if (recipe) writeExperimentalManifest(prefix, recipe, patches, sourceDigest, target.includes('windows'));
     complete = true;
     console.log(`Built ${version} for ${target}. Set GHOSTTY_VT_DIR=${prefix}`);
-    if (recipe) console.log(`EXPERIMENTAL Native002 only, not final acceptance. GHOSTTY_VT_ENGINE_PROFILE=${recipe.engineProfile}`);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
     if (!complete) rmSync(prefix, { recursive: true, force: true });
@@ -153,7 +144,6 @@ export async function main(args) {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: {
     target: { type: 'string' }, prefix: { type: 'string' }, zig: { type: 'string' },
     'zig-target': { type: 'string' }, help: { type: 'boolean' },
-    'experimental-shellfox-native': { type: 'boolean' }, patch: { type: 'string' },
   } });
   if (values.help || positionals.length === 0) {
     console.log(`Usage: node crates/ghostty-vt-sys/build-support/prepare.mjs <command>
@@ -161,8 +151,6 @@ export async function main(args) {
   fetch      Explicit network acquisition of missing, pinned archives into build-support/vendor
   build --target <Rust triple> --prefix <new install path> [--zig <executable>] [--zig-target <Zig triple>]
              Offline source build, requires exact Zig ${zigVersion}
-             --experimental-shellfox-native [--patch <GNU patch executable>]
-             Opt-in verified Native002 candidates, ReleaseSafe; NOT final acceptance
 
 Source recipes: ${Object.keys(targets).join(', ')}
 Windows x86_64 MSVC prebuilt linking and Android arm64/API 24 source build/cross-check have been verified locally.
@@ -170,13 +158,10 @@ A successful recipe is not a cross-platform runtime test. See the crate README.`
     return;
   }
   if (positionals.length !== 1) throw new Error('Expected exactly one command');
-  if (values.patch && !values['experimental-shellfox-native']) throw new Error('--patch requires --experimental-shellfox-native');
-  if (values['experimental-shellfox-native'] && !['build', 'verify'].includes(positionals[0])) throw new Error('Experimental selection applies only to build or verify');
   switch (positionals[0]) {
     case 'verify':
       verifyInputs();
-      if (values['experimental-shellfox-native']) verifyExperimentalInputs();
-      console.log('All selected archive/patch pins and upstream minisign signatures verified');
+      console.log('All archive pins and upstream minisign signatures verified');
       break;
     case 'fetch': await fetchArchives(); break;
     case 'build': buildSource(values); break;

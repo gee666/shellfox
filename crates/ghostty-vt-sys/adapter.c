@@ -81,9 +81,6 @@ int sf_new(uint16_t cols, uint16_t rows, SfVt **out) {
 int sf_feed(SfVt *vt, const uint8_t *data, size_t len) {
     if (vt->callback_error) return vt->callback_error;
     ghostty_terminal_vt_write(vt->terminal, data, len);
-#ifdef SHELLFOX_EXPERIMENTAL_NATIVE
-    if (!vt->metadata) return sf_status(vt);
-#endif
     return vt->callback_error;
 }
 
@@ -106,11 +103,7 @@ int sf_replies(SfVt *vt, uint8_t *out, size_t *len) {
 }
 
 int sf_render(SfVt *vt, SfCursor *out) {
-#ifdef SHELLFOX_EXPERIMENTAL_NATIVE
-    TRY(sf_status(vt));
-#else
     if (vt->callback_error) return vt->callback_error;
-#endif
     TRY(ghostty_render_state_update(vt->render, vt->terminal));
     GhosttyRenderStateCursor cursor = GHOSTTY_INIT_SIZED(GhosttyRenderStateCursor);
     TRY(ghostty_render_state_get(vt->render, GHOSTTY_RENDER_STATE_DATA_CURSOR, &cursor));
@@ -185,17 +178,7 @@ int sf_scroll(SfVt *vt, intptr_t delta) {
 }
 
 int sf_status(SfVt *vt) {
-    if (vt->callback_error) return vt->callback_error;
-#ifdef SHELLFOX_EXPERIMENTAL_NATIVE
-    /* Adopted passive handles have no metadata callbacks to carry failures. */
-    if (!vt->metadata) {
-        bool failed = false;
-        int result = ghostty_terminal_get(vt->terminal, GHOSTTY_TERMINAL_DATA_VT_PROCESSING_ERROR, &failed);
-        if (result) return result;
-        if (failed) return GHOSTTY_IO_ERROR;
-    }
-#endif
-    return GHOSTTY_SUCCESS;
+    return vt->callback_error;
 }
 
 const char *sf_version(void) { return ghostty_version(); }

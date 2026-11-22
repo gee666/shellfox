@@ -15,8 +15,6 @@ mod key_v2;
 mod metadata;
 mod presentation;
 mod recovery;
-#[cfg(feature = "experimental-shellfox-native")]
-pub mod shellfox_extension;
 pub use interaction::{Mouse, Selection};
 pub use key_v2::{InvalidKeyV2, KeyActionV2, KeyV2, ModifiersV2, PhysicalKey};
 pub use metadata::{

@@ -1,7 +1,5 @@
 #[path = "build-support/compiler-path.rs"]
 mod compiler_path;
-#[path = "build-support/experimental-install.rs"]
-mod experimental_install;
 #[path = "build-support/install.rs"]
 mod install;
 
@@ -13,7 +11,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         "GHOSTTY_VT_DIR",
         "GHOSTTY_VT_LIB_DIR",
         "GHOSTTY_VT_LINK_KIND",
-        "GHOSTTY_VT_ENGINE_PROFILE",
         "SHELLFOX_VT_INPUT_V2_PROBE",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
@@ -33,13 +30,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         "metadata.c",
         "metadata-text.c",
         "metadata.h",
-        "experimental-native.c",
     ] {
         println!("cargo:rerun-if-changed={file}");
-    }
-    let experimental = env::var_os("CARGO_FEATURE_EXPERIMENTAL_SHELLFOX_NATIVE").is_some();
-    if experimental && env::var_os("GHOSTTY_VT_DIR").is_none() {
-        return Err("experimental-shellfox-native requires an explicitly prepared Native002 GHOSTTY_VT_DIR and expected GHOSTTY_VT_ENGINE_PROFILE; official ZIP fallback is disabled".into());
     }
     let target = env::var("TARGET")?;
     let os = env::var("CARGO_CFG_TARGET_OS")?;
@@ -81,28 +73,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("Android and iOS require a prepared static libghostty-vt installation".into());
     }
     install::validate(&prefix, &lib, &target, &os, &kind)?;
-    if experimental {
-        if os != "windows" && kind != "static" {
-            return Err(
-                "experimental Native002 currently requires static linking outside Windows".into(),
-            );
-        }
-        let profile = env::var("GHOSTTY_VT_ENGINE_PROFILE").map_err(|_| {
-            "experimental-shellfox-native requires expected GHOSTTY_VT_ENGINE_PROFILE"
-        })?;
-        experimental_install::validate(
-            &prefix,
-            &lib,
-            &target,
-            &os,
-            &profile,
-            &root.join("../.."),
-            &out,
-        )?;
-        println!("cargo:rustc-env=SHELLFOX_GHOSTTY_ENGINE_PROFILE={profile}");
-    } else if prefix.join("shellfox-native002.recipe").exists() {
-        return Err("experimental Native002 installations require the experimental-shellfox-native feature; refusing to stage a fork DLL in an official/default build".into());
-    }
     let mut cc = cc::Build::new();
     cc.files(
         [
@@ -123,12 +93,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     .warnings(true);
     if kind == "static" {
         cc.define("GHOSTTY_STATIC", None);
-    }
-    if experimental {
-        cc.define("SHELLFOX_EXPERIMENTAL_NATIVE", "1")
-            .file(compiler_path::for_compiler(
-                &root.join("experimental-native.c"),
-            ));
     }
     let input_v2_probe =
         env::var_os("SHELLFOX_VT_INPUT_V2_PROBE").as_deref() == Some(std::ffi::OsStr::new("1"));
