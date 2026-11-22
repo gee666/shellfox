@@ -1,7 +1,7 @@
 //! Pure frontend intent mapping. No Runtime eligibility or grant is asserted.
 use super::*;
 fn catalog(kind:m::Fact<m::SourceKind>)->(m::Snapshot,m::Id){
-    let raw:serde_json::Value=serde_json::from_str(include_str!("shellfox-protocol/tests/fixtures/observer_v2/snapshot.json")).unwrap();
+    let raw:serde_json::Value=serde_json::from_str(include_str!("../../../shellfox-protocol/tests/fixtures/observer_v2/snapshot.json")).unwrap();
     let mut snapshot:m::Snapshot=serde_json::from_value(raw["value"].clone()).unwrap();
     let tab=snapshot.entries.iter_mut().find_map(|entry|match entry{m::CatalogEntry::Session{value}=>value.tabs.first_mut(),_=>None}).unwrap();
     tab.source_kind=kind;tab.facts.generation=m::Fact::Known{value:None};

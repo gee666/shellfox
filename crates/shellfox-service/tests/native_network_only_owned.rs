@@ -1,7 +1,7 @@
 //! Captured production libraries; actual network/WhoIs prefix ONLY, no SDK parser.
 #![cfg(feature="experimental-shellfox-native")]
 #[path="../../native_app_composition.rs"] pub mod application;
-#[path="../../native_peer_transport.rs"] pub mod transport;
+pub use shellfox_service::peer::transport;
 #[path="support/native_bootstrap_owned.rs"] pub mod support;
 #[path="support/native_peer_owned.rs"] mod owned;
 #[path="../src/remote_network_health.rs"] mod health;

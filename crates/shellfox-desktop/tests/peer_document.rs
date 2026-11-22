@@ -1,7 +1,6 @@
 //! Real generic Manager client/witness + production adapter contract tests. Not native Go authentication/GUI acceptance.
 #![cfg(feature = "experimental-shellfox-native")]
-#[path = "../../native_peer_consumer.rs"]
-pub mod connection;
+pub use shellfox_service::peer::consumer as connection;
 pub use connection::PeerConnection;
 #[path = "../src/peer_admission.rs"]
 mod admission;

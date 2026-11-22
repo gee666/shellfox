@@ -4,7 +4,7 @@ use shellfox_protocol::{
     AuthenticatedPeerId, Endpoint, OutboundTransport, RequestLimits, TransportError,
     TransportFuture,
 };
-use shellfox_service::{
+use crate::{
     local::LocalClient,
     native::NativeClient,
     remote::{OutgoingV2Endpoint, OutgoingV2Future},
@@ -55,7 +55,7 @@ impl<C: ServiceOwner> ServiceTransport<C> {
     }
 }
 #[cfg(test)]
-#[path = "native_peer_transport_tests.rs"]
+#[path = "transport_tests.rs"]
 mod tests;
 impl<C: ServiceOwner> OutboundTransport for ServiceTransport<C> {
     fn send<'a>(

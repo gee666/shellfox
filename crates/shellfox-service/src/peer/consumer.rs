@@ -1,5 +1,5 @@
-//! Shared outbound consumer logic for the native Desktop and headless CLI.
-//! Transport is a validated local Service bridge; this module opens no socket.
+//! Peer connection lifecycle: discovery, one PAIR per connection, retirement.
+//! Transport is the local Service bridge; this module opens no socket.
 use anyhow::{Result, anyhow, ensure};
 use shellfox_client::manager_v2::{
     DiscoveryOutcome, FallbackPolicy, ManagerBindingWitness, ManagerClient, Status,
@@ -11,7 +11,8 @@ use std::sync::{
 };
 
 #[cfg(test)]
-#[path="native_peer_intent_tests.rs"]mod intent_tests;
+#[path = "consumer_tests.rs"]
+mod tests;
 #[derive(Clone)]
 pub struct Origin {
     pub cycle: u64,

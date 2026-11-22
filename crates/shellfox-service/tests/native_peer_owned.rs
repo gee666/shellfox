@@ -2,8 +2,7 @@
 #![cfg(feature = "experimental-shellfox-native")]
 #[path = "../../native_app_composition.rs"]
 pub mod application;
-#[path = "../../native_peer_consumer.rs"]
-pub mod consumer;
+pub use shellfox_service::peer::consumer;
 #[path = "../src/remote_network_health.rs"]
 mod health;
 #[path = "support/native_peer_owned.rs"]
@@ -12,8 +11,7 @@ mod owned;
 pub mod support;
 #[path = "support/native_peer_terminal.rs"]
 mod terminal;
-#[path = "../../native_peer_transport.rs"]
-pub mod transport;
+pub use shellfox_service::peer::transport;
 use anyhow::{ensure, Context, Result};
 use shellfox_protocol::{manager_v2 as m, AuthenticatedPeerId, CancellationToken};
 use shellfox_service::{

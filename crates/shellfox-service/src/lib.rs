@@ -39,6 +39,7 @@ mod native_metadata_fixture;
 mod owner;
 mod owner_automation;
 mod automation_replay;
+pub mod peer;
 #[cfg(windows)]
 mod pipe_identity;
 mod platform;

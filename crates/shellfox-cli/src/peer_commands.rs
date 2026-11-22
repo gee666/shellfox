@@ -2,16 +2,14 @@
 //! This layer does not open network sockets or create a host/node.
 #[path = "peer_attach.rs"]
 mod attach;
-#[path = "../../native_peer_consumer.rs"]
-pub(super) mod connection;
+pub(super) use shellfox_service::peer::consumer as connection;
 #[path = "peer_frame.rs"]
 mod peer_frame;
 #[path = "peer_keys.rs"]
 mod peer_keys;
 #[path = "../../native_peer_pending.rs"]
 mod peer_pending;
-#[path = "../../native_peer_transport.rs"]
-mod transport;
+use shellfox_service::peer::transport;
 use crate::peer_args::{PeerArgs, PeerCommand};
 use anyhow::{Result, ensure};
 use connection::PeerConnection;

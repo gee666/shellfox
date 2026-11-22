@@ -1,6 +1,5 @@
 //! Product-source tests without registering an incomplete remote UI in the app.
-#[path = "../../native_peer_consumer.rs"]
-pub mod consumer;
+pub use shellfox_service::peer::consumer;
 #[path = "../../shellfox-cli/src/peer_args.rs"]
 mod peer_args;
 #[path = "../src/peer_source.rs"]

@@ -1,7 +1,6 @@
 //! Per-window peer registry. NativeClient is the validated Service transport,
 //! never a renderer-owned socket, helper or Tailscale node.
-#[path = "../../native_peer_consumer.rs"]
-mod connection;
+use shellfox_service::peer::consumer as connection;
 pub use connection::{LegacyPeerRequired, PeerConnection};
 #[cfg(feature = "experimental-shellfox-native")]
 pub use connection::attach_control;
@@ -13,8 +12,7 @@ mod admission;
 #[path = "peer_client_tests.rs"]
 mod tests;
 pub(crate) use admission::SourceAdmission;
-#[path = "../../native_peer_transport.rs"]
-mod transport;
+use shellfox_service::peer::transport;
 pub type Transport = transport::ServiceTransport<NativeClient>;
 use anyhow::{Result, anyhow, ensure};
 use shellfox_protocol::AuthenticatedPeerId;

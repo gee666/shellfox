@@ -1,6 +1,6 @@
 use super::*;
 use shellfox_protocol::CancellationToken;
-use shellfox_service::remote::OutgoingV2Response;
+use crate::remote::OutgoingV2Response;
 use std::{
     sync::{Arc, Mutex},
     time::{Duration, Instant},
