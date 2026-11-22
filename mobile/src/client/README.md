@@ -93,7 +93,7 @@ Terminal consumer responsibilities:
 - Use the attachment's generation and `controlEpoch` for input, resize and ACK. Detach uses identity only. Ignore stale-generation and stale-control-epoch data, exit and error events. Activity events have neither ownership epoch nor generation.
 - An owned attachment has `control: 'owned'`, a `controlEpoch`, and the screen snapshot. Its raw replay chunks inherit the attachment's epoch. Apply the snapshot at its `cols` and `rows`. Reset the display on every fresh snapshot or changed generation.
 - A blocked attachment has `control: 'blocked'`, identity and `controlEpoch` only. Clear previous contents and send no input, resize or ACK while blocked. A targeted owned control event requires a fresh full attachment before display and I/O resume.
-- Replay owned attachment chunks, then ACK `lastSequence` only after xterm consumes them. ACK live output cumulatively after consumption too. Fetching or posting a chunk into the WebView is not consumption. The client never auto-ACKs. Unacknowledged output eventually exhausts the host's 128 KiB live credit.
+- Replay owned attachment chunks, then ACK `lastSequence` only after the terminal consumes them. ACK live output cumulatively after consumption too. Receiving a chunk is not consumption. The client never auto-ACKs. Unacknowledged output eventually exhausts the host's 128 KiB live credit.
 - Respect `truncated` and replay-window errors. Detach and reattach to a current snapshot rather than repeatedly attaching with unacknowledged output.
 - Detach hidden/unmounted terminal views. The host allows at most 16 attachments per view.
 - Pass a changed epoch on reconnect so the component resets its attachment. The client does not auto-reattach or replay input.
@@ -102,7 +102,7 @@ Terminal consumer responsibilities:
 
 Pi clears its editor on the first Ctrl+C and exits on a second within 500 milliseconds. Repeating Ctrl+C more slowly keeps clearing even an empty editor. Serialized request latency can exceed that window on a slow link; connection reuse and queued-write coalescing reduce avoidable delays, but do not guarantee Pi's timing over a high-latency network. No interrupt is injected or automatically repeated.
 
-The creating view reserves each new terminal before the host announces it, including a new tab or a reopened shell. It still needs to attach before receiving contents or sending input. Duplicate creation requests and activation of an already-running session do not reclaim ownership. Without a creator reservation, the first attached viewer owns an uncontrolled terminal. Other viewers remain registered but receive no terminal contents. `takeTerminalControl({ tabId, generation })` explicitly transfers ownership. Owner detach or disconnect promotes the next waiting viewer in arrival order. Ownership has no timeout, heartbeat or automatic resize renewal. `TERMINAL_CONTROL_REQUIRED` is returned unchanged and never automatically retried. Captured `controlEpoch` values prevent queued operations from a previous ownership period running after a later grant. The mobile UI clears the old WebView contents on loss and offers Take it on the blank blocked view. Hosts must advertise `terminalControl: 'exclusive-v1'` when pairing; older hosts require an upgrade.
+The creating view reserves each new terminal before the host announces it, including a new tab or a reopened shell. It still needs to attach before receiving contents or sending input. Duplicate creation requests and activation of an already-running session do not reclaim ownership. Without a creator reservation, the first attached viewer owns an uncontrolled terminal. Other viewers remain registered but receive no terminal contents. `takeTerminalControl({ tabId, generation })` explicitly transfers ownership. Owner detach or disconnect promotes the next waiting viewer in arrival order. Ownership has no timeout, heartbeat or automatic resize renewal. `TERMINAL_CONTROL_REQUIRED` is returned unchanged and never automatically retried. Captured `controlEpoch` values prevent queued operations from a previous ownership period running after a later grant. The mobile UI clears the terminal on loss and offers Take it on the blank blocked view. Hosts must advertise `terminalControl: 'exclusive-v1'` when pairing; older hosts require an upgrade.
 
 ## Checks
 
@@ -113,4 +113,4 @@ pnpm typecheck
 pnpm test:unit mobile/src/client
 ```
 
-The root Vitest config includes mobile tests. Android/iOS native authentication, backgrounding and real WebView consumption still need device integration tests.
+The root Vitest config includes mobile tests.

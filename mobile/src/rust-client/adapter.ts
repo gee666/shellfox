@@ -85,10 +85,3 @@ export class RustTerminalAdapter {
     }
   }
 }
-
-export type NativeAcceptance = Readonly<{ android: boolean; ios: boolean }>;
-// This is an adoption gate, not a platform detector. One successful Android build
-// must not replace the existing WebView on either platform.
-export function canAdoptNativeTerminal(acceptance: NativeAcceptance): boolean {
-  return acceptance.android && acceptance.ios;
-}

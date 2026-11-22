@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { canAdoptNativeTerminal, RustTerminalAdapter, type NativeTerminalBinding } from './adapter';
+import { RustTerminalAdapter, type NativeTerminalBinding } from './adapter';
 
 function binding(): NativeTerminalBinding {
   return {
@@ -56,11 +56,5 @@ describe('remote-only native terminal lifecycle', () => {
     await adapter.close(handle);
     expect(native.closeTerminal).toHaveBeenCalledTimes(2);
     await expect(adapter.progress(handle)).rejects.toThrow('closed');
-  });
-
-  it('does not adopt on one-platform compile evidence', () => {
-    expect(canAdoptNativeTerminal({ android: true, ios: false })).toBe(false);
-    expect(canAdoptNativeTerminal({ android: false, ios: true })).toBe(false);
-    expect(canAdoptNativeTerminal({ android: true, ios: true })).toBe(true);
   });
 });

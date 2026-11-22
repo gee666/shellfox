@@ -86,7 +86,7 @@ export class RustHostClient extends RemoteOperations implements HostClient {
   stop(): void { this.stopRun('disconnected'); }
 
   async request<M extends RemoteMethod>(method: M, payload: RemoteRequestPayload<M>): Promise<RemoteResponse<M>> {
-    // These operations must use the bound native engine, never a WebView/raw JS path.
+    // These operations must use the bound native engine, never raw JS.
     if (method === 'attachTerminal' || method === 'writeTerminal' || method === 'acknowledgeTerminal') {
       return parseResponse(method, failure('UNSUPPORTED', 'Use the native terminal binding for this operation.'));
     }
