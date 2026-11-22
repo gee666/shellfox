@@ -19,6 +19,7 @@ pub(super) struct Page {
     cancel: EditorCancellation,
     executor: BackgroundExecutor,
     loaded: Mutex<Loaded>,
+    reads: tokio::sync::Mutex<()>,
     warnings: watch::Sender<Vec<String>>,
 }
 
@@ -50,6 +51,7 @@ impl Page {
             cancel,
             executor,
             loaded: Mutex::default(),
+            reads: tokio::sync::Mutex::new(()),
             warnings: watch::Sender::new(Vec::new()),
         }
     }
@@ -71,6 +73,8 @@ impl Page {
     }
 
     async fn load(&self, path: String) -> Response {
+        // The host limits concurrent transfers, so read one asset at a time.
+        let _reading = self.reads.lock().await;
         let cached = {
             let loaded = self.loaded.lock().expect("preview assets");
             match loaded.assets.get(&path) {
@@ -120,9 +124,6 @@ impl Page {
             Err(error) => Err(error.to_string()),
         };
         let mut loaded = self.loaded.lock().expect("preview assets");
-        if let Some(existing) = loaded.assets.get(path) {
-            return existing.clone();
-        }
         let asset = match asset {
             Ok(asset) if loaded.bytes + asset.bytes.len() <= MAX_ASSET_BYTES => {
                 loaded.bytes += asset.bytes.len();
