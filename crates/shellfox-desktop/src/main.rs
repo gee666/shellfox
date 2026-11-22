@@ -1,3 +1,5 @@
+// A GUI binary: no console window. Shells run in shellfox-cli, a console binary.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 mod accessibility;
 mod app;
 pub mod app_host;
@@ -24,6 +26,7 @@ mod files_view;
 mod frontend_composition;
 mod frontend_retention;
 mod host_client;
+mod host_process;
 mod input;
 mod launch_handoff;
 mod launch_runtime;
@@ -62,6 +65,10 @@ use options::{Mode, Options};
 
 fn main() -> Result<()> {
     let mut arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    #[cfg(windows)]
+    if arguments.first().is_some_and(|first| ["--version", "--smoke", "ssh"].iter().any(|flag| first == flag)) {
+        attach_parent_console();
+    }
     if arguments.len() == 1 && arguments[0] == "--version" {
         println!("Shellfox {}", env!("SHELLFOX_VERSION"));
         return Ok(());
@@ -74,9 +81,6 @@ fn main() -> Result<()> {
             if event == "--squirrel-firstrun" { arguments.remove(0); }
         }
         squirrel::set_app_user_model_id();
-    }
-    if let Some(code) = shellfox_service::dispatch_supervisor_entry()? {
-        std::process::exit(i32::from_ne_bytes(code.to_ne_bytes()));
     }
     if let Some(code) = cli_launcher::forward_ssh(&arguments)? {
         std::process::exit(code);
@@ -103,15 +107,6 @@ fn main() -> Result<()> {
     if install_cli {
         if let Err(error) = cli_launcher::install_mac() {
             eprintln!("Shellfox CLI integration unavailable: {error:#}");
-        }
-    }
-    if let Some(reason) = owner.as_ref().and_then(|owner| owner.remote_unavailable) {
-        match reason {
-            shellfox_service::remote::RemoteUnavailableReason::NativeApprovalStoragePending => {
-                eprintln!(
-                    "Remote unavailable: native approval storage review is pending; continuing with the same local host."
-                );
-            }
         }
     }
     // This exact owner stays outside Application.run, including install/GPU failure.
@@ -144,6 +139,11 @@ fn main() -> Result<()> {
         trace_ui_init(trace, "frontend.prepare begin");
         frontend.prepare()?;
         trace_ui_init(trace, "frontend.prepare returned");
+        if let Some(fence) = owner.as_ref().and_then(|owner| owner.owned_by)
+            && let Err(error) = host_process::record_owner(&options.desktop_dir, fence)
+        {
+            eprintln!("Shellfox host ownership not recorded: {error:#}");
+        }
         trace_ui_init(trace, "device.prepare begin");
         let device_colors = device_prefs::prepare(&options, &mut frontend)?;
         trace_ui_init(trace, "device.prepare returned");
@@ -181,6 +181,25 @@ fn main() -> Result<()> {
     finish_frontend(preserved, graphics).inspect_err(|_| {
         if show_startup_error { desktop_errors::startup(); }
     })
+}
+
+/// Lets `--version`, `--smoke` and `ssh` print to the terminal that started
+/// this GUI binary. Redirected output already has handles and is left alone.
+#[cfg(windows)]
+fn attach_parent_console() {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(handle: u32) -> *mut std::ffi::c_void;
+        fn AttachConsole(process: u32) -> i32;
+    }
+    const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+    const ATTACH_PARENT_PROCESS: u32 = u32::MAX;
+    // SAFETY: both calls only read or set this process's standard handles.
+    unsafe {
+        if GetStdHandle(STD_OUTPUT_HANDLE).is_null() {
+            AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
 }
 
 fn finish_frontend(

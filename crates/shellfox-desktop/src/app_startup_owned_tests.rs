@@ -1,5 +1,6 @@
 //! Real app-composition entrypoint acceptance. Explicit owned helper/artifact only.
 use super::*;
+use crate::app_host::AppHostPrestart;
 use crate::{
     app_host::{CloseDecision, CloseTarget},
     host_client::HostEndpointStartupOutcome,

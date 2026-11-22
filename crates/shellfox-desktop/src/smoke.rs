@@ -14,7 +14,8 @@ pub fn run(run_dir: &Path) -> Result<()> {
     } else {
         shellfox_terminal::ShellProfileId::LoginShell
     });
-    config.supervisor = Some(std::env::current_exe()?);
+    // The same console supervisor the host uses for every shell.
+    config.supervisor = Some(crate::host_process::cli_path()?);
     let mut pty = PtySession::spawn(config).map_err(|error| anyhow::anyhow!("{error}"))?;
     let result = (|| -> Result<()> {
         let mut terminal = Terminal::new(80, 24)?;

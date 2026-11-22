@@ -1,18 +1,15 @@
-//! Pre-GPU ownership. Every acquired endpoint is retained until its actual Stop is confirmed.
+//! Pre-GPU host connection. The UI attaches to a separate host process and
+//! starts it when none answers; see host_process.rs.
 use crate::{
-    app_host::{AppHost, AppHostPrestart},
+    app_host::AppHost,
     host_client::HostEndpointConfig,
     options::{Mode, Options},
 };
 use anyhow::{Context, Result};
-use shellfox_service::{
-    desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest, LaunchRequestKind}, local::LocalClient, remote::RemoteUnavailableReason,
-};
+use shellfox_service::desktop_launch::{LaunchOwnerFence, LaunchRequestKind};
 use std::{
     cell::RefCell,
-    fmt,
     rc::Rc,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -35,23 +32,9 @@ pub(crate) enum Startup {
 pub(crate) struct Prestarted {
     pub config: HostEndpointConfig,
     pub host: AppHost,
-    pub remote_unavailable: Option<RemoteUnavailableReason>,
-}
-struct StartupFailure(Arc<anyhow::Error>);
-impl fmt::Debug for StartupFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("StartupFailure(..)")
-    }
-}
-impl fmt::Display for StartupFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-impl std::error::Error for StartupFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.0.as_ref().as_ref())
-    }
+    /// The desktop-started host this UI stops on Quit, recorded once the
+    /// desktop directory exists.
+    pub owned_by: Option<LaunchOwnerFence>,
 }
 
 pub(crate) fn prepare(options: &Options) -> Result<Startup> {
@@ -74,61 +57,32 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
         &config.helper,
         config.helper_sha256,
     ))?;
-    let remote = options
-        .application
-        .remote_options(std::env::current_exe()?, true)?;
-    match runtime.block_on(AppHost::prestart_remote(config.clone(), remote))? {
-        AppHostPrestart::Ready(host) => Ok(Startup::Graphical(Some(Prestarted {
-            config,
-            host,
-            remote_unavailable: None,
-        }))),
-        AppHostPrestart::ReadyLocalOnly {
-            host,
-            remote_unavailable,
-        } => Ok(Startup::Graphical(Some(Prestarted {
-            config,
-            host,
-            remote_unavailable: Some(remote_unavailable),
-        }))),
-        AppHostPrestart::Occupied(proof) => {
-            // The sealed acquire(None)+contender-exit proof authorizes this attempt,
-            // not a particular future owner fence. Discovery/receipts capture that once.
-            let attach = runtime.block_on(async {
-                let client = LocalClient::connect(proof.directory(), &config.helper, config.helper_sha256).await?;
-                let DesktopLaunchReply::Route(route) = client.request(&DesktopLaunchRequest::Discover {}).await? else {
-                    anyhow::bail!("Existing host returned an invalid desktop discovery response.");
-                };
-                if route.desktop_registered {
-                    client.launch_existing_pinned(options.launch.clone(), LaunchRequestKind::Fresh, route.owner).await?;
-                    Ok(None)
-                } else {
-                    Ok::<_, anyhow::Error>(Some(route.owner))
-                }
-            }).context("Existing host could not be contacted; another host was not started")?;
-            if let Some(owner) = attach {
-                let host = AppHost::attached(config.clone(), owner)?;
-                Ok(Startup::Graphical(Some(Prestarted { config, host, remote_unavailable: None })))
-            } else {
-                Ok(Startup::Forwarded)
-            }
-        }
-        AppHostPrestart::Failed { host, error } => {
-            let retained = Prestarted {
-                config,
-                host,
-                remote_unavailable: None,
-            };
-            retained.cleanup_until_confirmed();
-            Err(anyhow::Error::new(StartupFailure(error)))
-        }
+    let connected = crate::host_process::connect_or_start(&runtime, &options.relaunch_args, &options.application_args, &config)?;
+    let route = connected.route;
+    if route.desktop_registered {
+        // Another window process owns the UI: hand this launch to it.
+        runtime
+            .block_on(connected.client.launch_existing_pinned(options.launch.clone(), LaunchRequestKind::Fresh, route.owner))
+            .context("The running Shellfox did not accept this launch")?;
+        return Ok(Startup::Forwarded);
     }
+    let _ = runtime.block_on(connected.client.disconnect());
+    let owned = connected.started
+        || options.owned_host
+        || crate::host_process::recorded_owner(&options.desktop_dir) == Some(route.owner);
+    let host = AppHost::attached(config.clone(), route.owner, owned)?;
+    Ok(Startup::Graphical(Some(Prestarted {
+        config,
+        host,
+        owned_by: owned.then_some(route.owner),
+    })))
 }
 impl Prestarted {
     /// Called outside Application.run, including after installation/GPU failure.
-    /// No timeout/error authorizes returning while the original owner is unconfirmed.
+    /// A UI that ends without a confirmed Quit leaves live shells to their host,
+    /// as a crash would; an idle desktop-started host is stopped.
     pub fn cleanup_until_confirmed(&self) {
-        if self.host.is_stopped().unwrap_or(false) {
+        if self.host.is_stopped().unwrap_or(false) || self.host.is_external() {
             return;
         }
         let mut next_diagnostic = Instant::now();
@@ -137,7 +91,12 @@ impl Prestarted {
                 .enable_all()
                 .build()
             {
-                Ok(runtime) => runtime.block_on(self.host.cleanup_prestarted()),
+                Ok(runtime) => runtime.block_on(async {
+                    if self.host.is_attached() && self.host.owned_terminal_count().await? > 0 {
+                        return Ok(None);
+                    }
+                    self.host.cleanup_prestarted().await
+                }),
                 Err(error) => Err(error.into()),
             };
             match result {
@@ -165,14 +124,7 @@ mod owned_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[derive(Debug)]
-    struct Marker;
-    impl fmt::Display for Marker {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("typed startup marker")
-        }
-    }
-    impl std::error::Error for Marker {}
+    use crate::app_host::AppHostPrestart;
     #[tokio::test(flavor = "current_thread")]
     async fn remote_composition_failure_retains_same_endpoint_without_materializing_node_state() {
         let path = std::env::current_dir().unwrap().join("tmp").join(format!(
@@ -215,16 +167,5 @@ mod tests {
             "Optional node state must not be caller-created before native admission"
         );
         std::fs::remove_dir_all(path).unwrap();
-    }
-    #[test]
-    fn retained_startup_error_preserves_original_typed_source_without_debug_payload() {
-        let original = Arc::new(anyhow::Error::new(Marker));
-        let error = anyhow::Error::new(StartupFailure(original.clone()));
-        assert!(error.chain().any(|source| source.is::<Marker>()));
-        assert_eq!(Arc::strong_count(&original), 2);
-        assert_eq!(
-            format!("{:?}", StartupFailure(original)),
-            "StartupFailure(..)"
-        );
     }
 }

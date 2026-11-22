@@ -16,7 +16,7 @@ pub(crate) const WINDOW_TITLE: &str = concat!("Shellfox v", env!("SHELLFOX_VERSI
 pub(crate) const ATTACHED_WINDOW_TITLE: &str = concat!("Shellfox v", env!("SHELLFOX_VERSION"), " · host client");
 
 pub(crate) fn caption(cx: &App) -> &'static str {
-    if crate::app_host::adapter::get(cx).is_some_and(|host| host.is_attached()) { ATTACHED_WINDOW_TITLE } else { WINDOW_TITLE }
+    if crate::app_host::adapter::get(cx).is_some_and(|host| host.is_external()) { ATTACHED_WINDOW_TITLE } else { WINDOW_TITLE }
 }
 
 pub(crate) fn bootstrap(options: Options, initial: InitialSelection, trace: bool, cx: &mut App) {

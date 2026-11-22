@@ -67,13 +67,21 @@ impl<B: AppHostBackend> Clone for AppHost<B> {
     }
 }
 impl AppHost {
-    pub(crate) fn attached(config: crate::host_client::HostEndpointConfig, owner: shellfox_service::desktop_launch::LaunchOwnerFence) -> Result<Self> {
+    pub(crate) fn attached(
+        config: crate::host_client::HostEndpointConfig,
+        owner: shellfox_service::desktop_launch::LaunchOwnerFence,
+        owned: bool,
+    ) -> Result<Self> {
         let runtime = crate::host_client::attached::AttachedRuntime::new()?;
-        Ok(Self::with_backend(EndpointBackend::Attached { config, owner, runtime }))
+        Ok(Self::with_backend(EndpointBackend::Attached { config, owner, runtime, owned }))
     }
 
     pub(crate) fn is_attached(&self) -> bool {
         matches!(self.shared.backend, EndpointBackend::Attached { .. })
+    }
+    /// Attached to a host this desktop did not start, such as `host run`.
+    pub(crate) fn is_external(&self) -> bool {
+        matches!(self.shared.backend, EndpointBackend::Attached { owned: false, .. })
     }
 
     pub(crate) async fn chrome_client(&self) -> Result<crate::host_client::HostClient> {

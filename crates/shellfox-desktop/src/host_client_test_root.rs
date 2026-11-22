@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 #[path = "host_client.rs"]
 pub mod host_client;
+#[path = "host_process.rs"]
+mod host_process;
 #[path = "app_host.rs"]
 pub mod app_host;
 #[path = "app_launch.rs"]

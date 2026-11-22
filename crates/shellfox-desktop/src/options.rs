@@ -26,6 +26,12 @@ pub struct Options {
     pub run_dir: PathBuf,
     pub endpoint: Option<crate::host_client::HostEndpointConfig>,
     pub application: app_composition::NativeApplicationConfig,
+    /// Raw application flags, forwarded to the host process.
+    pub application_args: Vec<OsString>,
+    /// Persistent flags, without launch intents, for a UI relaunched by its host.
+    pub relaunch_args: Vec<OsString>,
+    /// Set by a host that relaunches its crashed UI: Quit stops that host.
+    pub owned_host: bool,
 }
 
 impl Options {
@@ -52,17 +58,31 @@ impl Options {
         let mut launch_args = Vec::new();
         let mut attach_existing = false;
         let mut launch_owner = None;
+        let mut application_args = Vec::new();
+        let mut relaunch_args = Vec::new();
+        let mut owned_host = false;
         while let Some(arg) = args.next() {
             if app_composition::ApplicationArguments::is_flag(&arg) {
-                application.push(
-                    arg.to_str().context("Application flag must be UTF-8")?,
-                    args.next().context("Application flag requires a value")?,
-                )?;
+                let value = args.next().context("Application flag requires a value")?;
+                application.push(arg.to_str().context("Application flag must be UTF-8")?, value.clone())?;
+                application_args.extend([arg.clone(), value.clone()]);
+                relaunch_args.extend([arg, value]);
                 continue;
+            }
+            if matches!(
+                arg.to_str(),
+                Some("--helper" | "--helper-sha256" | "--device-config-root" | "--desktop-dir" | "--data-dir")
+            ) && let Some(value) = args.peek()
+            {
+                relaunch_args.extend([arg.clone(), value.clone()]);
             }
             match arg.to_str() {
                 Some("--fixture") => mode = Mode::Fixture,
-                Some("--ui-acceptance") => ui_acceptance = true,
+                Some("--ui-acceptance") => {
+                    ui_acceptance = true;
+                    relaunch_args.push("--ui-acceptance".into());
+                }
+                Some("--owned-host") => owned_host = true,
                 Some("--helper") => {
                     if helper.is_some() {
                         bail!("--helper may only be supplied once");
@@ -225,6 +245,9 @@ impl Options {
             run_dir,
             endpoint,
             application,
+            application_args,
+            relaunch_args,
+            owned_host,
         })
     }
 }

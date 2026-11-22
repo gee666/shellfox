@@ -36,7 +36,28 @@ pub enum EndpointBackend {
         config: HostEndpointConfig,
         runtime: crate::host_client::attached::AttachedRuntime,
         owner: shellfox_service::desktop_launch::LaunchOwnerFence,
+        /// A desktop-started host: Quit confirms and stops it with its shells.
+        /// Otherwise (`host run`) closing the desktop only detaches.
+        owned: bool,
     },
+}
+/// One local request on a reactor of its own; GPUI futures have no Tokio reactor.
+async fn with_local<T: Send + 'static>(
+    config: &HostEndpointConfig,
+    work: impl AsyncFnOnce(&shellfox_service::local::LocalClient) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let config = config.clone();
+    let (reply, result) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new().name("shellfox-host-control".into()).spawn(move || {
+        let outcome = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(Into::into).and_then(|runtime| {
+            runtime.block_on(async {
+                let client = shellfox_service::local::LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256).await?;
+                work(&client).await
+            })
+        });
+        let _ = reply.send(outcome);
+    })?;
+    result.await.map_err(|_| anyhow::anyhow!("Host control thread ended."))?
 }
 impl EndpointBackend {
     /// Move the original pre-GPU endpoint, never construct another service owner.
@@ -71,8 +92,20 @@ impl AppHostBackend for EndpointBackend {
     }
     fn owned_terminal_count(&self) -> HostFuture<'_, usize> {
         Box::pin(async {
-            // An attached window owns no shell, even when the host has live ones.
-            let Self::Owned(endpoint) = self else { return Ok(0); };
+            let endpoint = match self {
+                Self::Owned(endpoint) => endpoint,
+                Self::Attached { config, owned: true, .. } => {
+                    return with_local(config, async |client| {
+                        match client.request(&shellfox_service::local::DesktopRequest::Status).await? {
+                            shellfox_service::local::DesktopReply::Status(status) => Ok(status.active_terminals),
+                            _ => anyhow::bail!("Host returned an invalid status response."),
+                        }
+                    })
+                    .await;
+                }
+                // A desktop attached to `host run` owns no shell.
+                Self::Attached { .. } => return Ok(0),
+            };
             let client = {
                 let mut endpoint = endpoint.lock().await;
                 match endpoint.startup_outcome() {
@@ -101,7 +134,7 @@ impl AppHostBackend for EndpointBackend {
         Box::pin(async {
             match self {
                 Self::Owned(endpoint) => Ok(endpoint.lock().await.ready().await?.fork()),
-                Self::Attached { config, runtime, owner } => Ok(HostClient::attached(runtime.connect(config.clone(), *owner).await?))
+                Self::Attached { config, runtime, owner, .. } => Ok(HostClient::attached(runtime.connect(config.clone(), *owner).await?))
             }
         })
     }
@@ -110,7 +143,21 @@ impl AppHostBackend for EndpointBackend {
     }
     fn stop(&self) -> HostFuture<'_, Option<shellfox_service::ShutdownOutcome>> {
         Box::pin(async {
-            let Self::Owned(endpoint) = self else { return Ok(None); };
+            let endpoint = match self {
+                Self::Owned(endpoint) => endpoint,
+                Self::Attached { config, owned: true, .. } => {
+                    crate::host_process::announce_quit();
+                    with_local(config, async |client| {
+                        client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
+                        // Stop replies once admitted; the host exits after closing its shells.
+                        client.closed().await;
+                        Ok(())
+                    })
+                    .await?;
+                    return Ok(None);
+                }
+                Self::Attached { .. } => return Ok(None),
+            };
             let mut endpoint = endpoint.lock().await;
             endpoint.shutdown().await?;
             Ok(endpoint.shutdown_outcome())
