@@ -17,7 +17,11 @@ use shellfox_service::{
     local::{self, LocalClient, SshRead, SshReadReply},
 };
 use shellfox_ssh::{PrivateDirectory, ProfileDto};
-use std::{ffi::OsString, path::PathBuf, sync::Arc};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use terminal::Terminal;
 
 #[derive(Debug, PartialEq)]
@@ -69,7 +73,8 @@ pub fn dispatch(arguments: &[OsString]) -> Option<Result<i32>> {
             return None;
         };
         match flag.to_str()? {
-            "--data-dir" | "--user-data" => opts.data = Some(PathBuf::from(value)),
+            "--data-dir" => opts.data = Some(PathBuf::from(value)),
+            "--user-data" => opts.data = Some(crate::node_args::data_dir(Path::new(value))),
             "--helper" => opts.helper = Some(PathBuf::from(value)),
             "--helper-sha256" => opts.digest = Some(value.clone()),
             "--host" => opts.incompatible |= value != "local",
@@ -236,7 +241,10 @@ impl Store {
     async fn open(opts: Options) -> Result<Self> {
         let data = opts
             .data
-            .or_else(|| std::env::var_os("SHELLFOX_USER_DATA").map(PathBuf::from))
+            .or_else(|| {
+                std::env::var_os("SHELLFOX_USER_DATA")
+                    .map(|root| crate::node_args::data_dir(Path::new(&root)))
+            })
             .map(Ok)
             .unwrap_or_else(app_paths::default_data_root)?;
         let data = std::path::absolute(data)?;

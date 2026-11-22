@@ -4,9 +4,17 @@ mod attach;
 mod automation;
 mod automation_args;
 mod commands;
+mod headless_layout;
+mod headless_package;
+mod headless_update;
+mod host_service;
 mod keys;
 mod launch_args;
+mod legacy_host;
+mod node_args;
+mod node_run;
 mod output;
+mod parent_watch;
 mod presentation;
 mod queries;
 mod query_rules;
@@ -16,16 +24,13 @@ mod ssh;
 #[cfg(test)]
 mod startup_dispatch_tests;
 mod terminal_text;
+mod time_text;
 mod vt_bytes;
 
 use anyhow::Result;
+use std::ffi::OsString;
 
 fn main() {
-    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    if arguments.len() == 1 && arguments[0] == "--version" {
-        println!("shellfox-cli {}", env!("SHELLFOX_VERSION"));
-        return;
-    }
     match shellfox_service::dispatch_supervisor_entry() {
         Ok(Some(code)) => std::process::exit(i32::from_ne_bytes(code.to_ne_bytes())),
         Ok(None) => {}
@@ -34,17 +39,43 @@ fn main() {
             std::process::exit(1);
         }
     }
-    match ssh::dispatch(&arguments).unwrap_or_else(run) {
-        Ok(code) => std::process::exit(code),
+    let watch = parent_watch::claim();
+    let mut arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    headless_layout::strip_node_entry(&mut arguments);
+    match headless_layout::forward(&arguments) {
+        Ok(Some(code)) => std::process::exit(code),
+        Ok(None) => {}
         Err(error) => {
-            eprintln!("shellfox-cli: {error:#}");
+            eprintln!("Shellfox: {error:#}");
             std::process::exit(1);
         }
     }
+    let code = match ssh::dispatch(&arguments) {
+        Some(result) => result.unwrap_or_else(|error| output::print_error(&error)),
+        None if experimental(&arguments) => run(arguments).unwrap_or_else(|error| output::print_error(&error)),
+        None => {
+            let json = arguments.iter().take_while(|a| *a != "--").any(|a| a == "--json");
+            output::set_mode(if json { output::Mode::Json } else { output::Mode::Human });
+            node_args::parse(&arguments)
+                .and_then(|invocation| node_run::run(invocation, watch))
+                .unwrap_or_else(|error| output::print_error(&error))
+        }
+    };
+    std::process::exit(code);
 }
 
-fn run() -> Result<i32> {
-    let Some(args) = args::parse(std::env::args_os().skip(1))? else {
+/// Development and package smoke tests select the host with explicit paths.
+fn experimental(arguments: &[OsString]) -> bool {
+    arguments.first().is_some_and(|first| {
+        first == "--data-dir"
+            || first == "--helper"
+            || first == "--helper-sha256"
+            || app_composition::ApplicationArguments::is_flag(first)
+    })
+}
+
+fn run(arguments: Vec<OsString>) -> Result<i32> {
+    let Some(args) = args::parse(arguments)? else {
         println!("{}", args::HELP);
         return Ok(0);
     };

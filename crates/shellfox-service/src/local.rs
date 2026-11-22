@@ -127,7 +127,7 @@ async fn serve_retained_plan<D: crate::OwnerDispatcher + 'static>(
     let mut signal_error = None;
     let result = {
         let signal = async {
-            if let Err(error) = tokio::signal::ctrl_c().await {
+            if let Err(error) = stop_signal().await {
                 signal_error = Some(error);
             }
             stop.cancel();
@@ -303,6 +303,22 @@ async fn run_started(
         }
     }
     Ok(())
+}
+
+/// Ctrl+C, or the stop signal systemd, launchd and `kill` send to a headless host.
+async fn stop_signal() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let (mut terminate, mut hangup) = (signal(SignalKind::terminate())?, signal(SignalKind::hangup())?);
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result,
+            _ = terminate.recv() => Ok(()),
+            _ = hangup.recv() => Ok(()),
+        }
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await
 }
 
 fn preflight_boot_paths(data: &Path, helper: &Path) -> Result<()> {

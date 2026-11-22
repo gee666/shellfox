@@ -50,10 +50,11 @@ pub fn packaged_helper() -> Result<(PathBuf, [u8; 32])> {
     } else {
         "shellfox-tailscale"
     };
-    let resources = if cfg!(target_os = "macos") {
-        dir.join("../Resources")
-    } else if cfg!(windows) && dir.ends_with("bin") {
+    // Portable and headless packages keep executables in bin/ on every OS.
+    let resources = if dir.ends_with("bin") {
         dir.join("../resources")
+    } else if cfg!(target_os = "macos") {
+        dir.join("../Resources")
     } else {
         dir.join("resources")
     };

@@ -63,7 +63,11 @@ pub fn print_value(value: &impl Serialize) -> anyhow::Result<()> {
                 serde_json::Value::String(text) if mode() == Mode::Human => text.clone(),
                 value => serde_json::to_string_pretty(value)?,
             };
-            writeln!(output, "{}", crate::terminal_text::escape_json_display(&text))?;
+            writeln!(
+                output,
+                "{}",
+                crate::terminal_text::escape_json_display(&text)
+            )?;
         }
     }
     Ok(())
