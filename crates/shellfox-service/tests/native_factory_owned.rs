@@ -1,6 +1,5 @@
 //! Actual production composition and first catalog PTY. No GPUI/test supervisor.
-#[path = "../../native_app_composition.rs"]
-pub mod application;
+pub use shellfox_service::app_composition as application;
 #[path = "support/native_bootstrap_remote_owned.rs"]
 pub mod support;
 use anyhow::{ensure, Context, Result};

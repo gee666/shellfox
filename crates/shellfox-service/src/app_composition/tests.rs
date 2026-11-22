@@ -66,7 +66,7 @@ fn development_install_facts_are_unavailable_and_actual_home_query_is_readonly()
         system.cli_integration(SystemScope::User).unwrap_err().code,
         ErrorCode::NativeUnavailable
     );
-    use shellfox_service::system::{NativeSystemEnvironment, SystemEnvironment};
+    use crate::system::{NativeSystemEnvironment, SystemEnvironment};
     if let Ok(expected) = NativeSystemEnvironment.home() {
         assert_eq!(Path::new(&system.home_directory().unwrap().cwd), expected);
     }

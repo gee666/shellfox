@@ -1,7 +1,6 @@
 //! Actual isolated tsnet/WhoIs -> same Host SQL approval -> Manager -> Runtime.
 #![cfg(feature = "experimental-shellfox-native")]
-#[path = "../../native_app_composition.rs"]
-pub mod application;
+pub use shellfox_service::app_composition as application;
 pub use shellfox_service::peer::consumer;
 #[path = "../src/remote_network_health.rs"]
 mod health;

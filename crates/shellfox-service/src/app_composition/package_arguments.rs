@@ -78,7 +78,7 @@ impl PackageManifestInput {
         ApplicationProviderResources::from_portable_manifest(
             &self.path,
             self.expected_digest,
-            shellfox_service::system::SystemInstallPolicy {
+            crate::system::SystemInstallPolicy {
                 // Inventory does not contain the required data/helper launch context.
                 allow_user_install: false,
                 allow_open: false,
@@ -88,5 +88,5 @@ impl PackageManifestInput {
 }
 
 #[cfg(test)]
-#[path = "native_app_package_arguments_tests.rs"]
+#[path = "package_arguments_tests.rs"]
 mod tests;

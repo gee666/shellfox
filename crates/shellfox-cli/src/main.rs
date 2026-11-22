@@ -1,5 +1,4 @@
-#[path = "../../native_app_composition.rs"]
-mod app_composition;
+use shellfox_service::app_composition;
 mod args;
 mod attach;
 mod automation;

@@ -1,6 +1,5 @@
 //! Private public-API targets. Execute only with original suspended/pidfd custody.
-#[path = "../../native_app_composition.rs"]
-mod app_composition;
+use shellfox_service::app_composition;
 #[path = "support/native_provider_crud.rs"]
 mod crud;
 #[path = "support/native_provider_inputs.rs"]

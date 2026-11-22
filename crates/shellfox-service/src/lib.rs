@@ -3,6 +3,7 @@ pub mod activity;
 mod electron_import;
 mod activity_hooks;
 pub mod activity_integration;
+pub mod app_composition;
 pub mod app_paths;
 pub mod automation;
 mod creation;

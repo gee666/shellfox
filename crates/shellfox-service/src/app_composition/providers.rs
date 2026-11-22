@@ -1,6 +1,6 @@
 //! Shared resource-input builder. Inputs are validated by the trusted native
 //! producer, never inferred from the running executable or a renderer request.
-use shellfox_service::{
+use crate::{
     native_providers::NativeHostProviders,
     system::{NativeSystemBackend, SystemInstallPolicy, SystemInstallResources},
 };
@@ -20,7 +20,7 @@ impl ApplicationProviderResources {
         policy: SystemInstallPolicy,
     ) -> anyhow::Result<Self> {
         let installation =
-            shellfox_service::native_providers::portable_install_resources(path, expected_digest)?;
+            crate::native_providers::portable_install_resources(path, expected_digest)?;
         Ok(Self::new(installation, policy))
     }
     /// Stable package producers supply ConfiguredSystemResources here. Private
@@ -49,5 +49,5 @@ impl std::fmt::Debug for ApplicationProviderResources {
 }
 
 #[cfg(test)]
-#[path = "native_app_providers_tests.rs"]
+#[path = "providers_tests.rs"]
 mod tests;

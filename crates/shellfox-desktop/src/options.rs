@@ -1,6 +1,5 @@
 use anyhow::{Context, Result, bail};
-#[path = "../../native_app_composition.rs"]
-pub(crate) mod app_composition;
+pub(crate) use shellfox_service::app_composition;
 #[path = "options_launch.rs"]
 mod launch;
 #[cfg(test)]

@@ -1,12 +1,10 @@
 //! Shared Desktop/CLI application composition, not another Host or persistence owner.
-#[path = "native_app_providers.rs"]
 pub mod providers;
 pub use providers::ApplicationProviderResources;
-#[path = "native_app_package_arguments.rs"]
 mod package_arguments;
 use anyhow::{Context, Result, bail, ensure};
 use shellfox_protocol::{AppError, ErrorCode};
-use shellfox_service::{
+use crate::{
     NativeFactoryPolicy,
     local::RemoteBootOptions,
     native_providers::NativeHostProviders,
@@ -174,7 +172,7 @@ impl NativeApplicationConfig {
         // Canonical native control namespace supplied by the Service composition.
         // This is descriptive only; RemoteHostSetup alone materializes it after its gate.
         let network = data.join("rust-service-v1").join("go-network");
-        let state = state.unwrap_or_else(|| shellfox_service::app_paths::default_remote_state(data));
+        let state = state.unwrap_or_else(|| crate::app_paths::default_remote_state(data));
         system::validate_system_path(&state).map_err(|error| anyhow::anyhow!(error.message))?;
         ensure!(
             !state.components().any(|part| part == Component::ParentDir),
@@ -303,11 +301,10 @@ fn unconfigured_providers(interactive: bool) -> NativeHostProviders {
         interactive,
     )))
 }
-#[cfg(test)]
+/// System services of a standalone launch without packaged install resources.
 pub fn system_services(interactive: bool) -> Arc<system::HostSystemServices> {
     unconfigured_providers(interactive).system_services()
 }
 
 #[cfg(test)]
-#[path = "native_app_composition_tests.rs"]
 mod tests;

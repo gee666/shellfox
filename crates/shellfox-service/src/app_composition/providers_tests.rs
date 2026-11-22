@@ -1,6 +1,6 @@
 use super::*;
 use shellfox_protocol::{AppError, ErrorCode};
-use shellfox_service::{
+use crate::{
     system::{CliInstallPlan, DesktopLaunch, SystemResult, SystemScope},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
