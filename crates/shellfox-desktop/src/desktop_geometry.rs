@@ -1,17 +1,10 @@
 use crate::{
     host_client::HostClient,
     root::Root,
-    window_manager::state::{SAVE_DELAY, WindowState},
+    window_manager::state::{SAVE_DELAY, Screen, WindowState, min_size, place, record},
 };
-use gpui::{App, Context, Global, Task, Window, WindowOptions};
+use gpui::{App, Context, Global, PlatformDisplay, Task, Window, WindowBounds, WindowOptions};
 use shellfox_service::native::{NativeAction, NativeResponse};
-
-#[cfg(windows)]
-#[path = "desktop_geometry_windows.rs"]
-mod platform;
-#[cfg(not(windows))]
-#[path = "desktop_geometry_unix.rs"]
-mod platform;
 
 pub(crate) struct WindowHistory {
     client: HostClient,
@@ -29,7 +22,7 @@ impl WindowHistory {
         };
         Ok(Self {
             client,
-            saved: saved.filter(|state| state.valid()),
+            saved: saved.filter(WindowState::valid),
             claimed: false,
         })
     }
@@ -39,16 +32,15 @@ impl WindowHistory {
         mut options: WindowOptions,
     ) -> (WindowOptions, Option<WindowTracker>) {
         let Some(history) = cx.try_global::<Self>().filter(|history| !history.claimed) else {
-            #[cfg(target_os = "linux")]
-            if gpui::guess_compositor() == "Wayland" {
-                platform::configure(cx, None, &mut options);
+            if wayland() {
+                configure(cx, None, &mut options);
             }
             return (options, None);
         };
-        let saved = history.saved;
+        let saved = history.saved.clone();
         let client = history.client.clone();
         cx.global_mut::<Self>().claimed = true;
-        platform::configure(cx, saved, &mut options);
+        configure(cx, saved.as_ref(), &mut options);
         let tracker = WindowTracker {
             client,
             last: saved,
@@ -91,8 +83,8 @@ impl Root {
             tracker.debounce = Some(cx.spawn_in(window, async move |root, cx| {
                 cx.background_executor().timer(SAVE_DELAY).await;
                 let write = root
-                    .update_in(cx, |root, window, _| {
-                        root.capture_window_bounds(window, false)
+                    .update_in(cx, |root, window, cx| {
+                        root.capture_window_bounds(window, false, cx)
                     })
                     .ok()
                     .flatten();
@@ -104,20 +96,90 @@ impl Root {
         .detach();
     }
 
-    pub(crate) fn flush_window_bounds(&mut self, window: &Window) -> Option<WindowWrite> {
+    pub(crate) fn flush_window_bounds(&mut self, window: &Window, cx: &App) -> Option<WindowWrite> {
         if let Some(tracker) = &mut self.window_tracker {
             tracker.debounce = None;
         }
-        self.capture_window_bounds(window, true)
+        self.capture_window_bounds(window, true, cx)
     }
 
-    fn capture_window_bounds(&mut self, window: &Window, force: bool) -> Option<WindowWrite> {
+    fn capture_window_bounds(
+        &mut self,
+        window: &Window,
+        force: bool,
+        cx: &App,
+    ) -> Option<WindowWrite> {
         let tracker = self.window_tracker.as_mut()?;
-        let state = platform::capture(window)?;
-        if !force && tracker.last == Some(state) {
+        let state = capture(window, cx)?;
+        if !force && tracker.last.as_ref() == Some(&state) {
             return None;
         }
-        tracker.last = Some(state);
+        tracker.last = Some(state.clone());
         Some(WindowWrite(tracker.client.clone(), state))
     }
+}
+
+fn wayland() -> bool {
+    #[cfg(target_os = "linux")]
+    return gpui::guess_compositor() == "Wayland";
+    #[cfg(not(target_os = "linux"))]
+    false
+}
+
+fn screen(display: &dyn PlatformDisplay) -> Screen {
+    Screen {
+        uuid: display.uuid().ok().map(|uuid| uuid.to_string()),
+        bounds: display.bounds(),
+    }
+}
+
+fn configure(cx: &App, saved: Option<&WindowState>, options: &mut WindowOptions) {
+    let displays = cx.displays();
+    let mut screens: Vec<_> = displays.iter().map(|display| screen(display.as_ref())).collect();
+    let primary = cx.primary_display().and_then(|primary| {
+        displays.iter().position(|display| display.id() == primary.id())
+    });
+    let primary = if wayland() {
+        // The compositor picks the output and the position, so fit every output.
+        let Some(mut fit) = screens.first().cloned() else {
+            return;
+        };
+        for screen in &screens {
+            fit.bounds.size = fit.bounds.size.min(&screen.bounds.size);
+        }
+        fit.uuid = None;
+        screens = vec![fit];
+        0
+    } else {
+        primary.unwrap_or(0)
+    };
+    let saved = saved.filter(|_| !wayland());
+    let Some(placement) = place(saved, &screens, primary) else {
+        return;
+    };
+    options.display_id = (!wayland())
+        .then(|| displays.get(placement.screen).map(|display| display.id()))
+        .flatten();
+    options.window_bounds = Some(if placement.maximized {
+        WindowBounds::Maximized(placement.bounds)
+    } else {
+        WindowBounds::Windowed(placement.bounds)
+    });
+    options.window_min_size = Some(min_size());
+    // AccessKit's native adapter is per OS window. Native macOS tab grouping
+    // breaks that mapping; application tabs remain ordinary Shellfox tabs.
+    options.tabbing_identifier = None;
+}
+
+fn capture(window: &Window, cx: &App) -> Option<WindowState> {
+    let (normal, maximized) = match window.window_bounds() {
+        WindowBounds::Windowed(bounds) => (bounds, false),
+        WindowBounds::Maximized(bounds) | WindowBounds::Fullscreen(bounds) => (bounds, true),
+    };
+    if wayland() {
+        // Wayland has no global window position; only the size is restored.
+        return record(gpui::Bounds { origin: gpui::Point::default(), ..normal }, maximized, None);
+    }
+    let display = window.display(cx).map(|display| screen(display.as_ref()));
+    record(normal, maximized, display.as_ref())
 }

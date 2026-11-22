@@ -61,7 +61,7 @@ impl Root {
         if restart {
             cx.notify();
         }
-        let placement = self.flush_window_bounds(window);
+        let placement = self.flush_window_bounds(window, cx);
         cx.spawn_in(window, async move |root, cx| {
             if let Some(write) = placement { write.finish().await; }
             let count = if system_end { Ok(0) } else { host.owned_terminal_count().await };

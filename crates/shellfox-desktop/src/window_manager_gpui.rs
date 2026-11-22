@@ -1,10 +1,5 @@
 //! Native window adapter only. No layout/style or host policy lives here.
-use super::state::{MIN_HEIGHT, MIN_WIDTH, Monitor, RestoredBounds};
-use anyhow::{Result, ensure};
-use gpui::{
-    App, Bounds, KeyBinding, Menu, MenuItem, Window, WindowBounds, WindowOptions, actions, point,
-    px, size,
-};
+use gpui::{App, KeyBinding, Menu, MenuItem, Window, actions};
 use std::rc::Rc;
 
 actions!(
@@ -88,32 +83,6 @@ pub fn window_menu() -> Menu {
             MenuItem::action("Previous window", PreviousWindow),
         ],
     }
-}
-pub fn window_options(
-    mut options: WindowOptions,
-    restored: RestoredBounds,
-    primary: &Monitor,
-) -> Result<WindowOptions> {
-    ensure!(primary.valid(), "A valid primary monitor is required.");
-    let area = primary.work_area;
-    let (x, y) = restored.origin.unwrap_or((
-        area.x + ((area.width - restored.width) / 2).max(0),
-        area.y + ((area.height - restored.height) / 2).max(0),
-    ));
-    let bounds = Bounds::new(
-        point(px(x as f32), px(y as f32)),
-        size(px(restored.width as f32), px(restored.height as f32)),
-    );
-    options.window_bounds = Some(if restored.maximized {
-        WindowBounds::Maximized(bounds)
-    } else {
-        WindowBounds::Windowed(bounds)
-    });
-    options.window_min_size = Some(size(px(MIN_WIDTH as f32), px(MIN_HEIGHT as f32)));
-    // AccessKit's native adapter is per OS window. Native macOS tab grouping
-    // breaks that mapping; application tabs remain ordinary Shellfox tabs.
-    options.tabbing_identifier = None;
-    Ok(options)
 }
 pub fn configure_opened_window(window: &Window) {
     window.set_tabbing_identifier(None);

@@ -295,7 +295,7 @@ impl crate::Service {
                         .and_then(|file| WindowState::parse(&file.bytes)),
                 ))
             }
-            NativeAction::SaveWindowState(state) => {
+            NativeAction::SaveWindowState(ref state) => {
                 self.assert_accepting()?;
                 action.validate()?;
                 let path = window_file()?;
@@ -306,7 +306,7 @@ impl crate::Service {
                     .replace(
                         &path,
                         file.as_ref(),
-                        Some(&serde_json::to_vec(&state)?),
+                        Some(&serde_json::to_vec(state)?),
                         false,
                     )
                     .map_err(|error| anyhow::anyhow!(error.message))?;

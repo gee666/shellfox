@@ -24,15 +24,17 @@ fn imports_electron_normal_bounds_without_replacing_rust_geometry() {
     assert!(host.import_electron_window_state(&file).unwrap());
     let state = host.window_state().unwrap().unwrap();
     assert_eq!(
-        (state.x, state.y, state.width, state.height, state.maximized),
-        (-1280, 40, 1170, 760, true)
+        Some(state.clone()),
+        WindowState::parse_electron(
+            br#"{"x":-1280,"y":40,"width":1170,"height":760,"maximized":true}"#
+        )
     );
     let changed = WindowState {
         x: 200,
         maximized: false,
         ..state
     };
-    host.save_window_state(changed).unwrap();
+    host.save_window_state(changed.clone()).unwrap();
     drop(host);
     let reopened = Host::open(&local).unwrap();
     assert!(!reopened.import_electron_window_state(&file).unwrap());
@@ -47,13 +49,13 @@ fn invalid_or_corrupt_bounds_are_not_restored() {
     for malformed in [
         "null",
         "{",
-        r#"{"x":0,"y":0,"width":849,"height":760,"maximized":true}"#,
+        r#"{"x":0,"y":0,"width":99,"height":760,"maximized":true}"#,
     ] {
         db.execute(
             "INSERT OR REPLACE INTO desktop_preferences VALUES (?1, ?2)",
             (KEY, malformed),
         )
         .unwrap();
-        assert_eq!(read(&db, "desktop_preferences").unwrap(), None);
+        assert_eq!(read(&db, "desktop_preferences", WindowState::parse).unwrap(), None);
     }
 }

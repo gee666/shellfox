@@ -12,7 +12,7 @@ pub(crate) fn migrate(db: &Connection) -> Result<()> {
 
 impl Host {
     pub fn window_state(&self) -> Result<Option<WindowState>> {
-        read(&self.lock()?.db, "desktop_preferences")
+        read(&self.lock()?.db, "desktop_preferences", WindowState::parse)
     }
 
     pub fn save_window_state(&self, state: WindowState) -> Result<()> {
@@ -25,7 +25,7 @@ impl Host {
         Ok(())
     }
 
-    /// Same key and JSON schema as Electron. Only a private snapshot is opened.
+    /// Converts Electron's bounds once. Only a private snapshot is opened.
     /// Import is independent of settings revision and never replaces Rust bounds.
     pub fn import_electron_window_state(&self, snapshot: &Path) -> Result<bool> {
         let legacy = Connection::open_with_flags(
@@ -50,7 +50,7 @@ impl Host {
         if !(1..=5).contains(&version) || table.as_deref() != Some("table") {
             return Ok(false);
         }
-        let Some(state) = read(&legacy, "preferences")? else {
+        let Some(state) = read(&legacy, "preferences", WindowState::parse_electron)? else {
             return Ok(false);
         };
         let value = serde_json::to_string(&state).map_err(storage_error)?;
@@ -66,8 +66,12 @@ impl Host {
     }
 }
 
-fn read(db: &Connection, table: &str) -> Result<Option<WindowState>> {
-    // Internal schema names only. Both tables store the same row format.
+fn read(
+    db: &Connection,
+    table: &str,
+    parse: fn(&[u8]) -> Option<WindowState>,
+) -> Result<Option<WindowState>> {
+    // Internal schema names only. Both tables use the same key.
     let sql = format!(
         "SELECT CAST(value AS BLOB) FROM {table} WHERE key=?1 AND length(CAST(value AS BLOB))<4096"
     );
@@ -75,7 +79,7 @@ fn read(db: &Connection, table: &str) -> Result<Option<WindowState>> {
         .query_row(&sql, [KEY], |row| row.get(0))
         .optional()
         .map_err(storage_error)?;
-    Ok(bytes.and_then(|bytes| WindowState::parse(&bytes)))
+    Ok(bytes.and_then(|bytes| parse(&bytes)))
 }
 
 #[cfg(test)]

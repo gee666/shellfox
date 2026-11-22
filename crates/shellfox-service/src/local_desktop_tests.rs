@@ -6,11 +6,12 @@ fn private_renderer_rejects_host_stop_and_unscoped_system_commands() {
         assert!(serde_json::from_str::<DesktopRequest>(invalid).is_err());
     }
     assert!(DesktopRequest::SaveWindowState(WindowState {
-        width: 849,
+        width: 99,
         height: 600,
         x: 0,
         y: 0,
         maximized: false,
+        display: None,
     })
     .validate()
     .is_err());
