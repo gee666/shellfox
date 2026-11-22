@@ -18,8 +18,9 @@ impl Root {
         let key = event.keystroke.key.as_str();
         if matches!(key, "escape" | "tab") {
             self.dismiss_session_menu(window, cx);
-        } else if !items.is_empty() {
-            let menu = self.session_menu.as_mut().expect("current menu");
+        } else if !items.is_empty()
+            && let Some(menu) = self.session_menu.as_mut()
+        {
             match key {
                 "up" | "down" | "home" | "end" => {
                     menu.show_focus = true;

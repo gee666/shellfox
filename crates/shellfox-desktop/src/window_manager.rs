@@ -1,9 +1,5 @@
 //! Window-local navigation. Snapshot.selection is persisted recent history,
 //! not a broadcast instruction to move every window's keyboard destination.
-#[path = "window_manager_gpui.rs"]
-pub mod adapter;
-#[path = "window_manager_control.rs"]
-pub mod control;
 #[path = "window_manager_state.rs"]
 pub mod state;
 #[cfg(test)]

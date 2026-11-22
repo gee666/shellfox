@@ -231,6 +231,7 @@ impl<B: AppHostBackend> AppHost<B> {
                 .as_ref()
                 .is_some_and(|pending| pending.windows.contains(&id)))
     }
+    #[cfg(test)]
     pub fn is_closing(&self, id: WindowId) -> Result<bool> {
         Ok(self
             .state()?
