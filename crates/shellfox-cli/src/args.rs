@@ -1,6 +1,6 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use shellfox_core::{
-    AddTab, CreateSession, ProfileId, SessionId, SettingsPatch, TabId, validation,
+    validation, AddTab, CreateSession, ProfileId, SessionId, SettingsPatch, TabId,
 };
 use shellfox_service::experiment::{ExperimentRequest, SettingsRequest};
 use std::{collections::HashMap, ffi::OsString, path::PathBuf};
@@ -26,14 +26,9 @@ pub enum Command {
     Sessions,
     Tabs(Option<SessionId>),
     Request(ExperimentRequest),
-    Attach {
-        tab: TabId,
-        takeover: bool,
-    },
+    Attach { tab: TabId, takeover: bool },
     DesktopLaunch(shellfox_service::desktop_launch::DesktopLaunchIntent),
     Automation(crate::automation_args::AutomationCommand),
-    #[cfg(feature = "experimental-shellfox-native")]
-    Peer(crate::peer_args::PeerArgs),
 }
 
 /// Paths retain their native encoding. Command arguments are UTF-8 metadata.
@@ -107,17 +102,37 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<Arg
     let (helper, helper_sha256) = match (helper, helper_sha256) {
         (Some(helper), Some(digest)) => (helper, digest),
         (None, None) if packaged => shellfox_service::app_paths::packaged_helper()?,
-        _ => bail!("Supply both --helper ABSOLUTE_EXE and --helper-sha256 HEX from a trusted build."),
+        _ => {
+            bail!("Supply both --helper ABSOLUTE_EXE and --helper-sha256 HEX from a trusted build.")
+        }
     };
+    finish(data_dir, helper, helper_sha256, command, application).map(Some)
+}
+
+/// The 0.9.x command surface: packaged helper, default application options.
+pub fn packaged(data_dir: PathBuf, words: &[String]) -> Result<Args> {
+    let command = parse_command(words)?;
+    let (helper, helper_sha256) = shellfox_service::app_paths::packaged_helper()?;
+    let application = crate::app_composition::ApplicationArguments::default();
+    finish(data_dir, helper, helper_sha256, command, application)
+}
+
+fn finish(
+    data_dir: PathBuf,
+    helper: PathBuf,
+    helper_sha256: [u8; 32],
+    command: Command,
+    application: crate::app_composition::ApplicationArguments,
+) -> Result<Args> {
     let application = application.finish(&data_dir)?;
     application.validate_separate(&[&helper])?;
-    Ok(Some(Args {
+    Ok(Args {
         data_dir,
         helper,
         helper_sha256,
         command,
         application,
-    }))
+    })
 }
 
 pub(crate) fn parse_digest(value: &str) -> Result<[u8; 32]> {
@@ -132,17 +147,6 @@ pub(crate) fn parse_digest(value: &str) -> Result<[u8; 32]> {
 }
 
 fn parse_command(words: &[String]) -> Result<Command> {
-    if words.first().is_some_and(|word| word == "peer") {
-        #[cfg(not(feature = "experimental-shellfox-native"))]
-        bail!("peer requires experimental-shellfox-native; no host connection was attempted.");
-        #[cfg(feature = "experimental-shellfox-native")]
-        {
-            let peer_words: Vec<OsString> = words.iter().map(OsString::from).collect();
-            return crate::peer_args::parse_peer(&peer_words)?
-                .map(Command::Peer)
-                .ok_or_else(|| anyhow::anyhow!("Invalid peer command."));
-        }
-    }
     let parts: Vec<&str> = words.iter().map(String::as_str).collect();
     if let Some(command) = crate::remote_args::parse(&parts)? {
         return Ok(Command::Network(command));
@@ -295,16 +299,14 @@ impl<'a> Options<'a> {
 #[path = "args_application_tests.rs"]
 mod application_tests;
 
-#[cfg(all(test, not(feature = "experimental-shellfox-native")))]
-mod default_peer_availability {
+#[cfg(test)]
+mod peer_availability {
     use super::*;
     #[test]
     fn peer_is_rejected_during_argument_dispatch_before_any_host_connection() {
         for words in [vec!["peer"], vec!["peer", "n-work", "sessions"]] {
             let words: Vec<String> = words.into_iter().map(str::to_owned).collect();
-            assert!(
-                matches!(parse_command(&words),Err(error) if error.to_string().contains("experimental-shellfox-native"))
-            );
+            assert!(parse_command(&words).is_err());
         }
     }
 }

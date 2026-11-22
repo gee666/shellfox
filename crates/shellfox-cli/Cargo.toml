@@ -8,7 +8,8 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-crossterm = "0.29"
+crossterm = { version = "0.29", features = ["event-stream"] }
+futures-util = { version = "0.3", default-features = false }
 thiserror.workspace = true
 unicode-segmentation = "1"
 unicode-width = "0.2"
@@ -24,15 +25,19 @@ shellfox-service = { path = "../shellfox-service" }
 shellfox-terminal = { path = "../shellfox-terminal" }
 shellfox-ssh = { path = "../shellfox-ssh" }
 russh = { version = "0.65.2", default-features = false, features = ["ring", "rsa"] }
-tokio = { version = "1", features = ["rt", "time", "net", "process", "signal"] }
+tokio = { version = "1", features = ["rt", "time", "net", "process", "signal", "sync", "macros"] }
 zeroize = "1"
+# Headless `shellfox update`, same client and checks as the desktop updater.
+reqwest = { package = "zed-reqwest", version = "=0.12.15-zed", default-features = false, features = ["rustls-tls-native-roots"] }
+semver = "1"
+sha2 = "0.10"
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
 
 [[bin]]
 name = "shellfox-cli-raw-fixture"
 path = "tests/support/raw_fixture_main.rs"
 test = false
 bench = false
-
-[dev-dependencies]
-tempfile = "3"
-sha2 = "0.10"

@@ -2,17 +2,16 @@ use crate::{
     args::{Args, Command},
     attach,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use shellfox_core::Snapshot;
 use shellfox_service::{
     experiment::{ExperimentRequest, ExperimentResponse},
     local::{self, LocalClient},
 };
-use std::io::{self, Write};
 
 /// The headless owner stays outside block_on/catch, just like the desktop thread.
-pub fn serve(args: Args, runtime: &tokio::runtime::Runtime) -> Result<i32> {
+pub fn serve(args: Args, runtime: &tokio::runtime::Runtime, ready: impl Fn()) -> Result<i32> {
     let remote = args
         .application
         .remote_options(std::env::current_exe()?, false)?;
@@ -27,8 +26,9 @@ pub fn serve(args: Args, runtime: &tokio::runtime::Runtime) -> Result<i32> {
                 match remote_unavailable {
                     shellfox_service::remote::RemoteUnavailableReason::NativeApprovalStoragePending => eprintln!("Local host ready. Remote unavailable: native approval storage review is pending."),
                 }
+                ready();
             }
-            local::LocalBootStatus::Ready if !readiness_reported.replace(true) => eprintln!("Host ready. Remote backend available; network activation remains explicit."),
+            local::LocalBootStatus::Ready if !readiness_reported.replace(true) => ready(),
             _ => {}
         }
     };
@@ -61,8 +61,6 @@ pub async fn run(args: Args) -> Result<i32> {
     let stop = matches!(&args.command, Command::Request(ExperimentRequest::Stop {}));
     let result = match args.command {
         Command::Automation(command) => crate::automation::run(&client, command).await,
-        #[cfg(feature = "experimental-shellfox-native")]
-        Command::Peer(command) => crate::peer::run(&client, command).await,
         command => run_connected(&mut client, command).await.map(|()| 0),
     };
     if !stop {
@@ -75,11 +73,6 @@ pub async fn run(args: Args) -> Result<i32> {
 fn requires_terminal(command: &Command) -> bool {
     match command {
         Command::Attach { .. } => true,
-        #[cfg(feature = "experimental-shellfox-native")]
-        Command::Peer(crate::peer_args::PeerArgs {
-            command: crate::peer_args::PeerCommand::Attach { .. },
-            ..
-        }) => true,
         _ => false,
     }
 }
@@ -105,8 +98,6 @@ async fn run_connected(client: &mut LocalClient, command: Command) -> Result<()>
             Ok(())
         }
         Command::Automation(_) => unreachable!("automation returned before metadata routing"),
-        #[cfg(feature = "experimental-shellfox-native")]
-        Command::Peer(_) => unreachable!("peer command returned before local metadata routing"),
         Command::DesktopLaunch(intent) => print_json(
             &client
                 .launch_existing(
@@ -163,15 +154,7 @@ async fn snapshot(client: &mut LocalClient) -> Result<Snapshot> {
 }
 
 pub(crate) fn print_json(value: &impl Serialize) -> Result<()> {
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
-    let json = serde_json::to_string_pretty(value)?;
-    writeln!(
-        output,
-        "{}",
-        crate::terminal_text::escape_json_display(&json)
-    )?;
-    Ok(())
+    crate::output::print_value(value)
 }
 
 #[cfg(test)]
@@ -184,26 +167,5 @@ mod tests {
             takeover: false
         }));
         assert!(!requires_terminal(&Command::Serve));
-        #[cfg(feature = "experimental-shellfox-native")]
-        {
-            let peer = crate::peer_args::parse_peer(
-                &[
-                    "peer",
-                    "n-work",
-                    "attach",
-                    "00000000-0000-4000-8000-000000000001",
-                ]
-                .map(std::ffi::OsString::from),
-            )
-            .unwrap()
-            .unwrap();
-            assert!(requires_terminal(&Command::Peer(peer)));
-            let peer = crate::peer_args::parse_peer(
-                &["peer", "n-work", "sessions"].map(std::ffi::OsString::from),
-            )
-            .unwrap()
-            .unwrap();
-            assert!(!requires_terminal(&Command::Peer(peer)));
-        }
     }
 }

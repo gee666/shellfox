@@ -6,6 +6,7 @@ mod automation_args;
 mod commands;
 mod keys;
 mod launch_args;
+mod output;
 mod presentation;
 mod queries;
 mod query_rules;
@@ -51,7 +52,9 @@ fn run() -> Result<i32> {
         .enable_all()
         .build()?;
     if matches!(&args.command, args::Command::Serve) {
-        commands::serve(args, &runtime)
+        commands::serve(args, &runtime, || {
+            eprintln!("Host ready. Remote backend available; network activation remains explicit.")
+        })
     } else {
         runtime.block_on(commands::run(args))
     }
