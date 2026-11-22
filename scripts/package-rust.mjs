@@ -7,6 +7,7 @@ import { fileHash, nativeTarget, readJson, root, run, scratchRoot } from './rust
 import { stageResources } from './rust-package-resources.mjs';
 import { acquireNugetSnapshot } from './rust-package-resource-inventory.mjs';
 import { packageNotices } from './package-rust-notices.mjs';
+import { packageHeadless } from './package-rust-headless.mjs';
 
 const pkg = readJson(path.join(root, 'package.json'));
 const icon = extension => path.join(root, `resources/icon/icon.${extension}`);
@@ -188,6 +189,7 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     const profile = path.join(cargoTarget, 'release');
     copy(path.join(profile, win ? 'shellfox.exe' : 'shellfox'), path.join(executables, win ? 'Shellfox.exe' : mac ? 'Shellfox' : 'shellfox'), 0o755);
     copy(path.join(profile, win ? 'shellfox-cli.exe' : 'shellfox-cli'), path.join(executables, win ? 'bin/shellfox-cli.exe' : 'shellfox-cli'), 0o755);
+    packageHeadless({ profile, stage, artifacts, version: pkg.version, target, sign: signDarwin });
     if (win) {
       for (const dir of [app, path.join(app, 'bin')]) copy(path.join(profile, 'ghostty-vt.dll'), path.join(dir, 'ghostty-vt.dll'));
       await windows(app, artifacts, testId);
