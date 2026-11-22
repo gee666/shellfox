@@ -174,7 +174,7 @@ impl NativeApplicationConfig {
         // Canonical native control namespace supplied by the Service composition.
         // This is descriptive only; RemoteHostSetup alone materializes it after its gate.
         let network = data.join("rust-service-v1").join("go-network");
-        let state = state.unwrap_or_else(|| network.join("node-v1"));
+        let state = state.unwrap_or_else(|| shellfox_service::app_paths::default_remote_state(data));
         system::validate_system_path(&state).map_err(|error| anyhow::anyhow!(error.message))?;
         ensure!(
             !state.components().any(|part| part == Component::ParentDir),

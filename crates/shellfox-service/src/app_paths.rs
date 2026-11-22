@@ -1,6 +1,9 @@
 //! Per-user data and producer-pinned resources shared by the installed desktop and CLI.
 use anyhow::{ensure, Context, Result};
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 /// The same app-data base Electron uses, without opening Electron's data files.
 pub fn default_data_root() -> Result<PathBuf> {
@@ -16,6 +19,11 @@ pub fn default_data_root() -> Result<PathBuf> {
             .unwrap_or_else(|| absolute_env("HOME").map(|home| home.join(".config")))?
     };
     Ok(base.join("Shellfox/rust-v1/host"))
+}
+
+/// Default Tailscale node leaf. Electron's node state is adopted into this leaf.
+pub fn default_remote_state(data: &Path) -> PathBuf {
+    data.join("rust-service-v1").join("go-network").join("node-v1")
 }
 
 fn absolute_env(name: &str) -> Result<PathBuf> {
