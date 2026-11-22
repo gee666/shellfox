@@ -26,6 +26,7 @@ mod files_view;
 mod frontend_composition;
 mod frontend_retention;
 mod host_client;
+mod host_lost;
 mod host_process;
 mod input;
 mod launch_handoff;
@@ -249,12 +250,14 @@ fn run_graphics(
                 cx.set_global(update_view::Updates(updater));
             }
             trace_ui_init(trace, "prestarted adapter install begin");
-            if let Some((config, host)) = retained
-                && let Err(error) = app_host::adapter::install_prestarted(cx, config, &host)
-            {
-                app_startup::record_init_failure(error, cx);
-                cx.quit();
-                return;
+            if let Some((config, host)) = retained {
+                if let Err(error) = app_host::adapter::install_prestarted(cx, config.clone(), &host) {
+                    app_startup::record_init_failure(error, cx);
+                    cx.quit();
+                    return;
+                }
+                cx.set_global(host_lost::Relaunch(options.relaunch_args.clone()));
+                host_lost::watch(config, host, cx);
             }
             trace_ui_init(trace, "prestarted adapter install returned");
             // Quitting the event loop does not drop the sole cleanup owner. Main

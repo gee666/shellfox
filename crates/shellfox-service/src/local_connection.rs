@@ -20,7 +20,14 @@ impl LifetimeConnection {
         let mut byte = [0; 1];
         tokio::select! {
             _ = self.stream.read(&mut byte) => {} // EOF/error or forbidden data: release this epoch.
-            _ = cancel.cancelled() => {}
+            _ = cancel.cancelled() => {
+                // An orderly stop says so before closing; a crash only closes.
+                let _ = tokio::time::timeout(Duration::from_secs(1), async {
+                    self.stream.write_all(&[super::transport_frame::LIFETIME_STOPPING]).await?;
+                    self.stream.flush().await
+                })
+                .await;
+            }
         }
         // A lost owner's global cleanup owns the remaining release.
         tokio::select! {
@@ -36,6 +43,7 @@ pub(super) async fn serve_connection(
     lost: CancellationToken,
     stop: CancellationToken,
     slots: Arc<Semaphore>,
+    polls: Arc<super::long_poll::LongPolls>,
 ) -> Result<ConnectionOutcome> {
     let frame = tokio::time::timeout(Duration::from_secs(30), async {
         let bytes = read_frame(&mut stream, crate::remote::outgoing_wire::MAX_REQUEST * 5).await?;
@@ -96,7 +104,8 @@ pub(super) async fn serve_connection(
                 }
                 let outgoing = matches!(&request, PrivateRequest::OutgoingV2(_));
                 let asynchronous =
-                    outgoing || matches!(&request, PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_));
+                    outgoing || matches!(&request, PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_)
+                        | PrivateRequest::Power(crate::power::PowerRequest::Status {}));
                 if !outgoing && body.len() > shellfox_protocol::MAX_REQUEST_BYTES {
                     bail!("Ordinary private request exceeds bound");
                 }
@@ -107,7 +116,11 @@ pub(super) async fn serve_connection(
                 };
                 let requested_stop = request.requested_stop();
                 let original = client.for_private_client(client_id);
-                let operation = original.private_request_in_epoch(request, epoch);
+                let operation = async {
+                    // Reads wait here, per connection, until they can return something new.
+                    polls.hold(client_id, &request, &stop).await;
+                    original.private_request_in_epoch(request, epoch).await
+                };
                 let result = if asynchronous {
                     let mut byte = [0; 1];
                     tokio::select! {

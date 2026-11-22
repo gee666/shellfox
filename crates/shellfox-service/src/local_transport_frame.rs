@@ -1,6 +1,8 @@
 //! Strict private transport frames, not application/remote/native UI methods.
 use super::*;
 pub(super) const TRANSPORT_VERSION: u8 = 1;
+/// The only byte a host writes on a lifetime after opening it: an orderly stop.
+pub(super) const LIFETIME_STOPPING: u8 = b's';
 #[derive(Serialize, Deserialize)]
 #[serde(
     tag = "kind",

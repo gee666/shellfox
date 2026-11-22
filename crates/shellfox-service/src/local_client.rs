@@ -193,15 +193,29 @@ impl LocalClient {
     }
     /// Resolves once the host closes this client's lifetime, at the latest when
     /// its process exits. Ends this client: call it after its last request.
-    pub async fn closed(&self) {
+    pub async fn closed(&self) -> HostClosed {
         let lifetime = self
             .lifetime
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .take();
+        let mut closed = HostClosed::Lost;
         if let Some(mut lifetime) = lifetime {
             let mut byte = [0; 1];
-            while matches!(lifetime.read(&mut byte).await, Ok(1..)) {}
+            while matches!(lifetime.read(&mut byte).await, Ok(1..)) {
+                if byte[0] == transport_frame::LIFETIME_STOPPING {
+                    closed = HostClosed::Stopped;
+                }
+            }
         }
+        closed
     }
+}
+/// How a host ended a client's lifetime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostClosed {
+    /// An orderly stop: Stop request, signal or service manager.
+    Stopped,
+    /// The host died, or this client was already disconnected.
+    Lost,
 }

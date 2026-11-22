@@ -12,12 +12,16 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 /// Write end of the started host's stdin, kept open for this process's life.
 static STARTED: Mutex<Option<ChildStdin>> = Mutex::new(None);
+static QUITTING: AtomicBool = AtomicBool::new(false);
 const OWNER_MARKER: &str = "desktop-host-owner";
 
 pub(crate) struct Connected {
@@ -112,10 +116,16 @@ fn spawn(command: &mut Command) -> Result<Option<String>> {
 /// Call before this UI stops the host it started, so the host does not take
 /// the UI's exit for a crash and relaunch it.
 pub(crate) fn announce_quit() {
+    QUITTING.store(true, Ordering::SeqCst);
     if let Some(stdin) = STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut() {
         let _ = stdin.write_all(&[LocalBootstrap::DESKTOP_HOST_QUIT]);
         let _ = stdin.flush();
     }
+}
+
+/// This UI is stopping its host, so the host's end is expected.
+pub(crate) fn quit_announced() -> bool {
+    QUITTING.load(Ordering::SeqCst)
 }
 
 /// Remembers which host a desktop UI started, so a UI that reattaches after a

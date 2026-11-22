@@ -208,6 +208,13 @@ impl<B: AppHostBackend> AppHost<B> {
     pub fn is_stopped(&self) -> Result<bool> {
         Ok(self.state()?.stopped)
     }
+    /// The host process ended on its own; there is nothing left to stop.
+    pub(crate) fn host_ended(&self) {
+        if let Ok(mut state) = self.state() {
+            state.stopped = true;
+            state.revision += 1;
+        }
+    }
     /// Report retained after successful final shutdown, independent of resource
     /// cleanup proof. None is not Committed; Dirty does not mean live resources.
     /// Artifact preservation/durability is separate from runtime shutdown.
