@@ -1,4 +1,4 @@
-use super::{Field, buffer, history};
+use super::{Field, buffer, history, line_ending};
 use std::ops::Range;
 
 impl Field {
@@ -18,10 +18,18 @@ impl Field {
         {
             return None;
         }
+        let text = if self.asset_editor {
+            self.line_ending.apply(text)
+        } else {
+            text.into()
+        };
+        let text = text.as_ref();
         let range = match range {
             Some(range) => self.byte_range(range)?,
             None => self.marked.clone().unwrap_or(self.selection.clone()),
         };
+        let range = line_ending::boundary(&self.text, range.start)
+            ..line_ending::boundary(&self.text, range.end);
         if range.start > range.end || self.text.len() - range.len() + text.len() > limit {
             return None;
         }
@@ -55,12 +63,7 @@ impl Field {
             && range.start == self.cursor
             && text.chars().count() == 1
             && !text.contains(['\r', '\n', '\t']);
-        let mut inserted = buffer::replace_range(&mut self.text, range, text, limit)?;
-        if self.asset_editor && self.text.contains('\r') {
-            inserted = history::normalized_offset(&self.text, inserted.start)
-                ..history::normalized_offset(&self.text, inserted.end);
-            self.text = self.text.replace("\r\n", "\n").replace('\r', "\n");
-        }
+        let inserted = buffer::replace_range(&mut self.text, range, text, limit)?;
         if let Some(before) = before.filter(|before| before.text.as_ref() != self.text) {
             self.history.record(before, typed.then_some(inserted.end));
         }

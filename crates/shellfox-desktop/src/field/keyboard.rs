@@ -1,4 +1,7 @@
-use super::Field;
+use super::{
+    Field,
+    line_ending::{next, previous},
+};
 use gpui::{Context, KeyDownEvent, Window, point, px};
 use std::ops::Range;
 
@@ -112,18 +115,6 @@ impl Field {
         }
         self.scroll.set_offset(point(offset.x, offset.y));
     }
-}
-fn previous(text: &str, cursor: usize) -> usize {
-    text[..cursor]
-        .char_indices()
-        .next_back()
-        .map_or(0, |(index, _)| index)
-}
-fn next(text: &str, cursor: usize) -> usize {
-    text[cursor..]
-        .chars()
-        .next()
-        .map_or(cursor, |ch| cursor + ch.len_utf8())
 }
 fn navigation_action(key: &str, command: bool, mac: bool) -> (&str, bool) {
     if mac && command {
@@ -271,6 +262,16 @@ mod tests {
         assert_eq!(navigation_target("a😀b", 0..6, 6, "left", false, false), 0);
         assert_eq!(navigation_target("a😀b", 0..6, 0, "right", false, false), 6);
         assert_eq!(navigation_target("a😀b", 0..6, 6, "left", true, false), 5);
+    }
+    #[test]
+    fn crlf_lines_navigate_like_lf_lines() {
+        let text = "ab\r\ncd\r\n";
+        assert_eq!(navigation_target(text, 2..2, 2, "right", false, false), 4);
+        assert_eq!(navigation_target(text, 4..4, 4, "left", false, false), 2);
+        let end = navigation_target(text, 0..0, 0, "end", false, false);
+        assert_eq!(super::super::line_ending::boundary(text, end), 2);
+        assert_eq!(navigation_target(text, 2..2, 2, "down", false, false), 6);
+        assert_eq!(navigation_target(text, 6..6, 6, "up", false, false), 2);
     }
     #[test]
     fn vertical_navigation_preserves_unicode_columns_and_line_home_end() {

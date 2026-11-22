@@ -8,6 +8,7 @@ mod geometry;
 mod history;
 mod horizontal;
 mod keyboard;
+mod line_ending;
 mod replacement;
 mod native;
 mod paint;
@@ -33,6 +34,7 @@ pub struct Field {
     snapshot: snapshot::Snapshot,
     dirty_cache: snapshot::MatchCache,
     asset_editor: bool,
+    line_ending: line_ending::LineEnding,
     syntax_language: Option<syntax::Language>,
     syntax_spans: std::sync::Arc<[syntax::Span]>,
     history: history::History,
@@ -80,6 +82,7 @@ impl Field {
             snapshot,
             dirty_cache: snapshot::MatchCache::default(),
             asset_editor: false,
+            line_ending: line_ending::LineEnding::detect(&text),
             syntax_language: None,
             syntax_spans: std::sync::Arc::new([]),
             history: Default::default(),
@@ -252,6 +255,7 @@ impl Field {
         self.marked.is_some()
     }
     pub(crate) fn set_text(&mut self, text: String, cx: &mut Context<Self>) {
+        self.line_ending = line_ending::LineEnding::detect(&text);
         self.text = text;
         self.history = Default::default();
         self.refresh_snapshot();
@@ -271,6 +275,7 @@ impl Field {
     }
 
     fn set_cursor(&mut self, index: usize, extend: bool) {
+        let index = line_ending::boundary(&self.text, index);
         self.follow_horizontal |= self.cursor != index;
         if !extend {
             self.anchor = index;

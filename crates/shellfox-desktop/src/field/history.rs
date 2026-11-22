@@ -61,21 +61,9 @@ fn push_bounded(states: &mut VecDeque<EditState>, state: EditState) {
     }
 }
 
-pub(super) fn normalized_offset(text: &str, offset: usize) -> usize {
-    offset
-        - text.as_bytes()[..offset]
-            .windows(2)
-            .filter(|pair| *pair == b"\r\n")
-            .count()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn normalized_offsets_count_utf8_bytes_and_crlf_only_once() {
-        assert_eq!(normalized_offset("A\r\n界\rB", "A\r\n界\r".len()), 6);
-    }
     #[test]
     fn coalesced_typing_undo_and_redo_restore_source_offsets() {
         let state = |text: &'static str| EditState {
