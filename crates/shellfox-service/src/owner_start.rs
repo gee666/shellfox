@@ -57,17 +57,7 @@ impl ServiceOwner {
         )?);
         let owner = slot.as_mut().context("Original service owner missing")?;
         if let Err(error) = owner.wait_started().await {
-            let shutdown = loop {
-                match owner.shutdown().await {
-                    Ok(outcome) => break outcome,
-                    Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
-                }
-            };
-            return Err(StartupFailure {
-                cause: error,
-                shutdown,
-            }
-            .into());
+            return Err(owner.startup_failed(error).await);
         }
         Ok(())
     }
@@ -81,6 +71,14 @@ impl ServiceOwner {
         self.started = None;
         result?
     }
+    /// Shutdown errors are permanent (lost acknowledgement or a panicked
+    /// owner), so they're reported with the startup cause, not retried.
+    async fn startup_failed(&mut self, cause: anyhow::Error) -> anyhow::Error {
+        match self.shutdown().await {
+            Ok(shutdown) => StartupFailure { cause, shutdown }.into(),
+            Err(cleanup) => cause.context(format!("Service owner cleanup failed: {cleanup}")),
+        }
+    }
     #[cfg(test)]
     pub async fn start<D: OwnerDispatcher + Send + 'static>(
         directory: PathBuf,
@@ -90,17 +88,7 @@ impl ServiceOwner {
     ) -> Result<Self> {
         let mut owner = Self::spawn_inner(directory, supervisor, lost, None, dispatcher)?;
         if let Err(error) = owner.wait_started().await {
-            let shutdown = loop {
-                match owner.shutdown().await {
-                    Ok(outcome) => break outcome,
-                    Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
-                }
-            };
-            return Err(StartupFailure {
-                cause: error,
-                shutdown,
-            }
-            .into());
+            return Err(owner.startup_failed(error).await);
         }
         Ok(owner)
     }
