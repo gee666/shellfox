@@ -1,8 +1,13 @@
 #!/bin/sh
 # Shellfox/linux-v1
+# `shellfox` is the CLI. Desktop launches (file-manager menus, `shellfox start
+# PATH`) go to the GUI in the background, like the 0.9 CLI did.
 launcher=$(readlink -f -- "$0") || exit 1
 root=$(CDPATH= cd -- "$(dirname -- "$launcher")/../lib/shellfox" && pwd) || exit 1
-if [ "${1:-}" = ssh ]; then
-  exec "$root/shellfox-cli" "$@"
-fi
-exec "$root/shellfox" "$@"
+case "${1:-}" in
+  start|add|new|create|--new-session|--new-window)
+    "$root/shellfox" "$@" </dev/null >/dev/null 2>&1 &
+    exit 0
+    ;;
+esac
+exec "$root/shellfox-cli" "$@"

@@ -71,7 +71,7 @@ test('Debian ships the launcher with its update script, which the launcher route
     .includes('install -m 755 "$root/resources/shellfox-launcher" /usr/bin/shellfox'));
 });
 const launcherShell = process.platform === 'win32' ? path.join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'bin', 'bash.exe') : '/bin/sh';
-test('the Rust Debian launcher uses its own prefix and preserves the SSH exit status and streams', { skip: !existsSync(launcherShell) }, async () => {
+test('the Rust Debian launcher runs the CLI, preserves its exit status and streams, and starts desktop launches in the background', { skip: !existsSync(launcherShell) }, async () => {
   await mkdir('tmp', { recursive: true });
   const prefix = await mkdtemp(path.resolve('tmp/rust package '));
   const posix = value => process.platform === 'win32' ? value.replace(/^([A-Za-z]):/, (_, drive) => '/' + drive.toLowerCase()).replaceAll('\\', '/') : value;
@@ -81,11 +81,22 @@ test('the Rust Debian launcher uses its own prefix and preserves the SSH exit st
     const source = 'resources/linux/shellfox-rust-launcher';
     assert.doesNotMatch(await readFile(source, 'utf8'), /\/usr\/lib\/shellfox/);
     await cp(source, path.join(bin, 'shellfox')); await chmod(path.join(bin, 'shellfox'), 0o755);
-    await writeFile(path.join(lib, 'shellfox'), '#!/bin/sh\nprintf "desktop:%s\\n" "$1"\n', { mode: 0o755 });
+    const desktopLog = path.join(prefix, 'desktop.log');
+    await writeFile(path.join(lib, 'shellfox'), `#!/bin/sh\nprintf "desktop:%s %s\\n" "$1" "$2" > '${posix(desktopLog)}'\n`, { mode: 0o755 });
     await writeFile(path.join(lib, 'shellfox-cli'), '#!/bin/sh\nIFS= read -r data\nprintf "%s:%s\\n" "$1" "$data"\nprintf "%s\\n" "$2" >&2\nexit 7\n', { mode: 0o755 });
     const opts = { timeout: 5000, env: { ...process.env, FIXTURE_BIN: posix(bin) } };
     const command = args => promisify(execFile)(launcherShell, ['-c', 'export PATH="$FIXTURE_BIN:$PATH"; ' + args], opts);
-    assert.equal((await command('shellfox --new-session')).stdout.trim(), 'desktop:--new-session');
+    for (const [args, expected] of [['--new-session', 'desktop:--new-session '], ["start '/a b'", 'desktop:start /a b']]) {
+      await rm(desktopLog, { force: true });
+      assert.equal((await command(`shellfox ${args}`)).stdout, '');
+      const deadline = Date.now() + 5000;
+      while (!existsSync(desktopLog) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal((await readFile(desktopLog, 'utf8')).trim(), expected.trim());
+    }
+    await assert.rejects(command(`printf 'in\\n' | shellfox session list`), error => {
+      assert.equal(error.code, 7); assert.equal(error.stdout.trim(), 'session:in'); assert.equal(error.stderr.trim(), 'list');
+      return true;
+    });
     await assert.rejects(command(`printf 'stdin\\n' | shellfox ssh 'profile name'`), error => {
       assert.equal(error.code, 7); assert.equal(error.stdout.trim(), 'ssh:stdin'); assert.equal(error.stderr.trim(), 'profile name');
       return true;
