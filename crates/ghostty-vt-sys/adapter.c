@@ -3,6 +3,7 @@
 #include <string.h>
 
 #define SF_LIMIT (1024u * 1024u)
+#define SF_SCROLLBACK_BYTES (10u * 1000u * 1000u)
 #define TRY(call) do { int r = (call); if (r != GHOSTTY_SUCCESS) return r; } while (0)
 
 /* The callback never re-enters Ghostty. Bytes are copied before returning. */
@@ -63,6 +64,11 @@ int sf_new(uint16_t cols, uint16_t rows, SfVt **out) {
     /* Match xterm's desktop/mobile default; DECSCUSR may override it later. */
     GhosttyCursorStyle cursor_style = GHOSTTY_CURSOR_STYLE_BLOCK;
     if (!r) r = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_DEFAULT_CURSOR_STYLE, &cursor_style);
+    /* Ghostty's app default. It keeps well over xterm's 3000 lines up to
+     * about 300 columns and bounds memory per terminal; a line limit would
+     * prune whole pages and keep under 3000 lines on narrow terminals. */
+    size_t scrollback_bytes = SF_SCROLLBACK_BYTES;
+    if (!r) r = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES, &scrollback_bytes);
     /* Tracking must precede the first input, including an unfinished sequence. */
     size_t continuation_limit = 64u * 1024u;
     if (!r) r = ghostty_terminal_set(vt->terminal, GHOSTTY_TERMINAL_OPT_CONTINUATION_MAX_BYTES, &continuation_limit);
