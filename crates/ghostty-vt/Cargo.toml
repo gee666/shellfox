@@ -9,3 +9,6 @@ license.workspace = true
 serde = { version = "1", features = ["derive"] }
 url = "2"
 shellfox-ghostty-vt-sys = { path = "../ghostty-vt-sys" }
+
+[dev-dependencies]
+serde_json = "1"

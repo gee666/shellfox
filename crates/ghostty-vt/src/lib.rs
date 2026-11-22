@@ -3,6 +3,7 @@ use shellfox_ghostty_vt_sys as sys;
 mod colors;
 mod input;
 mod input_v2;
+pub mod key;
 mod xterm_keys;
 pub use colors::TerminalColors;
 mod metadata;
@@ -153,8 +154,14 @@ impl Terminal {
         self.engine.encode_key(&event.native()?).map_err(Error)
     }
     /// Encodes a user paste with the terminal's bracketed-paste mode.
+    /// CRLF from Windows clipboards is one line break, not Enter twice.
     pub fn encode_paste(&mut self, text: &str) -> Result<Vec<u8>> {
-        self.engine.encode_paste(text).map_err(Error)
+        let text = if text.contains("\r\n") {
+            std::borrow::Cow::Owned(text.replace("\r\n", "\n"))
+        } else {
+            std::borrow::Cow::Borrowed(text)
+        };
+        self.engine.encode_paste(&text).map_err(Error)
     }
     /// Focus report, or nothing when the application has not enabled mode 1004.
     pub fn encode_focus(&mut self, focused: bool) -> Result<Vec<u8>> {

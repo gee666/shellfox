@@ -154,7 +154,7 @@ impl Owner {
             }
             Command::Paste { text, .. } => {
                 self.active()?;
-                let bytes = self.terminal.encode_xterm_paste(&text).map_err(engine)?;
+                let bytes = self.terminal.encode_paste(&text).map_err(engine)?;
                 let result = self.accept_input(
                     request_id,
                     &bytes,

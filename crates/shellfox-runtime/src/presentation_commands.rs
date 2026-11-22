@@ -52,9 +52,9 @@ impl Owner {
         if let Some(focused) = focus {
             if let Some(bytes) = self
                 .presentations
-                .focus_report(&self.terminal, view, focused)?
+                .focus_report(&mut self.terminal, view, focused)?
             {
-                self.write(bytes)?;
+                self.write(&bytes)?;
             }
         }
         if changed && matches!(view, PresentationLease::Controller(_)) {
