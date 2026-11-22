@@ -6,8 +6,6 @@ pub(crate) use boot::NativeControlChild;
 mod client;
 #[path = "local_connection.rs"]
 mod connection;
-#[path = "local_long_poll.rs"]
-mod long_poll;
 #[path = "native_preparation.rs"]
 mod preparation;
 #[path = "local_transport_frame.rs"]
@@ -273,10 +271,6 @@ async fn run_started(
         Some(remote) => client.with_remote(remote),
         None => client,
     };
-    let polls = std::sync::Arc::new(long_poll::LongPolls::new(
-        client.native_watches().await?,
-        client.remote_state(),
-    ));
     let lost = ownership.lost();
     while server.ensure_running().is_ok() {
         anyhow::ensure!(
@@ -301,7 +295,7 @@ async fn run_started(
                 let stream = accepted?;
                 server.tasks.spawn(connection::serve_connection(
                     stream, record.secret.clone(), client.clone(), lost.clone(),
-                    server.stop.clone(), server.lifetime_slots.clone(), polls.clone(),
+                    server.stop.clone(), server.lifetime_slots.clone(),
                 ));
             },
             _ = server.stop.cancelled() => {}
