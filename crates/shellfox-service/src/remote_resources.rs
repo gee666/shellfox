@@ -223,6 +223,13 @@ fn native_hostname() -> anyhow::Result<String> {
     #[cfg(not(any(windows, unix)))]
     anyhow::bail!("OS hostname query unsupported");
 }
+fn unavailable() -> AppError {
+    failure(
+        ErrorCode::NativeUnavailable,
+        "Owned network state is unavailable; no repair, adoption or fallback was attempted.",
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::default_hostname;
@@ -234,11 +241,4 @@ mod tests {
         assert_eq!(default_hostname("---"), "shellfox");
         assert_eq!(default_hostname(&"A".repeat(70)).len(), 63);
     }
-}
-
-fn unavailable() -> AppError {
-    failure(
-        ErrorCode::NativeUnavailable,
-        "Owned network state is unavailable; no repair, adoption or fallback was attempted.",
-    )
 }

@@ -134,6 +134,33 @@ fn runtime_state(
         },
     }
 }
+fn observation(runtime: &TerminalSourceFacts) -> ObservationFacts {
+    match &runtime.observation {
+        Some(value) if value.root == RootState::Alive => ObservationFacts::Alive {
+            agents: u64::from(value.agents),
+            healthy: value.health == Health::Healthy && runtime.activity_available,
+            reason: if runtime.activity_available {
+                value.reason.clone()
+            } else {
+                Some("Authoritative output activity reporting is unavailable.".into())
+            },
+        },
+        Some(value) if value.root == RootState::Exited => ObservationFacts::Exited,
+        Some(value) => missing(
+            value
+                .reason
+                .as_deref()
+                .unwrap_or("Owned process evidence is unavailable."),
+        ),
+        None => missing("Owned process inspection has not produced evidence for this generation."),
+    }
+}
+fn missing(reason: &str) -> ObservationFacts {
+    ObservationFacts::Unavailable {
+        reason: reason.into(),
+    }
+}
+
 #[cfg(test)]
 mod acknowledgement_tests {
     use super::*;
@@ -160,32 +187,5 @@ mod acknowledgement_tests {
         let (phase, _, after) = runtime_state(&facts).unwrap();
         assert!(matches!(phase, wire::TabLifecycle::LaunchUncertain));
         assert!(after.is_none());
-    }
-}
-
-fn observation(runtime: &TerminalSourceFacts) -> ObservationFacts {
-    match &runtime.observation {
-        Some(value) if value.root == RootState::Alive => ObservationFacts::Alive {
-            agents: u64::from(value.agents),
-            healthy: value.health == Health::Healthy && runtime.activity_available,
-            reason: if runtime.activity_available {
-                value.reason.clone()
-            } else {
-                Some("Authoritative output activity reporting is unavailable.".into())
-            },
-        },
-        Some(value) if value.root == RootState::Exited => ObservationFacts::Exited,
-        Some(value) => missing(
-            value
-                .reason
-                .as_deref()
-                .unwrap_or("Owned process evidence is unavailable."),
-        ),
-        None => missing("Owned process inspection has not produced evidence for this generation."),
-    }
-}
-fn missing(reason: &str) -> ObservationFacts {
-    ObservationFacts::Unavailable {
-        reason: reason.into(),
     }
 }
