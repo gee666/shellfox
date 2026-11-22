@@ -56,6 +56,9 @@ pub use private_creation::{create_private_directory_at, repair_app_directory_at,
 pub(crate) use private_creation::{create_private_file_at, PrivateFileUse, PublishedPrivate};
 pub use handle_identity::HandleIdentity;
 mod read_result;
+pub mod private;
+#[cfg(test)]
+mod test_support;
 mod service;
 mod staged_write;
 mod user_stage_custody;

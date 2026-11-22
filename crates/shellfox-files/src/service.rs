@@ -11,6 +11,8 @@ pub(crate) mod native_directory_adapter;
 pub(crate) mod cap_private_metadata;
 #[path = "service_resolution.rs"]
 mod resolution;
+#[path = "service/native.rs"]
+mod native;
 #[path = "browser_paths.rs"]
 mod browser_paths;
 use cap_std::fs::Dir;
