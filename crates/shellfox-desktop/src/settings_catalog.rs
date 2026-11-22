@@ -34,13 +34,9 @@ impl SettingsPanel {
     /// This method does no discovery, filesystem access or source-fact guessing.
     pub fn set_native_catalog(
         &mut self,
-        mut catalog: shellfox_service::NativeLaunchCatalog,
+        catalog: shellfox_service::NativeLaunchCatalog,
         cx: &mut Context<Self>,
     ) {
-        if fixture::value("CATALOG").as_deref() == Some("empty") {
-            catalog.profiles.profiles.clear();
-            catalog.profiles.default_profile_id = None;
-        }
         self.apply_catalog(
             api::Catalog {
                 profiles: catalog

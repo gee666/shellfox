@@ -18,7 +18,7 @@ pub(super) enum After {
 }
 impl SettingsPanel {
     pub(super) fn load_remote(&mut self, cx: &mut Context<Self>) {
-        if !self.remote.pending && !self.remote.reading && fixture::value("REMOTE").is_none() {
+        if !self.remote.pending && !self.remote.reading {
             self.remote.reading = true;
             self.request_aux(
                 api::Request::RemoteState,

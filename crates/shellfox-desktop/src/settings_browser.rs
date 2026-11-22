@@ -7,11 +7,6 @@ fn dispatch(url: &str, open: impl FnOnce(&str)) -> anyhow::Result<()> {
     Ok(())
 }
 fn open_login_url(url: &str, cx: &App) {
-    #[cfg(all(debug_assertions, feature = "test-settings-browser"))]
-    if std::env::args_os().any(|arg| arg == "--ui-acceptance") {
-        eprintln!("settings test opener: {url}");
-        return;
-    }
     cx.open_url(url);
 }
 

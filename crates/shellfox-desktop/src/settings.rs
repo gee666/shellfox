@@ -47,8 +47,6 @@ mod field_semantics;
 mod forms;
 #[path = "settings_general.rs"]
 mod general;
-#[path = "settings_fixture.rs"]
-mod fixture;
 #[path = "settings_key_picker.rs"]
 mod key_picker;
 #[path = "settings_keyboard.rs"]

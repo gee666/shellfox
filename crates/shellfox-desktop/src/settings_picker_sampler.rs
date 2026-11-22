@@ -10,8 +10,6 @@ pub(super) enum Sampling {
     Windows(windows::Capture),
     #[cfg(not(windows))]
     Desktop,
-    #[cfg(all(debug_assertions, feature = "test-settings-ui"))]
-    Fixture(String),
 }
 
 impl Picker {
@@ -20,12 +18,6 @@ impl Picker {
             return;
         }
         self.sampler_focus.focus(window);
-        #[cfg(all(debug_assertions, feature = "test-settings-ui"))]
-        if let Some(sample) = super::super::fixture::value("SAMPLE") {
-            self.sampling = Some(Sampling::Fixture(sample));
-            cx.notify();
-            return;
-        }
         #[cfg(windows)]
         {
             match windows::Capture::new(window) {
@@ -54,18 +46,6 @@ impl Picker {
     }
 
     pub(super) fn sample_on_click(&mut self, button: gpui::MouseButton, cx: &mut Context<Self>) {
-        #[cfg(all(debug_assertions, feature = "test-settings-ui"))]
-        if let Some(Sampling::Fixture(value)) = self.sampling.as_ref() {
-            let result = if button != gpui::MouseButton::Left || value == "cancel" {
-                Ok(None)
-            } else {
-                color::decode_hex(value.strip_prefix('#').unwrap_or(value))
-                    .map(Some)
-                    .ok_or_else(|| anyhow::anyhow!("Fixture screen sampler failed."))
-            };
-            self.apply_sample(result, cx);
-            return;
-        }
         #[cfg(windows)]
         if let Some(Sampling::Windows(capture)) = self.sampling.take() {
             let result = if button == gpui::MouseButton::Left {

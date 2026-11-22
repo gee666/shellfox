@@ -17,23 +17,13 @@ pub(super) fn selected(
     }
 }
 fn prompt(cx: &App) -> impl Future<Output = anyhow::Result<Option<Vec<PathBuf>>>> + use<> {
-    let reply = match fixture::value("KEY").as_deref() {
-        Some("cancel") => Err(Ok(None)),
-        Some("error") => Err(Err(anyhow::anyhow!("Fixture key picker failed."))),
-        Some(path) => Err(Ok(Some(vec![PathBuf::from(path)]))),
-        None => Ok(cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Choose SSH key file".into()),
-        })),
-    };
-    async move {
-        match reply {
-            Ok(native) => native.await?,
-            Err(fixture) => fixture,
-        }
-    }
+    let reply = cx.prompt_for_paths(gpui::PathPromptOptions {
+        files: true,
+        directories: false,
+        multiple: false,
+        prompt: Some("Choose SSH key file".into()),
+    });
+    async move { reply.await? }
 }
 
 impl SettingsPanel {
