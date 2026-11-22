@@ -164,6 +164,9 @@ impl Leader {
         Ok(())
     }
 
+    pub fn pid(&self) -> u32 {
+        self.sid as u32
+    }
     pub fn poll(&mut self) -> Result<Option<ExitStatus>> {
         if let Some(status) = &self.status {
             return Ok(Some(status.clone()));

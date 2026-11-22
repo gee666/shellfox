@@ -1,15 +1,16 @@
 use std::io::{self, Read};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
+use crate::wake::{Wake, WakeSlot};
 use crate::{PtyOutput, OUTPUT_CHUNK_BYTES, OUTPUT_QUEUE_CHUNKS};
 
 pub(crate) struct OutputReader {
     rx: Receiver<PtyOutput>,
     cancel: Arc<AtomicBool>,
+    wake: WakeSlot,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -17,15 +18,23 @@ impl OutputReader {
     pub fn start(reader: Box<dyn Read + Send>) -> io::Result<Self> {
         let (tx, rx) = mpsc::sync_channel(OUTPUT_QUEUE_CHUNKS);
         let cancel = Arc::new(AtomicBool::new(false));
-        let stop = cancel.clone();
+        let wake = WakeSlot::default();
+        let (stop, notify) = (cancel.clone(), wake.clone());
         let thread = thread::Builder::new()
             .name("shellfox-pty-read".into())
-            .spawn(move || pump(reader, tx, &stop))?;
+            .spawn(move || pump(reader, tx, &stop, &notify))?;
         Ok(Self {
             rx,
             cancel,
+            wake,
             thread: Some(thread),
         })
+    }
+
+    /// Called after every queued item. Fires once now for output queued earlier.
+    pub fn set_wake(&self, wake: Wake) {
+        self.wake.set(wake);
+        self.wake.wake();
     }
 
     pub fn try_read(&self) -> Result<Option<PtyOutput>, TryRecvError> {
@@ -38,8 +47,10 @@ impl OutputReader {
 
     // Keep draining the OS pipe after cancellation so ClosePseudoConsole cannot
     // deadlock behind a full output queue. Explicit shutdown may discard output.
+    // Emptying the queue releases a blocked send; later reads are discarded.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
+        while self.rx.try_recv().is_ok() {}
     }
 
     pub fn finished(&self) -> bool {
@@ -56,28 +67,25 @@ impl OutputReader {
     }
 }
 
-fn send(tx: &SyncSender<PtyOutput>, mut event: PtyOutput, cancel: &AtomicBool) -> bool {
-    while !cancel.load(Ordering::Acquire) {
-        match tx.try_send(event) {
-            Ok(()) => return true,
-            Err(TrySendError::Full(pending)) => {
-                event = pending;
-                thread::sleep(Duration::from_millis(2));
-            }
-            Err(TrySendError::Disconnected(_)) => return false,
-        }
+fn send(tx: &SyncSender<PtyOutput>, event: PtyOutput, wake: &WakeSlot) {
+    if tx.send(event).is_ok() {
+        wake.wake();
     }
-    false
 }
 
-fn pump(mut reader: Box<dyn Read + Send>, tx: SyncSender<PtyOutput>, cancel: &AtomicBool) {
+fn pump(
+    mut reader: Box<dyn Read + Send>,
+    tx: SyncSender<PtyOutput>,
+    cancel: &AtomicBool,
+    wake: &WakeSlot,
+) {
     let mut buffer = [0; OUTPUT_CHUNK_BYTES];
     loop {
         let event = match reader.read(&mut buffer) {
             Ok(0) => PtyOutput::Eof,
             Ok(count) => {
                 if !cancel.load(Ordering::Acquire) {
-                    send(&tx, PtyOutput::Data(buffer[..count].to_vec()), cancel);
+                    send(&tx, PtyOutput::Data(buffer[..count].to_vec()), wake);
                 }
                 continue;
             }
@@ -85,7 +93,7 @@ fn pump(mut reader: Box<dyn Read + Send>, tx: SyncSender<PtyOutput>, cancel: &At
             Err(error) if error.kind() == io::ErrorKind::BrokenPipe => PtyOutput::Eof,
             Err(error) => PtyOutput::ReadError(error),
         };
-        send(&tx, event, cancel);
+        send(&tx, event, wake);
         return;
     }
 }
@@ -94,7 +102,7 @@ fn pump(mut reader: Box<dyn Read + Send>, tx: SyncSender<PtyOutput>, cancel: &At
 mod tests {
     use super::*;
     use std::io::Cursor;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn bounded_queue_preserves_final_bytes_before_eof() {

@@ -216,6 +216,17 @@ impl PtySession {
     pub fn take_launch_evidence(&mut self) -> Option<crate::NativeLaunchEvidence> {
         self.inner.as_mut().and_then(|s| s.evidence.take())
     }
+    /// Registers the owner wake for queued output and root-process exit. Call once.
+    pub fn set_wake(&self, wake: crate::Wake) -> Result<()> {
+        let state = self.inner.as_ref().context("PTY closed")?;
+        state.output.set_wake(wake.clone());
+        let pid = state
+            .child
+            .as_ref()
+            .and_then(|child| child.process_id())
+            .context("PTY child missing")?;
+        crate::wake::watch_exit(pid, wake).context("start PTY exit watch")
+    }
     pub fn try_read(&self) -> std::result::Result<Option<PtyOutput>, TryRecvError> {
         self.inner
             .as_ref()

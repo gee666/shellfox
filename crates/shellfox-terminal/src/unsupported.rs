@@ -24,6 +24,9 @@ impl PtySession {
     pub fn spawn(_config: PtyConfig) -> std::result::Result<Self, SpawnError> {
         Err(anyhow::anyhow!(UNSUPPORTED).into())
     }
+    pub fn set_wake(&self, _wake: crate::Wake) -> Result<()> {
+        bail!(UNSUPPORTED)
+    }
     pub fn try_read(&self) -> std::result::Result<Option<PtyOutput>, TryRecvError> {
         Err(TryRecvError::Disconnected)
     }
