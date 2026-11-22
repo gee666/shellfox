@@ -45,12 +45,12 @@ Exit status is `0` for success or help, `2` for invalid arguments or missing con
 | Installation | CLI update support |
 | --- | --- |
 | Headless Windows, macOS, Linux, x64/ARM64 | Verified matching archive, selected for future launches; supports `--json`. |
-| Desktop Windows x64 Squirrel | `ShellfoxSetup.exe` installer; requires the installed `Update.exe`. |
-| Desktop Linux x64/ARM64 `.deb` | Package installer; the bound executable must belong to the `shellfox` package. May request sudo. |
-| Desktop macOS x64/ARM64 `Shellfox.app` | Replaces the bound bundle; may request sudo if its parent is not writable. |
-| Desktop Windows ZIP/ARM64, Linux portable ZIP, source checkout | Manual update. No fallback to an unrelated installed copy. |
+| Desktop Windows x64 Squirrel | Verified `ShellfoxSetup.exe`. The command returns at once; the install finishes in the background after the CLI exits, because Setup.exe stops every process running from the install folder. |
+| Desktop Linux x64/ARM64 `.deb` | Verified package through `apt-get`, with `sudo` in a terminal and PolicyKit otherwise. |
+| Desktop macOS x64/ARM64 `Shellfox.app` | Verified, signature-checked bundle swapped in place; the app must be in a writable Applications folder. |
+| Desktop Windows ZIP/ARM64, Linux portable archive, source checkout | Manual update (exit code 3). No fallback to an unrelated installed copy. |
 
-Desktop `update` and `update --check` use the installed platform launcher and reject `--json`. Use `api getUpdateStatus` and `api downloadUpdate` against a running local desktop host for JSON automation, or use the in-app updater. A directly invoked desktop CLI without a launcher binding reports an unsupported operation. Valid global options work before or after `update`; `shellfox help update` describes both product families without starting an updater. Headless updates leave running hosts untouched; desktop installers have their existing restart/elevation behavior and do not provide that guarantee.
+On desktop installs `update` and `update --check` use the same release, checksum and package checks as the in-app updater, without its confirmation dialog, and reject `--json`. Pre-releases are never offered; a test build such as 0.10.0-beta.2 is offered the final 0.10.0. `update` refuses while this installation's app, its terminal host or another `shellfox` command is running: use Update in the app, or quit Shellfox and run it again. Exit codes: 0 up to date, available or installed; 1 failed; 2 usage; 3 unsupported installation. Headless updates leave running hosts untouched.
 
 See [headless updates](headless.md#updates) for stable launcher paths, explicit host restart, rollback and account restrictions, and [in-app updates](self-update.md) for the desktop confirmation and verification flow. These are different update mechanisms.
 
