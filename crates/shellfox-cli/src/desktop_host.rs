@@ -101,7 +101,7 @@ impl Serving {
             return false;
         };
         runtime
-            .block_on(tokio::time::timeout(std::time::Duration::from_secs(10), discover))
+            .block_on(async { tokio::time::timeout(std::time::Duration::from_secs(10), discover).await })
             .is_ok_and(|routed| routed.unwrap_or(false))
     }
 }
