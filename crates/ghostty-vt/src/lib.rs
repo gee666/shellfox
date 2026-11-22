@@ -1,8 +1,6 @@
 //! Thread-confined terminal emulation and input encoding. No GUI or PTY dependencies.
 use shellfox_ghostty_vt_sys as sys;
 mod colors;
-#[cfg(feature = "experimental-shellfox-native")]
-pub mod extension;
 mod input;
 mod input_v2;
 mod xterm_keys;

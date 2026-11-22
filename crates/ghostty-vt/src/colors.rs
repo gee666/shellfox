@@ -15,15 +15,27 @@ pub struct TerminalColors {
 
 mod palette_wire {
     use super::Rgb;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 
-    pub(super) fn serialize<S: Serializer>(palette: &Option<[Rgb; 256]>, serializer: S) -> Result<S::Ok, S::Error> {
-        palette.as_ref().map(<[Rgb; 256]>::as_slice).serialize(serializer)
+    pub(super) fn serialize<S: Serializer>(
+        palette: &Option<[Rgb; 256]>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        palette
+            .as_ref()
+            .map(<[Rgb; 256]>::as_slice)
+            .serialize(serializer)
     }
 
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<[Rgb; 256]>, D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<[Rgb; 256]>, D::Error> {
         Option::<Vec<Rgb>>::deserialize(deserializer)?
-            .map(|colors| colors.try_into().map_err(|colors: Vec<Rgb>| D::Error::invalid_length(colors.len(), &"exactly 256 RGB entries")))
+            .map(|colors| {
+                colors.try_into().map_err(|colors: Vec<Rgb>| {
+                    D::Error::invalid_length(colors.len(), &"exactly 256 RGB entries")
+                })
+            })
             .transpose()
     }
 }
