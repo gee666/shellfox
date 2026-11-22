@@ -3,6 +3,11 @@ use std::{
     fs::{File, OpenOptions},
     path::Path,
 };
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_SHARE_READ, FILE_SHARE_WRITE,
+};
 
 pub(crate) fn directory_handle(path: &Path) -> Result<File> {
     let file = open_directory(path)?;
@@ -16,7 +21,7 @@ pub(crate) fn identity_parent_handle(path: &Path) -> Result<File> {
         return Err(Error::Permissions);
     }
     #[cfg(windows)]
-    if information(&file)?.dwFileAttributes & 0x400 != 0 {
+    if information(&file)?.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(Error::Permissions);
     }
     Ok(file)
@@ -34,8 +39,8 @@ fn open_directory(path: &Path) -> Result<File> {
         use std::os::windows::fs::OpenOptionsExt;
         // Keep this directory pinned against rename/delete while private state is open.
         options
-            .custom_flags(0x02000000 | 0x00200000)
-            .share_mode(1 | 2);
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE);
     }
     options.open(path).map_err(|_| Error::Permissions)
 }
@@ -53,7 +58,9 @@ pub(crate) fn identity_file_handle(path: &Path) -> Result<File> {
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x00200000).share_mode(1);
+        options
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .share_mode(FILE_SHARE_READ);
     }
     let file = options.open(path).map_err(|_| Error::Permissions)?;
     check(&file, false)?;
@@ -83,7 +90,7 @@ pub(crate) fn check(file: &File, directory: bool) -> Result<()> {
     #[cfg(windows)]
     {
         let info = information(file)?;
-        if info.dwFileAttributes & 0x400 != 0 || (!directory && info.nNumberOfLinks != 1) {
+        if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || (!directory && info.nNumberOfLinks != 1) {
             return Err(Error::Permissions);
         }
     }
