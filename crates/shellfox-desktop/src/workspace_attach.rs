@@ -1,12 +1,79 @@
 use super::*;
 use crate::{app::{TerminalRecovery, TerminalView}, host_client::HostClient, root::StartupError};
+use shellfox_core::Generation;
 use shellfox_service::native::NativeViewAttachment;
+
+/// What a finished attach does with its view. Views are per tab, so a view is
+/// kept even when the user moved on; only taking focus depends on the moment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Landing {
+    Detach,
+    Keep { focus: bool },
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct LandingFacts {
+    tab_exists: bool,
+    selected: bool,
+    settings: bool,
+    dialog: bool,
+    focus_moved: bool,
+}
+
+fn landing(facts: LandingFacts) -> Landing {
+    if !facts.tab_exists {
+        return Landing::Detach;
+    }
+    Landing::Keep { focus: facts.selected && !facts.settings && !facts.dialog && !facts.focus_moved }
+}
+
+/// A selected tab needs an attach unless it has a view, one is in flight, or it
+/// failed for the terminal generation that is still current.
+fn attach_due(has_view: bool, attaching: bool, failed_at: Option<Option<Generation>>, current: Option<Generation>) -> bool {
+    !has_view && !attaching && failed_at.is_none_or(|generation| generation != current)
+}
+
 impl Root {
     pub(crate) fn ensure_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(id) = self.selected_tab() else {
             return;
         };
         self.attach_local_view(id, None, window, cx);
+    }
+
+    /// Called on every render: the selected terminal attaches without a click.
+    /// Deferred because render can't mutate; idempotent through `attaching` and
+    /// per-generation failures, so it neither repeats nor retries a failure.
+    pub(crate) fn ensure_selected_views(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.local_attach_due().is_none() && !self.peer_attach_due() {
+            return;
+        }
+        cx.defer_in(window, |root, window, cx| {
+            if let Some(id) = root.local_attach_due() {
+                root.attach_local_view(id, None, window, cx);
+            }
+            if root.peer_attach_due() {
+                root.open_v1_terminal(window, cx);
+            }
+        });
+    }
+
+    fn local_attach_due(&self) -> Option<TabId> {
+        if self.closing_window || self.fixture.is_some() || self.host.is_none() {
+            return None;
+        }
+        let id = self.selected_tab()?;
+        attach_due(
+            self.views.contains_key(&id),
+            self.attaching.contains(&id),
+            self.failures.get(&id).map(|failure| failure.generation),
+            self.terminal_generation(id),
+        )
+        .then_some(id)
+    }
+
+    fn terminal_generation(&self, id: TabId) -> Option<Generation> {
+        self.tab_close_identity(id).map(|identity| identity.generation)
     }
 
     pub(crate) fn attach_local_view(&mut self, id: TabId, recovery: Option<TerminalRecovery>, window: &mut Window, cx: &mut Context<Self>) {
@@ -29,7 +96,6 @@ impl Root {
         if read_only && takeover {
             return;
         }
-        let selection_epoch = self.navigation.epoch();
         let focus_before = window.focused(cx);
         self.attaching.insert(id);
         if recovery != Some(TerminalRecovery::TakeControl) {
@@ -50,63 +116,24 @@ impl Root {
                 root.attaching.remove(&id);
                 match attached {
                     Ok(attachment) => {
-                        if !root.snapshot.as_ref().is_some_and(|snapshot| {
-                            snapshot
-                                .sessions
-                                .iter()
-                                .any(|session| session.tabs.iter().any(|tab| tab.id == id))
-                        }) {
-                            detach(client.clone(), id, attachment, cx);
-                            return;
-                        }
-                        if root.navigation.epoch() != selection_epoch
-                            || root.selected_tab() != Some(id)
-                            || root.settings
-                            || root.dialog.is_some()
-                            || window.focused(cx) != focus_before
-                        {
-                            detach(client.clone(), id, attachment, cx);
-                            cx.notify();
-                            return;
-                        }
-                        let opened = match &attachment {
-                            NativeViewAttachment::Controller(handle) => TerminalView::open_attached(client.clone(), id, handle.clone(), window, cx),
-                            NativeViewAttachment::Observer(handle) => TerminalView::open_observed(client.clone(), id, handle.clone(), window, cx),
+                        let facts = LandingFacts {
+                            tab_exists: root.snapshot.as_ref().is_some_and(|snapshot| {
+                                snapshot.sessions.iter().any(|session| session.tabs.iter().any(|tab| tab.id == id))
+                            }),
+                            selected: root.selected_tab() == Some(id),
+                            settings: root.settings,
+                            dialog: root.dialog.is_some(),
+                            focus_moved: window.focused(cx) != focus_before,
                         };
-                        match opened {
-                            Ok(view) => {
-                                let marker=root.snapshot.as_ref().and_then(|snapshot|snapshot.sessions.iter().find(|session|session.tabs.iter().any(|tab|tab.id==id))).map(|session|session.settled_at.clone());
-                                let Some(marker)=marker else{detach(client.clone(),id,attachment,cx);root.error=Some("Session input context is unavailable; the view was not admitted.".into());cx.notify();return;};
-                                view.update(cx,|view,cx|view.set_captured_settlement(marker,cx));
-                                cx.subscribe_in(&view, window, move |root, emitter, event: &TerminalRecovery, window, cx| {
-                                    if root.selected_tab() == Some(id) && root.views.get(&id) == Some(&emitter) {
-                                        root.attach_local_view(id, Some(*event), window, cx);
-                                    }
-                                }).detach();
-                                if matches!(cx.try_global::<crate::editor_composition::EditorOutcome>(), Some(crate::editor_composition::EditorOutcome::Ready(_))) {
-                                    view.update(cx, |view, _| view.enable_file_links());
-                                    cx.subscribe_in(&view, window, move |root, emitter, event: &crate::app::TerminalFileLink, window, cx| {
-                                        if root.views.get(&id) == Some(&emitter) {
-                                            root.open_terminal_file_link(id, event, window, cx);
-                                        }
-                                    }).detach();
-                                }
-                                root.failures.remove(&id);
-                                root.views.insert(id, view);
-                                root.apply_terminal_preferences(window, cx);
-                                if root.selected_tab() == Some(id) {
-                                    root.focus_selected(window, cx);
-                                }
-                            }
-                            Err(error) => {
-                                detach(client.clone(), id, attachment, cx);
-                                root.error = Some(error.message.clone());
-                                root.failures.insert(id, error);
-                            }
+                        match landing(facts) {
+                            Landing::Detach => detach(client.clone(), id, attachment, cx),
+                            Landing::Keep { focus } => root.admit_view(id, client.clone(), attachment, focus, window, cx),
                         }
                     }
                     Err(error) => {
-                        root.failures.insert(id, StartupError::from(error));
+                        let mut failure = StartupError::from(error);
+                        failure.generation = root.terminal_generation(id);
+                        root.failures.insert(id, failure);
                     }
                 }
                 cx.notify();
@@ -115,7 +142,53 @@ impl Root {
         .detach();
         cx.notify();
     }
+
+    fn admit_view(&mut self, id: TabId, client: HostClient, attachment: NativeViewAttachment, focus: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let opened = match &attachment {
+            NativeViewAttachment::Controller(handle) => TerminalView::open_attached(client.clone(), id, handle.clone(), window, cx),
+            NativeViewAttachment::Observer(handle) => TerminalView::open_observed(client.clone(), id, handle.clone(), window, cx),
+        };
+        let view = match opened {
+            Ok(view) => view,
+            Err(mut error) => {
+                detach(client, id, attachment, cx);
+                self.error = Some(error.message.clone());
+                error.generation = self.terminal_generation(id);
+                self.failures.insert(id, error);
+                return;
+            }
+        };
+        let marker = self.snapshot.as_ref()
+            .and_then(|snapshot| snapshot.sessions.iter().find(|session| session.tabs.iter().any(|tab| tab.id == id)))
+            .map(|session| session.settled_at.clone());
+        let Some(marker) = marker else {
+            detach(client, id, attachment, cx);
+            self.error = Some("Session input context is unavailable; the view was not admitted.".into());
+            return;
+        };
+        view.update(cx, |view, cx| view.set_captured_settlement(marker, cx));
+        cx.subscribe_in(&view, window, move |root, emitter, event: &TerminalRecovery, window, cx| {
+            if root.selected_tab() == Some(id) && root.views.get(&id) == Some(&emitter) {
+                root.attach_local_view(id, Some(*event), window, cx);
+            }
+        }).detach();
+        if matches!(cx.try_global::<crate::editor_composition::EditorOutcome>(), Some(crate::editor_composition::EditorOutcome::Ready(_))) {
+            view.update(cx, |view, _| view.enable_file_links());
+            cx.subscribe_in(&view, window, move |root, emitter, event: &crate::app::TerminalFileLink, window, cx| {
+                if root.views.get(&id) == Some(&emitter) {
+                    root.open_terminal_file_link(id, event, window, cx);
+                }
+            }).detach();
+        }
+        self.failures.remove(&id);
+        self.views.insert(id, view);
+        self.apply_terminal_preferences(window, cx);
+        if focus {
+            self.focus_selected(window, cx);
+        }
+    }
 }
+
 fn detach(
     client: HostClient,
     id: TabId,
@@ -137,4 +210,101 @@ fn detach(
         }
     })
     .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn live(selected: bool) -> LandingFacts {
+        LandingFacts { tab_exists: true, selected, ..LandingFacts::default() }
+    }
+
+    #[test]
+    fn an_attach_that_lands_after_focus_moved_to_the_sidebar_keeps_its_view_unfocused() {
+        assert_eq!(landing(LandingFacts { focus_moved: true, ..live(true) }), Landing::Keep { focus: false });
+    }
+
+    #[test]
+    fn an_attach_that_lands_under_settings_or_a_dialog_keeps_its_view_unfocused() {
+        assert_eq!(landing(LandingFacts { settings: true, ..live(true) }), Landing::Keep { focus: false });
+        assert_eq!(landing(LandingFacts { dialog: true, ..live(true) }), Landing::Keep { focus: false });
+    }
+
+    #[test]
+    fn an_attach_for_a_tab_the_user_left_keeps_its_view_for_later() {
+        assert_eq!(landing(live(false)), Landing::Keep { focus: false });
+    }
+
+    #[test]
+    fn an_attach_that_lands_after_window_activation_takes_focus() {
+        // Activation keeps the window's focused element, so nothing moved.
+        assert_eq!(landing(live(true)), Landing::Keep { focus: true });
+    }
+
+    #[test]
+    fn only_a_removed_tab_detaches_its_attach() {
+        assert_eq!(landing(LandingFacts { tab_exists: false, ..live(true) }), Landing::Detach);
+    }
+
+    #[test]
+    fn a_restored_selected_tab_attaches_without_a_click() {
+        assert!(attach_due(false, false, None, None));
+        assert!(attach_due(false, false, None, Some(Generation::new())));
+    }
+
+    #[test]
+    fn a_relaunched_window_attaches_the_running_tab_its_first_snapshot_selects() {
+        use crate::window_manager::{InitialSelection, WindowSelection};
+        use shellfox_core::{Preferences, ProfileId, Selection, Session, Snapshot, Tab, TabState};
+        let session = SessionId::new();
+        let tab = TabId::new();
+        let snapshot = Snapshot {
+            revision: 1,
+            sessions: vec![Session {
+                id: session,
+                title: "user".into(),
+                cwd: "~".into(),
+                created_at: "2025-01-01T00:00:00Z".into(),
+                updated_at: "2025-01-01T00:00:00Z".into(),
+                settled_at: None,
+                pinned_at: None,
+                env: vec![],
+                tabs: vec![Tab {
+                    id: tab,
+                    session_id: session,
+                    title: "Shell 1".into(),
+                    use_process_title: false,
+                    cwd: "~".into(),
+                    ordinal: 0,
+                    created_at: None,
+                    profile_id: ProfileId::default(),
+                    wsl_launch: None,
+                    state: TabState::Pending,
+                }],
+            }],
+            preferences: Preferences::default(),
+            selection: Selection { session_id: Some(session), tab_id: Some(tab) },
+        };
+        let mut navigation = WindowSelection::new(InitialSelection::Recent);
+        assert!(navigation.accept_snapshot(&snapshot));
+        assert_eq!(navigation.selected().tab_id, Some(tab));
+        // No click, no view, nothing in flight, and the shell is already running.
+        assert!(attach_due(false, false, None, Some(Generation::new())));
+    }
+
+    #[test]
+    fn a_tab_attaches_once_and_never_while_it_has_a_view() {
+        assert!(!attach_due(false, true, None, None));
+        assert!(!attach_due(true, false, None, None));
+    }
+
+    #[test]
+    fn a_failure_waits_for_reconnect_or_a_new_terminal_generation() {
+        let generation = Generation::new();
+        assert!(!attach_due(false, false, Some(Some(generation)), Some(generation)));
+        assert!(!attach_due(false, false, Some(None), None));
+        assert!(attach_due(false, false, Some(Some(generation)), Some(Generation::new())));
+        assert!(attach_due(false, false, Some(None), Some(generation)));
+    }
 }

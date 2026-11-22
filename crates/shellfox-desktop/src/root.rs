@@ -34,12 +34,14 @@ mod startup;
 pub struct StartupError {
     pub message: String,
     pub control_required: bool,
+    /// Terminal generation the failure belongs to; a new generation retries the attach.
+    pub generation: Option<shellfox_core::Generation>,
 }
 impl From<anyhow::Error> for StartupError {
     fn from(error: anyhow::Error) -> Self {
         let control_required = error.downcast_ref::<shellfox_runtime::RuntimeError>()
             .is_some_and(|error| error.code == shellfox_runtime::ErrorCode::ControlRequired);
-        Self { message: format!("{error:#}"), control_required }
+        Self { message: format!("{error:#}"), control_required, generation: None }
     }
 }
 pub enum Dialog {

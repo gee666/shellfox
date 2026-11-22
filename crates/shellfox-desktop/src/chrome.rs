@@ -76,6 +76,7 @@ impl Render for Root {
         if let Some(fixture) = &self.fixture {
             return self.finish_semantic_root(fixture.clone(), cx);
         }
+        self.ensure_selected_views(window, cx);
         let mut content = div()
             .relative()
             .track_focus(&self.layout_focus)

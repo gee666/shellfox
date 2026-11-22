@@ -109,14 +109,9 @@ impl Root {
                     )).child(div().absolute().right(px(12.)).bottom(px(8.))
                         .text_size(px(11.)).text_color(palette.muted).child(error.message.clone()));
                 }
-            } else if self.attaching.contains(&id) {
-                area = area.child(crate::renderer::terminal_loading(palette.accent));
             } else {
-                area = area.child(div().p_3().child(
-                    button("start-terminal", "Open terminal", palette).on_click(
-                        cx.listener(|root, _, window, cx| root.ensure_terminal(window, cx)),
-                    ),
-                ));
+                // Attaching, or about to: the render hook starts it.
+                area = area.child(crate::renderer::terminal_loading(palette.accent));
             }
         } else {
             area = area.child(self.empty_workspace(palette, window));
