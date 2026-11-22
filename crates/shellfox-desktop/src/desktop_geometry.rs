@@ -119,10 +119,13 @@ impl Root {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn wayland() -> bool {
-    #[cfg(target_os = "linux")]
-    return gpui::guess_compositor() == "Wayland";
-    #[cfg(not(target_os = "linux"))]
+    gpui::guess_compositor() == "Wayland"
+}
+
+#[cfg(not(target_os = "linux"))]
+fn wayland() -> bool {
     false
 }
 
