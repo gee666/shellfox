@@ -2,10 +2,17 @@ name: Release
 # Push a tag vX.Y.Z (matching package.json "version") to package Shellfox for
 # Windows, Linux, macOS and Android, then publish the installers together.
 # `shellfox update` and the in-app update notice read the latest published release.
+# Test builds: run this workflow on the tag with prerelease checked. Updaters
+# ignore pre-releases; promote it to a full release or publish a higher version.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      prerelease:
+        description: Publish as a GitHub pre-release (requires a vX.Y.Z tag ref)
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -213,6 +220,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: Shellfox ${{ github.ref_name }}
+          prerelease: ${{ inputs.prerelease == true }}
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
