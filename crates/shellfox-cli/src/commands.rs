@@ -10,59 +10,25 @@ use shellfox_service::{
     local::{self, LocalClient},
 };
 
-/// The headless owner stays outside block_on/catch, just like the desktop thread.
-pub fn serve(args: Args, runtime: &tokio::runtime::Runtime, ready: impl Fn()) -> Result<i32> {
+/// The host owner stays on this thread, outside block_on, like the desktop host.
+pub fn serve(args: Args, runtime: &tokio::runtime::Runtime, ready: impl FnOnce()) -> Result<i32> {
     let remote = args
         .application
         .remote_options(std::env::current_exe()?, false)?;
-    let mut bootstrap =
-        local::LocalBootstrap::plan(&args.data_dir, &args.helper, args.helper_sha256)?;
-    let clean = std::cell::Cell::new(false);
-    let readiness_reported = std::cell::Cell::new(false);
-    let report = |report: local::LocalBootReport| {
-        clean.set(report.status == local::LocalBootStatus::NoOwnerClean);
-        match report.status {
-            local::LocalBootStatus::ReadyLocalOnly { remote_unavailable } if !readiness_reported.replace(true) => {
-                match remote_unavailable {
-                    shellfox_service::remote::RemoteUnavailableReason::NativeApprovalStoragePending => eprintln!("Local host ready. Remote unavailable: native approval storage review is pending."),
-                }
-                ready();
+    local::LocalBootstrap::serve_foreground(
+        &args.data_dir,
+        &args.helper,
+        args.helper_sha256,
+        remote,
+        runtime,
+        |unavailable| {
+            if let Some(shellfox_service::remote::RemoteUnavailableReason::NativeApprovalStoragePending) = unavailable {
+                eprintln!("Local host ready. Remote unavailable: native approval storage review is pending.");
             }
-            local::LocalBootStatus::Ready if !readiness_reported.replace(true) => ready(),
-            _ => {}
-        }
-    };
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime.block_on(bootstrap.run_remote(remote, |_| {}, &report))
-    }))
-    .unwrap_or_else(|_| {
-        Err(bootstrap.retain_error(anyhow::anyhow!(
-            "Headless host execution panicked; original cleanup retained."
-        )))
-    });
-    const CLEANUP_ATTEMPTS: u32 = 5;
-    for attempt in 1..=CLEANUP_ATTEMPTS {
-        if clean.get() {
-            return result.map(|()| 0);
-        }
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            runtime.block_on(bootstrap.cleanup(&report));
-        }))
-        .is_err();
-        if panicked && attempt < CLEANUP_ATTEMPTS {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-    }
-    if clean.get() {
-        return result.map(|()| 0);
-    }
-    let cleanup = anyhow::anyhow!(
-        "Host cleanup did not finish after {CLEANUP_ATTEMPTS} attempts; the next host run retries it."
-    );
-    Err(match result {
-        Err(error) => error.context(cleanup),
-        Ok(()) => cleanup,
-    })
+            ready();
+        },
+    )?;
+    Ok(0)
 }
 
 pub async fn run(args: Args) -> Result<i32> {

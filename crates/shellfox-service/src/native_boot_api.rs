@@ -158,16 +158,29 @@ impl LocalBootstrap {
                 "Host execution panicked; original cleanup retained."
             )))
         });
-        while !clean.get() {
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        const CLEANUP_ATTEMPTS: u32 = 5;
+        for attempt in 1..=CLEANUP_ATTEMPTS {
+            if clean.get() {
+                break;
+            }
+            let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 runtime.block_on(bootstrap.cleanup(&report));
             }))
-            .is_err()
-            {
+            .is_err();
+            if panicked && attempt < CLEANUP_ATTEMPTS {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
-        result
+        if clean.get() {
+            return result;
+        }
+        let cleanup = anyhow::anyhow!(
+            "Host cleanup did not finish after {CLEANUP_ATTEMPTS} attempts; the next start retries it."
+        );
+        Err(match result {
+            Err(error) => error.context(cleanup),
+            Ok(()) => cleanup,
+        })
     }
 }
 pub use crate::remote::SourceFactsInstaller;
