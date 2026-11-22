@@ -91,7 +91,8 @@ fn windows_open(target: SystemOpenTarget) -> SystemResult<()> {
 fn unix_open(target: SystemOpenTarget) -> SystemResult<()> {
     use std::{
         process::{Command, Stdio},
-        time::{Duration, Instant},
+        sync::mpsc::RecvTimeoutError,
+        time::Duration,
     };
     #[cfg(target_os = "linux")]
     let program = "/usr/bin/xdg-open";
@@ -136,38 +137,25 @@ fn unix_open(target: SystemOpenTarget) -> SystemResult<()> {
             "System opener could not be started.",
         )
     })?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                return if status.success() {
-                    Ok(())
-                } else {
-                    Err(error(
-                        ErrorCode::NativeUnavailable,
-                        "System opener rejected the target.",
-                    ))
-                }
-            }
-            Ok(None) => {}
-            Err(_) => {
-                return Err(error(
-                    ErrorCode::NativeUnavailable,
-                    "System opener completion could not be confirmed.",
-                ))
-            }
-        }
-        if Instant::now() >= deadline {
-            // Never kill a browser/file-manager process to enforce a launcher
-            // timeout. A reaper owns only this exact launcher child.
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-            return Err(error(
-                ErrorCode::NativeUnavailable,
-                "System opener did not confirm dispatch before its deadline.",
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(10));
+    // The reaper thread owns only this launcher child, so a late exit is
+    // still collected. Never kill a browser/file-manager to enforce the deadline.
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(child.wait());
+    });
+    match finished.recv_timeout(Duration::from_secs(10)) {
+        Ok(Ok(status)) if status.success() => Ok(()),
+        Ok(Ok(_)) => Err(error(
+            ErrorCode::NativeUnavailable,
+            "System opener rejected the target.",
+        )),
+        Ok(Err(_)) | Err(RecvTimeoutError::Disconnected) => Err(error(
+            ErrorCode::NativeUnavailable,
+            "System opener completion could not be confirmed.",
+        )),
+        Err(RecvTimeoutError::Timeout) => Err(error(
+            ErrorCode::NativeUnavailable,
+            "System opener did not confirm dispatch before its deadline.",
+        )),
     }
 }
