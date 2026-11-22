@@ -8,6 +8,9 @@ mod v1_loopback_tests;
 #[cfg(test)]
 #[path = "remote_tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "remote_wake_tests.rs"]
+mod wake_tests;
 use crate::Service;
 use shellfox_core::{SessionId, Snapshot};
 use shellfox_protocol::{self as wire, AppError, ErrorCode, RemoteCommand, Validate};
@@ -97,8 +100,16 @@ struct View {
     controller: u64,
     terminals: HashMap<shellfox_core::TabId, v1_delivery::Delivery>,
     replays: HashMap<shellfox_core::TabId, v1_replay::Replay>,
+    wake: shellfox_remote::PollWake,
 }
 impl View {
+    /// True when the next Poll would return events, given the host's latest revision.
+    fn has_events(&self, service: &Service, latest_revision: Option<u64>) -> bool {
+        latest_revision.is_some_and(|latest| latest > self.revision)
+            || self.terminals.iter().any(|(&tab, delivery)| {
+                delivery.has_events(service.remote_v1_status(tab, &delivery.lease).ok())
+            })
+    }
     fn detach_terminals(self, service: &mut Service) {
         for (tab, delivery) in self.terminals {
             let _ = service.detach_attachment(tab, &delivery.lease);
@@ -154,6 +165,21 @@ impl RemoteState {
                     .flatten().copied().collect(),
             );
         }
+    }
+    /// Wakes each view's pending long-poll once its next Poll has events.
+    /// Runs on the owner thread after every pump and dispatch; extra wakes cost
+    /// one empty poll, a missed one costs the full long-poll timeout.
+    pub(super) fn wake_ready_views(&self, service: &Service) {
+        for view in self.ready_views(service) {
+            view.wake.notify();
+        }
+    }
+    fn ready_views<'a>(&'a self, service: &'a Service) -> impl Iterator<Item = &'a View> {
+        let latest = self.views.values().map(|view| view.revision).min().and_then(|oldest| {
+            let changed = service.host().changed_since(oldest).ok().flatten();
+            changed.map(|event| event.revision)
+        });
+        self.views.values().filter(move |view| view.has_events(service, latest))
     }
     fn remove_metadata_view(&mut self, id: wire::observer_v2::Id) {
         self.visibility_dirty |= self.metadata_v2.remove(&id).is_some_and(|view| !view.visible.is_empty());
@@ -242,6 +268,7 @@ impl ServiceHost for RemoteService<'_> {
                         controller,
                         terminals: HashMap::new(),
                         replays: HashMap::new(),
+                        wake: actor.poll_wake(),
                     },
                 ) {
                     #[cfg(windows)]

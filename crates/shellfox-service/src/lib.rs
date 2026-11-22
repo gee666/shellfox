@@ -84,7 +84,7 @@ use std::{
 
 pub use activity_hooks::{ActivityShutdownState, ShutdownFailure, ShutdownOutcome};
 pub use native::NativeAdmissionError;
-pub use owner::{ExperimentAccepted, NativeAccepted, OwnerClient};
+pub use owner::{ExperimentAccepted, NativeAccepted, OwnerClient, OwnerWake, OwnerWakeSlot};
 pub use owner_automation::{
     AutomationViewFailure, PresentationShutdownState, PresentationWarnings, AUTOMATION_PROFILE_ID,
     AUTOMATION_READONLY_PROFILE,
@@ -96,6 +96,9 @@ pub use terminals::{Attachment, TerminalOutput};
 /// owner thread, before calling any metadata/runtime operation.
 pub trait OwnerDispatcher: Send {
     fn dispatch_one(&mut self, service: &mut Service);
+    /// Called once on the owner thread before the first dispatch. Sources
+    /// outside the owner inbox notify this wake when they queue work.
+    fn bind_wake(&mut self, _wake: OwnerWake) {}
 }
 impl OwnerDispatcher for () {
     fn dispatch_one(&mut self, _service: &mut Service) {}

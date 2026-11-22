@@ -24,5 +24,7 @@ pub(super) enum Task {
     SourceFactsWatch {
         reply: oneshot::Sender<crate::activity_integration::SourceFactsWatch>,
     },
+    /// Work arrived outside this inbox; run one owner pass.
+    Wake,
     Shutdown,
 }

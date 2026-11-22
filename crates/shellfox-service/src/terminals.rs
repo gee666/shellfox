@@ -5,6 +5,7 @@ mod commands;
 mod delivery;
 #[path = "terminal_remote_v1.rs"]
 mod remote_v1;
+pub(crate) use remote_v1::RemoteV1Status;
 use serde::{Deserialize, Serialize};
 use shellfox_core::{Generation, TabId};
 use shellfox_runtime::{Command, Event, Lease, Request, RequestId, Response, Runtime};

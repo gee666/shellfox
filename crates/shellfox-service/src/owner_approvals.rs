@@ -192,6 +192,13 @@ impl RemoteInstall {
             Err("Remote dispatcher installation unavailable; original state retained")
         }));
     }
+    pub(super) fn bind_wake(&self, wake: super::OwnerWake) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(dispatcher) = state.dispatcher.as_mut() {
+                crate::OwnerDispatcher::bind_wake(dispatcher.as_mut(), wake);
+            }
+        }
+    }
     pub(super) fn dispatch_one(&self, service: &mut Service) -> Result<()> {
         let mut state = self
             .state

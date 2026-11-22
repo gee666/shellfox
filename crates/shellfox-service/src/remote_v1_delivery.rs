@@ -1,5 +1,5 @@
 use super::*;
-use crate::terminals::{Attachment, TerminalOutput};
+use crate::terminals::{Attachment, RemoteV1Status, TerminalOutput};
 use shellfox_core::TabId;
 use std::collections::VecDeque;
 
@@ -127,6 +127,19 @@ impl Delivery {
         Ok(())
     }
 
+    /// True when the next [`Delivery::poll`] would emit at least one event.
+    pub fn has_events(&self, status: Option<RemoteV1Status>) -> bool {
+        if self.faulted || self.exited {
+            return false;
+        }
+        let Some(status) = status else {
+            return true; // Lease lost: the poll reports Blocked.
+        };
+        status.replay_lost
+            || status.newest.is_some_and(|newest| newest > self.raw_seen)
+            || status.exited == Some(self.raw_seen)
+    }
+
     pub fn poll(
         &mut self,
         service: &mut Service,
@@ -223,7 +236,53 @@ impl Delivery {
 
 #[cfg(test)]
 mod tests {
-    use super::Utf8Stream;
+    use super::{Delivery, RemoteV1Status, Utf8Stream};
+    use crate::terminals::Attachment;
+
+    fn delivery(raw_cut: u64) -> Delivery {
+        let lease = Attachment {
+            controller: 1,
+            epoch: 1,
+            generation: shellfox_core::Generation::new(),
+        };
+        Delivery::snapshot(lease, shellfox_core::TabId::new(), b"prompt", raw_cut).0
+    }
+    fn status(newest: Option<u64>, replay_lost: bool, exited: Option<u64>) -> Option<RemoteV1Status> {
+        Some(RemoteV1Status { newest, replay_lost, exited })
+    }
+
+    #[test]
+    fn idle_attachment_has_no_events() {
+        assert!(!delivery(4).has_events(status(Some(4), false, None)));
+        assert!(!delivery(4).has_events(status(None, false, None)));
+    }
+    #[test]
+    fn new_output_has_events() {
+        assert!(delivery(4).has_events(status(Some(5), false, None)));
+    }
+    #[test]
+    fn exit_at_the_delivered_sequence_has_events() {
+        assert!(delivery(4).has_events(status(None, false, Some(4))));
+        // Output before the exit is still pending; that output wakes the view.
+        assert!(!delivery(4).has_events(status(None, false, Some(6))));
+    }
+    #[test]
+    fn lost_lease_has_events() {
+        assert!(delivery(4).has_events(None));
+    }
+    #[test]
+    fn replay_overflow_has_events() {
+        assert!(delivery(4).has_events(status(Some(4), true, None)));
+    }
+    #[test]
+    fn finished_delivery_has_no_events() {
+        let mut finished = delivery(4);
+        finished.exited = true;
+        assert!(!finished.has_events(None));
+        let mut faulted = delivery(4);
+        faulted.faulted = true;
+        assert!(!faulted.has_events(status(Some(9), true, Some(9))));
+    }
 
     #[test]
     fn decodes_utf8_split_at_snapshot_and_output_boundaries() {

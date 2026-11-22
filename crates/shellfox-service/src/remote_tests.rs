@@ -6,7 +6,7 @@ use shellfox_remote::{
 };
 use shellfox_transport::incoming::PeerIdentity;
 
-async fn dispatch(
+pub(super) async fn dispatch(
     service: &mut Service,
     state: &mut RemoteState,
     command: OwnerCommand,

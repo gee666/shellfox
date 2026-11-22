@@ -133,11 +133,13 @@ impl RemoteHostSetup {
                 "Native ownership lost before remote assembly.",
             ));
         }
+        let wake = crate::OwnerWakeSlot::default();
         let (receiver, assembly) = host::BackendAssembly::new(
             helper.clone(),
             approvals,
             self.store.clone(),
             self.preferences.clone(),
+            &wake,
         )
         .map_err(|_| failure(ErrorCode::NativeUnavailable, "Remote assembly unavailable."))?;
         self.assembly = Some(assembly);
@@ -184,6 +186,7 @@ impl RemoteHostSetup {
         self.dispatcher
             .prepare(Box::new(
                 RemoteDispatcher::new(receiver, state)
+                    .with_wake(wake)
                     .with_facts_provider(facts, tokio::runtime::Handle::current()),
             ))
             .map_err(|_| {

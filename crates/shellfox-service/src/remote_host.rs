@@ -1,7 +1,7 @@
 //! Ready facade assembled by the retained, borrowed native preparation owner.
 use super::preferences::store::NativePreferenceStore;
 use shellfox_remote::{
-    owner_channel, ApprovalControl, Backend, BackendHandle, PrivateApprovalStore,
+    owner_channel_with_wake, ApprovalControl, Backend, BackendHandle, PrivateApprovalStore,
 };
 use shellfox_transport::{
     HelperConfig, IsolatedStateDirectory, LoopbackOrigin, Secret, VerifiedHelper,
@@ -32,24 +32,11 @@ impl BackendAssembly {
         approvals: ApprovalControl,
         store: Arc<PrivateApprovalStore>,
         preferences: Arc<NativePreferenceStore>,
+        wake: &crate::OwnerWakeSlot,
     ) -> anyhow::Result<(shellfox_remote::OwnerReceiver, Self)> {
         let secret = fresh_secret()?;
-        let (sender, receiver) = owner_channel(32);
+        let (sender, receiver) = owner_channel_with_wake(32, wake.notifier());
         let engine = Backend::new(Arc::new(sender), approvals.clone(), secret.clone());
-        #[cfg(feature = "experimental-shellfox-native")]
-        let engine = {
-            // Existing Runtime verifier supplies the actual local sender. No
-            // request metadata or guessed identity may prepare this capability.
-            let verified = shellfox_runtime::Runtime::native0_engine_identity()?;
-            let identity = String::from_utf8(verified.as_bytes().to_vec())?;
-            let codec = shellfox_protocol::manager_v2::Native0Codec::new(
-                shellfox_protocol::manager_v2::EngineIdentity::try_from(identity)
-                    .map_err(|_| anyhow::anyhow!("Verified manager engine identity is invalid"))?,
-            );
-            engine
-                .prepare_manager_v2_native0(codec)
-                .map_err(|_| anyhow::anyhow!("Verified manager preparation failed"))?
-        };
         let engine = Arc::new(engine);
         Ok((
             receiver,

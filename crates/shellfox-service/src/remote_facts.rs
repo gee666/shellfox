@@ -72,7 +72,13 @@ impl FactsPipeline {
             stop: wire::CancellationToken::new(),
         }
     }
-    pub fn admit(&mut self, service: &mut Service, request: shellfox_remote::OwnerRequest) {
+    /// `wake` is notified when the collected job is ready for [`Self::finish`].
+    pub fn admit(
+        &mut self,
+        service: &mut Service,
+        request: shellfox_remote::OwnerRequest,
+        wake: crate::OwnerWakeSlot,
+    ) {
         if request.is_cancelled() {
             return;
         }
@@ -154,6 +160,7 @@ impl FactsPipeline {
                     capabilities_only,
                 })
                 .await;
+            wake.notify();
         });
     }
     pub fn finish(&mut self, service: &mut Service, state: &mut RemoteState) -> bool {

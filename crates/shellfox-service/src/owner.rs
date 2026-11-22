@@ -45,6 +45,9 @@ mod private;
 mod private_client;
 #[path = "owner_start.rs"]
 mod start;
+#[path = "owner_wake.rs"]
+mod wake;
+pub use wake::{OwnerWake, OwnerWakeSlot};
 pub(crate) use cleanup::{report_warning, StartupFailure};
 pub use native_reply::{ExperimentAccepted, NativeAccepted};
 
@@ -77,6 +80,7 @@ impl ServiceOwner {
         let (finished, done) = oneshot::channel();
         let abandon = CancellationToken::new();
         let owner_abandon = abandon.clone();
+        let wake = OwnerWake::new(sender.clone());
         let thread = std::thread::Builder::new()
             .name("shellfox-service-owner".into())
             .spawn(move || {
@@ -111,10 +115,12 @@ impl ServiceOwner {
                 let mut remote_install: Option<std::sync::Arc<approvals::RemoteInstall>> = None;
                 let mut controllers = HashMap::new();
                 let mut private = private::PrivateOwner::new();
+                dispatcher.bind_wake(wake.clone());
                 loop {
                     if lost.is_cancelled() || owner_abandon.is_cancelled() {
                         break;
                     }
+                    wake.rearm();
                     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         service.pump_power();
                         service.pump();
@@ -150,10 +156,9 @@ impl ServiceOwner {
                         Ok(Task::Approvals(task)) => approvals::handle(&mut service, *task, &lost),
                         Ok(Task::InstallRemote(install)) => {
                             if !active && remote_install.is_none() {
+                                install.bind_wake(wake.clone());
+                                install.acknowledge(true);
                                 remote_install = Some(install);
-                                if let Some(install) = &remote_install {
-                                    install.acknowledge(true);
-                                }
                             } else {
                                 install.acknowledge(false);
                             }
@@ -264,6 +269,7 @@ impl ServiceOwner {
                         Ok(Task::SourceFactsWatch { reply }) => {
                             let _ = reply.send(service.source_facts_watch());
                         }
+                        Ok(Task::Wake) => {}
                         Ok(Task::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
                     }
