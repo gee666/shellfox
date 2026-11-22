@@ -69,6 +69,33 @@ impl FileService {
         }))
     }
 
+    /// Checks that `private_root(path)` would not pass through a link, junction or aliased
+    /// name. Creates and changes nothing.
+    pub fn check_private_root(path: &Path) -> Result<()> {
+        let (root, relative) = paths::absolute_parts(path)?;
+        let mut dir = Dir::open_ambient_dir(&root, cap_std::ambient_authority())?;
+        let mut existing = root;
+        let names = relative
+            .components()
+            .map(|part| match part {
+                std::path::Component::Normal(name) if !short_name(name) => Ok(name),
+                _ => Err(FileError::denied()),
+            })
+            .collect::<Result<Vec<_>>>()?;
+        for name in names {
+            match dir.symlink_metadata(name) {
+                Ok(info) => {
+                    paths::reject_link(&info)?;
+                    dir = dir.open_dir_nofollow(name)?;
+                    existing.push(name);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        not_aliased(&existing)
+    }
+
     /// Creates `path` and any missing ancestors as private app directories, or makes an
     /// existing final directory private. Ancestors that exist are only walked, never changed.
     /// Links, junctions and aliased names (case or 8.3 spelling) are refused before anything
@@ -325,6 +352,7 @@ mod tests {
             assert!(FileService::private_root(&dir.join("HOST")).is_err());
             assert!(FileService::private_root(&dir.join("HOST").join("ui")).is_err());
             assert!(FileService::private_root(&dir.join("UI~1")).is_err());
+            assert!(FileService::check_private_root(&dir.join("HOST").join("x")).is_err());
         }
         #[cfg(unix)]
         {
@@ -335,6 +363,9 @@ mod tests {
             .unwrap()
             .next()
             .is_none());
+        FileService::check_private_root(&dir.join("host").join("ui").join("x")).unwrap();
+        link_dir(&dir.join("host"), &dir.join("junction"));
+        assert!(FileService::check_private_root(&dir.join("junction").join("x")).is_err());
         FileService::private_root(&dir.join("host").join("ui")).unwrap();
     }
 }
