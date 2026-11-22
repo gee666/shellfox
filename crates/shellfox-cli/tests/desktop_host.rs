@@ -9,7 +9,7 @@ use anyhow::{bail, ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId, TabId};
 use shellfox_service::{
     experiment::{ExperimentRequest as Request, ExperimentResponse as Response},
-    local::{LocalBootstrap, LocalClient},
+    local::{HostClosed, LocalBootstrap, LocalClient},
     Attachment, TerminalOutput,
 };
 use std::{
@@ -132,9 +132,26 @@ fn a_ui_that_quits_is_not_relaunched() -> Result<()> {
         drop(pipe);
         tokio::time::sleep(Duration::from_secs(2)).await;
         ensure!(!fixture.marker.exists(), "A quitting UI was relaunched.");
-        stop(&fixture.client().await?).await
+        let watcher = fixture.client().await?;
+        stop(&fixture.client().await?).await?;
+        ensure!(watcher.closed().await == HostClosed::Stopped, "An orderly stop looked like a crash.");
+        Ok(())
     });
     fixture.finish(&runtime, result)
+}
+
+#[test]
+fn a_killed_host_is_told_apart_from_a_stopped_one() -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let mut fixture = Fixture::start()?;
+    let closed = runtime.block_on(async {
+        let watcher = fixture.client().await?;
+        fixture.host.0.kill()?;
+        anyhow::Ok(watcher.closed().await)
+    })?;
+    fixture.host.0.wait()?;
+    ensure!(closed == HostClosed::Lost, "A killed host looked like an orderly stop.");
+    Ok(())
 }
 
 async fn stop(client: &LocalClient) -> Result<()> {
