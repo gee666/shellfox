@@ -100,7 +100,9 @@ impl Backend {
     pub(super) fn remove_view(&self, id: &str, epoch: u64) -> Result<(), AppError> {
         let mut limits = self.limits.lock().map_err(|_| invalid())?;
         if limits.views.get(id).is_some_and(|view| view.epoch == epoch) {
-            limits.views.remove(id);
+            if let Some(view) = limits.views.remove(id) {
+                view.actor.wake.notify();
+            }
         }
         Ok(())
     }

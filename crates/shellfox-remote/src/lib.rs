@@ -17,6 +17,7 @@ pub mod manager_policy;
 mod observer_connection;
 pub mod observer_policy;
 mod policy;
+mod poll_wake;
 mod store;
 pub mod terminal_upload;
 pub use manager_connection::{
@@ -36,6 +37,7 @@ pub use channel::{
     owner_channel, OwnerClient, OwnerCommand, OwnerReceiver, OwnerRequest, RemoteHost, ServiceHost,
 };
 pub use policy::{Approval, ViewPermission};
+pub use poll_wake::PollWake;
 use shellfox_protocol::{AppError, ErrorCode};
 pub use store::PrivateApprovalStore;
 

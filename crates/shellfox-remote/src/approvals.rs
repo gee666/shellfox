@@ -6,7 +6,7 @@ mod policy_tests;
 #[cfg(test)]
 #[path = "approval_tests.rs"]
 mod tests;
-use crate::{error, policy, Approval, PrivateApprovalStore, ViewPermission};
+use crate::{error, policy, Approval, PollWake, PrivateApprovalStore, ViewPermission};
 use shellfox_files::FileService;
 use shellfox_protocol::{AppError, ClientId, ErrorCode, RemoteCommand};
 use shellfox_transport::incoming::PeerIdentity;
@@ -83,10 +83,15 @@ pub struct Actor {
     pub(crate) view_epoch: u64,
     policy: ApprovalControl,
     files: Vec<Arc<FileService>>,
+    pub(crate) wake: PollWake,
 }
 impl Actor {
     pub fn view_epoch(&self) -> u64 {
         self.view_epoch
+    }
+    /// Per-view wake for the pending event poll. A new pairing gets a new one.
+    pub fn poll_wake(&self) -> PollWake {
+        self.wake.clone()
     }
     /// Serializes revocation with the entire synchronous owner operation.
     /// Never await or call this recursively inside `operation`.
@@ -237,6 +242,7 @@ impl ApprovalControl {
                 view_epoch: 0,
                 policy: self.clone(),
                 files: grant.files.clone(),
+                wake: PollWake::default(),
             });
         }
         state

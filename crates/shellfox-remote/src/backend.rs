@@ -5,6 +5,9 @@ mod http_tests;
 mod manager;
 #[path = "backend_observer.rs"]
 mod observer;
+#[cfg(test)]
+#[path = "backend_poll_tests.rs"]
+mod poll_tests;
 #[path = "backend_server.rs"]
 mod server;
 pub use manager::ManagerHttpReply;
@@ -22,6 +25,8 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+const POLL_WAIT: Duration = Duration::from_secs(20);
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -201,7 +206,7 @@ impl Backend {
                 limits.epoch = limits.epoch.checked_add(1).ok_or_else(invalid)?;
                 let epoch = limits.epoch;
                 actor.view_epoch = epoch;
-                limits.views.insert(
+                let previous = limits.views.insert(
                     id.clone(),
                     View {
                         actor: actor.clone(),
@@ -212,6 +217,10 @@ impl Backend {
                         requests: 0,
                     },
                 );
+                // End the replaced view's pending poll now rather than at its deadline.
+                if let Some(previous) = previous {
+                    previous.actor.wake.notify();
+                }
                 epoch
             };
             let result = self
@@ -281,9 +290,13 @@ impl Backend {
         actor.validate_async().await?;
         result
     }
+    /// Long-poll: ask the owner, then wait for the view's wake, an approval
+    /// change or the deadline before asking again.
     async fn poll(&self, id: &str, epoch: u64, actor: Actor) -> Result<Value, AppError> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        let deadline = tokio::time::Instant::now() + POLL_WAIT;
+        let mut approvals = self.approvals.subscribe();
         loop {
+            approvals.borrow_and_update();
             actor.validate_async().await?;
             {
                 let limits = self.limits.lock().map_err(|_| invalid())?;
@@ -297,13 +310,19 @@ impl Backend {
                     actor: actor.clone(),
                 })
                 .await?;
-            let response: shellfox_protocol::PollResponse =
-                serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+            let response =
+                shellfox_protocol::PollResponse::deserialize(&value).map_err(|_| invalid())?;
             response.validate().map_err(|_| invalid())?;
             if !response.events.is_empty() || tokio::time::Instant::now() >= deadline {
                 return Ok(value);
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::select! {
+                _ = actor.wake.notified() => {}
+                _ = approvals.changed() => {}
+                _ = tokio::time::sleep_until(deadline) => {}
+                // Until the service owner wires PollWake for every event source.
+                _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+            }
         }
     }
     fn limit(&self, peer: &PeerIdentity, signature: &str, timestamp: u64) -> Result<(), AppError> {
