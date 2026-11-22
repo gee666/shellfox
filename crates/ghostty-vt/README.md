@@ -68,8 +68,7 @@ The wrapper's one-MiB encode allocation bound is distinct from Runtime's 64-KiB
 write cap. This API returns one owned byte vector and does not write or split
 it. Hosts must reject output above their write cap, not use multiwrite to bypass
 it. No manager/default engine, GPUI capture, mobile M2 or profile-3 activation
-follows from this API. See the [reviewed proposal](../../docs/ghostty-key-v2-proposal.md)
-and [exact vocabulary](../../docs/ghostty-key-v2-vocabulary.md).
+follows from this API.
 
 Paste uses Ghostty's encoder and current bracketed-paste mode. Unbracketed multiline paste returns `Error(-7)`, without writing input. There is no implicit unsafe-paste confirmation. Kitty clipboard paste events are not supported by this first adapter. Clipboard and effect execution stay disabled. Title, directory and bell callbacks only collect bounded volatile metadata. Terminal output cannot automatically access the application clipboard, open paths or ring an OS bell.
 
