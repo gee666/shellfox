@@ -131,23 +131,5 @@ fn trusted_resource_input_reaches_boot_options_without_materializing_storage() {
 fn native0_selection_is_explicit_and_not_a_fallback() {
     assert!(SourceFactory::parse("unknown").is_err());
     assert_eq!(SourceFactory::parse("local").unwrap(), SourceFactory::Local);
-    #[cfg(not(feature = "experimental-shellfox-native"))]
     assert!(SourceFactory::parse("native0").is_err());
-    #[cfg(feature = "experimental-shellfox-native")]
-    {
-        let selected = SourceFactory::parse("native0").unwrap();
-        let NativeFactoryPolicy::ExistingManagerNative0Catalog {
-            configuration,
-            limits,
-        } = selected.policy().unwrap()
-        else {
-            panic!("exact native0 factory required")
-        };
-        assert_eq!(configuration.runtime_image_storage_limit, 0);
-        assert!(!configuration.runtime_resize_pull_scrollback);
-        assert_eq!(limits.max_encoded_bytes, 4 * 1024 * 1024);
-        assert_eq!(limits.max_allocation_bytes, 128 * 1024 * 1024);
-        assert_eq!(limits.max_history_rows, 10_000);
-        assert_eq!(limits.max_columns, 4096);
-    }
 }

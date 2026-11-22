@@ -193,14 +193,6 @@ pub(super) fn attach(
             },
         },
         m::RecoveryFormat::Native0RawV1 => {
-            #[cfg(feature = "experimental-shellfox-native")]
-            {
-                match role {
-                    Role::Controller(lease) => Command::RecoverNative0Stamped { lease },
-                    Role::Observer(observer) => Command::ObserverRecoverNative0Stamped { observer },
-                }
-            }
-            #[cfg(not(feature = "experimental-shellfox-native"))]
             {
                 abandon(service, identity, role, m::RevokedReason::SourceUnavailable);
                 return unavailable(input.tab_id, m::UnavailableReason::RecoveryUnavailable);
@@ -214,11 +206,6 @@ pub(super) fn attach(
             .and_then(|entry| match selected.recovery_format {
                 m::RecoveryFormat::FormattedActiveBuffer => entry.recover(response).ok(),
                 m::RecoveryFormat::Native0RawV1 => {
-                    #[cfg(feature = "experimental-shellfox-native")]
-                    {
-                        entry.recover_native0(response, selected).ok()
-                    }
-                    #[cfg(not(feature = "experimental-shellfox-native"))]
                     {
                         let _ = response;
                         None

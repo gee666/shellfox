@@ -45,8 +45,6 @@ impl Service {
                 );
             }
         }
-        #[cfg(feature = "experimental-shellfox-native")]
-        let native = self.native0_creation()?;
         if let Some(run) = self.automation.runs.reserve_start(&input, controller)? {
             return Ok(run);
         }
@@ -67,19 +65,7 @@ impl Service {
                 activity.hooks(),
             )
         };
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         let started = start();
-        #[cfg(feature = "experimental-shellfox-native")]
-        let started = match native {
-            Some(native) => Runtime::start_external_with_native0(
-                identity,
-                Default::default(),
-                ExternalDisplayPolicy::LegacyAutomationV1,
-                activity.hooks(),
-                native,
-            ),
-            None => start(),
-        };
         let mut runtime = match started {
             Ok(runtime) => runtime,
             Err(error) => {

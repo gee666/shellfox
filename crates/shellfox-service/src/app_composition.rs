@@ -98,59 +98,19 @@ impl ApplicationArguments {
 pub enum SourceFactory {
     #[default]
     Local,
-    Native0,
 }
 impl SourceFactory {
     pub fn parse(value: &str) -> Result<Self> {
         match value {
             "local" => Ok(Self::Local),
-            "native0" => {
-                ensure!(
-                    cfg!(feature = "experimental-shellfox-native"),
-                    "native0 source factory requires an experimental-shellfox-native application build"
-                );
-                Ok(Self::Native0)
-            }
-            _ => bail!("--source-factory must be local or native0"),
+            _ => bail!("--source-factory must be local"),
         }
     }
     pub fn policy(self) -> Result<NativeFactoryPolicy> {
         match self {
             Self::Local => Ok(NativeFactoryPolicy::Disabled),
-            Self::Native0 => native0_policy(),
         }
     }
-}
-#[cfg(feature = "experimental-shellfox-native")]
-fn native0_policy() -> Result<NativeFactoryPolicy> {
-    use shellfox_ghostty_vt::extension::{RestorationConfig, SnapshotLimits};
-    // Explicit NEW-source preset. Never inferred from persisted or incoming snapshots.
-    let policy = NativeFactoryPolicy::ExistingManagerNative0Catalog {
-        configuration: RestorationConfig {
-            runtime_image_storage_limit: 0,
-            runtime_resize_pull_scrollback: false,
-        },
-        limits: SnapshotLimits {
-            max_encoded_bytes: 4 * 1024 * 1024,
-            max_allocation_bytes: 128 * 1024 * 1024,
-            max_work_units: 100_000_000_000,
-            max_cells: 1_048_576,
-            max_history_rows: 10_000,
-            max_continuation_bytes: 65_536,
-            max_columns: 4096,
-            max_rows: 4096,
-            max_pixel_width: 65_536,
-            max_pixel_height: 65_536,
-            max_page_rows: 65_535,
-            max_pages: 1000,
-            max_records: 10_000,
-        },
-    };
-    Ok(policy)
-}
-#[cfg(not(feature = "experimental-shellfox-native"))]
-fn native0_policy() -> Result<NativeFactoryPolicy> {
-    bail!("native0 source factory is unavailable in this application build")
 }
 
 #[derive(Clone, Debug)]

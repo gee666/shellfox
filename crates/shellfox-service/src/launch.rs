@@ -103,13 +103,6 @@ impl Service {
             self.prepare_launch_config(launch, generation)?
         };
         let origin = crate::native_sharing::capture_catalog_origin(&config);
-        #[cfg(feature = "experimental-shellfox-native")]
-        let native_creation = self.catalog_native0_creation(&origin)?;
-        #[cfg(feature = "experimental-shellfox-native")]
-        if require_native0 && native_creation.is_none() {
-            return Ok(false);
-        }
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         if require_native0 {
             return Ok(false);
         }
@@ -135,16 +128,6 @@ impl Service {
             }
         };
         let start_ordinary = |config, hooks| {
-            #[cfg(feature = "experimental-shellfox-native")]
-            if let Some(native) = native_creation {
-                return Runtime::start_remote_eligible_native0_program_with_limits_and_hooks(
-                    identity,
-                    config,
-                    Default::default(),
-                    hooks,
-                    native,
-                );
-            }
             Runtime::start_with_hooks(identity, config, hooks)
         };
         #[cfg(windows)]

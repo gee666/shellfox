@@ -3,9 +3,6 @@
 mod ack;
 #[path = "manager_delivery_events.rs"]
 mod events;
-#[cfg(feature = "experimental-shellfox-native")]
-#[path = "manager_native_recovery.rs"]
-mod native0;
 use shellfox_protocol::{manager_v2 as wire, Validate};
 use shellfox_runtime::{
     AnsiRecoveryCapability, Chunk, Identity, LayoutStamp, Lease, ObserverLease, RecoveryId,

@@ -18,16 +18,10 @@ use std::{
 fn actual_catalog_local_first_pty_uses_explicit_cli_and_stops_original_owner() -> Result<()> {
     first_pty(application::SourceFactory::Local)
 }
-#[cfg(feature = "experimental-shellfox-native")]
-#[test]
-fn actual_catalog_native0_first_pty_uses_explicit_cli_and_stops_original_owner() -> Result<()> {
-    first_pty(application::SourceFactory::Native0)
-}
 fn first_pty(factory: application::SourceFactory) -> Result<()> {
     let fixture = support::Fixture::new()?;
     let data = fixture.data(match factory {
         application::SourceFactory::Local => "actual-local-factory",
-        application::SourceFactory::Native0 => "actual-native0-factory",
     });
     let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
     let config = application::NativeApplicationConfig::new(

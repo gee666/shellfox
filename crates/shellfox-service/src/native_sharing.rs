@@ -11,31 +11,15 @@ pub enum NativeFactoryPolicy {
     #[default]
     Disabled,
     ExistingManagerStandardCatalog,
-    /// Trusted explicit Native0 source configuration, never incoming metadata.
-    #[cfg(feature = "experimental-shellfox-native")]
-    ExistingManagerNative0Catalog {
-        configuration: shellfox_ghostty_vt::extension::RestorationConfig,
-        limits: shellfox_ghostty_vt::extension::SnapshotLimits,
-    },
 }
 impl NativeFactoryPolicy {
     fn permits_catalog(self) -> bool {
         match self {
             Self::Disabled => false,
             Self::ExistingManagerStandardCatalog => true,
-            #[cfg(feature = "experimental-shellfox-native")]
-            Self::ExistingManagerNative0Catalog { .. } => true,
         }
     }
     fn validate(self) -> Result<()> {
-        #[cfg(feature = "experimental-shellfox-native")]
-        if let Self::ExistingManagerNative0Catalog {
-            configuration,
-            limits,
-        } = self
-        {
-            shellfox_runtime::Native0RuntimeConfig::new(configuration, limits)?;
-        }
         Ok(())
     }
 }
@@ -92,29 +76,6 @@ impl SourceShareRecord {
     }
 }
 impl Service {
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn catalog_native0_creation(
-        &self,
-        origin: &CapturedCatalogOrigin,
-    ) -> Result<Option<shellfox_runtime::Native0RuntimeConfig>> {
-        if origin.profile.is_none() {
-            return Ok(None);
-        }
-        self.native0_creation()
-    }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn native0_creation(&self) -> Result<Option<shellfox_runtime::Native0RuntimeConfig>> {
-        match self.factory_policy.policy {
-            NativeFactoryPolicy::ExistingManagerNative0Catalog {
-                configuration,
-                limits,
-            } => Ok(Some(shellfox_runtime::Native0RuntimeConfig::new(
-                configuration,
-                limits,
-            )?)),
-            _ => Ok(None),
-        }
-    }
     /// Eligibility epoch ONLY. The backend must independently require sealed
     /// actual KnownNormal/purpose/stage, exact binding and current peer permission.
     pub(crate) fn observer_delivery_policy(&self, identity: Identity) -> Option<u64> {
