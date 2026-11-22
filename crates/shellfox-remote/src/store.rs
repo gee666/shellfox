@@ -1,9 +1,7 @@
 //! The Host repository is the only approval writer. Legacy files are inspection only.
 use crate::{error, Approval, ApprovalRepository, ViewPermission};
 use shellfox_core::{ApprovalStorePolicy, ApprovalStoreRecord, ApprovalStoreSnapshot};
-use shellfox_files::{
-    DirectoryPreparationFailure, DirectoryPreparationOwner, ErrorCode as FileCode, FileService,
-};
+use shellfox_files::{ErrorCode as FileCode, FileService};
 use shellfox_protocol::{AppError, CancellationToken, ErrorCode};
 use std::{
     ffi::OsStr,
@@ -12,7 +10,8 @@ use std::{
 const LIMIT: usize = 1024 * 1024;
 struct Preparation {
     directory: Option<Arc<FileService>>,
-    failure: Option<DirectoryPreparationFailure>,
+    /// A failed open is not retried; the store stays unavailable.
+    failed: bool,
 }
 #[derive(Default)]
 struct RepositoryState {
@@ -24,7 +23,6 @@ struct RepositoryState {
 pub struct PrivateApprovalStore {
     control: Arc<FileService>,
     lost: CancellationToken,
-    keeper: DirectoryPreparationOwner,
     preparation: Mutex<Preparation>,
     repository: Mutex<RepositoryState>,
     gate: tokio::sync::Mutex<()>,
@@ -38,14 +36,12 @@ fn failed() -> AppError {
 }
 impl PrivateApprovalStore {
     pub fn retained_native(control: Arc<FileService>, lost: CancellationToken) -> Self {
-        let keeper = control.directory_preparation_owner();
         Self {
             control,
             lost,
-            keeper,
             preparation: Mutex::new(Preparation {
                 directory: None,
-                failure: None,
+                failed: false,
             }),
             repository: Mutex::default(),
             gate: tokio::sync::Mutex::new(()),
@@ -71,17 +67,17 @@ impl PrivateApprovalStore {
     pub fn initialize_read_only(&self) -> Result<(), AppError> {
         self.owned()?;
         let mut state = self.preparation.lock().map_err(|_| failed())?;
-        if state.failure.is_some() {
+        if state.failed {
             return Err(failed());
         }
         if state.directory.is_none() {
             match self
                 .control
-                .open_or_create_private_child(OsStr::new("remote-v1"))
+                .private_child(OsStr::new("remote-v1"))
             {
                 Ok(directory) => state.directory = Some(directory),
-                Err(failure) => {
-                    state.failure = Some(failure);
+                Err(_) => {
+                    state.failed = true;
                     return Err(failed());
                 }
             }
@@ -100,9 +96,9 @@ impl PrivateApprovalStore {
         &self,
         directory: &FileService,
         leaf: &OsStr,
-    ) -> Result<Option<shellfox_files::PrivateRead>, AppError> {
+    ) -> Result<Option<shellfox_files::private::PrivateRead>, AppError> {
         self.owned()?;
-        let result = directory.read_private_leaf(leaf, LIMIT);
+        let result = directory.read_private(leaf, LIMIT);
         self.owned()?;
         match result {
             Ok(read) => Ok(Some(read)),
@@ -237,18 +233,5 @@ impl PrivateApprovalStore {
             return Err(failed());
         }
         self.finish_repository(&committed)
-    }
-    pub fn preserve_preparation(&self) -> Result<(), AppError> {
-        let mut state = self
-            .preparation
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(failure) = &mut state.failure {
-            failure.verify_retained().map_err(|_| failed())?;
-            failure.preserve_stale().map_err(|_| failed())?;
-        }
-        self.keeper.verify_retained().map_err(|_| failed())?;
-        self.keeper.clone().preserve_stale().map_err(|_| failed())?;
-        Ok(())
     }
 }

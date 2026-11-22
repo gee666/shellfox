@@ -24,7 +24,7 @@ fn store(f: &Fixture) -> PrivateApprovalStore {
 }
 fn child(f: &Fixture) -> Arc<shellfox_files::FileService> {
     f.files
-        .open_or_create_private_child(OsStr::new("remote-v1"))
+        .private_child(OsStr::new("remote-v1"))
         .unwrap()
 }
 #[tokio::test]
@@ -61,7 +61,7 @@ async fn every_legacy_pending_presence_denies_without_repair_or_deletion() {
         assert!(ApprovalControl::load(&store).await.is_err());
         assert_eq!(
             directory
-                .read_private_leaf(OsStr::new("write-pending"), 1024)
+                .read_private(OsStr::new("write-pending"), 1024)
                 .unwrap()
                 .bytes,
             marker
@@ -78,7 +78,7 @@ async fn gated_save_does_not_create_marker_stage_or_change_approvals() {
         .unwrap()
         .count();
     let version = directory
-        .read_private_leaf(OsStr::new("approvals.json"), 1024)
+        .read_private(OsStr::new("approvals.json"), 1024)
         .unwrap()
         .version;
     assert_eq!(
@@ -87,7 +87,7 @@ async fn gated_save_does_not_create_marker_stage_or_change_approvals() {
     );
     assert_eq!(
         directory
-            .read_private_leaf(OsStr::new("approvals.json"), 1024)
+            .read_private(OsStr::new("approvals.json"), 1024)
             .unwrap()
             .version,
         version
@@ -113,7 +113,7 @@ async fn v1_needing_save_cannot_install_a_normalized_grant_while_writes_are_gate
     );
     assert_eq!(
         directory
-            .read_private_leaf(OsStr::new("approvals.json"), 1024)
+            .read_private(OsStr::new("approvals.json"), 1024)
             .unwrap()
             .bytes,
         legacy
@@ -127,7 +127,6 @@ async fn ownership_loss_denies_read_and_keeps_preparation_owner_for_disposition(
     let store = store(&f);
     f.lost.cancel();
     assert!(store.load().await.is_err());
-    store.preserve_preparation().unwrap();
 }
 
 #[tokio::test]

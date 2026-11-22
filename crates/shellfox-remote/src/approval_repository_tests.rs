@@ -200,14 +200,14 @@ async fn legacy_pending_or_approval_presence_refuses_sql_authority_and_preserves
         let store = store(&fixture, repository.clone());
         let directory = fixture
             .files
-            .open_or_create_private_child(std::ffi::OsStr::new("remote-v1"))
+            .private_child(std::ffi::OsStr::new("remote-v1"))
             .unwrap();
         metadata::Fixture::seed(&directory, leaf, b"preserved legacy evidence");
         assert!(ApprovalControl::load(&store).await.is_err());
         assert_eq!(repository.loads.load(Ordering::SeqCst), 0);
         assert_eq!(
             directory
-                .read_private_leaf(std::ffi::OsStr::new(leaf), 1024)
+                .read_private(std::ffi::OsStr::new(leaf), 1024)
                 .unwrap()
                 .bytes,
             b"preserved legacy evidence"
