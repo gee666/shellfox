@@ -25,7 +25,6 @@ pub enum RemoteSetupOutcome {
 pub struct RemoteHostSetup {
     _control: crate::local::NativeControlChild,
     lost: wire::CancellationToken,
-    keeper: shellfox_files::DirectoryPreparationOwner,
     preferences: Arc<preferences::store::NativePreferenceStore>,
     store: Arc<shellfox_remote::PrivateApprovalStore>,
     assembly: Option<host::BackendAssembly>,
@@ -50,7 +49,6 @@ impl RemoteHostSetup {
     ) -> Self {
         let files = control.files();
         let lost = ownership.lost();
-        let keeper = files.directory_preparation_owner();
         let preferences = Arc::new(preferences::store::NativePreferenceStore::retained(
             files.clone(),
             lost.clone(),
@@ -62,7 +60,6 @@ impl RemoteHostSetup {
         Self {
             _control: control,
             lost,
-            keeper,
             preferences,
             store,
             assembly: None,
@@ -233,20 +230,6 @@ impl RemoteHostSetup {
             backend.shutdown().await;
         }
         self.assembly = None;
-        self.preferences.preserve_retained()?;
-        self.store.preserve_preparation()?;
-        self.keeper.verify_retained().map_err(|_| {
-            failure(
-                ErrorCode::StorageFailed,
-                "Native directory custody retained.",
-            )
-        })?;
-        self.keeper.preserve_stale().map_err(|_| {
-            failure(
-                ErrorCode::StorageFailed,
-                "Native directory evidence could not be preserved.",
-            )
-        })?;
         Ok(())
     }
 }

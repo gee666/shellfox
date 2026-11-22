@@ -142,11 +142,10 @@ impl RemoteHostSetup {
                     }
                     let parent = self.network_parent.as_ref().ok_or_else(unavailable)?;
                     let child = parent
-                        .open_or_create_private_child(name)
+                        .private_child(name)
                         .map_err(|_| unavailable())?;
                     self.network_parent = Some(child);
                 }
-                self.keeper.verify_retained().map_err(|_| unavailable())?;
                 self.state_attempted = true;
                 let proof = match std::fs::symlink_metadata(&state_directory) {
                     Ok(info) if info.is_dir() && !info.file_type().is_symlink() => {
