@@ -62,6 +62,14 @@ pub fn run(invocation: Invocation, watch: Option<crate::parent_watch::Watch>) ->
     match action {
         Action::Help => print_value(&HELP)?,
         Action::Version => print_value(&env!("SHELLFOX_VERSION"))?,
+        Action::Update { check } if crate::desktop_handoff::desktop_binary().is_some() => {
+            if json {
+                return Err(CliError::usage("Desktop updates use api getUpdateStatus or api downloadUpdate for JSON automation."));
+            }
+            let desktop =
+                crate::desktop_handoff::desktop_binary().context("Desktop binary missing")?;
+            return crate::desktop_handoff::update(&desktop, check);
+        }
         Action::Update { check } => {
             let result = runtime()?.block_on(crate::headless_update::run(check))?;
             if json {
@@ -123,6 +131,15 @@ pub fn run(invocation: Invocation, watch: Option<crate::parent_watch::Watch>) ->
             }
             return runtime()?.block_on(crate::commands::run(args));
         }
+        Action::CreateSession { cwd, .. }
+            if !json && !crate::desktop_handoff::endpoint_exists(&data) =>
+        {
+            // 0.9.x: with no host running, a desktop install opens the window on the new session.
+            match crate::desktop_handoff::desktop_binary() {
+                Some(desktop) => crate::desktop_handoff::open_session(&desktop, &cwd)?,
+                None => return Err(unavailable()),
+            }
+        }
         action => runtime()?.block_on(connected(&data, action))?,
     }
     Ok(0)
@@ -173,7 +190,12 @@ async fn query(client: &LocalClient, action: Action) -> Result<()> {
                 profile_id,
             };
             let snapshot = mutate(client, ExperimentRequest::AddTab { id, input }).await?;
-            let old: Vec<_> = before.sessions.iter().flat_map(|s| &s.tabs).map(|t| t.id).collect();
+            let old: Vec<_> = before
+                .sessions
+                .iter()
+                .flat_map(|s| &s.tabs)
+                .map(|t| t.id)
+                .collect();
             let created = snapshot
                 .sessions
                 .iter()

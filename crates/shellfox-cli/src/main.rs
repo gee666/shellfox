@@ -4,6 +4,7 @@ mod attach;
 mod automation;
 mod automation_args;
 mod commands;
+mod desktop_handoff;
 mod desktop_host;
 mod headless_layout;
 mod headless_package;
