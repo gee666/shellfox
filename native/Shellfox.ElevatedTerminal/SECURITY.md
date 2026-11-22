@@ -92,18 +92,9 @@ https://raw.githubusercontent.com/dotnet/runtime/v10.0.15/src/libraries/System.P
 The trusted launcher must still remove DOTNET_, COMPLUS_, CORECLR_, COR_ and
 DEVPATH injection/override variables before spawn. A managed entry point cannot
 sanitize native profiler or host override code that loads before that entry
-point. The resource command wrapper's environment scrub and bundle cwd rules
-remain necessary. Standard CLR loading of declared framework dependencies is
-not an arbitrary extension/plugin API, but those dependencies must all remain
-covered by the verified full-publish bundle.
-
-NoDynamicCodeLoad authorization must bind a trusted review to the exact new
-manifest digest, never to an EXE-only digest, a matching capability response, a
-mutable JSON policy flag, or a hash supplied with an arbitrary bundle. Neither
-this document nor the safe probes grant that authorization automatically.
-Factory owners must review the managed loader/lifetime conditions before
-enabling real operations. The Rust validator's .NET 10 schema support is now
-independently verified; it does not grant a loader policy.
+point. The Rust launcher's environment scrub and helper-directory cwd remain
+necessary. Standard CLR loading of declared framework dependencies is not an
+arbitrary extension/plugin API.
 
 In particular, PowerGuardian outlives the host. Host-owned bundle handles alone
 cannot protect late declared dependency loads after a host crash. Its factory
@@ -123,7 +114,7 @@ The optional [NativeAOT prototype](NATIVEAOT.md) is a separate, opt-in build of
 the same source. It is not a reason to relax the managed artifact gate. Its own
 native loader/provenance, license and ARM64 requirements remain unresolved.
 
-## Actual inventory, advisory audit and trust manifests
+## Actual inventory and advisory audit
 
 Audit the actual published `.deps.json` and `.runtimeconfig.json`, not merely the
 project's package list. Self-contained runtime packs do not appear as ordinary
@@ -137,15 +128,9 @@ also reported no listed vulnerabilities. The evidence records metadata source
 URLs and digests. This is a time-bounded advisory/lifecycle result, not a claim
 that no runtime or OS vulnerability exists.
 
-The full-publish producer must regenerate managed inventory, vulnerability
-report, bundle-manifest and external trusted-build record for every architecture.
-The manifest lists every published file and its hash, including managed DLLs,
-runtime DLLs, runtimeconfig/deps, runtime notices and audit metadata. New source
-and startup-hook configuration change those inputs. Never reuse old anchors or
-calculate a supplied executable's hash to establish trust. Packaging notices
-come from the exact runtime 10.0.15 tag. A source-review record must cover all
-active C# files, the project and build-policy inputs, and the exact resulting
-bundle digest. Rust's loader-policy gate remains separate from these records.
+Packaging regenerates the managed inventory and vulnerability report for every
+architecture and refuses to package on findings or an unsupported channel.
+Packaging notices come from the exact runtime 10.0.15 tag.
 
 Allowed checks execute only safe probes, injected power APIs, owned metadata/
 journal fixtures, and ordinary owned process fixtures. They do not run UAC,

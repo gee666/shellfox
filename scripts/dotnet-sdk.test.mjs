@@ -65,6 +65,5 @@ test('reviewed helper has no payload-selected managed/native library loader call
     assert.doesNotMatch(source, /\b(?:NativeLibrary|AssemblyLoadContext|AssemblyDependencyResolver|Assembly\.(?:Load\w*|UnsafeLoadFrom)|Activator|Type\.GetType|Reflection\.Emit|LoadLibrary\w*|GetProcAddress|SetDllDirectory\w*|AddDllDirectory|SetDllImportResolver|GetDelegateForFunctionPointer)\b/, file);
   }
   assert.equal(imports, 68, 'New import owners require review and compiled reflection coverage.');
-  // Regression guard, not an authorization token. Human review and the exact
-  // full-bundle manifest digest still gate NoDynamicCodeLoad in Rust.
+  // Regression guard; new loader-related imports still need human review.
 });

@@ -4,7 +4,6 @@ Feasible, with an x64 prototype built and checked. This is not an accepted Rust
 resource kind or a shipping-profile change. Managed self-contained publishing
 remains the default. NativeAOT acceptance is blocked until ARM64 build evidence,
 complete loader review and all native license/toolchain gates are resolved.
-No `NoDynamicCodeLoad` policy is constructed for a managed artifact.
 
 ## Scope and commands
 
