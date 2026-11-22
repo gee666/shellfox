@@ -67,25 +67,34 @@ impl ProcessRunner for SystemProcessRunner {
         let out = collect(Box::new(stdout));
         let err = collect(Box::new(stderr));
         let deadline = Instant::now() + request.timeout;
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status,
-                Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(Error::Process);
-                }
-            }
-        };
         let receive = |rx: mpsc::Receiver<Result<Vec<u8>>>| {
             rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
                 .map_err(|_| Error::Process)?
         };
+        // Both pipes close when the child exits, so waiting on them needs no polling.
+        let output = receive(out).and_then(|stdout| Ok((stdout, receive(err)?)));
+        let status = match output {
+            Ok(_) => loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => break Some(status),
+                    // Pipes closed but the process lingers (it detached them).
+                    Ok(None) if Instant::now() < deadline => {
+                        thread::sleep(Duration::from_millis(10))
+                    }
+                    _ => break None,
+                }
+            },
+            Err(_) => None,
+        };
+        let (Some(status), Ok((stdout, stderr))) = (status, output) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(Error::Process);
+        };
         Ok(ProcessOutput {
             success: status.success(),
-            stdout: receive(out)?,
-            stderr: receive(err)?,
+            stdout,
+            stderr,
         })
     }
 }
