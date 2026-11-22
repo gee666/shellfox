@@ -115,11 +115,12 @@ fn policy() -> StoragePolicy {
 }
 
 fn settings() -> shellfox_core::Settings {
-    let mut settings = shellfox_core::Settings::default();
-    settings.accent_color = "#0075ff".into();
-    settings.auto_update = false;
-    settings.history_page_size = 42;
-    settings
+    shellfox_core::Settings {
+        accent_color: "#0075ff".into(),
+        auto_update: false,
+        history_page_size: 42,
+        ..Default::default()
+    }
 }
 
 #[test]
