@@ -1,10 +1,7 @@
 use super::*;
 use crate::OwnerClient;
 use shellfox_protocol::CancellationToken;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub(super) enum ConnectionOutcome {
@@ -21,20 +18,15 @@ pub(super) struct LifetimeConnection {
 impl LifetimeConnection {
     pub async fn watch(mut self, cancel: CancellationToken) {
         let mut byte = [0; 1];
-        loop {
-            tokio::select! {
-                _=self.stream.read(&mut byte)=>break, // EOF/error or forbidden data: release this epoch.
-                _=tokio::time::sleep(Duration::from_millis(20))=>if cancel.is_cancelled(){break;},
-            }
+        tokio::select! {
+            _ = self.stream.read(&mut byte) => {} // EOF/error or forbidden data: release this epoch.
+            _ = cancel.cancelled() => {}
         }
-        let release = self.client.close_lifetime(self.epoch);
-        tokio::pin!(release);
-        loop {
-            tokio::select! {
-                _=&mut release=>break,
-                _=tokio::time::sleep(Duration::from_millis(20))=>if self.lost.is_cancelled(){break;},
-            }
-        } // Lost owner's original global cleanup owns the remaining release.
+        // A lost owner's global cleanup owns the remaining release.
+        tokio::select! {
+            _ = self.client.close_lifetime(self.epoch) => {}
+            _ = self.lost.cancelled() => {}
+        }
     }
 }
 pub(super) async fn serve_connection(
@@ -42,7 +34,7 @@ pub(super) async fn serve_connection(
     secret: String,
     client: OwnerClient,
     lost: CancellationToken,
-    stop: Arc<AtomicBool>,
+    stop: CancellationToken,
     slots: Arc<Semaphore>,
 ) -> Result<ConnectionOutcome> {
     let frame = tokio::time::timeout(Duration::from_secs(30), async {
@@ -50,7 +42,7 @@ pub(super) async fn serve_connection(
         stream.verify_peer()?;
         let frame: Frame = serde_json::from_slice(&bytes)?;
         frame.authenticate(&secret)?;
-        if lost.is_cancelled() || stop.load(Ordering::Acquire) {
+        if lost.is_cancelled() || stop.is_cancelled() {
             bail!("Host admission is closed.");
         }
         Ok::<_, anyhow::Error>(frame)
@@ -128,7 +120,7 @@ pub(super) async fn serve_connection(
                 let reply = match result {
                     Ok(value) => {
                         if requested_stop {
-                            stop.store(true, Ordering::Release);
+                            stop.cancel();
                         }
                         shellfox_protocol::Reply::Success(value)
                     }

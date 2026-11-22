@@ -41,13 +41,13 @@ impl Preparation {
     pub async fn acquire(
         &mut self,
         private: &mut PrivateDirectory,
-        closing: &std::sync::atomic::AtomicBool,
+        closing: &shellfox_protocol::CancellationToken,
     ) -> Result<OwnershipDecision> {
         anyhow::ensure!(!self.entered, "Native acquisition cannot be replayed");
         self.entered = true;
         private.prepare_root(&mut self.original, true).await?;
         anyhow::ensure!(
-            !closing.load(std::sync::atomic::Ordering::Acquire),
+            !closing.is_cancelled(),
             "Local host stop requested"
         );
         self.bound = Some(private.bound_root()?);

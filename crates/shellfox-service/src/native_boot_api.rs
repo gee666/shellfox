@@ -56,12 +56,11 @@ pub struct LocalBootstrap {
 /// One-way, local application stop request. Dropping a client/view is not Stop.
 #[derive(Clone)]
 pub struct LocalBootStop {
-    closing: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    closing: shellfox_protocol::CancellationToken,
 }
 impl LocalBootStop {
     pub fn request(&self) {
-        self.closing
-            .store(true, std::sync::atomic::Ordering::Release);
+        self.closing.cancel();
     }
 }
 impl LocalBootstrap {

@@ -208,7 +208,7 @@ impl RemoteInstall {
     pub(crate) async fn install(
         self: &Arc<Self>,
         owner: &ServiceOwner,
-        closing: &std::sync::atomic::AtomicBool,
+        closing: &shellfox_protocol::CancellationToken,
     ) -> Result<()> {
         // A cancelled wait resumes this same retained receipt, never another install.
         let queued = self
@@ -218,7 +218,7 @@ impl RemoteInstall {
             .queued;
         if !queued {
             anyhow::ensure!(
-                !closing.load(std::sync::atomic::Ordering::Acquire),
+                !closing.is_cancelled(),
                 "Remote owner is closing; original dispatcher retained"
             );
             self.enqueue(owner)?;
@@ -229,7 +229,7 @@ impl RemoteInstall {
             if let Some(result) = *receipt.borrow() {
                 return result.map_err(anyhow::Error::msg);
             }
-            if closing.load(std::sync::atomic::Ordering::Acquire)
+            if closing.is_cancelled()
                 || owner.abandon.is_cancelled()
                 || owner
                     .thread

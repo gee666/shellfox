@@ -130,7 +130,7 @@ async fn serve_retained_plan<D: crate::OwnerDispatcher + 'static>(
             if let Err(error) = tokio::signal::ctrl_c().await {
                 signal_error = Some(error);
             }
-            stop.store(true, std::sync::atomic::Ordering::Release);
+            stop.cancel();
             std::future::pending::<()>().await;
         };
         let work = async {
@@ -190,7 +190,7 @@ async fn serve_retained_plan<D: crate::OwnerDispatcher + 'static>(
 }
 
 struct ServerState {
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    stop: shellfox_protocol::CancellationToken,
     tasks: tokio::task::JoinSet<Result<connection::ConnectionOutcome>>,
     lifetimes: tokio::task::JoinSet<()>,
     lifetime_slots: std::sync::Arc<tokio::sync::Semaphore>,
@@ -199,7 +199,7 @@ struct ServerState {
 impl ServerState {
     fn new() -> Self {
         Self {
-            stop: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            stop: shellfox_protocol::CancellationToken::new(),
             tasks: tokio::task::JoinSet::new(),
             lifetimes: tokio::task::JoinSet::new(),
             lifetime_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(128)),
@@ -207,11 +207,11 @@ impl ServerState {
         }
     }
     fn request_stop(&self) {
-        self.stop.store(true, std::sync::atomic::Ordering::Release);
+        self.stop.cancel();
     }
     fn ensure_running(&self) -> Result<()> {
         anyhow::ensure!(
-            !self.stop.load(std::sync::atomic::Ordering::Acquire),
+            !self.stop.is_cancelled(),
             "Local host stop requested"
         );
         Ok(())
@@ -298,7 +298,8 @@ async fn run_started(
                     server.stop.clone(), server.lifetime_slots.clone(),
                 ));
             },
-            _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+            _ = server.stop.cancelled() => {}
+            _ = lost.cancelled() => {}
         }
     }
     Ok(())

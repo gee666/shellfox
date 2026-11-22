@@ -144,7 +144,7 @@ async fn remote_install_wait_cancellation_retains_same_dispatcher_and_receipt() 
     let mut owner = owner(data.path(), CancellationToken::new()).await;
     let install = RemoteInstall::new();
     let prepared = install.prepare(dispatcher());
-    let closing = std::sync::atomic::AtomicBool::new(false);
+    let closing = shellfox_protocol::CancellationToken::new();
     let first = {
         let mut waiting = pin!(install.install(&owner, &closing));
         waiting
@@ -169,7 +169,7 @@ async fn preactivate_only_install_refusal_preserves_original_dispatcher() {
     let activated = owner.activate().await;
     let install = RemoteInstall::new();
     let prepared = install.prepare(dispatcher());
-    let closing = std::sync::atomic::AtomicBool::new(false);
+    let closing = shellfox_protocol::CancellationToken::new();
     let refused = install.install(&owner, &closing).await;
     let stopped = owner.shutdown().await;
     assert!(stopped.is_ok(), "{stopped:?}");

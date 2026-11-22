@@ -70,7 +70,7 @@ impl BootGuard {
                         .recv()
                         .context("Native provider worker registration lost")?;
                     anyhow::ensure!(
-                        !lost.is_cancelled() && !stop.load(std::sync::atomic::Ordering::Acquire),
+                        !lost.is_cancelled() && !stop.is_cancelled(),
                         "Native provider preparation canceled"
                     );
                     let install = match location.install() {
@@ -81,7 +81,7 @@ impl BootGuard {
                         }
                     };
                     anyhow::ensure!(
-                        !lost.is_cancelled() && !stop.load(std::sync::atomic::Ordering::Acquire),
+                        !lost.is_cancelled() && !stop.is_cancelled(),
                         "Native provider authority ended during preparation"
                     );
                     Ok(install)

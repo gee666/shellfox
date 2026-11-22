@@ -90,7 +90,7 @@ impl RemoteHostSetup {
     pub(crate) async fn install_dispatcher(
         &self,
         owner: &crate::owner::ServiceOwner,
-        closing: &std::sync::atomic::AtomicBool,
+        closing: &shellfox_protocol::CancellationToken,
     ) -> anyhow::Result<()> {
         self.dispatcher.install(owner, closing).await
     }
