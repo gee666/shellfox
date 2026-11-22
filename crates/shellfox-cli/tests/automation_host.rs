@@ -1,8 +1,8 @@
 #![cfg(windows)]
-#[path = "support/automation_lifetime.rs"]
-mod lifetime;
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
+#[path = "support/automation_lifetime.rs"]
+mod lifetime;
 #[path = "support/mod.rs"]
 pub mod support;
 use anyhow::{ensure, Context, Result};

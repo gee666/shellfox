@@ -2,16 +2,16 @@ use crate::{
     keys::{self, Input},
     queries::QueryFilter,
 };
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use crossterm::{
     event::{self, Event},
     terminal,
 };
 use shellfox_core::TabId;
 use shellfox_service::{
-    Attachment, TerminalOutput,
     experiment::{ExperimentRequest, ExperimentResponse, RecoveryCapability},
     local::LocalClient,
+    Attachment, TerminalOutput,
 };
 use std::{
     io::{self, Write},
@@ -22,7 +22,7 @@ const INPUT_CHUNK: usize = 16 * 1024;
 
 #[path = "terminal_guard.rs"]
 mod guard;
-pub(crate) use guard::{TerminalGuard, require_terminal};
+pub(crate) use guard::{require_terminal, TerminalGuard};
 
 pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result<()> {
     require_terminal()?;

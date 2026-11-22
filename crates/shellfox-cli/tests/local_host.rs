@@ -1,7 +1,7 @@
 #![cfg(any(windows, target_os = "macos"))]
-mod support;
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
+mod support;
 use support::OwnedHost;
 
 use anyhow::{bail, ensure, Context, Result};
@@ -231,7 +231,9 @@ async fn send_marker(
     let marker = format!("SHELLFOX_CLI_TYPED_{suffix}");
     // The expected contiguous marker does not occur in echoed input text.
     let command = if cfg!(windows) {
-        format!("set SF_E2E_A=SHELLFOX_CLI_TYPED_\rset SF_E2E_B={suffix}\recho %SF_E2E_A%%SF_E2E_B%\r")
+        format!(
+            "set SF_E2E_A=SHELLFOX_CLI_TYPED_\rset SF_E2E_B={suffix}\recho %SF_E2E_A%%SF_E2E_B%\r"
+        )
     } else {
         format!("printf '%s%s\\n' SHELLFOX_CLI_TYPED_ '{suffix}'\r")
     };

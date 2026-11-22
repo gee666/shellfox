@@ -220,12 +220,12 @@ async fn pipe_output(
         }
     }
 }
-#[cfg(all(test,windows))]
-#[path = "../tests/support/owned.rs"]
-pub(crate) mod test_owned;
 #[cfg(test)]
 #[path = "automation_control_tests.rs"]
 mod control_tests;
+#[cfg(all(test, windows))]
+#[path = "../tests/support/owned.rs"]
+pub(crate) mod test_owned;
 #[cfg(test)]
 mod tests {
     use super::{exit_code, stdin_closed, LocalRequestFailure};

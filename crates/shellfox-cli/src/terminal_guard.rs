@@ -1,6 +1,6 @@
 //! Shared TTY admission and cleanup for local and native-peer attach.
 use crate::presentation;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use crossterm::{event::EnableBracketedPaste, execute, terminal};
 use std::io::{self, IsTerminal, Write};
 pub fn require_terminal() -> Result<()> {

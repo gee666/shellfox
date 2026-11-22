@@ -38,8 +38,7 @@ SSH uses the calling terminal. Without a name, choose a saved connection with â†
 Its expected digest must come from the trusted producer receipt, never a runtime self-hash.
 Inventory alone does not enable installation: a validated Host launch context is also required.
 Without configured resources, System remains query-only; private outputs are not install resources.
---source-factory local|native0 selects NEW source creation; local preserves sudo.
-Native0 requires an experimental-shellfox-native build and uses a finite source preset.
+--source-factory local selects NEW source creation and preserves sudo.
 --helper-sha256 must be the trusted helper build's SHA-256, exactly 64 hex digits.
 Built-in launch profiles: pwsh, windows-powershell, cmd, wsl, login-shell.
 Other profile IDs are metadata; attach requires a safely available discovered profile.

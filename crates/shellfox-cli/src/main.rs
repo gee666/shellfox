@@ -6,10 +6,6 @@ mod automation_args;
 mod commands;
 mod keys;
 mod launch_args;
-#[cfg(feature = "experimental-shellfox-native")]
-mod peer;
-#[cfg(feature = "experimental-shellfox-native")]
-mod peer_args;
 mod presentation;
 mod queries;
 mod query_rules;

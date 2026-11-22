@@ -48,16 +48,3 @@ fn power_commands_are_existing_local_host_requests_not_serve() {
     ));
     assert!(matches!(command(&["host", "serve"]), Command::Serve));
 }
-#[cfg(feature = "experimental-shellfox-native")]
-#[test]
-fn peer_creation_paths_are_not_reinterpreted_as_viewer_paths() {
-    for expected in ["C:\\owned\\work", "/home/owned/work"] {
-        let Command::Peer(args) = command(&["peer", "n-work", "create", "--cwd", expected]) else {
-            panic!("peer route required")
-        };
-        let crate::peer_args::PeerCommand::Create { cwd, .. } = args.command else {
-            panic!("create required")
-        };
-        assert_eq!(cwd, expected);
-    }
-}

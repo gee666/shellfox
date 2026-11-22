@@ -1,5 +1,5 @@
 use crate::remote_args::NetworkCommand;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use shellfox_service::{
     local::LocalClient,
     remote::{AuthKey, RemoteRequest},
