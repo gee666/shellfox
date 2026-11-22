@@ -2,6 +2,8 @@
 mod activity_store;
 mod approval_store;
 mod boundary;
+#[path = "window_state.rs"]
+mod desktop_window_state;
 mod legacy;
 mod lifecycle;
 mod reserved_publication;
@@ -17,20 +19,17 @@ mod storage;
 mod storage_guard;
 mod storage_write;
 mod tabs;
-#[path = "window_state.rs"]
-mod desktop_window_state;
 
 pub use activity_store::{
     activity_unix_ms, activity_utc_timestamp, CapturedSettlement, ResumeSessionResult,
 };
 pub use boundary::HostRequest;
-use fs2::FileExt;
 pub use reserved_publication::{ReservedPublicationReceipt, ReservedSessionPublication};
 use rusqlite::{Connection, TransactionBehavior};
 pub use session_creation::CreationRequestReceipt;
 pub use session_facts::{SessionCreationFactMap, SessionCreationFacts};
 pub use settings::{SettingsRequest, SettingsRuntime};
-pub use settings_legacy::SettingsImportPolicy;
+pub use settings_legacy::{ElectronImport, SettingsImportPolicy};
 pub use settings_profiles::{normalize_settings_profile, SettingsProfile};
 pub use shellfox_core::*;
 use std::{
@@ -73,7 +72,7 @@ impl Host {
     pub fn open(directory: impl AsRef<Path>) -> Result<Self> {
         let (directory, ownership, _checked_artifacts) =
             storage_guard::prepare(directory.as_ref())?;
-        ownership.try_lock_exclusive().map_err(|_| {
+        ownership.try_lock().map_err(|_| {
             Error::new(
                 ErrorCode::Conflict,
                 "Another host owns this experiment store.",

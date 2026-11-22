@@ -9,7 +9,6 @@ license = "MIT"
 shellfox-core = { path = "../shellfox-core" }
 # RUSTSEC-2026-0459 requires bundled libsqlite3-sys >=0.39.0.
 rusqlite = { version = "=0.41.0", features = ["bundled"] }
-fs2 = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }

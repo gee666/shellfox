@@ -1,7 +1,6 @@
 use super::{Error, PrivateDirectory, Result};
-use fs2::FileExt;
 use std::{
-    fs::File,
+    fs::{File, TryLockError},
     sync::MutexGuard,
     thread,
     time::{Duration, Instant},
@@ -9,9 +8,8 @@ use std::{
 impl PrivateDirectory {
     pub(crate) fn lock(&self, name: &str) -> Result<StoreLock<'_>> {
         Self::name(name)?;
-        // Like the retained host's save queue: local operations wait their turn
-        // before starting the bounded cross-process contention deadline. Native ACL
-        // checks remain mandatory but do not multiply same-host lock competition.
+        // Local operations queue on the mutex first, so the bounded cross-process
+        // wait below only covers contention with another process.
         let local = self.serial.lock().map_err(|_| Error::Storage)?;
         let file = match self.open_file(name, true) {
             Ok(file) => file,
@@ -22,21 +20,17 @@ impl PrivateDirectory {
         };
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            match file.try_lock_exclusive() {
+            match file.try_lock() {
                 Ok(()) => {
                     return Ok(StoreLock {
                         file,
                         _local: local,
                     })
                 }
-                Err(error)
-                    if (error.kind() == std::io::ErrorKind::WouldBlock
-                        || error.raw_os_error() == fs2::lock_contended_error().raw_os_error())
-                        && Instant::now() < deadline =>
-                {
+                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
                     thread::sleep(Duration::from_millis(20))
                 }
-                _ => return Err(Error::Busy),
+                Err(_) => return Err(Error::Busy),
             }
         }
     }
@@ -48,6 +42,6 @@ pub(crate) struct StoreLock<'a> {
 }
 impl Drop for StoreLock<'_> {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.file);
+        let _ = self.file.unlock();
     }
 }
