@@ -13,13 +13,7 @@ pub use theme::TerminalTheme;
 
 pub const FONT_SIZE: f32 = 14.0;
 pub const HOST_INSET: f32 = 8.0;
-
-pub(crate) fn terminal_baseline_offset(window: &Window) -> gpui::Pixels {
-    // At Windows DPI 96, Chrome places centered terminal/menu text one
-    // device pixel below GPUI. Do not move cells, selections, or cursor boxes.
-    if cfg!(target_os = "windows") { px(1. / window.scale_factor()) } else { px(0.) }
-}
-// xterm's FitAddon always reserves the 8px overview ruler when scrollback is on.
+/// The scrollbar gets its own gutter so it never covers the last column.
 pub const SCROLLBAR_WIDTH: f32 = 8.0;
 pub const HOST_RIGHT_INSET: f32 = 2.0 + SCROLLBAR_WIDTH;
 
@@ -37,12 +31,11 @@ pub fn choose_font(window: &Window, preferred: &str, font_size: f32) -> Result<(
         .context("no supported monospace font found; install Cascadia Code, Consolas, Menlo or DejaVu Sans Mono")?;
     let font = font(family.to_owned());
     let id = window.text_system().resolve_font(&font);
-    // xterm measures W with zero letter spacing and does not round each cell.
     let text = window.text_system();
-    let width = f32::from(text.advance(id, px(font_size), 'W')?.width);
+    let advance = f32::from(text.advance(id, px(font_size), 'W')?.width);
     let ascent = f32::from(text.ascent(id, px(font_size)));
     let descent = f32::from(text.descent(id, px(font_size)));
-    let height = terminal_line_height(ascent, descent, window.scale_factor());
+    let (width, height) = cell_metrics(advance, ascent, descent, window.scale_factor());
     ensure!(
         width.is_finite() && width > 0.0 && height.is_finite() && height > 0.0,
         "font has invalid cell metrics"
@@ -60,10 +53,13 @@ fn monospace_family<'a>(names: &'a [String], preferred: &str, monospace: Option<
         .map(String::as_str)
 }
 
-fn terminal_line_height(ascent: f32, descent: f32, scale: f32) -> f32 {
-    // Canvas TextMetrics rounds the font bounds to CSS pixels. xterm rounds
-    // their sum up in device pixels and uses lineHeight: 1.
-    ((ascent.round() + descent.abs().round()) * scale).ceil() / scale
+/// Cells are whole device pixels so rows and columns never land on
+/// fractional pixels and box-drawing glyphs meet without seams. Rows round
+/// up so descenders are never clipped.
+fn cell_metrics(advance: f32, ascent: f32, descent: f32, scale: f32) -> (f32, f32) {
+    let width = (advance * scale).round().max(1.) / scale;
+    let height = ((ascent + descent.abs()) * scale).ceil().max(1.) / scale;
+    (width, height)
 }
 
 /// Ghostty's mouse encoder takes integer cell dimensions. Scale its input
@@ -133,9 +129,15 @@ mod tests {
     }
 
     #[test]
-    fn xterm_rounds_font_bounds_before_applying_device_scale() {
-        assert_eq!(terminal_line_height(12.7, -3.1, 1.), 16.);
-        assert_eq!(terminal_line_height(11.7, 3.1, 1.25), 15.2);
+    fn cells_are_whole_device_pixels_at_common_scales() {
+        // Cascadia Code 14px: advance 8.43, ascent 14.7, descent -3.6.
+        for (scale, width, height) in [(1., 8., 19.), (1.25, 8.8, 18.4), (1.5, 26. / 3., 56. / 3.)] {
+            let (w, h) = cell_metrics(8.43, 14.7, -3.6, scale);
+            assert!((w - width).abs() < 1e-4 && (h - height).abs() < 1e-4, "{scale}: {w}x{h}");
+            for device in [w * scale, h * scale] {
+                assert!((device - device.round()).abs() < 1e-4, "{scale}: {device}");
+            }
+        }
     }
 
     #[test]
@@ -148,8 +150,8 @@ mod tests {
     #[test]
     fn grid_uses_canvas_size_not_window_chrome() {
         assert_eq!(grid_size(800., 456., 10., 19.), (80, 24));
-        // 1200px client, 224px sidebar, 420px Files panel, xterm host + ruler.
-        assert_eq!(grid_size(556. - HOST_INSET - HOST_RIGHT_INSET, 714., 8.19, 16.), (65, 44));
+        // 1200px client, 224px sidebar, 420px Files panel, padding + scrollbar gutter.
+        assert_eq!(grid_size(556. - HOST_INSET - HOST_RIGHT_INSET, 714., 8., 19.), (67, 37));
         assert_eq!(grid_size(600., 380., 10., 19.), (60, 20));
         assert_eq!(grid_size(0., 0., 10., 19.), (2, 1));
         assert_eq!(grid_size(f32::NAN, 456., 10., 19.), (2, 1));

@@ -152,7 +152,7 @@ impl TerminalView {
                         view.use_link_menu(index, cx);
                         cx.stop_propagation();
                     }))
-                    .child(div().relative().top(crate::renderer::terminal_baseline_offset(window)).child(label)),
+                    .child(label),
             );
         }
         Some(

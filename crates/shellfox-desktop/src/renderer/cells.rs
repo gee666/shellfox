@@ -88,8 +88,7 @@ where
                 &[run],
                 None,
             );
-            let text_origin = origin + point(px(0.), super::terminal_baseline_offset(window));
-            line.paint(text_origin, px(style.line_height), window, cx)?;
+            line.paint(origin, px(style.line_height), window, cx)?;
             for offset in [
                 cell.strikethrough.then_some(style.line_height * 0.5),
                 cell.underline.then_some(style.line_height - 2.),
