@@ -45,6 +45,7 @@ pub struct PublishedPrivate {
     version: PrivateVersion,
 }
 impl PublishedPrivate {
+    #[cfg(test)]
     pub fn as_file(&self) -> &File {
         self.owned.as_file()
     }
@@ -88,14 +89,9 @@ pub struct PrivatePreparationFailure {
     attempt: Option<Box<OwnedPrivatePublication>>,
 }
 impl PrivatePreparationFailure {
-    pub fn error(&self) -> &FileError {
-        &self.error
-    }
+    #[cfg(test)]
     pub fn attempt(&self) -> Option<&OwnedPrivatePublication> {
         self.attempt.as_deref()
-    }
-    pub fn attempt_mut(&mut self) -> Option<&mut OwnedPrivatePublication> {
-        self.attempt.as_deref_mut()
     }
     pub fn into_parts(self) -> (FileError, Option<OwnedPrivatePublication>) {
         (self.error, self.attempt.map(|attempt| *attempt))
@@ -196,12 +192,7 @@ impl OwnedPrivatePublication {
     pub fn durability_error(&self) -> Option<&FileError> {
         self.durability_error.as_ref()
     }
-    pub fn creation_failure_custody(&self) -> Option<&CreationCustody> {
-        self.failed_creation.as_ref()
-    }
-    pub fn destination(&self) -> &OsStr {
-        &self.destination
-    }
+    #[cfg(test)]
     pub fn publish(&mut self) -> PrivatePublishOutcome {
         self.publish_checked(|| Ok(()))
     }

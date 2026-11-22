@@ -11,12 +11,12 @@ mod metadata;
 mod publication;
 #[path = "creation_retained.rs"]
 mod retained;
-pub use metadata::{
-    bounded_private_read_at, PrivateRead, PrivateVersion, PRIVATE_METADATA_MAX_BYTES,
-};
+pub use metadata::{bounded_private_read_at, PrivateRead, PrivateVersion};
+#[cfg(test)]
+pub(crate) use metadata::PRIVATE_METADATA_MAX_BYTES;
 pub use publication::{
     prepare_private_publication_at, OwnedPrivatePublication, PrivateCleanupDisposition,
-    PrivateDurability, PrivatePreparationFailure, PrivatePublicationPhase, PrivatePublishOutcome,
+    PrivateDurability, PrivatePublicationPhase, PrivatePublishOutcome,
     PublishedPrivate,
 };
 

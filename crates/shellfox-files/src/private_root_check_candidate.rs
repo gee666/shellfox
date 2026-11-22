@@ -69,7 +69,7 @@ impl PrivateRootCheck {
         max: usize,
     ) -> Result<Option<PrivateRead>> {
         crate::private_creation::native_receipt::validate_leaf(leaf)?;
-        if max == 0 || max > crate::PRIVATE_METADATA_MAX_BYTES {
+        if max == 0 || max > crate::private_creation::PRIVATE_METADATA_MAX_BYTES {
             return Err(FileError::new(
                 ErrorCode::Validation,
                 "Invalid private metadata byte limit.",

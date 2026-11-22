@@ -6,8 +6,8 @@ mod private_child;
 #[path = "private_root_check_candidate_tests.rs"]
 mod private_root_checks;
 use crate::{
-    PrivateCleanupDisposition, PrivatePublicationPhase, PrivatePublishOutcome,
-    PRIVATE_METADATA_MAX_BYTES,
+    private_creation::PRIVATE_METADATA_MAX_BYTES, PrivateCleanupDisposition,
+    PrivatePublicationPhase, PrivatePublishOutcome,
 };
 use std::{ffi::OsStr, sync::atomic::AtomicUsize};
 fn root(
