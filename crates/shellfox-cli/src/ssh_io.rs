@@ -1,6 +1,6 @@
 use super::{
     session::ConnectionError,
-    terminal::{self, Terminal},
+    terminal::Terminal,
 };
 use anyhow::Result;
 use russh::{client, Channel, ChannelMsg, Sig};
@@ -82,7 +82,7 @@ async fn forward_input(
         return Ok(());
     }
     loop {
-        match terminal::next_event().await? {
+        match terminal.next_event().await? {
             Event::Resize(cols, rows) => {
                 write.window_change(cols.into(), rows.into(), 0, 0).await?
             }

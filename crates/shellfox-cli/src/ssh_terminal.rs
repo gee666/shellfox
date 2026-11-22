@@ -1,9 +1,10 @@
 use super::picker::{wrap, Picker};
 use anyhow::{bail, Result};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers},
     terminal,
 };
+use futures_util::StreamExt;
 use shellfox_ssh::{ProfileDto, Secret};
 use std::{
     io::{self, IsTerminal, Write},
@@ -11,8 +12,8 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Duration,
 };
+use tokio::sync::{watch, Mutex};
 use zeroize::Zeroizing;
 
 #[derive(Debug, thiserror::Error)]
@@ -24,7 +25,10 @@ pub(super) struct Terminal {
     pub tty: bool,
     pub color: bool,
     raw: Arc<AtomicBool>,
-    prompting: Arc<AtomicBool>,
+    // One reader for terminal input, created on first use. `prompting` hands it
+    // to an active prompt so the pre-login cancel waiter never eats its keys.
+    events: Arc<Mutex<Option<EventStream>>>,
+    prompting: Arc<watch::Sender<bool>>,
 }
 impl Terminal {
     pub fn new() -> Self {
@@ -33,7 +37,8 @@ impl Terminal {
             tty: stdout && io::stdin().is_terminal(),
             color: stdout && std::env::var_os("NO_COLOR").is_none(),
             raw: Arc::new(AtomicBool::new(false)),
-            prompting: Arc::new(AtomicBool::new(false)),
+            events: Arc::default(),
+            prompting: Arc::new(watch::Sender::new(false)),
         }
     }
     pub fn start(&self) -> Result<Option<Raw<'_>>> {
@@ -95,12 +100,12 @@ impl Terminal {
         if !self.tty {
             bail!("an interactive terminal is required for login or host trust");
         }
-        self.prompting.store(true, Ordering::Relaxed);
+        self.prompting.send_replace(true);
         let _prompt = PromptGuard(&self.prompting);
         self.write(&format!("  {label}"))?;
         let mut value = Zeroizing::new(String::new());
         loop {
-            match next_event().await? {
+            match self.next_event().await? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
                     KeyCode::Enter => {
                         self.write("\n")?;
@@ -143,19 +148,28 @@ impl Terminal {
         Ok(Secret::new(std::mem::take(&mut *secret))?)
     }
     pub async fn cancel_before_login(&self) -> Result<()> {
+        let mut prompting = self.prompting.subscribe();
         loop {
-            if !self.prompting.load(Ordering::Relaxed) && event::poll(Duration::ZERO)? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind != KeyEventKind::Release
-                        && key.code == KeyCode::Char('c')
-                        && key.modifiers.contains(KeyModifiers::CONTROL)
-                    {
-                        return Err(Cancelled.into());
+            prompting.wait_for(|active| !active).await?;
+            let mut events = self.events.lock().await;
+            tokio::select! {
+                event = read(&mut events) => {
+                    if let Event::Key(key) = event? {
+                        if key.kind != KeyEventKind::Release
+                            && key.code == KeyCode::Char('c')
+                            && key.modifiers.contains(KeyModifiers::CONTROL)
+                        {
+                            return Err(Cancelled.into());
+                        }
                     }
                 }
+                // Release the reader as soon as a prompt starts.
+                changed = prompting.wait_for(|active| *active) => { changed?; }
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+    pub(super) async fn next_event(&self) -> io::Result<Event> {
+        read(&mut *self.events.lock().await).await
     }
     pub async fn pick(&self, profiles: &[ProfileDto]) -> Result<usize> {
         let mut screen = Picker {
@@ -167,7 +181,7 @@ impl Terminal {
         loop {
             screen.draw(profiles, selected, size)?;
             loop {
-                match next_event().await? {
+                match self.next_event().await? {
                     Event::Resize(cols, rows) => {
                         size = (cols, rows);
                         break;
@@ -205,18 +219,17 @@ impl Terminal {
         }
     }
 }
-pub(super) async fn next_event() -> io::Result<Event> {
-    loop {
-        if event::poll(Duration::ZERO)? {
-            return event::read();
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+async fn read(events: &mut Option<EventStream>) -> io::Result<Event> {
+    events
+        .get_or_insert_with(EventStream::new)
+        .next()
+        .await
+        .unwrap_or_else(|| Err(io::ErrorKind::UnexpectedEof.into()))
 }
-struct PromptGuard<'a>(&'a AtomicBool);
+struct PromptGuard<'a>(&'a watch::Sender<bool>);
 impl Drop for PromptGuard<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Relaxed);
+        self.0.send_replace(false);
     }
 }
 pub(super) struct Raw<'a>(&'a Terminal);
