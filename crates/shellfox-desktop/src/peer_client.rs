@@ -6,12 +6,10 @@ pub use connection::{LegacyPeerRequired, PeerConnection};
 pub use connection::attach_control;
 #[cfg(any(test, feature = "experimental-shellfox-native"))]
 pub use connection::settlement;
-#[path = "peer_admission.rs"]
-mod admission;
 #[cfg(test)]
 #[path = "peer_client_tests.rs"]
 mod tests;
-pub(crate) use admission::SourceAdmission;
+pub(crate) use shellfox_service::peer::admission::SourceAdmission;
 use shellfox_service::peer::transport;
 pub type Transport = transport::ServiceTransport<NativeClient>;
 use anyhow::{Result, anyhow, ensure};

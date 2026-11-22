@@ -2,11 +2,9 @@
 #![cfg(feature = "experimental-shellfox-native")]
 pub use shellfox_service::peer::consumer as connection;
 pub use connection::PeerConnection;
-#[path = "../src/peer_admission.rs"]
-mod admission;
 mod host_client {
     pub(crate) mod peer {
-        pub(crate) use crate::admission::SourceAdmission;
+        pub(crate) use shellfox_service::peer::admission::SourceAdmission;
         pub(crate) use crate::connection::PeerConnection;
         pub(crate) type Transport = crate::support::Fake;
     }

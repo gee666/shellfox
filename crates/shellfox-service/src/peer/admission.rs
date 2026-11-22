@@ -1,11 +1,11 @@
-//! Original actual Manager origin retained by remote document I/O. UI selection
-//! generations are cancellation hints, never file authority.
-use super::PeerConnection;
+//! Binds remote document I/O to the Manager binding that admitted the source.
+//! UI selection generations are cancellation hints, never file authority.
+use super::consumer::{reply, PeerConnection};
 use anyhow::{Result, anyhow, ensure};
 use shellfox_client::manager_v2::ManagerBindingWitness;
 use shellfox_protocol::{AuthenticatedPeerId, OutboundTransport, manager_v2 as m};
 #[derive(Clone)]
-pub(crate) struct SourceAdmission {
+pub struct SourceAdmission {
     peer: AuthenticatedPeerId,
     witness: ManagerBindingWitness,
 }
@@ -25,7 +25,7 @@ impl SourceAdmission {
     }
 }
 impl<T: OutboundTransport> PeerConnection<T> {
-    pub(crate) fn admit_source_with(&self, witness: &ManagerBindingWitness) -> Result<SourceAdmission> {
+    pub fn admit_source_with(&self, witness: &ManagerBindingWitness) -> Result<SourceAdmission> {
         let client = self.client();
         let current = client.binding_witness().map_err(|error| anyhow!(error))?;
         ensure!(
@@ -39,15 +39,15 @@ impl<T: OutboundTransport> PeerConnection<T> {
             })
             .map_err(|error| anyhow!(error))
     }
-    pub(crate) async fn execute_admitted<R: m::Request>(
+    pub async fn execute_admitted<R: m::Request>(
         &self,
         source: &SourceAdmission,
         request: &R,
     ) -> Result<R::Response> {
-        super::connection::reply(self.execute_admitted_reply(source, request).await?)
+        reply(self.execute_admitted_reply(source, request).await?)
     }
 
-    pub(crate) async fn execute_admitted_reply<R: m::Request>(
+    pub async fn execute_admitted_reply<R: m::Request>(
         &self,
         source: &SourceAdmission,
         request: &R,
