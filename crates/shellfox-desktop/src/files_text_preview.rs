@@ -7,7 +7,11 @@ mod markdown;
 mod markdown_image;
 #[path = "files_svg.rs"]
 mod svg;
+#[cfg(any(windows, target_os = "macos"))]
 #[path = "files_html_preview.rs"]
+pub(crate) mod html;
+#[cfg(not(any(windows, target_os = "macos")))]
+#[path = "files_html_unsupported.rs"]
 pub(crate) mod html;
 
 #[derive(Clone, Copy)]

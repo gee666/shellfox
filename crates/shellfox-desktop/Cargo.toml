@@ -33,8 +33,6 @@ icu_decimal = { version = "2.4.0", features = ["alloc"] }
 icu_locale = "2.4.0"
 sys-locale = "0.3.2"
 percent-encoding = "2"
-base64 = "0.22"
-lol_html = "2"
 regex = "1"
 tree-sitter-highlight = "0.27.2"
 tree-sitter-javascript = "0.25.0"
@@ -96,10 +94,6 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = ["
 objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSColorSampler", "NSColorSpace", "NSColor", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "block2", "objc2-core-foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-wry = "=0.57.3"
-gtk = "0.18"
-gdkx11 = "=0.18.2"
-webkit2gtk = { version = "=2.0.2", features = ["v2_40"] }
 accesskit_unix = "=0.24.1"
 ashpd = { version = "=0.12.3", default-features = false, features = ["async-std", "raw_handle", "wayland"] }
 yeslogic-fontconfig-sys = { version = "6", features = ["dlopen"] }

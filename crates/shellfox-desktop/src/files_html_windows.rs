@@ -227,7 +227,7 @@ pub(super) fn schedule(
     window: &Window,
     weak: Weak<RefCell<State>>,
     bounds: Bounds<Pixels>,
-    bytes: Arc<[u8]>,
+    page: Arc<Page>,
     profile_parent: PathBuf,
     cx: &mut gpui::App,
 ) {
@@ -243,7 +243,7 @@ pub(super) fn schedule(
         let Some(inner) = weak.upgrade() else {
             return;
         };
-        if !inner.borrow().is_current(&bytes) {
+        if !inner.borrow().is_current(&page) {
             inner.borrow_mut().creating = false;
             let _ = cx.update(|cx| cx.refresh_windows());
             return;
@@ -254,7 +254,7 @@ pub(super) fn schedule(
             let profile = tempfile::Builder::new()
                 .prefix("html-preview-")
                 .tempdir_in(profile_parent)?;
-            let view = create(&popup, child_bounds(bounds), bytes.clone(), profile.path())?;
+            let view = create(&popup, child_bounds(bounds), page.clone(), profile.path())?;
             Ok(NativeView {
                 view,
                 popup,
@@ -262,7 +262,7 @@ pub(super) fn schedule(
             })
         })();
         if Rc::strong_count(&inner) > 1 {
-            let _ = cx.update(|cx| publish(&mut inner.borrow_mut(), bounds, &bytes, result, cx));
+            let _ = cx.update(|cx| publish(&mut inner.borrow_mut(), bounds, &page, result, cx));
         }
     })
     .detach();

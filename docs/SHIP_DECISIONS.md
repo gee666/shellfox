@@ -33,7 +33,7 @@ Ship Shellfox on Rust + GPUI + libghostty-vt. The desktop app must match the Ele
 - Keep going until everything is done. Don't pause for status questions.
 - Parity means intended behavior and look. Don't copy Electron's bugs or slowness.
 - Remote automation replay: completed runs that aren't elevated are visible read-only to approved devices, the same eligibility as ordinary sessions. Record that provenance at launch.
-- HTML preview: keep Linux's editable Source fallback and its notice where WebKitGTK cannot embed. Do not patch GPUI's window system for this now; native preview still uses the opaque sandbox.
+- HTML preview: Linux always shows the editable Source view with its notice; there is no WebKitGTK dependency (2026-11-21). Windows and macOS keep the opaque-sandbox webview and serve local assets through its custom protocol.
 - Remote Files: reconnect an established peer automatically and reattach only after checking the original file scope and revision. Never save automatically or replay a write.
 - Android and iOS default to the native V1 Rust client and official Ghostty engine. The WebView terminal and unused TypeScript client are removed. ManagerV2/Native002 remains experimental.
 - macOS/iOS: build and test in GitHub Actions on the experiment branch. Pushing the branch and running CI is allowed. Releases are not.
