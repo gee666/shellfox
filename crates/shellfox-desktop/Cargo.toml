@@ -48,7 +48,6 @@ tree-sitter-c-sharp = "0.23.5"
 tree-sitter-md = "0.5.4"
 tree-sitter-yaml = "0.7.2"
 unicode-width = "0.2"
-unicode-segmentation = "1"
 url = "2"
 uuid = "1"
 accesskit = "=0.25.2"
@@ -91,7 +90,7 @@ flate2 = "1"
 block2 = "=0.6.2"
 objc2 = "=0.6.5"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSString", "NSURL"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSColorSampler", "NSColorSpace", "NSColor", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "block2", "objc2-core-foundation"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "block2", "objc2-core-foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit_unix = "=0.24.1"

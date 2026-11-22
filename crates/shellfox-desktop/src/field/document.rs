@@ -50,12 +50,7 @@ impl Field {
     }
 
     pub(super) fn multiline_text_inset(&self) -> f32 {
-        // The Linux textarea has the same CSS inset and line box, but seats the baseline 1px lower.
-        if self.asset_editor && cfg!(target_os = "linux") {
-            9.
-        } else {
-            8.
-        }
+        8.
     }
 
     pub(crate) fn snapshot_text(&self) -> Arc<str> {

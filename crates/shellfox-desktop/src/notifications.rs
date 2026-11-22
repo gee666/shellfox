@@ -32,12 +32,9 @@ struct NoticeKey {
     message: String,
 }
 
-#[path = "notification_text.rs"]
-mod text;
 
 #[derive(Default)]
 pub(crate) struct Notifications {
-    layout: text::ToastTextCache,
     messages: VecDeque<(u64, String, Tone)>,
     recent: HashMap<NoticeKey, Instant>,
     serial: u64,
@@ -68,10 +65,8 @@ impl Notifications {
             self.recent.insert(key, now + tone.duration());
         }
         self.serial += 1;
-        if self.messages.len() == 4
-            && let Some((id, _, _)) = self.messages.pop_front()
-        {
-            self.layout.forget(id);
+        if self.messages.len() == 4 {
+            self.messages.pop_front();
         }
         self.messages.push_back((self.serial, message, tone));
         Some(self.serial)
@@ -96,7 +91,6 @@ impl Notifications {
     }
 
     fn dismiss(&mut self, id: u64) -> bool {
-        self.layout.forget(id);
         let before = self.messages.len();
         self.messages.retain(|(current, _, _)| *current != id);
         self.messages.len() != before
@@ -218,9 +212,6 @@ impl Root {
                     .map(|(id, message, tone)| {
                         let id = *id;
                         let info = *tone != Tone::Error;
-                        let column =
-                            text::content_width(window, width, *tone == Tone::AccessRequest);
-                        let visible = self.notifications.layout.text(id, window, message, column);
                         let mut body = div()
                             .min_w_0()
                             .flex_1()
@@ -228,9 +219,7 @@ impl Root {
                             .flex()
                             .flex_col()
                             .justify_center()
-                            .whitespace_nowrap()
-                            .when(visible.contains('\n'), |body| body.w(column))
-                            .child(visible);
+                            .child(message.clone());
                         body.style().align_self = Some(gpui::AlignSelf::Center);
                         div()
                             .id(gpui::SharedString::from(format!("error-toast-{id}")))

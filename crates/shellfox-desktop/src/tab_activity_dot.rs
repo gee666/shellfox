@@ -47,25 +47,9 @@ fn circle(color: Hsla, phase: f32) -> impl IntoElement {
     .size_full()
 }
 
+/// Grows and fades in, then back, over one cycle.
 fn pulse(phase: f32) -> f32 {
-    let progress = 1. - (2. * phase - 1.).abs();
-    if progress <= 0. || progress >= 1. {
-        return progress.clamp(0., 1.);
-    }
-    // Chromium's ease-in-out is cubic-bezier(.42, 0, .58, 1), for each half.
-    let (mut low, mut high) = (0., 1.);
-    for _ in 0..16 {
-        let t = (low + high) / 2.;
-        let s = 1. - t;
-        let x = 3. * s * s * t * 0.42 + 3. * s * t * t * 0.58 + t * t * t;
-        if x < progress {
-            low = t;
-        } else {
-            high = t;
-        }
-    }
-    let t = (low + high) / 2.;
-    t * t * (3. - 2. * t)
+    gpui::ease_in_out(1. - (2. * phase - 1.).abs())
 }
 
 #[cfg(test)]
@@ -99,10 +83,10 @@ mod tests {
     }
 
     #[test]
-    fn pulse_matches_css_easing_and_returns_to_the_original_size() {
+    fn pulse_eases_out_and_back_to_the_original_size() {
         for (phase, expected) in [
             (0., 0.),
-            (0.125, 0.12916),
+            (0.125, 0.125),
             (0.25, 0.5),
             (0.5, 1.),
             (0.75, 0.5),

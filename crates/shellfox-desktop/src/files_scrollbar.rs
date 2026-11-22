@@ -122,13 +122,6 @@ impl Geometry {
             thickness: if thin { 10. } else { THICKNESS },
         })
     }
-    fn page(self, axis: Axis) -> f32 {
-        match axis {
-            Axis::Horizontal => (self.view * 0.875).floor(),
-            Axis::Vertical => self.view,
-        }
-    }
-
     fn offset(self, top: f32) -> f32 {
         ((top - self.gap) / (self.track - self.thumb).max(1.) * self.max_scroll)
             .clamp(0., self.max_scroll)
@@ -238,9 +231,9 @@ fn attach_input(
             down_drag.set(Some(point - bar.top));
             start
         } else if point < bar.top {
-            start - bar.page(axis)
+            start - bar.view
         } else {
-            start + bar.page(axis)
+            start + bar.view
         };
         axis.move_to(&down_scroll, target, bar.max_scroll);
         window.refresh();
@@ -307,11 +300,5 @@ mod tests {
         assert_eq!(first.offset(first.top), 0.);
         assert_eq!(last.offset(last.top), 400.);
         assert!(Geometry::new(220., 0., 0., false).is_none());
-        assert_eq!(
-            Geometry::new(415., 889., 0., false)
-                .unwrap()
-                .page(Axis::Horizontal),
-            363.
-        );
     }
 }

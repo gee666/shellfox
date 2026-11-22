@@ -7,25 +7,7 @@ use super::{
 const UPDATE_CHECKBOX_ID: &str = "automatic-updates";
 const UPDATE_CHECKBOX_SIZE: f32 = 13.;
 
-fn update_checkmark(dark: bool) -> impl IntoElement {
-    gpui::canvas(
-        |_, _, _| (),
-        move |bounds, _, window, _| {
-            // The same proportions as Chromium's checkbox artwork.
-            let point =
-                |x, y| bounds.origin + gpui::point(bounds.size.width * x, bounds.size.height * y);
-            let mut mark = gpui::PathBuilder::stroke(bounds.size.height * 0.16);
-            mark.move_to(point(0.2, 0.5));
-            mark.line_to(point(0.4, 0.7));
-            mark.line_to(point(0.8, 0.2));
-            if let Ok(path) = mark.build() {
-                window.paint_path(path, gpui::rgb(if dark { 0x333333 } else { 0xffffff }));
-            }
-        },
-    )
-    .size(px(UPDATE_CHECKBOX_SIZE))
-}
-
+/// Same colors as the settings switches: accent when on, input border when off.
 fn update_checkbox_glyph(p: Palette, checked: bool, focus: Option<FocusHandle>) -> gpui::Div {
     div()
         .relative()
@@ -34,29 +16,19 @@ fn update_checkbox_glyph(p: Palette, checked: bool, focus: Option<FocusHandle>) 
         .flex()
         .items_center()
         .justify_center()
-        .bg(if checked {
-            gpui::rgb(if p.dark { 0x99c8ff } else { 0x0075ff })
-        } else {
-            gpui::rgb(if p.dark { 0x3b3b3b } else { 0xffffff })
-        })
+        .border_1()
+        .border_color(if checked { p.accent } else { p.input_border })
+        .bg(if checked { p.accent } else { p.surface })
         .when(!checked, |style| {
-            style
-                .border_1()
-                .border_color(gpui::rgb(if p.dark { 0xacacac } else { 0x767676 }))
-                .group_hover(UPDATE_CHECKBOX_ID, move |style| {
-                    style.border_color(gpui::rgb(if p.dark { 0xdbdbdb } else { 0x4f4f4f }))
-                })
+            style.group_hover(UPDATE_CHECKBOX_ID, move |style| style.border_color(p.muted))
         })
         .when(checked, |style| {
             style
-                .group_hover(UPDATE_CHECKBOX_ID, move |style| {
-                    style.bg(gpui::rgb(if p.dark { 0xd1e6ff } else { 0x005cc8 }))
-                })
-                .child(update_checkmark(p.dark))
+                .text_color(p.on_accent())
+                .child(crate::assets::icon_sized("check", UPDATE_CHECKBOX_SIZE - 2.))
         })
         .when_some(focus, |glyph, focus| {
-            let outset = if checked { 2. } else { 3. };
-            glyph.child(controls::focus_outline(focus, p.accent, 0., outset))
+            glyph.child(controls::focus_outline(focus, p.accent, 0., 3.))
         })
 }
 
@@ -312,7 +284,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_checkbox_glyph_keeps_native_size_in_both_states() {
+    fn update_checkbox_glyph_keeps_its_size_in_both_states() {
         let palette = Palette::new("#ec4899", "#111016");
         let edge = Some(px(13.).into());
         for checked in [true, false] {
