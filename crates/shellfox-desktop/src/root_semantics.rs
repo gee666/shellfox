@@ -201,16 +201,23 @@ impl Root {
             cx.notify();
         }
     }
-    pub(super) fn poll_semantics(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Runs the actions and tree requests queued by OS accessibility callbacks.
+    pub(super) fn watch_semantics(&self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
+        let wake = self.native_accessibility.as_ref()?.wake();
+        Some(cx.spawn_in(window, async move |root, cx| loop {
+            wake.notified().await;
+            if root.update_in(cx, |root, window, cx| root.poll_semantics(window, cx)).is_err() {
+                return;
+            }
+        }))
+    }
+    fn poll_semantics(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(provider) = &self.native_accessibility else {
             return;
         };
-        let refresh = provider.needs_frame();
+        // Draining can itself request a full tree, so check after it.
         let actions = provider.drain_actions();
-        let now = std::time::Instant::now();
-        for view in self.views.values().chain(self.fixture.iter()) {
-            view.update(cx, |view, cx| view.refresh_semantics(now, cx));
-        }
+        let refresh = provider.needs_frame();
         if refresh {
             cx.notify();
         }

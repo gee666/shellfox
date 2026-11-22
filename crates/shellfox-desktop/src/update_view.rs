@@ -55,7 +55,8 @@ pub(crate) struct UpdateUi {
     eta: Option<String>,
 }
 impl UpdateUi {
-    fn poll(&mut self, serial: u64, notice: Option<Notice>, now: Instant) -> bool {
+    /// The ETA averages progress over samples at least 500 ms apart.
+    fn observe_notice(&mut self, serial: u64, notice: Option<Notice>, now: Instant) -> bool {
         let changed = std::mem::replace(&mut self.serial, serial) != serial;
         if let (Some(Notice::Downloading { version, .. }), Some((previous, at, _))) =
             (&notice, &self.last_progress)
@@ -105,13 +106,22 @@ impl UpdateUi {
 }
 
 impl Root {
-    pub(crate) fn poll_updates(&mut self, cx: &mut Context<Self>) {
-        if let Some(updates) = cx.try_global::<Updates>() {
-            let (serial, notice) = updates.0.notice_snapshot();
-            if self.update_ui.poll(serial, notice, Instant::now()) {
-                cx.notify();
+    /// Follows the update notice; the worker publishes each visible change.
+    pub(crate) fn watch_updates(&self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
+        let mut changes = cx.try_global::<Updates>()?.0.changes();
+        Some(cx.spawn_in(window, async move |root, cx| loop {
+            let shown = root.update(cx, |root, cx| {
+                if let Some(updates) = cx.try_global::<Updates>() {
+                    let (serial, notice) = updates.0.notice_snapshot();
+                    if root.update_ui.observe_notice(serial, notice, Instant::now()) {
+                        cx.notify();
+                    }
+                }
+            });
+            if shown.is_err() || changes.changed().await.is_err() {
+                return;
             }
-        }
+        }))
     }
 
     pub(crate) fn update_notice(
@@ -287,18 +297,18 @@ mod tests {
                 total: 1000,
             })
         };
-        assert!(ui.poll(1, sample(100), then));
+        assert!(ui.observe_notice(1, sample(100), then));
         assert_eq!(ui.eta, None);
-        assert!(ui.poll(2, sample(101), then + Duration::from_millis(250)));
+        assert!(ui.observe_notice(2, sample(101), then + Duration::from_millis(250)));
         assert_eq!(ui.eta, None);
-        assert!(ui.poll(3, sample(102), then + Duration::from_millis(500)));
+        assert!(ui.observe_notice(3, sample(102), then + Duration::from_millis(500)));
         assert_eq!(ui.eta.as_deref(), Some("4m"));
-        assert!(ui.poll(4, sample(700), then + Duration::from_secs(1)));
+        assert!(ui.observe_notice(4, sample(700), then + Duration::from_secs(1)));
         assert_eq!(ui.eta.as_deref(), Some("1s"));
         // A stalled download does not publish a new worker revision.
-        assert!(ui.poll(4, sample(700), then + Duration::from_millis(1500)));
+        assert!(ui.observe_notice(4, sample(700), then + Duration::from_millis(1500)));
         assert_eq!(ui.eta, None);
-        assert!(ui.poll(5, Some(Notice::Ready), then + Duration::from_secs(2)));
+        assert!(ui.observe_notice(5, Some(Notice::Ready), then + Duration::from_secs(2)));
         assert_eq!(ui.eta, None);
         assert_eq!(ui.last_progress, None);
     }

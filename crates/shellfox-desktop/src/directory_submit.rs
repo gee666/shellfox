@@ -119,33 +119,20 @@ impl Root {
                         }
                     });
                 }
-                Ok(cwd) => loop {
-                    // A periodic snapshot request may still own the host slot. The form stays locked until it is free.
-                    let proceed = root
-                        .update_in(cx, |root, window, cx| {
-                            let Some(Dialog::Create(draft)) = &mut root.dialog else {
-                                return true;
-                            };
-                            if draft.id != id || root.closing_window {
-                                return true;
-                            }
-                            if root.action_pending {
-                                return false;
-                            }
-                            draft.busy = None;
-                            draft.missing = None;
-                            draft.path.read(cx).focus(window);
-                            root.create_resolved_directory(cwd.clone(), window, cx);
-                            true
-                        })
-                        .unwrap_or(true);
-                    if proceed {
-                        break;
-                    }
-                    cx.background_executor()
-                        .timer(Duration::from_millis(25))
-                        .await;
-                },
+                Ok(cwd) => {
+                    let _ = root.update_in(cx, |root, window, cx| {
+                        let Some(Dialog::Create(draft)) = &mut root.dialog else {
+                            return;
+                        };
+                        if draft.id != id || root.closing_window {
+                            return;
+                        }
+                        draft.busy = None;
+                        draft.missing = None;
+                        draft.path.read(cx).focus(window);
+                        root.create_resolved_directory(cwd, window, cx);
+                    });
+                }
                 Err((error, query)) => {
                     let _ = root.update_in(cx, |root, window, cx| {
                         let Some(Dialog::Create(draft)) = &mut root.dialog else {

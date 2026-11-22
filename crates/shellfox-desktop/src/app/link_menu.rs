@@ -101,7 +101,7 @@ impl TerminalView {
         true
     }
 
-    pub(super) fn render_link_menu(&self, window: &Window, cx: &Context<Self>) -> Option<AnyElement> {
+    pub(super) fn render_link_menu(&self, cx: &Context<Self>) -> Option<AnyElement> {
         let menu = self.links.menu.as_ref()?;
         let palette = Palette::new(
             &format!("#{:06x}", self.theme.accent),

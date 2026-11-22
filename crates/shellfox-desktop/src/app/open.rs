@@ -6,7 +6,7 @@ use runtime::native::{Access, Connection};
 use shellfox_core::TabId;
 use shellfox_ghostty_vt::Terminal;
 use shellfox_service::{Attachment, native::NativeObserverAttachment};
-use std::{collections::HashMap, path::Path, rc::Rc, time::Duration};
+use std::{collections::HashMap, path::Path, rc::Rc};
 
 impl TerminalView {
     pub fn open(
@@ -103,31 +103,32 @@ impl TerminalView {
         Ok(cx.new(|cx: &mut Context<Self>| {
             let focus = cx.focus_handle();
             focus.focus(window);
-            cx.on_blur(&focus, window, |view, _, cx| view.cancel_input(cx))
-                .detach();
-            cx.spawn_in(window, async move |view, cx| {
-                loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(16))
-                        .await;
-                    if view
-                        .update_in(cx, |view, window, cx| {
-                            view.presentation_focused = window.is_window_active()
-                                && view.focus.is_focused(window) && !view.link_menu_open();
-                            if !view.presentation_focused {
-                                view.cancel_input(cx);
-                            }
-                            view.poll(cx);
-                            view.report_peer_focus(view.presentation_focused);
-                            view.poll_peer(cx);
-                        })
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
+            let presentation_focused = window.is_window_active() && focus.is_focused(window);
+            cx.on_blur(&focus, window, |view, window, cx| {
+                view.cancel_input(cx);
+                view.sync_presentation_focus(window, cx);
             })
             .detach();
+            cx.on_focus(&focus, window, |view, window, cx| view.sync_presentation_focus(window, cx))
+                .detach();
+            cx.observe_window_activation(window, |view, window, cx| {
+                view.sync_presentation_focus(window, cx)
+            })
+            .detach();
+            if let Backend::Peer(peer) = &backend {
+                // Pump the peer state machine when its connection changes or work is queued.
+                let (mut state, mut kick) = peer.changes();
+                cx.spawn_in(window, async move |view, cx| loop {
+                    if view.update(cx, |view, cx| view.poll_peer(cx)).is_err() {
+                        return;
+                    }
+                    tokio::select! {
+                        changed = state.changed() => if changed.is_err() { return },
+                        changed = kick.changed() => if changed.is_err() { return },
+                    }
+                })
+                .detach();
+            }
             let mut view = Self {
                 backend,
                 focus,
@@ -146,6 +147,7 @@ impl TerminalView {
                 scrollbar: super::scrollbar::Scrollbar::default(),
                 screen,
                 semantic_binding: None,
+                semantic_refresh: None,
                 cursor_reset_epoch: 0,
                 status: status.into(),
                 notice: None,
@@ -154,8 +156,7 @@ impl TerminalView {
                 closing: false,
                 close_pending: false,
                 detached: false,
-                native_poll: false,
-                presentation_focused: true,
+                presentation_focused,
                 phase: None,
                 grid: (80, 24),
                 lease,
@@ -169,6 +170,7 @@ impl TerminalView {
             if let Some(incoming) = incoming {
                 runtime::native::start_worker(&view, incoming, cx);
                 view.sync_configuration();
+                view.start_frames(cx);
             }
             view
         }))

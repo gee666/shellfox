@@ -50,6 +50,7 @@ pub struct TerminalView {
     scrollbar: scrollbar::Scrollbar,
     pub(crate) screen: SharedScreen,
     pub(crate) semantic_binding: Option<crate::terminal_semantics::TerminalSemantics>,
+    pub(crate) semantic_refresh: Option<gpui::Task<()>>,
     pub(crate) cursor_reset_epoch: u64,
     status: String,
     notice: Option<String>,
@@ -58,7 +59,6 @@ pub struct TerminalView {
     closing: bool,
     close_pending: bool,
     detached: bool,
-    native_poll: bool,
     presentation_focused: bool,
     phase: Option<Phase>,
     grid: (u16, u16),
@@ -141,7 +141,7 @@ impl TerminalView {
         self.flush_outbox();
         // The window client detaches all its grants once this input has drained.
         // An old per-tab lease may already be stale, so don't await its detach.
-        self.outbox.is_drained() && self.pending.is_empty() && !self.native_poll
+        self.outbox.is_drained() && self.pending.is_empty()
     }
     pub(crate) fn resume_after_window_close(&mut self) {
         if self.closing && !self.detached {
@@ -241,6 +241,10 @@ impl Drop for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.presentation_focus(window) != self.presentation_focused {
+            // The link menu changes focus state without a focus event.
+            cx.defer_in(window, |view, window, cx| view.sync_presentation_focus(window, cx));
+        }
         let mut terminal = div()
             .id("terminal")
             .size_full()
@@ -288,7 +292,7 @@ impl Render for TerminalView {
                     .child(renderer::surface(cx.entity(), self.focus.clone())),
             )
             .children(self.render_scrollbar(window, cx))
-            .children(self.render_link_menu(window, cx))
+            .children(self.render_link_menu(cx))
             .children(peer_overlay)
             .children(self.render_status_overlay(cx))
             .when(

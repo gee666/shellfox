@@ -1,8 +1,6 @@
 use crate::root::Root;
 #[path = "workspace_attach.rs"]
 mod attach;
-#[path = "workspace_refresh.rs"]
-pub(crate) mod refresh;
 #[path = "workspace_reply.rs"]
 mod reply;
 #[path = "workspace_selection.rs"]
@@ -22,6 +20,16 @@ pub(crate) struct ActivationFence {
 pub(crate) enum RecentSelection {
     Session(SessionId),
     Tab(TabId),
+}
+
+/// Snapshot refreshes and selection writes run beside user actions, never
+/// blocking them. Each kind keeps one request in flight; ordering comes from
+/// snapshot revisions.
+#[derive(Default)]
+pub(crate) struct Background {
+    refresh: bool,
+    refresh_again: bool,
+    remember: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -51,6 +59,28 @@ impl Root {
                 .map_or("login-shell", |profile| profile.id.as_str()),
         }.to_owned()
     }
+    /// Refreshes the snapshot whenever the host commits a newer revision.
+    pub(crate) fn watch_workspace(
+        &self,
+        client: crate::host_client::HostClient,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<()> {
+        cx.spawn_in(window, async move |root, cx| {
+            let mut revisions = client.revisions(cx.background_executor().clone()).await;
+            while let Ok(revision) = revisions.next().await {
+                let current = root.update_in(cx, |root, window, cx| {
+                    if root.snapshot.as_ref().is_none_or(|snapshot| snapshot.revision < revision) {
+                        root.refresh_snapshot(window, cx);
+                    }
+                    !root.closing_window
+                });
+                if !matches!(current, Ok(true)) {
+                    return;
+                }
+            }
+        })
+    }
     pub(crate) fn refresh_snapshot(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.submit_native(
             NativeAction::Metadata(HostRequest::GetSnapshot {}),
@@ -69,13 +99,16 @@ impl Root {
         if self.closing_window {
             return;
         }
-        if self.action_pending {
-            if !matches!(after, AfterAction::Refresh) {
-                if !self.reserve_tab_action(action, after) {
-                    self.error = Some("A host operation is still pending. Retry after it completes.".into());
-                }
-                cx.notify();
+        let busy = match after {
+            AfterAction::Refresh => {
+                self.background.refresh_again |= self.background.refresh;
+                self.background.refresh
             }
+            AfterAction::Remember => self.background.remember,
+            // User actions stay exclusive; their controls are locked meanwhile.
+            _ => self.action_pending,
+        };
+        if busy {
             return;
         }
         let Some(client) = self.host.clone() else {
@@ -83,11 +116,13 @@ impl Root {
             cx.notify();
             return;
         };
-        self.action_pending = true;
-        self.user_action_pending = !matches!(after, AfterAction::Refresh | AfterAction::Remember);
-        let background = matches!(after, AfterAction::Refresh | AfterAction::Remember);
-        if background {
-            self.refresh_admission.begin();
+        match after {
+            AfterAction::Refresh => self.background.refresh = true,
+            AfterAction::Remember => self.background.remember = true,
+            _ => {
+                self.action_pending = true;
+                self.user_action_pending = true;
+            }
         }
         let selection_fence = self.local_activation_fence();
         let (reply_intent, creation_request) = match &action {
@@ -112,7 +147,9 @@ impl Root {
             }
             _ => None,
         };
-        self.activating_session = activated_session;
+        if activated_session.is_some() {
+            self.activating_session = activated_session;
+        }
         let before_close = match &action {
             NativeAction::CloseTab { tab }
             | NativeAction::CloseTerminal(shellfox_core::TerminalIdentity { tab_id: tab, .. }) => self
@@ -140,14 +177,17 @@ impl Root {
                 Some(client.creation_request_receipt(request_id).await)
             } else {None};
             let _ = root.update_in(cx, |root, window, cx| {
-                let reserved_tab = if background {
-                    root.refresh_admission.finish()
-                } else {
-                    None
-                };
-                root.action_pending = false;
-                root.user_action_pending = false;
-                root.activating_session = None;
+                match after {
+                    AfterAction::Refresh => root.background.refresh = false,
+                    AfterAction::Remember => root.background.remember = false,
+                    _ => {
+                        root.action_pending = false;
+                        root.user_action_pending = false;
+                    }
+                }
+                if activated_session.is_some() {
+                    root.activating_session = None;
+                }
                 match result {
                     Ok(NativeResponse::Snapshot(snapshot)) => {
                         let selection_current = root.local_activation_fence() == selection_fence;
@@ -219,13 +259,9 @@ impl Root {
                             if receipt_unavailable {
                                 root.error = Some("Session reply received, but its original target receipt is unavailable; this window's selection was not changed.".into());
                             }
-                            if let Some(tab) = reserved_tab {
-                                root.submit_reserved_tab(tab, &client, window, cx);
-                            } else if let Some((id, _)) = open_history {
+                            if let Some((id, _)) = open_history {
                                 root.add_tab(id, window, cx);
                             }
-                        } else if reserved_tab.is_some() {
-                            root.error = Some("Terminal action canceled because the workspace changed.".into());
                         }
                     }
                     Ok(_) => {
@@ -244,7 +280,10 @@ impl Root {
                     Err(_) if matches!(after, AfterAction::Refresh) => {},
                     Err(error) => root.notify_operation_error(&error, cx),
                 }
-                root.flush_sidebar_action(window, cx);
+                if std::mem::take(&mut root.background.refresh_again) {
+                    root.refresh_snapshot(window, cx);
+                }
+                root.flush_recent(window, cx);
                 cx.notify();
             });
         })

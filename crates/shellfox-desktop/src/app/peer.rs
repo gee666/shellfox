@@ -42,6 +42,8 @@ pub(super) struct Peer {
     size_to_send: Option<(u16, u16)>,
     ack: Option<AcknowledgeTerminal>,
     writes: VecDeque<WriteTerminal>,
+    /// Wakes the view's pump after local work was queued.
+    kick: tokio::sync::watch::Sender<u64>,
 }
 
 enum State {
@@ -81,6 +83,7 @@ impl Peer {
             size_to_send: None,
             ack: None,
             writes: VecDeque::new(),
+            kick: tokio::sync::watch::channel(0).0,
         })
     }
 
@@ -105,6 +108,7 @@ impl Peer {
     pub(super) fn resize(&mut self, grid: (u16, u16)) {
         self.desired_size = Some(grid);
         self.size_to_send = Some(grid);
+        self.kick();
     }
 
     fn queue(&mut self, bytes: Vec<u8>, user: bool) -> anyhow::Result<()> {
@@ -124,7 +128,15 @@ impl Peer {
                 anyhow::anyhow!("Terminal input exceeds the v1 limit or control was lost.")
             })?;
         self.writes.push_back(write);
+        self.kick();
         Ok(())
+    }
+    fn kick(&self) {
+        self.kick.send_modify(|count| *count = count.wrapping_add(1));
+    }
+    /// Fires on connection state changes and on locally queued work.
+    pub(super) fn changes(&self) -> (tokio::sync::watch::Receiver<u64>, tokio::sync::watch::Receiver<u64>) {
+        (self.binding.state_changes(), self.kick.subscribe())
     }
 }
 
@@ -139,6 +151,7 @@ impl TerminalView {
     pub(crate) fn freeze_peer(&mut self, frozen: bool) {
         if let Some(peer) = self.peer_mut() {
             peer.frozen = frozen;
+            peer.kick();
             if frozen {
                 self.preedit.clear();
             }

@@ -58,19 +58,45 @@ struct State {
     serial: u64,
 }
 impl State {
-    fn publish(&mut self, notice: Option<Notice>) {
-        self.serial = self.serial.wrapping_add(1);
+    /// Returns the new serial, or None when only download progress moved within
+    /// the same percent, which the notice doesn't show.
+    fn publish(&mut self, notice: Option<Notice>) -> Option<u64> {
+        let visible = !matches!(
+            (&self.phase, &notice),
+            (
+                Some(Notice::Downloading { version: old, received: before, total }),
+                Some(Notice::Downloading { version, received, total: size }),
+            ) if old == version && total == size
+                && percent(*before, *total) == percent(*received, *size)
+        );
         self.phase = notice;
+        visible.then(|| {
+            self.serial = self.serial.wrapping_add(1);
+            self.serial
+        })
     }
+}
+fn percent(received: u64, total: u64) -> u64 {
+    (received.min(total) * 100).checked_div(total).unwrap_or(0)
 }
 #[derive(Default)]
 struct Worker {
     state: Mutex<State>,
     wake: Notify,
+    /// The notice serial; the UI awaits changes instead of polling.
+    changes: tokio::sync::watch::Sender<u64>,
 }
 impl Worker {
     fn with<T>(&self, f: impl FnOnce(&mut State) -> T) -> T {
         f(&mut self.state.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+    fn publish(&self, notice: Option<Notice>, update: impl FnOnce(&mut State)) {
+        if let Some(serial) = self.with(|state| {
+            update(state);
+            state.publish(notice)
+        }) {
+            self.changes.send_replace(serial);
+        }
     }
 }
 
@@ -120,6 +146,9 @@ impl Updater {
     }
     pub fn notice_snapshot(&self) -> (u64, Option<Notice>) {
         self.worker.with(|s| (s.serial, s.phase.clone()))
+    }
+    pub fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.worker.changes.subscribe()
     }
     pub fn install_pending(&self) -> bool {
         self.worker
@@ -202,19 +231,17 @@ async fn run(worker: Arc<Worker>, current: Version) {
                             .and_then(|r| r.asset.as_ref().map(|a| (r, a)))
                     {
                         attempted = Some(r.version.clone());
-                        worker.with(|s| {
-                            s.publish(Some(Notice::Downloading {
+                        worker.publish(
+                            Some(Notice::Downloading {
                                 version: r.version.clone(),
                                 received: 0,
                                 total: asset.size,
-                            }))
-                        });
+                            }),
+                            |_| {},
+                        );
                         match stage(&feed, &platform, r, asset, &worker).await {
                             Ok(staged) => {
-                                worker.with(|s| {
-                                    s.prepared = Some(staged);
-                                    s.publish(Some(Notice::Ready));
-                                });
+                                worker.publish(Some(Notice::Ready), |s| s.prepared = Some(staged));
                                 return;
                             }
                             Err(error) => {
@@ -275,7 +302,7 @@ fn publish(
             }),
             error,
         });
-    worker.with(|s| s.publish(notice));
+    worker.publish(notice, |_| {});
 }
 async fn stage(
     feed: &Feed,
@@ -289,13 +316,14 @@ async fn stage(
         .tempdir()?;
     let file = work.path().join(&asset.name);
     feed.download(asset, &file, |received| {
-        worker.with(|s| {
-            s.publish(Some(Notice::Downloading {
+        worker.publish(
+            Some(Notice::Downloading {
                 version: release.version.clone(),
                 received,
                 total: asset.size,
-            }))
-        });
+            }),
+            |_| {},
+        );
     })
     .await?;
     let (platform, version, asset) = (platform.clone(), release.version.clone(), asset.clone());
@@ -315,7 +343,7 @@ mod tests {
         assert!(updater.request_restart().is_none());
         updater
             .worker
-            .with(|state| state.publish(Some(Notice::Ready)));
+            .publish(Some(Notice::Ready), |_| {});
         let first = updater.request_restart().expect("first confirmation");
         assert!(updater.request_restart().is_none());
         drop(first);

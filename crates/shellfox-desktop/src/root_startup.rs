@@ -52,7 +52,6 @@ impl Root {
             dialog: None,
             settings: false,
             sidebar: true,
-            layout_keys: 0,
             layout_focus: cx.focus_handle(),
             sidebar_width: 220.,
             resizing_sidebar: false,
@@ -66,11 +65,12 @@ impl Root {
             closing_window: false,
             action_pending: false,
             user_action_pending: false,
-            refresh_admission: Default::default(),
+            background: Default::default(),
             profiles: Vec::new(),
             catalog_epoch: 0,
             profile_menu: None,
             power: power::PowerUi::default(),
+            watches: Vec::new(),
         };
         root.sidebar_ui.visibility.trace = options.ui_acceptance;
         match native {
@@ -80,10 +80,9 @@ impl Root {
                 return root;
             }
         }
-        cx.observe_window_activation(window, |root, window, _| {
-            if !window.is_window_active() { root.layout_keys = 0; }
-        }).detach();
         Self::start_poll(window, cx);
+        root.watches.extend(root.watch_updates(window, cx));
+        root.watches.extend(root.watch_semantics(window, cx));
         if options.mode == Mode::Fixture {
             match TerminalView::open(Mode::Fixture, &root.run_dir, window, cx) {
                 Ok(view) => root.fixture = Some(view),
@@ -160,6 +159,9 @@ impl Root {
                                 root.settings_panel = Some(panel);
                                 crate::launch_runtime::install(cx);
                                 root.watch_tab_activity(client.clone(), window, cx);
+                                let workspace = root.watch_workspace(client.clone(), window, cx);
+                                let power = root.watch_power(client.clone(), window, cx);
+                                root.watches.extend([workspace, power]);
                                 crate::update_view::read_initial_preference(client.clone(), cx);
                                 root.host = Some(client);
                                 root.refresh_snapshot(window, cx);

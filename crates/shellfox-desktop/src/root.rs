@@ -90,7 +90,6 @@ pub struct Root {
     pub(crate) dialog: Option<Dialog>,
     pub(crate) settings: bool,
     pub(crate) sidebar: bool,
-    pub(crate) layout_keys: u8,
     pub(crate) layout_focus: FocusHandle,
     pub(crate) sidebar_width: f32,
     pub(crate) resizing_sidebar: bool,
@@ -104,11 +103,13 @@ pub struct Root {
     pub(crate) closing_window: bool,
     pub(crate) action_pending: bool,
     pub(crate) user_action_pending: bool,
-    pub(crate) refresh_admission: crate::workspace::refresh::RefreshAdmission,
+    pub(crate) background: crate::workspace::Background,
     pub(crate) profiles: Vec<crate::settings::api::Profile>,
     pub(crate) catalog_epoch: u64,
     pub(crate) profile_menu: Option<crate::profile_menu::ProfileMenu>,
     pub(crate) power: power::PowerUi,
+    /// Host change subscriptions; dropped with the window.
+    pub(crate) watches: Vec<gpui::Task<()>>,
 }
 impl Root {
     pub(crate) fn is_local_source(&self)->bool{
@@ -226,9 +227,6 @@ impl Root {
                     .await;
                 if root
                     .update_in(cx, |root, window, cx| {
-                        root.poll_semantics(window, cx);
-                        root.poll_power(window, cx);
-                        root.poll_updates(cx);
                         root.poll_session_visibility(window, cx);
                         root.poll_peer_inventory(window, cx);
                         root.poll_peer_sources(window, cx);
@@ -236,13 +234,6 @@ impl Root {
                         if let Err(error) = root.sync_app_guard(cx) {
                             root.error = Some(error.to_string());
                             cx.notify();
-                        }
-                        if !root.closing_window && !root.action_pending && root.host.is_some() {
-                            if root.pending_recent.is_some() {
-                                root.flush_recent(window, cx);
-                            } else {
-                                root.refresh_snapshot(window, cx);
-                            }
                         }
                     })
                     .is_err()

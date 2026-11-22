@@ -139,10 +139,8 @@ impl TerminalSemantics {
         }
         Some((captured.view, guarded))
     }
-    fn refresh_due(&self, now: Instant) -> bool {
-        self.document
-            .as_ref()
-            .is_some_and(|document| document.text.refresh_due(now))
+    fn refresh_delay(&self, now: Instant) -> Option<std::time::Duration> {
+        self.document.as_ref()?.text.refresh_delay(now)
     }
 }
 impl TerminalView {
@@ -209,6 +207,7 @@ impl TerminalView {
         view: Option<&ViewFrame>,
         bounds: Bounds<Pixels>,
         window: &Window,
+        cx: &mut Context<Self>,
     ) {
         let geometry =
             TerminalGeometry::from_layout(bounds, self.cell_width, self.line_height, window);
@@ -217,14 +216,20 @@ impl TerminalView {
         {
             binding.frame.reject(error);
         }
-    }
-    pub(crate) fn refresh_semantics(&self, now: Instant, cx: &mut Context<Self>) {
-        if self
-            .semantic_binding
-            .as_ref()
-            .is_some_and(|binding| binding.refresh_due(now))
+        // Text changes are coalesced; repaint once when the held sample is due.
+        if self.semantic_refresh.is_none()
+            && let Some(delay) = self
+                .semantic_binding
+                .as_ref()
+                .and_then(|binding| binding.refresh_delay(Instant::now()))
         {
-            cx.notify();
+            self.semantic_refresh = Some(cx.spawn(async move |view, cx| {
+                cx.background_executor().timer(delay).await;
+                let _ = view.update(cx, |view, cx| {
+                    view.semantic_refresh = None;
+                    cx.notify();
+                });
+            }));
         }
     }
 }

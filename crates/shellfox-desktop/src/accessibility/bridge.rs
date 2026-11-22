@@ -59,6 +59,8 @@ struct State {
 pub(crate) struct Bridge {
     state: Arc<Mutex<State>>,
     pub(crate) needs_full: Arc<AtomicBool>,
+    /// Signals the UI thread that actions or a full tree are waiting.
+    pub(crate) wake: Arc<tokio::sync::Notify>,
 }
 
 impl Bridge {
@@ -165,6 +167,7 @@ impl Bridge {
 impl ActivationHandler for Bridge {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         self.needs_full.store(true, Ordering::Release);
+        self.wake.notify_one();
         self.state
             .lock()
             .ok()?
@@ -177,6 +180,7 @@ impl ActivationHandler for Bridge {
 impl DeactivationHandler for Bridge {
     fn deactivate_accessibility(&mut self) {
         self.needs_full.store(true, Ordering::Release);
+        self.wake.notify_one();
     }
 }
 
@@ -198,6 +202,7 @@ impl ActionHandler for Bridge {
             && tree.terminal_view(request.target_node).is_none()
         {
             self.needs_full.store(true, Ordering::Release);
+            self.wake.notify_one();
             return;
         }
         let Some(action) = Self::translate(tree, request) else {
@@ -237,5 +242,6 @@ impl ActionHandler for Bridge {
             expected,
             text_runs,
         });
+        self.wake.notify_one();
     }
 }

@@ -2,6 +2,8 @@ use super::*;
 
 impl TerminalView {
     pub(in crate::app) fn poll_peer(&mut self, cx: &mut Context<Self>) {
+        // Idempotent; an attach resets the reported focus.
+        self.report_peer_focus(self.presentation_focused);
         let Some(peer) = self.peer_mut() else {
             return;
         };

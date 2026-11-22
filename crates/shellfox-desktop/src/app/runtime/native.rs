@@ -203,6 +203,10 @@ impl Connection {
     pub fn cancel_frames(&self) {
         self.frame_life.send_replace(true);
     }
+    /// Wakes the frame loop without changing its canceled state.
+    pub fn kick_frames(&self) {
+        self.frame_life.send_modify(|_| {});
+    }
     pub fn resume_frames(&self) {
         self.frame_life.send_replace(false);
     }

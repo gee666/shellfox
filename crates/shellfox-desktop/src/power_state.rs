@@ -1,5 +1,4 @@
 use shellfox_service::power::{PowerReport, PowerStatus};
-use std::time::Instant;
 #[derive(Default)]
 pub(crate) struct PowerUi {
     pub report: Option<PowerReport>,
@@ -7,7 +6,6 @@ pub(crate) struct PowerUi {
     pub request: u64,
     pub inflight: bool,
     pub changing: bool,
-    pub last_read: Option<Instant>,
 }
 impl PowerUi {
     pub fn held(&self) -> bool {
@@ -61,8 +59,16 @@ impl PowerUi {
         self.request = self.request.checked_add(1)?;
         self.inflight = true;
         self.changing = changing;
-        self.last_read = Some(Instant::now());
         Some(self.request)
+    }
+    /// A published report. A running request owns the state until it completes.
+    pub fn accept(&mut self, report: PowerReport) -> bool {
+        if self.inflight || self.report.as_ref() == Some(&report) && self.error.is_none() {
+            return false;
+        }
+        self.report = Some(report);
+        self.error = None;
+        true
     }
     pub fn complete(&mut self, id: u64, result: Result<PowerReport, String>) -> bool {
         if id != self.request || !self.inflight {

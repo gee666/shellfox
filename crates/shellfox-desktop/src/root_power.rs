@@ -74,44 +74,45 @@ impl Root {
         }
         true
     }
-    pub(crate) fn poll_power(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closing_window
-            || self.close_check_pending
-            || self.host.is_none()
-            || self.power.inflight
-            || self
-                .power
-                .last_read
-                .is_some_and(|time| time.elapsed() < std::time::Duration::from_secs(1))
-        {
-            return;
-        }
-        self.request_power(false, window, cx);
+    /// Follows the host-global keep-awake report, which other clients can change.
+    pub(crate) fn watch_power(
+        &self,
+        client: crate::host_client::HostClient,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<()> {
+        cx.spawn_in(window, async move |root, cx| {
+            let mut changes = client.power_changes(cx.background_executor().clone()).await;
+            while let Ok(report) = changes.next().await {
+                let current = root.update(cx, |root, cx| {
+                    if root.power.accept(report) {
+                        cx.notify();
+                    }
+                    !root.closing_window
+                });
+                if !matches!(current, Ok(true)) {
+                    return;
+                }
+            }
+        })
     }
     pub(crate) fn toggle_power(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.power_enabled() {
-            self.request_power(true, window, cx);
+        if !self.power_enabled() {
+            return;
         }
-    }
-    fn request_power(&mut self, change: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(client) = self.host.clone() else {
             return;
         };
-        let Some(request) = self.power.begin(change) else {
+        // The watched report is the host-global state, so the target is decided
+        // from it, including ReleaseFailed -> retry OFF.
+        let Some(target) = self.power.report.as_ref().and_then(state::confirmed_target) else {
+            return;
+        };
+        let Some(request) = self.power.begin(true) else {
             return;
         };
         cx.spawn_in(window, async move |root, cx| {
-            let result = async {
-                // Cached Service status only. A click refreshes the global state
-                // BEFORE deciding on/off, including ReleaseFailed -> retry OFF.
-                let report = client.power_status().await?;
-                if change && let Some(target) = state::confirmed_target(&report) {
-                    client.set_power(target).await
-                } else {
-                    Ok(report)
-                }
-            }
-            .await;
+            let result = client.set_power(target).await;
             let _ = root.update_in(cx, |root, _, cx| {
                 if !root
                     .host
@@ -124,15 +125,13 @@ impl Root {
                     format!("Local host keep-awake confirmation failed: {error:#}")
                 });
                 if root.power.complete(request, result) {
-                    if change {
-                        if let Some(error) = &root.power.error {
+                    if let Some(error) = &root.power.error {
+                        root.error = Some(error.clone());
+                    } else if let Some(report) = &root.power.report {
+                        if let Some(error) = &report.error {
                             root.error = Some(error.clone());
-                        } else if let Some(report) = &root.power.report {
-                            if let Some(error) = &report.error {
-                                root.error = Some(error.clone());
-                            } else if let Some(reason) = &report.partial_reason {
-                                root.error = Some(format!("Keep awake is partial: {reason}"));
-                            }
+                        } else if let Some(reason) = &report.partial_reason {
+                            root.error = Some(format!("Keep awake is partial: {reason}"));
                         }
                     }
                     cx.notify();

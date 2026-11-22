@@ -53,7 +53,7 @@ impl Root {
         cx.notify();
     }
     pub(crate) fn flush_recent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.action_pending || self.closing_window {
+        if self.action_pending || self.background.remember || self.closing_window {
             return;
         }
         let Some((recent, source_epoch)) = self.pending_recent.take() else {

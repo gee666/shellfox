@@ -145,15 +145,19 @@ impl NativeAccessibility {
         Ok(())
     }
 
-    /// Poll on the existing UI timer and request a paint when activation needs a full tree.
+    /// True when activation needs a full tree; checked after each `wake`.
     pub fn needs_frame(&self) -> bool {
         self.bridge.needs_full.load(Ordering::Acquire)
     }
 
     /// Run on the UI thread and route through existing click/focus/edit handlers.
-    /// Poll on the existing UI timer even when no new PTY output arrives.
     pub fn drain_actions(&self) -> Vec<SemanticAction> {
         self.bridge.drain()
+    }
+
+    /// Notified when OS callbacks queue actions or request a full tree.
+    pub fn wake(&self) -> std::sync::Arc<tokio::sync::Notify> {
+        self.bridge.wake.clone()
     }
 }
 

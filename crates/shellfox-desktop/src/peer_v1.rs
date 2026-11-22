@@ -7,6 +7,7 @@ use shellfox_protocol::{
     TransportFuture,
 };
 use shellfox_service::{native::NativeClient, remote::OutgoingV2Endpoint};
+use std::sync::Arc;
 
 #[cfg(test)]
 #[path = "peer_v1_interop_tests.rs"]
@@ -59,11 +60,18 @@ impl OutboundTransport for Transport {
 pub struct V1Binding {
     client: Client<Transport>,
     pairing: tokio::sync::Mutex<()>,
+    /// Bumped by the client after each status, permission or connection change.
+    changes: Arc<tokio::sync::watch::Sender<u64>>,
 }
 
 impl V1Binding {
     pub fn state(&self) -> ClientState {
         self.client.state()
+    }
+
+    /// Each view of this peer observes the same state changes.
+    pub(crate) fn state_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changes.subscribe()
     }
 
     pub async fn connect(&self) -> Result<()> {
@@ -145,16 +153,23 @@ fn value<T>(reply: Reply<T>) -> Result<T> {
 impl super::HostClient {
     /// Creates an unpaired view. Keep it for subsequent calls to the same peer.
     pub fn peer_v1(&self, peer: AuthenticatedPeerId) -> V1Binding {
+        let changes = Arc::new(tokio::sync::watch::channel(0u64).0);
+        let client = Client::new(
+            peer,
+            ClientId::new_v4(),
+            match &self.port {
+                super::HostPort::Native(client) => Transport::Native(client.clone()),
+                super::HostPort::Attached(client) => Transport::Attached(client.clone()),
+            },
+        );
+        let wake = changes.clone();
+        client.set_state_waker(Some(Arc::new(move || {
+            wake.send_modify(|count| *count = count.wrapping_add(1));
+        })));
         V1Binding {
-            client: Client::new(
-                peer,
-                ClientId::new_v4(),
-                match &self.port {
-                    super::HostPort::Native(client) => Transport::Native(client.clone()),
-                    super::HostPort::Attached(client) => Transport::Attached(client.clone()),
-                },
-            ),
+            client,
             pairing: tokio::sync::Mutex::new(()),
+            changes,
         }
     }
 }

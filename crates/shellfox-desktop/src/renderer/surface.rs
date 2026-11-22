@@ -103,8 +103,8 @@ pub fn surface(view: Entity<TerminalView>, focus: FocusHandle) -> impl IntoEleme
                     window,
                 );
             }
-            view.update(cx, |view, _| {
-                view.paint_semantics(presentation.as_deref(), bounds, window);
+            view.update(cx, |view, cx| {
+                view.paint_semantics(presentation.as_deref(), bounds, window, cx);
                 if let Some((start, end)) = view.hovered_link_cells(window) {
                     for row in start.y..=end.y {
                         let left = if row == start.y { start.x } else { 0 };

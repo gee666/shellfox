@@ -229,4 +229,12 @@ impl TerminalDocument {
     pub fn refresh_due(&self, now: Instant) -> bool {
         self.pending && self.sample_due(now)
     }
+    /// Time until the coalesced pending sample is due; None when nothing is pending.
+    pub fn refresh_delay(&self, now: Instant) -> Option<Duration> {
+        self.pending.then(|| {
+            self.last.map_or(Duration::ZERO, |last| {
+                UPDATE_INTERVAL.saturating_sub(now.saturating_duration_since(last))
+            })
+        })
+    }
 }
