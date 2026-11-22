@@ -336,3 +336,33 @@ fn formatter_cannot_preserve_saved_cursor_and_inactive_primary_buffer() -> TestR
     }
     Ok(())
 }
+
+#[test]
+fn v1_snapshot_of_large_history_keeps_the_newest_rows_within_budget() -> TestResult {
+    const BUDGET: usize = 240 * 1024;
+    let mut source = Terminal::new(120, 30)?;
+    let fill = "y".repeat(100);
+    let mut history = Vec::new();
+    for line in 1..=60_000 {
+        // Wide characters and a hyperlink on every row exercise the row cut.
+        history.extend_from_slice(
+            format!(
+                "\x1b[3{}m{line:06} 界\x1b]8;;https://e/{line}\x1b\\{fill}\x1b]8;;\x1b\\\r\n",
+                line % 8
+            )
+            .as_bytes(),
+        );
+    }
+    feed(&mut source, &history)?;
+    feed(&mut source, b"\x1b[1mprompt> \x1b[?2004h")?;
+    let snapshot = remote_v1_ansi(&mut source)?;
+    assert!(snapshot.len() <= BUDGET, "{} bytes", snapshot.len());
+    let text = String::from_utf8_lossy(&snapshot);
+    assert!(text.contains("059000 界"), "history above the screen is kept");
+    assert!(!text.contains("050000 界"), "the oldest rows are dropped");
+    let mut view = Terminal::new(120, 30)?;
+    feed(&mut view, &snapshot)?;
+    assert_eq!(comparable(view.render()?), comparable(source.render()?));
+    assert!(snapshot.windows(8).any(|w| w == b"\x1b[?2004h"));
+    Ok(())
+}

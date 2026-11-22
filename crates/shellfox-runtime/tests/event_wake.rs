@@ -1,4 +1,6 @@
 //! The consumer is woken for queued events instead of polling try_recv.
+// Shared fixture; this test uses only part of it.
+#[allow(dead_code)]
 #[path = "support/external.rs"]
 mod common;
 use common::*;
