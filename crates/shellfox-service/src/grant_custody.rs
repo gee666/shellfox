@@ -21,6 +21,13 @@ struct Entry {
     abandoned: Arc<AtomicBool>,
     cancel: CancellationToken,
     cleanup: Option<(RequestId, bool)>,
+    /// Cancelled when the entry leaves the ledger; ends its cancel watcher.
+    removed: CancellationToken,
+}
+impl Drop for Entry {
+    fn drop(&mut self) {
+        self.removed.cancel();
+    }
 }
 #[derive(Default)]
 pub(crate) struct GrantCustody {
@@ -69,6 +76,7 @@ impl GrantCustody {
             abandoned: abandoned.clone(),
             cancel,
             cleanup: None,
+            removed: CancellationToken::new(),
         });
         Ok((
             ticket,
@@ -238,6 +246,14 @@ impl GrantCustody {
                 }
             }
         }
+    }
+    /// The recipient's cancel token and a token cancelled once the entry is
+    /// removed, so a watcher can wake the owner to retire an abandoned grant.
+    pub fn cancel_watch(&self, ticket: GrantTicket) -> Option<(CancellationToken, CancellationToken)> {
+        self.entries
+            .iter()
+            .find(|entry| entry.ticket == ticket)
+            .map(|entry| (entry.cancel.clone(), entry.removed.clone()))
     }
     pub fn retirements(&self) -> Vec<RetirementCandidate> {
         self.entries

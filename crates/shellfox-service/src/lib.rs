@@ -136,6 +136,8 @@ pub struct Service {
     system_native_handler: Option<std::sync::Arc<system::SystemNativeHandler>>,
     event_wake: Option<shellfox_runtime::EventWake>,
     runtime_signal: std::sync::Arc<owner_wait::RuntimeSignal>,
+    /// The runtime that started the owner, for small async watchers.
+    runtime_handle: Option<tokio::runtime::Handle>,
     // Last: Host/SQLite and every deferred resource owner drop before this guard.
     // Original directory lifetime only, not path/VFS confinement.
     _root_lifetime: Option<shellfox_transport::RootLifetimeGuard>,

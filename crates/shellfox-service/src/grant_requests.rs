@@ -180,7 +180,26 @@ impl Service {
             return Err(GrantFailure::NotSent(reason));
         }
         self.grants.sent(ticket)?;
+        self.wake_on_recipient_cancel(ticket);
         Ok((ticket, guard))
+    }
+    /// A recipient can cancel after its request returned, leaving a granted
+    /// lease to retire. Wake the owner then instead of waiting for a poll.
+    fn wake_on_recipient_cancel(&self, ticket: GrantTicket) {
+        let (Some(handle), Some(wake), Some((cancel, removed))) = (
+            &self.runtime_handle,
+            &self.event_wake,
+            self.grants.cancel_watch(ticket),
+        ) else {
+            return;
+        };
+        let wake = wake.clone();
+        handle.spawn(async move {
+            tokio::select! {
+                _ = cancel.cancelled() => wake(),
+                _ = removed.cancelled() => {}
+            }
+        });
     }
     fn wait_ownership_request(
         &mut self,

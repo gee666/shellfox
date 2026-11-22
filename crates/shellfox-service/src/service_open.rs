@@ -40,6 +40,7 @@ impl Service {
             system_native_handler: None,
             event_wake: None,
             runtime_signal: Default::default(),
+            runtime_handle: None,
             _root_lifetime: None,
         })
     }

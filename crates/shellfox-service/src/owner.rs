@@ -81,6 +81,7 @@ impl ServiceOwner {
         let abandon = CancellationToken::new();
         let owner_abandon = abandon.clone();
         let wake = OwnerWake::new(sender.clone());
+        let runtime_handle = tokio::runtime::Handle::try_current().ok();
         let thread = std::thread::Builder::new()
             .name("shellfox-service-owner".into())
             .spawn(move || {
@@ -111,6 +112,7 @@ impl ServiceOwner {
                     let _ = finished.send(cleanup::finish(service));
                     return;
                 }
+                service.runtime_handle = runtime_handle;
                 let mut active = false;
                 let mut remote_install: Option<std::sync::Arc<approvals::RemoteInstall>> = None;
                 let mut controllers = HashMap::new();

@@ -325,3 +325,19 @@ fn adopted_receipt_cannot_be_retired_by_later_cancel_or_stale_drop() {
     assert_eq!(ticket.request(), RequestId(1));
     assert_eq!(ticket.identity(), identity);
 }
+#[test]
+fn cancel_watch_follows_the_recipient_and_ends_when_the_entry_leaves() {
+    let mut ledger = GrantCustody::default();
+    let recipient = CancellationToken::new();
+    let (ticket, mut guard) = ledger
+        .reserve(identity(), RequestId(1), GrantKind::Controller(7), recipient.clone())
+        .unwrap();
+    let (cancel, removed) = ledger.cancel_watch(ticket).unwrap();
+    recipient.cancel();
+    assert!(cancel.is_cancelled());
+    assert!(!removed.is_cancelled());
+    ledger.not_sent(ticket).unwrap();
+    guard.disarm();
+    assert!(removed.is_cancelled());
+    assert!(ledger.cancel_watch(ticket).is_none());
+}
