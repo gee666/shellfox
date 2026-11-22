@@ -1,52 +1,21 @@
 use super::*;
+fn saved(enabled: bool) -> super::super::super::preferences::RemotePreferences {
+    super::super::super::preferences::RemotePreferences {
+        version: 1,
+        enabled,
+        hostname: "saved-host".into(),
+        peers: vec![super::super::super::preferences::RememberedPeer {
+            id: "n-peer".into(),
+            hostname: "remembered".into(),
+            addresses: vec!["100.64.0.2".into()],
+        }],
+    }
+}
 #[tokio::test]
-async fn saved_enabled_intent_requires_explicit_resume_and_never_claims_peer_online() {
+async fn saved_enabled_preference_starts_the_node_with_the_saved_hostname() {
     let (_scratch, backend, network, directory) = fixture();
     network.online.store(true, Ordering::SeqCst);
-    *backend.preferences.lock().unwrap() =
-        Some(super::super::super::preferences::RemotePreferences {
-            version: 1,
-            enabled: true,
-            hostname: "saved-host".into(),
-            peers: vec![super::super::super::preferences::RememberedPeer {
-                id: "n-peer".into(),
-                hostname: "remembered".into(),
-                addresses: vec!["100.64.0.2".into()],
-            }],
-        });
-    let (control, mut runtime) = RemoteRuntime::spawn(
-        backend.clone(),
-        directory.clone(),
-        Arc::new(Factory(network.clone())),
-        "unused-fallback".into(),
-        CancellationToken::new(),
-    )
-    .await
-    .unwrap();
-    let state = control.request(RemoteRequest::State).await.unwrap();
-    assert_eq!(state.hostname, "saved-host");
-    assert_eq!(state.status, RemoteNetworkStatus::Disabled);
-    assert_eq!(network.starts.load(Ordering::SeqCst), 0);
-    assert_eq!(network.logins.load(Ordering::SeqCst), 0);
-    assert!(state.peers[0].remembered);
-    assert!(!state.peers[0].online);
-    assert!(!state.peers[0].host_confirmed);
-    let resume = state
-        .attempts
-        .iter()
-        .find(|attempt| matches!(attempt.kind, AttemptKind::Resume))
-        .unwrap()
-        .id;
-    control
-        .request(RemoteRequest::Continue { attempt_id: resume })
-        .await
-        .unwrap();
-    until(&control, |state| {
-        state.status == RemoteNetworkStatus::Online
-    })
-    .await;
-    assert_eq!(network.starts.load(Ordering::SeqCst), 1);
-    runtime.shutdown().await.unwrap();
+    *backend.preferences.lock().unwrap() = Some(saved(true));
     let (control, mut runtime) = RemoteRuntime::spawn(
         backend,
         directory,
@@ -56,11 +25,39 @@ async fn saved_enabled_intent_requires_explicit_resume_and_never_claims_peer_onl
     )
     .await
     .unwrap();
-    assert_eq!(
-        control.request(RemoteRequest::State).await.unwrap().status,
-        RemoteNetworkStatus::Disabled
-    );
+    let state = until(&control, |state| {
+        state.status == RemoteNetworkStatus::Online
+    })
+    .await;
+    assert!(state.enabled);
+    assert_eq!(state.hostname, "saved-host");
+    assert!(state.attempts.is_empty());
+    assert!(state.peers[0].remembered);
     assert_eq!(network.starts.load(Ordering::SeqCst), 1);
+    assert_eq!(network.logins.load(Ordering::SeqCst), 0);
+    runtime.shutdown().await.unwrap();
+}
+#[tokio::test]
+async fn saved_disabled_preference_stays_off() {
+    let (_scratch, backend, network, directory) = fixture();
+    network.online.store(true, Ordering::SeqCst);
+    *backend.preferences.lock().unwrap() = Some(saved(false));
+    let (control, mut runtime) = RemoteRuntime::spawn(
+        backend,
+        directory,
+        Arc::new(Factory(network.clone())),
+        "unused-fallback".into(),
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    let state = control.request(RemoteRequest::State).await.unwrap();
+    assert!(!state.enabled);
+    assert_eq!(state.hostname, "saved-host");
+    assert_eq!(state.status, RemoteNetworkStatus::Disabled);
+    assert!(state.attempts.is_empty());
+    assert!(!state.peers[0].online && !state.peers[0].host_confirmed);
+    assert_eq!(network.starts.load(Ordering::SeqCst), 0);
     runtime.shutdown().await.unwrap();
 }
 #[tokio::test]

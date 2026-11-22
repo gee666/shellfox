@@ -160,18 +160,11 @@ impl SettingsPanel {
                 else {
                     return;
                 };
-                if matches!(attempt.kind, api::RemoteAttemptKind::Login) {
-                    self.remote.login.cancel();
-                } else if !matches!(attempt.kind, api::RemoteAttemptKind::Resume) {
+                if !matches!(attempt.kind, api::RemoteAttemptKind::Login) {
                     return;
                 }
+                self.remote.login.cancel();
                 api::Request::CancelAttempt(id)
-            }
-            Operation::ResumeAccess(id) => {
-                if !self.remote.can_resume_access(&id) {
-                    return;
-                }
-                api::Request::ResumeAccess(id)
             }
             Operation::CancelPair(id) => api::Request::CancelAttempt(id),
             Operation::Disconnect(id) => {

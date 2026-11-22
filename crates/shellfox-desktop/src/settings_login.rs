@@ -11,7 +11,6 @@ pub(super) fn blocked(state: &RemoteState) -> bool {
             matches!(
                 attempt.kind,
                 super::api::RemoteAttemptKind::Enable
-                    | super::api::RemoteAttemptKind::Resume
                     | super::api::RemoteAttemptKind::Login
             )
         })
@@ -248,11 +247,10 @@ mod tests {
         }
     }
     #[test]
-    fn actual_pending_enable_resume_and_login_block_duplicate_login_intents() {
+    fn actual_pending_enable_and_login_block_duplicate_login_intents() {
         let mut current = state(None);
         assert!(!blocked(&current));
         for kind in [
-            super::super::api::RemoteAttemptKind::Resume,
             super::super::api::RemoteAttemptKind::Enable,
             super::super::api::RemoteAttemptKind::Login,
         ] {

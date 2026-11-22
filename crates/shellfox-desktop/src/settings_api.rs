@@ -75,7 +75,6 @@ pub struct RemoteAttempt {
 }
 #[derive(Clone, Debug)]
 pub enum RemoteAttemptKind {
-    Resume,
     Enable,
     Login,
     Connect { peer_id: String },
@@ -131,7 +130,6 @@ pub enum Request {
     },
     Connect(String),
     CancelAttempt(String),
-    ResumeAccess(String),
     Disconnect(String),
     ContinuePair {
         id: String,

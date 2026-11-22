@@ -42,7 +42,6 @@ impl SettingsPanel {
                 remote::Operation::CancelLogin => {
                     self.remote.login.busy() && (!self.remote.pending || self.remote.login_request)
                 }
-                remote::Operation::ResumeAccess(id) => self.remote.can_resume_access(id),
                 remote::Operation::Disconnect(id) => {
                     !self.remote.pending && self.remote.connected(id)
                 }

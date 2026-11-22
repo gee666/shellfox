@@ -70,11 +70,6 @@ pub(super) fn bind(request: api::Request) -> anyhow::Result<RemoteRequest> {
                 .parse()
                 .map_err(|_| anyhow::anyhow!("Invalid remote attempt ID."))?,
         },
-        api::Request::ResumeAccess(id) => RemoteRequest::Continue {
-            attempt_id: id
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid remote attempt ID."))?,
-        },
         api::Request::ContinuePair { id, permit } => RemoteRequest::ContinueDesktopPair {
             attempt_id: id
                 .parse()

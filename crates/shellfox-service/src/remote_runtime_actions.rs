@@ -98,7 +98,6 @@ impl Manager {
                         }
                         self.disconnect(&peer_id)
                     }
-                    AttemptKind::Resume => {}
                     AttemptKind::Login => {
                         self.state.login_url = None;
                     }
@@ -125,14 +124,6 @@ impl Manager {
                     .cloned()
                     .ok_or_else(|| error(ErrorCode::NotFound, "Attempt is no longer current."))?;
                 match attempt.kind {
-                    AttemptKind::Resume => {
-                        let hostname = self.state.hostname.clone();
-                        Box::pin(self.request(RemoteRequest::Configure {
-                            enabled: true,
-                            hostname,
-                        }))
-                        .await?;
-                    }
                     AttemptKind::Login => {
                         if self.health_busy {
                             return Err(error(

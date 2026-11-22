@@ -145,22 +145,17 @@ fn one_click_approval_sends_only_peer_id_to_the_fixed_server_policy() {
     );
 }
 #[test]
-fn cancellation_and_resume_bind_exact_attempt_ids_and_reject_invalid_ids_before_rpc() {
+fn cancellation_binds_exact_attempt_ids_and_reject_invalid_ids_before_rpc() {
     let (service, gateway) = fixture(Outcome::State(state()));
     let id = "00000000-0000-4000-8000-000000000001";
     for bad in ["not-an-id", "00000000-0000-0000-0000-000000000000"] {
         assert!(run(&service, api::Request::CancelAttempt(bad.into())).is_err());
-        assert!(run(&service, api::Request::ResumeAccess(bad.into())).is_err());
     }
     assert!(gateway.requests.lock().unwrap().is_empty());
     run(&service, api::Request::CancelAttempt(id.into())).unwrap();
-    run(&service, api::Request::ResumeAccess(id.into())).unwrap();
     let requests = gateway.requests.lock().unwrap();
     assert!(
         matches!(&requests[0],NativeAction::Remote(host::RemoteRequest::Cancel{attempt_id})if attempt_id.to_string()==id)
-    );
-    assert!(
-        matches!(&requests[1],NativeAction::Remote(host::RemoteRequest::Continue{attempt_id})if attempt_id.to_string()==id)
     );
 }
 #[test]

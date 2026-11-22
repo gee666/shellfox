@@ -164,7 +164,6 @@ pub struct RemotePeer {
     deny_unknown_fields
 )]
 pub enum AttemptKind {
-    Resume,
     Enable,
     Login,
     Connect { peer_id: String },

@@ -44,26 +44,6 @@ impl SettingsPanel {
             .items_center()
             .gap(px(8.))
             .flex_wrap();
-        if let Some(attempt) = state
-            .attempts
-            .iter()
-            .find(|attempt| matches!(attempt.kind, api::RemoteAttemptKind::Resume))
-        {
-            actions = actions
-                .child(self.button(
-                    "resume-remote-access",
-                    "Continue",
-                    Action::Remote(Operation::ResumeAccess(attempt.id.clone())),
-                    cx,
-                ))
-                .child(self.button(
-                    "cancel-remote-resume",
-                    "Cancel",
-                    Action::Remote(Operation::CancelAttempt(attempt.id.clone())),
-                    cx,
-                ));
-            return account.child(actions);
-        }
         let native_attempt = state
             .attempts
             .iter()

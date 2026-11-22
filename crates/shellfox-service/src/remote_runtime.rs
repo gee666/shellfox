@@ -72,13 +72,7 @@ impl RemoteRuntime {
                 });
         preferences.validate()?;
         let hostname = preferences.hostname.clone();
-        let mut initial=RemoteControlState{enabled:false,hostname,status:RemoteNetworkStatus::Disabled,login_url:None,error:None,peers:preferences.peers.iter().map(|peer|RemotePeer{id:peer.id.clone(),hostname:peer.hostname.clone(),addresses:peer.addresses.clone(),online:false,remembered:true,host_confirmed:false,connection:RemoteConnection::Disconnected,last_error:None,attempt_id:None}).collect(),pending:approval.pending,approvals:approval.approvals,attempts:vec![],cleanup_retained:false,incoming_legacy_terminal_attachment:true,terminal_capability_reason:"Approved devices can attach to ordinary host-account terminals.".into()};
-        if preferences.enabled {
-            initial.attempts.push(RemoteAttempt {
-                id: Uuid::new_v4(),
-                kind: AttemptKind::Resume,
-            });
-        }
+        let initial=RemoteControlState{enabled:false,hostname,status:RemoteNetworkStatus::Disabled,login_url:None,error:None,peers:preferences.peers.iter().map(|peer|RemotePeer{id:peer.id.clone(),hostname:peer.hostname.clone(),addresses:peer.addresses.clone(),online:false,remembered:true,host_confirmed:false,connection:RemoteConnection::Disconnected,last_error:None,attempt_id:None}).collect(),pending:approval.pending,approvals:approval.approvals,attempts:vec![],cleanup_retained:false,incoming_legacy_terminal_attachment:true,terminal_capability_reason:"Approved devices can attach to ordinary host-account terminals.".into()};
         let (sender, receiver) = mpsc::channel(16);
         let (outgoing, outgoing_receiver) = mpsc::channel(16);
         let (state, watch) = watch::channel(initial.clone());
@@ -235,6 +229,15 @@ impl Manager {
         let mut approvals = self.backend.approvals().subscribe();
         let mut tick = tokio::time::interval(Duration::from_secs(3));
         self.emit().await;
+        if self.preferences.enabled {
+            // A saved "on" starts the node at startup, as Electron did, also after a reboot.
+            let hostname = self.preferences.hostname.clone();
+            let configure = RemoteRequest::Configure { enabled: true, hostname };
+            if let Err(error) = Box::pin(self.request(configure)).await {
+                self.state.error = Some(error);
+            }
+            self.emit().await;
+        }
         loop {
             while self.jobs.try_join_next().is_some() {}
             tokio::select! {

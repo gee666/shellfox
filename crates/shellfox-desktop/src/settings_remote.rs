@@ -10,7 +10,6 @@ pub(super) enum Operation {
     UseKey,
     Connect(String),
     CancelAttempt(String),
-    ResumeAccess(String),
     CancelPair(String),
     Disconnect(String),
     Approve(String),
@@ -112,15 +111,6 @@ impl RemoteView {
                 peer.id == id && peer.connection == api::Connection::Connected
             })
         })
-    }
-
-    pub fn can_resume_access(&self, id: &str) -> bool {
-        !self.pending
-            && self.state.as_ref().is_some_and(|state| {
-                state.attempts.iter().any(|attempt| {
-                    attempt.id == id && matches!(attempt.kind, api::RemoteAttemptKind::Resume)
-                })
-            })
     }
 
     pub fn retry_release_id(&self) -> Option<&str> {

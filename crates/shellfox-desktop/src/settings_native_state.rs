@@ -52,7 +52,6 @@ pub(crate) fn project(state: host::RemoteControlState) -> api::RemoteState {
         .map(|attempt| api::RemoteAttempt {
             id: attempt.id.to_string(),
             kind: match attempt.kind {
-                host::AttemptKind::Resume => api::RemoteAttemptKind::Resume,
                 host::AttemptKind::Enable => api::RemoteAttemptKind::Enable,
                 host::AttemptKind::Login => api::RemoteAttemptKind::Login,
                 host::AttemptKind::Connect { peer_id } => {
