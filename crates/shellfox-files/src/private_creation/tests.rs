@@ -111,7 +111,7 @@ fn created_objects_are_private_on_first_native_handle_without_post_create_repair
                 .unwrap();
         // Inspect immediately at native return, BEFORE the public wrapper could do any action.
         private_verify::object(&file, kind).unwrap();
-        assert!(PrivateIdentity::from_file(&file)
+        assert!(HandleIdentity::from_file(&file)
             .unwrap()
             .matches(&file)
             .unwrap());

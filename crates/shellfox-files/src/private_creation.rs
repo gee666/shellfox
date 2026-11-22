@@ -1,6 +1,6 @@
 //! Trusted host-native primitives. No path-based authority, wire DTO, or permission repair.
 //! Callers retain their ORIGINAL logical RW/scope/revocation and namespace custody guard.
-use crate::{paths, private_native, private_verify, ErrorCode, FileError, PrivateIdentity, Result};
+use crate::{paths, private_native, private_verify, ErrorCode, FileError, HandleIdentity, Result};
 use std::{
     ffi::{OsStr, OsString},
     fs::File,
@@ -46,10 +46,10 @@ pub enum PrivateCleanupState {
 
 struct Held {
     parent: File,
-    parent_id: PrivateIdentity,
+    parent_id: HandleIdentity,
     leaf: OsString,
     file: File,
-    identity: PrivateIdentity,
+    identity: HandleIdentity,
     kind: PrivateKind,
     access: PrivateAccess,
     lease: bool,
@@ -82,7 +82,7 @@ macro_rules! held_methods {
             pub fn as_file(&self) -> &File {
                 &self.0.file
             }
-            pub fn identity(&self) -> &PrivateIdentity {
+            pub fn identity(&self) -> &HandleIdentity {
                 &self.0.identity
             }
             /// True only after Unix flock acquisition or successful Windows exclusive sharing.
@@ -219,7 +219,7 @@ pub fn repair_app_directory_at(parent: &File, name: &OsStr, original: &File) -> 
     leaf(name)?;
     private_verify::directory_parent(parent, true)?;
     private_verify::kind(original, PrivateKind::Directory)?;
-    let identity = PrivateIdentity::from_file(original)?;
+    let identity = HandleIdentity::from_file(original)?;
     if private_verify::object(original, PrivateKind::Directory).is_ok() {
         return Ok(());
     }

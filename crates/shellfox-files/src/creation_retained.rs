@@ -116,7 +116,7 @@ fn create_inner(
             ))
         }
     };
-    let identity = match PrivateIdentity::from_file(file) {
+    let identity = match HandleIdentity::from_file(file) {
         Ok(id) => id,
         Err(error) => return Err(failed(error, custody)),
     };

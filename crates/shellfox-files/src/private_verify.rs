@@ -1,4 +1,4 @@
-use crate::{FileError, PrivateIdentity, PrivateKind, Result};
+use crate::{FileError, HandleIdentity, PrivateKind, Result};
 use std::fs::File;
 
 pub(crate) fn kind(file: &File, expected: PrivateKind) -> Result<()> {
@@ -22,10 +22,10 @@ pub(crate) fn kind(file: &File, expected: PrivateKind) -> Result<()> {
     }
     Ok(())
 }
-pub(crate) fn parent(file: &File) -> Result<PrivateIdentity> {
+pub(crate) fn parent(file: &File) -> Result<HandleIdentity> {
     directory_parent(file, false)
 }
-pub(crate) fn directory_parent(file: &File, app_directory: bool) -> Result<PrivateIdentity> {
+pub(crate) fn directory_parent(file: &File, app_directory: bool) -> Result<HandleIdentity> {
     kind(file, PrivateKind::Directory)?;
     #[cfg(not(windows))]
     let _ = app_directory;
@@ -46,9 +46,9 @@ pub(crate) fn directory_parent(file: &File, app_directory: bool) -> Result<Priva
     } else {
         crate::private_parent_windows::verify(file)?;
     }
-    PrivateIdentity::from_file(file)
+    HandleIdentity::from_file(file)
 }
-pub(crate) fn object(file: &File, expected: PrivateKind) -> Result<PrivateIdentity> {
+pub(crate) fn object(file: &File, expected: PrivateKind) -> Result<HandleIdentity> {
     kind(file, expected)?;
     #[cfg(unix)]
     {
@@ -74,7 +74,7 @@ pub(crate) fn object(file: &File, expected: PrivateKind) -> Result<PrivateIdenti
         let file = cap_std::fs::File::from_std(file.try_clone()?);
         crate::journal_private::fingerprint_kind(&file, expected == PrivateKind::Directory)?;
     }
-    PrivateIdentity::from_file(file)
+    HandleIdentity::from_file(file)
 }
 #[cfg(unix)]
 fn darwin_acl(file: &File) -> Result<()> {

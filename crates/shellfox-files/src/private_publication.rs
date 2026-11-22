@@ -49,7 +49,7 @@ impl PublishedPrivate {
     pub fn as_file(&self) -> &File {
         self.owned.as_file()
     }
-    pub fn identity(&self) -> &PrivateIdentity {
+    pub fn identity(&self) -> &HandleIdentity {
         self.owned.identity()
     }
     pub fn version(&self) -> &PrivateVersion {
@@ -66,14 +66,14 @@ struct PublishInstall {
 }
 struct StaleEvidence {
     parent: File,
-    parent_id: PrivateIdentity,
+    parent_id: HandleIdentity,
     leaf: OsString,
-    identity: Option<PrivateIdentity>,
+    identity: Option<HandleIdentity>,
     version: Option<PrivateVersion>,
 }
 pub struct OwnedPrivatePublication {
     parent: File,
-    parent_id: PrivateIdentity,
+    parent_id: HandleIdentity,
     destination: OsString,
     expected: Option<PrivateVersion>,
     stage: Option<CreatedPrivate>,
@@ -335,7 +335,7 @@ impl OwnedPrivatePublication {
     }
     pub fn stale_artifact(
         &self,
-    ) -> Option<(&OsStr, Option<&PrivateIdentity>, Option<&PrivateVersion>)> {
+    ) -> Option<(&OsStr, Option<&HandleIdentity>, Option<&PrivateVersion>)> {
         self.stale.as_ref().map(|value| {
             (
                 value.leaf.as_os_str(),

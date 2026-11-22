@@ -1,5 +1,5 @@
 //! Retained evidence after a native create may have happened. Never an implicit FileError conversion.
-use crate::{FileError, PrivateIdentity, PrivateKind};
+use crate::{FileError, HandleIdentity, PrivateKind};
 use std::{
     ffi::{OsStr, OsString},
     fs::File,
@@ -20,11 +20,11 @@ pub enum PrivatePreservationState {
 
 pub struct CreationCustody {
     pub(crate) parent: File,
-    pub(crate) parent_id: PrivateIdentity,
+    pub(crate) parent_id: HandleIdentity,
     pub(crate) leaf: OsString,
     pub(crate) kind: PrivateKind,
     pub(crate) file: Option<File>,
-    pub(crate) identity: Option<PrivateIdentity>,
+    pub(crate) identity: Option<HandleIdentity>,
     pub(crate) lease: bool,
     pub(crate) pin: bool,
     pub(crate) evidence: PrivateCreationEvidence,
@@ -34,10 +34,10 @@ impl CreationCustody {
     pub fn as_file(&self) -> Option<&File> {
         self.file.as_ref()
     }
-    pub fn identity(&self) -> Option<&PrivateIdentity> {
+    pub fn identity(&self) -> Option<&HandleIdentity> {
         self.identity.as_ref()
     }
-    pub fn parent_identity(&self) -> &PrivateIdentity {
+    pub fn parent_identity(&self) -> &HandleIdentity {
         &self.parent_id
     }
     /// Identity check only; caller still retains its original logical scope/revocation fence.

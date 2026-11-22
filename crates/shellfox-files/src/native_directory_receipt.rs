@@ -6,10 +6,10 @@ pub(crate) fn validate_leaf(name: &OsStr) -> Result<()> {
 }
 pub(crate) struct DirectoryReceipt<'a> {
     pub parent: &'a File,
-    pub parent_id: &'a PrivateIdentity,
+    pub parent_id: &'a HandleIdentity,
     pub leaf: &'a OsStr,
     pub file: &'a File,
-    pub identity: &'a PrivateIdentity,
+    pub identity: &'a HandleIdentity,
     pub access: PrivateAccess,
     #[cfg(windows)]
     pub pin: bool,

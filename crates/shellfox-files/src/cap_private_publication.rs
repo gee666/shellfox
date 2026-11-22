@@ -1,7 +1,7 @@
 //! Cap-scoped owner. Cleanup uses ONLY original creation custody, never renewed cap authority.
 use super::*;
 use crate::{
-    PrivateCleanupDisposition, PrivateIdentity, PrivatePublicationPhase, PrivatePublishOutcome,
+    PrivateCleanupDisposition, HandleIdentity, PrivatePublicationPhase, PrivatePublishOutcome,
     PublishedPrivate,
 };
 
@@ -12,7 +12,7 @@ pub struct ScopedPrivatePublication {
 /// Borrowed diagnostics/version only. No handle, constructor or transferable ownership proof.
 pub struct ScopedPublishedReceipt<'a>(&'a PublishedPrivate);
 impl ScopedPublishedReceipt<'_> {
-    pub fn identity(&self) -> &PrivateIdentity {
+    pub fn identity(&self) -> &HandleIdentity {
         self.0.identity()
     }
     pub fn version(&self) -> &PrivateVersion {
@@ -135,7 +135,7 @@ impl ScopedPrivatePublication {
     }
     pub fn stale_artifact(
         &self,
-    ) -> Option<(&OsStr, Option<&PrivateIdentity>, Option<&PrivateVersion>)> {
+    ) -> Option<(&OsStr, Option<&HandleIdentity>, Option<&PrivateVersion>)> {
         self.attempt.as_ref()?.stale_artifact()
     }
 }

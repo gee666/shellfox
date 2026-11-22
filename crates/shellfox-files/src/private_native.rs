@@ -164,7 +164,7 @@ pub(crate) fn remove(parent: &File, leaf: &OsStr, file: &File, kind: PrivateKind
                 Some(0x110080),
                 None,
             )?;
-            if !crate::PrivateIdentity::from_file(file)?.matches(&held)? {
+            if !crate::HandleIdentity::from_file(file)?.matches(&held)? {
                 return Err(crate::FileError::conflict());
             }
             Some(held)

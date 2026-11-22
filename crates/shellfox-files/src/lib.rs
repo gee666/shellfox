@@ -33,8 +33,7 @@ mod permissions;
 mod platform;
 #[cfg(unix)]
 mod platform_directory_sync;
-#[path = "private_identity.rs"]
-pub mod handle_identity;
+mod handle_identity;
 #[cfg(windows)]
 mod private_security;
 mod private_creation;
@@ -56,7 +55,6 @@ pub use private_creation::{create_private_directory_at, repair_app_directory_at,
 pub(crate) use private_creation::{create_private_file_at, PrivateFileUse, PrivateVersion,
     prepare_private_publication_at, OwnedPrivatePublication, PublishedPrivate};
 pub use handle_identity::HandleIdentity;
-pub(crate) type PrivateIdentity = HandleIdentity;
 mod read_result;
 mod service;
 mod staged_write;

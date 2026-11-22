@@ -6,12 +6,12 @@ use std::io::{Seek, SeekFrom};
 pub const PRIVATE_METADATA_MAX_BYTES: usize = 4 * 1024 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrivateVersion {
-    identity: PrivateIdentity,
+    identity: HandleIdentity,
     size: u64,
     revision: String,
 }
 impl PrivateVersion {
-    pub fn identity(&self) -> &PrivateIdentity {
+    pub fn identity(&self) -> &HandleIdentity {
         &self.identity
     }
     pub fn size(&self) -> u64 {
