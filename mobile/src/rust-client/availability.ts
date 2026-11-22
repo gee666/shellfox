@@ -17,7 +17,7 @@ export function probeNativeClient(): NativeAvailability {
   try {
     const native = TurboModuleRegistry.get<Spec>('NativeShellfoxRustClient');
     if (!native || native.abiVersion() !== 1) return { available: false, reason: 'This binary has no compatible Rust client.' };
-    const required: ReadonlyArray<keyof Spec> = ['createClient', 'readEvent', 'closeClient',
+    const required: ReadonlyArray<keyof Spec> = ['createClient', 'readEvent', 'onClientEvent', 'closeClient',
       'createTerminal', 'closeTerminal', 'bindTerminal', 'terminalInput', 'configureTerminal'];
     if (required.some((method) => typeof native[method] !== 'function')) {
       return { available: false, reason: 'This binary has incomplete Rust client bindings.' };

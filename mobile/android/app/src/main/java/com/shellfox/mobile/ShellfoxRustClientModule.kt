@@ -5,6 +5,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.module.annotations.ReactModule
 import com.shellfox.mobile.rust.ClientBindings
+import com.shellfox.mobile.rust.ClientEventSink
 import com.shellfox.mobile.rust.ClientProfile
 import com.shellfox.mobile.rust.ClientTerminalBindings
 import com.shellfox.mobile.rust.NativeCallException
@@ -32,7 +33,9 @@ private fun fileRequest(json: String): String? {
 }
 
 @ReactModule(name = NativeShellfoxRustClientSpec.NAME)
-class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfoxRustClientSpec(context), LifecycleEventListener {
+class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfoxRustClientSpec(context), LifecycleEventListener,
+  ClientEventSink {
+  override fun clientEvent(clientHandle: String) { if (!stopped) emitOnClientEvent(clientHandle) }
   init { NativeGoTransport.initialize(context); context.addLifecycleEventListener(this) }
   override fun onHostResume() { TerminalCoordinator.foreground(this, true) }
   override fun onHostPause() { TerminalCoordinator.foreground(this, false) }

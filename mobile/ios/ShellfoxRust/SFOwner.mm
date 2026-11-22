@@ -60,6 +60,7 @@ static void CopyFrame(void *context, const SfmFrame *source) {
   std::mutex _mutex;
   std::condition_variable _wake;
   std::deque<SFOwnerWork> _pending;
+  std::atomic<bool> _tickRequested;
   NSMutableDictionary<NSString *, SFTerminal *> *_terminals;
   NSMutableArray<SFLifetime *> *_lifetimes;
 }
@@ -72,6 +73,7 @@ static void CopyFrame(void *context, const SfmFrame *source) {
 - (instancetype)init {
   if ((self = [super init])) {
     _terminals = [NSMutableDictionary new]; _lifetimes = [NSMutableArray new];
+    _tickRequested.store(false);
     _thread = [[NSThread alloc] initWithTarget:self selector:@selector(run) object:nil];
     _thread.name = @"Shellfox Rust owner";
     _thread.qualityOfService = NSQualityOfServiceUserInteractive;
@@ -117,6 +119,10 @@ static void CopyFrame(void *context, const SfmFrame *source) {
   if (available) { _pending.push_back([work copy]); _wake.notify_one(); }
   return available;
 }
+- (void)requestTick {
+  _tickRequested.store(true);
+  std::lock_guard<std::mutex> guard(_mutex); _wake.notify_one();
+}
 - (void)run {
   NSTimeInterval nextTick = 0;
   for (;;) {
@@ -125,7 +131,8 @@ static void CopyFrame(void *context, const SfmFrame *source) {
       {
         std::unique_lock<std::mutex> lock(_mutex);
         double delay = nextTick - NSProcessInfo.processInfo.systemUptime;
-        if (_pending.empty() && delay > 0) _wake.wait_for(lock, std::chrono::duration<double>(delay));
+        if (_pending.empty() && !_tickRequested.load() && delay > 0)
+          _wake.wait_for(lock, std::chrono::duration<double>(delay), [&] { return !_pending.empty() || _tickRequested.load(); });
         for (unsigned i = 0; i < 16 && !_pending.empty(); ++i) {
           batch.push_back(std::move(_pending.front())); _pending.pop_front();
         }
@@ -133,9 +140,11 @@ static void CopyFrame(void *context, const SfmFrame *source) {
       for (SFOwnerWork work : batch) work();
       [self retireLifetimes];
       NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
-      if (now < nextTick) continue;
-      nextTick = now + 1.0 / 60;
-      [[SFClientStore shared] tick];
+      // Rust wakes, owner work and due retries run a pass. Otherwise the
+      // loop sleeps; the idle pass only retries credit and stale state.
+      BOOL requested = _tickRequested.exchange(false);
+      if (!requested && batch.empty() && now < nextTick) continue;
+      BOOL busy = [[SFClientStore shared] tick], pumped = NO;
       for (SFTerminal *terminal in _terminals.allValues) if (!terminal.retiring) [self retryIntents:terminal];
       for (SFTerminal *terminal in _terminals.allValues) {
         if (terminal.hostEncoding && terminal.sink) {
@@ -157,9 +166,11 @@ static void CopyFrame(void *context, const SfmFrame *source) {
         SfmStatus status = sfm_terminal_progress(terminal.handle, &before);
         if (status == SFM_OK && (before.queued_chunks || (presenting && terminal.dirty))) {
           status = sfm_terminal_pump(terminal.handle, PumpError, (__bridge void *)terminal);
+          pumped = pumped || before.queued_chunks;
           SfmProgress after = {};
           if (status == SFM_OK) status = sfm_terminal_progress(terminal.handle, &after);
           if (status == SFM_OK) {
+            busy = busy || after.queued_chunks;
             if (presenting && (after.consumed_sequence != terminal.delivered || terminal.dirty))
               status = sfm_terminal_frame(terminal.handle, CopyFrame, (__bridge void *)terminal);
             terminal.delivered = after.consumed_sequence;
@@ -182,7 +193,12 @@ static void CopyFrame(void *context, const SfmFrame *source) {
           terminal.visible = NO;
           [terminal.sink terminalFailed:terminal.identifier status:status];
         }
+        busy = busy || terminal.pendingIntents.count || terminal.recovering ||
+          (presenting && (terminal.dirty || terminal.viewportUnaccepted));
       }
+      // Consumed output can let a client start its next poll in this pass.
+      if (pumped) busy = [[SFClientStore shared] tick] || busy;
+      nextTick = now + (busy ? 1.0 / 60 : 1.0);
     }
   }
 }

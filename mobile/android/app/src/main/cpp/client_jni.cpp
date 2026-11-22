@@ -2,6 +2,7 @@
 #include "shellfox_mobile_client.h"
 #include "client_profile_ops.h"
 #include "client_jni_bytes.h"
+#include <mutex>
 #include <vector>
 
 namespace {
@@ -50,6 +51,17 @@ void request(void* context, SfmClientHandle client, uint64_t generation, uint64_
   if (p) env->DeleteLocalRef(p);
   if (route) env->DeleteLocalRef(route);
   if (data) env->DeleteLocalRef(data);
+}
+// Set once on a JVM thread; Rust wakes from its own threads, which attach as daemons.
+JavaVM* wakeVm = nullptr;
+jclass wakeClass = nullptr;
+jmethodID wakeMethod = nullptr;
+void wake(void*, SfmClientHandle client) noexcept {
+  JNIEnv* env = nullptr;
+  if (wakeVm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK &&
+    wakeVm->AttachCurrentThreadAsDaemon(&env, nullptr) != JNI_OK) return;
+  env->CallStaticVoidMethod(wakeClass, wakeMethod, static_cast<jlong>(client));
+  if (env->ExceptionCheck()) env->ExceptionClear();
 }
 void cancel(void* context, SfmClientHandle client, uint64_t generation, uint64_t id) noexcept {
   auto& ctx = *static_cast<Dispatch*>(context);
@@ -252,4 +264,17 @@ extern "C" JNIEXPORT jbyteArray JNICALL JNI(readEvent)(JNIEnv* env, jobject, jlo
     if (!check(env, result) || needed > data.size()) return nullptr;
     return array(env, data.data(), needed);
   } catch (...) { fail(env, SFM_ENGINE); return nullptr; }
+}
+extern "C" JNIEXPORT void JNICALL JNI(setWaker)(JNIEnv* env, jobject bindings, jlong handle) {
+  static std::once_flag once;
+  std::call_once(once, [&] {
+    if (env->GetJavaVM(&wakeVm) != JNI_OK) return;
+    auto local = env->GetObjectClass(bindings);
+    wakeClass = static_cast<jclass>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    wakeMethod = env->GetStaticMethodID(wakeClass, "wake", "(J)V");
+  });
+  if (env->ExceptionCheck()) return;
+  if (!wakeVm || !wakeClass || !wakeMethod) { fail(env, SFM_ENGINE); return; }
+  check(env, sfm_client_set_waker(handle, wake, nullptr));
 }

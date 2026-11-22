@@ -3,12 +3,21 @@ package com.shellfox.mobile.rust
 import org.json.JSONObject
 import java.util.ArrayDeque
 
+/** The React module that owns a client; told when readEvent has results. */
+interface ClientEventSink { fun clientEvent(clientHandle: String) }
+
 /** Only accessed on TerminalCoordinator's OS thread. Rust owns leases and tickets. */
 internal object ClientTerminalBindings {
+  private const val FRAME_MS = 16L
+  /** Safety pass only; Rust wakes the owner for all network work. */
+  private const val IDLE_MS = 1000L
   private class Client(val handle: Long, val module: Any, val profile: ClientProfile) {
     val events = ArrayDeque<String>()
     var eventBytes = 0
     var failed = false
+    var pass: Runnable? = null
+    var passAt = 0L
+    var signalled = false
     val filter = NativeEventFilter()
     val poll = ClientPollLane({ android.os.SystemClock.elapsedRealtime() },
       { idString(ClientBindings.start(handle, 2, null)) })
@@ -45,7 +54,9 @@ internal object ClientTerminalBindings {
     val id = idString(handle)
     val client = Client(handle, module, actual)
     clients[id] = client
-    tick(id, client)
+    // Registration runs one wake, which starts the first pass.
+    try { ClientBindings.setWaker(handle) }
+    catch (error: Exception) { clients.remove(id); ClientBindings.close(handle, transport); throw error }
     return id
   }
   private fun get(module: Any, id: String): Client {
@@ -68,6 +79,7 @@ internal object ClientTerminalBindings {
     val v1 = original.profile == ClientProfile.V1
     if (fenceV1 && v1) original.poll.prepareV1Fence()
     original.poll.submit({ check(get(module, id) === original); action() }, independentFile && v1, done)
+    kick(original)
   }
   fun changeViewBinding(module: Any, id: String, tab: String?, terminal: String, done: (String?, Exception?) -> Unit) {
     val client = get(module, id)
@@ -83,8 +95,11 @@ internal object ClientTerminalBindings {
     val client = terminals[terminal]?.client
     if (client == null) { try { action(); done(null) } catch (error: Exception) { done(error) }; return }
     client.poll.submit({ check(client.closing == null); action(); null }) { _, error -> done(error) }
+    kick(client)
   }
-  fun foreground(module: Any, value: Boolean) { clients.values.filter { it.module === module }.forEach { it.foreground = value } }
+  fun foreground(module: Any, value: Boolean) {
+    clients.values.filter { it.module === module }.forEach { it.foreground = value; kick(it) }
+  }
   fun profile(module: Any, id: String): String = get(module, id).profile.let {
     JSONObject().put("profile", it.code).put("apiCapabilities", it.apiCapabilities).toString()
   }
@@ -147,6 +162,7 @@ internal object ClientTerminalBindings {
     terminals[terminal] = Binding(client, handle)
     TerminalCoordinator.boundProfile(terminal, client.profile)
     if (client.profile == ClientProfile.MANAGER_V2) recovering.add(terminal)
+    kick(client)
   }
   fun unbind(module: Any, id: String, terminal: String) {
     val client = get(module, id)
@@ -167,6 +183,7 @@ internal object ClientTerminalBindings {
     if (!binding.client.profile.allowsInputApi) throw NativeCallException(2)
     if (resetting.contains(terminal) || recovering.contains(terminal)) throw NativeInputStale()
     binding.input.submit(encoded, release)
+    if (binding.input.hasPending) kick(binding.client)
   }
   fun inputNativeJson(terminal: String, json: String, release: Boolean) {
     val binding = requireNotNull(terminals[terminal]); require(binding.client.profile == ClientProfile.MANAGER_V2)
@@ -191,12 +208,17 @@ internal object ClientTerminalBindings {
     binding.size = if (allowed) Pair(cols, rows) else null
     if (!allowed) binding.input.dropResizes()
     resizePending(binding)
+    if (binding.size != null || binding.input.hasPending) kick(binding.client)
   }
   fun readEvent(module: Any, id: String): String? {
     val client = get(module, id)
-    if (client.profile != ClientProfile.MANAGER_V2 && (resetting + recovering).any { terminals[it]?.client === client }) return null
-    val value = client.events.pollFirst() ?: return null
+    if (!readable(client)) { client.signalled = false; return null }
+    val full = client.events.size >= 64
+    val value = client.events.pollFirst()
+    if (value == null) { client.signalled = false; return null }
     client.eventBytes -= value.toByteArray().size
+    // Rust may hold more results that the full queue refused.
+    if (full) kick(client)
     return value
   }
   fun close(module: Any, id: String, done: ((String?) -> Unit)? = null) {
@@ -211,7 +233,8 @@ internal object ClientTerminalBindings {
     client.closing = Closing(android.os.SystemClock.elapsedRealtime() + 3000, mutableListOf<(String?) -> Unit>().apply { if (done != null) add(done) })
     if (client.profile == ClientProfile.V1) client.poll.prepareV1Fence()
     client.poll.retire()
-    if (client.failed) { client.failed = false; tick(id, client) }
+    if (client.failed) client.failed = false
+    schedule(id, client, 0)
   }
   private fun finishClose(id: String, client: Client) {
     val closing = requireNotNull(client.closing)
@@ -242,6 +265,8 @@ internal object ClientTerminalBindings {
   private fun ownerDrained(client: Client) = terminals.filterValues { it.client === client }.keys.all { TerminalCoordinator.queueDrained(it) }
   private fun tick(id: String, client: Client) {
     if (clients[id] !== client || client.failed) return
+    var more = false
+    var delay = IDLE_MS
     try {
       val closing = client.closing
       if (closing != null && client.poll.drained && ownerDrained(client) && closing.operation == null) {
@@ -250,7 +275,8 @@ internal object ClientTerminalBindings {
       }
       ClientBindings.dispatch(client.handle, transport)
       var budget = 32
-      while (budget-- > 0 && (closing != null || (client.events.size < 64 && client.eventBytes < 8_388_608))) {
+      while (closing != null || (client.events.size < 64 && client.eventBytes < 8_388_608)) {
+        if (budget-- == 0) { more = true; break }
         val bytes = ClientBindings.readEvent(client.handle) ?: break
         val event = JSONObject(bytes.toString(Charsets.UTF_8))
         val success = event.getInt("status") == 0 && event.optJSONObject("result")?.optBoolean("ok", true) != false
@@ -286,8 +312,9 @@ internal object ClientTerminalBindings {
           val callbacks = closing.callbacks.toList(); closing.callbacks.clear()
           callbacks.forEach { it("BUSY") }
         }
+        // Teardown is bounded by its deadline, so a short retry is fine here.
         if (client.poll.drained && ownerDrained(client) && closing.gate.disconnectSucceeded) finishClose(id, client)
-        else TerminalCoordinator.later(10) { tick(id, client) }
+        else schedule(id, client, 10)
         return
       }
       resetting.toList().filter { terminals[it]?.client === client }.forEach { terminal ->
@@ -327,17 +354,58 @@ internal object ClientTerminalBindings {
           recovering.remove(terminal)
         }
       }
-      terminals.filterValues { it.client === client }.forEach { (terminal, binding) ->
+      val mine = terminals.filterValues { it.client === client }
+      mine.forEach { (terminal, binding) ->
         if (!resetting.contains(terminal) && !recovering.contains(terminal)) binding.input.drain()
         resizePending(binding)
       }
-      client.poll.advance(client.foreground && (resetting + recovering).none { terminals[it]?.client === client }, ownerDrained(client))
+      val settling = (resetting + recovering).any { terminals[it]?.client === client }
+      client.poll.advance(client.foreground && !settling, ownerDrained(client))
+      // Send input drained above in this pass rather than on the next wake.
+      ClientBindings.dispatch(client.handle, transport)
+      signal(id, client)
+      TerminalCoordinator.kickReady()
+      // Rust wakes us for new requests and results. Retry sooner only for
+      // native-side states that have no wake of their own.
+      val retryAt = client.poll.retryAt()
+      delay = when {
+        more -> 0
+        settling || mine.values.any { it.input.hasPending || it.size != null } -> FRAME_MS
+        client.foreground && retryAt != null ->
+          (retryAt - android.os.SystemClock.elapsedRealtime()).coerceIn(FRAME_MS, IDLE_MS)
+        else -> IDLE_MS
+      }
     } catch (_: Exception) {
       val closing = client.closing
       if (closing != null) {
         val callbacks = closing.callbacks.toList(); closing.callbacks.clear(); callbacks.forEach { it("ENGINE") }
       } else client.failed = true
     }
-    if (!client.failed) TerminalCoordinator.later(10) { tick(id, client) }
+    if (!client.failed) schedule(id, client, delay)
   }
+  /** Coalesced: keeps only the earliest pending pass for a client. */
+  private fun schedule(id: String, client: Client, delayMs: Long) {
+    val at = android.os.SystemClock.uptimeMillis() + delayMs
+    client.pass?.let { if (client.passAt <= at) return; TerminalCoordinator.cancel(it) }
+    val pass = Runnable { client.pass = null; tick(id, client) }
+    client.pass = pass; client.passAt = at
+    TerminalCoordinator.later(delayMs, pass)
+  }
+  private fun kick(client: Client) {
+    clients.entries.firstOrNull { it.value === client }?.let { schedule(it.key, client, 0) }
+  }
+  /** Rust queued a request or result for this client. */
+  fun wake(handle: Long) {
+    clients.entries.firstOrNull { it.value.handle == handle }?.let { schedule(it.key, it.value, 0) }
+  }
+  /** A bound terminal consumed output; its client may now start the next poll. */
+  fun terminalProgressed(terminal: String) { terminals[terminal]?.client?.let(::kick) }
+  /** Tell JS once per batch that readEvent has results. */
+  private fun signal(id: String, client: Client) {
+    if (client.signalled || client.events.isEmpty() || !readable(client)) return
+    client.signalled = true
+    (client.module as? ClientEventSink)?.clientEvent(id)
+  }
+  private fun readable(client: Client) = client.profile == ClientProfile.MANAGER_V2 ||
+    (resetting + recovering).none { terminals[it]?.client === client }
 }

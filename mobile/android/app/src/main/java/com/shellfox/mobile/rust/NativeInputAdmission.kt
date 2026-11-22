@@ -21,6 +21,7 @@ internal class NativeInputAdmission(
   private val pending = ArrayDeque<Intent>()
   private var bytes = 0
   private var ordinary = 0
+  val hasPending: Boolean get() = pending.isNotEmpty()
 
   fun submit(value: EncodedInput, release: Boolean) {
     if (!offer(Input(value.bytes.copyOf(), value.userInitiated, release))) throw NativeInputStale()

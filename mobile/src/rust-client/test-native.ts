@@ -4,10 +4,16 @@ import { attachment } from '../client/test-fixtures';
 import type { NativeTerminalBinding } from './adapter';
 import type { NativeRemoteBinding } from './remote-adapter';
 import type { NativeOperation } from './native-events';
+import type { NativeClientEvents } from './operation-pump';
 
 /** Inert test-only native module. No account, socket, host process or filesystem. */
-export class TestNative implements NativeRemoteBinding, NativeTerminalBinding {
+export class TestNative implements NativeRemoteBinding, NativeTerminalBinding, NativeClientEvents {
   readonly events: NativeOperation[] = [];
+  private readonly signals = new Set<(handle: string) => void>();
+  readonly onClientEvent = vi.fn((handler: (handle: string) => void) => {
+    this.signals.add(handler);
+    return { remove: () => { this.signals.delete(handler); } };
+  });
   readonly polls: string[] = [];
   private nextOperation = 1;
   private nextClient = 1;
@@ -65,5 +71,7 @@ export class TestNative implements NativeRemoteBinding, NativeTerminalBinding {
   event(operationId: string, result: unknown, status = 0, internal = false, client = this.currentClient): void {
     const event = { operationId, internal, status, result, connection: { ...this.connection } };
     this.eventClients.set(event, client); this.events.push(event);
+    // Native signals after the call that queued the result returns.
+    queueMicrotask(() => { for (const signal of this.signals) signal(client); });
   }
 }

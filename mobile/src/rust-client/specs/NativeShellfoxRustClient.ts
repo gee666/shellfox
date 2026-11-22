@@ -1,7 +1,9 @@
-import type { TurboModule } from 'react-native';
+import type { CodegenTypes, TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 
 export interface Spec extends TurboModule {
+  /** Client handle whose readEvent has results. Coalesced until readEvent returns null. */
+  readonly onClientEvent: CodegenTypes.EventEmitter<string>;
   abiVersion(): number;
   createTerminal(cols: number, rows: number): Promise<string>;
   closeTerminal(terminalHandle: string): Promise<void>;

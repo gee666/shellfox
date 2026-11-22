@@ -21,6 +21,9 @@
 }
 @end
 
+// Rust calls this from its own threads when dispatch or read_event has work.
+static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick]; }
+
 @implementation SFClientStore {
   NSMutableDictionary<NSString *, SFClientRecord *> *_clients;
   NSMutableDictionary<NSString *, NSString *> *_bindings;
@@ -89,6 +92,10 @@
   if(status!=SFM_OK)return status;
   uint32_t profile=0,capabilities=0;status=sfm_client_profile(handle,&profile,&capabilities);
   if(status!=SFM_OK||profile!=expected->profile||capabilities!=expected->capabilities){[[SFGoTransport shared] closeClient:handle];return SFM_INVALID;}
+  if(profile==SFM_CLIENT_PROFILE_V1){
+    status=sfm_client_set_waker(handle,WakeOwner,nullptr);
+    if(status!=SFM_OK){[[SFGoTransport shared] closeClient:handle];return status;}
+  }
   NSString *identifier=SFDecimal(handle);SFClientRecord *record=[SFClientRecord new];record.handle=handle;record.profile=profile;record.apiCapabilities=capabilities;
   _clients[identifier]=record;*result=identifier;return SFM_OK;
 }
@@ -175,7 +182,8 @@
   }
   return status;
 }
-- (void)tick {
+- (BOOL)tick {
+  BOOL busy = NO;
   for (SFClientRecord *client in _clients.allValues) {
     if (client.closing && NSProcessInfo.processInfo.systemUptime >= client.closeDeadline && !client.disconnectFinished) {
       NSArray<SFClientCloseCompletion> *waiters = client.closeWaiters.copy; [client.closeWaiters removeAllObjects];
@@ -186,9 +194,12 @@
       [self finishClose:client]; continue;
     }
     if (client.closing) [self startDisconnect:client];
+    // Teardown is bounded by its deadline; the experimental profiles have no waker.
+    busy = busy || client.closing || client.profile != SFM_CLIENT_PROFILE_V1;
     if (_foreground.load() || client.closing) [[SFGoTransport shared] dispatchClient:client.handle];
     // Bounded native coarse queue. Rust retains the next event under pressure.
-    for (unsigned i = 0; i < 4 && (client.closing || client.events.count < 64); ++i) {
+    unsigned i = 0;
+    for (; i < 4 && (client.closing || client.events.count < 64); ++i) {
       size_t needed = 0;
       SfmStatus status = sfm_client_read_event(client.handle, nullptr, 0, &needed);
       if (status == SFM_CLIENT_EMPTY) break;
@@ -221,7 +232,11 @@
         [client.events addObject:data]; client.eventBytes += data.length;
       }
     }
+    busy = busy || i == 4;
     if (client.closing) continue;
+    if (client.events.count && !client.signalled && client.eventSignal) {
+      client.signalled = YES; client.eventSignal(SFDecimal(client.handle));
+    }
     [self drainClient:client];
     // Native0 imports atomically on owner pump. It has no ANSI reset API.
     if (![client functions].resetTicket) continue;
@@ -268,8 +283,15 @@
       uint64_t operation = 0;
       SfmStatus status = [self poll:identifier operation:&operation];
       if (status != SFM_OK) client.nextPoll = NSProcessInfo.processInfo.systemUptime + 0.1;
+      // Send the new poll in this pass.
+      else [[SFGoTransport shared] dispatchClient:client.handle];
     }
   }
+  for (SFClientRecord *client in _clients.allValues) {
+    busy = busy || client.resets.count || client.pendingCalls.count ||
+      (_foreground.load() && client.polling && !client.pollOperation);
+  }
+  return busy;
 }
 - (BOOL)hasPendingIntents:(NSString *)identifier {
   for (NSString *terminal in _bindings) if ([_bindings[terminal] isEqual:identifier] &&
@@ -279,7 +301,10 @@
 - (NSData *)read:(NSString *)identifier {
   SFClientRecord *client = _clients[identifier];
   NSData *data = client.events.firstObject;
-  if (data) { [client.events removeObjectAtIndex:0]; client.eventBytes -= data.length; }
+  if (!data) { client.signalled = NO; return nil; }
+  // Rust may hold more results that the full queue refused.
+  if (client.events.count >= 64) [[SFOwner shared] requestTick];
+  [client.events removeObjectAtIndex:0]; client.eventBytes -= data.length;
   return data;
 }
 - (SfmStatus)sendInput:(NSData *)bytes userInitiated:(uint8_t)hint terminal:(NSString *)identifier {

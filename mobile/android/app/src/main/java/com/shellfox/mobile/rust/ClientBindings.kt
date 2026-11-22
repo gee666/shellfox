@@ -29,11 +29,15 @@ internal object ClientBindings {
   external fun resetDone(client: Long, terminal: Long, ticket: Long): Int
   external fun resize(client: Long, terminal: Long, cols: Int, rows: Int): Int
   external fun write(client: Long, terminal: Long, bytes: ByteArray, userInitiated: Boolean): Int
+  external fun setWaker(client: Long)
   external fun dispatch(client: Long, transport: Class<*>)
   external fun close(client: Long, transport: Class<*>)
   external fun complete(client: Long, generation: Long, request: Long, outcome: Int, bytes: ByteArray): Int
   external fun completeHttp(client: Long, generation: Long, request: Long, outcome: Int, httpStatus: Int, bytes: ByteArray): Int
   external fun readEvent(client: Long): ByteArray?
+
+  /** Called by Rust from any thread; coalesced until the next dispatch. */
+  @JvmStatic fun wake(client: Long) = TerminalCoordinator.wakeClient(client)
 }
 
 internal fun nativeId(value: String): Long {

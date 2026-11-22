@@ -52,6 +52,8 @@ typedef void (^SFOwnerWork)(void);
 + (instancetype)shared;
 // Bounded admission. Accepted blocks execute in FIFO order on one permanent NSThread.
 - (BOOL)enqueue:(SFOwnerWork)work;
+// Any thread. Runs a client and terminal pass as soon as the owner is free.
+- (void)requestTick;
 - (BOOL)isOwnerThread;
 - (BOOL)registerLifetime:(SFLifetime *)lifetime;
 - (SfmStatus)create:(uint16_t)cols rows:(uint16_t)rows result:(SFTerminal *_Nullable *_Nonnull)result;

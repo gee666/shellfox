@@ -16,7 +16,8 @@ internal object TerminalCoordinator {
   private data class Entry(val handle: Long, val module: Any, var view: TerminalSink? = null,
     var dirty: Boolean = true, var ticking: Boolean = false, var cols: Int = 80, var rows: Int = 24,
     var appearance: TerminalAppearance = TerminalAppearance(), var foreground: Boolean = true, var inputEpoch: Long = 1, var writable: Boolean = false, var recovering: Boolean = false,
-    var engineCols: Int = cols, var engineRows: Int = rows, var profile: ClientProfile = ClientProfile.V1)
+    var engineCols: Int = cols, var engineRows: Int = rows, var profile: ClientProfile = ClientProfile.V1,
+    var pass: Runnable? = null, var passAt: Long = 0)
 
   interface TerminalSink {
     fun capabilities(profile: ClientProfile)
@@ -30,7 +31,7 @@ internal object TerminalCoordinator {
 
   fun execute(rejected: () -> Unit, critical: Boolean = false, task: () -> Unit) {
     if (queued.incrementAndGet() > MAX_COMMANDS + (if (critical) 256 else 0)) { queued.decrementAndGet(); rejected(); return }
-    owner.post { try { task() } finally { queued.decrementAndGet() } }
+    owner.post { try { task() } finally { queued.decrementAndGet(); kickReady() } }
   }
 
   fun create(module: Any, cols: Double, rows: Double, done: (String?, String?) -> Unit) = execute(
@@ -45,7 +46,7 @@ internal object TerminalCoordinator {
       val id = idString(handle)
       val entry = Entry(handle, module, cols = cols.toInt(), rows = rows.toInt(), ticking = true)
       terminals[id] = entry
-      tick(id, entry)
+      schedule(id, entry, 0)
       done(id, null)
     } catch (error: NativeCallException) { done(null, nativeCode(error.status)) }
     catch (_: Exception) { done(null, "ENGINE") } catch (_: LinkageError) { done(null, "UNAVAILABLE") }
@@ -123,7 +124,8 @@ internal object TerminalCoordinator {
     sink.resetInput(entry.inputEpoch)
     sink.appearance(entry.appearance)
     sink.state(if (entry.recovering) "recovering" else "ready")
-    if (!entry.ticking) { entry.ticking = true; tick(id, entry) }
+    entry.ticking = true
+    schedule(id, entry, 0)
   }
 
   fun detach(id: String, sink: TerminalSink) {
@@ -159,10 +161,28 @@ internal object TerminalCoordinator {
     owner.post {
       ClientTerminalBindings.foreground(module, value)
       terminals.values.filter { it.module === module }.forEach { it.foreground = value; it.dirty = true }
+      kickReady()
     }
   }
 
-  fun later(delay: Long, task: () -> Unit) { owner.postDelayed(task, delay) }
+  fun later(delay: Long, task: Runnable) { owner.postDelayed(task, delay) }
+  fun cancel(task: Runnable) { owner.removeCallbacks(task) }
+  /** Rust wake for a client; any thread. */
+  fun wakeClient(handle: Long) { owner.post { ClientTerminalBindings.wake(handle) } }
+  /** Run a pass now for terminals with a pending frame or queued output. */
+  fun kickReady() {
+    for ((id, entry) in terminals) {
+      val ready = entry.ticking && (entry.dirty && entry.foreground && entry.view != null || try { RustBindings.progress(entry.handle)[3] > 0 } catch (_: Exception) { true })
+      if (ready) schedule(id, entry, 0)
+    }
+  }
+  private fun schedule(id: String, entry: Entry, delayMs: Long) {
+    val at = android.os.SystemClock.uptimeMillis() + delayMs
+    entry.pass?.let { if (entry.passAt <= at) return; owner.removeCallbacks(it) }
+    val pass = Runnable { entry.pass = null; tick(id, entry) }
+    entry.pass = pass; entry.passAt = at
+    owner.postDelayed(pass, delayMs)
+  }
 
   fun configure(module: Any, id: String, json: String) {
     val handle = ownedHandle(module, id)
@@ -328,9 +348,12 @@ internal object TerminalCoordinator {
 
   private fun tick(id: String, entry: Entry) {
     if (terminals[id] !== entry) { entry.ticking = false; return }
+    val presenting = entry.foreground && entry.view != null
+    var queued = false
     try {
       val progress = RustBindings.progress(entry.handle)
-      if (entry.foreground && entry.view != null && (entry.dirty || progress[3] > 0)) {
+      val pumped = progress[3] > 0
+      if (presenting && (entry.dirty || pumped)) {
         val frame = TerminalFrame.decode(RustBindings.pumpFrame(entry.handle))
         entry.engineCols = frame.cols
         entry.engineRows = frame.rows
@@ -341,6 +364,8 @@ internal object TerminalCoordinator {
         entry.dirty = true
       }
       ClientTerminalBindings.consumed(id)
+      if (pumped) ClientTerminalBindings.terminalProgressed(id)
+      queued = RustBindings.progress(entry.handle)[3] > 0
     } catch (_: Exception) {
       entry.view?.error(5)
       ClientTerminalBindings.engineFailed(id)
@@ -348,6 +373,8 @@ internal object TerminalCoordinator {
       entry.ticking = false
       return
     }
-    owner.postDelayed({ tick(id, entry) }, if (entry.foreground && entry.view != null) 16 else 100)
+    // New output and UI changes schedule their own pass. Pace a backlog at
+    // frame rate; the idle pass only retries consumption credit.
+    schedule(id, entry, when { !queued -> 1000L; presenting -> 16L; else -> 100L })
   }
 }

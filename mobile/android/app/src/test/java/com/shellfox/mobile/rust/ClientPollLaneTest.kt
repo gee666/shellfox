@@ -16,6 +16,13 @@ class ClientPollLaneTest {
     fun tick(ready: Boolean = true, ownerDrained: Boolean = true) = lane.advance(ready, ownerDrained)
     fun finish(id: String = "poll-1", success: Boolean = true) = lane.complete(id, 0, success)
   }
+  @Test fun retryIsDueOnlyWhenAPollCouldNotStart() {
+    val f = Fixture(); f.tick()
+    assertNull(f.lane.retryAt()) // the running long-poll completes with a Rust wake
+    f.time = 100; f.finish(success = false)
+    assertEquals(600L, f.lane.retryAt())
+    f.time = 600; f.tick(); assertEquals(2, f.starts); assertNull(f.lane.retryAt())
+  }
   @Test fun multipleViewsShareOnePollUntilOriginalCompletion() {
     val f = Fixture(); repeat(10) { f.tick(listOf(true, true).all { it }) }
     assertEquals(1, f.starts); assertEquals("poll-1", f.lane.poll())

@@ -140,7 +140,14 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
   [self submit:^id(SfmStatus *status) {
     NSString *identifier = nil;
     *status = [[SFClientStore shared] createPeer:peerId clientId:clientId result:&identifier];
-    if (identifier) [self->_lifetime.clients addObject:identifier];
+    if (identifier) {
+      [self->_lifetime.clients addObject:identifier];
+      __weak ShellfoxRustClient *module = self;
+      [[SFClientStore shared] client:identifier].eventSignal = ^(NSString *client) {
+        ShellfoxRustClient *owner = module;
+        if (owner && !owner->_lifetime->invalidated.load()) [owner emitOnClientEvent:client];
+      };
+    }
     return identifier;
   } resolve:resolve reject:reject];
 }

@@ -39,12 +39,16 @@ typedef NS_ENUM(NSUInteger, SFClientAdmission) {
 @property(nonatomic, copy) NSString *disconnectOperation;
 @property(nonatomic) NSTimeInterval closeDeadline;
 @property(nonatomic, strong) NSMutableArray<SFClientCloseCompletion> *closeWaiters;
+// Tells JS that read has results; at most once until read returns nil.
+@property(nonatomic, copy) void (^eventSignal)(NSString *identifier);
+@property(nonatomic) BOOL signalled;
 @end
 
 // All methods run on SFOwner, including terminal lease and reset coordination.
 @interface SFClientStore : NSObject <SFRemoteTerminalSink>
 + (instancetype)shared;
-- (void)tick;
+// Returns YES when a state without its own wake needs another pass soon.
+- (BOOL)tick;
 - (SfmStatus)createPeer:(NSString *)peer clientId:(NSString *)clientId result:(NSString **)result;
 - (SfmStatus)createObserverPeer:(NSString *)peer clientId:(NSString *)clientId result:(NSString **)result;
 - (SfmStatus)createManagerPeer:(NSString *)peer clientId:(NSString *)clientId result:(NSString **)result;

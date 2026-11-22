@@ -32,6 +32,7 @@ static_assert(std::is_same_v<decltype(&sfm_terminal_input_ex), InputEx>);
 static_assert(std::is_same_v<decltype(&sfm_terminal_configure), Configure>);
 
 using Dispatch = SfmStatus (*)(SfmClientHandle, SfmClientRequestFn, SfmClientCancelFn, void *);
+using SetWaker = SfmStatus (*)(SfmClientHandle, SfmClientWakeFn, void *);
 using Complete = SfmStatus (*)(SfmClientHandle, uint64_t, uint64_t, int32_t, const uint8_t *, size_t);
 using Close = SfmStatus (*)(SfmClientHandle, SfmClientCancelFn, void *);
 using Disconnect = SfmStatus (*)(SfmClientHandle, uint64_t *);
@@ -43,6 +44,7 @@ using Write = SfmStatus (*)(SfmClientHandle, SfmHandle, const uint8_t *, size_t,
 using WriteEx = SfmStatus (*)(SfmClientHandle, SfmHandle, const uint8_t *, size_t, uint8_t, uint64_t *);
 using Resize = SfmStatus (*)(SfmClientHandle, SfmHandle, uint16_t, uint16_t, uint64_t *);
 static_assert(std::is_same_v<decltype(&sfm_client_dispatch), Dispatch>);
+static_assert(std::is_same_v<decltype(&sfm_client_set_waker), SetWaker>);
 static_assert(std::is_same_v<decltype(&sfm_client_complete), Complete>);
 static_assert(std::is_same_v<decltype(&sfm_client_close), Close>);
 static_assert(std::is_same_v<decltype(&sfm_client_disconnect), Disconnect>);

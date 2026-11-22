@@ -7,7 +7,7 @@ import { connectionError, parseResponse, RemoteClientError, waitForRetry } from 
 import { z } from 'zod';
 import { RustRemoteClient, rustRemoteMethods, type NativeRemoteBinding } from './remote-adapter';
 import type { NativeTerminalBinding } from './adapter';
-import { OperationPump, NativeOperationError } from './operation-pump';
+import { OperationPump, NativeOperationError, type NativeClientEvents } from './operation-pump';
 import { coarsePollSchema, type NativeOperation, type CoarseHostEvent } from './native-events';
 import { NativeTerminalDriver, registerNativeTerminal, type NativeExecute } from './native-terminal';
 
@@ -34,7 +34,7 @@ export class RustHostClient extends RemoteOperations implements HostClient {
   readonly subscribeTerminal = (listener: (event: TerminalEvent) => void): (() => void) =>
     this.subscribe(event => { if (event.type === 'terminal') listener(event.event); });
 
-  constructor(readonly peerId: string, private readonly native: NativeRemoteBinding & NativeTerminalBinding,
+  constructor(readonly peerId: string, private readonly native: NativeRemoteBinding & NativeTerminalBinding & NativeClientEvents,
     private readonly options: RemoteClientOptions,
   ) {
     super(); remotePeerIdSchema.parse(peerId);
@@ -168,7 +168,7 @@ export class RustHostClient extends RemoteOperations implements HostClient {
       if (!this.active(run)) return;
       const remote = await RustRemoteClient.create(this.native, this.peerId, this.options.createClientId());
       if (!this.active(run)) { await remote.close(); return; }
-      const pump = new OperationPump(remote, event => this.observe(run, event), error => {
+      const pump = new OperationPump(remote, this.native, event => this.observe(run, event), error => {
         if (this.active(run)) { this.stopRun('reconnecting'); this.change('reconnecting', connectionError(error)); }
       });
       run.pump = pump; pump.start();

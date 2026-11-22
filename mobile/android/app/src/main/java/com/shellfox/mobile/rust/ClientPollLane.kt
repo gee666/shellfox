@@ -78,6 +78,8 @@ internal class ClientPollLane(
     if (retired || !connected || !viewsReady || waiting.isNotEmpty() || mutations.isNotEmpty()) throw NativeInputBusy()
     return startPoll().also { operation = it }
   }
+  /** When the owner should look again for a poll that couldn't start; null if none is due. */
+  fun retryAt(): Long? = nextPoll.takeIf { !retired && connected && uncertain == null && operation == null }
   fun advance(viewsReady: Boolean, ownerDrained: Boolean) {
     this.viewsReady = viewsReady && ownerDrained
     if (!retired && drained && ownerDrained) {
