@@ -144,6 +144,9 @@ impl PtySession {
             state.control = Some(gate.release(pid, || {
                 options.before_assignment()?;
                 state.attach(pid)?;
+                if let Err(error) = super::linux::scope::raise_child_oom_score(pid) {
+                    eprintln!("Terminal OOM score unchanged: {error:#}");
+                }
                 options.before_go()?;
                 let evidence = crate::launch_privilege::capture_posix(
                     binding,

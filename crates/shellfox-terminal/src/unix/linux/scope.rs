@@ -108,8 +108,15 @@ pub fn probe(runner: &Path, true_program: &Path, fresh_nonce: &str) -> Result<Op
 pub(super) fn raise_owned_oom_score(pid: u32, ticks: u64, value: i32) {
     let _ = raise_score(pid, ticks, value);
 }
+/// Production PTY roots: raise before the gate releases the shell, so the
+/// shell and everything it starts inherit the score. The kernel OOM killer
+/// then prefers a shell over the host and UI, which keep the default score.
+/// The caller holds `pid` as an unreaped child, so the PID cannot be reused.
+pub(crate) fn raise_child_oom_score(pid: u32) -> Result<()> {
+    let directory = std::fs::File::open(format!("/proc/{pid}"))?;
+    raise_at(&directory, TERMINAL_OOM_SCORE_ADJ)
+}
 fn raise_score(pid: u32, ticks: u64, value: i32) -> Result<()> {
-    ensure!((0..=1000).contains(&value), "invalid OOM score");
     let directory = std::fs::File::open(format!("/proc/{pid}"))?;
     let mut stat = String::new();
     open_at(&directory, c"stat", libc::O_RDONLY)?
@@ -119,7 +126,11 @@ fn raise_score(pid: u32, ticks: u64, value: i32) -> Result<()> {
         stat.len() <= 16384 && super::procfs::parse_stat(&stat, pid)?.identity.ticks == ticks,
         "OOM process identity changed"
     );
-    let mut score = open_at(&directory, c"oom_score_adj", libc::O_RDWR)?;
+    raise_at(&directory, value)
+}
+fn raise_at(directory: &std::fs::File, value: i32) -> Result<()> {
+    ensure!((0..=1000).contains(&value), "invalid OOM score");
+    let mut score = open_at(directory, c"oom_score_adj", libc::O_RDWR)?;
     let mut previous = String::new();
     (&mut score).take(64).read_to_string(&mut previous)?;
     if previous.trim().parse::<i32>()? < value {
@@ -162,5 +173,26 @@ mod tests {
             &[OsString::from("--"), "/bin/sh".into(), "--user".into()]
         );
         assert!(scope_arguments("../bad", Path::new("/bin/sh"), &[]).is_err());
+    }
+    fn score(pid: u32) -> i32 {
+        std::fs::read_to_string(format!("/proc/{pid}/oom_score_adj"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    }
+    #[test]
+    fn child_oom_score_is_raised_only_and_never_reaches_the_parent() {
+        let parent = score(std::process::id());
+        let mut child = Command::new("/bin/sleep").arg("5").spawn().unwrap();
+        let pid = child.id();
+        raise_child_oom_score(pid).unwrap();
+        assert_eq!(score(pid), parent.max(TERMINAL_OOM_SCORE_ADJ));
+        let directory = std::fs::File::open(format!("/proc/{pid}")).unwrap();
+        raise_at(&directory, 100).unwrap();
+        assert_eq!(score(pid), parent.max(TERMINAL_OOM_SCORE_ADJ), "never lowers");
+        assert_eq!(score(std::process::id()), parent);
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 }
