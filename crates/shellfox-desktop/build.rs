@@ -8,7 +8,8 @@ fn main() {
 }
 
 #[cfg(windows)]
-fn embed_windows_icon(version: &str) {
+fn embed_windows_icon(product: &product_version::ProductVersion) {
+    let version = &product.version;
     use std::{env, fs, path::PathBuf, process::Command};
     let manifest =
         PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("Cargo manifest directory"));
@@ -32,14 +33,14 @@ fn embed_windows_icon(version: &str) {
         .to_string_lossy()
         .trim_start_matches(r"\\?\")
         .replace('\\', "/");
-    let numbers = version.replace('.', ",");
+    let numbers = &product.windows;
     fs::write(
         &source,
         format!(
             r#"1 ICON "{path}"
 1 VERSIONINFO
-FILEVERSION {numbers},0
-PRODUCTVERSION {numbers},0
+FILEVERSION {numbers}
+PRODUCTVERSION {numbers}
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN

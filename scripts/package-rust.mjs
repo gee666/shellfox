@@ -8,10 +8,12 @@ import { stageResources } from './rust-package-resources.mjs';
 import { acquireNugetSnapshot } from './rust-package-resource-inventory.mjs';
 import { packageNotices } from './package-rust-notices.mjs';
 import { packageHeadless } from './package-rust-headless.mjs';
+import { releaseVersion } from './release-version.mjs';
 
 const pkg = readJson(path.join(root, 'package.json'));
 const icon = extension => path.join(root, `resources/icon/icon.${extension}`);
 const arch = process.arch;
+const release = releaseVersion(pkg.version);
 const stem = `Shellfox-${process.platform}-${arch}-${pkg.version}`;
 
 function copy(source, target, mode = 0o644) {
@@ -39,7 +41,7 @@ function linux(work, app, artifacts) {
   const control = path.join(work, 'control');
   mkdirSync(control);
   writeFileSync(path.join(control, 'control'), [
-    'Package: shellfox', `Version: ${pkg.version}`, `Architecture: ${debianArch}`, 'Section: devel', 'Priority: optional',
+    'Package: shellfox', `Version: ${release.deb}`, `Architecture: ${debianArch}`, 'Section: devel', 'Priority: optional',
     `Maintainer: ${pkg.author}`,
     'Depends: libc6 (>= 2.39), libgcc-s1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1',
     'Description: Shellfox terminal manager', '',
@@ -95,7 +97,7 @@ async function windows(app, artifacts, testId) {
       ...config,
       ...(testId ? { name: testId, title: testId } : { title: pkg.productName }),
       appDirectory: app, outputDirectory: artifacts, exe: 'Shellfox.exe',
-      version: pkg.version, description: pkg.description, authors: testId ?? pkg.author, usePackageJson: false, noMsi: true, noDelta: true,
+      version: release.nuget, description: pkg.description, authors: testId ?? pkg.author, usePackageJson: false, noMsi: true, noDelta: true,
       nuspecTemplate: path.join(root, 'resources/windows/rust.nuspectemplate'),
     });
   } finally {
@@ -124,8 +126,8 @@ async function macos(app, artifacts, sign) {
 <key>CFBundleExecutable</key><string>Shellfox</string>
 <key>CFBundleIconFile</key><string>shellfox.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>${pkg.version}</string>
-<key>CFBundleVersion</key><string>${pkg.version}</string>
+<key>CFBundleShortVersionString</key><string>${release.core}</string>
+<key>CFBundleVersion</key><string>${release.code}</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>\n`);
@@ -157,7 +159,6 @@ async function macos(app, artifacts, sign) {
 
 export async function packageRust({ output = path.join(scratchRoot, 'rust-installers'), testId } = {}) {
   const target = nativeTarget();
-  if (!/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error('Installers require a stable package.json version');
   if (testId && (target !== 'x86_64-pc-windows-msvc' || !/^ShellfoxLaneI[a-zA-Z0-9]+$/.test(testId))) throw new Error('Use an isolated Squirrel test identity such as ShellfoxLaneI123');
   output = path.resolve(output);
   if (existsSync(output)) throw new Error(`Choose an unused installer output directory: ${output}`);

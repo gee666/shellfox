@@ -3,8 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } fr
 import path from 'node:path';
 import { fileHash, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
 import { ownHostSmoke } from './rust-package-smoke.mjs';
+import { releaseVersion } from './release-version.mjs';
 
 const { version } = readJson(path.join(root, 'package.json'));
+const release = releaseVersion(version);
 const directory = path.resolve(process.argv[2] ?? path.join(scratchRoot, 'rust-installers'));
 const stem = `Shellfox-${process.platform}-${process.arch}-${version}`;
 const work = mkdtempSync(path.join(scratchRoot, 'packaged terminal '));
@@ -17,7 +19,7 @@ try {
     const deb = path.join(directory, `shellfox_${version}_${arch}.deb`);
     const field = name => run('dpkg-deb', ['-f', deb, name]).trim();
     assert.equal(field('Package'), 'shellfox');
-    assert.equal(field('Version'), version);
+    assert.equal(field('Version'), release.deb);
     assert.equal(field('Architecture'), arch);
     run('dpkg-deb', ['-x', deb, extracted]);
     desktop = path.join(extracted, 'usr/lib/shellfox/shellfox');
@@ -27,9 +29,20 @@ try {
     desktop = path.join(extracted, stem, 'shellfox');
     cli = path.join(extracted, stem, 'shellfox-cli');
   } else if (process.platform === 'darwin') {
+    // The 0.9.15 updater accepts only Shellfox.app/ entries, without symlinks to follow.
+    const entries = run('/usr/bin/zipinfo', ['-1', path.join(directory, `${stem}.zip`)]).split('\n').filter(Boolean);
+    assert.ok(entries.every(entry => entry.startsWith('Shellfox.app/')), 'Update ZIP has entries outside Shellfox.app');
+    for (const entry of ['Shellfox.app/Contents/Info.plist', 'Shellfox.app/Contents/MacOS/Shellfox']) assert.ok(entries.includes(entry), `Update ZIP is missing ${entry}`);
+    assert.doesNotMatch(run('/usr/bin/zipinfo', [path.join(directory, `${stem}.zip`)]), /^l/m, 'Update ZIP contains symlinks');
     run('/usr/bin/ditto', ['-x', '-k', path.join(directory, `${stem}.zip`), extracted]);
     const app = path.join(extracted, 'Shellfox.app');
-    run('/usr/bin/plutil', ['-lint', path.join(app, 'Contents/Info.plist')]);
+    const plist = path.join(app, 'Contents/Info.plist');
+    run('/usr/bin/plutil', ['-lint', plist]);
+    // The 0.9.15 updater compares CFBundleShortVersionString with the release version.
+    const bundleValue = key => run('/usr/bin/plutil', ['-extract', key, 'raw', plist]).trim();
+    assert.equal(bundleValue('CFBundleIdentifier'), 'local.shellfox');
+    assert.equal(bundleValue('CFBundleShortVersionString'), release.core);
+    assert.equal(bundleValue('CFBundleVersion'), String(release.code));
     const image = path.join(directory, `${stem}.dmg`);
     const mount = path.join(work, 'disk image');
     mkdirSync(mount);
@@ -54,7 +67,7 @@ try {
     const elevated = path.join(extracted, stem, 'resources/elevated-terminal/Shellfox.ElevatedTerminal.exe');
     assert.equal(run(elevated, ['probe']).trim(), 'shellfox-elevated-conpty-v1');
     if (process.arch === 'x64') {
-      const full = `shellfox-${version}-full.nupkg`;
+      const full = `shellfox-${release.nuget}-full.nupkg`;
       const release = readFileSync(path.join(directory, 'RELEASES'), 'utf8').replace(/^\uFEFF/, '').trim().split(/\s+/);
       assert.equal(release[1], full);
       assert.equal(Number(release[2]), statSync(path.join(directory, full)).size);
@@ -67,7 +80,7 @@ try {
       mkdirSync(nupkg);
       run(tar, ['-xf', path.join(directory, full), '-C', nupkg, 'shellfox.nuspec', 'lib/net45/Shellfox.exe']);
       const nuspec = readFileSync(path.join(nupkg, 'shellfox.nuspec'), 'utf8');
-      assert.ok(nuspec.includes('<id>shellfox</id>') && nuspec.includes(`<version>${version}</version>`), 'Unexpected Squirrel package identity');
+      assert.ok(nuspec.includes('<id>shellfox</id>') && nuspec.includes(`<version>${release.nuget}</version>`), 'Unexpected Squirrel package identity');
       assert.ok(readFileSync(path.join(nupkg, 'lib/net45/Shellfox.exe')).includes(Buffer.from('SquirrelAwareVersion\0', 'utf16le')), 'Squirrel would skip the lifecycle hooks');
     }
   }
