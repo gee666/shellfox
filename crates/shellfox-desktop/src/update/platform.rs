@@ -152,7 +152,7 @@ impl Platform {
         let script = match self {
             #[cfg(windows)]
             Self::Squirrel { .. } => {
-                include_str!("../../../../src/main/update/install-windows.ps1")
+                include_str!("install-windows.ps1")
             }
             #[cfg(target_os = "linux")]
             Self::Deb { .. } => {
@@ -167,12 +167,12 @@ impl Platform {
                     )?;
                     ensure!(actual == expected, "Unexpected Debian package {field}");
                 }
-                include_str!("../../../../src/main/update/install-linux.sh")
+                include_str!("install-linux.sh")
             }
             #[cfg(target_os = "macos")]
             Self::Mac { bundle } => {
                 stage = Some(stage_mac(&file, _version, work.path(), bundle)?);
-                include_str!("../../../../src/main/update/install-mac.sh")
+                include_str!("install-mac.sh")
             }
             Self::Manual(reason) => anyhow::bail!("{reason}"),
         };

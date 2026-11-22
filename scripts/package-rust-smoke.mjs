@@ -62,6 +62,13 @@ try {
       for (const entry of ['Shellfox.exe', 'bin/shellfox-cli.exe', 'ghostty-vt.dll', 'resources/THIRD-PARTY-NOTICES.txt']) {
         assert.ok(entries.includes(`lib/net45/${entry}`), `Squirrel package is missing ${entry}`);
       }
+      // Electron 0.9.15 updates only a Squirrel package with this ID and a SquirrelAware Shellfox.exe.
+      const nupkg = path.join(work, 'nupkg');
+      mkdirSync(nupkg);
+      run(tar, ['-xf', path.join(directory, full), '-C', nupkg, 'shellfox.nuspec', 'lib/net45/Shellfox.exe']);
+      const nuspec = readFileSync(path.join(nupkg, 'shellfox.nuspec'), 'utf8');
+      assert.ok(nuspec.includes('<id>shellfox</id>') && nuspec.includes(`<version>${version}</version>`), 'Unexpected Squirrel package identity');
+      assert.ok(readFileSync(path.join(nupkg, 'lib/net45/Shellfox.exe')).includes(Buffer.from('SquirrelAwareVersion\0', 'utf16le')), 'Squirrel would skip the lifecycle hooks');
     }
   }
   resources ??= path.join(path.dirname(desktop), 'resources');

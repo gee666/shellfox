@@ -105,3 +105,48 @@ fn only_trusted_https_origins_can_receive_download_redirects() {
         &source
     ));
 }
+
+/// Test builds are published as GitHub pre-releases; installed apps must never pick them up.
+#[tokio::test]
+async fn prerelease_metadata_is_never_an_update() {
+    for (tag, prerelease) in [
+        ("v2.0.0", true),
+        ("v2.0.0-beta.1", false),
+        ("v2.0.0-beta.1", true),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let json = serde_json::json!({ "tag_name": tag, "prerelease": prerelease, "assets": [] })
+            .to_string();
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+            }
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                json.len()
+            );
+            stream.write_all(header.as_bytes()).await.unwrap();
+            stream.write_all(json.as_bytes()).await.unwrap();
+        });
+        let feed = Feed::with_urls(
+            format!("{origin}/latest").parse().unwrap(),
+            format!("{origin}/releases").parse().unwrap(),
+        )
+        .unwrap();
+        assert!(
+            feed.check(|_| "ShellfoxSetup.exe".into()).await.is_err(),
+            "{tag} {prerelease}"
+        );
+        task.await.unwrap();
+    }
+}
+
+#[test]
+fn stable_release_is_newer_than_its_own_prerelease() {
+    let stable = Version::new(0, 10, 0);
+    assert!(stable > Version::parse("0.10.0-beta.3").unwrap());
+    assert!(Version::parse("0.10.1").unwrap() > Version::parse("0.10.1-rc.1").unwrap());
+}

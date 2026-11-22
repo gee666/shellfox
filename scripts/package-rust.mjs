@@ -40,9 +40,20 @@ function linux(work, app, artifacts) {
   writeFileSync(path.join(control, 'control'), [
     'Package: shellfox', `Version: ${pkg.version}`, `Architecture: ${debianArch}`, 'Section: devel', 'Priority: optional',
     `Maintainer: ${pkg.author}`,
-    'Depends: libc6 (>= 2.39), libgcc-s1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1, libwebkit2gtk-4.1-0',
+    'Depends: libc6 (>= 2.39), libgcc-s1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1',
     'Description: Shellfox terminal manager', '',
   ].join('\n'));
+  // Electron's postinst added an AppArmor userns profile for its Chromium sandbox.
+  // The Rust binary at the same path needs none, and dpkg does not own the file.
+  writeFileSync(path.join(control, 'postinst'), `#!/bin/sh
+set -e
+profile=/etc/apparmor.d/shellfox
+if [ "\${1:-}" = configure ] && [ -f "$profile" ] && [ ! -L "$profile" ] && grep -Fxq '# Shellfox/linux-v1' "$profile"; then
+  if command -v apparmor_parser >/dev/null 2>&1; then apparmor_parser -R "$profile" || true; fi
+  rm -f "$profile"
+fi
+`);
+  chmodSync(path.join(control, 'postinst'), 0o755);
   // These are the standard deb members; no dpkg installation or root is needed to build them.
   const owner = ['--owner=0', '--group=0', '--numeric-owner'];
   writeFileSync(path.join(work, 'debian-binary'), '2.0\n');
@@ -65,11 +76,14 @@ async function windows(app, artifacts, testId) {
   const require = createRequire(import.meta.url);
   const forgeRequire = createRequire(require.resolve('@electron-forge/maker-squirrel'));
   const { createWindowsInstaller } = forgeRequire('electron-winstaller');
-  if (testId) {
-    // Squirrel derives Desktop/Start Menu links from ProductName, not just the NuGet ID.
-    const vendor = path.resolve(path.dirname(forgeRequire.resolve('electron-winstaller')), '../vendor');
-    run(path.join(vendor, 'rcedit.exe'), [path.join(app, 'Shellfox.exe'), '--set-version-string', 'ProductName', testId, '--set-version-string', 'FileDescription', testId]);
-  }
+  // Update.exe runs --squirrel-* hooks only for SquirrelAware executables.
+  // Without them the Electron shims, Explorer verbs and shortcuts go stale.
+  // Squirrel derives Desktop/Start Menu links from ProductName, not just the NuGet ID.
+  const exe = path.join(app, 'Shellfox.exe');
+  const vendor = path.resolve(path.dirname(forgeRequire.resolve('electron-winstaller')), '../vendor');
+  run(path.join(vendor, 'rcedit.exe'), [exe, '--set-version-string', 'SquirrelAwareVersion', '1',
+    ...(testId ? ['--set-version-string', 'ProductName', testId, '--set-version-string', 'FileDescription', testId] : [])]);
+  if (!readFileSync(exe).includes(Buffer.from('SquirrelAwareVersion\0', 'utf16le'))) throw new Error('Shellfox.exe is not SquirrelAware');
   const config = require('../forge.config.cjs').makers.find(maker => maker.name === '@electron-forge/maker-squirrel').config;
   // Squirrel's internal NuGet and ZIP scratch must stay under this package build.
   const tempKeys = ['TMP', 'TEMP', 'TMPDIR'];

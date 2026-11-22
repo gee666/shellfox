@@ -41,6 +41,8 @@ mod macos_window;
 mod settings;
 mod sidebar;
 mod smoke;
+#[cfg(windows)]
+mod squirrel;
 #[cfg(test)]
 mod startup_dispatch_tests;
 mod tab_activity;
@@ -66,9 +68,12 @@ fn main() -> Result<()> {
     }
     // Squirrel invokes the app before installation is complete. Never start a host then.
     #[cfg(windows)]
-    if let Some(event) = arguments.first() {
-        if cli_launcher::squirrel(event)? { return Ok(()); }
-        if event == "--squirrel-firstrun" { arguments.remove(0); }
+    {
+        if let Some(event) = arguments.first() {
+            if squirrel::handle(event)? { return Ok(()); }
+            if event == "--squirrel-firstrun" { arguments.remove(0); }
+        }
+        squirrel::set_app_user_model_id();
     }
     if let Some(code) = shellfox_service::dispatch_supervisor_entry()? {
         std::process::exit(i32::from_ne_bytes(code.to_ne_bytes()));

@@ -101,132 +101,53 @@ fn install_file(
     Ok(())
 }
 
+/// Writes the `shellfox` launchers that Squirrel installs put on the user PATH.
+/// Electron 0.9.15 owned the same directory; its Node shims are replaced and
+/// its leftover helper files removed once its ownership marker is verified.
 #[cfg(windows)]
-pub(crate) fn squirrel(event: &OsString) -> Result<bool> {
-    use winreg::{
-        RegKey, RegValue,
-        enums::{HKEY_CURRENT_USER, REG_EXPAND_SZ, REG_SZ},
-    };
-    let Some(event) = event.to_str().filter(|arg| {
-        matches!(
-            *arg,
-            "--squirrel-install"
-                | "--squirrel-updated"
-                | "--squirrel-uninstall"
-                | "--squirrel-obsolete"
-        )
-    }) else {
-        return Ok(false);
-    };
-    if event == "--squirrel-obsolete" || !shellfox_service::app_paths::is_packaged() {
-        return Ok(true);
-    }
-    let exe = std::env::current_exe()?;
-    let version_dir = exe.parent().context("Missing Squirrel version directory")?;
-    let install = version_dir
-        .parent()
-        .context("Missing Squirrel install directory")?;
-    // Do not change the user's integration for portable or isolated test builds.
-    if !install
-        .file_name()
-        .and_then(|v| v.to_str())
-        .is_some_and(|v| v.eq_ignore_ascii_case("Shellfox"))
-        || !install.join("Update.exe").is_file()
-    {
-        return Ok(true);
-    }
-    let bin = install.join("bin");
-    let remove = event == "--squirrel-uninstall";
-    let legacy = !remove && electron_shim_owner(&bin, install);
+pub(crate) fn install_windows_shims(
+    bin: &Path,
+    install: &Path,
+    version_dir: &Path,
+    exe: &Path,
+    remove: bool,
+) -> Result<()> {
+    let legacy = electron_shim_owner(bin, install);
     let exe = exe
         .to_str()
         .context("Invalid Shellfox executable encoding")?;
     let cli = version_dir.join("bin/shellfox-cli.exe");
     let cli = cli.to_str().context("Invalid Shellfox CLI encoding")?;
-    let (cmd, ps) = windows_shims(exe, cli);
-    let posix_quote =
-        |value: &str| format!("'{}'", value.replace('\\', "/").replace('\'', "'\\''"));
-    let posix = format!(
-        "#!/bin/sh\n# Shellfox/rust-cli-v1\nif [ \"${{1:-}}\" = ssh ]; then\n  exec {} \"$@\"\nfi\nexec {} \"$@\"\n",
-        posix_quote(cli),
-        posix_quote(exe),
-    );
-    install_file(
-        &bin.join("shellfox.cmd"),
-        (!remove).then_some(cmd.as_str()),
-        "rem Shellfox/rust-cli-v1",
-        |_| legacy,
-    )?;
-    install_file(
-        &bin.join("shellfox.ps1"),
-        (!remove).then_some(ps.as_str()),
-        "# Shellfox/rust-cli-v1",
-        |_| legacy,
-    )?;
-    install_file(
-        &bin.join("shellfox"),
-        (!remove).then_some(posix.as_str()),
-        "# Shellfox/rust-cli-v1",
-        |_| legacy,
-    )?;
-    let (env, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey("Environment")?;
-    let (value, kind) = match env.get_raw_value("Path") {
-        Ok(raw) => {
-            ensure!(
-                matches!(raw.vtype, REG_EXPAND_SZ | REG_SZ),
-                "Unsupported user PATH registry type"
-            );
-            (String::from_reg_value(&raw)?, raw.vtype)
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (String::new(), REG_EXPAND_SZ)
-        }
-        Err(error) => return Err(error.into()),
-    };
-    use winreg::types::{FromRegValue, ToRegValue};
-    let path = bin.to_str().context("Invalid Shellfox PATH encoding")?;
-    let normalized = |p: &str| {
-        p.trim()
-            .trim_matches('"')
-            .trim_end_matches(['\\', '/'])
-            .replace('/', "\\")
-            .to_ascii_lowercase()
-    };
-    let path_key = normalized(path);
-    let mut parts: Vec<_> = value
-        .split(';')
-        .filter(|p| normalized(p) != path_key)
-        .collect();
-    if !remove {
-        if value.is_empty() {
-            parts.clear();
-        }
-        parts.push(path);
+    let shims = windows_shims(exe, cli);
+    let allow_legacy = !remove && legacy;
+    for (name, contents, owner) in [
+        ("shellfox.cmd", shims.cmd, "rem Shellfox/rust-cli-v1"),
+        ("shellfox.ps1", shims.powershell, "# Shellfox/rust-cli-v1"),
+        ("shellfox", shims.posix, "# Shellfox/rust-cli-v1"),
+    ] {
+        install_file(
+            &bin.join(name),
+            (!remove).then_some(contents.as_str()),
+            owner,
+            |_| allow_legacy,
+        )?;
     }
-    let joined = parts.join(";");
-    let mut new: RegValue = joined.to_reg_value();
-    new.vtype = kind;
-    env.set_raw_value("Path", &new)?;
-    use windows::{
-        Win32::{
-            Foundation::{HWND, LPARAM, WPARAM},
-            UI::WindowsAndMessaging::{SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_SETTINGCHANGE},
-        },
-        core::w,
-    };
-    // SAFETY: the literal is valid and remains alive for the synchronous broadcast.
-    unsafe {
-        SendMessageTimeoutW(
-            HWND(0xffff as _),
-            WM_SETTINGCHANGE,
-            WPARAM(0),
-            LPARAM(w!("Environment").as_ptr() as isize),
-            SMTO_ABORTIFHUNG,
-            1000,
-            None,
-        )
-    };
-    Ok(true)
+    if legacy {
+        // The marker goes last, so a failed cleanup is retried on the next hook.
+        for name in [
+            "shellfox-dispatch.ps1",
+            "shellfox-update.ps1",
+            "shellfox-owner.json",
+        ] {
+            match std::fs::remove_file(bin.join(name)) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(error.into());
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -259,19 +180,33 @@ fn electron_shim_owner(bin: &Path, install: &Path) -> bool {
 }
 
 #[cfg(any(windows, test))]
-fn windows_shims(exe: &str, cli: &str) -> (String, String) {
+struct WindowsShims {
+    cmd: String,
+    powershell: String,
+    posix: String,
+}
+
+#[cfg(any(windows, test))]
+fn windows_shims(exe: &str, cli: &str) -> WindowsShims {
     let cmd_quote = |s: &str| s.replace('%', "%%");
     let ps_quote = |s: &str| s.replace('\'', "''");
-    let exe_cmd = cmd_quote(exe);
+    let sh_quote = |s: &str| format!("'{}'", s.replace('\\', "/").replace('\'', "'\\''"));
     let (exe_ps, cli_ps) = (ps_quote(exe), ps_quote(cli));
-    (
-        format!(
-            "@echo off\r\nrem Shellfox/rust-cli-v1\r\nsetlocal DisableDelayedExpansion\r\n\"{exe_cmd}\" %*\r\nexit /b %errorlevel%\r\n"
+    let (exe_sh, cli_sh) = (sh_quote(exe), sh_quote(cli));
+    WindowsShims {
+        cmd: format!(
+            "@echo off\r\nrem Shellfox/rust-cli-v1\r\nsetlocal DisableDelayedExpansion\r\n\"{}\" %*\r\nexit /b %errorlevel%\r\n",
+            cmd_quote(exe)
         ),
-        format!(
+        powershell: format!(
             "# Shellfox/rust-cli-v1\nif ($args.Count -gt 0 -and $args[0] -ceq 'ssh') {{ & '{cli_ps}' @args }} else {{ & '{exe_ps}' @args }}\nexit $LASTEXITCODE\n"
         ),
-    )
+        // Git Bash and MSYS run C:/ paths directly. WSL reaches this file
+        // through the PATH block Electron added to its startup files.
+        posix: format!(
+            "#!/bin/sh\n# Shellfox/rust-cli-v1\nexe={exe_sh}\ncli={cli_sh}\nif [ -n \"${{WSL_DISTRO_NAME:-}}\" ]; then\n  exe=$(wslpath -u \"$exe\") && cli=$(wslpath -u \"$cli\") || exit 1\nfi\nif [ \"${{1:-}}\" = ssh ]; then\n  exec \"$cli\" \"$@\"\nfi\nexec \"$exe\" \"$@\"\n"
+        ),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -317,13 +252,21 @@ mod tests {
     use super::*;
     #[test]
     fn shims_forward_ssh_and_preserve_exit_status() {
-        let (cmd, ps) = windows_shims(
+        let shims = windows_shims(
             r"C:\Program Files\Shellfox.exe",
             r"C:\O'Brien%\bin\shellfox-cli.exe",
         );
-        assert!(cmd.contains(r#""C:\Program Files\Shellfox.exe" %*"#));
-        assert!(cmd.ends_with("exit /b %errorlevel%\r\n"));
-        assert!(ps.contains(r"'C:\O''Brien%\bin\shellfox-cli.exe' @args"));
-        assert!(ps.ends_with("exit $LASTEXITCODE\n"));
+        assert!(shims.cmd.contains(r#""C:\Program Files\Shellfox.exe" %*"#));
+        assert!(shims.cmd.ends_with("exit /b %errorlevel%\r\n"));
+        assert!(
+            shims
+                .powershell
+                .contains(r"'C:\O''Brien%\bin\shellfox-cli.exe' @args")
+        );
+        assert!(shims.powershell.ends_with("exit $LASTEXITCODE\n"));
+        assert!(shims.posix.contains(
+            "exe='C:/Program Files/Shellfox.exe'\ncli='C:/O'\\''Brien%/bin/shellfox-cli.exe'\n"
+        ));
+        assert!(shims.posix.contains(r#"exe=$(wslpath -u "$exe")"#));
     }
 }
