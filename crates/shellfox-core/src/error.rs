@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -16,8 +15,9 @@ pub enum ErrorCode {
 }
 
 /// Messages deliberately exclude SQL, filesystem paths and external payloads.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[error("{message}")]
 pub struct Error {
     pub code: ErrorCode,
     pub message: String,
@@ -32,14 +32,7 @@ impl Error {
         }
     }
 }
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
-pub type HostError = Error;
 
 /// Existing Shellfox result shape, not Rust's externally tagged Result encoding.
 #[derive(Clone, Debug)]

@@ -1830,6 +1830,7 @@ dependencies = [
  "crossterm_winapi",
  "derive_more 2.1.1",
  "document-features",
+ "futures-core",
  "mio",
  "parking_lot",
  "rustix 1.1.6",
@@ -7854,7 +7855,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossterm",
+ "futures-util",
  "russh",
+ "semver",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -7872,6 +7875,8 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "uuid",
+ "windows-sys 0.61.2",
+ "zed-reqwest",
  "zeroize",
 ]
 
@@ -7892,6 +7897,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "uuid",
 ]
 
