@@ -16,7 +16,6 @@ members = [
     "crates/shellfox-mobile",
     "crates/shellfox-ssh",
     "crates/shellfox-remote",
-    "crates/shellfox-resources",
 ]
 default-members = ["crates/ghostty-vt", "crates/shellfox-terminal"]
 resolver = "2"
