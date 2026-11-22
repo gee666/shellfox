@@ -37,6 +37,10 @@ impl TerminalActivity {
     pub fn is_busy(&self) -> bool {
         self.busy
     }
+    /// When [`Self::tick`] next ends a busy period, if one is pending.
+    pub fn quiet_at(&self) -> Option<u64> {
+        self.quiet_at
+    }
     /// Call before a meaningful user write, so synchronous echo is suppressed.
     pub fn input(&mut self, now_ms: u64) {
         self.input_at = Some(now_ms);

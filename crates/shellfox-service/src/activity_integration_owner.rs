@@ -145,6 +145,13 @@ impl OwnerActivity {
             busy_changed: entry.activity.stop().ok().flatten(),
         }
     }
+    /// The earliest logical time a [`Self::tick`] can report a change.
+    pub fn next_tick_ms(&self) -> Option<u64> {
+        self.terminals
+            .values()
+            .filter_map(|entry| entry.activity.quiet_at())
+            .min()
+    }
     pub fn tick(&self, now_ms: u64) -> Vec<(Identity, bool)> {
         self.terminals
             .values()

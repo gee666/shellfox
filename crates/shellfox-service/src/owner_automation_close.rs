@@ -57,22 +57,19 @@ impl Service {
         } else {
             self.request_close(identity.tab_id)?;
         } // Cancelled, never-accepted raw startup.
-        let deadline = Instant::now() + Duration::from_secs(12);
-        loop {
-            self.drain(identity.tab_id)?;
-            let runtime = &mut self
-                .terminals
-                .get_mut(&identity.tab_id)
-                .context("External parser owner disappeared.")?
-                .runtime;
-            if runtime.poll_external_closed()? {
-                break;
-            }
-            if Instant::now() >= deadline {
-                bail!("Original external parser-thread join is unconfirmed; owner retained.");
-            }
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        self.wait_until(
+            Instant::now() + Duration::from_secs(12),
+            |service| {
+                service.drain(identity.tab_id)?;
+                let runtime = &mut service
+                    .terminals
+                    .get_mut(&identity.tab_id)
+                    .context("External parser owner disappeared.")?
+                    .runtime;
+                Ok(runtime.poll_external_closed()?.then_some(()))
+            },
+            || anyhow::anyhow!("Original external parser-thread join is unconfirmed; owner retained."),
+        )?;
         self.activity_collect_live();
         self.forget_activity(
             self.terminals
@@ -185,38 +182,37 @@ impl Service {
             return Ok(());
         };
         self.begin_automation_stop(AutomationStop { id })?;
-        let deadline = Instant::now() + Duration::from_secs(12);
-        loop {
-            self.pump();
-            if self.automation.runs.failed_source_cleanup(id).is_some() {
-                self.close_failed_automation_sources()?;
-                if !self.terminals.contains_key(&tab) {
-                    return Ok(());
+        let failed_source = std::cell::Cell::new(false);
+        self.wait_until(
+            Instant::now() + Duration::from_secs(12),
+            |service| {
+                service.pump();
+                if service.automation.runs.failed_source_cleanup(id).is_some() {
+                    failed_source.set(true);
+                    service.close_failed_automation_sources()?;
+                    return Ok((!service.terminals.contains_key(&tab)).then_some(()));
                 }
-                if Instant::now() >= deadline {
-                    bail!(
-                        "Failed canonical parser original join is unconfirmed; metadata retained."
-                    );
-                }
-                std::thread::sleep(Duration::from_millis(2));
-                continue;
-            }
-            let relay = self
-                .automation
-                .relays
-                .get(&id)
-                .context("Automation source owner disappeared.")?;
-            let terminal = self
-                .terminals
-                .get(&tab)
-                .context("Automation parser owner disappeared.")?;
-            if self.automation.runs.is_stopped(id)? && relay.feed.finished(&terminal.runtime) {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                bail!("Automation stop/final source drain is unconfirmed; metadata and owners retained.");
-            }
-            std::thread::sleep(Duration::from_millis(2));
-        }
+                failed_source.set(false);
+                let relay = service
+                    .automation
+                    .relays
+                    .get(&id)
+                    .context("Automation source owner disappeared.")?;
+                let terminal = service
+                    .terminals
+                    .get(&tab)
+                    .context("Automation parser owner disappeared.")?;
+                let stopped =
+                    service.automation.runs.is_stopped(id)? && relay.feed.finished(&terminal.runtime);
+                Ok(stopped.then_some(()))
+            },
+            || {
+                anyhow::anyhow!(if failed_source.get() {
+                    "Failed canonical parser original join is unconfirmed; metadata retained."
+                } else {
+                    "Automation stop/final source drain is unconfirmed; metadata and owners retained."
+                })
+            },
+        )
     }
 }

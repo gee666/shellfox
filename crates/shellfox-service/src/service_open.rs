@@ -38,6 +38,8 @@ impl Service {
             automation: owner_automation::AutomationState::new(supervisor.to_owned()),
             ssh_profiles: None,
             system_native_handler: None,
+            event_wake: None,
+            runtime_signal: Default::default(),
             _root_lifetime: None,
         })
     }

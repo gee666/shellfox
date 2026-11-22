@@ -92,7 +92,7 @@ impl ServiceOwner {
                     return;
                 }
                 let mut service =
-                    match Self::open_for_actor(&directory, &supervisor, &lost, lifetime) {
+                    match Self::open_for_actor(&directory, &supervisor, &lost, lifetime, owner_notifier(&wake)) {
                         Ok(service) => service,
                         Err(failure) => {
                             let _ = ready.send(Err(failure.cause));
@@ -152,7 +152,7 @@ impl ServiceOwner {
                     {
                         break;
                     }
-                    match incoming.recv_timeout(Duration::from_millis(20)) {
+                    match incoming.recv_timeout(service.owner_pass_timeout()) {
                         Ok(Task::Approvals(task)) => approvals::handle(&mut service, *task, &lost),
                         Ok(Task::InstallRemote(install)) => {
                             if !active && remote_install.is_none() {
@@ -332,6 +332,11 @@ impl ServiceOwner {
             .clone()
             .context("Service owner cleanup remains unconfirmed.")
     }
+}
+
+fn owner_notifier(wake: &OwnerWake) -> shellfox_runtime::EventWake {
+    let wake = wake.clone();
+    std::sync::Arc::new(move || wake.notify())
 }
 
 impl Drop for ServiceOwner {

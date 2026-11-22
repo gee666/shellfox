@@ -11,6 +11,7 @@ pub(crate) struct PowerWorker<B: PowerBackend = SystemPower> {
     report: PowerReport,
     stop: CancellationToken,
     worker_lost: bool,
+    wake: Option<shellfox_runtime::EventWake>,
 }
 impl Default for PowerWorker {
     fn default() -> Self {
@@ -33,7 +34,12 @@ where
             },
             stop: CancellationToken::new(),
             worker_lost: false,
+            wake: None,
         }
+    }
+    /// Notified when a started operation finishes, so its report is read at once.
+    pub(crate) fn set_wake(&mut self, wake: shellfox_runtime::EventWake) {
+        self.wake = Some(wake);
     }
     pub(crate) fn report(&self) -> PowerReport {
         self.report.clone()
@@ -74,9 +80,11 @@ where
         let manager = self.manager.clone();
         let stop = self.stop.clone();
         let (registered, wait_registered) = std::sync::mpsc::sync_channel(1);
+        let wake = crate::owner_wait::WakeOnExit::new(self.wake.clone());
         let job = std::thread::Builder::new()
             .name("shellfox-power".into())
             .spawn(move || {
+                let _wake = wake;
                 // Register the original JoinHandle before any OS effect.
                 if wait_registered.recv().is_err() {
                     return PowerReport {

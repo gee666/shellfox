@@ -1,8 +1,23 @@
 use super::RemoteState;
 use crate::{OwnerDispatcher, OwnerWake, OwnerWakeSlot, Service};
-use shellfox_remote::OwnerReceiver;
+use shellfox_remote::{owner_channel_with_wake, OwnerClient, OwnerReceiver};
 
-/// Drained one request at a time by the existing service ownership loop.
+/// Capacity of the remote backend's request queue to the service owner.
+const CAPACITY: usize = 32;
+
+/// The owner's side of the remote request queue. Each enqueue wakes the owner.
+pub struct RemoteInbox {
+    receiver: OwnerReceiver,
+    wake: OwnerWakeSlot,
+}
+/// The queue between the remote backend (first) and its dispatcher (second).
+pub fn remote_channel() -> (OwnerClient, RemoteInbox) {
+    let wake = OwnerWakeSlot::default();
+    let (client, receiver) = owner_channel_with_wake(CAPACITY, wake.notifier());
+    (client, RemoteInbox { receiver, wake })
+}
+
+/// Drained by the service owner loop after each pass.
 pub struct RemoteDispatcher {
     receiver: OwnerReceiver,
     state: RemoteState,
@@ -10,18 +25,13 @@ pub struct RemoteDispatcher {
     wake: OwnerWakeSlot,
 }
 impl RemoteDispatcher {
-    pub fn new(receiver: OwnerReceiver, state: RemoteState) -> Self {
+    pub fn new(inbox: RemoteInbox, state: RemoteState) -> Self {
         Self {
-            receiver,
+            receiver: inbox.receiver,
             state,
             facts: None,
-            wake: OwnerWakeSlot::default(),
+            wake: inbox.wake,
         }
-    }
-    /// The slot the request channel notifies (see owner_channel_with_wake).
-    pub fn with_wake(mut self, wake: OwnerWakeSlot) -> Self {
-        self.wake = wake;
-        self
     }
     pub fn with_facts_provider(
         mut self,

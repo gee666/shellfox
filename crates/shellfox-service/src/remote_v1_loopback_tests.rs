@@ -44,7 +44,7 @@ async fn mobile_v1_client_drives_the_real_rust_owner() -> Result<()> {
     let slot = Arc::new(SourceFactsProviderSlot::new(Arc::new(
         NativeSourceFactsProjector::new(executable.clone(), system, SystemScope::User)?,
     )));
-    let (sender, receiver) = shellfox_remote::owner_channel(32);
+    let (sender, receiver) = remote_channel();
     let mut state = RemoteState::new(Default::default(), None, None);
     state.transfers = Some(app(shellfox_remote::RemoteTransfers::open(
         Default::default(),

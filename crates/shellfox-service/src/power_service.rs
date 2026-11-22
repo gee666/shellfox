@@ -10,6 +10,9 @@ pub(crate) struct ServicePower {
     reply: Option<PendingPower>,
 }
 impl ServicePower {
+    pub(crate) fn set_wake(&mut self, wake: shellfox_runtime::EventWake) {
+        self.worker.set_wake(wake);
+    }
     pub(crate) fn for_data_dir(directory: &std::path::Path) -> Self {
         Self {
             worker: PowerWorker::new(crate::power::SystemPower::for_data_dir(directory)),

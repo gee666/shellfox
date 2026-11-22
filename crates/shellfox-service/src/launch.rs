@@ -146,42 +146,44 @@ impl Service {
                 return Err(error.into());
             }
         };
-        self.terminals
-            .insert(tab, OwnedTerminal::from_catalog(runtime, origin));
+        self.install_terminal(tab, OwnedTerminal::from_catalog(runtime, origin));
         // UAC runs on the Runtime owner. Keep Service available for attach,
         // status and cancellation while the secure desktop is open.
         if administrator {
             return Ok(true);
         }
-        let deadline = Instant::now() + Duration::from_secs(12);
-        loop {
-            self.assert_owned()?;
-            self.drain(tab)?;
-            // Keep the original owner; propagate only its typed startup error,
-            // never PTY output or failed-source presentation evidence.
-            if let Some(Err(error)) = self.terminals[&tab].startup.as_ref() {
-                return Err(anyhow::Error::new(error.clone())).context(
-                    "Terminal launch failed; original owner retained until confirmed cleanup.",
-                );
-            }
-            let phase = self.terminals[&tab].runtime.phase();
-            if phase == Phase::Active
-                && (!require_native0 || matches!(self.terminals[&tab].startup, Some(Ok(()))))
-            {
-                #[cfg(windows)]
-                if let Some(account) = wsl_account {
-                    self.host.record_wsl_launch_account(registration, account)?;
+        self.wait_until(
+            Instant::now() + Duration::from_secs(12),
+            |service| {
+                service.assert_owned()?;
+                service.drain(tab)?;
+                let terminal = &service.terminals[&tab];
+                // Keep the original owner; propagate only its typed startup error,
+                // never PTY output or failed-source presentation evidence.
+                if let Some(Err(error)) = terminal.startup.as_ref() {
+                    return Err(anyhow::Error::new(error.clone())).context(
+                        "Terminal launch failed; original owner retained until confirmed cleanup.",
+                    );
                 }
-                return Ok(true);
-            }
-            if phase == Phase::Closed {
-                bail!("Terminal launch failed; closed owner retained until confirmed cleanup.");
-            }
-            if Instant::now() >= deadline {
-                bail!("Terminal startup timed out; owner retained for cleanup.");
-            }
-            std::thread::sleep(Duration::from_millis(5));
+                match terminal.runtime.phase() {
+                    Phase::Active
+                        if !require_native0 || matches!(terminal.startup, Some(Ok(()))) =>
+                    {
+                        Ok(Some(()))
+                    }
+                    Phase::Closed => bail!(
+                        "Terminal launch failed; closed owner retained until confirmed cleanup."
+                    ),
+                    _ => Ok(None),
+                }
+            },
+            || anyhow::anyhow!("Terminal startup timed out; owner retained for cleanup."),
+        )?;
+        #[cfg(windows)]
+        if let Some(account) = wsl_account {
+            self.host.record_wsl_launch_account(registration, account)?;
         }
+        Ok(true)
     }
 }
 

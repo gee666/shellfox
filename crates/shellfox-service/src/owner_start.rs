@@ -5,6 +5,7 @@ impl ServiceOwner {
         supervisor: &std::path::Path,
         lost: &CancellationToken,
         lifetime: Option<shellfox_transport::RootLifetimeGuard>,
+        wake: shellfox_runtime::EventWake,
     ) -> std::result::Result<Service, StartupFailure> {
         #[cfg(windows)]
         let start_wsl_discovery = lifetime.is_some();
@@ -19,8 +20,12 @@ impl ServiceOwner {
             shutdown: cleanup::committed(),
         })?;
         service.ownership_lost = lost.clone();
+        service.set_event_wake(wake);
         #[cfg(windows)]
-        if start_wsl_discovery { service.catalog.wsl.start(lost); }
+        if start_wsl_discovery {
+            let wake = service.wake_on_exit();
+            service.catalog.wsl.start(lost, wake);
+        }
         let runtime = crate::settings_runtime::SettingsRuntimeAdapter::new(lost.clone());
         #[cfg(windows)]
         let runtime = runtime.with_wsl_catalog(service.catalog.wsl.cache.clone());

@@ -90,8 +90,7 @@ impl Service {
         };
         self.automation.runs.bind_source_identity(id, identity)?;
         let feed = AutomationRelay::new(receiver, &mut runtime)?;
-        self.terminals
-            .insert(identity.tab_id, terminals::OwnedTerminal::new(runtime));
+        self.install_terminal(identity.tab_id, terminals::OwnedTerminal::new(runtime));
         self.automation.relays.insert(
             id,
             Relay {

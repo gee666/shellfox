@@ -72,9 +72,11 @@ impl Service {
             let input_cancel = cancel.clone();
             #[cfg(windows)]
             let wsl_cache = self.catalog.wsl.started_cache();
+            let wake = self.wake_on_exit();
             let thread = std::thread::Builder::new()
                 .name("shellfox-native-catalog".into())
                 .spawn(move || {
+                    let _wake = wake;
                     #[cfg(windows)]
                     let wsl = wsl_cache.and_then(|cache| cache.wait(&input_cancel));
                     let facts = discovery.discover_catalog(
@@ -151,20 +153,17 @@ impl Service {
     }
     pub(crate) fn stop_native_catalog(&mut self) -> Result<()> {
         self.begin_stop_native_catalog();
-        let deadline = Instant::now() + Duration::from_secs(12);
-        loop {
-            self.pump_native_catalog();
-            #[cfg(windows)]
-            let wsl_running = self.catalog.wsl.running();
-            #[cfg(not(windows))]
-            let wsl_running = false;
-            if self.catalog.jobs.is_empty() && !wsl_running {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                bail!("Original native catalog discovery worker is still running; owner retained.");
-            }
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        self.wait_until(
+            Instant::now() + Duration::from_secs(12),
+            |service| {
+                service.pump_native_catalog();
+                #[cfg(windows)]
+                let wsl_running = service.catalog.wsl.running();
+                #[cfg(not(windows))]
+                let wsl_running = false;
+                Ok((service.catalog.jobs.is_empty() && !wsl_running).then_some(()))
+            },
+            || anyhow::anyhow!("Original native catalog discovery worker is still running; owner retained."),
+        )
     }
 }

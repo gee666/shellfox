@@ -2,7 +2,7 @@ use super::super::tests::{approval_owner, approve_peer};
 use super::*;
 use crate::native_metadata_fixture as native_metadata;
 use crate::OwnerDispatcher;
-use shellfox_remote::{owner_channel, RemoteHost};
+use shellfox_remote::RemoteHost;
 use shellfox_transport::incoming::PeerIdentity;
 use std::sync::atomic::{AtomicBool, Ordering};
 struct Provider {
@@ -62,7 +62,7 @@ async fn facts_refresh_before_projection_and_fence_mutations_after_it_starts() {
         })
         .unwrap();
     let id = created.sessions[0].id;
-    let (client, receiver) = owner_channel(1);
+    let (client, receiver) = super::super::remote_channel();
     let provider = Arc::new(Provider {
         started: AtomicBool::new(false),
         release: tokio::sync::Notify::new(),

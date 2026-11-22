@@ -148,8 +148,9 @@ impl AutomationRuns {
         run.outcome.map(compatible_natural_exit)
     }
 
-    /// Convenience for independent source consumers. The shared Service uses
-    /// begin_stop/is_stopped while pumping its source relay between owner ticks.
+    /// Test convenience for independent source consumers. The shared Service
+    /// uses begin_stop/is_stopped while pumping its source relay.
+    #[cfg(test)]
     pub fn stop(&mut self, request: AutomationStop) -> Result<AutomationStopped> {
         self.begin_stop(AutomationStop { id: request.id })?;
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -210,7 +211,8 @@ impl AutomationRuns {
                 .values()
                 .all(|run| run.process.is_none() && run.dto.state == AutomationState::Exited)
     }
-    /// Convenience only when source consumers run independently of this thread.
+    /// Test convenience when source consumers run independently of this thread.
+    #[cfg(test)]
     pub fn shutdown(&mut self) -> Result<()> {
         self.begin_shutdown()?;
         let deadline = Instant::now() + Duration::from_secs(10);

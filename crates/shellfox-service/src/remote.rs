@@ -52,7 +52,7 @@ mod v1_launch;
 mod v1_privilege;
 #[path = "remote_v1_terminal.rs"]
 mod v1_terminal;
-pub use dispatcher::RemoteDispatcher;
+pub use dispatcher::{remote_channel, RemoteDispatcher, RemoteInbox};
 #[path = "remote_facts.rs"]
 pub mod facts;
 #[path = "remote_source.rs"]

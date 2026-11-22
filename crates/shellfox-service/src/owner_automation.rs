@@ -47,6 +47,16 @@ pub(crate) struct AutomationState {
     presentation_warning: Option<PresentationWarnings>,
     closed_external: HashMap<TabId, ClosedExternal>,
 }
+impl AutomationState {
+    /// Raw automation processes and their relays are pumped, not event-driven.
+    pub(crate) fn busy(&self) -> bool {
+        !self.relays.is_empty()
+            || !self.startup.is_empty()
+            || !self.writes.is_empty()
+            || !self.stops.is_empty()
+            || self.runs.active_processes() > 0
+    }
+}
 struct Relay {
     feed: AutomationRelay,
     failed_start: bool,
@@ -154,26 +164,23 @@ impl Service {
     }
     pub(crate) fn stop_automation(&mut self) -> Result<()> {
         self.automation.runs.begin_shutdown()?;
-        let deadline = Instant::now() + Duration::from_secs(12);
-        loop {
-            self.pump();
-            self.retire_failed_automation()?;
-            self.close_failed_automation_sources()?;
-            if self.automation.startup.is_empty()
-                && self.automation.runs.shutdown_ready()
-                && self.automation.relays.values().all(|relay| {
-                    self.terminals
-                        .get(&relay.feed.identity().tab_id)
-                        .is_some_and(|terminal| relay.feed.finished(&terminal.runtime))
-                })
-            {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                bail!("Automation cleanup/final source drain is unconfirmed; raw and parser owners retained.");
-            }
-            std::thread::sleep(Duration::from_millis(2));
-        }
+        self.wait_until(
+            Instant::now() + Duration::from_secs(12),
+            |service| {
+                service.pump();
+                service.retire_failed_automation()?;
+                service.close_failed_automation_sources()?;
+                let finished = service.automation.startup.is_empty()
+                    && service.automation.runs.shutdown_ready()
+                    && service.automation.relays.values().all(|relay| {
+                        service.terminals
+                            .get(&relay.feed.identity().tab_id)
+                            .is_some_and(|terminal| relay.feed.finished(&terminal.runtime))
+                    });
+                Ok(finished.then_some(()))
+            },
+            || anyhow::anyhow!("Automation cleanup/final source drain is unconfirmed; raw and parser owners retained."),
+        )
     }
     fn retire_failed_automation(&mut self) -> Result<()> {
         let failed: Vec<_> = self

@@ -39,6 +39,7 @@ mod manager_retire;
 mod native_metadata_fixture;
 mod owner;
 mod owner_automation;
+mod owner_wait;
 mod automation_replay;
 pub mod peer;
 #[cfg(windows)]
@@ -133,6 +134,8 @@ pub struct Service {
     automation: owner_automation::AutomationState,
     ssh_profiles: Option<crate::ssh::Store>,
     system_native_handler: Option<std::sync::Arc<system::SystemNativeHandler>>,
+    event_wake: Option<shellfox_runtime::EventWake>,
+    runtime_signal: std::sync::Arc<owner_wait::RuntimeSignal>,
     // Last: Host/SQLite and every deferred resource owner drop before this guard.
     // Original directory lifetime only, not path/VFS confinement.
     _root_lifetime: Option<shellfox_transport::RootLifetimeGuard>,
@@ -250,23 +253,21 @@ impl Service {
         {
             return self.close_external_parser(identity);
         }
-        loop {
-            if let Some(terminal) = self.terminals.get_mut(&identity.tab_id) {
-                terminal.discard_output();
-            }
-            self.drain(identity.tab_id)?;
-            let terminal = self
-                .terminals
-                .get(&identity.tab_id)
-                .context("Terminal owner disappeared.")?;
-            if terminal.runtime.phase() == Phase::Closed {
-                break;
-            }
-            if Instant::now() >= deadline {
-                bail!("Owned terminal cleanup not confirmed; metadata retained.");
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        self.wait_until(
+            deadline,
+            |service| {
+                if let Some(terminal) = service.terminals.get_mut(&identity.tab_id) {
+                    terminal.discard_output();
+                }
+                service.drain(identity.tab_id)?;
+                let terminal = service
+                    .terminals
+                    .get(&identity.tab_id)
+                    .context("Terminal owner disappeared.")?;
+                Ok((terminal.runtime.phase() == Phase::Closed).then_some(()))
+            },
+            || anyhow::anyhow!("Owned terminal cleanup not confirmed; metadata retained."),
+        )?;
         let runtime_identity = self.terminals[&identity.tab_id].runtime.identity();
         self.host.terminal_stopped(identity)?;
         self.activity_collect_live();

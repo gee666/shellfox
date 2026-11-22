@@ -1,7 +1,7 @@
 //! Ready facade assembled by the retained, borrowed native preparation owner.
 use super::preferences::store::NativePreferenceStore;
 use shellfox_remote::{
-    owner_channel_with_wake, ApprovalControl, Backend, BackendHandle, PrivateApprovalStore,
+    ApprovalControl, Backend, BackendHandle, PrivateApprovalStore,
 };
 use shellfox_transport::{
     HelperConfig, IsolatedStateDirectory, LoopbackOrigin, Secret, VerifiedHelper,
@@ -32,10 +32,9 @@ impl BackendAssembly {
         approvals: ApprovalControl,
         store: Arc<PrivateApprovalStore>,
         preferences: Arc<NativePreferenceStore>,
-        wake: &crate::OwnerWakeSlot,
-    ) -> anyhow::Result<(shellfox_remote::OwnerReceiver, Self)> {
+    ) -> anyhow::Result<(super::RemoteInbox, Self)> {
         let secret = fresh_secret()?;
-        let (sender, receiver) = owner_channel_with_wake(32, wake.notifier());
+        let (sender, receiver) = super::remote_channel();
         let engine = Backend::new(Arc::new(sender), approvals.clone(), secret.clone());
         let engine = Arc::new(engine);
         Ok((

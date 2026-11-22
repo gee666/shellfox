@@ -132,7 +132,7 @@ async fn cancelled_accepted_repository_wait_does_not_cancel_sqlite_commit_histor
     assert_eq!(host.approval_snapshot().unwrap(), after);
 }
 fn dispatcher() -> Box<crate::remote::RemoteDispatcher> {
-    let (_, receiver) = shellfox_remote::owner_channel(1);
+    let (_, receiver) = crate::remote::remote_channel();
     Box::new(crate::remote::RemoteDispatcher::new(
         receiver,
         crate::remote::RemoteState::new(Default::default(), None, None),

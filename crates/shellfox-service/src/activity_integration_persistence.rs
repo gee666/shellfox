@@ -49,6 +49,17 @@ impl ActivityPersistence {
             next_flush: utc.logical_ms.saturating_add(LIFECYCLE_INTERVAL_MS),
         }
     }
+    /// The earliest logical time [`Self::flush_next`] has work. A started
+    /// cycle commits one session per owner pass, so it is due at once.
+    pub fn next_flush_ms(&self) -> Option<u64> {
+        if !self.cycle.is_empty() {
+            Some(0)
+        } else if self.pending.is_empty() {
+            None
+        } else {
+            Some(self.next_flush)
+        }
+    }
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }

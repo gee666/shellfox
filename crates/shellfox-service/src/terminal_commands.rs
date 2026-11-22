@@ -90,35 +90,30 @@ impl Service {
             terminal.waiting = Some(id);
             terminal.replies.clear();
         }
-        let deadline = Instant::now() + Duration::from_secs(12);
-        let result = loop {
-            if !cleanup {
-                if let Err(error) = self.assert_owned() {
-                    break Err(error);
+        let result = self.wait_until(
+            Instant::now() + Duration::from_secs(12),
+            |service| {
+                if !cleanup {
+                    service.assert_owned()?;
                 }
-            }
-            if let Err(error) = self.drain(tab) {
-                break Err(error);
-            }
-            let Some(terminal) = self.terminals.get_mut(&tab) else {
-                break Err(anyhow::anyhow!("Terminal owner disappeared."));
-            };
-            if let Some(index) = terminal
-                .replies
-                .iter()
-                .position(|(reply, _)| reply.0 == id.0)
-            {
-                terminal.waiting = None;
-                let Some((_, reply)) = terminal.replies.remove(index) else {
-                    break Err(anyhow::anyhow!("Missing runtime reply."));
+                service.drain(tab)?;
+                let terminal = service
+                    .terminals
+                    .get_mut(&tab)
+                    .context("Terminal owner disappeared.")?;
+                let Some(index) = terminal.replies.iter().position(|(reply, _)| reply.0 == id.0)
+                else {
+                    return Ok(None);
                 };
-                break reply.map_err(Into::into);
-            }
-            if Instant::now() >= deadline {
-                break Err(anyhow::anyhow!("Runtime command deadline exceeded; outcome may be uncertain and was not retried."));
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        };
+                terminal.waiting = None;
+                let (_, reply) = terminal
+                    .replies
+                    .remove(index)
+                    .context("Missing runtime reply.")?;
+                reply.map(Some).map_err(Into::into)
+            },
+            || anyhow::anyhow!("Runtime command deadline exceeded; outcome may be uncertain and was not retried."),
+        );
         // finish_input already consumed successful/error replies at arrival,
         // before a following Closed event. Cancel covers every other exit path.
         if let Some(sink) = sink {

@@ -103,7 +103,7 @@ async fn completed_replay_is_observer_only_in_both_v2_profiles() -> Result<()> {
         PathBuf::from(std::env::var_os("SHELLFOX_RAW_TEST_HELPER").context("owned raw fixture")?);
     let data = crate::tests::scratch();
     let fixture = crate::native_metadata_fixture::Fixture::new();
-    let (sender, receiver) = shellfox_remote::owner_channel(32);
+    let (sender, receiver) = remote_channel();
     let dispatcher =
         RemoteDispatcher::new(receiver, RemoteState::new(Default::default(), None, None));
     let mut owner = ServiceOwner::start(

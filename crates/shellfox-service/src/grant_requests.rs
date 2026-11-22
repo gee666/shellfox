@@ -186,29 +186,28 @@ impl Service {
         &mut self,
         ticket: GrantTicket,
     ) -> std::result::Result<ActualGrant, GrantFailure> {
-        let deadline = Instant::now() + Duration::from_secs(12);
-        loop {
-            if self.assert_owned().is_err() || self.drain(ticket.identity().tab_id).is_err() {
-                return Err(GrantFailure::Uncertain(ticket));
-            }
-            if self.grants.recipient_cancelled(ticket)? {
-                return Err(GrantFailure::Uncertain(ticket));
-            }
-            match self.grants.poll(ticket)? {
-                GrantPoll::Granted(actual) => return Ok(actual),
-                GrantPoll::Rejected(error) => {
-                    self.grants.acknowledge_rejection(ticket)?;
-                    return Err(GrantFailure::Rejected(error));
+        self.wait_until(
+            Instant::now() + Duration::from_secs(12),
+            |service| {
+                if service.assert_owned().is_err()
+                    || service.drain(ticket.identity().tab_id).is_err()
+                    || service.grants.recipient_cancelled(ticket)?
+                {
+                    return Err(GrantFailure::Uncertain(ticket));
                 }
-                GrantPoll::Retired => return Err(GrantFailure::Retired(ticket)),
-                GrantPoll::Retiring => return Err(GrantFailure::Uncertain(ticket)),
-                GrantPoll::Pending => {}
-            }
-            if Instant::now() >= deadline {
-                return Err(GrantFailure::Uncertain(ticket));
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
+                match service.grants.poll(ticket)? {
+                    GrantPoll::Granted(actual) => Ok(Some(actual)),
+                    GrantPoll::Rejected(error) => {
+                        service.grants.acknowledge_rejection(ticket)?;
+                        Err(GrantFailure::Rejected(error))
+                    }
+                    GrantPoll::Retired => Err(GrantFailure::Retired(ticket)),
+                    GrantPoll::Retiring => Err(GrantFailure::Uncertain(ticket)),
+                    GrantPoll::Pending => Ok(None),
+                }
+            },
+            || GrantFailure::Uncertain(ticket),
+        )
     }
     pub(crate) fn controller_grant(
         &mut self,
