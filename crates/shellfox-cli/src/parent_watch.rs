@@ -34,8 +34,8 @@ impl Watch {
 }
 
 /// The launcher forwards Ctrl+C semantics to its child; it must not die first.
+#[cfg(windows)]
 pub fn ignore_console_interrupts() {
-    #[cfg(windows)]
     // SAFETY: a null handler with TRUE only sets this process's ignore flag.
     unsafe {
         windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 1);
