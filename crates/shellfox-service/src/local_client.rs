@@ -191,4 +191,17 @@ impl LocalClient {
             .take();
         result
     }
+    /// Resolves once the host closes this client's lifetime, at the latest when
+    /// its process exits. Ends this client: call it after its last request.
+    pub async fn closed(&self) {
+        let lifetime = self
+            .lifetime
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+        if let Some(mut lifetime) = lifetime {
+            let mut byte = [0; 1];
+            while matches!(lifetime.read(&mut byte).await, Ok(1..)) {}
+        }
+    }
 }
