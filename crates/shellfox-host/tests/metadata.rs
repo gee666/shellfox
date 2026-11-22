@@ -146,14 +146,6 @@ fn invalid_mutations_are_atomic_and_unknown_capabilities_are_not_exposed() {
         .is_err());
     assert!(host.reorder_tabs(id, &[tab, tab]).is_err());
     assert!(host.reorder_tabs(id, &[]).is_err());
-    assert!(host
-        .request_json(r#"{"method":"remote.connect","payload":{}}"#)
-        .into_result()
-        .is_err());
-    assert!(host
-        .request_json(r#"{"method":"getSnapshot","payload":{"command":"credential"}}"#)
-        .into_result()
-        .is_err());
     assert_eq!(host.snapshot().unwrap(), initial);
 }
 
@@ -209,17 +201,25 @@ fn delayed_close_confirmation_cannot_reserve_a_replacement_generation() {
     let initial = create(&host);
     let tab = initial.sessions[0].tabs[0].id;
     let shown = identity(tab);
-    assert_eq!(host.prepare_close_terminal(shown).unwrap_err().code, ErrorCode::Conflict);
+    assert_eq!(
+        host.prepare_close_terminal(shown).unwrap_err().code,
+        ErrorCode::Conflict
+    );
     host.register_terminal(shown).unwrap();
     host.terminal_stopped(shown).unwrap();
     let replacement = identity(tab);
     host.register_terminal(replacement).unwrap();
-    assert_eq!(host.prepare_close_terminal(shown).unwrap_err().code, ErrorCode::Conflict);
+    assert_eq!(
+        host.prepare_close_terminal(shown).unwrap_err().code,
+        ErrorCode::Conflict
+    );
     assert_eq!(host.snapshot().unwrap(), initial);
     let prepared = host.prepare_close_terminal(replacement).unwrap();
     assert_eq!(prepared.terminals, [replacement]);
     host.terminal_stopped(replacement).unwrap();
-    assert!(host.commit_close(prepared.token).unwrap().sessions[0].tabs.is_empty());
+    assert!(host.commit_close(prepared.token).unwrap().sessions[0]
+        .tabs
+        .is_empty());
 }
 
 #[test]
@@ -326,7 +326,9 @@ fn isolated_identity_newer_version_and_concurrent_owner_are_refused() {
             .unwrap(),
         "wal"
     );
-    let current: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
+    let current: i64 = db
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
     db.pragma_update(None, "user_version", current + 1).unwrap();
     drop(db);
     assert_eq!(

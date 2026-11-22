@@ -315,7 +315,7 @@ fn invalid_intent_or_facts_and_wire_requests_cannot_publish() {
     );
     for method in ["publishReservedSession", "reservedPublicationReceipt"] {
         let wire = serde_json::json!({"method":method,"payload":{}});
-        assert!(host.request_json(&wire.to_string()).into_result().is_err());
+        assert!(serde_json::from_value::<HostRequest>(wire).is_err());
     }
     assert_eq!(host.snapshot().unwrap(), before);
 }

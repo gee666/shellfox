@@ -66,45 +66,6 @@ pub enum HostRequest {
     SetTerminalEnv { env: Vec<EnvVar> },
 }
 impl Host {
-    /// This versioned experiment protocol is not a drop-in Electron host RPC.
-    /// Unknown methods/fields, process capabilities and oversized inputs fail.
-    pub fn request_json(&self, input: &str) -> Reply<Snapshot> {
-        let result = (|| {
-            validation::ensure(
-                input.len() <= 1024 * 1024,
-                "Host request exceeds the byte limit.",
-            )?;
-            let value: serde_json::Value = serde_json::from_str(input)
-                .map_err(|_| Error::new(ErrorCode::Validation, "Invalid host metadata request."))?;
-            let method = value
-                .get("method")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| Error::new(ErrorCode::Validation, "Missing host method."))?;
-            if !matches!(
-                method,
-                "getSnapshot"
-                    | "createSession"
-                    | "addTab"
-                    | "renameSession"
-                    | "renameTab"
-                    | "reorderTabs"
-                    | "setSessionPinned"
-                    | "activateSession"
-                    | "saveSettings"
-                    | "setSessionEnv"
-                    | "setTerminalEnv"
-            ) {
-                return Err(Error::new(
-                    ErrorCode::Unsupported,
-                    "This host metadata capability is not implemented.",
-                ));
-            }
-            let request: HostRequest = serde_json::from_value(value)
-                .map_err(|_| Error::new(ErrorCode::Validation, "Invalid host metadata request."))?;
-            self.request(request)
-        })();
-        result.into()
-    }
     pub fn request(&self, request: HostRequest) -> Result<Snapshot> {
         match request {
             HostRequest::GetSnapshot {} => self.snapshot(),

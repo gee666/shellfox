@@ -126,23 +126,26 @@ fn omitted_environment_and_disjoint_concurrent_patches_do_not_lose_updates() {
 fn global_settings_requests_do_not_widen_existing_snapshot() {
     let dir = Scratch::new();
     let host = Host::open(&dir.0).unwrap();
-    assert!(host
-        .settings_request_json(r#"{"method":"getGlobalSettings","payload":{}}"#)
-        .is_ok());
-    assert!(host
-        .settings_request_json(r#"{"method":"saveGlobalSettings","payload":{"autoUpdate":false}}"#)
-        .is_ok());
-    assert!(!host
-        .settings_request_json(r#"{"method":"saveGlobalSettings","payload":{"terminalEnv":null}}"#)
-        .is_ok());
-    assert!(!host
-        .settings_request_json(r#"{"method":"saveGlobalSettings","payload":{"fontSize":14}}"#)
-        .is_ok());
-    assert!(!host
-        .settings_request_json(
-            r#"{"method":"saveGlobalSettings","payload":{"shellExecutable":"/bin/untrusted"}}"#
-        )
-        .is_ok());
+    // SettingsRequest crosses the local desktop IPC as JSON.
+    let request = |input: &str| {
+        serde_json::from_str::<SettingsRequest>(input)
+            .ok()
+            .and_then(|request| host.settings_request(request).ok())
+            .is_some()
+    };
+    assert!(request(r#"{"method":"getGlobalSettings","payload":{}}"#));
+    assert!(request(
+        r#"{"method":"saveGlobalSettings","payload":{"autoUpdate":false}}"#
+    ));
+    assert!(!request(
+        r#"{"method":"saveGlobalSettings","payload":{"terminalEnv":null}}"#
+    ));
+    assert!(!request(
+        r#"{"method":"saveGlobalSettings","payload":{"fontSize":14}}"#
+    ));
+    assert!(!request(
+        r#"{"method":"saveGlobalSettings","payload":{"shellExecutable":"/bin/untrusted"}}"#
+    ));
     let snap = serde_json::to_value(host.snapshot().unwrap()).unwrap();
     assert!(snap.get("settings").is_none());
 }

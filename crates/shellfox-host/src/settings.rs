@@ -94,17 +94,4 @@ impl Host {
             SettingsRequest::Save(patch) => self.save_global_settings(*patch),
         }
     }
-    pub fn settings_request_json(&self, input: &str) -> Reply<Settings> {
-        let result = (|| {
-            validation::ensure(
-                input.len() <= 1024 * 1024,
-                "Settings request exceeds the byte limit.",
-            )?;
-            let request = serde_json::from_str(input).map_err(|_| {
-                Error::new(ErrorCode::Validation, "Invalid global settings request.")
-            })?;
-            self.settings_request(request)
-        })();
-        result.into()
-    }
 }

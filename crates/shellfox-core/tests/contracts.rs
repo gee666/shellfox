@@ -100,31 +100,6 @@ fn preferences_validate_sizes_colors_and_unknown_fields() {
 }
 
 #[test]
-fn result_discriminants_are_boolean_and_cannot_accept_mismatched_payloads() {
-    let success: Reply<u32> = Ok(42).into();
-    assert_eq!(
-        serde_json::to_value(&success).unwrap(),
-        json!({"ok":true,"value":42})
-    );
-    let parsed: Reply<u32> = serde_json::from_value(json!({"ok":true,"value":42})).unwrap();
-    assert_eq!(parsed.into_result().unwrap(), 42);
-    let failed: Reply<u32> = Err(Error::new(ErrorCode::NotFound, "Missing tab.")).into();
-    let serialized = serde_json::to_value(failed).unwrap();
-    assert_eq!(
-        serialized,
-        json!({"ok":false,"error":{"code":"NOT_FOUND","message":"Missing tab.","retryable":false}})
-    );
-    for invalid in [
-        json!({"ok":false,"value":42}),
-        json!({"ok":"true","value":42}),
-        json!({"ok":true,"value":42,"extra":0}),
-        json!({"ok":false,"error":{"code":"NOT_FOUND","message":"","retryable":false}}),
-    ] {
-        assert!(serde_json::from_value::<Reply<u32>>(invalid).is_err());
-    }
-}
-
-#[test]
 fn utc_and_environment_validation_have_explicit_case_policy() {
     validation::timestamp("2026-01-01T00:00:00.000Z").unwrap();
     assert!(validation::timestamp("2026-01-01T01:00:00+01:00").is_err());

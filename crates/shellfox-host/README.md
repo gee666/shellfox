@@ -45,7 +45,7 @@ Pins preserve their original `pinnedAt` when already pinned. Settlement is manua
 
 `changed_since(revision)` returns the latest revisioned `ChangedEvent`, if newer. Clients fetch a snapshot when they miss revisions. This is a notification cursor, not an event replay log.
 
-`request` and `request_json` expose typed metadata requests with existing Shellfox method spellings, camelCase fields and the `{ "ok": true, "value": ... }` result shape. The JSON request limit is one MiB. Unknown fields fail validation. Unsupported runtime, remote and file methods return `UNSUPPORTED`. This experiment protocol is not a drop-in implementation of the full Electron host RPC or `SettingsDto`. Appearance uses `Preferences` and `PreferencesPatch`; `save_settings` atomically preserves omitted global environment.
+`request` and `settings_request` take the typed `HostRequest` and `SettingsRequest` sent over local desktop IPC, with existing Shellfox method spellings and camelCase fields. Unknown methods and fields fail to deserialize. Appearance uses `Preferences` and `PreferencesPatch`; `save_settings` atomically preserves omitted global environment.
 
 ## Terminal adapter contract
 

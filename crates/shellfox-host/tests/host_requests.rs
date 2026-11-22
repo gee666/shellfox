@@ -6,7 +6,7 @@ impl Scratch {
     fn new() -> Self {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../tmp")
-            .join(format!("host-boundary-{}", SessionId::new()));
+            .join(format!("host-requests-{}", SessionId::new()));
         std::fs::create_dir_all(&path).unwrap();
         Self(path)
     }
@@ -16,8 +16,12 @@ impl Drop for Scratch {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+/// HostRequest crosses the local desktop IPC as JSON.
+fn parse(value: Value) -> serde_json::Result<HostRequest> {
+    serde_json::from_value(value)
+}
 fn send(host: &Host, value: Value) -> Snapshot {
-    host.request_json(&value.to_string()).into_result().unwrap()
+    host.request(parse(value).unwrap()).unwrap()
 }
 
 #[test]
@@ -95,11 +99,10 @@ fn save_settings_is_atomic_and_omitted_environment_preserves_latest() {
     assert_eq!(host.terminal_launch(tab).unwrap().env[0].value, "session");
     let before = host.snapshot().unwrap();
     let failure = host
-        .request_json(
-            &json!({"method":"saveSettings","payload":{"fontSize":1.0,"terminalEnv":[]}})
-                .to_string(),
+        .request(
+            parse(json!({"method":"saveSettings","payload":{"fontSize":1.0,"terminalEnv":[]}}))
+                .unwrap(),
         )
-        .into_result()
         .unwrap_err();
     assert_eq!(failure.code, ErrorCode::Validation);
     assert_eq!(host.snapshot().unwrap(), before);
@@ -107,9 +110,7 @@ fn save_settings_is_atomic_and_omitted_environment_preserves_latest() {
 }
 
 #[test]
-fn unknown_fields_capabilities_and_generation_cleanup_are_not_remote_calls() {
-    let scratch = Scratch::new();
-    let host = Host::open(&scratch.0).unwrap();
+fn unknown_methods_and_fields_are_refused() {
     for method in [
         "remote.connect",
         "listFiles",
@@ -117,11 +118,10 @@ fn unknown_fields_capabilities_and_generation_cleanup_are_not_remote_calls() {
         "registerTerminal",
         "writeTerminal",
     ] {
-        let error = host
-            .request_json(&json!({"method":method,"payload":{}}).to_string())
-            .into_result()
-            .unwrap_err();
-        assert_eq!(error.code, ErrorCode::Unsupported);
+        assert!(
+            parse(json!({"method":method,"payload":{}})).is_err(),
+            "{method}"
+        );
     }
     for payload in [
         json!({"requestId":SessionId::new(),"cwd":"/work","profileId":"cmd","command":"credential"}),
@@ -129,17 +129,7 @@ fn unknown_fields_capabilities_and_generation_cleanup_are_not_remote_calls() {
         json!({"requestId":SessionId::new(),"cwd":"/work","profileId":"cmd","environment":{"TOKEN":"secret"}}),
         json!({"requestId":"not-a-uuid","cwd":"/work","profileId":"cmd"}),
     ] {
-        assert_eq!(
-            host.request_json(&json!({"method":"createSession","payload":payload}).to_string())
-                .into_result()
-                .unwrap_err()
-                .code,
-            ErrorCode::Validation
-        );
+        assert!(parse(json!({"method":"createSession","payload":payload})).is_err());
     }
-    let serialized =
-        serde_json::to_value(host.request_json(r#"{"method":"getSnapshot","payload":{}}"#))
-            .unwrap();
-    assert_eq!(serialized["ok"], true);
-    assert!(host.snapshot().unwrap().sessions.is_empty());
+    assert!(parse(json!({"method":"getSnapshot","payload":{"command":"credential"}})).is_err());
 }
