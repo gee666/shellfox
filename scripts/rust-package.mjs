@@ -67,8 +67,8 @@ export async function packageRust(kind) {
     };
     assertLockUnchanged();
     cpSync(auditDirectory, directory, { recursive: true });
-    // Native manifests and trusted-build anchors must exist before Rust compiles.
-    const { records: resources, anchorEnv } = await stageResources({ directory, work, kind, version,
+    // The WSL Files worker must exist before Rust compiles; it is embedded.
+    const { records: resources, buildEnv } = await stageResources({ directory, work, kind,
       nugetSnapshot: process.env.SHELLFOX_NUGET_VULNERABILITY_SNAPSHOT ?? null });
     assertLockUnchanged();
     // Never overwrite target/release: a user-owned desktop may be loading its DLL.
@@ -77,7 +77,7 @@ export async function packageRust(kind) {
     const cargoTarget = path.resolve(process.env.CARGO_TARGET_DIR ?? path.join(scratchRoot, `rp-${process.platform}-${process.arch}`));
     const buildArgs = ['build', '--locked', '--release', '--target-dir', cargoTarget];
     for (const { packageName, bin } of binaries) buildArgs.push('-p', packageName, '--bin', bin);
-    run('cargo', buildArgs, { env: anchorEnv });
+    run('cargo', buildArgs, { env: buildEnv });
     assertLockUnchanged();
     const profileDirectory = path.join(cargoTarget, 'release');
     for (const { bin } of binaries) {

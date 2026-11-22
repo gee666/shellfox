@@ -173,10 +173,10 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
       writeFileSync(nugetSnapshot, JSON.stringify(await acquireNugetSnapshot('10.0')));
     }
     const signDarwin = process.platform === 'darwin' && process.env.SHELLFOX_MAC_UNSIGNED !== '1' ? signMac : undefined;
-    const { anchorEnv, helperSha256 } = await stageResources({ directory: stage, work, kind: 'desktop', version: pkg.version,
+    const { buildEnv, helperSha256 } = await stageResources({ directory: stage, work, kind: 'desktop',
       nugetSnapshot, probeTailscale: false, signDarwin });
     const cargoTarget = path.resolve(process.env.CARGO_TARGET_DIR || path.join(scratchRoot, 'rust-installers-target'));
-    const env = { ...anchorEnv, SHELLFOX_PACKAGED_GO_SHA256: helperSha256 };
+    const env = { ...buildEnv, SHELLFOX_PACKAGED_GO_SHA256: helperSha256 };
     run('cargo', ['build', '--locked', '--release', '--target-dir', cargoTarget,
       '-p', 'shellfox-desktop', '--bin', 'shellfox', '-p', 'shellfox-cli', '--bin', 'shellfox-cli'], { env, stdio: 'inherit', timeout: 50 * 60_000 });
     const mac = process.platform === 'darwin', win = process.platform === 'win32';

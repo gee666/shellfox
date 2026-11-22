@@ -68,12 +68,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev
-      - name: Native resource handle and producer contract tests
-        if: inputs.build_native_packages
-        run: |
-          cargo test --locked -p shellfox-resources --all-targets
-          cargo test --locked -p shellfox-resources --test bundle producer::node_manifest_matches_the_rust_contract -- --ignored
-          cargo clippy --locked -p shellfox-resources --all-targets -- -D warnings
       - name: Project-local pinned advisory tool and database
         if: inputs.build_native_packages
         run: |

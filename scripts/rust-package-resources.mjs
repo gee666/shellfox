@@ -3,7 +3,7 @@ import path from 'node:path';
 import { buildHelperWithAnchor, goVersion } from './tailscale.mjs';
 import { darwinHelpers } from './terminal-native-helpers.mjs';
 import { executableName, fileHash, root, run } from './rust-package-common.mjs';
-import { generateResourceManifest } from './rust-package-resource-manifest.mjs';
+import { managedInventory, writeManagedAudit } from './rust-package-resource-inventory.mjs';
 import { buildWslFilesWorker } from './rust-package-wsl-files.mjs';
 import { assertSdk, dotnetEnvironment, helperEnvironment, retainRuntimeNotices, runtimeVersion } from './dotnet-sdk.mjs';
 
@@ -23,27 +23,22 @@ export function writeLaunchers(directory, kind) {
   }
 }
 
-export async function stageResources({ directory, work, kind, version, nugetSnapshot = null, probeTailscale = true, signDarwin }) {
+export async function stageResources({ directory, work, kind, nugetSnapshot = null, probeTailscale = true, signDarwin }) {
   const resources = path.join(directory, 'resources');
   mkdirSync(resources, { recursive: true });
-  const records = [], anchorEnv = {
-    SHELLFOX_WINDOWS_HELPER_MANIFEST_SHA256: '', SHELLFOX_GO_HELPER_MANIFEST_SHA256: '',
-    SHELLFOX_DARWIN_HELPERS_MANIFEST_SHA256: '', SHELLFOX_WSL_SCRIPTS_MANIFEST_SHA256: '',
-  };
-  const rid = `${{ win32: 'win', darwin: 'osx', linux: 'linux' }[process.platform]}-${process.arch}`;
-  const makeBundle = (bundleKind, folder, runtimeVersion, name, variable, probe = false) => {
-    const record = generateResourceManifest({ directory: folder, kind: bundleKind, rid, version, runtimeVersion,
-      provenance: path.join(directory, 'trust-anchors', `${name}.json`), nugetSnapshot, probe });
-    anchorEnv[variable] = record.expectedManifestDigest;
-    records.push({ name: `${name}-bundle`, identity: record.identity, expectedManifestDigest: record.expectedManifestDigest,
-      trustAnchor: `trust-anchors/${name}.json`, managedAuditStatus: record.managedAuditStatus,
-      managedRuntimeLifecycleStatus: record.managedRuntimeLifecycleStatus });
-    if (bundleKind === 'managed' && (record.managedAuditStatus !== 'no-listed-findings' || record.managedRuntimeLifecycleStatus !== 'current-in-listed-channel')) {
+  const records = [], buildEnv = {};
+  // The self-contained .NET runtime ships only with no listed NuGet findings and a supported channel.
+  const auditManaged = folder => {
+    const inventory = managedInventory(folder, { rid: `win-${process.arch}`, runtimeVersion });
+    const report = writeManagedAudit(folder, inventory, nugetSnapshot);
+    records.push({ name: 'windows-elevated-terminal-audit', managedAuditStatus: report.status,
+      managedRuntimeLifecycleStatus: report.runtimeLifecycle.status });
+    if (report.status !== 'no-listed-findings' || report.runtimeLifecycle.status !== 'current-in-listed-channel') {
       const evidence = mkdtempSync(path.join(root, 'tmp', 'rust-package-native-audit-failure-'));
-      for (const file of ['managed-inventory.json', 'managed-vulnerability-report.json', 'bundle-manifest.json', 'Shellfox.ElevatedTerminal.deps.json', 'Shellfox.ElevatedTerminal.runtimeconfig.json']) {
+      for (const file of ['managed-inventory.json', 'managed-vulnerability-report.json', 'Shellfox.ElevatedTerminal.deps.json', 'Shellfox.ElevatedTerminal.runtimeconfig.json']) {
         copyFileSync(path.join(folder, file), path.join(evidence, file));
       }
-      throw new Error(`Managed native security/lifecycle is not cleared. No artifact or compiled anchor accepted. Evidence: ${evidence}`);
+      throw new Error(`Managed runtime security/lifecycle is not cleared. Evidence: ${evidence}`);
     }
   };
   // Keep module-specific notices generated from the Go helper's actual compiled graph.
@@ -55,12 +50,11 @@ export async function stageResources({ directory, work, kind, version, nugetSnap
   if (process.platform === 'darwin') signDarwin?.(helper.executable);
   const helperSha256 = signDarwin ? fileHash(helper.executable) : helper.sha256;
   records.push({ name: 'embedded-tailscale', path: `resources/tailscale/${executableName('shellfox-tailscale')}`, use: 'retained helper; Rust adapter acceptance required' });
-  makeBundle('go', tailscale, goVersion, 'go-helper', 'SHELLFOX_GO_HELPER_MANIFEST_SHA256', probeTailscale);
 
   const notices = path.join(directory, 'notices', 'ghostty-vt');
   cpSync(path.join(root, 'crates/ghostty-vt-sys/build-support/notices'), notices, { recursive: true });
   if (process.platform === 'win32') {
-    anchorEnv.SHELLFOX_WSL_FILES_BINARY = buildWslFilesWorker(work);
+    buildEnv.SHELLFOX_WSL_FILES_BINARY = buildWslFilesWorker(work);
     const wslNotices = path.join(directory, 'notices', 'wsl-files');
     mkdirSync(wslNotices, { recursive: true });
     const rustDocs = path.join(run('rustc', ['--print', 'sysroot']).trim(), 'share', 'doc', 'rust');
@@ -83,7 +77,7 @@ export async function stageResources({ directory, work, kind, version, nugetSnap
       // Standalone and packaged helper builds retain the same pinned notices.
       await retainRuntimeNotices(output);
       records.push({ name: 'windows-elevated-terminal', path: 'resources/elevated-terminal/Shellfox.ElevatedTerminal.exe', use: 'retained self-contained helper; no UAC launched during packaging' });
-      makeBundle('managed', output, runtimeVersion, 'windows-helper', 'SHELLFOX_WINDOWS_HELPER_MANIFEST_SHA256', true);
+      auditManaged(output);
     }
   } else if (process.platform === 'darwin') {
     const output = path.join(resources, 'terminal-native');
@@ -97,7 +91,6 @@ export async function stageResources({ directory, work, kind, version, nugetSnap
       signDarwin?.(file);
       records.push({ name: helper.basename, path: `resources/terminal-native/${helper.basename}`, use: 'retained native helper; Darwin runtime acceptance required' });
     }
-    makeBundle('darwin', output, undefined, 'darwin-helpers', 'SHELLFOX_DARWIN_HELPERS_MANIFEST_SHA256');
   }
-  return { records, anchorEnv, helperSha256 };
+  return { records, buildEnv, helperSha256 };
 }
