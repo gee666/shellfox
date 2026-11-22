@@ -1,11 +1,43 @@
 use crate::theme::Palette;
 use gpui::{
     AnyElement, Bounds, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, ScrollHandle, Window, canvas, fill, point, prelude::*, px, rgb, size,
+    ListState, Pixels, Point, ScrollHandle, Size, Window, canvas, fill, point, prelude::*, px, rgb,
+    size,
 };
 use std::{cell::Cell, rc::Rc};
 
 const THICKNESS: f32 = 15.;
+
+/// Anything the scrollbar can drive: a scrolled element or a GPUI list.
+pub(crate) trait ScrollModel: Clone + 'static {
+    fn scroll_offset(&self) -> Point<Pixels>;
+    fn scroll_max(&self) -> Size<Pixels>;
+    fn set_scroll_offset(&self, offset: Point<Pixels>);
+}
+
+impl ScrollModel for ScrollHandle {
+    fn scroll_offset(&self) -> Point<Pixels> {
+        self.offset()
+    }
+    fn scroll_max(&self) -> Size<Pixels> {
+        self.max_offset()
+    }
+    fn set_scroll_offset(&self, offset: Point<Pixels>) {
+        self.set_offset(offset);
+    }
+}
+
+impl ScrollModel for ListState {
+    fn scroll_offset(&self) -> Point<Pixels> {
+        self.scroll_px_offset_for_scrollbar()
+    }
+    fn scroll_max(&self) -> Size<Pixels> {
+        self.max_offset_for_scrollbar()
+    }
+    fn set_scroll_offset(&self, offset: Point<Pixels>) {
+        self.set_offset_from_scrollbar(offset);
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Scrollbar(Rc<Cell<Option<f32>>>);
@@ -16,12 +48,12 @@ impl Scrollbar {
     pub fn horizontal(&self, scroll: &ScrollHandle, palette: Palette) -> AnyElement {
         self.render_axis(scroll, palette, Axis::Horizontal, false)
     }
-    pub(crate) fn thin(&self, scroll: &ScrollHandle, palette: Palette) -> AnyElement {
+    pub(crate) fn thin(&self, scroll: &impl ScrollModel, palette: Palette) -> AnyElement {
         self.render_axis(scroll, palette, Axis::Vertical, true)
     }
     fn render_axis(
         &self,
-        scroll: &ScrollHandle,
+        scroll: &impl ScrollModel,
         palette: Palette,
         axis: Axis,
         thin: bool,
@@ -81,10 +113,10 @@ impl Axis {
             size(dimensions.x, dimensions.y),
         )
     }
-    fn move_to(self, scroll: &ScrollHandle, offset: f32, max_scroll: f32) {
+    fn move_to(self, scroll: &impl ScrollModel, offset: f32, max_scroll: f32) {
         let next = px(-offset.clamp(0., max_scroll));
-        let current = scroll.offset();
-        scroll.set_offset(match self {
+        let current = scroll.scroll_offset();
+        scroll.set_scroll_offset(match self {
             Self::Horizontal => point(next, current.y),
             Self::Vertical => point(current.x, next),
         });
@@ -131,7 +163,7 @@ impl Geometry {
 fn paint(
     bounds: Bounds<Pixels>,
     window: &mut Window,
-    scroll: &ScrollHandle,
+    scroll: &impl ScrollModel,
     palette: Palette,
     drag: &Rc<Cell<Option<f32>>>,
     axis: Axis,
@@ -139,9 +171,9 @@ fn paint(
 ) {
     let thickness = if thin { 10. } else { THICKNESS };
     let length = axis.component(bounds.size.width, bounds.size.height);
-    let maximum = scroll.max_offset();
+    let maximum = scroll.scroll_max();
     let corner = axis.component(maximum.height, maximum.width) > 0.;
-    let position = scroll.offset();
+    let position = scroll.scroll_offset();
     let Some(bar) = Geometry::new(
         length - if corner { thickness } else { 0. },
         axis.component(maximum.width, maximum.height),
@@ -206,7 +238,7 @@ fn paint(
 fn attach_input(
     window: &mut Window,
     bounds: Bounds<Pixels>,
-    scroll: &ScrollHandle,
+    scroll: &impl ScrollModel,
     bar: Geometry,
     axis: Axis,
     drag: &Rc<Cell<Option<f32>>>,
@@ -222,7 +254,7 @@ fn attach_input(
             return;
         }
         let point = axis.position(event.position - bounds.origin);
-        let start = -axis.position(down_scroll.offset());
+        let start = -axis.position(down_scroll.scroll_offset());
         let target = if point < bar.thickness {
             start - 40.
         } else if point >= bar.view - bar.thickness {

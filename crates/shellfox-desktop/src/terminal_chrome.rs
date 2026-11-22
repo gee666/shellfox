@@ -1,4 +1,4 @@
-use super::tab_scroll::{TabFocus, TabScroll};
+use super::tab_scroll::TabFocus;
 use crate::{
     assets::{icon_button, tooltip},
     chrome::button,
@@ -22,15 +22,6 @@ impl Root {
                 .sessions
                 .iter()
                 .find(|session| Some(session.id) == self.selected_session())
-        });
-        let windowed = session.is_some_and(|session| {
-            TabScroll::windowed(
-                session
-                    .tabs
-                    .iter()
-                    .filter(|tab| self.local_tab_viewable(tab))
-                    .count(),
-            )
         });
         let mut strip = div()
             .h(px(30.))
@@ -69,7 +60,7 @@ impl Root {
             Some(crate::editor_composition::EditorOutcome::Ready(_))
         );
         if files_available || session.is_none() {
-            strip = strip.when(!windowed, |strip| strip.child(div().flex_1()))
+            strip = strip.child(div().flex_1())
                 .child(self.render_files_toggle(files_available, palette, cx));
         }
         if files_available && session.is_some() {

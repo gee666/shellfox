@@ -11,7 +11,6 @@ pub(super) struct CloseButton {
     pub(super) target: TerminalIdentity,
     pub(super) visible: bool,
     pub(super) locked: bool,
-    pub(super) tab_stop: bool,
 }
 
 impl Root {
@@ -32,7 +31,7 @@ impl Root {
             button.opacity(0.).group_hover("terminal-tab", |style| style.opacity(1.))
         })
         .when(state.locked, |button| button.cursor(gpui::CursorStyle::Arrow));
-        let focus = (!state.locked).then(|| self.tab_scroll.control_focus(key, cx).tab_stop(state.tab_stop));
+        let focus = (!state.locked).then(|| self.tab_scroll.control_focus(key, cx).tab_stop(true));
         self.tab_strip_control(key, format!("Close terminal {title}"), button, focus, palette, cx)
     }
 

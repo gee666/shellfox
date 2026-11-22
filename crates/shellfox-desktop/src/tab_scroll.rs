@@ -1,7 +1,5 @@
 use super::tab_reorder::{TabDrag, TabStrip};
-use gpui::{
-    Bounds, Div, Pixels, Point, ScrollHandle, Stateful, Window, div, point, prelude::*, px, size,
-};
+use gpui::{Bounds, Div, Pixels, Point, ScrollHandle, Stateful, Window, div, prelude::*, px};
 use shellfox_host::{SessionId, TabId};
 use shellfox_core::TerminalIdentity;
 use std::{
@@ -15,12 +13,6 @@ mod math;
 use math::Viewport;
 
 type LocalViewport = Viewport<SessionId, TabId>;
-
-#[derive(Clone, Copy)]
-struct DragPosition {
-    tab: TabId,
-    point: Point<Pixels>,
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum TabFocus {
@@ -44,7 +36,8 @@ impl TabFocus {
 pub(crate) struct TabScroll {
     handle: ScrollHandle,
     last_viewport: Rc<Cell<Option<LocalViewport>>>,
-    drag: Rc<Cell<Option<DragPosition>>>,
+    /// Pointer position while a tab of this strip is dragged.
+    drag: Rc<Cell<Option<Point<Pixels>>>>,
     focus_handles: Rc<RefCell<HashMap<TabFocus, gpui::FocusHandle>>>,
     pending_reveal: Rc<Cell<Option<TabId>>>,
     pub(super) files_pointer_focus: Rc<Cell<bool>>,
@@ -86,48 +79,10 @@ impl TabScroll {
         })
     }
 
-    pub(super) fn windowed(count: usize) -> bool {
-        count > math::WINDOW_THRESHOLD
-    }
-
-    pub(super) fn slot_width() -> Pixels {
-        px(math::WINDOWED_WIDTH)
-    }
-
-    pub(super) fn visible_indices(
-        &self,
-        count: usize,
-        retained: impl IntoIterator<Item = usize>,
-    ) -> Vec<usize> {
-        if !Self::windowed(count) {
-            return (0..count).collect();
-        }
-        let bounds = self.handle.bounds();
-        let width = f32::from(bounds.size.width);
-        math::window_indices(
-            count,
-            -f32::from(self.handle.offset().x),
-            if width > 0. { width } else { 800. },
-            retained,
-        )
-    }
-
-    pub(super) fn item_bounds(&self, index: usize, windowed: bool) -> Option<Bounds<Pixels>> {
-        let mut bounds = if windowed {
-            let viewport = self.handle.bounds();
-            Bounds::new(
-                viewport.origin + point(px(index as f32 * math::WINDOWED_WIDTH), px(0.)),
-                size(Self::slot_width(), px(30.)),
-            )
-        } else {
-            self.handle.bounds_for_item(index)?
-        };
+    pub(super) fn item_bounds(&self, index: usize) -> Option<Bounds<Pixels>> {
+        let mut bounds = self.handle.bounds_for_item(index)?;
         bounds.origin += self.handle.offset();
         Some(bounds)
-    }
-
-    pub(super) fn focused_or_dragged(&self, window: &Window) -> [Option<TabId>; 2] {
-        [self.focused_tab(window), self.drag.get().map(|drag| drag.tab)]
     }
 
     pub(super) fn viewport(
@@ -135,12 +90,10 @@ impl TabScroll {
         session: SessionId,
         selected: Option<(TabId, usize)>,
         tabs: Rc<[TabId]>,
-        windowed: bool,
         strip: Option<TabStrip>,
     ) -> Stateful<Div> {
         let scroll = self.clone();
         let drag = self.drag.clone();
-        let previous_display = (self.handle.offset().x, self.handle.bounds().size.width);
         div()
             .on_children_prepainted(move |_, window, cx| {
                 let bounds = scroll.handle.bounds();
@@ -151,7 +104,7 @@ impl TabScroll {
                 };
                 let offset = scroll.handle.offset();
                 let previous = scroll.last_viewport.replace(Some(viewport));
-                let tab_edges = |index| scroll.item_bounds(index, windowed).map(|tab| {
+                let tab_edges = |index| scroll.item_bounds(index).map(|tab| {
                         (
                             f32::from(tab.left() - bounds.left() - offset.x),
                             f32::from(tab.right() - bounds.left() - offset.x),
@@ -172,7 +125,6 @@ impl TabScroll {
                 } else if let Some(position) = scroll
                     .drag
                     .get()
-                    .map(|drag| drag.point)
                     .filter(|position| bounds.contains(position))
                 {
                     let edge = if position.x < bounds.left() + px(32.) {
@@ -185,10 +137,7 @@ impl TabScroll {
                     x = (x + px(edge)).clamp(-scroll.handle.max_offset().width, px(0.));
                 }
                 if x != offset.x {
-                    scroll.handle.set_offset(point(x, offset.y));
-                }
-                if x != offset.x || windowed && previous_display != (x, bounds.size.width) {
-                    // Rebuild the mounted range after layout computes the actual viewport.
+                    scroll.handle.set_offset(gpui::point(x, offset.y));
                     window.request_animation_frame();
                 }
             })
@@ -196,10 +145,7 @@ impl TabScroll {
             .on_drag_move(move |event: &gpui::DragMoveEvent<TabDrag>, window, cx| {
                 let current = event.drag(cx);
                 if Some(current.strip) == strip {
-                    drag.set(Some(DragPosition {
-                        tab: current.tab,
-                        point: event.event.position,
-                    }));
+                    drag.set(Some(event.event.position));
                     window.refresh();
                 }
             })
@@ -209,7 +155,6 @@ impl TabScroll {
             .flex()
             .flex_shrink()
             .min_w_0()
-            .when(windowed, |strip| strip.flex_1())
             .overflow_x_scroll()
             .track_scroll(&self.handle)
     }

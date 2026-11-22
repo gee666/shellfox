@@ -1,4 +1,4 @@
-use super::{tab_close::CloseButton, tab_menu::TabMenu, tab_scroll::TabScroll};
+use super::{tab_close::CloseButton, tab_menu::TabMenu};
 use crate::{
     accessibility::{Role, SemanticNode},
     assets::tooltip,
@@ -43,11 +43,10 @@ impl Root {
                 None
             }
         };
-        let windowed = TabScroll::windowed(visible.len());
         let reorder = self.tab_reorder_scope(cx);
         let mut tabs = self
             .tab_scroll
-            .viewport(session.id, selected_index, Rc::clone(&visible), windowed, reorder);
+            .viewport(session.id, selected_index, Rc::clone(&visible), reorder);
         self.tab_scroll.retain_focus_handles(
             &session
                 .tabs
@@ -56,26 +55,9 @@ impl Root {
                 .collect::<HashSet<_>>(),
             &visible.iter().filter_map(|&tab| self.tab_close_identity(tab)).collect(),
         );
-        let focused_or_dragged = self.tab_scroll.focused_or_dragged(window);
-        let retained = visible.iter().enumerate().filter_map(|(index, &id)| {
-            (selected == Some(id)
-             || matches!(self.dialog, Some(Dialog::RenameTab { id: editing, .. }) if editing == id)
-             || self.tab_menu.as_ref().is_some_and(|menu| menu.target() == id)
-             || focused_or_dragged.contains(&Some(id))).then_some(index)
-        });
-        let mut cursor = 0;
         let close_locked =
             self.user_action_pending || matches!(self.dialog, Some(Dialog::RenameTab { .. }));
-        for index in self.tab_scroll.visible_indices(visible.len(), retained) {
-            if index > cursor {
-                tabs = tabs.child(
-                    div()
-                        .flex_shrink_0()
-                        .w(TabScroll::slot_width() * (index - cursor) as f32),
-                );
-            }
-            cursor = index + 1;
-            let tab = visible_tabs[index];
+        for (index, tab) in visible_tabs.iter().copied().enumerate() {
             let id = tab.id;
             let active = selected == Some(id);
             let state = self.tab_agent_state(tab, cx);
@@ -186,10 +168,6 @@ impl Root {
                 .items_start()
                 .min_w(px(90.))
                 .max_w(px(180.))
-                .when(windowed, |item| {
-                    item.w(TabScroll::slot_width())
-                        .min_w(TabScroll::slot_width())
-                })
                 .pr(px(1.))
                 .child(
                     div()
@@ -227,7 +205,7 @@ impl Root {
                 .child(label)
                 .when_some(close_target, |item, target| {
                     item.child(self.tab_close_button(
-                        CloseButton { target, visible: show_close, locked: close_locked, tab_stop: !windowed || active },
+                        CloseButton { target, visible: show_close, locked: close_locked },
                         &title, palette, cx,
                     ))
                 })
@@ -260,13 +238,6 @@ impl Root {
                     scope.drop_target(item, id, palette, cx)
                 });
             tabs = tabs.child(item);
-        }
-        if visible.len() > cursor {
-            tabs = tabs.child(
-                div()
-                    .flex_shrink_0()
-                    .w(TabScroll::slot_width() * (visible.len() - cursor) as f32),
-            );
         }
         if let Some(id) = tab_list_id {
             semantic_frame

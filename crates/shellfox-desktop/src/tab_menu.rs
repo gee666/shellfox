@@ -18,10 +18,6 @@ impl TabMenu {
         self
     }
 
-    pub(super) fn target(&self) -> TabId {
-        self.id
-    }
-
     pub(super) fn new(strip: TabStrip, id: TabId, position: Point<Pixels>) -> Self {
         Self {
             strip,

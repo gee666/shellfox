@@ -1,5 +1,5 @@
 use super::*;
-use crate::root::peer::sidebar_layout::RowFocus;
+use crate::sidebar::RowFocus;
 use crate::{accessibility::{SemanticAction, SemanticActionKind}, assets::inline_ellipsis,
     root::peer::session_dialog::Editor, session_menu::Item};
 use gpui::{Bounds, KeyDownEvent, Pixels};
@@ -53,7 +53,7 @@ impl Root {
         cx: &Context<Self>,
     ) -> AnyElement {
         let id = session.id;
-        let menu_focus = focus.0.clone();
+        let menu_focus = focus.copy.clone();
         let target = cycle.clone();
         let mouse_menu = cycle.clone();
         let key_menu = cycle.clone();
@@ -87,9 +87,9 @@ impl Root {
             copy = copy.child(field.clone());
         } else {
             copy = copy
-                .track_focus(&focus.0)
+                .track_focus(&focus.copy)
                 .when(
-                    self.sidebar_ui.keyboard_focus && focus.0.is_focused(window),
+                    self.sidebar_ui.keyboard_focus && focus.copy.is_focused(window),
                     |copy| copy.child(crate::sidebar::row::focus_ring(palette)),
                 )
                 .cursor_pointer()
@@ -161,6 +161,7 @@ impl Root {
                 "peer-{}-session-{id}",
                 cycle.peer.as_str()
             )))
+            .track_focus(&focus.row)
             .relative()
             .h(px(36.))
             .flex()
@@ -193,9 +194,6 @@ impl Root {
                 status_label(dot, error_text(session, false)),
                 status_dot(dot, palette).mt(px(3.)),
             ))
-            .children(id.to_string().parse().ok().map(|id| {
-                self.sidebar_ui.visibility.marker(crate::session_visibility::PollingTarget::Peer(cycle.peer.clone(), id))
-            }))
             .child(if editing.is_some() { copy.into_any_element() } else {
                 self.workspace_button(&workspace_session_key(&cycle.peer, id), format!("Select session {}", session.title), copy)
             })
@@ -213,7 +211,7 @@ impl Root {
                 ))
                 .when(pending, |button| button.opacity(0.4))
                 .when(!pending, |button| {
-                    button.track_focus(&focus.1).on_click(cx.listener(
+                    button.track_focus(&focus.settle).on_click(cx.listener(
                         move |root, _, window, cx| {
                             root.toggle_peer_settlement(toggle.clone(), id, settled, window, cx)
                         },

@@ -2,11 +2,11 @@ use crate::root::{
     Root,
     source::{PeerCycle, Phase},
 };
-use gpui::{Bounds, Context, IntoElement, Pixels, Window, canvas, prelude::*, px};
+use gpui::{Bounds, Context, Pixels, Window, px};
 use shellfox_core::SessionId;
 use shellfox_protocol::{AuthenticatedPeerId, SetVisibleSessions};
 use shellfox_service::native::NativeAction;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub(crate) enum PollingTarget {
@@ -17,7 +17,6 @@ pub(crate) enum PollingTarget {
 #[derive(Default)]
 pub(crate) struct SessionVisibility {
     pub(crate) trace: bool,
-    painted: Rc<RefCell<Vec<PollingTarget>>>,
     local: Lane,
     peers: HashMap<AuthenticatedPeerId, (u64, Lane)>,
 }
@@ -41,27 +40,7 @@ impl Lane {
     }
 }
 
-impl SessionVisibility {
-    pub(crate) fn begin_frame(&self) {
-        self.painted.borrow_mut().clear();
-    }
-
-    pub(crate) fn marker(&self, target: PollingTarget) -> impl IntoElement + use<> {
-        let painted = self.painted.clone();
-        canvas(
-            |_, _, _| (),
-            move |bounds, (), window, _| {
-                if intersects(bounds, window.content_mask().bounds) {
-                    painted.borrow_mut().push(target);
-                }
-            },
-        )
-        .absolute()
-        .inset_0()
-    }
-}
-
-fn intersects(bounds: Bounds<Pixels>, clip: Bounds<Pixels>) -> bool {
+pub(crate) fn intersects(bounds: Bounds<Pixels>, clip: Bounds<Pixels>) -> bool {
     let intersection = bounds.intersect(&clip);
     intersection.size.width > px(0.) && intersection.size.height > px(0.)
 }
@@ -74,12 +53,10 @@ impl Root {
         let mut local = Vec::new();
         let mut peers: HashMap<AuthenticatedPeerId, Vec<SessionId>> = HashMap::new();
         if window_visible(window) {
-            for target in self.sidebar_ui.visibility.painted.borrow().iter() {
+            for target in self.sidebar_ui.list.visible_sessions() {
                 match target {
-                    PollingTarget::Local(id) => local.push(*id),
-                    PollingTarget::Peer(peer, id) => {
-                        peers.entry(peer.clone()).or_default().push(*id)
-                    }
+                    PollingTarget::Local(id) => local.push(id),
+                    PollingTarget::Peer(peer, id) => peers.entry(peer).or_default().push(id),
                 }
             }
             if !self.settings
@@ -234,7 +211,7 @@ mod tests {
     use gpui::{point, size};
 
     #[test]
-    fn edge_touching_prefetched_rows_are_not_polling_targets() {
+    fn edge_touching_rows_are_not_polling_targets() {
         let row = Bounds::new(point(px(0.), px(36.)), size(px(220.), px(36.)));
         assert!(!intersects(
             row,

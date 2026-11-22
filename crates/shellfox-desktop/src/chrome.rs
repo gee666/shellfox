@@ -48,7 +48,7 @@ pub(crate) fn button(
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_file_source(cx);
-        self.sidebar_ui.visibility.begin_frame();
+        self.sidebar_ui.list.begin_frame();
         self.html_preview.begin_frame();
         let resize_root = cx.entity();
         let motion = gpui::canvas(

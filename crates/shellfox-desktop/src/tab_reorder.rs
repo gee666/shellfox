@@ -1,4 +1,4 @@
-use super::{tab_menu::TabMenu, tab_scroll::TabScroll};
+use super::tab_menu::TabMenu;
 use crate::{root::Root, theme::Palette, workspace::AfterAction};
 use gpui::{Context, Div, EntityId, Render, SharedString, Stateful, Window, div, prelude::*, px};
 use shellfox_host::{HostRequest, SessionId, TabId};
@@ -99,9 +99,7 @@ impl Root {
             "f2" if reorder.is_some() => self.rename_tab_dialog(id, window, cx),
             "contextmenu" | "menu" | "f10" if key != "f10" || mods.shift => {
                 if let Some(scope) = reorder
-                    && let Some(bounds) = self
-                        .tab_scroll
-                        .item_bounds(index, TabScroll::windowed(tabs.len()))
+                    && let Some(bounds) = self.tab_scroll.item_bounds(index)
                 {
                     self.open_tab_menu(
                         TabMenu::new(

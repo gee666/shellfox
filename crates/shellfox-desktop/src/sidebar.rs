@@ -3,7 +3,7 @@ use crate::{
     root::Root,
     theme::Palette,
 };
-use gpui::{AnyElement, Context, FocusHandle, ScrollHandle, div, prelude::*, px};
+use gpui::{AnyElement, Context, FocusHandle, Window, div, prelude::*, px};
 use shellfox_core::{Session, SessionId, Snapshot};
 use shellfox_service::activity::AgentState;
 use std::collections::HashMap;
@@ -19,13 +19,32 @@ mod new_session_menu;
 pub(crate) mod row;
 #[path = "sidebar_toolbar.rs"]
 mod toolbar;
-#[path = "sidebar_window.rs"]
-pub(crate) mod windowed;
+#[path = "sidebar_list.rs"]
+pub(crate) mod list;
+
+/// Focus for one sidebar row: the title button, the settle button, and the
+/// whole row, which keeps the row rendered while either one has focus.
+#[derive(Clone)]
+pub(crate) struct RowFocus {
+    pub(crate) copy: FocusHandle,
+    pub(crate) settle: FocusHandle,
+    pub(crate) row: FocusHandle,
+}
+
+impl RowFocus {
+    pub(crate) fn new(cx: &mut gpui::App) -> Self {
+        Self {
+            copy: cx.focus_handle().tab_stop(true),
+            settle: cx.focus_handle().tab_stop(true),
+            row: cx.focus_handle(),
+        }
+    }
+}
 
 pub(crate) struct SidebarUi {
     pub(crate) visibility: crate::session_visibility::SessionVisibility,
-    row_focus: HashMap<SessionId, (FocusHandle, FocusHandle)>,
-    pub(crate) scroll: ScrollHandle,
+    row_focus: HashMap<SessionId, RowFocus>,
+    pub(crate) list: list::SidebarList,
     scrollbar: crate::files::scrollbar::Scrollbar,
     group: FocusHandle,
     more: FocusHandle,
@@ -47,7 +66,7 @@ impl SidebarUi {
         Self {
             visibility: Default::default(),
             row_focus: HashMap::new(),
-            scroll: ScrollHandle::new(),
+            list: Default::default(),
             scrollbar: Default::default(),
             group: cx.focus_handle().tab_stop(true),
             more: cx.focus_handle().tab_stop(true),
@@ -77,22 +96,14 @@ impl SidebarUi {
             .iter()
             .map(|session| {
                 let id = session.id;
-                (
-                    id,
-                    old.remove(&id).unwrap_or_else(|| {
-                        (
-                            cx.focus_handle().tab_stop(true),
-                            cx.focus_handle().tab_stop(true),
-                        )
-                    }),
-                )
+                (id, old.remove(&id).unwrap_or_else(|| RowFocus::new(cx)))
             })
             .collect();
     }
 
     pub(crate) fn focus_row(&self, id: SessionId, window: &mut gpui::Window) {
-        if let Some((focus, _)) = self.row_focus.get(&id) {
-            focus.focus(window);
+        if let Some(focus) = self.row_focus.get(&id) {
+            focus.copy.focus(window);
         }
     }
 }
@@ -142,99 +153,21 @@ impl Root {
         window: &gpui::Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let mut list = div()
-            .id("sessions")
+        let list = self
+            .sidebar_list(palette, window, cx)
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .overflow_x_hidden()
-            .overflow_y_scroll()
-            .track_scroll(&self.sidebar_ui.scroll)
             .py(px(4.));
-        if let Some(snapshot) = &self.snapshot {
-            let count = snapshot.sessions.len();
-            let shown = self.session_pages.saturating_mul(self.history_page_size);
-            list = list.child(self.workspace_button("workspace/local/sessions", "Local sessions",
-                div()
-                    .id("local-section")
-                    .track_focus(&self.sidebar_ui.group)
-                    .h(px(28.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .pl(px(9.))
-                    .pr(px(4.))
-                    .text_size(px(11.))
-                    .text_color(palette.muted)
-                    .cursor_pointer()
-                    .hover(|style| style.bg(palette.hover))
-                    .child(div().flex_shrink_0().child(icon_sized(
-                        if self.local_expanded {
-                            "down"
-                        } else {
-                            "chevron"
-                        },
-                        12.,
-                    )))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .relative()
-                            .top(px(1.))
-                            .child(format!("Local · {count}")),
-                    )
-                    .on_click(
-                        cx.listener(|root, _, window, cx| root.toggle_local_group(window, cx)),
-                    ),
-            ));
-            if self.local_expanded {
-                list = self.render_sidebar_page(list, shown, palette, window, cx);
-                if shown < count {
-                    list = list.child(
-                        div().flex().mx(px(12.)).my(px(4.)).child(
-                            div()
-                                .id("more-sessions")
-                                .track_focus(&self.sidebar_ui.more)
-                                .p(px(4.))
-                                .text_size(px(12.))
-                                .line_height(px(16.))
-                                .text_color(palette.muted)
-                                .cursor_pointer()
-                                .hover(|style| style.text_color(palette.accent))
-                                .child(div().relative().top(px(1.)).child("Show more"))
-                                .on_click(cx.listener(|root, _, window, cx| {
-                                    root.show_more_sessions(window, cx)
-                                })),
-                        ),
-                    );
-                }
-                if count == 0 {
-                    list = list.child(
-                        div()
-                            .mx(px(8.))
-                            .my(px(12.))
-                            .text_size(px(12.))
-                            .line_height(px(16.))
-                            .text_color(palette.muted)
-                            .child("No sessions, press +"),
-                    );
-                }
-            }
-        }
-        if self.snapshot.is_some() && self.peers.peers.values().any(|peer| peer.remembered) {
-            list = list.child(div().h(px(4.)));
-        }
-        list = self.peer_sidebar(list, palette, window, cx);
-        let scroll = self.sidebar_ui.scroll.clone();
-        let scrolling = scroll.max_offset().height > px(0.);
+        let state = self.sidebar_ui.list.state().clone();
+        let scrolling = state.max_offset_for_scrollbar().height > px(0.);
         let weak = cx.weak_entity();
         let list = div().relative().flex_1().min_h_0().flex()
             .child(list.when(scrolling, |list| list.mr(px(10.))))
-            .when(scrolling, |frame| frame.child(self.sidebar_ui.scrollbar.thin(&scroll, palette)))
+            .when(scrolling, |frame| frame.child(self.sidebar_ui.scrollbar.thin(&state, palette)))
+            .child(self.sidebar_ui.list.painted_marker())
             .child(gpui::canvas(|_, _, _| (), move |_, (), window, cx| {
-                if scrolling != (scroll.max_offset().height > px(0.)) {
+                if scrolling != (state.max_offset_for_scrollbar().height > px(0.)) {
                     window.defer(cx, move |_, cx| { let _ = weak.update(cx, |_, cx| cx.notify()); });
                 }
             }).absolute().inset_0());
@@ -290,25 +223,6 @@ impl Root {
         true
     }
 
-    pub(crate) fn first_peer_section_y(&self) -> f32 {
-        let Some(snapshot) = &self.snapshot else {
-            return 4.;
-        };
-        let count = snapshot.sessions.len();
-        let shown = count.min(self.session_pages.saturating_mul(self.history_page_size));
-        let mut height = 36.; // List padding, Local header, and trailing section padding.
-        if self.local_expanded {
-            height += shown as f32 * windowed::ROW_HEIGHT;
-            if count == 0 {
-                height += 40.;
-            }
-            if shown < count {
-                height += 32.;
-            }
-        }
-        height
-    }
-
     pub(crate) fn toggle_local_group(&mut self, _window: &mut gpui::Window, cx: &mut Context<Self>) {
         if !self.is_local_source() {
             self.select_local_source(_window, cx);
@@ -318,7 +232,7 @@ impl Root {
         cx.notify();
     }
 
-    fn show_more_sessions(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+    fn show_more_sessions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let old_end = self.session_pages.saturating_mul(self.history_page_size);
         self.session_pages = self.session_pages.saturating_add(1);
         let rows = self.sidebar_rows(cx);
@@ -329,7 +243,7 @@ impl Root {
             && let Some((last, _)) = rows.last()
         {
             self.sidebar_ui.focus_row(last.id, window);
-            windowed::reveal_region(&self.sidebar_ui.scroll, 32. + windowed::ROW_HEIGHT * (rows.len() - 1) as f32, windowed::ROW_HEIGHT + 4.);
+            self.sidebar_ui.list.reveal(&list::Entry::Local(last.id));
         }
         cx.notify();
     }

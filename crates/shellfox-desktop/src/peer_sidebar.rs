@@ -4,7 +4,7 @@ use crate::{
     sidebar::row::{shorten_home, status_label},
     tab_activity::status_dot,
 };
-use gpui::{Div, Stateful};
+use crate::sidebar::list::Entry;
 #[path = "peer_sidebar_row.rs"]
 mod row;
 use shellfox_protocol::{Status, TabLifecycle, TabStatus};
@@ -121,13 +121,38 @@ pub(crate) fn connection_color(peer: &source::PeerState, palette: Palette) -> gp
 }
 
 impl Root {
-    pub(crate) fn peer_sidebar(
+    fn peer_rows<'a>(
         &self,
-        mut list: Stateful<Div>,
-        palette: Palette,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+        peer: &AuthenticatedPeerId,
+        state: &'a source::PeerState,
+    ) -> Vec<(&'a m::Session, AgentState)> {
+        let mut rows: Vec<_> = state
+            .snapshot
+            .as_ref()
+            .map(|snapshot| {
+                source::sessions(snapshot)
+                    .map(|session| {
+                        (session, dot(session, |tab| self.peer_tab_busy(peer, tab).unwrap_or(false)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        rows.sort_by(|(a, a_dot), (b, b_dot)| {
+            let a_pin = a.facts.pinned_at.known().and_then(Option::as_ref);
+            let b_pin = b.facts.pinned_at.known().and_then(Option::as_ref);
+            b_pin
+                .is_some()
+                .cmp(&a_pin.is_some())
+                .then_with(|| a_pin.cmp(&b_pin))
+                .then_with(|| crate::sidebar::rank(*a_dot).cmp(&crate::sidebar::rank(*b_dot)))
+                .then_with(|| a.facts.created_at.known().cmp(&b.facts.created_at.known()))
+                .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
+        });
+        rows
+    }
+
+    /// Appends one section per remembered peer: heading, shown rows, "Show more".
+    pub(crate) fn peer_entries(&self, entries: &mut Vec<Entry>, window: &Window, cx: &mut gpui::App) {
         let mut peers: Vec<_> = self
             .peers
             .peers
@@ -135,202 +160,209 @@ impl Root {
             .filter(|(_, state)| state.remembered)
             .collect();
         peers.sort_by(|a, b| a.1.hostname.cmp(&b.1.hostname));
-        let mut y = self.first_peer_section_y();
         for (peer, state) in peers {
             let connected = state.phase == source::Phase::Connected && state.snapshot.is_some();
-            let expanded = !self.peer_ui.collapsed.contains(peer);
-            let selected = self.peers.selected == source::Source::Peer(peer.clone());
+            let expanded = connected && !self.peer_ui.collapsed.contains(peer);
+            let rows = self.peer_rows(peer, state);
+            let pages = self.peer_ui.pages.get(peer).copied().unwrap_or(1);
+            let shown = if expanded {
+                rows.len().min(pages.saturating_mul(self.history_page_size))
+            } else {
+                0
+            };
+            let more = expanded && shown < rows.len();
             let cycle = source::PeerCycle {
                 peer: peer.clone(),
                 generation: state.cycle,
             };
-            let (label, detail) = connection_label(state);
-            use source::ConnectionAction;
-            let action = state.connection_action();
-            let active = matches!(action, Some(ConnectionAction::Cancel(_) | ConnectionAction::Disconnect));
-            let mut rows: Vec<_> = state
-                .snapshot
-                .as_ref()
-                .map(|snapshot| {
-                    source::sessions(snapshot)
-                        .map(|session| {
-                            (
-                                session,
-                                dot(session, |tab| {
-                                    self.peer_tab_busy(peer, tab).unwrap_or(false)
-                                }),
-                            )
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            rows.sort_by(|(a, a_dot), (b, b_dot)| {
-                let a_pin = a.facts.pinned_at.known().and_then(Option::as_ref);
-                let b_pin = b.facts.pinned_at.known().and_then(Option::as_ref);
-                b_pin
-                    .is_some()
-                    .cmp(&a_pin.is_some())
-                    .then_with(|| a_pin.cmp(&b_pin))
-                    .then_with(|| crate::sidebar::rank(*a_dot).cmp(&crate::sidebar::rank(*b_dot)))
-                    .then_with(|| a.facts.created_at.known().cmp(&b.facts.created_at.known()))
-                    .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
-            });
-            let header_height = if connected { 33. } else { 29. };
-            y += header_height;
-            let shown = if connected && expanded {
-                rows.len().min(
-                    self.peer_ui
-                        .pages
-                        .get(peer)
-                        .copied()
-                        .unwrap_or(1)
-                        .saturating_mul(self.history_page_size),
-                )
-            } else {
-                0
-            };
-            let more = connected && expanded && shown < rows.len();
-            let heading_focus = self.record_peer_layout(
-                &cycle,
-                y,
-                rows[..shown]
-                    .iter()
-                    .map(|(session, _)| session.id)
-                    .collect(),
-                more,
-                cx,
-            );
-            let count = connected.then(|| format!("· {}", rows.len()));
-            let hostname = state.hostname.clone();
-            let target = peer.clone();
-            let toggle = peer.clone();
-            let host = state.hostname.as_str();
-            let button_tip = match action {
-                Some(ConnectionAction::Cancel(_)) => "Cancel request".into(),
-                Some(ConnectionAction::Disconnect) => format!("{detail} Disconnect"),
-                Some(ConnectionAction::Retry) => format!("{detail} Request access again"),
-                Some(ConnectionAction::Connect) => format!("Connect to {host}"),
-                None => detail.clone(),
-            };
-            let disabled = action.is_none();
-            list = list.child(
+            let ids: Vec<_> = rows[..shown].iter().map(|(session, _)| session.id).collect();
+            entries.push(Entry::PeerHeader(peer.clone()));
+            if expanded && rows.is_empty() {
+                entries.push(Entry::PeerEmpty(peer.clone()));
+            }
+            entries.extend(ids.iter().map(|id| Entry::Peer(peer.clone(), *id)));
+            if more {
+                entries.push(Entry::PeerMore(peer.clone()));
+            }
+            if connected {
+                entries.push(Entry::PeerEnd(peer.clone()));
+            }
+            self.record_peer_layout(&cycle, ids, more, window, cx);
+        }
+    }
+
+    pub(crate) fn render_peer_entry(
+        &self,
+        entry: &Entry,
+        palette: Palette,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (Entry::PeerHeader(peer)
+        | Entry::PeerEmpty(peer)
+        | Entry::Peer(peer, _)
+        | Entry::PeerMore(peer)
+        | Entry::PeerEnd(peer)) = entry
+        else {
+            return div().into_any_element();
+        };
+        let Some(state) = self.peers.peers.get(peer) else {
+            return div().into_any_element();
+        };
+        let cycle = source::PeerCycle {
+            peer: peer.clone(),
+            generation: state.cycle,
+        };
+        match entry {
+            Entry::PeerHeader(_) => self.peer_heading(&cycle, state, palette, cx),
+            Entry::PeerEmpty(_) => crate::sidebar::list::empty_sessions(palette).into_any_element(),
+            Entry::Peer(_, id) => {
+                let Some((session, dot)) = self
+                    .peer_rows(peer, state)
+                    .into_iter()
+                    .find(|(session, _)| session.id == *id)
+                else {
+                    return div().into_any_element();
+                };
+                self.render_peer_row(&cycle, session, dot, palette, window, cx)
+            }
+            Entry::PeerMore(_) => self.render_peer_more(&cycle, palette, cx),
+            _ => div().h(px(4.)).into_any_element(),
+        }
+    }
+
+    fn peer_heading(
+        &self,
+        cycle: &source::PeerCycle,
+        state: &source::PeerState,
+        palette: Palette,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let peer = &cycle.peer;
+        let connected = state.phase == source::Phase::Connected && state.snapshot.is_some();
+        let expanded = !self.peer_ui.collapsed.contains(peer);
+        let selected = self.peers.selected == source::Source::Peer(peer.clone());
+        let (label, detail) = connection_label(state);
+        use source::ConnectionAction;
+        let action = state.connection_action();
+        let active = matches!(action, Some(ConnectionAction::Cancel(_) | ConnectionAction::Disconnect));
+        let Some(heading_focus) = self
+            .peer_ui
+            .sidebar_layout
+            .borrow()
+            .get(peer)
+            .map(|layout| layout.heading.clone())
+        else {
+            return div().into_any_element();
+        };
+        let count = connected.then(|| {
+            let total = state.snapshot.as_ref().map_or(0, |snapshot| source::sessions(snapshot).count());
+            format!("· {total}")
+        });
+        let hostname = state.hostname.clone();
+        let target = peer.clone();
+        let toggle = peer.clone();
+        let host = state.hostname.as_str();
+        let button_tip = match action {
+            Some(ConnectionAction::Cancel(_)) => "Cancel request".into(),
+            Some(ConnectionAction::Disconnect) => format!("{detail} Disconnect"),
+            Some(ConnectionAction::Retry) => format!("{detail} Request access again"),
+            Some(ConnectionAction::Connect) => format!("Connect to {host}"),
+            None => detail.clone(),
+        };
+        let disabled = action.is_none();
+        div()
+            .id(gpui::SharedString::from(format!(
+                "peer-heading-{}",
+                peer.as_str()
+            )))
+            .h(px(29.))
+            .when(connected, |heading| heading.h(px(33.)).pt(px(4.)))
+            .border_t_1()
+            .border_color(palette.border)
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .pr(px(6.))
+            .child(
                 div()
-                    .id(gpui::SharedString::from(format!(
-                        "peer-heading-{}",
-                        peer.as_str()
-                    )))
-                    .h(px(29.))
-                    .when(connected, |heading| heading.h(px(33.)).pt(px(4.)))
-                    .border_t_1()
-                    .border_color(palette.border)
+                    .id("peer-section-toggle")
+                    .track_focus(&heading_focus)
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .pr(px(6.))
+                    .pl(px(9.))
+                    .text_size(px(11.))
+                    .text_color(if selected {
+                        palette.foreground
+                    } else {
+                        palette.muted
+                    })
+                    .cursor_pointer()
+                    .hover(|style| style.bg(palette.hover))
+                    .child(
+                        icon_sized(if expanded { "down" } else { "chevron" }, 12.)
+                            .flex_shrink_0(),
+                    )
                     .child(
                         div()
-                            .id("peer-section-toggle")
-                            .track_focus(&heading_focus)
-                            .flex_1()
                             .min_w_0()
-                            .h_full()
                             .flex()
                             .items_center()
-                            .gap(px(6.))
-                            .pl(px(9.))
-                            .text_size(px(11.))
-                            .text_color(if selected {
-                                palette.foreground
-                            } else {
-                                palette.muted
-                            })
-                            .cursor_pointer()
-                            .hover(|style| style.bg(palette.hover))
-                            .child(
-                                icon_sized(if expanded { "down" } else { "chevron" }, 12.)
-                                    .flex_shrink_0(),
-                            )
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(3.))
-                                    .relative()
-                                    .top(px(1.))
-                                    .child(div().min_w_0().child(inline_ellipsis(hostname, 14.)))
-                                    .children(count.map(|count| div().flex_shrink_0().child(count))),
-                            )
-                            .on_click(cx.listener(move |root, _, window, cx| {
-                                if !root.peer_ui.collapsed.remove(&target) {
-                                    root.peer_ui.collapsed.insert(target.clone());
-                                }
-                                if let Err(error) =
-                                    root.peers.choose(source::Source::Peer(target.clone()))
-                                {
-                                    root.error = Some(error.to_string());
-                                }
-                                root.hide_settings(cx);
-                                root.peer_ui.pending_create = None;
-                                root.resume_peer_selection(&target, window, cx);
-                                cx.notify();
-                            })),
+                            .gap(px(3.))
+                            .relative()
+                            .top(px(1.))
+                            .child(div().min_w_0().child(inline_ellipsis(hostname, 14.)))
+                            .children(count.map(|count| div().flex_shrink_0().child(count))),
                     )
-                    .child(
-                        self.semantic_region(
-                            &format!("sidebar/{}/connection", peer.as_str()),
-                            crate::accessibility::Role::Image,
-                            label,
-                            div()
-                                .id("peer-connection-dot")
-                                .size(px(5.))
-                                .rounded_full()
-                                .bg(connection_color(state, palette))
-                                .tooltip(tooltip(detail, palette)),
-                        ),
-                    )
-                    .child(
-                        icon_button(
-                            format!("peer-connection-{:?}", state.phase),
-                            if active { "disconnect" } else { "connect" },
-                            palette,
-                        )
-                        .size(px(24.))
-                        .tooltip(tooltip(button_tip, palette))
-                        .when(disabled, |button| button.opacity(0.4))
-                        .when_some(action, |button, action| {
-                            button.on_click(cx.listener(move |root, _, window, cx| match action {
-                                ConnectionAction::Cancel(id) => root.cancel_peer_pair(toggle.clone(), id, window, cx),
-                                ConnectionAction::Disconnect => root.disconnect_peer(toggle.clone(), window, cx),
-                                ConnectionAction::Connect | ConnectionAction::Retry => root.connect_peer(toggle.clone(), window, cx),
-                            }))
-                        }),
-                    ),
-            );
-            if connected && expanded {
-                if rows.is_empty() {
-                    list = list.child(
-                        div()
-                            .mx(px(8.))
-                            .my(px(12.))
-                            .text_size(px(12.))
-                            .line_height(px(16.))
-                            .text_color(palette.muted)
-                            .child("No sessions, press +"),
-                    );
-                    y += 40.;
-                }
-                list = self.render_peer_page(list, &cycle, &rows[..shown], palette, window, cx);
-                y += shown as f32 * crate::sidebar::windowed::ROW_HEIGHT;
-                if more {
-                    y += 32.;
-                }
-            }
-            if connected {
-                list = list.child(div().h(px(4.)));
-                y += 4.;
-            }
-        }
-        list
+                    .on_click(cx.listener(move |root, _, window, cx| {
+                        if !root.peer_ui.collapsed.remove(&target) {
+                            root.peer_ui.collapsed.insert(target.clone());
+                        }
+                        if let Err(error) =
+                            root.peers.choose(source::Source::Peer(target.clone()))
+                        {
+                            root.error = Some(error.to_string());
+                        }
+                        root.hide_settings(cx);
+                        root.peer_ui.pending_create = None;
+                        root.resume_peer_selection(&target, window, cx);
+                        cx.notify();
+                    })),
+            )
+            .child(
+                self.semantic_region(
+                    &format!("sidebar/{}/connection", peer.as_str()),
+                    crate::accessibility::Role::Image,
+                    label,
+                    div()
+                        .id("peer-connection-dot")
+                        .size(px(5.))
+                        .rounded_full()
+                        .bg(connection_color(state, palette))
+                        .tooltip(tooltip(detail, palette)),
+                ),
+            )
+            .child(
+                icon_button(
+                    format!("peer-connection-{:?}", state.phase),
+                    if active { "disconnect" } else { "connect" },
+                    palette,
+                )
+                .size(px(24.))
+                .tooltip(tooltip(button_tip, palette))
+                .when(disabled, |button| button.opacity(0.4))
+                .when_some(action, |button, action| {
+                    button.on_click(cx.listener(move |root, _, window, cx| match action {
+                        ConnectionAction::Cancel(id) => root.cancel_peer_pair(toggle.clone(), id, window, cx),
+                        ConnectionAction::Disconnect => root.disconnect_peer(toggle.clone(), window, cx),
+                        ConnectionAction::Connect | ConnectionAction::Retry => root.connect_peer(toggle.clone(), window, cx),
+                    }))
+                }),
+            )
+            .into_any_element()
     }
 }

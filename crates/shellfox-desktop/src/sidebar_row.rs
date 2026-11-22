@@ -75,9 +75,10 @@ impl Root {
         cx: &Context<Self>,
     ) -> AnyElement {
         let id = session.id;
-        let Some((focus, settle_focus)) = self.sidebar_ui.row_focus.get(&id) else {
+        let Some(row_focus) = self.sidebar_ui.row_focus.get(&id) else {
             return div().into_any_element();
         };
+        let (focus, settle_focus) = (&row_focus.copy, &row_focus.settle);
         let menu_focus = focus.clone();
         let selected = self.selected_session() == Some(id);
         let settled = dot == AgentState::Settled;
@@ -180,6 +181,7 @@ impl Root {
         }));
         div()
             .id(gpui::SharedString::from(format!("session-{id}")))
+            .track_focus(&row_focus.row)
             .relative()
             .h(px(36.))
             .flex()
@@ -207,7 +209,6 @@ impl Root {
                 status_label(dot, self.session_error_text(session).as_deref()),
                 status_dot(dot, palette).mt(px(3.)),
             ))
-            .child(self.sidebar_ui.visibility.marker(crate::session_visibility::PollingTarget::Local(id)))
             .child(copy)
             .child(settle)
             .on_mouse_down(
@@ -234,9 +235,7 @@ impl Root {
         let key = event.keystroke.key.as_str();
         let mods = event.keystroke.modifiers;
         if matches!(key, "contextmenu" | "context-menu" | "menu") || key == "f10" && mods.shift {
-            let rows = self.sidebar_rows(cx);
-            if let Some(index) = rows.iter().position(|(session, _)| session.id == id) {
-                let bounds = super::windowed::bounds(&self.sidebar_ui.scroll, index);
+            if let Some(bounds) = self.sidebar_ui.list.bounds(&super::list::Entry::Local(id)) {
                 self.open_session_menu(
                     id,
                     gpui::point(bounds.left(), bounds.bottom()),
@@ -287,7 +286,7 @@ impl Root {
             };
             if let Some((target, _)) = rows.get(next) {
                 self.sidebar_ui.focus_row(target.id, window);
-                super::windowed::reveal(&self.sidebar_ui.scroll, next);
+                self.sidebar_ui.list.reveal(&super::list::Entry::Local(target.id));
                 cx.notify();
             }
         } else {

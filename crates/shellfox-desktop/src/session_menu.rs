@@ -28,19 +28,6 @@ pub(crate) struct SessionMenu {
     show_focus: bool,
     prior: Option<FocusHandle>,
 }
-impl SessionMenu {
-    pub(crate) fn is_peer_row(&self, cycle: &PeerCycle, id: m::Id) -> bool {
-        matches!(&self.target, Target::Peer(target, item) if target == cycle && *item == id)
-    }
-
-    pub(crate) fn local_id(&self) -> Option<SessionId> {
-        match self.target {
-            Target::Local(id) => Some(id),
-            Target::Peer(..) => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 pub(crate) enum Item {
     Pin,
