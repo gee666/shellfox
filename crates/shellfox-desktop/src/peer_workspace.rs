@@ -41,21 +41,6 @@ impl Root {
             admission,
         ))
     }
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn ensure_peer_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((peer, state)) = self.peers.selected_peer() else {
-            return;
-        };
-        let Some(tab) = state.selected_tab else {
-            return;
-        };
-        let cycle = source::PeerCycle {
-            peer: peer.clone(),
-            generation: state.cycle,
-        };
-        self.open_peer_terminal(cycle, tab, window, cx);
-    }
-    #[cfg(not(feature = "experimental-shellfox-native"))]
     pub(crate) fn ensure_peer_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_v1_terminal(window, cx);
     }
@@ -128,40 +113,6 @@ impl Root {
             pane = pane.child(div().h(px(30.)).flex().justify_end().border_b_1().border_color(palette.border)
                 .child(self.render_files_toggle(true, palette, cx)));
         }
-        #[cfg(feature = "experimental-shellfox-native")]
-        if let Some(tab) = visible_selected
-            && let Some(view) = self.peer_ui.views.get(&(peer.clone(), tab))
-        {
-            let terminal = view.read(cx);
-            let status = terminal.error.clone().unwrap_or_else(|| {
-                if terminal.ready {
-                    format!("{:?}", terminal.input_state)
-                } else {
-                    "Recovering native state…".into()
-                }
-            });
-            pane = pane
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(24.))
-                        .px(px(8.))
-                        .gap(px(8.))
-                        .text_size(px(11.))
-                        .text_color(palette.muted)
-                        .child(status)
-                        .child(
-                            button("peer-take-control", "Take control", palette).on_click(
-                                cx.listener(|root, _, window, cx| {
-                                    root.take_peer_control(window, cx)
-                                }),
-                            ),
-                        ),
-                )
-                .child(view.clone());
-        }
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         if let Some(view) = visible_selected.and_then(|tab| self.peer_ui.v1_views.get(&(peer.clone(), tab))) {
             pane = pane.child(view.clone());
         }

@@ -154,14 +154,11 @@ impl Root {
         if self.is_local_source() {
             return self.selected_tab().and_then(|tab| self.views.get(&tab));
         }
-        #[cfg(not(feature = "experimental-shellfox-native"))]
-        return self.peers.selected_peer().and_then(|(peer, state)| {
+        self.peers.selected_peer().and_then(|(peer, state)| {
             self.peer_ui
                 .v1_views
                 .get(&(peer.clone(), state.selected_tab?))
-        });
-        #[cfg(feature = "experimental-shellfox-native")]
-        None
+        })
     }
 
     fn files_shortcut_available(&self, cx: &gpui::App) -> bool {

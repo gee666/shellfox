@@ -2,9 +2,6 @@ use super::*;
 use crate::theme::Palette;
 use gpui::{AnyElement, div, prelude::*, px};
 use shellfox_protocol::{AuthenticatedPeerId, manager_v2 as m};
-#[cfg(feature = "experimental-shellfox-native")]
-#[path = "peer_attach.rs"]
-mod attach;
 #[path = "peer_catalog_v1.rs"]
 mod catalog_v1;
 #[path = "peer_connect.rs"]
@@ -13,14 +10,10 @@ mod connect;
 mod connection_view;
 #[path = "peer_metadata.rs"]
 pub(crate) mod metadata;
-#[cfg(not(feature = "experimental-shellfox-native"))]
 #[path = "peer_metadata_poll.rs"]
 mod metadata_poll;
 #[path = "peer_mutations.rs"]
 mod mutations;
-#[cfg(feature = "experimental-shellfox-native")]
-#[path = "peer_poll.rs"]
-mod poll;
 #[path = "peer_session_dialog.rs"]
 pub(crate) mod session_dialog;
 #[path = "peer_sidebar.rs"]
@@ -29,10 +22,6 @@ pub(crate) mod sidebar;
 mod sidebar_actions;
 #[path = "peer_sidebar_layout.rs"]
 mod sidebar_layout;
-#[cfg(feature = "experimental-shellfox-native")]
-#[path = "peer_terminal.rs"]
-pub(crate) mod terminal;
-#[cfg(not(feature = "experimental-shellfox-native"))]
 #[path = "peer_v1_stream.rs"]
 mod v1_stream;
 #[path = "peer_workspace.rs"]
@@ -41,21 +30,11 @@ mod workspace;
 mod pairing;
 #[derive(Default)]
 pub(crate) struct PeerUi {
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub views: HashMap<(AuthenticatedPeerId, m::Id), Entity<terminal::PeerTerminalView>>,
-    #[cfg(not(feature = "experimental-shellfox-native"))]
     pub(crate) v1_views: HashMap<(AuthenticatedPeerId, m::Id), Entity<crate::app::TerminalView>>,
-    #[cfg(not(feature = "experimental-shellfox-native"))]
     v1_streams: HashMap<AuthenticatedPeerId, gpui::Task<()>>,
-    #[cfg(not(feature = "experimental-shellfox-native"))]
     v1_activity: HashMap<(AuthenticatedPeerId, m::Id), bool>,
-    #[cfg(feature = "experimental-shellfox-native")]
-    polls: HashMap<AuthenticatedPeerId, poll::PollSlot>,
-    #[cfg(not(feature = "experimental-shellfox-native"))]
     metadata_polls: HashMap<AuthenticatedPeerId, Option<std::time::Instant>>,
     pub paused: HashSet<AuthenticatedPeerId>,
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub attaching: HashSet<AuthenticatedPeerId>,
     pub pending: HashSet<AuthenticatedPeerId>,
     opening: sidebar_actions::PeerActivations,
     pair_watches: HashMap<AuthenticatedPeerId, (uuid::Uuid, shellfox_protocol::CancellationToken)>,
@@ -67,22 +46,12 @@ pub(crate) struct PeerUi {
     sidebar_layout: std::cell::RefCell<HashMap<AuthenticatedPeerId, sidebar_layout::PeerSectionLayout>>,
     pub pages: HashMap<AuthenticatedPeerId, usize>,
     pub navigation: HashMap<AuthenticatedPeerId, u64>,
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub recover: HashSet<(AuthenticatedPeerId, m::Id)>,
     pub frozen: bool,
     pub withdrawn: bool,
 }
 impl PeerUi {
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn polls_drained(&self) -> bool {
-        self.polls.is_empty()
-    }
 }
 impl Root {
-    #[cfg(feature = "experimental-shellfox-native")]
-    pub(crate) fn peer_tab_busy(&self, _: &AuthenticatedPeerId, _: m::Id) -> Option<bool> {
-        None
-    }
 
     pub(crate) fn select_local_source(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.peer_ui.pending_create = None;
@@ -90,11 +59,6 @@ impl Root {
             self.error = Some(error.to_string());
             return;
         }
-        #[cfg(feature = "experimental-shellfox-native")]
-        for view in self.peer_ui.views.values() {
-            view.update(cx, |view, _| view.visible(false));
-        }
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         self.hide_v1_terminals(cx);
         self.focus_selected(window, cx);
         cx.notify();
@@ -173,10 +137,6 @@ impl Root {
         self.dialog = None;
         self.session_menu = None;
         self.profile_menu = None;
-        #[cfg(feature = "experimental-shellfox-native")]
-        for view in self.peer_ui.views.values() {
-            view.update(cx, |view, _| view.visible(false));
-        }
         self.hide_settings(cx);
         if let Err(error) = self.peers.choose(source::Source::Peer(peer.clone())) {
             self.error = Some(error.to_string());
@@ -189,7 +149,6 @@ impl Root {
             cx.notify();
             return;
         }
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         self.hide_v1_terminals(cx);
         self.connect_peer(peer, window, cx);
     }
@@ -283,7 +242,6 @@ impl Root {
             self.error = Some(error.to_string());
         }
         self.peer_ui.legacy.remove(&peer);
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         self.retire_v1_terminals(&peer);
         if self.peer_ui.pending_create.as_ref() == Some(&peer) {
             self.peer_ui.pending_create = None;
@@ -319,22 +277,7 @@ impl Root {
         self.peer_ui.paused.insert(peer.clone());
         self.peer_ui.pending.remove(peer);
         self.peer_ui.opening.retire(peer);
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         self.peer_ui.metadata_polls.remove(peer);
-        #[cfg(feature = "experimental-shellfox-native")]
-        {
-            self.peer_ui.polls.remove(peer);
-            self.peer_ui.attaching.remove(peer);
-            self.peer_ui.recover.retain(|(source, _)| source != peer);
-            self.peer_ui.views.retain(|(source, _), view| {
-                if source == peer {
-                    view.update(cx, |view, _| view.retire());
-                    false
-                } else {
-                    true
-                }
-            });
-        }
         cx.notify();
     }
 }

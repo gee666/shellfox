@@ -2,9 +2,7 @@
 //! never a renderer-owned socket, helper or Tailscale node.
 use shellfox_service::peer::consumer as connection;
 pub use connection::{LegacyPeerRequired, PeerConnection};
-#[cfg(feature = "experimental-shellfox-native")]
-pub use connection::attach_control;
-#[cfg(any(test, feature = "experimental-shellfox-native"))]
+#[cfg(test)]
 pub use connection::settlement;
 #[cfg(test)]
 #[path = "peer_client_tests.rs"]
@@ -41,14 +39,6 @@ impl Peers {
         );
         let id = shellfox_protocol::manager_v2::Id::new();
         let transport = transport::ServiceTransport::new(native.clone()).with_legacy_discovery();
-        #[cfg(feature = "experimental-shellfox-native")]
-        let manager = shellfox_mobile::ManagerRecovery::native_client(
-            peer.clone(),
-            id,
-            transport,
-        )
-        .map_err(|e| anyhow!("Native Manager client unavailable: {e:?}"))?;
-        #[cfg(not(feature = "experimental-shellfox-native"))]
         let manager = Arc::new(shellfox_client::manager_v2::ManagerClient::new(
             peer.clone(), id, transport,
         ));

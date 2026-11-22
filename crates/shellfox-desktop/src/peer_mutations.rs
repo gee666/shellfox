@@ -93,8 +93,6 @@ impl Root {
                         }) {
                             root.error = Some(error.to_string());
                         } else {
-                            #[cfg(feature = "experimental-shellfox-native")]
-                            root.ensure_peer_terminal(_window, cx);
                         }
                     }
                     Err(error) => {

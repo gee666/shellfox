@@ -207,12 +207,6 @@ impl Root {
     }
     pub(crate) fn focus_selected(&self, window: &mut Window, cx: &gpui::App) {
         if !self.is_local_source() {
-            #[cfg(feature = "experimental-shellfox-native")]
-            if let Some((peer, state)) = self.peers.selected_peer()
-                && let Some(view) = state.selected_tab.and_then(|tab| self.peer_ui.views.get(&(peer.clone(), tab))) {
-                view.read(cx).focus(window);
-            }
-            #[cfg(not(feature = "experimental-shellfox-native"))]
             if let Some(view) = self.peers.selected_peer().and_then(|(peer, state)| {
                 self.peer_ui.v1_views.get(&(peer.clone(), state.selected_tab?))
             }) {

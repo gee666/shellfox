@@ -179,7 +179,6 @@ impl Root {
                             error.to_string()
                         };
                         root.peers.phase(&cycle, phase, Some(detail));
-                        #[cfg(not(feature = "experimental-shellfox-native"))]
                         if phase == source::Phase::Reconnecting {
                             root.peer_ui.metadata_polls.insert(
                                 peer.clone(),
