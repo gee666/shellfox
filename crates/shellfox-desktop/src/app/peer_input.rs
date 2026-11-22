@@ -1,5 +1,7 @@
 use super::*;
-use shellfox_ghostty_vt::{KeyEvent, MouseAction, MouseButton, MouseEvent, MouseGeometry};
+use crate::app::runtime::physical;
+use shellfox_ghostty_vt::key::KeyEvent;
+use shellfox_ghostty_vt::{MouseAction, MouseButton, MouseEvent, MouseGeometry};
 
 const BUTTONS: [MouseButton; 5] = [
     MouseButton::Left,
@@ -19,7 +21,7 @@ impl Peer {
     fn queue_keyboard_input(&mut self, bytes: Vec<u8>) -> anyhow::Result<bool> {
         if bytes.is_empty() { return Ok(false); }
         self.queue(bytes, true)?;
-        // xterm follows the active buffer and clears selection on user input,
+        // User input follows the active buffer and clears the selection,
         // including keys the shell does not echo.
         self.terminal.view_select(&mut self.presentation, None)?;
         self.terminal.view_follow_tail(&mut self.presentation)?;
@@ -30,14 +32,34 @@ impl Peer {
 impl TerminalView {
     pub(in crate::app) fn peer_key(&mut self, key: KeyEvent) -> anyhow::Result<()> {
         let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else { return Ok(()); };
-        let data = peer.terminal.encode_xterm_key(&key)?;
+        if !physical::admit_key(&mut peer.held_keys, &key) { return Ok(()); }
+        let data = peer.terminal.encode_key_event(&key)?;
         if peer.queue_keyboard_input(data)? { self.refresh_peer_screen(); }
         Ok(())
     }
 
+    pub(in crate::app) fn peer_key_release(&self, key: physical::KeyIdentity) -> Option<KeyEvent> {
+        match &self.backend {
+            Backend::Peer(peer) => physical::held_release(&peer.held_keys, key),
+            _ => None,
+        }
+    }
+
+    /// Focus loss: the key-ups will go elsewhere, so release held keys now.
+    pub(in crate::app) fn release_peer_keys(&mut self) {
+        let releases: Vec<_> = match &self.backend {
+            Backend::Peer(peer) => peer.held_keys.iter().map(KeyEvent::release).collect(),
+            _ => return,
+        };
+        for release in releases {
+            if let Err(error) = self.peer_key(release) { self.reject(error); }
+        }
+        if let Some(peer) = self.peer_mut() { peer.held_keys.clear(); }
+    }
+
     pub(in crate::app) fn peer_paste(&mut self, text: &str) -> anyhow::Result<()> {
         let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else { return Ok(()); };
-        let data = peer.terminal.encode_xterm_paste(text)?;
+        let data = peer.terminal.encode_paste(text)?;
         if peer.queue_keyboard_input(data)? { self.refresh_peer_screen(); }
         Ok(())
     }
@@ -115,12 +137,12 @@ impl TerminalView {
         };
         let result = peer
             .terminal
-            .encode_xterm_focus(focused)
+            .encode_focus(focused)
             .map_err(anyhow::Error::from)
             .and_then(|bytes| {
-                let next = bytes.map(|_| focused);
+                let next = (!bytes.is_empty()).then_some(focused);
                 if peer.reported_focus != next {
-                    peer.queue(bytes.unwrap_or_default().to_vec(), false)?;
+                    peer.queue(bytes, false)?;
                     peer.reported_focus = next;
                 }
                 Ok(())

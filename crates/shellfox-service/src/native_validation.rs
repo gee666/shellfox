@@ -200,23 +200,11 @@ impl NativeCommand {
     fn validate(&self) -> Result<()> {
         match self {
             Self::Key(event) => {
-                if let Some(text) = &event.text {
-                    ensure!(
-                        text.len() <= shellfox_runtime::MAX_INPUT_BYTES
-                            && !text
-                                .chars()
-                                .any(|c| c.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&c)),
-                        "Invalid native key text."
-                    );
-                }
                 ensure!(
-                    event.unshifted_codepoint == 0
-                        || char::from_u32(event.unshifted_codepoint).is_some(),
-                    "Invalid native key codepoint."
+                    event.text.len() <= shellfox_runtime::MAX_INPUT_BYTES
+                        && event.validate().is_ok(),
+                    "Invalid native key event."
                 );
-                if let shellfox_ghostty_vt::Key::F(number) = event.key {
-                    ensure!((1..=25).contains(&number), "Invalid function key.");
-                }
             }
             Self::Paste(text) => ensure!(
                 text.len() <= shellfox_runtime::MAX_INPUT_BYTES,

@@ -95,10 +95,10 @@ fn takeover_fences_old_input_and_ack_then_owner_encodes_paste() {
     .unwrap();
     host.request(Command::Key {
         lease: host.lease,
-        event: shellfox_ghostty_vt::KeyEvent {
-            key: shellfox_ghostty_vt::Key::Enter,
-            ..Default::default()
-        },
+        event: shellfox_ghostty_vt::key::KeyEvent::press(
+            shellfox_ghostty_vt::key::PhysicalKey::Enter,
+            shellfox_ghostty_vt::key::KeyModifiers::NONE,
+        ),
     })
     .unwrap();
     host.until(|h| h.exited);

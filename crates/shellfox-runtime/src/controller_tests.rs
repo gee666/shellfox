@@ -127,7 +127,7 @@ fn pending_epoch_gates_all_interactive_side_effects_before_encode_write_resize_o
         },
         Command::Key {
             lease,
-            event: shellfox_ghostty_vt::KeyEvent::default(),
+            event: shellfox_ghostty_vt::key::KeyEvent::text("k"),
         },
         Command::Resize {
             lease,

@@ -3,7 +3,7 @@
 use super::*;
 use anyhow::{Context, Result};
 use shellfox_core::{CreateSession, ProfileId};
-use shellfox_ghostty_vt::{Key, KeyEvent};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -141,10 +141,10 @@ fn native_and_readonly_client_share_one_real_runtime_and_detach_does_not_kill() 
             NativeAction::Terminal {
                 tab,
                 attachment: control.clone(),
-                command: NativeCommand::Key(KeyEvent {
-                    key: Key::Enter,
-                    ..Default::default()
-                }),
+                command: NativeCommand::Key(KeyEvent::press(
+                    PhysicalKey::Enter,
+                    KeyModifiers::NONE,
+                )),
                 input: Some(input_context.clone()),
             },
             1,

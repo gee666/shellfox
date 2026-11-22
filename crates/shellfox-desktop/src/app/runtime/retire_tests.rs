@@ -1,5 +1,5 @@
 use super::*;
-use shellfox_ghostty_vt::{Key, KeyAction, KeyEvent};
+use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 use shellfox_runtime::{Command, Lease};
 
 #[test]
@@ -13,11 +13,7 @@ fn window_drain_waits_for_the_reserved_release_without_queueing_a_tab_detach() {
         .enqueue(
             Command::Key {
                 lease,
-                event: KeyEvent {
-                    key: Key::Character('x'),
-                    action: KeyAction::Press,
-                    ..Default::default()
-                },
+                event: KeyEvent::press(PhysicalKey::KeyX, KeyModifiers::NONE),
             },
             Pending::Applied,
         )
@@ -47,11 +43,7 @@ fn dropped_view_keeps_retained_intents_then_reserved_release_then_detach() {
         .enqueue(
             Command::Key {
                 lease,
-                event: KeyEvent {
-                    key: Key::Character('x'),
-                    action: KeyAction::Press,
-                    ..Default::default()
-                },
+                event: KeyEvent::press(PhysicalKey::KeyX, KeyModifiers::NONE),
             },
             Pending::Applied,
         )

@@ -1,7 +1,8 @@
 #![cfg(windows)]
 mod support;
 use shellfox_ghostty_vt::{
-    Key, KeyAction, KeyEvent, Modifiers, MouseAction, MouseEvent, MouseGeometry,
+    key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey},
+    Modifiers, MouseAction, MouseEvent, MouseGeometry,
 };
 use shellfox_runtime::*;
 use std::{
@@ -92,15 +93,11 @@ fn ignored_encodings_return_input_zero_and_skip_both_prewrite_hook_and_actual_wr
     for command in [
         Command::Key {
             lease: host.lease,
-            event: KeyEvent::default(),
+            event: KeyEvent::press(PhysicalKey::Unidentified, KeyModifiers::NONE),
         },
         Command::Key {
             lease: host.lease,
-            event: KeyEvent {
-                key: Key::ArrowUp,
-                action: KeyAction::Release,
-                ..Default::default()
-            },
+            event: KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE).release(),
         },
         Command::Paste {
             lease: host.lease,
@@ -148,30 +145,26 @@ fn ignored_encodings_return_input_zero_and_skip_both_prewrite_hook_and_actual_wr
     assert_eq!(host.runtime.phase(), Phase::Active);
 }
 #[test]
-fn xterm_nul_reaches_the_conpty_write_boundary_as_one_byte() {
+fn ctrl_space_and_ctrl_at_reach_the_conpty_write_boundary_as_one_nul() {
     let (mut host, observer) = host("--child-idle");
     host.until(|host| String::from_utf8_lossy(&host.output).contains("RUNTIME_IDLE_READY"));
-    // GPUI may carry Shift+2 as an already shifted key on Windows.
-    for (key, shift) in [(' ', false), ('2', true), ('@', false)] {
+    // GPUI on Windows reports Ctrl+Shift+2 as Ctrl+"@".
+    for (physical, text) in [(PhysicalKey::Space, " "), (PhysicalKey::Unidentified, "@")] {
         let response = host
             .request(Command::Key {
                 lease: host.lease,
                 event: KeyEvent {
-                    key: Key::Character(key),
-                    modifiers: Modifiers {
-                        control: true,
-                        shift,
-                        ..Default::default()
-                    },
-                    ..Default::default()
+                    text: text.into(),
+                    unshifted_codepoint: text.chars().next(),
+                    ..KeyEvent::press(physical, KeyModifiers::CONTROL)
                 },
             })
             .unwrap();
-        assert_eq!(receipt(response).accepted_bytes, 1, "{key:?}");
+        assert_eq!(receipt(response).accepted_bytes, 1, "{text:?}");
         assert_eq!(observer.bytes.load(Ordering::Relaxed), 1);
         assert_eq!(observer.single_byte.load(Ordering::Relaxed), 0);
     }
-    assert_eq!(observer.calls.load(Ordering::Relaxed), 3);
+    assert_eq!(observer.calls.load(Ordering::Relaxed), 2);
 }
 
 #[test]
@@ -182,9 +175,9 @@ fn native_key_receipt_reports_action_and_text_presence_without_retaining_the_tex
         host.request(Command::Key {
             lease: host.lease,
             event: KeyEvent {
-                key: Key::Character('k'),
-                text: Some("k".into()),
-                ..Default::default()
+                text: "k".into(),
+                unshifted_codepoint: Some('k'),
+                ..KeyEvent::press(PhysicalKey::KeyK, KeyModifiers::NONE)
             },
         })
         .unwrap(),

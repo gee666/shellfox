@@ -1,6 +1,6 @@
 use super::*;
 use shellfox_core::Generation;
-use shellfox_ghostty_vt::{Key, KeyAction, KeyEvent};
+use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 fn access() -> (Access, Lease, TabId) {
     let lease = Lease {
         controller: 8,
@@ -24,21 +24,13 @@ fn controller_input_uses_checked_service_attachment_and_ghostty_key_data() {
             tab,
             Command::Key {
                 lease,
-                event: KeyEvent {
-                    key: Key::Character('c'),
-                    action: KeyAction::Press,
-                    modifiers: shellfox_ghostty_vt::Modifiers {
-                        control: true,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+                event: KeyEvent::press(PhysicalKey::KeyC, KeyModifiers::CONTROL),
             },
         )
         .unwrap();
     assert!(
         matches!(action, NativeAction::Terminal { attachment, command: NativeCommand::Key(event), .. }
-        if attachment.controller == lease.controller && event.modifiers.control && event.key == Key::Character('c'))
+        if attachment.controller == lease.controller && event.modifiers == KeyModifiers::CONTROL && event.physical == PhysicalKey::KeyC)
     );
     assert!(
         access

@@ -1,7 +1,7 @@
 use super::{Backend, TerminalView, runtime::Pending};
 use crate::input::{self, ClipboardAction, mac_select_all, page_scroll};
 use gpui::{ClipboardItem, Context, KeyDownEvent, KeyUpEvent, Window};
-use shellfox_ghostty_vt::KeyAction;
+use shellfox_ghostty_vt::key::KeyAction;
 use shellfox_ghostty_vt::{Selection, ViewportPoint};
 use shellfox_runtime::Command;
 
@@ -45,7 +45,7 @@ impl TerminalView {
                 } else if let Some(delta) = page_scroll(&event.keystroke, self.screen.rows) {
                     self.scroll_lines(delta);
                     cx.stop_propagation();
-                } else if let Some(key) = input::encode_physical(
+                } else if let Some(key) = input::key_event(
                     &event.keystroke,
                     if event.is_held {
                         KeyAction::Repeat
@@ -68,9 +68,6 @@ impl TerminalView {
             || page_scroll(&event.keystroke, self.screen.rows).is_some()
         {
             self.clipboard_keys &= !bit;
-            cx.stop_propagation();
-        } else if let Some(key) = input::encode_physical(&event.keystroke, KeyAction::Release) {
-            self.send_key(key);
             cx.stop_propagation();
         }
     }

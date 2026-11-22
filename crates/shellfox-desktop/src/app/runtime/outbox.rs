@@ -2,7 +2,7 @@ use super::{
     Pending,
     physical::{MAX_HELD, Physical},
 };
-use shellfox_ghostty_vt::{Key, KeyEvent, MouseAction};
+use shellfox_ghostty_vt::{key::KeyEvent, MouseAction};
 use shellfox_runtime::{Command, Request, RequestId, SubmitError};
 use shellfox_service::native::NativeInputContext;
 use std::collections::{HashMap, VecDeque};
@@ -59,7 +59,7 @@ impl Outbox {
     pub fn buttons(&self) -> u8 {
         self.physical.buttons()
     }
-    pub fn key_release(&self, key: Key) -> Option<KeyEvent> {
+    pub fn key_release(&self, key: super::physical::KeyIdentity) -> Option<KeyEvent> {
         self.physical.key_release(key)
     }
     #[cfg(test)]
@@ -111,13 +111,13 @@ impl Outbox {
         let bytes = match &command {
             Command::Paste { text, .. } => text.len(),
             Command::RawInput { bytes, .. } => bytes.len(),
-            Command::Key { event, .. } => event.text.as_ref().map_or(0, String::len),
+            Command::Key { event, .. } => event.text.len(),
             _ => 0,
         };
         if bytes > shellfox_runtime::MAX_INPUT_BYTES {
             return Err("Terminal input exceeds 64 KiB");
         }
-        if self.physical.unmatched_release(&command) {
+        if self.physical.unmatched(&command) {
             return Ok(());
         }
         let is_wheel = wheel(&command);

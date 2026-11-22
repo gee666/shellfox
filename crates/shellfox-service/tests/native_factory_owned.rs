@@ -131,10 +131,10 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
             .execute(NativeAction::Terminal {
                 tab,
                 attachment: attachment.clone(),
-                command: NativeCommand::Key(shellfox_ghostty_vt::KeyEvent {
-                    key: shellfox_ghostty_vt::Key::Enter,
-                    ..Default::default()
-                }),
+                command: NativeCommand::Key(shellfox_ghostty_vt::key::KeyEvent::press(
+                    shellfox_ghostty_vt::key::PhysicalKey::Enter,
+                    shellfox_ghostty_vt::key::KeyModifiers::NONE,
+                )),
                 input: Some(input),
             })
             .await?;

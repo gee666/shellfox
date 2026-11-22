@@ -1,5 +1,5 @@
 use crate::{owner::Owner, *};
-use shellfox_ghostty_vt::{KeyAction, MouseAction, MouseButton};
+use shellfox_ghostty_vt::{key::KeyAction, MouseAction, MouseButton};
 
 /// Mechanical encoding facts only. These are not settlement tokens, user intent,
 /// activity policy, or permission to resume a session.

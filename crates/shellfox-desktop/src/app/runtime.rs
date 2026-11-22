@@ -4,7 +4,7 @@ mod input_context;
 mod intent;
 pub(in crate::app) mod native;
 mod outbox;
-mod physical;
+pub(in crate::app) mod physical;
 mod retire;
 use super::{Backend, TerminalView, links};
 use gpui::{ClipboardItem, Context};
@@ -74,8 +74,8 @@ impl TerminalView {
             &command,
             Command::Paste { .. }
                 | Command::Key {
-                    event: shellfox_ghostty_vt::KeyEvent {
-                        action: shellfox_ghostty_vt::KeyAction::Press,
+                    event: shellfox_ghostty_vt::key::KeyEvent {
+                        action: shellfox_ghostty_vt::key::KeyAction::Press,
                         ..
                     },
                     ..

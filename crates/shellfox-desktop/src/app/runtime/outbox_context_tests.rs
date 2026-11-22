@@ -1,5 +1,6 @@
 use super::*;
-use shellfox_ghostty_vt::{KeyAction, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseGeometry};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::{Modifiers, MouseButton, MouseEvent, MouseGeometry};
 use shellfox_host::CapturedSettlement;
 use shellfox_runtime::Lease;
 fn context(marker: &str, hint: bool) -> NativeInputContext {
@@ -86,11 +87,7 @@ fn cancellation_releases_have_explicit_non_user_context_and_non_input_has_none()
         .enqueue_with_input(
             Command::Key {
                 lease: lease(),
-                event: KeyEvent {
-                    key: Key::Character('x'),
-                    action: KeyAction::Press,
-                    ..Default::default()
-                },
+                event: KeyEvent::press(PhysicalKey::KeyX, KeyModifiers::NONE),
             },
             Pending::Applied,
             Some(press.clone()),

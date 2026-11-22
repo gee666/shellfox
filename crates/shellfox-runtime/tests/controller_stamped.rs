@@ -8,8 +8,8 @@ use controller::*;
 mod grant_audit;
 #[path = "support/controller_input_limits.rs"]
 mod input_limits;
-#[path = "support/controller_key_v2.rs"]
-mod key_v2;
+#[path = "support/controller_keys.rs"]
+mod keys;
 #[path = "support/controller_mouse.rs"]
 mod mouse;
 use shellfox_runtime::*;

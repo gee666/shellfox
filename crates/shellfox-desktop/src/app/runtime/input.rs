@@ -1,7 +1,7 @@
 use super::super::{Backend, TerminalView};
 use super::Pending;
 use gpui::{Context, KeyUpEvent, Window};
-use shellfox_ghostty_vt::KeyEvent;
+use shellfox_ghostty_vt::key::KeyEvent;
 use shellfox_runtime::Command;
 
 impl TerminalView {
@@ -24,8 +24,10 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let key = crate::input::physical_key(&event.keystroke.key);
-        if let Some(release) = self.outbox.key_release(key) {
+        // Only keys whose press reached the terminal are released there; the
+        // key-up of an app shortcut never is.
+        let key = crate::input::key_identity(&event.keystroke.key);
+        if let Some(release) = self.outbox.key_release(key).or_else(|| self.peer_key_release(key)) {
             // Modifiers may have been released before this physical key.
             self.send_key(release);
             cx.stop_propagation();
@@ -53,6 +55,7 @@ impl TerminalView {
 
     pub(in crate::app) fn cancel_input(&mut self, cx: &mut Context<Self>) {
         self.cancel_peer_pointer();
+        self.release_peer_keys();
         let was_dragging_scrollbar = self.end_scrollbar_drag();
         let had_file_press = self.links.file_press.take().is_some();
         let had_menu_press = self.links.menu_press.take().is_some();

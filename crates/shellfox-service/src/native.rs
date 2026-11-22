@@ -40,7 +40,7 @@ use crate::{Attachment, OwnerClient};
 pub(crate) use cache::NativeState;
 use shellfox_core::{ChangedEvent, Generation, SessionId, Snapshot, TabId};
 use shellfox_ghostty_vt::{
-    KeyEvent, MouseEvent, MouseGeometry, Selection, TerminalColors, ViewportPoint,
+    key::KeyEvent, MouseEvent, MouseGeometry, Selection, TerminalColors, ViewportPoint,
 };
 use shellfox_host::HostRequest;
 use shellfox_runtime::{Phase, Response, ScreenFrame};

@@ -33,6 +33,7 @@ pub(super) struct Peer {
     visible: bool,
     frontend_replies: bool,
     pointer: input::Pointer,
+    held_keys: Vec<shellfox_ghostty_vt::key::KeyEvent>,
     reported_focus: Option<bool>,
     in_flight: bool,
     detach_failed: bool,
@@ -71,6 +72,7 @@ impl Peer {
             visible: true,
             frontend_replies,
             pointer: input::Pointer::default(),
+            held_keys: Vec::new(),
             reported_focus: None,
             in_flight: false,
             detach_failed: false,
@@ -87,6 +89,7 @@ impl Peer {
         self.size_to_send = None;
         self.writes.clear();
         self.pointer = input::Pointer::default();
+        self.held_keys.clear();
         self.reported_focus = None;
     }
 

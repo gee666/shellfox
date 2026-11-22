@@ -1,6 +1,7 @@
 #![cfg(windows)]
 mod support;
-use shellfox_ghostty_vt::{Key, KeyAction, KeyEvent, Selection, ViewportPoint};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::{Selection, ViewportPoint};
 use shellfox_runtime::*;
 use std::sync::Arc;
 use support::Harness;
@@ -124,11 +125,7 @@ fn two_readonly_presentations_have_independent_history_selection_copy_and_repain
     assert_eq!(text(&controlled_start, 0), "row00");
     host.request(Command::Key {
         lease: host.lease,
-        event: KeyEvent {
-            key: Key::ArrowUp,
-            action: KeyAction::Release,
-            ..Default::default()
-        },
+        event: KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE).release(),
     })
     .unwrap();
     assert_eq!(
@@ -151,10 +148,7 @@ fn two_readonly_presentations_have_independent_history_selection_copy_and_repain
     );
     host.request(Command::Key {
         lease: host.lease,
-        event: KeyEvent {
-            key: Key::Enter,
-            ..Default::default()
-        },
+        event: KeyEvent::press(PhysicalKey::Enter, KeyModifiers::NONE),
     })
     .unwrap();
     host.until(|h| h.exited);

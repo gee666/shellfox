@@ -1,37 +1,65 @@
 use gpui::Keystroke;
-use shellfox_ghostty_vt::{Key, KeyAction, KeyEvent, Modifiers};
+use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 
-pub fn physical_key(key: &str) -> Key {
+#[cfg(test)]
+#[path = "input_tests.rs"]
+mod tests;
+
+/// GPUI key name to Ghostty's key. GPUI reports layout keys, not scan codes,
+/// so a single character names the key at that US position when it has one.
+pub fn physical_key(key: &str) -> PhysicalKey {
+    use PhysicalKey as P;
     match key {
-        "enter" => Key::Enter,
-        "tab" => Key::Tab,
-        "backspace" => Key::Backspace,
-        "escape" => Key::Escape,
-        "up" => Key::ArrowUp,
-        "down" => Key::ArrowDown,
-        "left" => Key::ArrowLeft,
-        "right" => Key::ArrowRight,
-        "home" => Key::Home,
-        "end" => Key::End,
-        "pageup" => Key::PageUp,
-        "pagedown" => Key::PageDown,
-        "insert" => Key::Insert,
-        "delete" => Key::Delete,
-        "space" => Key::Character(' '),
+        "enter" => P::Enter,
+        "tab" => P::Tab,
+        "backspace" => P::Backspace,
+        "escape" => P::Escape,
+        "up" => P::ArrowUp,
+        "down" => P::ArrowDown,
+        "left" => P::ArrowLeft,
+        "right" => P::ArrowRight,
+        "home" => P::Home,
+        "end" => P::End,
+        "pageup" => P::PageUp,
+        "pagedown" => P::PageDown,
+        "insert" => P::Insert,
+        "delete" => P::Delete,
+        "space" => P::Space,
+        "menu" => P::ContextMenu,
         value => {
-            if let Some(number) = value
-                .strip_prefix('f')
-                .and_then(|s| s.parse::<u8>().ok())
-                .filter(|number| (1..=25).contains(number))
-            {
-                return Key::F(number);
+            if let Some(n) = value.strip_prefix('f').and_then(|s| s.parse::<u32>().ok()) {
+                return match n {
+                    1..=25 => P::try_from(P::F1.code() + n - 1).unwrap_or(P::Unidentified),
+                    _ => P::Unidentified,
+                };
             }
             let mut chars = value.chars();
             match (chars.next(), chars.next()) {
-                (Some(ch), None) => Key::Character(ch),
-                _ => Key::Unidentified,
+                (Some(c), None) => character_key(c),
+                _ => P::Unidentified,
             }
         }
+    }
+}
+
+fn character_key(c: char) -> PhysicalKey {
+    use PhysicalKey as P;
+    let offset = |base: char| u32::from(c) - u32::from(base);
+    match c {
+        'a'..='z' => P::try_from(P::KeyA.code() + offset('a')).unwrap_or(P::Unidentified),
+        '0'..='9' => P::try_from(P::Digit0.code() + offset('0')).unwrap_or(P::Unidentified),
+        '`' => P::Backquote,
+        '-' => P::Minus,
+        '=' => P::Equal,
+        '[' => P::BracketLeft,
+        ']' => P::BracketRight,
+        '\\' => P::Backslash,
+        ';' => P::Semicolon,
+        '\'' => P::Quote,
+        ',' => P::Comma,
+        '.' => P::Period,
+        '/' => P::Slash,
+        _ => P::Unidentified,
     }
 }
 
@@ -47,8 +75,7 @@ pub(crate) fn clipboard_shortcut(stroke: &Keystroke) -> Option<ClipboardAction> 
 
 fn clipboard_action(stroke: &Keystroke, mac: bool) -> Option<ClipboardAction> {
     let m = stroke.modifiers;
-    // The explicit xterm binding is Ctrl+Shift on every platform. On Mac,
-    // Chromium also delivers native copy/paste events for Command+C/V.
+    // Ctrl+Shift+C/V on every platform, plus Command+C/V on Mac.
     let explicit = m.control && m.shift && !m.alt && !m.platform;
     let native_mac = mac && m.platform && !m.control && !m.alt && !m.shift;
     if !explicit && !native_mac {
@@ -86,110 +113,80 @@ pub(crate) fn page_scroll(stroke: &Keystroke, rows: u16) -> Option<isize> {
     }
 }
 
-fn text_commit_expected(stroke: &Keystroke) -> bool {
+/// Keys whose text the platform delivers through the input handler (IME,
+/// dead keys, Option on Mac, AltGr on Windows). Sending them here too would
+/// type them twice.
+fn text_commit_expected(stroke: &Keystroke, mac: bool, windows: bool) -> bool {
     let m = stroke.modifiers;
-    !m.platform
+    let single = stroke.key.chars().count() == 1 || stroke.key == "space";
+    single
+        && !m.platform
         && (!m.control && !m.alt
-            || cfg!(target_os = "macos") && m.alt && !m.control
-            || cfg!(target_os = "windows") && m.alt && m.control && stroke.key != "space")
+            || mac && m.alt && !m.control
+            || windows && m.alt && m.control && stroke.key_char.is_some())
 }
 
-// Printable input goes through GPUI's native committed-text handler, not both paths.
-pub fn encode_physical(stroke: &Keystroke, action: KeyAction) -> Option<KeyEvent> {
-    let key = physical_key(&stroke.key);
-    let modifiers = stroke.modifiers;
-    if matches!(key, Key::Character(_) | Key::Unidentified) && text_commit_expected(stroke) {
+/// A GPUI keystroke as a Ghostty key event. Printable text without Ctrl/Alt
+/// comes through `KeyEvent::text` from the input handler instead.
+pub fn key_event(stroke: &Keystroke, action: KeyAction) -> Option<KeyEvent> {
+    key_event_for(stroke, action, cfg!(target_os = "macos"), cfg!(target_os = "windows"))
+}
+
+fn key_event_for(stroke: &Keystroke, action: KeyAction, mac: bool, windows: bool) -> Option<KeyEvent> {
+    if text_commit_expected(stroke, mac, windows) {
         return None;
     }
-    if key == Key::Unidentified
-        || cfg!(target_os = "macos")
-            && matches!(key, Key::F(_))
-            && modifiers.alt
-            && !modifiers.control
-            && !modifiers.platform
-    {
+    let (physical, base) = key_identity(&stroke.key);
+    let m = stroke.modifiers;
+    let mut modifiers = KeyModifiers::NONE;
+    modifiers.set(KeyModifiers::SHIFT, m.shift);
+    modifiers.set(KeyModifiers::CONTROL, m.control);
+    modifiers.set(KeyModifiers::ALT, m.alt);
+    modifiers.set(KeyModifiers::SUPER, m.platform);
+    if physical == PhysicalKey::Unidentified && base.is_none() {
         return None;
     }
-    let unshifted_codepoint = match key {
-        Key::Character(ch) => ch as u32,
-        _ => 0,
+    // Layout text without Ctrl. GPUI omits key_char under Ctrl, so rebuild
+    // it from the base character; Shift only changes letters here because
+    // GPUI already folds Shift into shifted symbols.
+    let text = match action {
+        KeyAction::Release => String::new(),
+        _ => stroke
+            .key_char
+            .clone()
+            .filter(|text| shellfox_ghostty_vt::key::validate_text(text).is_ok())
+            .or_else(|| {
+                base.map(|c| match m.shift {
+                    true => c.to_uppercase().collect(),
+                    false => c.to_string(),
+                })
+            })
+            .unwrap_or_default(),
+    };
+    let consumed_modifiers = match base {
+        Some(c) if m.shift && text.chars().ne(c.to_lowercase()) => KeyModifiers::SHIFT,
+        _ => KeyModifiers::NONE,
     };
     Some(KeyEvent {
-        key,
+        physical,
         action,
-        modifiers: Modifiers {
-            shift: modifiers.shift,
-            control: modifiers.control,
-            alt: modifiers.alt,
-            super_key: modifiers.platform,
-        },
-        consumed_modifiers: Modifiers::default(),
-        text: stroke.key_char.clone().filter(|text| {
-            !text.is_empty()
-                && !text
-                    .chars()
-                    .any(|c| c.is_control() || ('\u{f700}'..='\u{f8ff}').contains(&c))
-        }),
-        unshifted_codepoint,
+        modifiers,
+        consumed_modifiers,
+        text,
+        unshifted_codepoint: base.map(|c| c.to_lowercase().next().unwrap_or(c)),
         composing: false,
     })
 }
 
-pub fn committed_text(text: &str) -> KeyEvent {
-    KeyEvent {
-        key: Key::Unidentified,
-        action: KeyAction::Press,
-        modifiers: Modifiers::default(),
-        consumed_modifiers: Modifiers::default(),
-        text: Some(text.to_owned()),
-        unshifted_codepoint: 0,
-        composing: false,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn printable_input_has_only_the_committed_text_path() {
-        let stroke = Keystroke::parse("a").unwrap();
-        assert!(encode_physical(&stroke, KeyAction::Press).is_none());
-        assert_eq!(committed_text("é🦊").text.as_deref(), Some("é🦊"));
-    }
-
-    #[test]
-    fn ctrl_c_is_terminal_input_not_application_copy() {
-        let event =
-            encode_physical(&Keystroke::parse("ctrl-c").unwrap(), KeyAction::Press).unwrap();
-        assert!(event.modifiers.control);
-        assert!(matches!(event.key, Key::Character('c')));
-        assert!(event.text.is_none());
-    }
-
-    #[test]
-    fn terminal_clipboard_chords_match_explicit_and_mac_native_bindings() {
-        use ClipboardAction::{Copy, Paste};
-        for mac in [false, true] {
-            let action = |key| clipboard_action(&Keystroke::parse(key).unwrap(), mac);
-            assert_eq!(action("ctrl-shift-c"), Some(Copy));
-            assert_eq!(action("ctrl-shift-v"), Some(Paste));
-            assert_eq!(action("cmd-c"), mac.then_some(Copy));
-            assert_eq!(action("cmd-v"), mac.then_some(Paste));
-            for key in ["ctrl-c", "ctrl-v", "ctrl-alt-shift-c", "cmd-ctrl-shift-v"] {
-                assert_eq!(action(key), None, "{key}");
-            }
+/// Ghostty's key and the key's base character. GPUI names printable keys by
+/// their character, so this survives modifier changes between press and release.
+pub fn key_identity(key: &str) -> (PhysicalKey, Option<char>) {
+    let base = match key {
+        "space" => Some(' '),
+        key => {
+            let mut chars = key.chars();
+            chars.next().filter(|_| chars.next().is_none())
         }
-    }
-
-    #[test]
-    fn arrows_and_repeat_release_are_preserved() {
-        let event =
-            encode_physical(&Keystroke::parse("shift-up").unwrap(), KeyAction::Release).unwrap();
-        assert!(matches!(event.key, Key::ArrowUp));
-        assert!(matches!(event.action, KeyAction::Release));
-        assert!(event.modifiers.shift);
-        assert!(matches!(physical_key("f12"), Key::F(12)));
-        assert!(matches!(physical_key("f26"), Key::Unidentified));
-    }
+    };
+    (physical_key(key), base)
 }

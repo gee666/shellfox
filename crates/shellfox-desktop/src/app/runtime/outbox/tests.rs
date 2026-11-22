@@ -1,6 +1,7 @@
 mod limits;
 use super::*;
-use shellfox_ghostty_vt::{KeyAction, Modifiers, MouseButton, MouseEvent, MouseGeometry, Terminal};
+use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::{Modifiers, MouseButton, MouseEvent, MouseGeometry, Terminal};
 use shellfox_runtime::{COMMAND_CAPACITY, Lease};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 
@@ -29,9 +30,8 @@ fn key(action: KeyAction) -> Command {
     Command::Key {
         lease: LEASE,
         event: KeyEvent {
-            key: Key::ArrowUp,
             action,
-            ..Default::default()
+            ..KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE)
         },
     }
 }
@@ -266,10 +266,10 @@ fn held_state_retires_only_after_cleanup_confirmation() {
         .unwrap();
     queue.stop_input(false);
     assert_eq!(queue.buttons(), 1);
-    assert!(queue.key_release(Key::ArrowUp).is_some());
+    assert!(queue.key_release((PhysicalKey::ArrowUp, None)).is_some());
     queue.stop_input(true);
     assert_eq!(queue.buttons(), 0);
-    assert!(queue.key_release(Key::ArrowUp).is_none());
+    assert!(queue.key_release((PhysicalKey::ArrowUp, None)).is_none());
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn key_release_reservation_and_maximum_wheel_backlog_are_bounded() {
     queue
         .enqueue(key(KeyAction::Release), Pending::Applied)
         .unwrap();
-    assert!(queue.key_release(Key::ArrowUp).is_none());
+    assert!(queue.key_release((PhysicalKey::ArrowUp, None)).is_none());
     let requests = Transport::new().finish(&mut queue);
     let keys: Vec<_> = requests
         .iter()

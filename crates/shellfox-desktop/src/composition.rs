@@ -1,4 +1,4 @@
-use crate::{app::TerminalView, input};
+use crate::app::TerminalView;
 use gpui::{
     Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size,
 };
@@ -57,8 +57,8 @@ impl EntityInputHandler for TerminalView {
             return;
         }
         // Native commits are encoded as terminal text exactly once. Controls use key events.
-        if !text.is_empty() && !text.chars().any(char::is_control) {
-            self.send_key(input::committed_text(text));
+        if !text.is_empty() && shellfox_ghostty_vt::key::validate_text(text).is_ok() {
+            self.send_key(shellfox_ghostty_vt::key::KeyEvent::text(text));
         }
         cx.notify();
     }

@@ -1,5 +1,5 @@
 use super::*;
-use shellfox_ghostty_vt::{KeyEvent, Modifiers, MouseAction};
+use shellfox_ghostty_vt::{key::KeyEvent, Modifiers, MouseAction};
 
 fn action(command: NativeCommand) -> NativeAction {
     let input = matches!(
@@ -27,16 +27,10 @@ fn admission_rejects_large_or_invalid_input_before_queueing() {
     assert!(action(NativeCommand::Paste("x".repeat(65537)))
         .validate()
         .is_err());
-    assert!(action(NativeCommand::Key(KeyEvent {
-        text: Some("\0".into()),
-        ..Default::default()
-    }))
+    assert!(action(NativeCommand::Key(KeyEvent::text("\0")))
     .validate()
     .is_err());
-    assert!(action(NativeCommand::Key(KeyEvent {
-        text: Some("é🦊".into()),
-        ..Default::default()
-    }))
+    assert!(action(NativeCommand::Key(KeyEvent::text("é🦊")))
     .validate()
     .is_ok());
     assert!(action(NativeCommand::Resize { cols: 0, rows: 24 })

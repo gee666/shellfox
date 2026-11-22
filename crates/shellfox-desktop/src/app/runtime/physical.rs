@@ -1,6 +1,5 @@
-use shellfox_ghostty_vt::{
-    Key, KeyAction, KeyEvent, MouseAction, MouseButton, MouseEvent, MouseGeometry,
-};
+use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, PhysicalKey};
+use shellfox_ghostty_vt::{MouseAction, MouseButton, MouseEvent, MouseGeometry};
 use shellfox_runtime::{Command, Lease};
 
 pub(super) const MAX_HELD: usize = 64;
@@ -23,12 +22,40 @@ pub(crate) fn button_bit(button: MouseButton) -> u8 {
     }
 }
 
-fn same_key(first: Key, second: Key) -> bool {
-    let canonical = |key| match key {
-        Key::Character(ch) => Key::Character(ch.to_ascii_lowercase()),
-        key => key,
+/// Physical key plus base character; committed text has neither and is never held.
+pub(crate) type KeyIdentity = (PhysicalKey, Option<char>);
+fn identity(event: &KeyEvent) -> Option<KeyIdentity> {
+    (event.physical != PhysicalKey::Unidentified || event.unshifted_codepoint.is_some())
+        .then_some((event.physical, event.unshifted_codepoint))
+}
+
+/// A repeat or release whose press never reached the terminal, e.g. the
+/// key-up of an app shortcut. Sending it would leak the shortcut to kitty
+/// apps that report releases.
+fn orphan(held: bool, event: &KeyEvent) -> bool {
+    !held && event.action != KeyAction::Press && identity(event).is_some()
+}
+
+/// Held keys of a terminal without a lease-tracked outbox (the peer viewer).
+/// Returns whether `event` may be sent and records it if so.
+pub(in crate::app) fn admit_key(held: &mut Vec<KeyEvent>, event: &KeyEvent) -> bool {
+    let Some(key) = identity(event) else {
+        return true;
     };
-    canonical(first) == canonical(second)
+    let was_held = held.iter().any(|h| identity(h) == Some(key));
+    if orphan(was_held, event) {
+        return false;
+    }
+    held.retain(|h| identity(h) != Some(key));
+    if event.action != KeyAction::Release && held.len() < MAX_HELD {
+        held.push(event.clone());
+    }
+    true
+}
+
+/// The release for a held key, by the identity a key-up names.
+pub(in crate::app) fn held_release(held: &[KeyEvent], key: KeyIdentity) -> Option<KeyEvent> {
+    held.iter().find(|h| identity(h) == Some(key)).map(KeyEvent::release)
 }
 
 impl Physical {
@@ -41,27 +68,20 @@ impl Physical {
             .filter_map(|(_, event, _)| event.button)
             .fold(0, |mask, button| mask | button_bit(button))
     }
-    pub fn key_release(&self, key: Key) -> Option<KeyEvent> {
-        let mut event = self
-            .keys
-            .iter()
-            .find(|(_, event)| same_key(event.key, key))?
-            .1
-            .clone();
-        event.action = KeyAction::Release;
-        event.text = None;
-        Some(event)
+    pub fn key_release(&self, key: KeyIdentity) -> Option<KeyEvent> {
+        let held = self.keys.iter().find(|(_, event)| identity(event) == Some(key))?;
+        Some(held.1.release())
+    }
+    fn key_held(&self, event: &KeyEvent) -> bool {
+        self.keys.iter().any(|(_, key)| identity(key) == identity(event))
     }
     pub fn change(&self, command: &Command) -> i8 {
         match command {
-            Command::Key { event, .. } if event.key != Key::Unidentified => {
-                let held = self
-                    .keys
-                    .iter()
-                    .any(|(_, key)| same_key(key.key, event.key));
+            Command::Key { event, .. } if identity(event).is_some() => {
+                let held = self.key_held(event);
                 match event.action {
                     KeyAction::Release if held => -1,
-                    KeyAction::Press | KeyAction::Repeat if !held => 1,
+                    KeyAction::Press if !held => 1,
                     _ => 0,
                 }
             }
@@ -81,15 +101,20 @@ impl Physical {
             _ => 0,
         }
     }
-    pub fn unmatched_release(&self, command: &Command) -> bool {
-        let release = matches!(command, Command::Key { event, .. } if event.action == KeyAction::Release)
-            || matches!(command, Command::Mouse { event, .. } if event.action == MouseAction::Release);
-        release && self.change(command) != -1
+    /// Releases and repeats whose press was never sent are dropped.
+    pub fn unmatched(&self, command: &Command) -> bool {
+        match command {
+            Command::Key { event, .. } => orphan(self.key_held(event), event),
+            Command::Mouse { event, .. } => {
+                event.action == MouseAction::Release && self.change(command) != -1
+            }
+            _ => false,
+        }
     }
     pub fn accept(&mut self, command: &mut Command) {
         match command {
-            Command::Key { lease, event } if event.key != Key::Unidentified => {
-                self.keys.retain(|(_, key)| !same_key(key.key, event.key));
+            Command::Key { lease, event } if identity(event).is_some() => {
+                self.keys.retain(|(_, key)| identity(key) != identity(event));
                 if event.action != KeyAction::Release {
                     self.keys.push((*lease, event.clone()));
                 }
@@ -116,12 +141,9 @@ impl Physical {
     pub fn releases(&self) -> Vec<Command> {
         let mut result = Vec::with_capacity(self.len());
         for (lease, original) in &self.keys {
-            let mut event = original.clone();
-            event.action = KeyAction::Release;
-            event.text = None;
             result.push(Command::Key {
                 lease: *lease,
-                event,
+                event: original.release(),
             });
         }
         for (lease, original, geometry) in &self.buttons {

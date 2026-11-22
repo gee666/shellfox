@@ -29,7 +29,7 @@ fn focus_loss_and_capture_cancel_release_once_under_backpressure() {
         queue.cancel(pointer_only).unwrap();
         queue.cancel(pointer_only).unwrap();
         assert_eq!(queue.buttons(), 0);
-        assert_eq!(queue.key_release(Key::ArrowUp).is_some(), pointer_only);
+        assert_eq!(queue.key_release((PhysicalKey::ArrowUp, None)).is_some(), pointer_only);
         let requests = transport.finish(&mut queue);
         assert_eq!(requests.iter().filter(|r| matches!(&r.command, Command::Mouse {event, ..} if event.action == MouseAction::Release)).count(), 1);
         assert_eq!(requests.iter().filter(|r| matches!(&r.command, Command::Key {event, ..} if event.action == KeyAction::Release)).count(), usize::from(!pointer_only));
@@ -40,25 +40,18 @@ fn focus_loss_and_capture_cancel_release_once_under_backpressure() {
 fn all_accepted_physical_keys_keep_reserved_release_slots_at_the_hard_limit() {
     let mut queue = Outbox::default();
     let keys: Vec<_> = (1..=25)
-        .map(Key::F)
-        .chain(('a'..='z').map(Key::Character))
-        .chain(('0'..='9').map(Key::Character))
-        .chain([Key::Home, Key::End, Key::Insert])
+        .map(|n| format!("ctrl-f{n}"))
+        .chain(('a'..='z').chain('0'..='9').map(|c| format!("ctrl-{c}")))
+        .chain(["ctrl-home", "ctrl-end", "ctrl-insert"].map(str::to_owned))
         .collect();
     assert_eq!(keys.len(), MAX_HELD);
     for key in keys {
+        let stroke = gpui::Keystroke::parse(&key).unwrap();
         queue
             .enqueue(
                 Command::Key {
                     lease: LEASE,
-                    event: KeyEvent {
-                        key,
-                        modifiers: Modifiers {
-                            control: true,
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
+                    event: crate::input::key_event(&stroke, KeyAction::Press).unwrap(),
                 },
                 Pending::Applied,
             )
@@ -173,20 +166,17 @@ fn changed_shift_or_control_modifiers_do_not_hide_an_accepted_physical_release()
         .enqueue(
             Command::Key {
                 lease: LEASE,
-                event: KeyEvent {
-                    key: Key::Character('C'),
-                    modifiers: Modifiers {
-                        control: true,
-                        shift: true,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+                event: crate::input::key_event(
+                    &gpui::Keystroke::parse("ctrl-shift-c").unwrap(),
+                    KeyAction::Press,
+                )
+                .unwrap(),
             },
             Pending::Applied,
         )
         .unwrap();
-    let release = queue.key_release(crate::input::physical_key("c")).unwrap();
+    // Ctrl and Shift were released first: the key-up names only "c".
+    let release = queue.key_release(crate::input::key_identity("c")).unwrap();
     assert_eq!(release.action, KeyAction::Release);
     queue
         .enqueue(
@@ -208,7 +198,7 @@ fn committed_text_does_not_create_synthetic_release_or_duplicate_ime_commit() {
         .enqueue(
             Command::Key {
                 lease: LEASE,
-                event: crate::input::committed_text("é🦊"),
+                event: KeyEvent::text("é🦊"),
             },
             Pending::Applied,
         )
@@ -218,5 +208,34 @@ fn committed_text_does_not_create_synthetic_release_or_duplicate_ime_commit() {
     let requests = Transport::new().finish(&mut queue);
     assert_eq!(requests.len(), 1);
     assert!(matches!(&requests[0].command, Command::Key { event, .. }
-        if event.action == KeyAction::Press && event.text.as_deref() == Some("é🦊")));
+        if event.action == KeyAction::Press && event.text == "é🦊"));
+}
+
+#[test]
+fn app_shortcut_repeats_and_key_ups_never_reach_the_terminal() {
+    // Ctrl+B ran a layout action, so its press was never sent. Its repeat and
+    // its key-up (kitty apps report releases) must not be sent either.
+    let stroke = gpui::Keystroke::parse("ctrl-b").unwrap();
+    let mut queue = Outbox::default();
+    for action in [KeyAction::Repeat, KeyAction::Release] {
+        let event = crate::input::key_event(&stroke, action).unwrap();
+        queue
+            .enqueue(Command::Key { lease: LEASE, event }, Pending::Applied)
+            .unwrap();
+    }
+    assert!(queue.key_release(crate::input::key_identity("b")).is_none());
+    assert!(Transport::new().finish(&mut queue).is_empty());
+
+    let mut held = Vec::new();
+    let press = crate::input::key_event(&stroke, KeyAction::Press).unwrap();
+    let repeat = crate::input::key_event(&stroke, KeyAction::Repeat).unwrap();
+    assert!(!crate::app::runtime::physical::admit_key(&mut held, &repeat));
+    assert!(!crate::app::runtime::physical::admit_key(&mut held, &press.release()));
+    assert!(crate::app::runtime::physical::admit_key(&mut held, &press));
+    assert!(crate::app::runtime::physical::admit_key(&mut held, &repeat));
+    let release = crate::app::runtime::physical::held_release(&held, crate::input::key_identity("b"));
+    assert!(crate::app::runtime::physical::admit_key(&mut held, &release.unwrap()));
+    assert!(held.is_empty());
+    // Committed text has no key behind it and is always sent.
+    assert!(crate::app::runtime::physical::admit_key(&mut held, &KeyEvent::text("b")));
 }

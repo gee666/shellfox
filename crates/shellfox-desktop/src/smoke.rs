@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail, ensure};
-use shellfox_ghostty_vt::{Key, KeyAction, KeyEvent, Terminal};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::Terminal;
 use shellfox_terminal::{PtyConfig, PtyOutput, PtySession};
 use std::{
     path::Path,
@@ -21,11 +22,8 @@ pub fn run(run_dir: &Path) -> Result<()> {
         let mut terminal = Terminal::new(80, 24)?;
         let command = terminal.encode_paste("echo SHELLFOX_PTY_SMOKE_OK")?;
         pty.write(&command)?;
-        let enter = terminal.encode_key(&KeyEvent {
-            key: Key::Enter,
-            action: KeyAction::Press,
-            ..Default::default()
-        })?;
+        let enter =
+            terminal.encode_key_event(&KeyEvent::press(PhysicalKey::Enter, KeyModifiers::NONE))?;
         pty.write(&enter)?;
         pty.resize(100, 30)?;
         terminal.resize(100, 30)?;

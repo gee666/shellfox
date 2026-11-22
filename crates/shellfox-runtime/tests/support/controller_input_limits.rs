@@ -1,5 +1,5 @@
 use super::*;
-use shellfox_ghostty_vt::{Key, KeyEvent, Modifiers};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
 #[test]
 fn actual_bracketed_paste_payload_and_encoded_caps_are_distinct_and_overflow_has_zero_prewrite_side_effects(
 ) {
@@ -24,16 +24,10 @@ fn actual_bracketed_paste_payload_and_encoded_caps_are_distinct_and_overflow_has
         "actual source must enable bracketed paste"
     );
     // Alt adds bytes in both legacy and enhanced keyboard modes.
-    let modifiers = Modifiers {
-        alt: true,
-        ..Modifiers::default()
-    };
     let key = |text: String| KeyEvent {
-        key: Key::Character('x'),
-        modifiers,
-        text: Some(text),
-        unshifted_codepoint: u32::from('x'),
-        ..Default::default()
+        text,
+        unshifted_codepoint: Some('x'),
+        ..KeyEvent::press(PhysicalKey::KeyX, KeyModifiers::ALT)
     };
     assert!(matches!(
         m.request(Command::Key { lease, event: key("x".into()) }).unwrap(),

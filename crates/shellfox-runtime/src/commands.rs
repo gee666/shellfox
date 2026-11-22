@@ -91,6 +91,7 @@ impl Owner {
         self.delivery.check(lease).map_err(RuntimeError::control)?;
         match &command {
             Command::Key { .. }
+            | Command::KeyV2 { .. }
             | Command::Paste { .. }
             | Command::RawInput { .. }
             | Command::Mouse { .. }
@@ -134,20 +135,20 @@ impl Owner {
                 stamp,
                 ..
             } => return self.stamped_mouse(request_id, lease, event, geometry, stamp),
-            Command::KeyV2 { event, .. } => return self.key_v2(request_id, lease, event),
-            Command::Key { event, .. } => {
+            Command::Key { event, .. } | Command::KeyV2 { event, .. } => {
                 self.active()?;
-                let bytes = self.terminal.encode_xterm_key(&event).map_err(engine)?;
+                let bytes = self.terminal.encode_key_event(&event).map_err(engine)?;
                 let result = self.accept_input(
                     request_id,
                     &bytes,
                     InputKind::Key {
                         action: event.action,
-                        has_committed_text: !event.composing
-                            && event.text.as_ref().is_some_and(|text| !text.is_empty()),
+                        has_committed_text: !event.composing && !event.text.is_empty(),
                     },
                 )?;
-                if event.action != shellfox_ghostty_vt::KeyAction::Release && !bytes.is_empty() {
+                if event.action != shellfox_ghostty_vt::key::KeyAction::Release
+                    && !bytes.is_empty()
+                {
                     self.follow_accepted_input(lease);
                 }
                 return Ok(result);

@@ -1,7 +1,7 @@
 use crate::RuntimeError;
 use shellfox_core::{Generation, SessionId, TabId};
 use shellfox_ghostty_vt::{
-    KeyEvent, MouseEvent, MouseGeometry, Screen, Selection, TerminalColors, ViewportPoint,
+    key::KeyEvent, MouseEvent, MouseGeometry, Screen, Selection, TerminalColors, ViewportPoint,
 };
 
 pub const COMMAND_CAPACITY: usize = 16;
@@ -126,12 +126,12 @@ pub enum Command {
     Unobserve {
         observer: ObserverLease,
     },
-    /// Desktop xterm keyboard behavior. KeyV2 keeps Ghostty's native encoding.
+    /// Encoded by Ghostty with this terminal's live keyboard modes.
     Key {
         lease: Lease,
         event: KeyEvent,
     },
-    /// Owned, lossless producer vocabulary. Never borrows text across FIFO.
+    /// Manager-v2 input; the same event and encoding as `Key`.
     KeyV2 {
         lease: Lease,
         event: crate::OwnedKeyEventV2,
@@ -239,8 +239,7 @@ impl Command {
         let bytes = match self {
             Self::Paste { text, .. } => text.len(),
             Self::RawInput { bytes, .. } | Self::InteractiveBytes { bytes, .. } => bytes.len(),
-            Self::Key { event, .. } => event.text.as_ref().map_or(0, String::len),
-            Self::KeyV2 { event, .. } => event.text.len(),
+            Self::Key { event, .. } | Self::KeyV2 { event, .. } => event.text.len(),
             Self::Resize { cols, rows, .. } => return limits.validate_size(*cols, *rows),
             _ => 0,
         };

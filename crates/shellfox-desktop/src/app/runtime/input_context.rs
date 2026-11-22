@@ -1,5 +1,5 @@
 use super::super::TerminalView;
-use shellfox_ghostty_vt::{KeyAction, MouseAction};
+use shellfox_ghostty_vt::{key::KeyAction, MouseAction};
 use shellfox_runtime::Command;
 use shellfox_service::native::NativeInputContext;
 
