@@ -15,6 +15,20 @@ impl OwnerClient {
             .await
             .context("Owner stopped before returning its facts watch.")
     }
+    pub async fn native_watches(&self) -> Result<crate::native::NativeWatches> {
+        let (reply, receive) = oneshot::channel();
+        self.sender
+            .try_send(Task::Watches { reply })
+            .map_err(|_| anyhow::anyhow!("Owner watch request was not admitted."))?;
+        receive
+            .await
+            .context("Owner stopped before returning its watches.")
+    }
+    pub fn remote_state(
+        &self,
+    ) -> Option<tokio::sync::watch::Receiver<crate::remote::native::RemoteControlState>> {
+        self.remote.as_ref().map(crate::remote::native::RemoteControl::subscribe)
+    }
     pub fn try_native(
         &self,
         action: NativeAction,

@@ -269,6 +269,9 @@ impl ServiceOwner {
                         Ok(Task::SourceFactsWatch { reply }) => {
                             let _ = reply.send(service.source_facts_watch());
                         }
+                        Ok(Task::Watches { reply }) => {
+                            let _ = reply.send(service.native_watches());
+                        }
                         Ok(Task::Wake) => {}
                         Ok(Task::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) => {}

@@ -11,6 +11,9 @@ mod observers;
 #[path = "native_presentation.rs"]
 mod presentation;
 pub use presentation::{NativePresentation, NativeViewAttachment};
+#[path = "native_watches.rs"]
+mod watches;
+pub use watches::{FrameWakes, NativeWatches};
 #[path = "native_validation.rs"]
 mod validation;
 #[path = "native_launch_client.rs"]
@@ -243,6 +246,13 @@ impl NativeClient {
     }
     pub async fn source_facts_watch(&self) -> anyhow::Result<crate::activity_integration::SourceFactsWatch> {
         self.owner.source_facts_watch().await
+    }
+    pub async fn watches(&self) -> anyhow::Result<NativeWatches> {
+        self.owner.native_watches().await
+    }
+    /// None when this owner has no remote control installed.
+    pub fn remote_state(&self) -> Option<tokio::sync::watch::Receiver<crate::remote::native::RemoteControlState>> {
+        self.owner.remote_state()
     }
 
     pub async fn execute(&self, action: NativeAction) -> anyhow::Result<NativeResponse> {

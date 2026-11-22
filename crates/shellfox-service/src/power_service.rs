@@ -128,6 +128,9 @@ impl Service {
                 .send(self.power.worker.admit_owner_receipt(&self.ownership_lost));
         }
     }
+    pub(crate) fn power_report(&self) -> PowerReport {
+        self.power.worker.report()
+    }
     pub(crate) fn begin_stop_power(&mut self) {
         self.power.worker.begin_stop();
         self.pump_power();

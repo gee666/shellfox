@@ -92,6 +92,7 @@ pub(crate) struct NativeState {
     pub(super) views: HashMap<ViewKey, View>,
     frames: HashMap<ViewKey, Cached>,
     next_frame: u64,
+    pub(crate) watches: super::watches::WatchSenders,
 }
 impl NativeState {
     pub(super) fn admit(&self, key: ViewKey) -> Result<()> {
@@ -261,5 +262,10 @@ impl crate::Service {
             self.native.remove(key);
         }
         self.native.prune();
+        let terminals = &self.terminals;
+        self.native
+            .watches
+            .frames
+            .retain(|tab| terminals.contains_key(&tab));
     }
 }

@@ -21,6 +21,7 @@ impl Service {
             self.pump_activity();
         }
         self.native_capture_frames();
+        self.publish_native_watches();
     }
     pub(crate) fn drain(&mut self, tab: TabId) -> Result<()> {
         let identity = self
@@ -31,7 +32,7 @@ impl Service {
             .identity();
         // A viewer's mailbox never blocks replies/phase/cleanup. Reply activity
         // completion runs before a later Closed event can clear its contexts.
-        for _ in 0..shellfox_runtime::EVENT_CAPACITY {
+        for index in 0..shellfox_runtime::EVENT_CAPACITY {
             let event = match self
                 .terminals
                 .get(&tab)
@@ -44,6 +45,10 @@ impl Service {
             };
             self.record_ownership_reply(identity, &event);
             self.native.record_event(tab, &event);
+            if index == 0 {
+                // Frame requests queue behind this pass, so they see every event drained here.
+                self.native.watches.frames.wake(tab);
+            }
             let Some(event) = self.remote_v2_mailboxes.record(identity, event) else {
                 continue;
             };

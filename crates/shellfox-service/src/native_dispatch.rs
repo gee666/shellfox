@@ -108,7 +108,9 @@ impl crate::Service {
                 input,
             } => {
                 self.native_control(tab, controller, &attachment)?;
-                self.native_command(tab, controller, &attachment, command, input)?
+                let response = self.native_command(tab, controller, &attachment, command, input)?;
+                self.native.watches.frames.wake(tab);
+                response
             }
             NativeAction::Frame { tab, attachment } => self.native_presentation(
                 tab,
@@ -120,7 +122,15 @@ impl crate::Service {
                 tab,
                 attachment,
                 action,
-            } => self.native_presentation(tab, controller, attachment, action)?,
+            } => {
+                let frame = matches!(action, NativePresentation::Frame { .. });
+                let response = self.native_presentation(tab, controller, attachment, action)?;
+                if !frame {
+                    // Scroll, selection and resize change the next frame.
+                    self.native.watches.frames.wake(tab);
+                }
+                response
+            }
             NativeAction::AcceptFrame {
                 tab,
                 attachment,
