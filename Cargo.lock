@@ -7996,6 +7996,7 @@ name = "shellfox-ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "shellfox-ghostty-vt-sys",
  "url",
 ]
@@ -8006,6 +8007,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "serde",
+ "serde_json",
  "sha2 0.10.9",
 ]
 
@@ -8063,18 +8065,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "shellfox-resources"
-version = "0.1.0"
-dependencies = [
- "rustix 1.1.6",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8171,7 +8161,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "shellfox-resources",
  "windows-sys 0.59.0",
 ]
 
