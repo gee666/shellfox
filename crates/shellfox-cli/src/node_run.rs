@@ -138,16 +138,18 @@ async fn connected(data: &Path, action: Action) -> Result<()> {
 async fn query(client: &LocalClient, action: Action) -> Result<()> {
     match action {
         Action::CreateSession { cwd, title } => {
-            let profile_id = default_profile(&snapshot(client).await?);
-            let request_id = SessionId::new();
+            let before = snapshot(client).await?;
             let input = CreateSession {
-                request_id,
+                request_id: SessionId::new(),
                 title,
                 cwd,
-                profile_id,
+                profile_id: default_profile(&before),
             };
             let snapshot = mutate(client, ExperimentRequest::CreateSession { input }).await?;
-            let created = snapshot.sessions.iter().find(|s| s.id == request_id);
+            let created = snapshot
+                .sessions
+                .iter()
+                .find(|s| !before.sessions.iter().any(|old| old.id == s.id));
             print_value(&created.context("The host did not return the new session.")?)
         }
         Action::CreateTab {
@@ -158,11 +160,12 @@ async fn query(client: &LocalClient, action: Action) -> Result<()> {
             let id: SessionId = session
                 .parse()
                 .map_err(|_| CliError::usage("A session UUID is required."))?;
+            let before = snapshot(client).await?;
             let profile_id = match profile {
                 Some(profile) => profile
                     .parse()
                     .map_err(|_| CliError::usage("Invalid profile ID."))?,
-                None => default_profile(&snapshot(client).await?),
+                None => default_profile(&before),
             };
             let input = AddTab {
                 title,
@@ -170,12 +173,14 @@ async fn query(client: &LocalClient, action: Action) -> Result<()> {
                 profile_id,
             };
             let snapshot = mutate(client, ExperimentRequest::AddTab { id, input }).await?;
-            let session = snapshot.sessions.iter().find(|s| s.id == id);
-            print_value(
-                &session
-                    .and_then(|s| s.tabs.last())
-                    .context("The host did not return the new terminal.")?,
-            )
+            let old: Vec<_> = before.sessions.iter().flat_map(|s| &s.tabs).map(|t| t.id).collect();
+            let created = snapshot
+                .sessions
+                .iter()
+                .filter(|s| s.id == id)
+                .flat_map(|s| &s.tabs)
+                .find(|t| !old.contains(&t.id));
+            print_value(&created.context("The host did not return the new terminal.")?)
         }
         Action::Inspect(id) => {
             let id: SessionId = id

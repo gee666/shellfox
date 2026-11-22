@@ -148,7 +148,7 @@ export function assertNodeUpdaterAccepts(directory, version) {
 /** Extract the archive to a path with spaces and run a real host on isolated data. */
 export async function smokeHeadless(archive, version) {
   const work = mkdtempSync(path.join(scratchRoot, 'headless smoke '));
-  let host;
+  let host, stop = async () => {};
   try {
     const tar = win ? path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/tar.exe') : '/usr/bin/tar';
     run(tar, ['-xf', archive, '-C', work]);
@@ -157,8 +157,10 @@ export async function smokeHeadless(archive, version) {
     const data = path.join(work, 'user data');
     const home = path.join(work, 'home');
     mkdirSync(home);
-    const env = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, 'config'), SHELLFOX_USER_DATA: data };
+    const env = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, 'config'), SHELLFOX_USER_DATA: data,
+      APPDATA: path.join(home, 'AppData/Roaming'), LOCALAPPDATA: path.join(home, 'AppData/Local') };
     delete env.DISPLAY; delete env.WAYLAND_DISPLAY;
+    for (const dir of [env.APPDATA, env.LOCALAPPDATA]) mkdirSync(dir, { recursive: true });
     const cli = path.join(directory, 'bin', exe('shellfox-cli'));
     const shellfox = (...args) => JSON.parse(run(cli, [...args, '--json'], { env, cwd: work, timeout: 30_000 }));
     assert.deepEqual(shellfox('version'), { ok: true, value: version });
@@ -170,6 +172,10 @@ export async function smokeHeadless(archive, version) {
     host.stdout.on('data', chunk => { output += chunk; });
     host.stderr.on('data', chunk => { output += chunk; });
     const exited = new Promise(resolve => host.once('exit', code => resolve(code)));
+    stop = async () => {
+      try { run(cli, ['--user-data', data, 'host', 'stop', '--yes'], { env, cwd: work, timeout: 30_000 }); } catch { /* Reported by the failing check. */ }
+      await Promise.race([exited, delay(15_000)]);
+    };
     for (let i = 0; i < 300 && !output.includes('"ok":true'); i++) await delay(100);
     const ready = JSON.parse(output.split('\n').find(line => line.startsWith('{')) ?? 'null');
     assert.equal(ready?.value?.mode, 'headless', `Host did not report readiness: ${output}`);
@@ -183,8 +189,11 @@ export async function smokeHeadless(archive, version) {
     assert.ok(existsSync(path.join(data, 'rust-v1', 'host')));
     return 'headless archive: 0.9 updater layout, version through bin/node, host run/status/stop, session create/list/delete';
   } finally {
+    if (host && host.exitCode === null) await stop();
     if (host && host.exitCode === null) host.kill();
-    rmSync(work, { recursive: true, force: true });
+    // Windows can keep just-run executables locked briefly; scratch is under tmp/.
+    try { rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 }); }
+    catch (error) { console.warn(`Headless smoke scratch retained: ${work} (${error.code})`); }
   }
 }
 
