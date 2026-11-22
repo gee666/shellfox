@@ -6,9 +6,6 @@ fn dispatch(url: &str, open: impl FnOnce(&str)) -> anyhow::Result<()> {
     open(&validated);
     Ok(())
 }
-fn open_login_url(url: &str, cx: &App) {
-    cx.open_url(url);
-}
 
 impl SettingsPanel {
     pub(super) fn dispatch_login_browser(&mut self, serial: u64, cx: &mut Context<Self>) {
@@ -21,7 +18,7 @@ impl SettingsPanel {
             .url
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("No current sign-in address."))
-            .and_then(|url| dispatch(url, |url| open_login_url(url, cx)));
+            .and_then(|url| dispatch(url, |url| cx.open_url(url)));
         if result.is_err() {
             self.remote.login.browser_failed();
         }

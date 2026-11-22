@@ -89,13 +89,24 @@ impl SettingsPanel {
             .detach();
         }
     }
+    /// Discrete controls (toggles, pickers, lists) save right away.
     pub(super) fn stage(&mut self, patch: SettingsPatch, cx: &mut Context<Self>) {
-        self.stage_edit(patch, false, cx);
+        self.stage_patch(patch, false, false, cx);
     }
-    pub(super) fn stage_edit(
+    /// Typed values wait for a pause so a partial number is never applied.
+    pub(super) fn stage_typed(
         &mut self,
         patch: SettingsPatch,
         repaired: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.stage_patch(patch, repaired, true, cx);
+    }
+    fn stage_patch(
+        &mut self,
+        patch: SettingsPatch,
+        repaired: bool,
+        typed: bool,
         cx: &mut Context<Self>,
     ) {
         if self.operations.frozen() {
@@ -111,6 +122,12 @@ impl SettingsPanel {
             Ok(true) => {
                 self.save_error = None;
                 self.saved_visible = false;
+                if !typed {
+                    self.save_ready = true;
+                    self.begin_save(cx);
+                    cx.notify();
+                    return;
+                }
                 self.save_ready = false;
                 let revision = draft.revision;
                 cx.spawn(async move |panel, cx| {

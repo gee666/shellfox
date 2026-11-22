@@ -136,7 +136,7 @@ impl SettingsPanel {
             Input::Agent => None,
         };
         if let Some(patch) = patch {
-            self.stage_edit(patch, repaired, cx);
+            self.stage_typed(patch, repaired, cx);
         } else {
             self.forms.errors.insert(
                 key,
