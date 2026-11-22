@@ -68,11 +68,12 @@ try {
     assert.equal(run(elevated, ['probe']).trim(), 'shellfox-elevated-conpty-v1');
     if (process.arch === 'x64') {
       const full = `shellfox-${release.nuget}-full.nupkg`;
-      const release = readFileSync(path.join(directory, 'RELEASES'), 'utf8').replace(/^\uFEFF/, '').trim().split(/\s+/);
-      assert.equal(release[1], full);
-      assert.equal(Number(release[2]), statSync(path.join(directory, full)).size);
+      const releases = readFileSync(path.join(directory, 'RELEASES'), 'utf8').replace(/^\uFEFF/, '').trim().split(/\s+/);
+      assert.equal(releases[1], full);
+      assert.equal(Number(releases[2]), statSync(path.join(directory, full)).size);
       const entries = run(tar, ['-tf', path.join(directory, full)]).split(/\r?\n/);
-      for (const entry of ['Shellfox.exe', 'bin/shellfox-cli.exe', 'ghostty-vt.dll', 'resources/THIRD-PARTY-NOTICES.txt']) {
+      // Squirrel adds the stable root launcher that shortcuts target only for GUI-subsystem exes.
+      for (const entry of ['Shellfox.exe', 'Shellfox_ExecutionStub.exe', 'bin/shellfox-cli.exe', 'ghostty-vt.dll', 'resources/THIRD-PARTY-NOTICES.txt']) {
         assert.ok(entries.includes(`lib/net45/${entry}`), `Squirrel package is missing ${entry}`);
       }
       // Electron 0.9.15 updates only a Squirrel package with this ID and a SquirrelAware Shellfox.exe.
