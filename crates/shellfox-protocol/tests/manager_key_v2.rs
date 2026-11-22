@@ -3,11 +3,16 @@ use shellfox_protocol::{manager_v2 as m, Validate};
 // Compile the producer's ACTUAL single enum table in this conformance test.
 // This is not a protocol->sys dependency, a second encoder or native acceptance.
 #[derive(Debug, PartialEq)]
-pub enum InvalidKeyV2 {
+pub enum InvalidKey {
     PhysicalKey(u32),
 }
+impl std::fmt::Display for InvalidKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
 pub mod producer_source_table {
-    include!("../../ghostty-vt-sys/src/key_v2/physical.rs");
+    include!("../../ghostty-vt-sys/src/key/physical.rs");
 }
 #[test]
 fn all176_wire_keys_match_producer_source_table_supporting_evidence() {
@@ -29,7 +34,7 @@ fn all176_wire_keys_match_producer_source_table_supporting_evidence() {
         assert!(m::PhysicalKey::try_from(code).is_err());
         assert_eq!(
             producer_source_table::PhysicalKey::try_from(code),
-            Err(InvalidKeyV2::PhysicalKey(code))
+            Err(InvalidKey::PhysicalKey(code))
         );
     }
     assert_ne!(m::PhysicalKey::Enter, m::PhysicalKey::NumpadEnter);
