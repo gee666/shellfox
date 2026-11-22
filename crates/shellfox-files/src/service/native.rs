@@ -4,6 +4,39 @@ use crate::private::{self, Parent, PrivateDir, PrivateRead, PrivateVersion};
 use cap_fs_ext::DirExt;
 use std::ffi::OsStr;
 
+/// A name like `PROGRA~1` may be a Windows 8.3 alias of another directory.
+fn short_name(name: &OsStr) -> bool {
+    cfg!(windows)
+        && name.to_str().is_some_and(|name| {
+            name.split('~')
+                .skip(1)
+                .any(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+        })
+}
+
+/// The existing part of a path must be spelled exactly as the file system stores it, so two
+/// configured roots cannot name one directory through case or short-name aliases.
+fn not_aliased(existing: &Path) -> Result<()> {
+    let actual = std::fs::canonicalize(existing)?;
+    let actual = actual.to_str().ok_or_else(FileError::denied)?;
+    let actual = actual.strip_prefix(r"\\?\").unwrap_or(actual);
+    let expected = existing.to_str().ok_or_else(FileError::denied)?;
+    let trim = |value: &str| {
+        // Drive letters are case-insensitive and canonicalize upper-cases them.
+        let value = value.trim_end_matches(['/', '\\']);
+        let mut chars = value.chars();
+        let first = chars.next().map(|c| c.to_ascii_uppercase());
+        first.into_iter().chain(chars).collect::<String>()
+    };
+    if trim(actual) != trim(expected) {
+        return Err(FileError::new(
+            ErrorCode::Validation,
+            "Directory path is an alias of another spelling.",
+        ));
+    }
+    Ok(())
+}
+
 fn unsupported() -> FileError {
     FileError::new(
         ErrorCode::Unsupported,
@@ -38,36 +71,55 @@ impl FileService {
 
     /// Creates `path` and any missing ancestors as private app directories, or makes an
     /// existing final directory private. Ancestors that exist are only walked, never changed.
-    /// The returned root holds the directory handle (pinned on Windows).
+    /// Links, junctions and aliased names (case or 8.3 spelling) are refused before anything
+    /// is created. The returned root holds the directory handle (pinned on Windows).
     pub fn private_root(path: &Path) -> Result<Arc<Self>> {
         let (root, relative) = paths::absolute_parts(path)?;
         let names: Vec<_> = relative
             .components()
             .map(|part| match part {
-                std::path::Component::Normal(name) => Ok(name),
+                std::path::Component::Normal(name) if !short_name(name) => Ok(name),
                 _ => Err(FileError::denied()),
             })
             .collect::<Result<_>>()?;
         let (leaf, ancestors) = names.split_last().ok_or_else(FileError::denied)?;
-        let mut dir = Dir::open_ambient_dir(root, cap_std::ambient_authority())?;
+        let mut dir = Dir::open_ambient_dir(&root, cap_std::ambient_authority())?;
+        let mut existing = root;
+        let mut missing = false;
         for name in ancestors {
-            dir = match dir.symlink_metadata(name) {
-                Ok(info) => {
-                    paths::reject_link(&info)?;
-                    dir.open_dir_nofollow(name)?
+            if !missing {
+                match dir.symlink_metadata(name) {
+                    Ok(info) => {
+                        paths::reject_link(&info)?;
+                        dir = dir.open_dir_nofollow(name)?;
+                        existing.push(name);
+                        continue;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        not_aliased(&existing)?;
+                        missing = true;
+                    }
+                    Err(error) => return Err(error.into()),
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    let parent = dir.try_clone()?.into_std_file();
-                    let created = private::create_dir_with(&parent, name, Parent::App)?;
-                    Dir::from_std_file(created.into_file())
-                }
-                Err(error) => return Err(error.into()),
-            };
+            }
+            let parent = dir.try_clone()?.into_std_file();
+            let created = private::create_dir_with(&parent, name, Parent::App)?;
+            dir = Dir::from_std_file(created.into_file());
         }
         let parent = dir.try_clone()?.into_std_file();
-        let held: PrivateDir = match dir.symlink_metadata(leaf) {
-            Ok(info) => {
+        let found = if missing {
+            None
+        } else {
+            match dir.symlink_metadata(leaf) {
+                Ok(info) => Some(info),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let held: PrivateDir = match found {
+            Some(info) => {
                 paths::reject_link(&info)?;
+                not_aliased(path)?;
                 let original = dir.open_dir_nofollow(leaf)?.into_std_file();
                 private::repair_app_dir(&parent, leaf, &original)?;
                 let held = private::open_app_dir(&parent, leaf)?;
@@ -76,10 +128,12 @@ impl FileService {
                 }
                 held
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            None => {
+                if !missing {
+                    not_aliased(&existing)?;
+                }
                 private::create_dir_with(&parent, leaf, Parent::App)?
             }
-            Err(error) => return Err(error.into()),
         };
         Ok(Arc::new(Self {
             root: Some(Root {
@@ -260,5 +314,27 @@ mod tests {
         assert!(FileService::private_root(&dir.join("link").join("c")).is_err());
         assert!(FileService::private_root(&dir.join("link")).is_err());
         assert!(!dir.join("a").join("c").exists());
+    }
+
+    #[test]
+    fn private_roots_refuse_aliased_spellings_before_creating_anything() {
+        let dir = TempDir::new();
+        std::fs::create_dir(dir.join("host")).unwrap();
+        #[cfg(windows)]
+        {
+            assert!(FileService::private_root(&dir.join("HOST")).is_err());
+            assert!(FileService::private_root(&dir.join("HOST").join("ui")).is_err());
+            assert!(FileService::private_root(&dir.join("UI~1")).is_err());
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(dir.join("host"), dir.join("alias")).unwrap();
+            assert!(FileService::private_root(&dir.join("alias").join("ui")).is_err());
+        }
+        assert!(std::fs::read_dir(dir.join("host"))
+            .unwrap()
+            .next()
+            .is_none());
+        FileService::private_root(&dir.join("host").join("ui")).unwrap();
     }
 }
