@@ -1,56 +1,57 @@
-//! First launch of the default Rust host. Never open the Electron database with SQLite.
-use anyhow::{ensure, Context, Result};
-use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
-use cap_std::{
-    ambient_authority,
-    fs::{Dir, File, OpenOptions},
-};
-use serde::{Deserialize, Serialize};
-use shellfox_core::ApprovalStoreRecord;
+//! Takes over an Electron (or Node headless) root on first launch of a Rust
+//! host laid out as `<root>/rust-v1/host`. Each item fills only an unused
+//! Rust store; markers in the private control dir keep it to one pass. The
+//! Electron files stay for rollback until `RETENTION` after the import.
+//! SQLite only ever opens a private snapshot of Electron's database.
+use anyhow::{Context, Result};
+use cap_std::{ambient_authority, fs::Dir};
+use serde::Serialize;
 use shellfox_host::Host;
 use shellfox_ssh::{PrivateDirectory, ProfileStore, StoragePolicy};
+use shellfox_transport::PermissionVerifier;
 use std::{
-    io::{self, Read, Write},
-    path::Path,
+    io::Write,
+    path::{Component, Path},
     sync::Arc,
-    time::SystemTime,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::NamedTempFile;
 use zeroize::Zeroizing;
 
+#[path = "electron_cleanup.rs"]
+mod cleanup;
+#[path = "electron_import_files.rs"]
+mod files;
+#[path = "electron_import_remote.rs"]
+mod remote;
+
+/// Settings, SSH profiles and approvals.
 const MARKER: &str = "electron-import-v1.json";
 const WINDOW_MARKER: &str = "electron-window-import-v1.json";
-const DATABASE: &str = "manager.sqlite3";
-const WAL: &str = "manager.sqlite3-wal";
-const JOURNAL: &str = "manager.sqlite3-journal";
+/// Sessions, remote preferences and the Tailscale node, plus the import time.
+const MARKER_V2: &str = "electron-import-v2.json";
+const CLEANUP_MARKER: &str = "electron-cleanup-v1.json";
 const SSH: &str = "ssh-profiles.json";
-const REMOTE: &str = "remote.json";
-const DB_LIMIT: u64 = 256 * 1024 * 1024;
+const RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
-pub(super) async fn default_host(
+/// Runs for every host whose data dir is `<root>/rust-v1/host`, importing from
+/// `<root>`. Any other layout (tests, `--data-dir` fixtures) is left alone.
+pub(super) async fn import_electron_root(
     data: &Path,
     control: &Path,
-    #[cfg(windows)] verifier: shellfox_transport::PermissionVerifier,
+    verifier: PermissionVerifier,
     lost: shellfox_protocol::CancellationToken,
 ) -> Result<()> {
-    let Ok(default) = crate::app_paths::default_data_root() else {
+    let Some(source) = electron_root(data) else {
         return Ok(());
     };
-    // Original root spelling may have been normalized by the native owner.
-    if !matches!((data.canonicalize(), default.canonicalize()), (Ok(a), Ok(b)) if a == b) {
-        return Ok(());
-    }
-    let source = default
-        .ancestors()
-        .nth(2)
-        .context("Electron data path missing")?
-        .to_owned();
-    let (data, control) = (data.to_owned(), control.to_owned());
+    let (source, data, control) = (source.to_owned(), data.to_owned(), control.to_owned());
     let policy = StoragePolicy::default();
     #[cfg(windows)]
     let policy = {
         use shellfox_transport::PrivatePathKind;
         let runtime = tokio::runtime::Handle::current();
+        let verifier = verifier.clone();
         policy.with_permission_check(move |path, directory, protect| {
             let kind = if directory {
                 PrivatePathKind::Directory
@@ -68,92 +69,152 @@ pub(super) async fn default_host(
                 .map_err(|_| shellfox_ssh::Error::PermissionsHelper)
         })
     };
+    let runtime = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
         let check = || {
-            ensure!(!lost.is_cancelled(), "Host ownership ended");
+            anyhow::ensure!(!lost.is_cancelled(), "Host ownership ended");
             Ok(())
         };
-        if let Some(report) = run(&source, &data, &control, policy, check)? {
-            if report.window_bounds { eprintln!("Electron import: window bounds copied."); }
-            if report.settings || report.ssh_profiles != 0 || report.approved != 0 || !report.revoked.is_empty() {
-                eprintln!("Electron import: settings {}, {} SSH profiles, {} approved devices, {} revoked. Re-select the Rust host on your device after enrolling it.",
-                    if report.settings { "copied" } else { "unchanged" }, report.ssh_profiles, report.approved, report.revoked.len());
-            }
+        let node = Some((&verifier, &runtime));
+        if let Some(report) = run(&source, &data, &control, policy, node, check)? {
+            eprintln!("Electron import: {}", serde_json::to_string(&report)?);
         }
         Ok(())
-    }).await?
+    })
+    .await?
 }
 
-#[derive(Default, Serialize)]
+fn electron_root(data: &Path) -> Option<&Path> {
+    let mut tail = data.components().rev();
+    let layout = tail.next() == Some(Component::Normal("host".as_ref()))
+        && tail.next() == Some(Component::Normal("rust-v1".as_ref()));
+    layout.then(|| data.ancestors().nth(2)).flatten()
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Report {
     settings: bool,
     window_bounds: bool,
+    sessions: usize,
     ssh_profiles: usize,
     approved: usize,
     // The live approval store represents revocation by absence. Keep the
     // rejected records here for reporting, never as live authority.
     revoked: Vec<Revoked>,
+    remote_preferences: bool,
+    node: Option<remote::Node>,
 }
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct Revoked {
     peer_id: Option<String>,
     reason: &'static str,
 }
-#[derive(Deserialize)]
-struct RemoteFile {
-    version: u8,
-    approvals: Vec<serde_json::Value>,
+#[derive(Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportedAt {
+    imported_at_ms: u64,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Approval {
-    peer_id: String,
-    hostname: String,
-    approved_at: String,
-}
+
+type NodeAccess<'a> = Option<(&'a PermissionVerifier, &'a tokio::runtime::Handle)>;
 
 fn run(
     source: &Path,
     data: &Path,
     control: &Path,
     policy: StoragePolicy,
+    node: NodeAccess<'_>,
     check: impl Fn() -> Result<()>,
 ) -> Result<Option<Report>> {
-    let migrated = control.join(MARKER).symlink_metadata().is_ok();
-    let migrated_window = control.join(WINDOW_MARKER).symlink_metadata().is_ok();
-    if migrated && migrated_window { return Ok(None); }
+    let marked = |name: &str| control.join(name).symlink_metadata().is_ok();
+    let (migrated, migrated_window) = (marked(MARKER), marked(WINDOW_MARKER));
+    let imported_at = imported_at(control);
+    let cleaned = marked(CLEANUP_MARKER);
+    let pending = !migrated || !migrated_window || imported_at.is_none();
+    let expired =
+        imported_at.is_some_and(|at| now_ms() >= at.saturating_add(RETENTION.as_millis() as u64));
+    if !pending && (cleaned || !expired) {
+        return Ok(None);
+    }
     let parent = Dir::open_ambient_dir(
         source.parent().context("Electron parent missing")?,
         ambient_authority(),
     )?;
     let name = source.file_name().context("Electron data name missing")?;
-    let source = match parent.open_dir_nofollow(name) {
-        Ok(source) => Some(source),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => return Err(e.into()),
-    };
-    let mut report = Report::default();
-    if let Some(source) = source {
-        let database =
-            database_snapshot(&source, control).context("Could not snapshot Electron settings")?;
-        if !migrated_window {
-            check()?;
-            if let Some(snapshot) = &database {
-                report.window_bounds = Host::open(data)?.import_electron_window_state(&snapshot.path().join(DATABASE))?;
+    // The Rust data dir lives inside this root, so it always exists.
+    let source = files::open_dir(&parent, name.to_str().context("Electron root name")?)?
+        .context("Electron root missing")?;
+    let lock = files::electron_lock(&source)?;
+    if !pending {
+        if cleanup::remove_electron_data(&source) {
+            drop(lock);
+            if cleanup::remove_lock_directory(&source) {
+                write_marker(control, CLEANUP_MARKER, &true, &check)?;
             }
-            write_marker(control, WINDOW_MARKER, &report.window_bounds, &check)?;
         }
-        if migrated { return Ok(Some(report)); }
-        let ssh = Zeroizing::new(
-            read(&source, SSH, 16 * 1024 * 1024).context("Could not read Electron SSH profiles")?,
-        );
-        let remote =
-            read(&source, REMOTE, 4 * 1024 * 1024).context("Could not read Electron approvals")?;
+        return Ok(None);
+    }
+    let report = import(
+        &source,
+        data,
+        control,
+        policy,
+        node,
+        &check,
+        [migrated, migrated_window, imported_at.is_some()],
+    )?;
+    cleanup::remove_caches(&source);
+    Ok(Some(report))
+}
+
+fn import(
+    source: &Dir,
+    data: &Path,
+    control: &Path,
+    policy: StoragePolicy,
+    node: NodeAccess<'_>,
+    check: &impl Fn() -> Result<()>,
+    [migrated, migrated_window, migrated_v2]: [bool; 3],
+) -> Result<Report> {
+    let mut report = Report::default();
+    let database = files::database_snapshot(source, control)
+        .context("Could not snapshot Electron settings")?;
+    let database = database
+        .as_ref()
+        .map(|temp| temp.path().join(files::DATABASE));
+    if !migrated_window {
         check()?;
-        if let Some(database) = database {
-            report.settings =
-                Host::open(data)?.import_electron_settings(&database.path().join(DATABASE))?;
+        if let Some(snapshot) = &database {
+            report.window_bounds = Host::open(data)?.import_electron_window_state(snapshot)?;
         }
+        write_marker(control, WINDOW_MARKER, &report.window_bounds, check)?;
+    }
+    let remote = files::read(source, remote::REMOTE, 4 * 1024 * 1024)
+        .context("Could not read Electron remote.json")?
+        .map(|bytes| remote::RemoteFile::parse(&bytes))
+        .transpose()?;
+    if let Some(snapshot) = database.as_ref().filter(|_| !migrated || !migrated_v2) {
+        check()?;
+        let host = Host::open(data)?;
+        match host.import_electron(snapshot, !migrated, !migrated_v2) {
+            Ok(imported) => {
+                (report.settings, report.sessions) = (imported.settings, imported.sessions)
+            }
+            Err(error) => {
+                // A session the Rust model rejects must not cost the settings.
+                eprintln!("Electron sessions were not imported: {}", error.message);
+                if !migrated {
+                    report.settings = host.import_electron_settings(snapshot)?;
+                }
+            }
+        }
+    }
+    if !migrated {
+        let ssh = Zeroizing::new(
+            files::read(source, SSH, 16 * 1024 * 1024)
+                .context("Could not read Electron SSH profiles")?,
+        );
         check()?;
         if let Some(bytes) = ssh.as_deref() {
             let profiles = ProfileStore::new(Arc::new(PrivateDirectory::open(
@@ -165,18 +226,60 @@ fn run(
                 .context("Could not import Electron SSH profiles")?;
         }
         check()?;
-        if let Some(bytes) = remote {
-            import_approvals(&Host::open(data)?, &bytes, &mut report)?;
+        if let Some(file) = &remote {
+            remote::import_approvals(&Host::open(data)?, file, &mut report)?;
         }
+        write_marker(control, MARKER, &report, check)?;
     }
-    if !migrated_window && !control.join(WINDOW_MARKER).exists() {
-        write_marker(control, WINDOW_MARKER, &false, &check)?;
+    if !migrated_v2 {
+        let control_dir = Dir::open_ambient_dir(control, ambient_authority())?;
+        check()?;
+        if let Some(file) = &remote {
+            report.remote_preferences = remote::import_preferences(&control_dir, file)?;
+        }
+        if let Some((verifier, runtime)) = node {
+            report.node = Some(remote::adopt_node(
+                source,
+                data,
+                &control_dir,
+                verifier,
+                runtime,
+                check,
+            )?);
+        }
+        write_marker(
+            control,
+            MARKER_V2,
+            &ImportedAt {
+                imported_at_ms: now_ms(),
+            },
+            check,
+        )?;
     }
-    if !migrated { write_marker(control, MARKER, &report, &check)?; }
-    Ok(Some(report))
+    Ok(report)
 }
 
-fn write_marker(control: &Path, name: &str, value: &impl Serialize, check: &impl Fn() -> Result<()>) -> Result<()> {
+fn imported_at(control: &Path) -> Option<u64> {
+    let bytes = std::fs::read(control.join(MARKER_V2)).ok()?;
+    // An unreadable marker counts as imported but never expires.
+    Some(
+        serde_json::from_slice::<ImportedAt>(&bytes)
+            .map_or(u64::MAX, |marker| marker.imported_at_ms),
+    )
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |time| time.as_millis() as u64)
+}
+
+fn write_marker(
+    control: &Path,
+    name: &str,
+    value: &impl Serialize,
+    check: &impl Fn() -> Result<()>,
+) -> Result<()> {
     let mut marker = NamedTempFile::new_in(control)?;
     serde_json::to_writer(&mut marker, value)?;
     marker.write_all(b"\n")?;
@@ -184,150 +287,6 @@ fn write_marker(control: &Path, name: &str, value: &impl Serialize, check: &impl
     check()?;
     marker.persist_noclobber(control.join(name))?;
     Ok(())
-}
-
-fn import_approvals(host: &Host, bytes: &[u8], report: &mut Report) -> Result<()> {
-    let file: RemoteFile =
-        serde_json::from_slice(bytes).context("Invalid Electron approval document")?;
-    ensure!(
-        file.version == 1 && file.approvals.len() <= shellfox_core::APPROVAL_RECORD_LIMIT,
-        "Unsupported Electron approval document"
-    );
-    let current = host.approval_snapshot()?;
-    let mut approvals = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for value in file.approvals {
-        let identity = value
-            .get("peerId")
-            .and_then(serde_json::Value::as_str)
-            .filter(|id| valid_peer_id(id))
-            .map(str::to_owned);
-        let record = serde_json::from_value::<Approval>(value)
-            .ok()
-            .and_then(|approval| {
-                let time = chrono::DateTime::parse_from_rfc3339(&approval.approved_at).ok()?;
-                let record = ApprovalStoreRecord {
-                    peer_id: approval.peer_id,
-                    hostname: approval.hostname,
-                    approved_at_millis: time.timestamp_millis().try_into().ok()?,
-                    policy: shellfox_core::ApprovalStorePolicy::ControlFullAccountV1,
-                };
-                record.validate().ok()?;
-                Some(record)
-            });
-        match record {
-            Some(record) if seen.insert(record.peer_id.clone()) => approvals.push(record),
-            _ => report.revoked.push(Revoked {
-                peer_id: identity,
-                reason: "Incompatible Electron approval",
-            }),
-        }
-    }
-    // If any row for an ID was ambiguous or incompatible, don't authorize it.
-    approvals.retain(|record| {
-        !report
-            .revoked
-            .iter()
-            .any(|revoked| revoked.peer_id.as_deref() == Some(&record.peer_id))
-    });
-    if current.revision == 0 && !approvals.is_empty() {
-        report.approved = host
-            .commit_approvals(current.revision, approvals)?
-            .approvals
-            .len();
-    } else {
-        for record in approvals {
-            if current.approvals.contains(&record) {
-                report.approved += 1;
-            } else {
-                report.revoked.push(Revoked {
-                    peer_id: Some(record.peer_id),
-                    reason: "Rust approval store already in use",
-                });
-            }
-        }
-    }
-    Ok(())
-}
-fn valid_peer_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 200
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
-}
-
-fn open(dir: &Dir, name: &str) -> Result<Option<File>> {
-    match dir.symlink_metadata(name) {
-        Ok(info) => ensure!(
-            info.is_file() && !info.is_symlink(),
-            "Invalid Electron data file"
-        ),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
-    }
-    let mut options = OpenOptions::new();
-    options.read(true).follow(FollowSymlinks::No);
-    let file = dir.open_with(name, &options)?;
-    ensure!(file.metadata()?.is_file(), "Invalid Electron data file");
-    Ok(Some(file))
-}
-fn read(dir: &Dir, name: &str, limit: u64) -> Result<Option<Vec<u8>>> {
-    let Some(file) = open(dir, name)? else {
-        return Ok(None);
-    };
-    let mut bytes = Zeroizing::new(Vec::new());
-    file.take(limit + 1).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() as u64 <= limit,
-        "Electron data file is too large"
-    );
-    Ok(Some(std::mem::take(&mut *bytes)))
-}
-
-fn stamp(file: &File) -> io::Result<(u64, SystemTime)> {
-    let info = file.metadata()?;
-    Ok((info.len(), info.modified()?.into_std()))
-}
-fn database_snapshot(source: &Dir, control: &Path) -> Result<Option<TempDir>> {
-    let Some(mut database) = open(source, DATABASE)? else {
-        return Ok(None);
-    };
-    let mut wal = open(source, WAL)?;
-    let before = (stamp(&database)?, wal.as_ref().map(stamp).transpose()?);
-    // Electron uses WAL. Don't try to recover a rollback journal in the snapshot.
-    ensure!(
-        open(source, JOURNAL)?.is_none(),
-        "Electron database is being updated"
-    );
-    let temp = tempfile::Builder::new()
-        .prefix("electron-import-")
-        .tempdir_in(control)?;
-    let copy = |name, input: &mut File, size| -> Result<()> {
-        ensure!(
-            size <= DB_LIMIT,
-            "Electron database exceeds the import limit"
-        );
-        let mut out = std::fs::File::create_new(temp.path().join(name))?;
-        ensure!(
-            io::copy(&mut input.take(size + 1), &mut out)? == size,
-            "Electron database changed during import"
-        );
-        Ok(())
-    };
-    copy(DATABASE, &mut database, before.0 .0)?;
-    if let (Some(wal), Some((size, _))) = (&mut wal, before.1) {
-        copy(WAL, wal, size)?;
-    }
-    let after = (
-        open(source, DATABASE)?.as_ref().map(stamp).transpose()?,
-        open(source, WAL)?.as_ref().map(stamp).transpose()?,
-    );
-    ensure!(
-        (Some(before.0), before.1) == after && open(source, JOURNAL)?.is_none(),
-        "Electron database changed during import; quit Electron and reopen Shellfox"
-    );
-    Ok(Some(temp))
 }
 
 #[cfg(test)]

@@ -119,10 +119,9 @@ impl BootGuard {
             .path
             .parent()
             .context("Private data root missing.")?;
-        if let Err(error) = crate::electron_import::default_host(
+        if let Err(error) = crate::electron_import::import_electron_root(
             data,
             &self.private.path,
-            #[cfg(windows)]
             ownership.permission_verifier().clone(),
             ownership.lost(),
         ).await {
