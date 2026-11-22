@@ -122,6 +122,9 @@ impl Root {
                         if binding.connect().await.is_ok() {
                             let connection = binding.state().connection_id;
                             if let Ok(poll) = binding.poll().await {
+                                // The host long poll already waits for events,
+                                // so a successful batch re-polls immediately.
+                                retry = Duration::ZERO;
                                 if binding.state().connection_id != connection {
                                     continue;
                                 }
@@ -133,7 +136,6 @@ impl Root {
                                 {
                                     break;
                                 }
-                                retry = Duration::from_millis(30);
                                 continue;
                             }
                         }
