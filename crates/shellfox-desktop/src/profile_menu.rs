@@ -37,10 +37,6 @@ impl Choice {
     }
 }
 
-pub(crate) fn is_tab_menu_profile(id: &str) -> bool {
-    !cfg!(windows) || id != "cmd"
-}
-
 impl Root {
     pub(crate) fn open_profile_menu(
         &mut self,
@@ -55,7 +51,6 @@ impl Root {
         let choices: Vec<_> = self
             .profiles
             .iter()
-            .filter(|profile| is_tab_menu_profile(&profile.id))
             .map(|profile| Choice {
                 label: profile.label.clone(),
                 id: profile.id.clone(),

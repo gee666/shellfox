@@ -47,9 +47,8 @@ impl Root {
             let accepts_tabs = self.host.is_some()
                 && !self.user_action_pending
                 && !session.tabs.iter().any(|tab| tab.profile_id.as_str() == shellfox_service::AUTOMATION_PROFILE_ID);
-            let mut profiles = self.profiles.iter().filter(|profile| crate::profile_menu::is_tab_menu_profile(&profile.id));
-            let can_open_menu = accepts_tabs && profiles.clone().next().is_some();
-            let can_add = accepts_tabs && profiles.any(|profile| profile.available);
+            let can_open_menu = accepts_tabs && !self.profiles.is_empty();
+            let can_add = accepts_tabs && self.profiles.iter().any(|profile| profile.available);
             let key = TabFocus::NewTerminal;
             let new_tab = icon_button("new-tab", "plus", palette)
                 .mx(px(4.))
