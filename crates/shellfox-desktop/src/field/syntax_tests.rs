@@ -33,8 +33,8 @@ fn selects_prism_colors_with_source_byte_boundaries_and_size_limit() {
             "{text}: {spans:?}"
         );
     }
-    assert!(highlight(Language::Js, &"雪".repeat(10_001)).is_empty());
-    assert!(highlight(Language::Js, &"x\n".repeat(100_001)).is_empty());
+    assert!(highlight(Language::Js, &"雪".repeat(5_462)).is_empty());
+    assert!(highlight(Language::Js, &"x\n".repeat(131_073)).is_empty());
 }
 
 #[test]
@@ -50,10 +50,16 @@ fn powershell_booleans_get_the_keyword_color_but_similar_variables_do_not() {
 }
 
 #[test]
-fn cutoff_counts_utf16_units_not_unicode_scalars_or_utf8_bytes() {
-    let exact = format!("//{}", "🦊".repeat(4999));
+fn cutoffs_count_utf8_bytes() {
+    let exact = format!("//{}xx", "🦊".repeat(4095));
+    assert_eq!(exact.len(), MAX_HIGHLIGHT_LINE_BYTES);
     assert!(!highlight(Language::Js, &exact).is_empty());
-    assert!(highlight(Language::Js, &(exact + "x")).is_empty());
+    assert!(highlight(Language::Js, &(exact.clone() + "x")).is_empty());
+    let lines = format!("{exact}\n").repeat(MAX_HIGHLIGHT_BYTES / (exact.len() + 1));
+    let document = format!("{lines}//{}", "x".repeat(MAX_HIGHLIGHT_BYTES - lines.len() - 2));
+    assert_eq!(document.len(), MAX_HIGHLIGHT_BYTES);
+    assert!(!highlight(Language::Js, &document).is_empty());
+    assert!(highlight(Language::Js, &(document + "x")).is_empty());
 }
 
 #[test]

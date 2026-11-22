@@ -256,11 +256,15 @@ pub(super) struct Span {
     token: Token,
 }
 
+// Highlighting re-parses the whole document on the UI thread after each edit.
+const MAX_HIGHLIGHT_BYTES: usize = 256 * 1024;
+const MAX_HIGHLIGHT_LINE_BYTES: usize = 16 * 1024;
+
 pub(super) fn highlight(language: Language, source: &str) -> Arc<[Span]> {
-    if source.encode_utf16().take(200_001).count() > 200_000
+    if source.len() > MAX_HIGHLIGHT_BYTES
         || source
             .split('\n')
-            .any(|line| line.encode_utf16().take(10_001).count() > 10_000)
+            .any(|line| line.len() > MAX_HIGHLIGHT_LINE_BYTES)
     {
         return Arc::new([]);
     }
@@ -282,13 +286,14 @@ pub(super) fn highlight(language: Language, source: &str) -> Arc<[Span]> {
                 stack.pop();
             }
             Ok(HighlightEvent::Source { start, end }) => {
-                if source.is_char_boundary(start) && source.is_char_boundary(end) {
-                    if let Some(&token) = stack.last() {
-                        spans.push(Span {
-                            range: start..end,
-                            token,
-                        });
-                    }
+                if source.is_char_boundary(start)
+                    && source.is_char_boundary(end)
+                    && let Some(&token) = stack.last()
+                {
+                    spans.push(Span {
+                        range: start..end,
+                        token,
+                    });
                 }
             }
             Err(_) => return Arc::new([]),
