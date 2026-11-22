@@ -22,8 +22,6 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  headless:
-    uses: ./.github/workflows/headless-packages.yml
   mobile:
     name: signed Android APK
     runs-on: ubuntu-24.04
@@ -191,11 +189,14 @@ jobs:
       - name: Prepare pinned Ghostty
         run: node scripts/rust-package-prereqs.mjs
         timeout-minutes: 35
-      - name: Package Rust desktop
+      - name: Package Rust desktop and headless
         run: node scripts/package-rust.mjs
         timeout-minutes: 50
       - name: Smoke extracted package
         run: node scripts/package-rust-smoke.mjs
+        timeout-minutes: 5
+      - name: Smoke headless archive without a display
+        run: env -u DISPLAY -u WAYLAND_DISPLAY node scripts/package-rust-headless.mjs
         timeout-minutes: 5
       - uses: actions/upload-artifact@v4
         with:
@@ -204,7 +205,7 @@ jobs:
           if-no-files-found: error
   release:
     name: publish GitHub release
-    needs: [package, headless, mobile]
+    needs: [package, mobile]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:

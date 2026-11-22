@@ -66,7 +66,8 @@ describe('mobile release contract', () => {
   });
   it('keeps desktop and headless coverage and gates publication on the mobile job', () => {
     const workflow = readFileSync('.github/workflows/release.yml', 'utf8');
-    assert.match(workflow, /needs: \[package, headless, mobile\]/);
+    assert.match(workflow, /needs: \[package, mobile\]/);
+    assert.match(workflow, /node scripts\/package-rust-headless\.mjs/);
     assert.match(workflow, /dist\/\*\*\/\*\.apk/);
     assert.match(workflow, /shellfox-mobile-\*-android\.apk/);
     // The action defaults include obsolete SDK "tools", removed upstream.
@@ -75,7 +76,6 @@ describe('mobile release contract', () => {
     for (const key of Object.keys(signing)) assert.ok(workflow.includes(`secrets.${key}`));
     for (const target of ['linux', 'win32', 'darwin']) {
       assert.ok(workflow.includes(`platform: ${target}`));
-      assert.ok(readFileSync('.github/workflows/headless-packages.yml', 'utf8').includes(`platform: ${target}`));
     }
   });
   it('keeps the native terminal fixture isolated from distributable apps', () => {

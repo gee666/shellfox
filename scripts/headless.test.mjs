@@ -191,13 +191,13 @@ test('headless workflows retain six native targets without requiring display or 
   assert.ok(workflow.includes('env -u DISPLAY -u WAYLAND_DISPLAY pnpm test:headless'));
   assert.ok(!workflow.includes('xvfb') && !workflow.includes('libgtk') && !workflow.includes('pnpm rebuild'));
   assert.ok(!workflow.includes('setup-dotnet') && !workflow.includes('dotnet-version'));
-  for (const file of ['release.yml', 'embedded-packages.yml']) {
-    const parent = await readFile('.github/workflows/' + file, 'utf8');
-    assert.ok(parent.includes('uses: ./.github/workflows/headless-packages.yml'));
-    assert.ok(parent.includes('name: shellfox-desktop-${{ matrix.platform }}-${{ matrix.arch }}'));
-  }
+  const preview = await readFile('.github/workflows/embedded-packages.yml', 'utf8');
+  assert.ok(preview.includes('uses: ./.github/workflows/headless-packages.yml'));
+  // Releases ship the Rust headless archive (scripts/package-rust-headless.mjs), not this Node package.
   const release = await readFile('.github/workflows/release.yml', 'utf8');
-  assert.ok(release.includes('needs: [package, headless, mobile]'));
+  assert.ok(!release.includes('headless-packages.yml'));
+  assert.ok(release.includes('node scripts/package-rust-headless.mjs'));
+  assert.ok(release.includes('needs: [package, mobile]'));
   assert.ok(release.includes('dist/**/*.tar.gz'));
   assert.ok(release.includes("if: startsWith(github.ref, 'refs/tags/v')"));
 });
