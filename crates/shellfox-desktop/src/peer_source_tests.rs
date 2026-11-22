@@ -285,6 +285,39 @@ fn explicit_disconnect_restores_only_the_same_viewable_session_and_tab() {
 }
 
 #[test]
+fn a_vanished_selected_tab_hands_the_view_to_the_next_live_tab() {
+    let peer_id = AuthenticatedPeerId::new("n-vanished").unwrap();
+    let mut sources = PeerSources::default();
+    sources.inventory(&[peer(peer_id.as_str())]);
+    let cycle = sources.begin(&peer_id).unwrap();
+    sources.phase(&cycle, Phase::Connected, None);
+    let mut before = snapshot();
+    before.revision = 10;
+    let (session, tab) = sessions(&before)
+        .find_map(|session| session.tabs.iter().find(|tab| viewable_tab(tab)).map(|tab| (session.id, tab.clone())))
+        .unwrap();
+    let mut next = tab.clone();
+    next.id = m::Id::new();
+    for entry in &mut before.entries {
+        if let m::CatalogEntry::Session { value } = entry && value.id == session {
+            value.tabs.push(next.clone());
+        }
+    }
+    sources.catalog(&cycle, before.clone()).unwrap();
+    sources.select(&cycle, session, Some(tab.id)).unwrap();
+    let mut after = before;
+    after.revision = 11;
+    for entry in &mut after.entries {
+        if let m::CatalogEntry::Session { value } = entry {
+            value.tabs.retain(|item| item.id != tab.id);
+        }
+    }
+    assert!(sources.catalog(&cycle, after).unwrap());
+    let state = &sources.peers[&peer_id];
+    assert_eq!((state.selected_session, state.selected_tab), (Some(session), Some(next.id)));
+}
+
+#[test]
 fn complete_catalog_retains_unavailable_rows_and_does_not_make_fake_sessions() {
     let id = AuthenticatedPeerId::new("n-home").unwrap();
     let mut state = PeerSources::default();
