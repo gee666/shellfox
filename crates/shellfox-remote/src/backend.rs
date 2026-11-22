@@ -320,8 +320,6 @@ impl Backend {
                 _ = actor.wake.notified() => {}
                 _ = approvals.changed() => {}
                 _ = tokio::time::sleep_until(deadline) => {}
-                // Until the service owner wires PollWake for every event source.
-                _ = tokio::time::sleep(Duration::from_millis(100)) => {}
             }
         }
     }
