@@ -188,7 +188,7 @@ fn electron_import_fills_only_unused_stores_and_upgrades_a_settings_only_import(
     let dir = Scratch::new(5);
     let config = dir.config();
     let fresh = Host::open(dir.0.join("fresh")).unwrap();
-    let report = fresh.import_electron(&dir.source(), true, true).unwrap();
+    let report = fresh.import_electron(&dir.source(), true, Some(0)).unwrap();
     assert!(report.settings && report.sessions > 0);
     assert_eq!(fresh.global_settings().unwrap(), config);
     assert_eq!(
@@ -196,14 +196,14 @@ fn electron_import_fills_only_unused_stores_and_upgrades_a_settings_only_import(
         "consent-only"
     );
     assert!(nothing(
-        fresh.import_electron(&dir.source(), true, true).unwrap()
+        fresh.import_electron(&dir.source(), true, Some(0)).unwrap()
     ));
 
     // The v1 import copied settings only. A later pass adds the sessions once.
     let upgraded = Host::open(dir.0.join("upgraded")).unwrap();
     assert!(upgraded.import_electron_settings(&dir.source()).unwrap());
     let report = upgraded
-        .import_electron(&dir.source(), false, true)
+        .import_electron(&dir.source(), false, Some(1))
         .unwrap();
     assert_eq!(
         (report.settings, report.sessions),
@@ -223,7 +223,7 @@ fn electron_import_fills_only_unused_stores_and_upgrades_a_settings_only_import(
     })
     .unwrap();
     assert!(nothing(
-        used.import_electron(&dir.source(), true, true).unwrap()
+        used.import_electron(&dir.source(), true, Some(0)).unwrap()
     ));
     assert!(used.snapshot().unwrap().sessions.is_empty());
     let after_v1 = Host::open(dir.0.join("after-v1")).unwrap();
@@ -236,7 +236,7 @@ fn electron_import_fills_only_unused_stores_and_upgrades_a_settings_only_import(
         .unwrap();
     assert!(nothing(
         after_v1
-            .import_electron(&dir.source(), false, true)
+            .import_electron(&dir.source(), false, Some(1))
             .unwrap()
     ));
 }

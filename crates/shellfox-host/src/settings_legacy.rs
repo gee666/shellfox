@@ -70,13 +70,13 @@ impl Host {
 
     /// Electron first-launch import from a private snapshot, including saved
     /// environment. Settings land only in a never-used store. Sessions land only
-    /// while the store has none and has seen at most the earlier settings-only
-    /// import (`settings == false` means that import already ran).
+    /// while the store has none and its revision is at most `sessions_up_to`:
+    /// 0, or 1 when the earlier settings-only import made that one change.
     pub fn import_electron(
         &self,
         snapshot: &std::path::Path,
         settings: bool,
-        sessions: bool,
+        sessions_up_to: Option<u64>,
     ) -> Result<ElectronImport> {
         let (path, _checked_artifacts) = crate::storage_guard::legacy(snapshot)?;
         let imported = crate::legacy::read_legacy(&path, SettingsImportPolicy::IncludeEnvironment)?;
@@ -94,8 +94,8 @@ impl Host {
             crate::settings_store::write(&tx, &imported.settings)?;
             result.settings = true;
         }
-        let unused = revision == 0 || (!settings && revision == 1);
-        if sessions && unused && data.sessions.is_empty() && data.creation_facts.is_empty() {
+        let unused = sessions_up_to.is_some_and(|limit| revision <= limit);
+        if unused && data.sessions.is_empty() && data.creation_facts.is_empty() {
             result.sessions = imported.sessions.len();
             data.sessions = imported.sessions;
             data.creation_facts = imported.creation_facts;

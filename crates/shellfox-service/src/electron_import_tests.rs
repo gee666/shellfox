@@ -29,6 +29,7 @@ impl Fixture {
             // The host protects its control dir before the import runs.
             fs::create_dir(&control).unwrap();
             let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
                 .build()
                 .unwrap();
             runtime
@@ -78,7 +79,9 @@ impl Fixture {
     }
     pub fn run(&self, node: bool) -> Result<Option<Report>> {
         let verifier = verifier();
-        let runtime = tokio::runtime::Builder::new_current_thread()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
             .build()
             .unwrap();
         let access = node.then_some((&verifier, runtime.handle()));
@@ -223,7 +226,13 @@ fn a_v1_import_gets_the_new_items_without_repeating_the_old_ones() {
     let snapshot = fixture.electron.join(files::DATABASE);
     assert!(host.import_electron_settings(&snapshot).unwrap());
     drop(host);
-    write_marker(&fixture.control, MARKER, &false, &|| Ok(())).unwrap();
+    write_marker(
+        &fixture.control,
+        MARKER,
+        &serde_json::json!({"settings": true, "ssh_profiles": 0, "approved": 0, "revoked": []}),
+        &|| Ok(()),
+    )
+    .unwrap();
     write_marker(&fixture.control, WINDOW_MARKER, &false, &|| Ok(())).unwrap();
     let report = fixture.run(true).unwrap().unwrap();
     assert!(!report.settings);

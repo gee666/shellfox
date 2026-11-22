@@ -197,7 +197,10 @@ fn import(
     if let Some(snapshot) = database.as_ref().filter(|_| !migrated || !migrated_v2) {
         check()?;
         let host = Host::open(data)?;
-        match host.import_electron(snapshot, !migrated, !migrated_v2) {
+        // Revision 1 is still unused only if the v1 settings import made it.
+        let sessions_up_to =
+            (!migrated_v2).then(|| u64::from(migrated && v1_copied_settings(control)));
+        match host.import_electron(snapshot, !migrated, sessions_up_to) {
             Ok(imported) => {
                 (report.settings, report.sessions) = (imported.settings, imported.sessions)
             }
@@ -257,6 +260,13 @@ fn import(
         )?;
     }
     Ok(report)
+}
+
+fn v1_copied_settings(control: &Path) -> bool {
+    std::fs::read(control.join(MARKER))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .is_some_and(|report| report["settings"] == true)
 }
 
 fn imported_at(control: &Path) -> Option<u64> {
