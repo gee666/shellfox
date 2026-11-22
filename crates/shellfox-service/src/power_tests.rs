@@ -1,13 +1,8 @@
-#[path = "../src/power.rs"]
-mod power;
-#[path = "support/power_worker_cases.rs"]
-mod worker_cases;
-
-#[cfg(windows)]
-use shellfox_service::{app_paths, system};
-
-use power::{PowerBackend, PowerError, PowerLease, PowerManager, PowerStatus};
+use super::{PowerBackend, PowerError, PowerLease, PowerManager, PowerStatus};
 use std::sync::{Arc, Mutex};
+
+#[path = "power_worker_tests.rs"]
+mod worker_cases;
 
 #[derive(Default)]
 struct State {

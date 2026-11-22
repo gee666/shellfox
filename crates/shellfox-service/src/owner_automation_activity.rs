@@ -162,3 +162,6 @@ pub(super) fn watch_program(
     };
     watched.map_err(|_| anyhow::anyhow!("Program activity watch unavailable."))
 }
+#[cfg(test)]
+#[path = "owner_automation_activity_tests.rs"]
+mod tests;

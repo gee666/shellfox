@@ -1,10 +1,7 @@
-//! Injected-state mechanics only. No Runtime/native controller acceptance claim.
-//! No Service-lib test executable, processes, endpoints, network, or UI.
-#[path = "../src/grant_custody.rs"]
-mod grant_custody;
-#[path = "support/grant_pending_claim.rs"]
+//! Injected-state ledger mechanics; no runtime or controller.
+use super::*;
+#[path = "grant_pending_claim_tests.rs"]
 mod pending_claim;
-use grant_custody::*;
 use shellfox_core::{Generation, SessionId, TabId};
 use shellfox_protocol::CancellationToken;
 use shellfox_runtime::*;

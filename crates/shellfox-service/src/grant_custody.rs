@@ -245,16 +245,9 @@ impl GrantCustody {
             .filter(|entry| {
                 !entry.retired
                     && entry.rejected.is_none()
-                    && entry.actual.is_some()
                     && (entry.abandoned.load(Ordering::Acquire) || entry.cancel.is_cancelled())
             })
-            .map(|entry| {
-                (
-                    entry.ticket,
-                    entry.actual.expect("filtered actual grant"),
-                    entry.cleanup,
-                )
-            })
+            .filter_map(|entry| Some((entry.ticket, entry.actual?, entry.cleanup)))
             .collect()
     }
     pub fn prepare_retirement(
@@ -294,3 +287,6 @@ impl GrantCustody {
         });
     }
 }
+#[cfg(test)]
+#[path = "grant_custody_tests.rs"]
+mod tests;

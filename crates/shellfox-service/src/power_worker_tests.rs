@@ -1,6 +1,6 @@
-//! Mock-only worker regressions, included by the private power integration target.
+//! Mock-backend worker regressions.
 use super::*;
-use power::{worker::PowerWorker, PowerReport, PowerRequest, MAX_POWER_MESSAGE_BYTES};
+use super::super::{worker::PowerWorker, PowerReport, PowerRequest, MAX_POWER_MESSAGE_BYTES};
 use shellfox_protocol::{CancellationToken, Validate};
 use std::time::{Duration, Instant};
 

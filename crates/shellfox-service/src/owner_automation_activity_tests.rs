@@ -1,10 +1,7 @@
-pub use shellfox_service::{activity, activity_integration};
-#[path = "../src/owner_automation_activity.rs"]
-mod gate;
-#[path = "support/automation_activity_runtime.rs"]
+use super::{watch_program, AutomationActivity};
+use crate::activity_integration::{ActivityClock, InspectionScope, OwnerActivity};
+#[path = "owner_automation_activity_runtime_tests.rs"]
 mod runtime_tests;
-use activity_integration::{ActivityClock, InspectionScope, OwnerActivity};
-use gate::{watch_program, AutomationActivity};
 use shellfox_core::{Generation, ProfileId, SessionId, TabId};
 use shellfox_host::{Host, ReservedSessionPublication};
 use shellfox_runtime::{Identity, LiveOutputSink};

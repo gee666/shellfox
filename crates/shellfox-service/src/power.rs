@@ -2,6 +2,9 @@
 //! Platform calls can block, so run them on the service's blocking worker.
 use std::{error::Error, fmt};
 #[cfg(test)]
+#[path = "power_tests.rs"]
+mod tests;
+#[cfg(test)]
 #[path = "power_linux_tests.rs"]
 mod linux_tests;
 #[path = "power_contract.rs"]
