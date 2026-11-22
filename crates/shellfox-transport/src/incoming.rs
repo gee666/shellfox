@@ -56,7 +56,7 @@ pub fn verify_peer(
     mac.verify_slice(&signature).ok()?;
     let identity: PeerIdentity =
         serde_json::from_slice(&URL_SAFE_NO_PAD.decode(headers.peer).ok()?).ok()?;
-    crate::PeerId::new(&identity.id).ok()?;
+    crate::AuthenticatedPeerId::new(&identity.id).ok()?;
     if identity.hostname.is_empty()
         || identity.hostname.len() > 253
         || identity.hostname.chars().any(char::is_control)

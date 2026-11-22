@@ -1,15 +1,4 @@
 //! Retained Go Tailscale boundaries. Transport success is not host approval.
-#[cfg(all(
-    any(target_os = "android", target_os = "ios"),
-    any(feature = "helper", feature = "host-auth")
-))]
-compile_error!(
-    "Mobile transport must remain outbound-only; disable helper and host-auth features."
-);
-mod outbound;
-pub use outbound::{NativeAdapter, NativeOutbound};
-/// Validated destination ID only, not proof of authentication or approval.
-pub use shellfox_protocol::AuthenticatedPeerId as PeerId;
 pub use shellfox_protocol::{
     AuthenticatedPeerId, CancellationToken, Endpoint, OutboundTransport, RequestLimits,
     TransportError, TransportFuture,
@@ -22,6 +11,8 @@ mod config;
 mod helper;
 #[cfg(feature = "helper")]
 mod http;
+#[cfg(feature = "helper")]
+mod limits;
 #[cfg(feature = "helper")]
 mod http_status;
 #[cfg(feature = "helper")]

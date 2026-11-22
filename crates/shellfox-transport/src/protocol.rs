@@ -117,7 +117,7 @@ pub struct NetworkPeer {
 }
 impl NetworkPeer {
     pub(crate) fn validate(&self) -> Result<(), HelperError> {
-        crate::PeerId::new(&self.id).map_err(|_| HelperError::Protocol)?;
+        crate::AuthenticatedPeerId::new(&self.id).map_err(|_| HelperError::Protocol)?;
         if !valid_label(&self.hostname)
             || self.addresses.is_empty()
             || self.addresses.len() > 16

@@ -1,5 +1,5 @@
 use crate::{
-    outbound::{bounded, validate_request},
+    limits::{bounded, validate_request},
     AuthenticatedPeerId, Endpoint, HelperTransport, RequestLimits, TransportError,
     MAX_REQUEST_BYTES,
 };
@@ -19,8 +19,8 @@ impl std::fmt::Debug for HttpResponse {
     }
 }
 impl HelperTransport {
-    /// Same retained helper/proxy and one POST as the legacy adapter. No retry,
-    /// redirect, caller URL/header, or replacement helper is admitted.
+    /// One POST through the retained helper proxy. No retry, redirect,
+    /// caller URL/header or replacement helper is admitted.
     pub async fn request_with_status(
         &self,
         peer: &AuthenticatedPeerId,

@@ -1,5 +1,5 @@
 use crate::{
-    outbound::validate_response, AuthenticatedPeerId, Endpoint, HelperTransport, HttpResponse,
+    limits::validate_response, AuthenticatedPeerId, Endpoint, HelperTransport, HttpResponse,
     OutboundTransport, RequestLimits, TransportError, TransportFuture,
 };
 use tokio::{
