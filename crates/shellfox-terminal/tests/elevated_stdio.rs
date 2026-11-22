@@ -1,7 +1,7 @@
 #![cfg(feature = "test-support")]
 #[cfg(windows)]
-#[path = "support/elevated_bundle.rs"]
-mod bundle;
+#[path = "support/elevated_hold.rs"]
+mod hold;
 #[path = "support/elevated_fixture.rs"]
 mod support;
 use shellfox_terminal::elevated::{
@@ -170,20 +170,20 @@ fn denial_confirms_no_peer_started_without_claiming_ready() {
 
 #[cfg(windows)]
 #[test]
-fn full_managed_bundle_arc_remains_locked_beyond_launcher_exit() {
+fn resource_hold_remains_locked_beyond_launcher_exit() {
     let fixture = Fixture::new();
-    let bundle = bundle::prepare(&fixture);
-    let weak = Arc::downgrade(&bundle);
+    let lock = hold::lock(&fixture);
+    let weak = Arc::downgrade(&lock);
     let lazy = fixture.root.join("lazy.dll");
     let mut session = fixture_session(
         fixture.verified(),
-        Arc::clone(&bundle),
+        Arc::clone(&lock),
         FixtureScenario::LauncherFirst,
         generation(),
         fixture.launch(),
     )
     .unwrap();
-    drop(bundle);
+    drop(lock);
     assert!(matches!(next(&mut session), Event::Ready(_)));
     let deadline = Instant::now() + Duration::from_secs(5);
     while !session.observation().launcher_exited() {
@@ -255,38 +255,4 @@ fn isolated_launch_matches_closed_windows_powershell_environment_contract() {
     assert!(!modules.contains(';'));
     assert!(normalize(modules).ends_with("\\WINDOWSPOWERSHELL\\V1.0\\MODULES"));
     assert_eq!(env["PATHEXT"], ".COM;.EXE;.BAT;.CMD");
-}
-
-#[cfg(windows)]
-#[test]
-fn managed_factory_with_no_loader_review_cannot_probe_or_launch() {
-    use shellfox_resources::ProtocolId;
-    use shellfox_terminal::elevated::{NativeFactory, UserApproval};
-    let fixture = Fixture::new();
-    let bundle = bundle::prepare(&fixture);
-    let executable = bundle
-        .executable(
-            "Shellfox.ElevatedTerminal.exe",
-            ProtocolId::ElevatedIsolated,
-        )
-        .unwrap();
-    let factory = NativeFactory::new(executable, None).unwrap();
-    assert_eq!(
-        factory.loader_gate(),
-        Err(AdapterError::LoaderPolicyRequired)
-    );
-    assert_eq!(
-        factory.probe(&fixture.launch()),
-        Err(AdapterError::LoaderPolicyRequired)
-    );
-    let failure = match factory.launch(
-        UserApproval::from_user_action(generation()),
-        generation(),
-        fixture.launch(),
-    ) {
-        Err(failure) => failure,
-        Ok(_) => panic!("unreviewed managed factory launched"),
-    };
-    assert_eq!(failure.error, AdapterError::LoaderPolicyRequired);
-    assert!(failure.retained.is_none());
 }

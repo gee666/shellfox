@@ -1,7 +1,6 @@
 //! Retained administrator ConPTY helper boundary, separate from local PTYs.
 //! The helper owns UAC authentication and the elevated Job. A launcher exit or
-//! a PID is never elevated cleanup evidence. Isolated mode requires a verified
-//! full bundle, explicit loader review and a fresh user approval action.
+//! a PID is never elevated cleanup evidence.
 mod channel;
 #[cfg(any(test, feature = "test-support"))]
 mod fixture;
@@ -11,8 +10,6 @@ mod interactive;
 #[cfg(windows)]
 mod isolated_env;
 mod launch;
-#[cfg(windows)]
-mod native;
 #[cfg(any(test, feature = "test-support"))]
 mod resource;
 #[cfg(any(windows, test, feature = "test-support"))]
@@ -34,10 +31,8 @@ pub use channel::{Channel, Event, Generation, Phase, StartupError};
 pub use fixture::{fixture_session, FixtureScenario};
 pub use framing::LineDecoder;
 #[cfg(windows)]
-pub use interactive::InteractiveHelper;
+pub use interactive::{InteractiveHelper, UserApproval};
 pub use launch::{Capability, Launch, PreparedLaunch};
-#[cfg(windows)]
-pub use native::{NativeFactory, UserApproval};
 #[cfg(any(test, feature = "test-support"))]
 pub use resource::{TrustedHash, VerifiedHelper};
 #[cfg(any(windows, test, feature = "test-support"))]

@@ -15,9 +15,8 @@ A Windows consent cancellation is reported separately from a post-approval
 startup failure. The local desktop and host stderr report the failed stage
 without including paths, environment values or terminal input.
 
-The separate isolated factory uses `probe-isolated` and `launch-isolated`.
-It still requires an explicit, manifest-bound `NoDynamicCodeLoad` review from
-the trusted caller and never creates that policy from a hash, probe or setting.
+The helper's isolated `probe-isolated`/`launch-isolated` modes have no Rust
+production caller.
 
 ## Authority and ownership
 
@@ -34,9 +33,8 @@ helper's ordered `exit` frame. Launcher termination, EOF, watchdog death and
 timeout are not substitutes.
 
 `Session` retains its original `std::process::Child`, private streams and a
-resource hold. For the isolated factory, the hold owns the verified bundle,
-including managed/runtime DLLs and lazy-load assets. It is released only after
-exit proof and original launcher/stream cleanup. A retained startup error includes its session; dropping a view transfers
+resource hold (the opened helper image). It is released only after exit proof
+and original launcher/stream cleanup. A retained startup error includes its session; dropping a view transfers
 that controller to a cleanup owner started before launch. Last-resort quarantine
 never releases unresolved ownership from a timeout or launcher death.
 
@@ -47,12 +45,10 @@ later frames. Untrusted helper error text never enters status or logs.
 
 ## Factory and runtime contracts
 
-- `NativeFactory::new` accepts the resource crate's `VerifiedExecutable` for
-  `ElevatedIsolated`, the correct Windows RID and an optional explicit loader
-  policy. Production never accepts the old single-EXE hash validator.
-- `loader_gate` reports the missing review without spawning. Once review exists,
-  the factory performs bounded `probe-isolated` validation on the same full
-  bundle before launch. A probe response is not a permission grant.
+- `InteractiveHelper::bundled` resolves only
+  `resources/elevated-terminal/Shellfox.ElevatedTerminal.exe` beside the
+  executable (`../resources` from `bin/`). Debug builds fall back to
+  `tmp/terminal-native/<rid>/`.
 - `UserApproval::from_user_action(generation)` represents one fresh trusted-host
   approval action. It is consumed by one launch and is not deserializable state.
   Do not manufacture it from a saved setting or an unvalidated renderer request.
@@ -81,8 +77,7 @@ later frames. Untrusted helper error text never enters status or logs.
 The generic `HelperIo` trait is trusted host injection for tests and adapters,
 never a renderer or remote IPC capability. Production Windows uses the concrete
 stdio owner. `TrustedHash` and the single-image `VerifiedHelper` exist only under
-unit-test/test-support configuration for owned Rust fixtures. They cannot satisfy
-`NativeFactory`'s production full-bundle type requirement.
+unit-test/test-support configuration for owned Rust fixtures.
 
 ## Scoped evidence
 
@@ -94,18 +89,6 @@ cargo test -p shellfox-terminal --features test-support --locked --test elevated
 cargo test -p shellfox-terminal --features test-support --locked --test elevated_retention
 cargo clippy -p shellfox-terminal --all-targets --features test-support --locked -- -D warnings
 ```
-
-All 17 controller/framing/resource tests, seven concrete fake-process tests and
-one unconfirmed-retention test passed. The latter invokes its otherwise ignored
-owned subprocess entrypoint. Tests include ordered data/acks, cancellation,
-InputClosed retention, dropped-view cleanup transfer and an early-exiting
-launcher with a delayed peer proof. A complete synthetic .NET 10.0.15 bundle kept `lazy.dll` locked beyond
-launcher exit and released it only after both proofs and pipe joins. No loader
-policy was constructed, even for that synthetic bundle. A separate test confirmed
-that policy `None` prevents probe and launch before process acquisition. Missing
-peer proof kept the whole bundle locked even after confirmed launcher death and
-view drop; the retention fixture ended through explicit test-host process death,
-not a claimed successful application close.
 
 Library cross-checks passed for macOS x64 with and without test-support, and for
 Windows arm64. These are not native UAC, over-the-shoulder approval, elevated Job,

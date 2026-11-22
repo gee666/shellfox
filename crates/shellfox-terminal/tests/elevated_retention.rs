@@ -1,6 +1,6 @@
 #![cfg(all(windows, feature = "test-support"))]
-#[path = "support/elevated_bundle.rs"]
-mod bundle;
+#[path = "support/elevated_hold.rs"]
+mod hold;
 #[path = "support/elevated_fixture.rs"]
 mod support;
 use sha2::{Digest, Sha256};
@@ -17,7 +17,7 @@ use support::Fixture;
 const CHILD_ROOT: &str = "SHELLFOX_OWNED_ELEVATED_RETENTION_TEST";
 
 #[test]
-fn unconfirmed_peer_keeps_full_bundle_until_test_host_process_death() {
+fn unconfirmed_peer_keeps_resource_hold_until_test_host_process_death() {
     let fixture = Fixture::new();
     let mut command = Command::new(std::env::current_exe().unwrap());
     command
@@ -80,18 +80,18 @@ fn unconfirmed_retention_child() {
         root,
         hash,
     };
-    let bundle = bundle::prepare(&fixture);
-    let weak = Arc::downgrade(&bundle);
+    let lock = hold::lock(&fixture);
+    let weak = Arc::downgrade(&lock);
     let generation = Generation::new(19).unwrap();
     let mut session = fixture_session(
         fixture.verified(),
-        Arc::clone(&bundle),
+        Arc::clone(&lock),
         FixtureScenario::Unconfirmed,
         generation,
         fixture.launch(),
     )
     .unwrap();
-    drop(bundle);
+    drop(lock);
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         if matches!(session.poll(generation).unwrap(), Some(Event::Ready(_))) {
@@ -124,7 +124,7 @@ fn unconfirmed_retention_child() {
     assert!(observation.resources_held() && !observation.peer_exit_confirmed());
     assert!(weak.upgrade().is_some());
     assert!(std::fs::write(fixture.root.join("lazy.dll"), b"must remain locked").is_err());
-    // The unconfirmed cleanup owner remains alive and retains all bundle files.
+    // The unconfirmed cleanup owner remains alive and keeps the hold.
     // Explicit test-host death is not an application successful-close assertion.
     std::process::exit(0);
 }

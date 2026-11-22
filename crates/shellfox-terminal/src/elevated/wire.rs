@@ -27,7 +27,6 @@ pub enum AdapterError {
     StartupFailed(StartupStage),
     HelperFailed,
     IsolatedModeUnavailable,
-    LoaderPolicyRequired,
 }
 impl fmt::Display for AdapterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -48,7 +47,6 @@ impl fmt::Display for AdapterError {
             Self::StartupFailed(stage) => return stage.fmt(f),
             Self::HelperFailed => "administrator helper failed",
             Self::IsolatedModeUnavailable => "legacy administrator helper cannot suppress account profiles; use verified isolated mode",
-            Self::LoaderPolicyRequired => "managed helper loader review is not granted; real administrator launch remains unavailable",
         })
     }
 }
