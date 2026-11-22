@@ -74,6 +74,10 @@ fn main() -> Result<()> {
         println!("Shellfox {}", env!("SHELLFOX_VERSION"));
         return Ok(());
     }
+    // `shellfox update` on desktop installs, forwarded by shellfox-cli.
+    if arguments.first().is_some_and(|first| first == update::cli::FLAG) {
+        std::process::exit(update::cli::run(&arguments[1..]));
+    }
     // Squirrel invokes the app before installation is complete. Never start a host then.
     #[cfg(windows)]
     {
