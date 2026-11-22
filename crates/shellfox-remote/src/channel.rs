@@ -1,6 +1,6 @@
 use crate::{error, Actor};
 use shellfox_protocol::{AppError, CancellationToken, ErrorCode, RemoteCommand};
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot};
 #[cfg(test)]
 #[path = "channel_tests.rs"]
@@ -54,9 +54,11 @@ pub trait ServiceHost {
     fn dispatch(&mut self, command: OwnerCommand) -> OwnerResult;
 }
 
+type Wake = Arc<dyn Fn() + Send + Sync>;
 #[derive(Clone)]
 pub struct OwnerClient {
     sender: mpsc::Sender<OwnerRequest>,
+    wake: Option<Wake>,
 }
 pub struct OwnerReceiver {
     receiver: mpsc::Receiver<OwnerRequest>,
@@ -67,8 +69,20 @@ pub struct OwnerRequest {
     cancel: CancellationToken,
 }
 pub fn owner_channel(capacity: usize) -> (OwnerClient, OwnerReceiver) {
+    channel(capacity, None)
+}
+/// Like [`owner_channel`], but calls `on_enqueue` after each request is queued
+/// so the owner thread can dispatch it at once. It is never called for a
+/// refused request, runs on a network task and must not block.
+pub fn owner_channel_with_wake(
+    capacity: usize,
+    on_enqueue: Arc<dyn Fn() + Send + Sync>,
+) -> (OwnerClient, OwnerReceiver) {
+    channel(capacity, Some(on_enqueue))
+}
+fn channel(capacity: usize, wake: Option<Wake>) -> (OwnerClient, OwnerReceiver) {
     let (sender, receiver) = mpsc::channel(capacity.clamp(1, 64));
-    (OwnerClient { sender }, OwnerReceiver { receiver })
+    (OwnerClient { sender, wake }, OwnerReceiver { receiver })
 }
 impl RemoteHost for OwnerClient {
     fn request(&self, command: OwnerCommand) -> OwnerFuture<'_> {
@@ -92,6 +106,9 @@ impl RemoteHost for OwnerClient {
                         true,
                     )
                 })?;
+            if let Some(wake) = &self.wake {
+                wake();
+            }
             tokio::time::timeout(Duration::from_secs(25), receiver).await
                 .map_err(|_| error(ErrorCode::NativeUnavailable, "Owner reply timed out. Outcome may be uncertain; do not retry a mutation automatically.", false))?
                 .map_err(|_| error(ErrorCode::NativeUnavailable, "Owner reply lost. Outcome may be uncertain.", false))?

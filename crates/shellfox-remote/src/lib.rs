@@ -34,7 +34,7 @@ pub use approval_repository::{ApprovalRepository, ApprovalRepositoryFuture};
 pub use approvals::{Actor, ApprovalControl, ApprovalState, PendingPeer};
 pub use backend::{Backend, BackendHandle, ManagerHttpReply, ObserverHttpReply};
 pub use channel::{
-    owner_channel, OwnerClient, OwnerCommand, OwnerReceiver, OwnerRequest, RemoteHost, ServiceHost,
+    owner_channel, owner_channel_with_wake, OwnerClient, OwnerCommand, OwnerReceiver, OwnerRequest, RemoteHost, ServiceHost,
 };
 pub use policy::{Approval, ViewPermission};
 pub use poll_wake::PollWake;

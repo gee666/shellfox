@@ -77,3 +77,31 @@ async fn completed_reply_keeps_exact_outcome_and_ends_request_lifetime() {
     assert_eq!(wait.await.unwrap().unwrap(), result);
     assert!(token.is_cancelled());
 }
+#[tokio::test]
+async fn wake_runs_once_per_queued_request_and_not_on_refusal() {
+    let wakes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = wakes.clone();
+    let (client, mut owner) = owner_channel_with_wake(
+        1,
+        Arc::new(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }),
+    );
+    let queued = client.clone();
+    let wait = tokio::spawn(async move { queued.request(command()).await });
+    let request = owner.recv().await.unwrap();
+    assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let blocker = client.clone();
+    let blocked = tokio::spawn(async move { blocker.request(command()).await });
+    while wakes.load(std::sync::atomic::Ordering::SeqCst) < 2 {
+        tokio::task::yield_now().await;
+    }
+    // The channel is full now; a refused request must not wake the owner.
+    let refused = client.request(command()).await.unwrap_err();
+    assert_eq!(refused.code, ErrorCode::NativeUnavailable);
+    assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 2);
+    request.complete(Ok(serde_json::json!({})));
+    wait.await.unwrap().unwrap();
+    owner.recv().await.unwrap().complete(Ok(serde_json::json!({})));
+    blocked.await.unwrap().unwrap();
+}
