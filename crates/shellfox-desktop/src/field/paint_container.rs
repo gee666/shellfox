@@ -1,4 +1,4 @@
-use super::super::{Field, stepper};
+use super::super::Field;
 use gpui::{Context, Div, Window, div, prelude::*, px};
 
 pub(super) fn container(
@@ -8,7 +8,6 @@ pub(super) fn container(
     window: &Window,
     cx: &Context<Field>,
 ) -> Div {
-    let number = field.number_kind.is_some();
     let palette = field.palette;
     let directory = field.directory;
     let multiline = field.multiline;
@@ -16,15 +15,9 @@ pub(super) fn container(
     let compact = field.compact;
     let session_title = field.session_title;
     let settings_input = field.settings_input;
-    let text_align = field.text_align;
     let focused = field.focus.is_focused(window);
     div()
         .relative()
-        .when(number, |element| {
-            element
-                .group(stepper::HOVER_GROUP)
-                .child(stepper::control(palette, focused, cx))
-        })
         .w_full()
         .min_w_0()
         .when_some(content_width, |element, width| {
@@ -48,16 +41,7 @@ pub(super) fn container(
                 }))
                 .when(compact, |style| style.px(px(4.)))
                 .when(session_title, |style| style.px(px(2.)))
-                .when(settings_input, |style| {
-                    // Number controls reserve the space occupied by Chromium's stepper.
-                    style
-                        .pl(px(6.))
-                        .pr(px(if text_align == gpui::TextAlign::Right {
-                            20.
-                        } else {
-                            6.
-                        }))
-                })
+                .when(settings_input, |style| style.px(px(6.)))
                 .border_1()
                 .border_color(if (session_title || compact) && focused {
                     palette.accent
