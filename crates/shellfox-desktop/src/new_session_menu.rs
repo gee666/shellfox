@@ -28,20 +28,6 @@ fn move_target_focus(enabled: &[usize], current: Option<usize>, key: &str) -> Op
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::move_target_focus;
-
-    #[test]
-    fn target_focus_skips_disabled_machines_and_has_nowhere_to_go_if_all_disabled() {
-        assert_eq!(move_target_focus(&[], None, "down"), None);
-        assert_eq!(move_target_focus(&[1, 3], None, "down"), Some(1));
-        assert_eq!(move_target_focus(&[1, 3], Some(1), "down"), Some(3));
-        assert_eq!(move_target_focus(&[1, 3], Some(3), "down"), Some(1));
-        assert_eq!(move_target_focus(&[1, 3], Some(1), "up"), Some(3));
-    }
-}
-
 impl Root {
     fn session_targets(&self, palette: Palette) -> Vec<Choice> {
         let mut peers: Vec<_> = self
@@ -310,5 +296,19 @@ impl Root {
         } else {
             self.open_local_directory(window, cx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::move_target_focus;
+
+    #[test]
+    fn target_focus_skips_disabled_machines_and_has_nowhere_to_go_if_all_disabled() {
+        assert_eq!(move_target_focus(&[], None, "down"), None);
+        assert_eq!(move_target_focus(&[1, 3], None, "down"), Some(1));
+        assert_eq!(move_target_focus(&[1, 3], Some(1), "down"), Some(3));
+        assert_eq!(move_target_focus(&[1, 3], Some(3), "down"), Some(1));
+        assert_eq!(move_target_focus(&[1, 3], Some(1), "up"), Some(3));
     }
 }

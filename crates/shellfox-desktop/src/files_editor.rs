@@ -297,10 +297,9 @@ impl Root {
                     && continue_on_save
                     && files.document_error.is_none()
                     && !editor.dirty(cx)
+                    && let Some(action) = files.pending_file_action.take()
                 {
-                    if let Some(action) = files.pending_file_action.take() {
-                        root.perform_file_action(action, cx);
-                    }
+                    root.perform_file_action(action, cx);
                 }
                 cx.notify();
             });

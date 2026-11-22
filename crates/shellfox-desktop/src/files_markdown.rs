@@ -143,10 +143,11 @@ impl Renderer<'_, '_> {
 
     fn inline_content(&mut self, nodes: &[Node], autolink: bool) -> AnyElement {
         let mut parts = inline::parts(nodes, self.palette, autolink);
-        if parts.len() == 1 && matches!(parts[0], inline::Part::Text(_)) {
-            if let Some(inline::Part::Text(text)) = parts.pop() {
-                return self.styled_inline(text, true);
-            }
+        if parts.len() == 1
+            && matches!(parts[0], inline::Part::Text(_))
+            && let Some(inline::Part::Text(text)) = parts.pop()
+        {
+            return self.styled_inline(text, true);
         }
         let mut new_block = true;
         div()

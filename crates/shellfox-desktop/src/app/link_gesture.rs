@@ -24,14 +24,12 @@ impl TerminalView {
         event: &gpui::MouseDownEvent,
         context_click: bool,
     ) -> bool {
-        if context_click {
-            if let Some(link) = self.visible_link_at(point) {
-                self.links.menu_press = Some(LinkMenuPress {
-                    button: event.button,
-                    target: link.target,
-                });
-                return true;
-            }
+        if context_click && let Some(link) = self.visible_link_at(point) {
+            self.links.menu_press = Some(LinkMenuPress {
+                button: event.button,
+                target: link.target,
+            });
+            return true;
         }
         self.links.file_press = self.file_link_press(point, event);
         self.links.file_press.is_some()
@@ -42,13 +40,13 @@ impl TerminalView {
         event: &gpui::MouseUpEvent,
         cx: &mut Context<Self>,
     ) -> bool {
-        if event.button == gpui::MouseButton::Left {
-            if let Some(press) = self.links.file_press.take() {
-                if !press.moved_to(event.position) {
-                    self.open_link(Some(press.target), press.modifiers, cx);
-                }
-                return true;
+        if event.button == gpui::MouseButton::Left
+            && let Some(press) = self.links.file_press.take()
+        {
+            if !press.moved_to(event.position) {
+                self.open_link(Some(press.target), press.modifiers, cx);
             }
+            return true;
         }
         if self
             .links

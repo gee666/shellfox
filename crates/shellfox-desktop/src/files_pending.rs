@@ -55,11 +55,11 @@ impl Root {
     }
 
     pub(crate) fn dismiss_file_action(&mut self, cx: &mut Context<Self>) {
-        if let Some(files) = &mut self.files {
-            if files.operation.is_none() {
-                files.pending_file_action = None;
-                cx.notify();
-            }
+        if let Some(files) = &mut self.files
+            && files.operation.is_none()
+        {
+            files.pending_file_action = None;
+            cx.notify();
         }
     }
 

@@ -192,10 +192,11 @@ impl Root {
                         }
                         _ => 0,
                     };
-                    if direction != 0 && !busy {
-                        if let Some(index) = index {
-                            window.focus(&keyboard[(index + direction) % count]);
-                        }
+                    if direction != 0
+                        && !busy
+                        && let Some(index) = index
+                    {
+                        window.focus(&keyboard[(index + direction) % count]);
                     }
                     window.prevent_default();
                     cx.stop_propagation();

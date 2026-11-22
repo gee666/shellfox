@@ -50,13 +50,13 @@ impl<'a> ListingView<'a> {
         if loading {
             return Self::Loading;
         }
-        if let Some(error) = error {
-            if let Some(path) = error.retry.as_deref() {
-                return Self::Retry {
-                    message: &error.message,
-                    path,
-                };
-            }
+        if let Some(error) = error
+            && let Some(path) = error.retry.as_deref()
+        {
+            return Self::Retry {
+                message: &error.message,
+                path,
+            };
         }
         Self::Rows {
             listing,

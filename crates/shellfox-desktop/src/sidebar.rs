@@ -37,7 +37,6 @@ pub(crate) struct SidebarUi {
     pub(crate) toggle: FocusHandle,
     pub(crate) resizer: FocusHandle,
     pub(crate) delete_cancel: FocusHandle,
-    deferred_action: Option<actions::DeferredAction>,
     pub(crate) environment_resize: crate::session_environment::resize::EnvironmentResize,
     pub(crate) resize_origin: Option<SidebarDrag>,
     pub(crate) keyboard_focus: bool,
@@ -60,7 +59,6 @@ impl SidebarUi {
             toggle: cx.focus_handle().tab_stop(true),
             resizer: cx.focus_handle().tab_stop(true),
             delete_cancel: cx.focus_handle(),
-            deferred_action: None,
             environment_resize: Default::default(),
             resize_origin: None,
             keyboard_focus: false,
@@ -109,10 +107,10 @@ pub(crate) fn rank(state: AgentState) -> u8 {
     }
 }
 
-fn sort_sessions<'a>(
-    sessions: &'a [Session],
+fn sort_sessions(
+    sessions: &[Session],
     mut state: impl FnMut(&Session) -> AgentState,
-) -> Vec<(&'a Session, AgentState)> {
+) -> Vec<(&Session, AgentState)> {
     let mut rows: Vec<_> = sessions
         .iter()
         .map(|session| (session, state(session)))

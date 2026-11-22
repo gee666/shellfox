@@ -40,10 +40,10 @@ impl Root {
         cx.notify();
     }
     pub(crate) fn hide_settings(&mut self, cx: &mut Context<Self>) {
-        if std::mem::take(&mut self.settings) {
-            if let Some(panel) = &self.settings_panel {
-                panel.update(cx, |panel, cx| panel.dismiss(cx));
-            }
+        if std::mem::take(&mut self.settings)
+            && let Some(panel) = &self.settings_panel
+        {
+            panel.update(cx, |panel, cx| panel.dismiss(cx));
         }
     }
     pub(crate) fn sync_field_palette(&self, palette: Palette, cx: &mut Context<Self>) {

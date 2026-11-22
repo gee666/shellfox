@@ -118,11 +118,12 @@ impl Inline {
             self.styles.push((start..end, style));
         }
         if let Some(href) = href {
-            if let Some((range, previous)) = self.links.last_mut() {
-                if previous == href && range.end == start {
-                    range.end = end;
-                    return;
-                }
+            if let Some((range, previous)) = self.links.last_mut()
+                && previous == href
+                && range.end == start
+            {
+                range.end = end;
+                return;
             }
             self.links.push((start..end, href.to_owned()));
         }
