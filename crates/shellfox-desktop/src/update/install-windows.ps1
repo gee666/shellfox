@@ -20,13 +20,14 @@ try {
   if ($p) { Wait-Process -Id $c.pid -Timeout 120 -ErrorAction Stop }
   if (Test-Path -LiteralPath (Join-Path $c.control 'cancel')) { exit 1 }
   $managerExited = $true
-  # The UI exits after its terminal host closes its connection, not after the
-  # host process is gone. Never let the new UI attach to this version's host.
-  $cli = Join-Path $c.appDir 'bin\shellfox-cli.exe'
-  $hosts = @(Get-CimInstance Win32_Process -Filter "Name = 'shellfox-cli.exe'" | Where-Object {
-    $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $cli, [StringComparison]::OrdinalIgnoreCase) -and $_.CommandLine -match '\s--desktop-host(\s|$)'
+  # The UI exits once its terminal host closes the connection, not when the
+  # host process is gone, and a CLI may still be finishing. Setup.exe kills
+  # everything under the install root, so wait for all of it to exit.
+  $root = (Split-Path -Parent $c.updateExe).TrimEnd('\') + '\'
+  $running = @(Get-CimInstance Win32_Process | Where-Object {
+    $_.ExecutablePath -and $_.ExecutablePath.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)
   } | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
-  if ($hosts.Count) { Wait-Process -InputObject $hosts -Timeout 60 -ErrorAction Stop }
+  if ($running.Count) { Wait-Process -InputObject $running -Timeout 60 -ErrorAction Stop }
   $hash = (Get-FileHash -LiteralPath $c.file -Algorithm SHA256).Hash
   if ($hash -ne $c.sha256) { throw 'Installer checksum changed.' }
   $install = Start-Process -FilePath $c.file -ArgumentList '--silent' -Wait -PassThru

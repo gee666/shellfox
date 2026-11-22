@@ -11,6 +11,8 @@ use tempfile::TempDir;
 #[path = "handoff.rs"]
 mod handoff;
 pub(super) use handoff::Prepared;
+#[path = "instances.rs"]
+mod instances;
 
 #[cfg(any(target_os = "macos", test))]
 #[path = "zip.rs"]
@@ -130,6 +132,22 @@ impl Platform {
                     "x64"
                 }
             )
+        }
+    }
+    /// This installation's UI, desktop host or another CLI call is running.
+    pub fn instance_running(&self) -> Result<bool> {
+        match self {
+            #[cfg(windows)]
+            Self::Squirrel { updater } => {
+                instances::running(updater.parent().unwrap_or(Path::new("")))
+            }
+            #[cfg(target_os = "linux")]
+            Self::Deb { executable } => {
+                instances::running(executable.parent().unwrap_or(Path::new("/")))
+            }
+            #[cfg(target_os = "macos")]
+            Self::Mac { bundle } => instances::running(bundle),
+            Self::Manual(_) => Ok(false),
         }
     }
     pub fn reason(&self) -> Option<&'static str> {

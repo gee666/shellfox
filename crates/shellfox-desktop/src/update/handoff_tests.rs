@@ -15,9 +15,9 @@ fn windows_helper_installs_only_after_the_desktop_host_exits() {
     let system = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32");
     let cli = bin.join("shellfox-cli.exe");
     fs::copy(system.join("cmd.exe"), &cli).unwrap();
-    // Stand-in host: same executable path and --desktop-host flag, alive ~2 s.
+    // Stand-in desktop host under the install root, alive ~2 s.
     let mut host = Command::new(&cli)
-        .raw_arg("/d /c ping -n 3 127.0.0.1 >nul & rem --desktop-host")
+        .raw_arg("/d /c ping -n 3 127.0.0.1 >nul")
         .spawn()
         .unwrap();
     let mut ui = Command::new(system.join("cmd.exe"))
@@ -42,7 +42,7 @@ fn windows_helper_installs_only_after_the_desktop_host_exits() {
     let config = control.join("install.json");
     fs::write(&config, serde_json::to_vec(&serde_json::json!({
         "pid": ui.id(), "file": setup, "work": work, "updateExe": root.path().join("Update.exe"),
-        "appDir": root.path().join("app-1.0.0"), "sha256": sha256, "control": control, "relaunch": false,
+        "sha256": sha256, "control": control, "relaunch": false,
     })).unwrap()).unwrap();
     let started = Instant::now();
     let status = super::windows_helper(&helper, &config)

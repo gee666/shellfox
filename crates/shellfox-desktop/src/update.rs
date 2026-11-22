@@ -1,6 +1,7 @@
 //! Desktop update worker. The GUI never accepts asset URLs or installer commands.
 mod feed;
 mod platform;
+pub(crate) mod cli;
 
 use anyhow::Result;
 use feed::{Feed, Release};
