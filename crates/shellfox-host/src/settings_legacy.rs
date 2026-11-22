@@ -64,7 +64,7 @@ impl Host {
         });
         crate::settings_store::write(&tx, &settings)?;
         crate::storage::save(&tx, &data)?;
-        tx.commit().map_err(crate::storage::storage_error)?;
+        self.commit(tx, 1)?;
         Ok(true)
     }
 
@@ -118,7 +118,7 @@ impl Host {
         if let Some(runtime) = runtime {
             runtime.check_commit()?;
         }
-        tx.commit().map_err(crate::storage::storage_error)?;
+        self.commit(tx, data.state.revision)?;
         Ok(result)
     }
 
@@ -162,7 +162,7 @@ impl Host {
         if let Some(runtime) = runtime {
             runtime.check_commit()?;
         }
-        tx.commit().map_err(crate::storage::storage_error)?;
+        self.commit(tx, snapshot.revision)?;
         Ok(snapshot)
     }
 }

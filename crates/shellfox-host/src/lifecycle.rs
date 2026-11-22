@@ -122,7 +122,7 @@ impl Host {
         let revision = pending.revision;
         let terminals = pending.terminals.clone();
         let snapshot =
-            Self::update_locked(&mut inner, ChangeReason::Sessions, |data, registry| {
+            self.update_locked(&mut inner, ChangeReason::Sessions, |data, registry| {
                 if data.state.revision != revision {
                     return Err(Error::new(
                         ErrorCode::Conflict,

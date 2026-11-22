@@ -113,7 +113,7 @@ impl Host {
         if let Some(runtime) = runtime {
             runtime.check_commit()?;
         }
-        tx.commit().map_err(storage::storage_error)?;
+        self.commit(tx, snapshot.revision)?;
         Ok(snapshot)
     }
 }

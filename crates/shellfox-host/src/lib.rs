@@ -36,13 +36,18 @@ use std::{
     collections::HashMap,
     fs::File,
     path::Path,
-    sync::{Mutex, MutexGuard},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex, MutexGuard,
+    },
 };
 pub use storage::STORE_FILENAME;
 use storage::{storage_error, Data};
 
 pub struct Host {
     inner: Mutex<Inner>,
+    /// Last committed metadata revision. Written only by `Host::commit`.
+    revision: AtomicU64,
     _ownership: File,
 }
 struct Inner {
@@ -85,12 +90,25 @@ impl Host {
                 registry: Registry::default(),
                 settings_runtime: None,
             }),
+            revision: AtomicU64::new(0),
             _ownership: ownership,
         };
         let snapshot = host.snapshot()?;
+        host.revision.store(snapshot.revision, Ordering::Release);
         host.lock()?.registry.last_settlement_ms =
             activity_store::latest_settlement_ms(&snapshot.sessions)?;
         Ok(host)
+    }
+    /// Last committed metadata revision (sessions, tabs, settings), without SQL.
+    pub fn revision(&self) -> u64 {
+        self.revision.load(Ordering::Acquire)
+    }
+    /// Commits a metadata write, then publishes `revision`. A failed commit
+    /// publishes nothing, so readers never see a rolled-back revision.
+    fn commit(&self, tx: rusqlite::Transaction<'_>, revision: u64) -> Result<()> {
+        tx.commit().map_err(storage_error)?;
+        self.revision.fetch_max(revision, Ordering::Release);
+        Ok(())
     }
     fn lock(&self) -> Result<MutexGuard<'_, Inner>> {
         self.inner
@@ -179,9 +197,10 @@ impl Host {
         action: impl FnOnce(&mut Data, &Registry) -> Result<bool>,
     ) -> Result<Snapshot> {
         let mut inner = self.lock()?;
-        Self::update_locked(&mut inner, reason, action)
+        self.update_locked(&mut inner, reason, action)
     }
     fn update_locked(
+        &self,
         inner: &mut Inner,
         reason: ChangeReason,
         action: impl FnOnce(&mut Data, &Registry) -> Result<bool>,
@@ -218,7 +237,7 @@ impl Host {
                 runtime.check_commit()?;
             }
         }
-        tx.commit().map_err(storage_error)?;
+        self.commit(tx, snapshot.revision)?;
         Ok(snapshot)
     }
 }

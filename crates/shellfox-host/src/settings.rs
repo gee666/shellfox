@@ -51,6 +51,7 @@ impl Host {
         };
         settings.validate()?;
         validate_env(&settings.terminal_env, cfg!(windows))?;
+        let mut revision = self.revision();
         if settings != previous {
             let mut data = storage::load(&tx)?;
             settings_store::project(&settings, &mut data)?;
@@ -66,11 +67,12 @@ impl Host {
             });
             settings_store::write(&tx, &settings)?;
             storage::save(&tx, &data)?;
+            revision = data.state.revision;
         }
         if let Some(runtime) = runtime.as_ref() {
             runtime.check_commit()?;
         }
-        tx.commit().map_err(storage::storage_error)?;
+        self.commit(tx, revision)?;
         Ok(settings)
     }
 }
