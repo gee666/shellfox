@@ -92,7 +92,8 @@ terminal helpers. No desktop, Node runtime or display server is needed.
   ./shellfox host service install      (systemd --user, LaunchAgent or a login task)
   ./shellfox update --check
 
-Run as a normal user, not root or Administrator. See docs/headless.md.
+Run as a normal user, not root or Administrator.
+Guide: https://github.com/gee666/shellfox/blob/main/docs/headless.md
 bin/node, app/ and the files under app/node_modules and util/ only let
 Shellfox 0.9 installations update to this version. They are not used.
 `;

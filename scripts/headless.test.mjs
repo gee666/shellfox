@@ -43,7 +43,7 @@ test('runtime and workflow pins retain the fixed Windows libuv release and offic
     assert.ok(versions.length > 0);
     for (const version of versions) assert.equal(version, nodeVersion, file + ' must use the fixed runtime');
   }
-  for (const file of ['README.md', 'docs/mobile.md', 'docs/headless.md', 'docs/macos.md', 'docs/ubuntu.md']) {
+  for (const file of ['README.md', 'docs/mobile.md', 'docs/macos.md', 'docs/ubuntu.md']) {
     assert.ok((await readFile(file, 'utf8')).includes('Node ' + nodeVersion), file + ' must document the current Node prerequisite');
   }
 });

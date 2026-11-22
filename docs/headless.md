@@ -1,200 +1,135 @@
 # Headless Shellfox
 
-Shellfox has two distributions for Windows, macOS, and Linux:
+The headless package is the Shellfox host and CLI without a desktop window. It runs on Windows, macOS and Linux, x64 and ARM64 where a release archive exists, and needs no display server, Node runtime or Tailscale installation. It contains `bin/shellfox-cli`, the embedded Tailscale helper and the platform terminal helpers.
 
-- **Desktop** includes the Electron window and a host. Its CLI talks to the same sessions shown in the window.
-- **Headless** includes the CLI, Node runtime, terminal host, native helpers, and embedded Tailscale. It contains no Electron, Chromium, React, or desktop assets and needs no display server.
-
-Both use the same session service, database format, validated host API, and remote connection protocol. An interactive terminal, desktop window, or remote client is a view of a host's actual PTY, not a copy of a shell.
+A desktop window, a remote phone or `shellfox terminals attach` all show the host's real PTY. None of them copy the shell.
 
 ## Start a server
 
-Extract the headless archive for your OS and architecture, then run its launcher:
+Extract `shellfox-headless-<version>-<platform>-<arch>` and run its launcher:
 
 ```sh
 ./shellfox host run
 ```
 
-Windows includes `shellfox.cmd` and `shellfox.ps1`. The package includes Node and Tailscale; neither needs a separate installation. Linux still needs a supported glibc system, Python 3 with the required process APIs, and ordinary shell/runtime dependencies. macOS uses its bundled native process helpers.
+Windows has `shellfox.cmd` and `shellfox.ps1`. Don't run the host as root or Administrator just to host ordinary terminals.
 
-The foreground host runs until an authenticated stop request or termination signal. Run it under a startup manager for unattended use. Exiting an ordinary CLI command or detaching from a terminal does not stop the host.
+`host run` stays in the foreground until `host stop`, Ctrl+C, SIGTERM or SIGHUP. Use a startup manager for unattended hosts. Closing a CLI command or detaching from a terminal never stops the host.
 
-For separate instances, use an absolute data directory consistently:
+Use one absolute data directory per host:
 
 ```sh
 ./shellfox --user-data /srv/shellfox-data host run --json
 ./shellfox --user-data /srv/shellfox-data host status --json
+./shellfox --user-data /srv/shellfox-data host stop --yes --json
 ```
 
-The first command prints one readiness JSON value and stays running. The second runs from another terminal. Do not run the server as root or Administrator just to host ordinary terminals.
+`host run --json` prints one readiness record (`mode`, `pid`, `startedAt`, `capabilities`) and keeps running. `SHELLFOX_USER_DATA` works like `--user-data`. Without either, the data root is `%APPDATA%\Shellfox`, `~/Library/Application Support/Shellfox` or `~/.config/Shellfox`, the same root the desktop app uses.
 
-## Use the same commands with the desktop
+The host keeps its own state in `<data root>/rust-v1/host`. Files that Shellfox 0.9 wrote in the data root (`manager.sqlite3`, `remote.json`, `ssh-profiles.json`, `tailscale/`) are imported on the first start. See [updating from 0.9](#updating-from-09).
 
-The installed desktop CLI accepts the same session, terminal, settings, remote-access, and JSON commands. A running desktop publishes the shared host API. These commands do not launch another window:
+## Commands
 
 ```sh
-shellfox host status --json
-shellfox session create /srv/project --title Backend --json
 shellfox session list --json
+shellfox session create /srv/project --title Backend --json
+shellfox session inspect SESSION_UUID --json
+shellfox session rename SESSION_UUID "new title"
+shellfox session delete SESSION_UUID --yes
+shellfox terminals list [SESSION_UUID] --json
+shellfox terminals create SESSION_UUID [--title T] [--profile P]
+shellfox terminals rename SESSION_UUID TAB_UUID "title"
+shellfox terminals close TAB_UUID --yes
+shellfox terminals attach TAB_UUID
 shellfox settings read --json
-shellfox api getSnapshot --json
+shellfox settings update --input '{"historyPageSize":30}'
+shellfox host keep-awake [on|off]
+shellfox ssh [NAME]
+shellfox version
 ```
 
-Use OS-appropriate paths. Session and terminal IDs returned by the CLI are the same IDs the desktop uses. Changes made through one interface appear in the other.
+`ss` and `sessions` are aliases for `session`, and `tm` is an alias for `terminals`. Globals (`--user-data`, `--json`, `--yes`, `--host local`) can come before or after the command. Everything after `--` is literal.
 
-A desktop-installed CLI can also start a foreground host with `shellfox host run` without opening a window. Its desktop distribution still contains Electron; use the separate headless archive when you do not want Electron installed at all.
+JSON successes are `{"ok":true,"value":...}`. Failures are `{"ok":false,"error":{"code":"VALIDATION","message":"...","retryable":false}}`. Invalid arguments exit with 2 and failures with 1. Destructive commands need `--yes` in JSON or noninteractive mode.
 
-`shellfox session create [path]` can launch the desktop distribution when used interactively without an existing host. JSON automation and the headless package never silently launch a desktop. Start a host explicitly before automation. Old top-level `start`, `ls`, `stats`, `settle`, and `tab` commands are no longer accepted.
+Attach forwards input, output and resizes to the existing PTY. Ctrl+] detaches and leaves the shell running. Attach needs a TTY and rejects `--json`.
 
-## Updates
-
-From an extracted headless release package:
-
-```sh
-shellfox update --check
-shellfox update --json
-```
-
-`--check` queries the latest stable GitHub release without downloading or writing package files. `update` downloads the matching Windows, macOS, or Linux x64/ARM64 headless archive, verifies its API-provided size and SHA-256 digest, and validates its manifests, native addons and platform helpers. It then installs the version beside the current package and atomically selects it for future launches. A missing matching asset or digest is an error, not permission to use a desktop installer or another architecture.
-
-Keep using the original launcher and service paths. The original CLI entry forwards future invocations to the selected version's bundled Node runtime. Existing systemd, launchd and Windows Scheduled Task definitions continue to work without changing their account, login-versus-S4U policy or startup settings. Repeated updates use the same stable pointer, not a chain of forwarding processes. The command needs write access to the original installation and its parent directory, plus the OS `tar` executable. Windows uses the system `tar.exe` for ZIP releases. It never requests elevation.
-
-Run the updater as the same OS user that runs the host and future CLI/service starts. On Unix, version directories use mode `0700` and the selection pointer uses `0600`. Windows relies on the account-private parent directory's inherited ACLs. This activation layout does not support updating as root or Administrator for a different service account, or sharing one updated installation across users. Keep the package parent private to that user too.
-
-The active host and its terminals keep their existing code, runtime and helper paths until you restart explicitly. Restart through the existing startup manager when ready. For a foreground host:
-
-```sh
-shellfox --user-data /absolute/existing-data host stop --yes
-shellfox --user-data /absolute/existing-data host run
-```
-
-Use OS-appropriate paths and the same existing data directory. Stopping the host ends its terminals and running commands. A managed host should be restarted through its manager, not stopped behind a restart-on-failure policy. `shellfox version` reports the selected CLI version immediately; `shellfox host status` still describes the running host until it restarts. No PATH or service-path switch is required.
-
-JSON returns `phase: "installed"`, `installation`, and `restartRequired: true`; `current` names the CLI that performed the update. Checks return `phase: "available"` or `"current"`. Offline, malformed, unverified and failed downloads return nonzero. Activation happens only after verification, so earlier failures leave the active pointer unchanged and remove incomplete files. Updates serialize through `headless-update.lock` in the original directory. Remove a leftover lock only after confirming no update is running. No host connection is required, and remote `--host` targets are rejected.
-
-Keep the original installation and its version directories together. Do not delete old versions while a host might still use their runtime or helpers. The stable selection is `headless-update.json` in the original installation. If the selected version cannot launch, stop the host through its startup manager and remove that pointer to return future original-launcher starts to the original version. Private user data is never removed or rolled back; do not downgrade data across incompatible schema changes. Invalid pointers fail closed instead of silently starting the wrong host. Source checkouts and desktop packages cannot use this headless update flow; desktop installs retain their platform/in-app updater.
-
-## Ownership and closing
-
-Exactly one process may own a data directory. An OS-held file lock is acquired before opening the database or initializing sessions. It is not a PID file, and its stable lock file is not deleted on normal shutdown. The ownership helper releases the kernel lock on EOF or process death. A host that loses its helper stops serving requests and shuts down rather than continuing unlocked.
-
-- Closing a desktop-owned app ends its host and local terminals after the usual confirmation.
-- A desktop opened while a headless host already owns the same data directory attaches as a client. Its title says `host client`. Closing that window leaves the host and terminals running.
-- `shellfox host stop --yes` explicitly stops the owning host and its terminals, including a desktop-owned host. It does not require clicking a confirmation dialog.
-- A stopped or rebooted host does not restore running processes. Saved session information is not a process checkpoint.
-
-A desktop client never opens the headless host's database directly. It connects through the authenticated local API. Another OS user's data directory and credentials are not a way to bypass authentication; run clients with the intended host-user permissions.
+Not available in this version yet: remote `--host` targets, `api`, `commands`/`cmd`, `completion`, `path`, `profiles`, `session stats|processes|env|pin|settle|unsettle|focus|refresh|clear-error`, `terminals write|reorder`, `network login --auth-key-file`, and the 0.9 table output. They fail with `VALIDATION` or `UNSUPPORTED` instead of doing something else. Human output is indented JSON. Session and terminal records use the host's own fields (`id`, `title`, `cwd`, `tabs`), not every field 0.9 printed.
 
 ## Remote access without a browser on the server
 
 ```sh
 shellfox network enable --hostname build-server --json
 shellfox network login --json
-```
-
-Open the returned login URL on another device. Alternatively, use an untagged, non-ephemeral Tailscale auth key through stdin or a protected file:
-
-```sh
-shellfox network login --auth-key-stdin --json
-shellfox network login --auth-key-file /private/enrollment-key --json
-```
-
-Do not put the key directly in argv, shell history, service definitions, or environment files. Shellfox validates key-file ownership and permissions and does not save the enrollment key in application preferences.
-
-```sh
+shellfox network login --auth-key-stdin --json < private-auth-key
 shellfox machines list --json
 shellfox machines connect DEVICE_ID --json
 shellfox approvals list --json
 shellfox approvals approve DEVICE_ID --json
 shellfox approvals revoke DEVICE_ID --yes --json
+shellfox network disable --yes
 ```
 
-The first remote connection requires approval on the host. It can be approved through that host's CLI over SSH; a desktop window is not required. The current Tailscale version supports the same user's devices in the same tailnet, not tagged nodes or cross-user sharing. Tailnet policies must permit TCP 52743. See [remote connections](remote-connections.md).
-
-Use `--host DEVICE_ID_OR_UNIQUE_NAME` for remote session and terminal operations. Network, device-approval, and host lifecycle commands manage the local owning host and reject a remote selector rather than modifying the wrong machine.
+Open the returned login URL on another device, or pass an untagged, non-ephemeral Tailscale auth key on stdin. Never put a key in argv, shell history or service files. The first connection from a device needs approval on the host, and you can approve it over SSH. Tailnet policy must allow TCP 52743. See [remote connections](remote-connections.md).
 
 ## Automation processes
 
-Use `run` when an automation tool needs ordinary process pipes rather than a PTY. It works with a running desktop host or a headless host on Windows, macOS, and Linux:
-
 ```sh
 shellfox run --cwd /srv/project -- node worker.mjs --task review
-```
-
-The command forwards stdin bytes and EOF, keeps stdout and stderr separate, and returns the process exit code. Arguments after `--` are literal, including flags named `--json` or `--user-data`. Shell expansion and redirection are not implicit. To run a shell expression, explicitly invoke the appropriate shell, such as `sh -c`, PowerShell, or `cmd.exe /c`. On Windows, invoke `.cmd` scripts through `cmd.exe` or use the underlying executable.
-
-The process receives the caller's working directory and environment, not the desktop's shell profile or session environment. It has pipes, so programs see the same non-TTY behavior they would in a normal piped subprocess. `ELECTRON_RUN_AS_NODE`, which the desktop CLI launcher uses internally, is not forwarded. The runner does not emulate a parent process ID, OS console, or interactive TTY.
-
-Give each subagent a `--title` to identify it in `runs list`. To know its run ID before starting, generate a UUID in your automation tool and pass `--request-id UUID`. That UUID is the run ID, so another command can open the correct viewer without parsing the subagent's output. Reusing an ID from a different CLI invocation is rejected rather than starting the command twice.
-
-From another terminal, find the run and add a read-only Shellfox terminal view:
-
-```sh
+shellfox run --detach --json -- node worker.mjs
 shellfox runs list --json
 shellfox runs show RUN_UUID --json
-```
-
-`show` returns the session and tab IDs. The new tab uses the existing desktop/mobile terminal UI, with recent output and live updates. It does not restart the process, steal its input, merge its actual output pipes, or change its terminal size. Repeating `show` reuses the view. The visual replay is bounded to recent output and decodes text as UTF-8; it is not a complete or byte-exact transcript. The foreground CLI pipes remain byte-exact.
-
-For a job that should start without waiting for its result:
-
-```sh
-shellfox run --detach --json -- node worker.mjs
 shellfox runs stop RUN_UUID --yes
 ```
 
-Detached runs close stdin and return a run ID immediately. They retain recent visual output but do not retain separate pipe transcripts. Foreground runs apply output backpressure to bound memory. If the output collector goes away or stops polling for 30 seconds, pipe collection ends and the process resumes independently. A collector that returns receives an error rather than silently incomplete output. The process receives stdin EOF and can still be inspected with `runs show`.
-
-Automation commands target the local host; use the CLI on the remote machine to launch a job there. Created tabs can be viewed through normal remote clients. Jobs last only while the owning host runs. Closing a desktop-owned host or stopping a headless host ends its jobs; closing a desktop attached to a separate host does not. Runs and process execution are not restored after a host restart. The host retains at most 64 run records, retiring completed, fully collected runs when it needs space. Windows uses a non-elevated native Job Object; macOS and Linux use a live process-group supervisor. Ordinary descendants stop when the command root or owning host stops. Unix programs that deliberately leave their process group are not contained by that group.
-
-## Interactive attachment and automation
-
-```sh
-shellfox terminals list --json
-shellfox terminals attach TERMINAL_UUID
-```
-
-Attachment forwards terminal input, output, and size changes to the existing PTY. Ctrl+] detaches; it does not terminate the terminal. A lost transport does not replay uncertain input. Local terminal modes are restored on detachment, errors, EOF, and signals.
-
-Interactive SSH and terminal attachment require a TTY and do not accept `--json`. Use terminal write and validated API requests for automation:
-
-```sh
-shellfox terminals write TERMINAL_UUID --stdin --json
-shellfox api renameSession --input '{"sessionId":"SESSION_UUID","title":"Backend"}' --json
-shellfox session delete SESSION_UUID --yes --json
-```
-
-JSON successes contain `ok: true` and a `value`. Failures have the form `{"ok":false,"error":{"code":"VALIDATION","message":"...","retryable":false}}` and a nonzero exit code. Do not automatically retry an uncertain mutation. A caller-supplied creation request ID can make deliberate creation retries idempotent.
-
-Read-only command output is a bounded snapshot, not a permanent transcript. Use `session list --json`, `session stats SESSION_UUID --json`, and `session processes SESSION_UUID --json` for fresh process inspection. Use `--all` for aggregate metrics. Inside a local host terminal, omit the UUID to use its session context; an explicit UUID overrides that context. Destructive commands require `--yes` in noninteractive or JSON mode. See the complete [CLI reference](cli.md).
+`run` starts an ordinary piped process in the local host. It forwards stdin and EOF, keeps stdout and stderr separate and returns the exit code. Foreground `run` rejects `--json`. Arguments after `--` are literal. Invoke a shell explicitly if you need shell parsing. `runs show` adds a read-only terminal view of recent output. Jobs end when their host stops.
 
 ## Startup management
 
-The packaged CLI includes:
-
 ```sh
 shellfox host service install
+shellfox host service install --startup
 shellfox host service uninstall --yes
 ```
 
-Startup management uses systemd user services on Linux and LaunchAgents on macOS. Those are user services, not a claim that every machine will run them before login. Linux servers may need administrator-enabled user lingering. The package includes templates and deployment notes for administrator-managed setups.
+Linux uses a systemd user service, macOS a LaunchAgent, and Windows a same-user limited Scheduled Task at login. On Windows, `--startup` registers a boot-time S4U task. It needs an elevated shell of the intended user and never runs as SYSTEM. Linux servers may need `loginctl enable-linger <user>`.
 
-On Windows the default is a limited, current-user scheduled task at login. `host service install --startup` registers an unattended startup task using S4U from an elevated shell of the intended user. It does not run as SYSTEM, save an account password, or pretend that Node implements the Windows Service Control Manager protocol. S4U does not provide Windows integrated-network credentials. Local shells and Tailscale use their own resources and node identity.
+Unit, agent and task names are derived from the data directory the same way 0.9 did. Startup installed by 0.9 can be removed with this command, and the reverse also works. Definitions always point at the original installation, so they follow updates. Uninstall asks the host to stop first. The templates are in `service/`.
 
-Installers and templates must be exercised on the target OS before relying on reboot behavior. No real startup job was installed on the development machine during verification.
+No startup job is installed by tests. Check reboot behavior on the target machine before relying on it.
 
-## Packages and GitHub Actions
+## Updates
 
 ```sh
-pnpm build:headless
-pnpm package:headless
-pnpm test:headless
+shellfox update --check --json
+shellfox update --json
 ```
 
-Source builds require Node 24.22.1, the pinned pnpm version, Go 1.27.3 or newer, and the relevant native build tools. Matching Node-API prebuilds are staged separately from Electron's modules. Linux PTY source builds use checksum-verified Node headers. Downloads are verified before extraction or execution.
+`--check` reads the latest stable GitHub release. `update` downloads the archive for this OS and architecture, checks its size and SHA-256 from the release metadata, validates the package and installs it beside the current one. Then it atomically points `headless-update.json` in the original installation at it. A missing asset or digest is an error. Remote `--host` is rejected.
 
-Headless output is under `tmp/headless/shellfox-headless-<platform>-<arch>/`; archives and SHA-256 sidecars are under `tmp/headless-artifacts/`. The package holds `bin/node`, `app/main.cjs`, private native runtime modules, and `resources/`. Its normal dependencies do not include Electron.
+Keep using the original launcher and service paths. The original installation forwards each start to the selected version. The running host and its terminals are left alone until you restart it through its startup manager, or with `host stop --yes` and `host run` using the same `--user-data`. Restarting ends its terminals and jobs. JSON returns `phase` (`current`, `available` or `installed`), `installation` and `restartRequired`. Updates serialize through `headless-update.lock` in the original installation.
 
-The release and preview workflows build both product families for Windows, macOS, and Linux. Existing architecture coverage is retained; there can be more than six archive files. Headless artifacts are named `shellfox-headless-<platform>-<arch>` and desktop artifacts `shellfox-desktop-<platform>-<arch>`. Desktop release asset names stay unchanged for updater compatibility. Headless jobs do not install a display server or download Electron.
+Update as the same user that runs the host, with write access to the installation and its parent. Version directories are created next to the original. Keep them together and don't delete a version a host may still be using. To go back to the original version, stop the host and delete `headless-update.json`.
 
-Local Windows tests do not prove native macOS/Linux execution, reboot startup, signing/notarization, or authenticated two-device Tailscale connectivity. Those remain target-environment acceptance checks.
+## Updating from 0.9
+
+`shellfox update` in a 0.9.15 headless package installs this version like any other release. Nothing else changes for scripts or services:
+
+- The 0.9 launcher and the units, agents and tasks it installed keep working. They start `bin/node app/main.cjs` in the selected version, which is the Rust CLI under that name.
+- If the 0.9 host is still running, `host status` and `host stop --yes` still reach it. `host run` refuses to start next to it. Restart through the startup manager, or stop it and start again.
+- On the first start, the host imports settings, sessions, SSH profiles, device approvals, the remote hostname and the Tailscale node identity from the 0.9 files in the data root, so paired phones keep working without a new login. The 0.9 files are not changed.
+- Running terminals are not carried over. Saved sessions come back without their shells, as after any 0.9 restart.
+
+Rollback works for 30 days: stop the host and delete `headless-update.json`, and the original 0.9 package starts on its untouched data. After 30 days the host deletes the imported 0.9 files (`manager.sqlite3*`, `remote.json`, `ssh-profiles.json`, `tailscale/` and similar). That prevents a 0.9 host and this host from ever running with the same Tailscale identity. Unknown files and the `rust-v1` directory are kept.
+
+Windows ARM64 has no headless archive in this release, so 0.9 installations there stay on 0.9.15.
+
+## Ownership and closing
+
+One process owns a data directory at a time, through an OS lock. A desktop opened on a data directory a headless host already owns attaches as a client, and closing it leaves the host running. `host stop --yes` stops the owning host and its terminals, including a desktop-owned host. A restarted host does not restore running processes.
+
+## Building the package
+
+The release workflow builds the archive next to the desktop installers with `node scripts/package-rust.mjs`, then runs `node scripts/package-rust-headless.mjs` to extract and smoke it with no display. The archive is written to `tmp/rust-installers/shellfox-headless-<version>-<platform>-<arch>.{zip,tar.gz}` with a `.sha256` file.
+
+Files only 0.9 needs are `bin/node(.exe)` (a copy of `bin/shellfox-cli`), `runtime.json`, `app/` and `util/`. The 0.9 updater refuses archives without them, and a 0.9 installation re-checks them on every start. They can be dropped once 0.9 installations no longer need to update.
