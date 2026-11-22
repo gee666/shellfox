@@ -243,6 +243,7 @@ fn run_graphics(
             cx.set_global(app_errors);
             cx.set_global(device_prefs::DevicePrefs(device_colors));
             cx.set_global(editors);
+            layout_shortcuts::bind_keys(cx);
             if let Some(chrome) = chrome { chrome.install(cx); }
             if let Some(updater) = updater {
                 cx.set_global(update_view::Updates(updater));

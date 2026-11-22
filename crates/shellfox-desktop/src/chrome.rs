@@ -87,8 +87,10 @@ impl Render for Root {
             .text_color(palette.foreground)
             .font_family(crate::ui_font::family())
             .text_size(px(13.))
-            .capture_key_down(cx.listener(Self::layout_key_down))
-            .capture_key_up(cx.listener(Self::layout_key_up))
+            .key_context(self.layout_key_context(cx))
+            .on_action(cx.listener(Self::on_toggle_sessions))
+            .on_action(cx.listener(Self::on_toggle_files))
+            .on_action(cx.listener(Self::on_toggle_folders))
             .child(motion);
         let body = if self.files.as_ref().is_some_and(|files| files.visible && files.maximized) {
             self.files_panel(palette, window, cx)

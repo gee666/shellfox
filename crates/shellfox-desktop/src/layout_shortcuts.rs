@@ -1,67 +1,43 @@
+//! Sidebar and Files shortcuts as GPUI actions. The workspace offers the
+//! `LayoutShortcuts` key context only while no dialog, menu or IME
+//! composition owns the keyboard, so blocked keystrokes reach that owner.
 use crate::{editor_composition::EditorOutcome, root::Root};
-use gpui::{Context, KeyDownEvent, KeyUpEvent, Keystroke, Window};
+use gpui::{App, Context, KeyBinding, KeyContext, Window, actions};
 
-#[derive(Debug, PartialEq, Eq)]
-enum LayoutShortcut {
-    Sessions,
-    Files,
-    Folders,
+actions!(shellfox_layout, [ToggleSessions, ToggleFiles, ToggleFolders]);
+
+const CONTEXT: &str = "LayoutShortcuts";
+
+/// `secondary` is Cmd on macOS and Ctrl elsewhere.
+pub(crate) fn bind_keys(cx: &mut App) {
+    cx.bind_keys(bindings());
 }
 
-fn shortcut(stroke: &Keystroke, mac: bool) -> Option<LayoutShortcut> {
-    let m = stroke.modifiers;
-    if m.alt
-        || if mac {
-            !m.platform || m.control
-        } else {
-            !m.control || m.platform
-        }
-    {
-        return None;
-    }
-    match (stroke.key.as_str(), m.shift) {
-        ("b", false) => Some(LayoutShortcut::Sessions),
-        ("b", true) => Some(LayoutShortcut::Files),
-        ("e", true) => Some(LayoutShortcut::Folders),
-        _ => None,
-    }
-}
-
-fn key_bit(key: &str) -> u8 {
-    match key {
-        "b" => 1,
-        "e" => 2,
-        _ => 0,
-    }
+fn bindings() -> [KeyBinding; 3] {
+    [
+        KeyBinding::new("secondary-b", ToggleSessions, Some(CONTEXT)),
+        KeyBinding::new("secondary-shift-b", ToggleFiles, Some(CONTEXT)),
+        KeyBinding::new("secondary-shift-e", ToggleFolders, Some(CONTEXT)),
+    ]
 }
 
 impl Root {
-    pub(crate) fn layout_key_down(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let bit = key_bit(&event.keystroke.key);
-        if bit == 0 {
-            return;
+    pub(crate) fn layout_key_context(&self, cx: &App) -> KeyContext {
+        let mut context = KeyContext::default();
+        context.add("Shellfox");
+        if !self.layout_shortcuts_blocked(cx) {
+            context.add(CONTEXT);
         }
-        if event.is_held {
-            if self.layout_keys & bit != 0 {
-                cx.stop_propagation();
-            }
-            return;
-        }
-        self.layout_keys &= !bit;
-        let Some(action) = shortcut(&event.keystroke, cfg!(target_os = "macos")) else {
-            return;
-        };
+        context
+    }
+
+    fn layout_shortcuts_blocked(&self, cx: &App) -> bool {
         let dialog_blocks = match &self.dialog {
             Some(crate::root::Dialog::RenameTab { title, .. }) => title.read(cx).is_composing(),
             None => false,
             Some(_) => true,
         };
-        if self.closing_window
+        self.closing_window
             || dialog_blocks
             || self.session_menu.is_some()
             || self.sidebar_ui.menu_open()
@@ -86,40 +62,47 @@ impl Root {
                 let view = view.read(cx);
                 view.link_menu_open() || !view.preedit.is_empty()
             })
-        {
+    }
+
+    pub(crate) fn on_toggle_sessions(
+        &mut self,
+        _: &ToggleSessions,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.toggle_sessions_layout(window, cx);
+    }
+
+    pub(crate) fn on_toggle_files(
+        &mut self,
+        _: &ToggleFiles,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings || !self.files_shortcut_available(cx) {
+            cx.propagate();
             return;
         }
-        match action {
-            LayoutShortcut::Sessions => self.toggle_sessions_layout(window, cx),
-            LayoutShortcut::Files if !self.settings && self.files_shortcut_available(cx) => {
-                self.toggle_files_layout(window, cx);
-            }
-            LayoutShortcut::Folders
-                if !self.settings
-                    && self.files_shortcut_available(cx)
-                    && self.files.as_ref().is_some_and(|files| files.visible)
-                    && self.files_source_current() =>
-            {
-                self.toggle_file_browser(window, cx)
-            }
-            _ => return,
-        }
-        self.layout_keys |= bit;
-        cx.stop_propagation();
+        self.toggle_files_layout(window, cx);
         cx.notify();
     }
 
-    pub(crate) fn layout_key_up(
+    pub(crate) fn on_toggle_folders(
         &mut self,
-        event: &KeyUpEvent,
-        _: &mut Window,
+        _: &ToggleFolders,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let bit = key_bit(&event.keystroke.key);
-        if self.layout_keys & bit != 0 {
-            self.layout_keys &= !bit;
-            cx.stop_propagation();
+        if self.settings
+            || !self.files_shortcut_available(cx)
+            || self.files.as_ref().is_none_or(|files| !files.visible)
+            || !self.files_source_current()
+        {
+            cx.propagate();
+            return;
         }
+        self.toggle_file_browser(window, cx);
+        cx.notify();
     }
 
     pub(crate) fn toggle_sessions_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -161,7 +144,7 @@ impl Root {
         })
     }
 
-    fn files_shortcut_available(&self, cx: &gpui::App) -> bool {
+    fn files_shortcut_available(&self, cx: &App) -> bool {
         if self.is_local_source() {
             return matches!(
                 cx.try_global::<EditorOutcome>(),
@@ -175,24 +158,24 @@ impl Root {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use LayoutShortcut::*;
+    use gpui::{Action, Keystroke};
 
     #[test]
-    fn layout_modifiers_and_actions_match_electron() {
-        for (key, desktop, mac) in [
-            ("ctrl-b", Some(Sessions), None),
-            ("cmd-b", None, Some(Sessions)),
-            ("ctrl-shift-b", Some(Files), None),
-            ("cmd-shift-b", None, Some(Files)),
-            ("ctrl-shift-e", Some(Folders), None),
-            ("cmd-shift-e", None, Some(Folders)),
-            ("ctrl-e", None, None),
-            ("ctrl-alt-b", None, None),
-            ("cmd-ctrl-b", None, None),
-        ] {
-            let stroke = Keystroke::parse(key).unwrap();
-            assert_eq!(shortcut(&stroke, false), desktop, "{key}");
-            assert_eq!(shortcut(&stroke, true), mac, "{key}");
+    fn bindings_use_ctrl_or_cmd_and_only_the_exact_chords() {
+        let primary = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+        let expected: [(&str, &dyn Action); 3] = [
+            ("b", &ToggleSessions),
+            ("shift-b", &ToggleFiles),
+            ("shift-e", &ToggleFolders),
+        ];
+        for (binding, (chord, action)) in bindings().iter().zip(expected) {
+            let stroke = Keystroke::parse(&format!("{primary}-{chord}")).unwrap();
+            assert_eq!(binding.match_keystrokes(&[stroke]), Some(false), "{chord}");
+            assert!(binding.action().partial_eq(action), "{chord}");
+            for extra in ["alt", if primary == "cmd" { "ctrl" } else { "cmd" }] {
+                let stroke = Keystroke::parse(&format!("{extra}-{primary}-{chord}")).unwrap();
+                assert_eq!(binding.match_keystrokes(&[stroke]), None, "{extra}-{chord}");
+            }
         }
     }
 }
