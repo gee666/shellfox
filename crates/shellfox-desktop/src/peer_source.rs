@@ -202,9 +202,8 @@ impl PeerSources {
         if session.is_none() || restoring && !valid_tab {
             state.selected_session = None;
             state.selected_tab = None;
-        } else if !valid_tab {
-            state.selected_tab = None;
-        } else if restoring && state.selected_tab.is_none() {
+        } else if !valid_tab || restoring && state.selected_tab.is_none() {
+            // A vanished tab hands the view to the first live one, as on local.
             state.selected_tab = session
                 .and_then(|session| session.tabs.iter().find(|tab| viewable_tab(tab)))
                 .map(|tab| tab.id);

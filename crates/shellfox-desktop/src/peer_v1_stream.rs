@@ -9,7 +9,24 @@ impl Root {
         self.peer_ui.v1_activity.get(&(peer.clone(), tab)).copied()
     }
 
-    pub(super) fn open_v1_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// The selected peer tab has no view and its last open didn't fail.
+    pub(crate) fn peer_attach_due(&self) -> bool {
+        if self.is_local_source() || self.peer_ui.frozen || self.closing_window || self.host.is_none() {
+            return false;
+        }
+        let Some((peer, state)) = self.peers.selected_peer() else {
+            return false;
+        };
+        let Some(tab) = state.selected_tab else {
+            return false;
+        };
+        let key = (peer.clone(), tab);
+        state.phase == source::Phase::Connected
+            && !self.peer_ui.v1_views.contains_key(&key)
+            && self.peer_ui.v1_failed.as_ref() != Some(&key)
+    }
+
+    pub(crate) fn open_v1_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.peer_ui.frozen || self.closing_window {
             return;
         }
@@ -70,7 +87,10 @@ impl Root {
                 self.peer_ui.v1_views.insert(key, view);
                 self.apply_terminal_preferences(window, cx);
             }
-            Err(error) => self.error = Some(error.to_string()),
+            Err(error) => {
+                self.error = Some(error.to_string());
+                self.peer_ui.v1_failed = Some(key);
+            }
         }
         cx.notify();
     }

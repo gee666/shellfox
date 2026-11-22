@@ -31,6 +31,8 @@ mod pairing;
 #[derive(Default)]
 pub(crate) struct PeerUi {
     pub(crate) v1_views: HashMap<(AuthenticatedPeerId, m::Id), Entity<crate::app::TerminalView>>,
+    /// Last view that failed to open; the render hook skips it until Reconnect.
+    pub(crate) v1_failed: Option<(AuthenticatedPeerId, m::Id)>,
     v1_streams: HashMap<AuthenticatedPeerId, gpui::Task<()>>,
     v1_activity: HashMap<(AuthenticatedPeerId, m::Id), bool>,
     metadata_polls: HashMap<AuthenticatedPeerId, Option<std::time::Instant>>,

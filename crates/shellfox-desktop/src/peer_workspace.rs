@@ -23,6 +23,7 @@ impl Root {
         Ok((cycle, api))
     }
     pub(crate) fn ensure_peer_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.peer_ui.v1_failed = None;
         self.open_v1_terminal(window, cx);
     }
 
@@ -94,8 +95,18 @@ impl Root {
             pane = pane.child(div().h(px(30.)).flex().justify_end().border_b_1().border_color(palette.border)
                 .child(self.render_files_toggle(true, palette, cx)));
         }
-        if let Some(view) = visible_selected.and_then(|tab| self.peer_ui.v1_views.get(&(peer.clone(), tab))) {
-            pane = pane.child(view.clone());
+        if let Some(tab) = visible_selected {
+            let key = (peer.clone(), tab);
+            if let Some(view) = self.peer_ui.v1_views.get(&key) {
+                pane = pane.child(view.clone());
+            } else if self.peer_ui.v1_failed.as_ref() == Some(&key) {
+                pane = pane.child(div().flex_1().flex().items_start().justify_end().p(px(8.)).child(
+                    button("peer-retry-terminal", "Reconnect terminal", palette)
+                        .on_click(cx.listener(|root, _, window, cx| root.ensure_peer_terminal(window, cx))),
+                ));
+            } else {
+                pane = pane.child(crate::renderer::terminal_loading(palette.accent));
+            }
         }
         self.with_peer_files(pane, palette, window, cx)
     }
