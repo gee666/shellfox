@@ -40,16 +40,29 @@ pub fn serve(args: Args, runtime: &tokio::runtime::Runtime, ready: impl Fn()) ->
             "Headless host execution panicked; original cleanup retained."
         )))
     });
-    while !clean.get() {
-        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    const CLEANUP_ATTEMPTS: u32 = 5;
+    for attempt in 1..=CLEANUP_ATTEMPTS {
+        if clean.get() {
+            return result.map(|()| 0);
+        }
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             runtime.block_on(bootstrap.cleanup(&report));
         }))
-        .is_err()
-        {
+        .is_err();
+        if panicked && attempt < CLEANUP_ATTEMPTS {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
     }
-    result.map(|()| 0)
+    if clean.get() {
+        return result.map(|()| 0);
+    }
+    let cleanup = anyhow::anyhow!(
+        "Host cleanup did not finish after {CLEANUP_ATTEMPTS} attempts; the next host run retries it."
+    );
+    Err(match result {
+        Err(error) => error.context(cleanup),
+        Ok(()) => cleanup,
+    })
 }
 
 pub async fn run(args: Args) -> Result<i32> {
