@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releaseVersion } from './release-version.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const androidBuildToolsVersion = '36.0.0';
@@ -25,13 +26,10 @@ export function verifyApkSigner(output, expectedCertificate) {
   throw new Error(`APK signing certificate verification failed: parsed signers=${certs.length}; reported SHA-256=${reported.join(',') || 'none'}.`);
 }
 
+/** Android versionName/versionCode and the numeric iOS marketing version. */
 export function mobileVersion(version) {
-  if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw new Error('Expected a stable mobile version.');
-  const parts = version.split('.').map(Number);
-  if (parts.some(value => value > 999)) throw new Error('Mobile version components must be between 0 and 999.');
-  const code = parts[0] * 1_000_000 + parts[1] * 1000 + parts[2];
-  if (!code) throw new Error('Mobile versionCode must be positive.');
-  return { name: version, code };
+  const release = releaseVersion(version);
+  return { name: release.version, code: release.code, marketing: release.core };
 }
 
 export function signingEnvironment(environment, keystore) {

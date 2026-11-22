@@ -15,13 +15,16 @@ react {
 
 // Root package.json is the release version authority, including direct Gradle builds.
 def manifest = new groovy.json.JsonSlurper().parse(file("../../../package.json"))
-def versionParts = manifest.version.tokenize('.').collect { it.toInteger() }
-if (!(manifest.version ==~ /(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)/) ||
-    versionParts.size() != 3 || versionParts.any { it < 0 || it > 999 }) {
-    throw new GradleException("Mobile versions must have three stable components between 0 and 999.")
-}
-def releaseCode = versionParts[0] * 1000000 + versionParts[1] * 1000 + versionParts[2]
-if (releaseCode < 1) throw new GradleException("Mobile versionCode must be positive.")
+// Same mapping as scripts/release-version.mjs; scripts/mobile-build.mjs checks the APK.
+def versionMatch = manifest.version =~ /^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})(?:-(alpha|beta|rc)\.([1-9][0-9]?))?$/
+if (!versionMatch.matches()) throw new GradleException("Unsupported release version: ${manifest.version}")
+def versionParts = (1..3).collect { versionMatch.group(it).toInteger() }
+def testBuild = versionMatch.group(5)?.toInteger()
+if (testBuild != null && testBuild > 32) throw new GradleException("Unsupported release version: ${manifest.version}")
+def releaseBuild = testBuild == null ? 99 : [alpha: 0, beta: 32, rc: 64][versionMatch.group(4)] + testBuild
+def releaseCode = (versionParts[0] * 1000000L + versionParts[1] * 1000 + versionParts[2]) * 100 + releaseBuild
+if (releaseCode > 2100000000L) throw new GradleException("Mobile versionCode is out of range: ${manifest.version}")
+releaseCode = releaseCode as int
 def signingKeys = ['STORE_FILE', 'STORE_PASSWORD', 'KEY_ALIAS', 'KEY_PASSWORD']
 def upload = signingKeys.collectEntries { [(it): providers.gradleProperty("SHELLFOX_UPLOAD_${it}").orNull] }
 def hasUploadSigning = upload.values().every { it != null && !it.isEmpty() }

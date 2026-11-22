@@ -44,11 +44,12 @@ describe('mobile release contract', () => {
     assert.throws(() => verifyApkSigner(newerSDK, certificate), new RegExp(`parsed signers=0; reported SHA-256=${certificate}`));
     assert.throws(() => verifyApkSigner('', certificate), /parsed signers=0; reported SHA-256=none/);
   });
-  it('maps stable versions to monotonically increasing Android version codes', () => {
-    assert.deepEqual(mobileVersion('0.8.0'), { name: '0.8.0', code: 8000 });
-    assert.ok(mobileVersion('1.0.0').code > mobileVersion('0.999.999').code);
-    assert.ok(mobileVersion('0.10.0').code > mobileVersion('0.9.999').code);
-    for (const value of ['0.0.0', 'v0.8.0', '0.8.0-beta', '0.8.0+1', '00.8.0', '1000.0.0', '0.1000.0', '0.0.1000', null]) {
+  it('maps releases and test builds to increasing Android version codes', () => {
+    assert.deepEqual(mobileVersion('0.10.0-beta.1'), { name: '0.10.0-beta.1', code: 1000033, marketing: '0.10.0' });
+    // 9015 is the versionCode Electron-era 0.9.15 APKs shipped with.
+    const codes = ['0.10.0-beta.1', '0.10.0-beta.2', '0.10.0', '0.10.1', '1.0.0'].map(value => mobileVersion(value).code);
+    assert.ok([9015, ...codes].every((code, i, all) => i === 0 || code > all[i - 1]), String(codes));
+    for (const value of ['v0.8.0', '0.8.0-beta', '0.8.0+1', '00.8.0', '1000.0.0', '0.1000.0', '0.0.1000', null]) {
       assert.throws(() => mobileVersion(value));
     }
   });
@@ -94,7 +95,7 @@ describe('mobile release contract', () => {
     const project = readFileSync('mobile/ios/ShellfoxMobile.xcodeproj/project.pbxproj', 'utf8');
     const names = [...project.matchAll(/MARKETING_VERSION = ([^;]+);/g)].map(match => match[1]);
     const codes = [...project.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map(match => Number(match[1]));
-    assert.deepEqual(names, [expected.name, expected.name]);
+    assert.deepEqual(names, [expected.marketing, expected.marketing]);
     assert.deepEqual(codes, [expected.code, expected.code]);
   });
   it('installs browser prerequisites before the mobile and Electron unit suites', () => {
