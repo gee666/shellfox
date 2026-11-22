@@ -9,7 +9,6 @@ use std::{
 
 mod colors;
 mod input;
-pub use input::XtermInputMode;
 mod interaction;
 mod key;
 mod metadata;

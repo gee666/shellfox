@@ -4,7 +4,6 @@ mod colors;
 mod input;
 mod input_v2;
 pub mod key;
-mod xterm_keys;
 pub use colors::TerminalColors;
 mod metadata;
 mod mouse;

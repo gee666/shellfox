@@ -15,7 +15,6 @@ unsafe extern "C" {
         cap: usize,
         len: *mut usize,
     ) -> i32;
-    fn sf_xterm_input_mode(vt: *mut c_void, mode: u8, out: *mut u8) -> i32;
     fn sf_paste(
         vt: *mut c_void,
         text: *mut u8,
@@ -43,14 +42,6 @@ fn encoded_output(mut call: impl FnMut(*mut u8, usize, &mut usize) -> i32) -> Re
     Ok(out)
 }
 
-#[derive(Clone, Copy)]
-#[repr(u8)]
-pub enum XtermInputMode {
-    ApplicationCursorKeys = 0,
-    BracketedPaste = 1,
-    FocusReporting = 2,
-}
-
 impl Engine {
     /// Encodes with the terminal's live modes: DECCKM, keypad, kitty flags,
     /// modifyOtherKeys and alt-esc-prefix.
@@ -76,13 +67,6 @@ impl Engine {
                 )
             }
         })
-    }
-    pub fn xterm_input_mode(&self, mode: XtermInputMode) -> Result<bool> {
-        self.status()?;
-        let mut enabled = 0;
-        // SAFETY: the mode query borrows the live terminal and one writable byte.
-        unsafe { check(sf_xterm_input_mode(self.ptr.as_ptr(), mode as u8, &mut enabled))? };
-        Ok(enabled != 0)
     }
     /// User paste framed per mode 2004. Multi-line text is never refused.
     pub fn encode_paste(&mut self, text: &str) -> Result<Vec<u8>> {
