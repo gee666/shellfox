@@ -25,7 +25,6 @@ pub struct Options {
     pub device_config_root: PathBuf,
     pub run_dir: PathBuf,
     pub endpoint: Option<crate::host_client::HostEndpointConfig>,
-    pub application: app_composition::NativeApplicationConfig,
     /// Raw application flags, forwarded to the host process.
     pub application_args: Vec<OsString>,
     /// Persistent flags, without launch intents, for a UI relaunched by its host.
@@ -232,6 +231,7 @@ impl Options {
             (None, None) => None,
             _ => bail!("--helper and --helper-sha256 must be supplied together"),
         };
+        // Validated here so a bad flag fails before a host is started.
         let application = application.finish(&root)?;
         application.validate_separate(&[&desktop, &device_config_root])?;
         Ok(Self {
@@ -244,7 +244,6 @@ impl Options {
             device_config_root,
             run_dir,
             endpoint,
-            application,
             application_args,
             relaunch_args,
             owned_host,
