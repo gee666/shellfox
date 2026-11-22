@@ -20,6 +20,14 @@ impl SystemNativeGuard {
         }
         Ok(())
     }
+    /// Checks ownership before and after the provider call. A loss after the
+    /// call can't undo an accepted OS write, so the error never implies rollback.
+    fn run<T>(&self, operation: impl FnOnce() -> SystemResult<T>) -> SystemResult<T> {
+        self.check()?;
+        let result = operation();
+        self.check()?;
+        result
+    }
 }
 pub(super) struct GuardedSystemFiles {
     pub inner: Arc<dyn SystemFiles>,
@@ -27,28 +35,16 @@ pub(super) struct GuardedSystemFiles {
 }
 impl SystemFiles for GuardedSystemFiles {
     fn read(&self, path: &Path) -> SystemResult<Option<SystemFile>> {
-        self.guard.check()?;
-        let result = self.inner.read(path);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.read(path))
     }
     fn directory(&self, path: &Path) -> SystemResult<bool> {
-        self.guard.check()?;
-        let result = self.inner.directory(path);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.directory(path))
     }
     fn program(&self, path: &Path) -> SystemResult<bool> {
-        self.guard.check()?;
-        let result = self.inner.program(path);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.program(path))
     }
     fn canonical_directory(&self, path: &Path) -> SystemResult<PathBuf> {
-        self.guard.check()?;
-        let result = self.inner.canonical_directory(path);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.canonical_directory(path))
     }
     fn replace(
         &self,
@@ -57,12 +53,7 @@ impl SystemFiles for GuardedSystemFiles {
         bytes: Option<&[u8]>,
         executable: bool,
     ) -> SystemResult<()> {
-        // Checks between every actual provider write. A cancellation cannot undo
-        // an already accepted OS write, so errors never imply rollback/retry.
-        self.guard.check()?;
-        let result = self.inner.replace(path, expected, bytes, executable);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.replace(path, expected, bytes, executable))
     }
 }
 pub(super) struct GuardedSystemRegistry {
@@ -71,10 +62,7 @@ pub(super) struct GuardedSystemRegistry {
 }
 impl SystemRegistry for GuardedSystemRegistry {
     fn read(&self, slot: RegistrySlot) -> SystemResult<RegistryState> {
-        self.guard.check()?;
-        let result = self.inner.read(slot);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.read(slot))
     }
     fn compare_replace(
         &self,
@@ -82,10 +70,7 @@ impl SystemRegistry for GuardedSystemRegistry {
         expected: &RegistryState,
         desired: Option<&RegistryState>,
     ) -> SystemResult<()> {
-        self.guard.check()?;
-        let result = self.inner.compare_replace(slot, expected, desired);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.compare_replace(slot, expected, desired))
     }
 }
 pub(super) struct GuardedSystemResources {
@@ -94,21 +79,12 @@ pub(super) struct GuardedSystemResources {
 }
 impl SystemInstallResources for GuardedSystemResources {
     fn cli_plan(&self, scope: SystemScope) -> SystemResult<CliInstallPlan> {
-        self.guard.check()?;
-        let result = self.inner.cli_plan(scope);
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.cli_plan(scope))
     }
     fn desktop_launch(&self) -> SystemResult<DesktopLaunch> {
-        self.guard.check()?;
-        let result = self.inner.desktop_launch();
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.desktop_launch())
     }
     fn validate_current(&self) -> SystemResult<()> {
-        self.guard.check()?;
-        let result = self.inner.validate_current();
-        self.guard.check()?;
-        result
+        self.guard.run(|| self.inner.validate_current())
     }
 }
