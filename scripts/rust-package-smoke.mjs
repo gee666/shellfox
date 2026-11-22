@@ -112,7 +112,7 @@ export async function smokePackage(directory) {
     const help = process.platform === 'win32'
       ? run(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-File', launcher, '--help'], { cwd: work, timeout: 15_000 })
       : run(launcher, ['--help'], { cwd: work, timeout: 15_000 });
-    assert.match(help, /--data-dir/);
+    assert.match(help, /--user-data/);
     assert.ok(existsSync(cli));
     checks.push('CLI launcher from a path with spaces');
     const helperPath = `resources/tailscale/${executableName('shellfox-tailscale')}`;

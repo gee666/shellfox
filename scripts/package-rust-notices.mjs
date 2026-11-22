@@ -3,9 +3,9 @@ import path from 'node:path';
 import { auditDependencies } from './rust-package-audit.mjs';
 import { filesUnder } from './rust-package-common.mjs';
 
-export function packageNotices(resources, target) {
+export function packageNotices(resources, target, packages = ['shellfox-desktop', 'shellfox-cli']) {
   const output = path.join(resources, 'THIRD-PARTY-NOTICES.txt');
-  const audit = auditDependencies({ packages: ['shellfox-desktop', 'shellfox-cli'], target, output: resources,
+  const audit = auditDependencies({ packages, target, output: resources,
     strict: true, allowStandardTexts: true });
   const sections = [readFileSync(output, 'utf8')];
   const seen = new Map();
