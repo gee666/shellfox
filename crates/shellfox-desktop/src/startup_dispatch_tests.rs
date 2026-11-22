@@ -1,15 +1,13 @@
 #[test]
-fn privileged_discriminators_precede_normal_args_prestart_and_graphics() {
-    let source = include_str!("main.rs");
-    let dispatch = source
-        .find("shellfox_service::dispatch_supervisor_entry()")
-        .unwrap();
-    let options = source.find("Options::parse(arguments)").unwrap();
-    let prestart = source.find("app_startup::prepare(&options)").unwrap();
-    assert!(dispatch < options && options < prestart);
-    assert!(source.contains("i32::from_ne_bytes(code.to_ne_bytes())"));
-    assert!(
-        !source.contains("shellfox_terminal::supervisor_entry()"),
-        "mode policy belongs only to shared dispatcher"
-    );
+fn shells_are_supervised_by_the_console_cli_not_this_gui_binary() {
+    // A windows-subsystem process inside ConPTY is not attached to the pseudoconsole.
+    let main = include_str!("main.rs");
+    assert!(main.contains("windows_subsystem = \"windows\""));
+    assert!(!main.contains("dispatch_supervisor_entry"));
+    assert!(!main.contains("supervisor_entry()"));
+    assert!(include_str!("smoke.rs").contains("host_process::cli_path()"));
+    let squirrel = main.find("squirrel::handle(event)").unwrap();
+    let options = main.find("Options::parse(arguments)").unwrap();
+    let startup = main.find("app_startup::prepare(&options)").unwrap();
+    assert!(squirrel < options && options < startup);
 }
