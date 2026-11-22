@@ -1,7 +1,6 @@
 use super::*;
 use std::io::Write;
 impl OwnedPrivatePublication {
-    #[cfg(test)]
     pub fn write_all(&mut self, bytes: &[u8]) -> Result<()> {
         self.write_checked(bytes, || Ok(()))
     }

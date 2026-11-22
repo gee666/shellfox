@@ -192,7 +192,6 @@ impl OwnedPrivatePublication {
     pub fn durability_error(&self) -> Option<&FileError> {
         self.durability_error.as_ref()
     }
-    #[cfg(test)]
     pub fn publish(&mut self) -> PrivatePublishOutcome {
         self.publish_checked(|| Ok(()))
     }

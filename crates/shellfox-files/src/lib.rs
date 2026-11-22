@@ -51,9 +51,9 @@ pub use private_creation::{create_app_directory_at, open_app_directory_at};
 pub use private_creation::{create_private_directory_at, repair_app_directory_at,
     open_existing_private_at, CreatedPrivate, VerifiedPrivate, PrivateKind, PrivateAccess,PrivateCleanupState,PreparedPrivateDirectoryRef,
     bounded_private_read_at,PrivateRead,PrivatePublicationPhase,PrivatePublishOutcome,
-    PrivateDurability,PrivateCleanupDisposition};
-pub(crate) use private_creation::{create_private_file_at, PrivateFileUse, PrivateVersion,
-    prepare_private_publication_at, OwnedPrivatePublication, PublishedPrivate};
+    PrivateDurability,PrivateCleanupDisposition,PrivateVersion,PRIVATE_METADATA_MAX_BYTES,
+    prepare_private_publication_at,OwnedPrivatePublication,PrivatePreparationFailure};
+pub(crate) use private_creation::{create_private_file_at, PrivateFileUse, PublishedPrivate};
 pub use handle_identity::HandleIdentity;
 mod read_result;
 mod service;
