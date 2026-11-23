@@ -13,8 +13,18 @@ pub(super) fn committed() -> ShutdownOutcome {
         presentation: crate::PresentationShutdownState::NoKnownFailure,
     }
 }
+/// Retries cleanup for up to 30 s. After that the process exits instead of
+/// reporting a confirmed shutdown; the OS then closes the lifetime socket, so
+/// clients see the host as lost.
 pub(super) fn finish(service: Service) -> ShutdownOutcome {
-    finish_with(service, |_, _| {
+    const ATTEMPTS: usize = 300;
+    let mut attempts = 0;
+    finish_with(service, |_, error| {
+        attempts += 1;
+        if attempts >= ATTEMPTS {
+            eprintln!("Service cleanup could not be confirmed after 30 s: {error}. Exiting.");
+            std::process::exit(1);
+        }
         std::thread::sleep(Duration::from_millis(100))
     })
 }
