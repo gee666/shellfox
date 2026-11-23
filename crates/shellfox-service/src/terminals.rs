@@ -106,7 +106,7 @@ impl Service {
         tab: TabId,
         controller: u64,
         takeover: bool,
-    ) -> Result<crate::grant_requests::ControllerGrantOffer> {
+    ) -> Result<crate::grant::requests::ControllerGrantOffer> {
         self.attach_with_policy(tab, controller, takeover, false)
     }
     fn attach_with_policy(
@@ -115,7 +115,7 @@ impl Service {
         controller: u64,
         takeover: bool,
         legacy_detached_takeover: bool,
-    ) -> Result<crate::grant_requests::ControllerGrantOffer> {
+    ) -> Result<crate::grant::requests::ControllerGrantOffer> {
         if controller == 0 {
             bail!("Controller must not be zero.");
         }

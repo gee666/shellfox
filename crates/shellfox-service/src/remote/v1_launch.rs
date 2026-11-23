@@ -54,7 +54,7 @@ impl RemoteService<'_> {
                 .service
                 .terminals
                 .values()
-                .map(|t| crate::facts_capture::terminal(self.service, t))
+                .map(|t| crate::facts::capture::terminal(self.service, t))
                 .collect(),
             creation_facts: self
                 .service
@@ -66,7 +66,7 @@ impl RemoteService<'_> {
             cancelled: self.service.ownership_lost.clone(),
         };
         let projected =
-            crate::facts_projection::project_session_facts_visible(&facts, Some(id), &private)?;
+            crate::facts::projection::project_session_facts_visible(&facts, Some(id), &private)?;
         let session = facts
             .snapshot
             .sessions
@@ -148,7 +148,7 @@ impl RemoteService<'_> {
             .iter()
             .find(|s| s.id == input.session_id)
             .ok_or_else(missing)?;
-        if session.tabs.iter().any(crate::automation_replay::is_automation_tab) {
+        if session.tabs.iter().any(crate::automation::replay::is_automation_tab) {
             return Err(failure(ErrorCode::Unsupported, "Automation views cannot open shell tabs."));
         }
         let profile = match input.profile_id {
@@ -196,7 +196,7 @@ impl RemoteService<'_> {
             .tabs
             .iter()
             .find(|t| t.state != TabState::Archived && !private.contains(&t.id)
-                && !crate::automation_replay::is_automation_tab(t))
+                && !crate::automation::replay::is_automation_tab(t))
         {
             self.start_remote_tab(tab)?;
         }

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    grant_requests::GrantFailure,
+    grant::requests::GrantFailure,
     terminals::Attachment,
 };
 use shellfox_core::{Generation, TabId, TabState};
@@ -45,7 +45,7 @@ impl RemoteService<'_> {
             return Err(lost());
         }
         if runtime.is_some_and(|t| t.runtime.source_kind() == SourceKind::ExternalBytes)
-            || crate::automation_replay::is_automation_tab(saved)
+            || crate::automation::replay::is_automation_tab(saved)
         {
             if takeover {
                 return Err(super::v1_replay::read_only());

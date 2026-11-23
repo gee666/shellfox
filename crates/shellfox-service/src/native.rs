@@ -1,6 +1,8 @@
 //! The owner's typed desktop actions and replies. Desktop windows reach them
 //! through the local API (local_desktop.rs). Not a mobile or network wire
 //! protocol, and no GPUI.
+pub(crate) mod catalog;
+pub(crate) mod endpoint_report;
 mod cache;
 mod commands;
 mod dispatch;

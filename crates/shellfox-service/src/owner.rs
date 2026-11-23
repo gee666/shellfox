@@ -1,5 +1,6 @@
 //! One service owner thread. Async permissions, loss supervision and deadlines
 //! remain runnable while a PTY startup or confirmed cleanup is waiting.
+pub(crate) mod wait;
 use crate::{
     experiment::{ExperimentRequest, ExperimentResponse},
     OwnerDispatcher, Service,
@@ -224,7 +225,7 @@ impl ServiceOwner {
                                     }
                                 };
                             if let crate::native::NativeAction::Power(request) = *action {
-                                service.request_power(request, cancel, crate::power_service::PowerReply::Native(reply));
+                                service.request_power(request, cancel, crate::power::service::PowerReply::Native(reply));
                                 continue;
                             }
                             if matches!(*action, crate::native::NativeAction::TabStats) {

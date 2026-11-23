@@ -35,6 +35,6 @@ async fn facts_getter_returns_the_same_actual_owner_channel_and_invalidates_on_s
 
 #[test]
 fn source_channel_is_pending_before_any_owner_capture() {
-    let activity = crate::service_activity::ServiceActivity::new().unwrap();
+    let activity = crate::activity::service::ServiceActivity::new().unwrap();
     assert!(read_source(&activity.watch).is_none());
 }

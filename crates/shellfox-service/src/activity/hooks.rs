@@ -246,9 +246,9 @@ impl Service {
             .terminals
             .values()
             .filter(|terminal| {
-                crate::facts_membership::contains(&snapshot, terminal.runtime.identity())
+                crate::facts::membership::contains(&snapshot, terminal.runtime.identity())
             })
-            .map(|terminal| crate::facts_capture::terminal(self, terminal))
+            .map(|terminal| crate::facts::capture::terminal(self, terminal))
             .collect();
         #[cfg(windows)]
         self.activity.publisher.set_wsl_profiles(self.catalog.wsl.cache.current());
@@ -271,7 +271,7 @@ impl Service {
         let settings = self.host.global_settings()?;
         for terminal in self.terminals.values_mut() {
             let identity = terminal.runtime.identity();
-            if identity.session_id == id && crate::facts_membership::contains(&snapshot, identity)
+            if identity.session_id == id && crate::facts::membership::contains(&snapshot, identity)
                 && terminal.startup.as_ref().is_some_and(Result::is_err) {
                 terminal.startup_error_acknowledged = true;
             }

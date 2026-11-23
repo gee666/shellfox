@@ -122,7 +122,7 @@ impl OwnerClient {
                 .await;
         }
         let (reply, response) = oneshot::channel();
-        let recipient = crate::grant_requests::RecipientCancellation::new();
+        let recipient = crate::grant::requests::RecipientCancellation::new();
         self.submit_private(PrivateTask::Request {
             cancel: recipient.token(),
             request,

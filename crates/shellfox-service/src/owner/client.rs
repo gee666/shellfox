@@ -112,7 +112,7 @@ impl OwnerClient {
         use shellfox_protocol::Validate;
         request.validate()?;
         let (reply, response) = oneshot::channel();
-        let recipient = crate::grant_requests::RecipientCancellation::new();
+        let recipient = crate::grant::requests::RecipientCancellation::new();
         match self.sender.try_send(Task::Execute {
             cancel: recipient.token(),
             request,

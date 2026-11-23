@@ -1,4 +1,5 @@
 //! One in-memory owner of local automation processes. No output/argv/env store.
+pub(crate) mod replay;
 mod launch;
 mod lifecycle;
 mod relay;

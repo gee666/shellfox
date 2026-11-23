@@ -1,5 +1,7 @@
 //! Host-owned keep-awake requests. No request is made until explicitly enabled.
 //! Platform calls can block, so run them on the service's blocking worker.
+pub(crate) mod service;
+pub(crate) mod client;
 use std::{error::Error, fmt};
 #[cfg(test)]
 mod tests;

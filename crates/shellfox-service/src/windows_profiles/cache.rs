@@ -77,7 +77,7 @@ pub(crate) struct WslCatalogWorker {
 impl WslCatalogWorker {
     /// Call once as the authorized owner starts, not from a profile read.
     /// `wake` drops, waking the owner, when discovery finishes.
-    pub(crate) fn start(&mut self, owner: &CancellationToken, wake: crate::owner_wait::WakeOnExit) {
+    pub(crate) fn start(&mut self, owner: &CancellationToken, wake: crate::owner::wait::WakeOnExit) {
         self.start_with(owner, move |worker| {
             let _wake = wake;
             WslProfiles::discover(|| worker.is_cancelled())

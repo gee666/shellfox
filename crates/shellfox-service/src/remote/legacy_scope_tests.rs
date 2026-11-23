@@ -15,7 +15,7 @@ fn legacy_all_elevated_session_metadata_is_authorized_but_private_tab_facts_are_
         wsl_profiles: None,
         cancelled: wire::CancellationToken::new(),
     };
-    let facts=crate::facts_projection::project_session_facts_visible(&source, Some(session), &private).unwrap();
+    let facts=crate::facts::projection::project_session_facts_visible(&source, Some(session), &private).unwrap();
     assert!(facts[&session].tabs.is_empty());
     let mut state=RemoteState::new(ManagerFacts { sessions:facts, ..Default::default() }, Some(wire::TerminalProfiles { profiles:vec![wire::TerminalProfile { id:"admin-only".into(), label:"Administrator".into(), environment:wire::ProfileEnvironment::Local, executable:"C:\\Windows\\System32\\cmd.exe".into(), args:Vec::new(), distro:None, available:true, unavailable_reason:None, can_terminate_descendants:Some(true), elevation:Some(wire::Elevation::Administrator) }], default_profile_id:None, lifetime:wire::TerminalLifetime::AppOwned, shell_survival:false }), None);
     let rename=wire::RenameSession { session_id:session, title:"authorized rename".into() };
@@ -70,7 +70,7 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
         wsl_profiles: None,
         cancelled: wire::CancellationToken::new(),
     };
-    let scoped = crate::facts_projection::project_session_facts_for(&source, Some(normal)).unwrap();
+    let scoped = crate::facts::projection::project_session_facts_for(&source, Some(normal)).unwrap();
     let mut state = RemoteState::new(
         ManagerFacts {
             sessions: scoped,
@@ -150,7 +150,7 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
     state.bind(&mut service).authorize_profiles(&read).unwrap();
     assert!(
         matches!(
-            crate::facts_projection::project_session_facts(&source),
+            crate::facts::projection::project_session_facts(&source),
             Err(AppError {
                 code: ErrorCode::Unsupported,
                 retryable: false,
@@ -159,7 +159,7 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
         ),
         "the strict projection still reports an unsupported row"
     );
-    let catalog = crate::facts_projection::project_legacy_catalog(&source, None, &Default::default()).unwrap();
+    let catalog = crate::facts::projection::project_legacy_catalog(&source, None, &Default::default()).unwrap();
     state.facts.sessions = catalog.sessions;
     state.facts.omitted_sessions = catalog.omitted_sessions;
     let stats = state.bind(&mut service).statistics(wire::GetSessionStats { session_id: None }).unwrap();

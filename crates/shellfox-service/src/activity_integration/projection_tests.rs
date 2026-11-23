@@ -126,11 +126,11 @@ fn targeted_legacy_collection_ignores_unrelated_unknown_birth_but_complete_inven
     let raw_id = raw.id;
     source.snapshot.sessions.push(raw);
     let before = source.snapshot.clone();
-    let facts = crate::facts_projection::project_session_facts_for(&source, Some(normal)).unwrap();
+    let facts = crate::facts::projection::project_session_facts_for(&source, Some(normal)).unwrap();
     assert_eq!(facts.len(), 1);
     assert!(facts.contains_key(&normal));
     assert!(matches!(
-        crate::facts_projection::project_session_facts_for(&source, Some(raw_id)),
+        crate::facts::projection::project_session_facts_for(&source, Some(raw_id)),
         Err(wire::AppError {
             code: wire::ErrorCode::Unsupported,
             retryable: false,

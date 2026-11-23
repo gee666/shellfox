@@ -255,7 +255,7 @@ fn identities(service: &Service, snapshot: &shellfox_core::Snapshot) -> Vec<Runt
     let mut identities: Vec<_> = service
         .terminals
         .values()
-        .filter(|terminal| crate::facts_membership::contains(snapshot, terminal.runtime.identity()))
+        .filter(|terminal| crate::facts::membership::contains(snapshot, terminal.runtime.identity()))
         .map(|terminal| RuntimeFactIdentity {
             identity: terminal.runtime.identity(),
             phase: terminal.runtime.phase(),

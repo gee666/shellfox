@@ -80,7 +80,7 @@ where
         let manager = self.manager.clone();
         let stop = self.stop.clone();
         let (registered, wait_registered) = std::sync::mpsc::sync_channel(1);
-        let wake = crate::owner_wait::WakeOnExit::new(self.wake.clone());
+        let wake = crate::owner::wait::WakeOnExit::new(self.wake.clone());
         let job = std::thread::Builder::new()
             .name("shellfox-power".into())
             .spawn(move || {

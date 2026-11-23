@@ -11,7 +11,7 @@ mod projection_tests;
 mod projector;
 mod source;
 mod startup;
-pub use crate::facts_projection::project_session_facts as project_owned_session_facts;
+pub use crate::facts::projection::project_session_facts as project_owned_session_facts;
 pub use clock::*;
 pub use discovery::{DiscoveredFacts, FactsDiscovery, NativeFactsDiscovery};
 pub use input::*;

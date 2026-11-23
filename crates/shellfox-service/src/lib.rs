@@ -1,7 +1,8 @@
 //! Experimental headless host. No GPUI, display, or production store defaults.
+pub mod facts;
+mod grant;
 pub mod activity;
 mod electron_import;
-mod activity_hooks;
 pub mod activity_integration;
 pub mod app_composition;
 pub mod app_paths;
@@ -10,39 +11,25 @@ mod creation;
 pub mod desktop_launch;
 pub mod desktop_session;
 pub mod experiment;
-mod facts_capture;
-mod facts_membership;
-pub mod facts_projection;
-mod grant_custody;
-mod grant_requests;
-mod grant_retirement;
 mod launch;
 pub mod local;
 pub mod native;
-mod native_activity;
-pub use native_activity::NativeTabActivity;
-mod native_endpoint_report;
+pub use activity::native::NativeTabActivity;
 pub mod native_providers;
-pub use native_endpoint_report::{
+pub use native::endpoint_report::{
     EndpointArtifactDisposition, EndpointPublicationOutcome, NativeEndpointReport,
 };
-mod native_catalog;
-pub use native_catalog::{effective_default_profile, usable_profiles, NativeLaunchCatalog};
+pub use native::catalog::{effective_default_profile, usable_profiles, NativeLaunchCatalog};
 #[cfg(test)]
 use shellfox_test_support::native_metadata as native_metadata_fixture;
 mod owner;
 mod owner_automation;
-mod owner_wait;
-mod automation_replay;
 #[cfg(windows)]
 mod pipe_identity;
 mod platform;
 pub mod power;
-mod power_client;
-mod power_service;
 pub mod remote;
 mod security;
-mod service_activity;
 mod service_open;
 pub mod settings_runtime;
 pub mod ssh;
@@ -74,7 +61,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use activity_hooks::{ActivityShutdownState, ShutdownFailure, ShutdownOutcome};
+pub use activity::hooks::{ActivityShutdownState, ShutdownFailure, ShutdownOutcome};
 pub use native::NativeAdmissionError;
 pub use owner::{ExperimentAccepted, NativeAccepted, OwnerClient, OwnerWake, OwnerWakeSlot};
 pub use owner_automation::{
@@ -109,13 +96,13 @@ pub struct Service {
     isolation: PathBuf,
     supervisor: PathBuf,
     next_request: u64,
-    grants: grant_custody::GrantCustody,
+    grants: grant::custody::GrantCustody,
     grant_recipient: shellfox_protocol::CancellationToken,
     next_viewer_id: u64,
     native: native::NativeState,
-    catalog: native_catalog::NativeCatalogState,
-    power: power_service::ServicePower,
-    activity: service_activity::ServiceActivity,
+    catalog: native::catalog::NativeCatalogState,
+    power: power::service::ServicePower,
+    activity: activity::service::ServiceActivity,
     ownership_lost: shellfox_protocol::CancellationToken,
     stopping: bool,
     metadata_closing: bool,
@@ -123,7 +110,7 @@ pub struct Service {
     ssh_profiles: Option<crate::ssh::Store>,
     system_native_handler: Option<std::sync::Arc<system::SystemNativeHandler>>,
     event_wake: Option<shellfox_runtime::EventWake>,
-    runtime_signal: std::sync::Arc<owner_wait::RuntimeSignal>,
+    runtime_signal: std::sync::Arc<owner::wait::RuntimeSignal>,
     /// The runtime that started the owner, for small async watchers.
     runtime_handle: Option<tokio::runtime::Handle>,
     // Last: Host/SQLite and every deferred resource owner drop before this guard.

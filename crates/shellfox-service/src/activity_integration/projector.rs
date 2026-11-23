@@ -84,7 +84,7 @@ impl NativeSourceFactsProjector {
                 private.extend(source.snapshot.sessions.iter().flat_map(|session| session.tabs.iter()).filter(|tab|
                     discovered.profiles.profiles.iter().any(|profile| profile.id == tab.profile_id.as_str() && profile.elevation.is_some()))
                     .map(|tab| tab.id));
-                crate::facts_projection::project_legacy_catalog(&source, request.target_session, &private)?
+                crate::facts::projection::project_legacy_catalog(&source, request.target_session, &private)?
             } else {
                 Default::default()
             };

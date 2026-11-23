@@ -1,5 +1,5 @@
 //! Authoritative ownership-request admission/wait/adoption, never output ACK.
-use crate::grant_custody::{
+use crate::grant::custody::{
     ActualGrant, CustodyError, GrantGuard, GrantKind, GrantPoll, GrantTicket,
 };
 use crate::*;

@@ -1,7 +1,7 @@
 //! endpoint.json: written once per run, removed at cleanup only if it is still ours.
 use crate::{
     local::NativeControlChild,
-    native_endpoint_report::{
+    native::endpoint_report::{
         EndpointArtifactDisposition, EndpointEvidence, EndpointPublicationOutcome,
     },
     NativeEndpointReport,

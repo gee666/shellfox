@@ -73,7 +73,7 @@ impl PrivateOwner {
             PrivateRequest::Power(request) => service.request_power(
                 request,
                 cancel,
-                crate::power_service::PowerReply::Local(reply),
+                crate::power::service::PowerReply::Local(reply),
             ),
             PrivateRequest::DesktopView(request) => {
                 let action = match *request {

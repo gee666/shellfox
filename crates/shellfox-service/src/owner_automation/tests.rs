@@ -222,7 +222,7 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
     assert!(service.automation.runs.retired().is_empty());
     let normal = launch.privilege == shellfox_runtime::LaunchPrivilege::Normal;
     assert_eq!(service.remote_automation_exit_code(&service.terminals[&tab]), normal.then_some(0));
-    use crate::grant_requests::GrantFailure;
+    use crate::grant::requests::GrantFailure;
     use shellfox_runtime::{AnsiRecoveryCapability, Command, ErrorCode, Response};
     let viewer = service.allocate_viewer_id().unwrap();
     let offer = service.observer_grant(tab, viewer).unwrap();

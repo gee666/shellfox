@@ -1,4 +1,4 @@
-use crate::grant_custody::ActualGrant;
+use crate::grant::custody::ActualGrant;
 use crate::*;
 use shellfox_runtime::{Command, Event, Identity, Request};
 impl Service {

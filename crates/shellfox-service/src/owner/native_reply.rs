@@ -11,12 +11,12 @@ use tokio::sync::oneshot;
 /// caller drops the receiver after owner admission.
 pub struct ExperimentAccepted {
     receiver: oneshot::Receiver<Result<super::ExperimentResponse>>,
-    _recipient: crate::grant_requests::RecipientCancellation,
+    _recipient: crate::grant::requests::RecipientCancellation,
 }
 impl ExperimentAccepted {
     pub(super) fn new(
         receiver: oneshot::Receiver<Result<super::ExperimentResponse>>,
-        recipient: crate::grant_requests::RecipientCancellation,
+        recipient: crate::grant::requests::RecipientCancellation,
     ) -> Self {
         Self {
             receiver,
