@@ -99,7 +99,7 @@ for(const platform of ['android','ios'] as const){
     const notice=screen.getByText('Keyboard SHOW. Snapshot since press: notObserved.').textContent;
     act(()=>oldHide?.());sameInstallation(f);expect(f.native.calls).toHaveLength(operations);expect(f.native.configureTerminal).toHaveBeenCalledTimes(configures);focus(true);
     expect(screen.getByText('Keyboard SHOW. Snapshot since press: notObserved.').textContent).toBe(notice);expect(screen.queryByText(/Historical Keyboard .* ended:/)).toBeNull();
-    keyboard();focus(false);sameInstallation(f);
+    probe.visible=true;f.refresh();keyboard();focus(false);sameInstallation(f);
   });
   it('GREEN a busy response does not create input authority or restore desire',async()=>{
     const f=await setup();keyboard();const reply=deferred<ManagerAttachment>();f.pending(reply.promise);act(()=>f.surface.event(layout()));await tick();

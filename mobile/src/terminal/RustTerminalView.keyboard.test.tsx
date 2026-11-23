@@ -16,7 +16,7 @@ interface NativeProbe {
   onError?: (event: {nativeEvent: {terminalHandle: string; code: number}}) => void;
 }
 const probe = vi.hoisted(() => ({platform:'android' as 'android'|'ios', visible:false,
-  native:undefined as NativeProbe|undefined, keyboardPress:undefined as (()=>void)|undefined,
+  native:undefined as NativeProbe|undefined, focusLog:[] as boolean[], keyboardPress:undefined as (()=>void)|undefined,
   invalidate:vi.fn(), dismiss:vi.fn()}));
 vi.mock('react-native', () => ({
   Platform:{get OS(){return probe.platform;}}, StyleSheet:{create:<T,>(styles:T)=>styles},
@@ -36,7 +36,7 @@ vi.mock('./useKeyboardOverlap',()=>({useKeyboardOverlap:()=>({keyboardInset:0,ke
 vi.mock('./useTerminalAttachment',()=>({useTerminalAttachment:()=>({invalidate:probe.invalidate,panel:null,button:undefined})}));
 vi.mock('@react-native-clipboard/clipboard',()=>({default:{setString:vi.fn(),getString:async()=>''}}));
 vi.mock('../rust-client/specs/ShellfoxRustTerminalNativeComponent',()=>({default:(props:NativeProbe)=>{
-  probe.native=props;
+  probe.native=props;probe.focusLog.push(Boolean(props.focused));
   return <div aria-label="Native terminal" data-readonly={String(props.readOnly)} data-focused={String(props.focused)} data-modifiers={props.modifiers}>
     {['bound','ready','recovering','closed','invalid'].map(state=><button key={state} aria-label={`Native state ${state}`}
       onClick={()=>props.onState?.({nativeEvent:{terminalHandle:props.terminalHandle,state}})}/>)}
@@ -210,7 +210,7 @@ for(const platform of ['android','ios'] as const){
       expect(screen.queryByText(/Historical Keyboard .* ended:/)).toBeNull();
       const current=f.host.views.at(-1);expect(current).toBeDefined();const sameViewOldHide=probe.keyboardPress;
       current?.owner({controlEpoch:2},true);f.refresh();keyboard();focused(true);
-      act(()=>sameViewOldHide?.());focused(true);keyboard();focused(false);
+      act(()=>sameViewOldHide?.());focused(true);f.visibility(true);keyboard();focused(false);
       for(const view of f.host.views)expect(view.session.input).not.toHaveBeenCalled();
     });
     it('ignores a queued local presentation callback from the retired original view',async()=>{
@@ -230,3 +230,33 @@ for(const platform of ['android','ios'] as const){
     });
   });
 }
+function pressed(name:string){return screen.getByRole('button',{name,exact:true}).getAttribute('aria-pressed')==='true';}
+function special(){fireEvent.click(screen.getByRole('button',{name:'Special keys',exact:true}));}
+function surfaceTap(){
+  const native=probe.native;if(!native)throw new Error('Native view missing');
+  const focusResult={platform:'android',source:'surface',attached:true,windowFocused:true,uiThread:true,inputAllowed:true,
+    frameAvailable:true,focusRequest:'accepted',focused:true,keyboardRequest:'accepted'};
+  act(()=>native.onState?.({nativeEvent:{terminalHandle:native.terminalHandle,state:'focusResult',focusResult} as never}));
+}
+describe('key bar toggles follow what is on screen (0.9.15 rules)',()=>{
+  beforeEach(()=>{probe.platform='android';});
+  it('closes the Fn row when the IME appears and never shows both active',async()=>{
+    const f=await fixture();special();expect(pressed('Special keys')).toBe(true);expect(pressed('Keyboard')).toBe(false);
+    f.visibility(true);
+    expect(pressed('Keyboard')).toBe(true);expect(pressed('Special keys')).toBe(false);
+    f.visibility(false);expect(pressed('Special keys')).toBe(false);expect(pressed('Keyboard')).toBe(false);
+  });
+  it('shows the keyboard toggle inactive when the OS hid the IME, and a tap opens it again',async()=>{
+    const f=await fixture();keyboard();focused(true);expect(pressed('Keyboard')).toBe(false);
+    // The IME never appeared (hardware keyboard, or hidden before ready): request focus again.
+    probe.focusLog.length=0;keyboard();focused(true);expect(probe.focusLog).toContain(false);expect(probe.dismiss).toHaveBeenCalled();
+    f.visibility(true);expect(pressed('Keyboard')).toBe(true);
+    keyboard();focused(false);expect(pressed('Keyboard')).toBe(true);
+    f.visibility(false);expect(pressed('Keyboard')).toBe(false);
+  });
+  it('treats a tap on the terminal as a keyboard request so the toggle can hide it',async()=>{
+    const f=await fixture();special();surfaceTap();focused(true);
+    f.visibility(true);expect(pressed('Keyboard')).toBe(true);expect(pressed('Special keys')).toBe(false);
+    keyboard();focused(false);
+  });
+});

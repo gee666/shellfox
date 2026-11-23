@@ -9,7 +9,7 @@ import { nativeTerminalForApi } from '../rust-client/native-terminal';
 import { TestNative } from '../rust-client/test-native';
 import { attachment, ids } from '../client/test-fixtures';
 
-const probe = vi.hoisted(() => ({ copy: vi.fn(), invalidate: vi.fn(), dismiss: vi.fn() }));
+const probe = vi.hoisted(() => ({ copy: vi.fn(), invalidate: vi.fn(), dismiss: vi.fn(), visible: false }));
 interface UiProps { children?: ReactNode; accessibilityLabel?: string; onPress?: () => void; disabled?: boolean; accessibilityState?: { selected?: boolean } }
 interface NativeProbe {
   terminalHandle: string; readOnly?: boolean; focused?: boolean; selecting?: boolean; modifiers?: number;
@@ -33,7 +33,7 @@ vi.mock('react-native', () => ({
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 20 }) }));
 vi.mock('./useKeyboardOverlap', () => ({ useKeyboardOverlap: () => ({
-  keyboardInset: 0, keyboardOffset: 0, keyboardVisible: false, measureKeyboardInset: () => undefined,
+  keyboardInset: 0, keyboardOffset: 0, keyboardVisible: probe.visible, measureKeyboardInset: () => undefined,
 }) }));
 vi.mock('./useTerminalAttachment', () => ({ useTerminalAttachment: () => ({
   invalidate: probe.invalidate, panel: null, button: undefined,
@@ -76,7 +76,7 @@ async function setup(readOnly = false, native = new TestNative(), ready = true) 
   if (ready) fireEvent.click(screen.getByRole('button', { name: 'Native state ready' }));
   return { ...rendered, client, native, onError };
 }
-beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); });
+beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); probe.visible = false; });
 afterEach(async () => {
   cleanup(); await tick(300);
   for (const client of clients.splice(0)) client.stop();
@@ -137,6 +137,7 @@ describe('native terminal in the existing mobile controls', () => {
     const {native}=await setup();const terminal=screen.getByLabelText('Native terminal');
     fireEvent.click(screen.getByRole('button',{name:'Keyboard',exact:true}));
     expect(screen.getByText('Keyboard SHOW. Snapshot since press: notObserved.')).toBeInTheDocument();
+    probe.visible = true; // the IME opened
     fireEvent.click(screen.getByRole('button',{name:'Focus feedback accepted'}));
     expect(screen.getByText(/Keyboard SHOW\. Snapshot since press: observed;.*snapshot focused=yes/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Keyboard',exact:true}));

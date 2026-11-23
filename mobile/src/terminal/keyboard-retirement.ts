@@ -4,7 +4,7 @@ export const keyboardClearReasonSchema=z.enum([
   'explicit_mode_close','selection_close','bridge_non_attached','native_state_not_retained',
   'native_readiness_invalid','native_error','session_error','layout_validation_lost',
   'ready_context_lost','request_context_invalid','visibility_hidden_after_ready',
-  'view_effect_cleanup','unknown',
+  'view_effect_cleanup','ime_shown','unknown',
 ]);
 export const layoutComparisonOutcomeSchema=z.enum([
   'before_context_unavailable','pending_unrelated','binding_retired','source_metadata_replaced',

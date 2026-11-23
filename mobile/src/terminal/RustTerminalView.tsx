@@ -22,6 +22,7 @@ import { TerminalOperationError } from './errors';
 import { nativeFileLink } from './native-file-link';
 import {focusFeedbackSchema,focusActionNotice,isFocusFeedback,type FocusActionObservation} from './focus-feedback';
 import {retirementNotice} from './keyboard-retirement';
+import { closesForIme, keyBarState, keyboardTap, specialTap, surfaceFocused } from './key-bar-state';
 
 export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, fontSize,
   modifierReleaseDelayMs = 1000, connectionEpoch, takeoverIntent, onTakeoverIntentConsumed,
@@ -114,7 +115,18 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
 
   const blocked = state === 'blocked';
   const inputEnabled = !readOnly && nativeReady && state === 'attached' && session?.getIdentity() != null;
-  const specialKeyboard = keyboardMode === 'special' && !keyboardVisible;
+  const { keyboardActive, specialActive, specialRow: specialKeyboard } = keyBarState(keyboardMode, keyboardVisible);
+  // The IME appearing (tap, hardware toggle or another app) closes the Fn row.
+  useEffect(() => {
+    if (closesForIme(keyboardMode, keyboardVisible)) clearKeyboardMode(false, 'ime_shown');
+  }, [keyboardMode, keyboardVisible, clearKeyboardMode]);
+  // Requesting focus again needs the native view to see focused go false, then true.
+  const [reopen, setReopen] = useState(false);
+  useEffect(() => {
+    if (!reopen || keyboardMode !== 'closed') return;
+    setReopen(false);
+    chooseKeyboardMode('system', 'show');
+  });
   const actionNotice = keyboardActionIntent===null ? null
     : focusObservation?.intent===keyboardActionIntent ? focusActionNotice(focusObservation)+(keyboardRetirement?` ${retirementNotice(keyboardRetirement)}`:'')
     : keyboardRetirement ? retirementNotice(keyboardRetirement) : null;
@@ -138,8 +150,10 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
             const value = event.nativeEvent;
             if (value.terminalHandle !== session.handle || current.current !== session) return;
             if(isFocusFeedback(value)){
-              if (!showKeyboardDiagnostics) return;
               const feedback=focusFeedbackSchema.safeParse(value);
+              // A tap on the terminal asks for the system keyboard, as the toggle does.
+              if (feedback.success && surfaceFocused(feedback.data.focusResult) && keyboardMode !== 'system') chooseKeyboardMode('system');
+              if (!showKeyboardDiagnostics) return;
               if(feedback.success)setFocusObservation(previous=>previous?{...previous,snapshot:feedback.data.focusResult}:null);
               return; // Action feedback is never parser readiness or an ACK.
             }
@@ -189,15 +203,17 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
         control={modifiers.ctrl} selecting={selecting} selection={selection}
         onControl={() => toggle('ctrl')} onSelect={() => {
           setSelecting((value) => !value); setSelection(''); clearKeyboardMode(true,'selection_close');
-        }} onKey={sendKey} systemKeyboard={keyboardVisible || keyboardMode === 'system'}
-        specialKeyboard={keyboardMode === 'special'} onKeyboard={() => {
-          const next = keyboardMode === 'system' || keyboardVisible ? 'closed' : 'system';
+        }} onKey={sendKey} systemKeyboard={keyboardActive}
+        specialKeyboard={specialActive} onKeyboard={() => {
+          const tap = keyboardTap(keyboardMode, keyboardVisible);
+          if (tap === 'reopen') { if (chooseKeyboardMode('closed')) setReopen(true); return; }
+          const next = tap === 'hide' ? 'closed' : 'system';
           // Receipt of this JS branch only. A later snapshot is not causally
           // correlated without a token, and HIDE need not yield one.
           const intent=next==='system'?'show':'hide';
           if (chooseKeyboardMode(next, intent) && showKeyboardDiagnostics) setFocusObservation({ intent, snapshot: null });
         }} onSpecialKeyboard={() => {
-          const next = keyboardMode === 'special' ? 'closed' : 'special';
+          const next = specialTap(keyboardMode, keyboardVisible);
           chooseKeyboardMode(next); if (next === 'special') Keyboard.dismiss();
         }} onPaste={paste} />}
       {!blocked && inputEnabled && specialKeyboard && <SpecialKeyboard modifiers={modifiers} onModifier={toggle}
