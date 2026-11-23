@@ -1,9 +1,7 @@
 //! Pure sanitized v1 session mapping. Discovery/system orchestration has one
 //! owner: activity_integration::NativeSourceFactsProjector.
-#[path = "facts_tabs.rs"]
 mod tabs;
 #[cfg(test)]
-#[path = "facts_projection_tests.rs"]
 mod tests;
 use crate::activity_integration::SourceFacts;
 use shellfox_protocol::{self as wire, AppError, ErrorCode};

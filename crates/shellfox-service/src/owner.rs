@@ -16,36 +16,23 @@ use std::{
 use tokio::sync::oneshot;
 
 #[cfg(test)]
-#[path = "owner_lifetime_tests.rs"]
 mod lifetime_tests;
 #[cfg(test)]
-#[path = "owner_private_tests.rs"]
 mod private_tests;
 #[cfg(test)]
-#[path = "owner_tests.rs"]
 mod tests;
 
-#[path = "native_boot_actor.rs"]
 mod cleanup;
-#[path = "owner_client.rs"]
 mod client;
-#[path = "owner_controller.rs"]
 mod controller;
 use controller::controller_id;
-#[path = "owner_task.rs"]
 mod task;
 use task::Task;
-#[path = "owner_approvals.rs"]
 pub(crate) mod approvals;
-#[path = "owner_native.rs"]
 mod native_reply;
-#[path = "owner_private.rs"]
 mod private;
-#[path = "owner_private_client.rs"]
 mod private_client;
-#[path = "owner_start.rs"]
 mod start;
-#[path = "owner_wake.rs"]
 mod wake;
 pub use wake::{OwnerWake, OwnerWakeSlot};
 pub(crate) use cleanup::report_warning;

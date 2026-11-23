@@ -5,7 +5,6 @@ use crate::activity_integration::{
 use anyhow::{Context, Result};
 use shellfox_core::SessionId;
 use std::collections::HashSet;
-#[path = "activity_visibility.rs"]
 mod visibility;
 use shellfox_core::SettingsProcessRule;
 use std::{

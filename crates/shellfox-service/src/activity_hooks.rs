@@ -1,7 +1,6 @@
 use crate::activity_integration::{ActivityFlush, InspectionScope, SourceFactsWatch};
 use crate::*;
 #[cfg(test)]
-#[path = "activity_receipt_tests.rs"]
 mod tests;
 use shellfox_runtime::{Identity, RuntimeHooks};
 use std::sync::Arc;

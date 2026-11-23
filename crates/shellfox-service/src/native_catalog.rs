@@ -1,6 +1,5 @@
 //! Protected readonly discovery over the owner's launch configuration.
 #[cfg(test)]
-#[path = "native_catalog_tests.rs"]
 mod tests;
 use crate::*;
 use shellfox_core::{ProfileId, Settings};

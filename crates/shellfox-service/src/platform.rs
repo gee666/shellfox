@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 #[cfg(target_os = "macos")]
-#[path = "platform_darwin.rs"]
 mod darwin;
 
 pub(crate) trait Stream: AsyncRead + AsyncWrite + Unpin + Send {

@@ -88,5 +88,4 @@ impl PackageManifestInput {
 }
 
 #[cfg(test)]
-#[path = "package_arguments_tests.rs"]
 mod tests;

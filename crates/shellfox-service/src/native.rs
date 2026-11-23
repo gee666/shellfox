@@ -1,34 +1,23 @@
 //! The owner's typed desktop actions and replies. Desktop windows reach them
 //! through the local API (local_desktop.rs). Not a mobile or network wire
 //! protocol, and no GPUI.
-#[path = "native_cache.rs"]
 mod cache;
-#[path = "native_commands.rs"]
 mod commands;
-#[path = "native_dispatch.rs"]
 mod dispatch;
-#[path = "native_observers.rs"]
 mod observers;
-#[path = "native_presentation.rs"]
 mod presentation;
 pub use presentation::{NativePresentation, NativeViewAttachment};
-#[path = "native_watches.rs"]
 mod watches;
 pub use watches::{FrameWakes, NativeWatches};
-#[path = "native_validation.rs"]
 mod validation;
 pub use validation::NativeAdmissionError;
 #[cfg(test)]
-#[path = "native_integration_tests.rs"]
 mod integration_tests;
 #[cfg(test)]
-#[path = "native_startup_remote_tests.rs"]
 mod startup_remote_tests;
 #[cfg(test)]
-#[path = "native_startup_tests.rs"]
 mod startup_tests;
 #[cfg(test)]
-#[path = "native_tests.rs"]
 mod tests;
 
 use crate::Attachment;

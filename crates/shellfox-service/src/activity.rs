@@ -1,13 +1,8 @@
 //! Activity policy only. The service owns clocks, persistence and process handles.
-#[path = "activity_inspection.rs"]
 mod inspection;
-#[path = "activity_match.rs"]
 mod matching;
-#[path = "activity_process.rs"]
 mod process;
-#[path = "activity_session.rs"]
 mod session;
-#[path = "activity_status.rs"]
 mod status;
 pub use inspection::*;
 pub use process::*;

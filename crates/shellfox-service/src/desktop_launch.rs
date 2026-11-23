@@ -1,17 +1,11 @@
 //! Private local launch intents. No GUI, second Host, PTY or public/mobile route.
-#[path = "desktop_launch_delivery.rs"]
 mod delivery;
-#[path = "desktop_launch_local.rs"]
 mod local;
-#[path = "desktop_launch_router.rs"]
 mod router;
-#[path = "desktop_launch_service.rs"]
 mod service;
-#[path = "desktop_launch_types.rs"]
 mod types;
 pub use service::{folder_profile, LaunchDirectoryPolicy, ServiceLaunchResolver};
 #[cfg(test)]
-#[path = "desktop_launch_tests.rs"]
 mod tests;
 pub use local::*;
 use shellfox_core::SessionId;

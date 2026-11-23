@@ -2,7 +2,6 @@ use crate::*;
 use shellfox_core::{CreateSession, SettingsAdapter, SettingsShell};
 use shellfox_terminal::ShellProfileId;
 #[cfg(test)]
-#[path = "creation_tests.rs"]
 mod tests;
 
 impl Service {

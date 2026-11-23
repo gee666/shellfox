@@ -1,9 +1,6 @@
 use crate::*;
-#[path = "terminal_commands.rs"]
 mod commands;
-#[path = "terminal_delivery.rs"]
 mod delivery;
-#[path = "terminal_remote_v1.rs"]
 mod remote_v1;
 pub(crate) use remote_v1::RemoteV1Status;
 use serde::{Deserialize, Serialize};

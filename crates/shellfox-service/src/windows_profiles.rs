@@ -4,7 +4,6 @@ use shellfox_host::SettingsProfile;
 use shellfox_protocol::{Elevation, ProfileEnvironment, TerminalProfile};
 use shellfox_terminal::{PtyCommand, PtyConfig, elevated::InteractiveHelper, wsl::{OsWsl, WslProfileId}};
 
-#[path = "wsl_catalog_cache.rs"]
 mod cache;
 pub(crate) use cache::{WslCatalogCache, WslCatalogWorker};
 

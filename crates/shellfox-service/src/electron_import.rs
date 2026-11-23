@@ -17,13 +17,9 @@ use std::{
 };
 use tempfile::NamedTempFile;
 
-#[path = "electron_cleanup.rs"]
 mod cleanup;
-#[path = "electron_import_files.rs"]
 mod files;
-#[path = "electron_import_remote.rs"]
 mod remote;
-#[path = "electron_retention.rs"]
 mod retention;
 use retention::{
     cleanup, fingerprint, finish_without_electron, imported, remove_stale_snapshots, Imported,
@@ -323,5 +319,4 @@ fn write_marker(
 }
 
 #[cfg(test)]
-#[path = "electron_import_tests.rs"]
 mod tests;

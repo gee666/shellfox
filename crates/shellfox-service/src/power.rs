@@ -2,29 +2,29 @@
 //! Platform calls can block, so run them on the service's blocking worker.
 use std::{error::Error, fmt};
 #[cfg(test)]
-#[path = "power_tests.rs"]
 mod tests;
 #[cfg(test)]
-#[path = "power_linux_tests.rs"]
 mod linux_tests;
-#[path = "power_contract.rs"]
 mod contract;
 pub use contract::{PowerReport, PowerRequest, MAX_POWER_MESSAGE_BYTES};
-#[path = "power_worker.rs"]
 pub(crate) mod worker;
 
 #[cfg(target_os = "linux")]
-#[path = "power_linux.rs"]
-mod platform;
+mod linux;
+#[cfg(target_os = "linux")]
+use linux as platform;
 #[cfg(target_os = "macos")]
-#[path = "power_macos.rs"]
-mod platform;
+mod macos;
+#[cfg(target_os = "macos")]
+use macos as platform;
 #[cfg(windows)]
-#[path = "power_windows.rs"]
-mod platform;
+mod windows;
+#[cfg(windows)]
+use windows as platform;
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-#[path = "power_unsupported.rs"]
-mod platform;
+mod unsupported;
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+use unsupported as platform;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PowerError(pub String);

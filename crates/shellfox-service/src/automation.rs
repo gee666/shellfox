@@ -1,16 +1,10 @@
 //! One in-memory owner of local automation processes. No output/argv/env store.
-#[path = "automation_launch.rs"]
 mod launch;
-#[path = "automation_lifecycle.rs"]
 mod lifecycle;
-#[path = "automation_source_relay.rs"]
 mod relay;
-#[path = "automation_start.rs"]
 mod start;
 pub use relay::AutomationRelay;
-#[path = "automation_failure.rs"]
 mod failure;
-#[path = "automation_retirement.rs"]
 mod retirement;
 pub use failure::{
     AutomationFailedCleanupProof, AutomationFailedSourceEvidence, AutomationSourceAbortReason,
@@ -20,9 +14,7 @@ pub use retirement::{
     AutomationCleanupProof, AutomationPublication, AutomationRetirement, AutomationRetirementAck,
 };
 #[cfg(test)]
-#[path = "automation_tests.rs"]
 mod tests;
-#[path = "automation_view.rs"]
 mod view;
 use anyhow::{ensure, Context, Result};
 use shellfox_protocol::{automation::*, Validate};

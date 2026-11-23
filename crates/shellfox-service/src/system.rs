@@ -9,65 +9,42 @@
 //! is not authorization. Registry and file revision checks are cooperative edit
 //! conflict detection, not a hostile same-user namespace immutability claim.
 #[cfg(test)]
-#[path = "system_tests.rs"]
 mod tests;
 use shellfox_protocol::{AppError, CliIntegration, Directory, ExplorerIntegration, Validate};
 use std::sync::Arc;
 #[cfg(test)]
 pub(crate) use tests::support::Fixture as OwnedSystemFixture;
 
-#[path = "system_types.rs"]
 mod types;
 pub use types::{
     SystemAction, SystemBackend, SystemFacts, SystemResponse, SystemResult, SystemScope,
 };
-#[path = "system_cli.rs"]
 mod cli;
-#[path = "system_environment.rs"]
 mod environment;
-#[path = "system_explorer.rs"]
 mod explorer;
-#[path = "system_file_platform.rs"]
 mod file_platform;
-#[path = "system_io.rs"]
 mod io;
-#[path = "system_linux.rs"]
 mod linux;
-#[path = "system_linux_discovery.rs"]
 mod linux_discovery;
-#[path = "system_linux_templates.rs"]
 mod linux_templates;
-#[path = "system_native.rs"]
 mod native;
-#[path = "system_native_api.rs"]
 mod native_api;
-#[path = "system_native_authority.rs"]
 mod native_authority;
-#[path = "system_native_capabilities.rs"]
 mod native_capabilities;
-#[path = "system_native_guard.rs"]
 mod native_guard;
-#[path = "system_native_handler.rs"]
 mod native_handler;
-#[path = "system_native_service.rs"]
 mod native_service;
-#[path = "system_opener.rs"]
 mod opener;
 pub use native_api::{
     SystemCapability, SystemMutationCapabilities, SystemNativeAuthority, SystemNativeCapabilities,
     SystemNativeRequest, SystemNativeResponse, SystemNativeStatus,
 };
 pub use native_handler::SystemNativeHandler;
-#[path = "system_registry.rs"]
 mod registry;
-#[path = "system_resources.rs"]
 mod resources;
-#[path = "system_thunar.rs"]
 mod thunar;
-#[path = "system_validation.rs"]
 mod validation;
 #[cfg(windows)]
-#[path = "system_windows_registry.rs"]
 mod windows_registry;
 pub use environment::{NativeSystemEnvironment, SystemEnvironment, SystemPlatform};
 pub use io::{FileRevision, NativeSystemFiles, SystemFile, SystemFiles};

@@ -49,5 +49,4 @@ impl std::fmt::Debug for ApplicationProviderResources {
 }
 
 #[cfg(test)]
-#[path = "providers_tests.rs"]
 mod tests;

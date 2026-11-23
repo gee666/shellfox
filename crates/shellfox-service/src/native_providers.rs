@@ -1,8 +1,6 @@
 //! Trusted native application resources. No network request can construct these.
-#[path = "native_provider_programs.rs"]
 mod programs;
 pub use programs::NativeProgramResource;
-#[path = "native_provider_portable.rs"]
 mod portable;
 pub use portable::portable_install_resources;
 

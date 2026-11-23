@@ -19,7 +19,6 @@ mod grant_retirement;
 mod launch;
 pub mod local;
 pub mod native;
-#[path = "native_activity.rs"]
 mod native_activity;
 pub use native_activity::NativeTabActivity;
 mod native_endpoint_report;

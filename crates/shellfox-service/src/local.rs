@@ -1,31 +1,20 @@
 //! Authenticated experimental protocol over a private OS endpoint, never TCP.
-#[path = "native_boot.rs"]
 mod boot;
 pub(crate) use boot::NativeControlChild;
-#[path = "local_client.rs"]
 mod client;
-#[path = "local_server.rs"]
 mod server;
 use server::{stop_signal, ServerState};
-#[path = "local_connection.rs"]
 mod connection;
-#[path = "local_long_poll.rs"]
 mod long_poll;
 /// Held reads (one per attached terminal view or change feed) plus ordinary requests.
 const MAX_CONNECTIONS: usize = 160;
-#[path = "native_preparation.rs"]
 mod preparation;
-#[path = "local_transport_frame.rs"]
 mod transport_frame;
 use transport_frame::{Frame, LifetimeReply, TRANSPORT_VERSION};
-#[path = "local_launch.rs"]
 mod launch;
-#[path = "local_request.rs"]
 mod request;
-#[path = "local_desktop.rs"]
 mod desktop;
 pub use desktop::{DesktopProviderRequest, DesktopReply, DesktopRequest};
-#[path = "local_ssh.rs"]
 pub(crate) mod ssh_read;
 pub use ssh_read::{open_ssh_directory, read_ssh_profiles, ssh_endpoint_exists, SshRead, SshReadReply};
 use crate::{
@@ -73,7 +62,6 @@ struct Envelope<T = ExperimentRequest> {
 }
 const NAMESPACE: &str = "shellfox.experimental.rust.v1";
 
-#[path = "native_boot_api.rs"]
 mod api;
 pub use api::{
     serve, serve_remote_with_boot_report, serve_remote_with_boot_status, serve_with_boot_report,

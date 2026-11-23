@@ -1,15 +1,11 @@
 //! Remote dispatch borrows the existing service; it never opens a second Host.
 #[cfg(test)]
-#[path = "remote_legacy_scope_tests.rs"]
 mod legacy_scope_tests;
 #[cfg(test)]
-#[path = "remote_v1_loopback_tests.rs"]
 mod v1_loopback_tests;
 #[cfg(test)]
-#[path = "remote_tests.rs"]
 mod tests;
 #[cfg(test)]
-#[path = "remote_wake_tests.rs"]
 mod wake_tests;
 use crate::Service;
 use shellfox_core::{SessionId, Snapshot};
@@ -20,62 +16,40 @@ use shellfox_remote::{
 };
 use std::collections::HashMap;
 
-#[path = "remote_commands.rs"]
 mod commands;
-#[path = "remote_creation_profile.rs"]
 mod creation_profile;
-#[path = "remote_dispatcher.rs"]
 mod dispatcher;
-#[path = "remote_files.rs"]
 mod files;
 #[cfg(windows)]
-#[path = "remote_wsl_files.rs"]
 mod wsl_files;
-#[path = "remote_privacy.rs"]
 mod privacy;
-#[path = "remote_stats.rs"]
 mod stats;
-#[path = "remote_v1_delivery.rs"]
 mod v1_delivery;
-#[path = "remote_v1_replay.rs"]
 mod v1_replay;
-#[path = "remote_v1_launch.rs"]
 mod v1_launch;
-#[path = "remote_v1_privilege.rs"]
 mod v1_privilege;
-#[path = "remote_v1_terminal.rs"]
 mod v1_terminal;
 pub use dispatcher::{remote_channel, RemoteDispatcher, RemoteInbox};
-#[path = "remote_facts.rs"]
 pub mod facts;
-#[path = "remote_source.rs"]
 mod source;
 pub use facts::{
     ManagerFactsFuture, ManagerFactsProvider, ManagerFactsRequest, ManagerFactsResult,
     RuntimeFactIdentity,
 };
 pub use source::{SourceFactsInstaller, SourceFactsProjector, SourceFactsProviderSlot};
-#[path = "remote_host.rs"]
 mod host;
 pub use host::RemoteBackend;
-#[path = "remote_setup.rs"]
 mod setup;
 pub use setup::{
     RemoteBootResources, RemoteHostSetup, RemoteResources,
 };
-#[path = "outgoing_v2.rs"]
 pub(crate) mod outgoing;
 pub use outgoing::{OutgoingV2Endpoint, OutgoingV2Future, OutgoingV2Response};
-#[path = "outgoing_v2_wire.rs"]
 pub(crate) mod outgoing_wire;
-#[path = "remote_operator_wire.rs"]
 pub(crate) mod operator;
 pub use operator::{RemoteOperatorPending,RemoteOperatorState};
-#[path = "remote_native.rs"]
 pub mod native;
-#[path = "remote_preferences.rs"]
 pub mod preferences;
-#[path = "remote_runtime.rs"]
 pub mod runtime;
 pub use native::{AuthKey, RemoteControl, RemoteControlState, RemoteRequest, RemoteResponse};
 pub use runtime::{GoNetworkFactory, RemoteNetwork, RemoteNetworkFactory, RemoteRuntime};

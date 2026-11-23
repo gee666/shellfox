@@ -1,7 +1,5 @@
 //! Local SSH profiles and key validation. Connection state belongs to the CLI.
-#[path = "ssh_api.rs"]
 mod api;
-#[path = "native_provider_putty.rs"]
 mod putty;
 use anyhow::{Context, Result};
 pub use api::{Input, Password, Request, Response, SelectedKey, SelectedKeyInfo};

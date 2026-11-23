@@ -8,7 +8,6 @@ use std::sync::{
 use uuid::Uuid;
 const MAX_GRANTS: usize = 128;
 type RetirementCandidate = (GrantTicket, ActualGrant, Option<(RequestId, bool)>);
-#[path = "grant_custody_types.rs"]
 mod types;
 pub(crate) use types::*;
 struct Entry {
@@ -304,5 +303,4 @@ impl GrantCustody {
     }
 }
 #[cfg(test)]
-#[path = "grant_custody_tests.rs"]
 mod tests;

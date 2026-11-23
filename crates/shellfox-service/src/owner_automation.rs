@@ -1,26 +1,16 @@
 //! One raw owner, one reserved passive parser, and bounded deferred replies.
-#[path = "owner_automation_close.rs"]
 mod close;
-#[path = "owner_automation_activity.rs"]
 mod live_activity;
 use live_activity::AutomationActivity;
-#[path = "owner_automation_dispatch.rs"]
 mod dispatch;
-#[path = "owner_automation_relay.rs"]
 mod relay;
-#[path = "owner_automation_retirement.rs"]
 mod retirement;
-#[path = "owner_automation_show.rs"]
 mod show;
-#[path = "owner_automation_start.rs"]
 mod start;
 #[cfg(test)]
-#[path = "owner_automation_test_bridge.rs"]
 mod test_bridge;
 #[cfg(test)]
-#[path = "owner_automation_tests.rs"]
 mod tests;
-#[path = "owner_automation_warning.rs"]
 mod warning;
 use crate::automation::{AutomationRelay, AutomationRuns};
 use crate::*;

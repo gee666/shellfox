@@ -1,17 +1,13 @@
 use anyhow::{bail, Context, Result};
 use shellfox_transport::{BoundOwnershipRoot, PermissionVerifier, PrivatePathKind, VerifiedHelper};
 use std::path::{Path, PathBuf};
-#[path = "native_host_path.rs"]
 mod host_path;
 pub(crate) use host_path::HostRoot;
-#[path = "native_creation_retention.rs"]
 mod creation_retention;
 pub(crate) use creation_retention::NativeCreationRetention;
 #[cfg(test)]
-#[path = "native_cold_root_tests.rs"]
 mod cold_tests;
 #[cfg(test)]
-#[path = "security_test_support.rs"]
 mod test_support;
 
 pub(crate) const ENDPOINT_DIRECTORY: &str = "rust-service-v1";
