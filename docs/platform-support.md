@@ -14,6 +14,10 @@ The shared host uses one real PTY per terminal tab. It does not route tabs into 
 
 The six-target CI configuration is not evidence that all targets have launched or shut down correctly. Linux is a glibc desktop target, not Alpine/musl support. Builds require target-native Node/OS/architecture. No universal binaries or cross-staged addons are supported.
 
+## Linux glibc floor
+
+Linux desktop and headless packages need glibc 2.31 or newer: Ubuntu 20.04, Debian 11 and later. They are built in an Ubuntu 20.04 container, the deb declares `libc6 (>= 2.31)`, and packaging fails if `shellfox` or `shellfox-cli` needs a newer `GLIBC_` symbol (`scripts/package-rust-glibc.mjs`). Electron 0.9.15's binary needed glibc 2.25. Ubuntu 18.04 and Debian 10 ran it, but can't install the Rust package; there, the 0.9.15 updater reports a failed install and keeps the old app.
+
 ## Prerequisites and preflight
 
 Packaged startup needs no installed .NET runtime, Windows Terminal, or GNOME Terminal. Source builds require Go; Windows desktop builds also need the .NET SDK for the self-contained administrator-terminal helper. Headless packages omit that helper and do not offer administrator profiles. See [README](../README.md#development) and [macOS builds](macos.md) for compiler requirements.

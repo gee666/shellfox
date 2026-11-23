@@ -9,6 +9,7 @@ import { acquireNugetSnapshot } from './rust-package-resource-inventory.mjs';
 import { packageNotices } from './package-rust-notices.mjs';
 import { packageHeadless } from './package-rust-headless.mjs';
 import { releaseVersion } from './release-version.mjs';
+import { assertGlibcFloor, GLIBC_FLOOR } from './package-rust-glibc.mjs';
 
 const pkg = readJson(path.join(root, 'package.json'));
 const icon = extension => path.join(root, `resources/icon/icon.${extension}`);
@@ -43,7 +44,7 @@ function linux(work, app, artifacts) {
   writeFileSync(path.join(control, 'control'), [
     'Package: shellfox', `Version: ${release.deb}`, `Architecture: ${debianArch}`, 'Section: devel', 'Priority: optional',
     `Maintainer: ${pkg.author}`,
-    'Depends: libc6 (>= 2.39), libgcc-s1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1',
+    `Depends: libc6 (>= ${GLIBC_FLOOR}), libgcc-s1 | libgcc1, libfontconfig1, libfreetype6, libx11-6, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libvulkan1`,
     'Description: Shellfox terminal manager', '',
   ].join('\n'));
   // Electron's postinst added an AppArmor userns profile for its Chromium sandbox.
@@ -188,6 +189,8 @@ export async function packageRust({ output = path.join(scratchRoot, 'rust-instal
     packageNotices(resources, target);
     copy(path.join(root, 'LICENSE'), path.join(mac ? resources : app, 'LICENSE'));
     const profile = path.join(cargoTarget, 'release');
+    // Desktop and headless ship these two binaries; both must meet the floor.
+    if (process.platform === 'linux') assertGlibcFloor(['shellfox', 'shellfox-cli'].map(name => path.join(profile, name)));
     copy(path.join(profile, win ? 'shellfox.exe' : 'shellfox'), path.join(executables, win ? 'Shellfox.exe' : mac ? 'Shellfox' : 'shellfox'), 0o755);
     copy(path.join(profile, win ? 'shellfox-cli.exe' : 'shellfox-cli'), path.join(executables, win ? 'bin/shellfox-cli.exe' : 'shellfox-cli'), 0o755);
     packageHeadless({ profile, stage, artifacts, version: pkg.version, target, sign: signDarwin });

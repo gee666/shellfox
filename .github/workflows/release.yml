@@ -137,13 +137,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { runner: ubuntu-24.04, platform: linux, arch: x64, target: x86_64-unknown-linux-gnu }
-          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, target: aarch64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04, platform: linux, arch: x64, target: x86_64-unknown-linux-gnu, container: 'ubuntu:20.04' }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, target: aarch64-unknown-linux-gnu, container: 'ubuntu:20.04' }
           - { runner: windows-2022, platform: win32, arch: x64, target: x86_64-pc-windows-msvc }
           - { runner: macos-15, platform: darwin, arch: arm64, target: aarch64-apple-darwin }
           - { runner: macos-15-intel, platform: darwin, arch: x64, target: x86_64-apple-darwin }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    # Linux builds run in Ubuntu 20.04 so packages need only glibc 2.31
+    # (scripts/package-rust-glibc.mjs checks it). Empty means the runner itself.
+    container: ${{ matrix.container }}
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-i/target
       MACOSX_DEPLOYMENT_TARGET: '13.0'
@@ -152,6 +155,13 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Ubuntu 20.04 container prerequisites
+        if: matrix.container
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo git ca-certificates curl xz-utils zstd
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
