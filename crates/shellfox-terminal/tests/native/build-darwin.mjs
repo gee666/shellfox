@@ -37,7 +37,8 @@ function run(file, args) {
 run('/usr/bin/xcrun', ['--sdk', 'macosx', 'clang', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
   '-arch', arch === 'arm64' ? 'arm64' : 'x86_64', '-mmacosx-version-min=13.0', source, '-lproc', '-o', binary]);
 await chmod(binary, 0o755);
-run('/usr/bin/lipo', ['-verify_arch', arch === 'arm64' ? 'arm64' : 'x86_64', binary]);
+// lipo takes the input file first; Xcode 16's lipo rejects it after -verify_arch.
+run('/usr/bin/lipo', [binary, '-verify_arch', arch === 'arm64' ? 'arm64' : 'x86_64']);
 const capability = JSON.parse(run(binary, ['--capabilities']));
 const expected = { version: 1, platform: 'darwin', arch, available: true, reason: null, ownedSession: true, guardians: true, termination: true };
 if (Object.keys(capability).sort().join() !== Object.keys(expected).sort().join() || Object.entries(expected).some(([key, value]) => capability[key] !== value)) throw new Error('Retained supervisor native capability validation failed.');
