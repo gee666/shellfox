@@ -20,6 +20,8 @@ use shellfox_service::{
     native::{NativeAction, NativeResponse},
 };
 use std::time::{Duration, Instant};
+
+const RETRY: Duration = Duration::from_millis(50);
 #[path = "launch_unregister.rs"]
 mod unregister;
 
@@ -123,11 +125,18 @@ pub(crate) fn install(cx: &mut App) {
             bootstrap: Some((options.launch.request_id, bootstrap)),
         };
         loop {
-            match coordinator.pump(&delivery, &mut windows).await {
-                Ok(_) => {}
-                Err(LaunchError::StaleOwner | LaunchError::StaleClient) => break,
-                Err(error) => eprintln!("Desktop launch delivery: {error}"),
+            // Deliveries arrive through the host's held PollAttached reads.
+            if coordinator.ready().await.is_err() {
+                break;
             }
+            let retry = match coordinator.pump(&delivery, &mut windows).await {
+                Ok(_) => false,
+                Err(LaunchError::StaleOwner | LaunchError::StaleClient) => break,
+                Err(error) => {
+                    eprintln!("Desktop launch delivery: {error}");
+                    true
+                }
+            };
             if cx
                 .update(|cx| {
                     crate::app_host::adapter::get(cx)
@@ -137,9 +146,10 @@ pub(crate) fn install(cx: &mut App) {
             {
                 break;
             }
-            cx.background_executor()
-                .timer(Duration::from_millis(50))
-                .await;
+            if retry {
+                // A busy window or host; try the same delivery again shortly.
+                cx.background_executor().timer(RETRY).await;
+            }
         }
         if let Err(error) = unregister::finish(&delivery.0, token, &original_host).await {
             eprintln!("Desktop launch unregister was not confirmed: {error:#}");
@@ -193,6 +203,15 @@ impl Windows {
         window: WindowHandle<Root>,
     ) -> Result<(HostClient, u64), LaunchError> {
         let deadline = Instant::now() + Duration::from_secs(15);
+        // Re-check whenever this window's Root changes; the deadline bounds the wait.
+        let (notify, mut changed) = tokio::sync::watch::channel(());
+        let root = window
+            .update(&mut self.app, |_, _, cx| cx.entity())
+            .map_err(error)?;
+        let _subscription = self
+            .app
+            .update(|cx| cx.observe(&root, move |_, _| notify.send_replace(())))
+            .map_err(error)?;
         loop {
             let state = window
                 .read_with(&self.app, |root, _| {
@@ -215,13 +234,15 @@ impl Windows {
             if let Some(state) = state {
                 return Ok(state);
             }
-            if Instant::now() >= deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
                 return Err(LaunchError::DeliveryUncertain);
             }
-            self.app
-                .background_executor()
-                .timer(Duration::from_millis(16))
-                .await;
+            let timeout = self.app.background_executor().timer(remaining);
+            tokio::select! {
+                _ = changed.changed() => {}
+                () = timeout => {}
+            }
         }
     }
 }

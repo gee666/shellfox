@@ -105,7 +105,12 @@ pub(super) async fn serve_connection(
                 let outgoing = matches!(&request, PrivateRequest::OutgoingV2(_));
                 let asynchronous =
                     outgoing || matches!(&request, PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_)
-                        | PrivateRequest::Power(crate::power::PowerRequest::Status {}));
+                        | PrivateRequest::Power(crate::power::PowerRequest::Status {})
+                        // Held reads end when their caller goes away.
+                        | PrivateRequest::DesktopLaunch(
+                            crate::desktop_launch::DesktopLaunchRequest::PollAttached { .. }
+                                | crate::desktop_launch::DesktopLaunchRequest::Receipt { .. }
+                        ));
                 if !outgoing && body.len() > shellfox_protocol::MAX_REQUEST_BYTES {
                     bail!("Ordinary private request exceeds bound");
                 }

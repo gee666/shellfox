@@ -43,6 +43,8 @@ struct Pending {
 pub struct AppLaunchCoordinator {
     token: DesktopClientToken,
     receiver: mpsc::Receiver<DesktopLaunchDelivery>,
+    /// Received by `ready`, not yet taken by `pump`.
+    next: Option<DesktopLaunchDelivery>,
     pending: Option<Pending>,
 }
 impl AppLaunchCoordinator {
@@ -50,8 +52,17 @@ impl AppLaunchCoordinator {
         Self {
             token: registration.token,
             receiver: registration.receiver,
+            next: None,
             pending: None,
         }
+    }
+    /// Waits until a delivery arrived or work is pending. StaleClient once the
+    /// host side of the registration is gone.
+    pub async fn ready(&mut self) -> Result<(), LaunchError> {
+        if self.pending.is_none() && self.next.is_none() {
+            self.next = Some(self.receiver.recv().await.ok_or(LaunchError::StaleClient)?);
+        }
+        Ok(())
     }
     /// At most one queued launch per pump. A cancelled ACK wait resumes only the
     /// ACK. A cancelled native apply is uncertain and is NEVER invoked twice.
@@ -61,7 +72,7 @@ impl AppLaunchCoordinator {
         windows: &mut impl LaunchWindowTransport,
     ) -> Result<Option<LaunchReceipt>, LaunchError> {
         if self.pending.is_none() {
-            let delivery = match self.receiver.try_recv() {
+            let delivery = match self.next.take().map_or_else(|| self.receiver.try_recv(), Ok) {
                 Ok(delivery) => delivery,
                 Err(mpsc::error::TryRecvError::Empty) => return Ok(None),
                 Err(mpsc::error::TryRecvError::Disconnected) => {

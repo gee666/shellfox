@@ -34,6 +34,9 @@ enum Kind {
     Power,
     Remote,
     Launch(SessionId),
+    /// An attached desktop's next launch delivery; dispatch and completion both
+    /// move the launch generation, so queued deliveries are released in turn.
+    Delivery,
 }
 
 /// What this client was last answered, as a receiver whose seen version
@@ -233,6 +236,9 @@ impl LongPolls {
             PrivateRequest::DesktopLaunch(DesktopLaunchRequest::Receipt { request_id, .. }) => {
                 Some((Kind::Launch(*request_id), false))
             }
+            PrivateRequest::DesktopLaunch(DesktopLaunchRequest::PollAttached { .. }) => {
+                Some((Kind::Delivery, false))
+            }
             _ => None,
         }
     }
@@ -247,7 +253,7 @@ impl LongPolls {
             Kind::Activity => Seen::Activity(self.watches.tab_activity.clone()),
             Kind::Power => Seen::Power(self.watches.power.clone()),
             Kind::Remote => Seen::Remote(self.remote.clone()),
-            Kind::Launch(_) => Seen::Launch(self.watches.launches.clone()),
+            Kind::Launch(_) | Kind::Delivery => Seen::Launch(self.watches.launches.clone()),
         })
         .map(|mut seen| {
             seen.mark_seen();

@@ -127,10 +127,13 @@ impl AttachedLocal {
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         let local = self.local.clone();
         self.reactor.spawn(async move {
-            while !sender.is_closed() {
-                let response = local
-                    .request(&DesktopLaunchRequest::PollAttached { token })
-                    .await;
+            // The host holds each poll until a delivery may be ready.
+            let poll = DesktopLaunchRequest::PollAttached { token };
+            loop {
+                let response = tokio::select! {
+                    response = local.request(&poll) => response,
+                    () = sender.closed() => break,
+                };
                 match response {
                     Ok(DesktopLaunchReply::Delivery(Some(delivery)))
                         if delivery.client == token =>
@@ -139,9 +142,7 @@ impl AttachedLocal {
                             break;
                         }
                     }
-                    Ok(DesktopLaunchReply::Delivery(None)) => {
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await
-                    }
+                    Ok(DesktopLaunchReply::Delivery(None)) => {}
                     _ => break,
                 }
             }
