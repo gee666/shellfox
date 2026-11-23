@@ -9,7 +9,7 @@ use std::{
 
 /// Starts only an owned experiment shell and closes its Job before returning.
 pub fn run(run_dir: &Path) -> Result<()> {
-    let mut config = PtyConfig::isolated(run_dir);
+    let mut config = PtyConfig::user(run_dir);
     config.profile = Some(if cfg!(windows) {
         shellfox_terminal::ShellProfileId::Cmd
     } else {
