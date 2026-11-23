@@ -12,6 +12,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+/// Set by the host for an isolated tab; never reaches the shell.
+pub(super) const ISOLATED: &str = "SHELLFOX_PTY_ISOLATED";
 pub(super) static CLOSE: AtomicBool = AtomicBool::new(false);
 extern "C" fn request_close(_: libc::c_int) {
     // AtomicBool is lock-free on the supported Linux targets. No I/O, allocation
@@ -130,7 +132,10 @@ fn run(
     ensure!(u32::from_le_bytes(length) == 0, "Unexpected PTY startup payload.");
     let mut command = Command::new(program);
     command.args(args);
-    command.env_remove("DBUS_SESSION_BUS_ADDRESS");
+    // An isolated tab gets no account session bus; a user tab keeps it.
+    if std::env::var_os(ISOLATED).is_some() {
+        command.env_remove(ISOLATED).env_remove("DBUS_SESSION_BUS_ADDRESS");
+    }
     ensure!(
         unsafe { libc::signal(libc::SIGTTOU, libc::SIG_IGN) } != libc::SIG_ERR,
         "PTY foreground setup failed"

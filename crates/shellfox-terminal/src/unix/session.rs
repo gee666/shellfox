@@ -106,15 +106,19 @@ impl PtySession {
         let mut builder = config.builder(&argv)?;
         if config.command.is_none()
             && std::path::Path::new(&command.program).file_name().is_some_and(|name| name == "bash")
-            && builder.get_env("PROMPT_COMMAND").is_none()
         {
-            builder.env("PROMPT_COMMAND", include_str!("../bash-prompt.sh"));
+            builder.env("PROMPT_COMMAND", prompt_command(builder.get_env("PROMPT_COMMAND")));
         }
+        // systemd-run needs the user bus. A user tab keeps it; the supervisor
+        // drops it again for an isolated one.
         if builder.get_env("DBUS_SESSION_BUS_ADDRESS").is_none() {
             builder.env(
                 "DBUS_SESSION_BUS_ADDRESS",
                 format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() }),
             );
+        }
+        if config.environment != crate::TerminalEnvironment::User {
+            builder.env(super::production_supervisor::ISOLATED, "1");
         }
         let pair = portable_pty::native_pty_system().openpty(size(config.cols, config.rows)?)?;
         let writer = InputWriter::start(pair.master.take_writer()?).context("start PTY input")?;
@@ -291,4 +295,26 @@ impl Drop for PtySession {
             }
         }
     }
+}
+
+/// The bash cwd hook runs first, then any PROMPT_COMMAND the tab inherited.
+/// The hook is a subshell that exits with the previous status, so `$?` is
+/// unchanged for the commands after it. An rc file that assigns
+/// PROMPT_COMMAND without keeping the old value still replaces both.
+fn prompt_command(inherited: Option<&std::ffi::OsStr>) -> std::ffi::OsString {
+    let mut value = std::ffi::OsString::from(include_str!("../bash-prompt.sh").trim_end());
+    if let Some(inherited) = inherited.filter(|value| !value.is_empty()) {
+        value.push("\n");
+        value.push(inherited);
+    }
+    value
+}
+
+#[cfg(test)]
+#[test]
+fn the_cwd_hook_keeps_an_inherited_prompt_command() {
+    let hook = include_str!("../bash-prompt.sh").trim_end();
+    assert_eq!(prompt_command(None), hook);
+    assert_eq!(prompt_command(Some("".as_ref())), hook);
+    assert_eq!(prompt_command(Some("history -a".as_ref())), format!("{hook}\nhistory -a").as_str());
 }

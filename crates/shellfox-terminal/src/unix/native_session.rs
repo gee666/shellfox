@@ -96,7 +96,7 @@ impl PreparedLaunch {
     ) -> Result<CommandBuilder> {
         ensure!(
             cwd.is_absolute() && cwd.is_dir(),
-            "native PTY requires existing absolute isolated cwd"
+            "native PTY requires an existing absolute cwd"
         );
         let mut argv = vec![self.program.as_os_str().to_owned()];
         argv.extend_from_slice(&self.args);
