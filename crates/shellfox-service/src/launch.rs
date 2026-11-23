@@ -4,6 +4,28 @@ use shellfox_core::{Generation, TerminalIdentity};
 use shellfox_runtime::{Identity, Runtime};
 use shellfox_terminal::{PtyConfig, ShellProfileId};
 
+/// The installed Shellfox CLI launcher's directory, which 0.9 put first on
+/// PATH in every tab.
+fn cli_bin() -> Option<PathBuf> {
+    let var = |name| std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_absolute());
+    #[cfg(windows)]
+    let launchers = [var("LOCALAPPDATA").map(|dir| dir.join("Shellfox/bin/shellfox.cmd"))];
+    #[cfg(target_os = "linux")]
+    let launchers = [
+        Some(PathBuf::from("/usr/bin/shellfox")),
+        var("HOME").map(|home| home.join(".local/bin/shellfox")),
+    ];
+    #[cfg(target_os = "macos")]
+    let launchers = [var("HOME").map(|home| home.join(".local/bin/shellfox"))];
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    let launchers: [Option<PathBuf>; 0] = [];
+    launchers
+        .into_iter()
+        .flatten()
+        .find(|launcher| launcher.is_file())
+        .and_then(|launcher| launcher.parent().map(Path::to_path_buf))
+}
+
 impl Service {
     /// A user terminal: the user's own environment plus Settings and session variables.
     fn launch_config(&self, launch: shellfox_core::TerminalLaunch) -> Result<PtyConfig> {
@@ -15,10 +37,17 @@ impl Service {
             .into_iter()
             .map(|entry| (entry.name.into(), entry.value.into()))
             .collect();
+        config.cli_bin = cli_bin();
+        // The CLI in a tab talks to this host, as 0.9 did.
+        if let Some(root) = crate::electron_import::electron_root(&self.directory) {
+            config.host_paths.insert("SHELLFOX_USER_DATA".into(), root.into());
+        }
         let profile = launch.profile_id.as_str();
         #[cfg(windows)]
         {
             if profile == ADMIN_POWERSHELL_PROFILE {
+                // Settings and session variables can come from a remote device.
+                config.env.clear();
                 return Ok(config);
             }
             if profile.starts_with("wsl:") {
@@ -258,5 +287,48 @@ mod tests {
         assert_eq!(config.env.get(std::ffi::OsStr::new("PATH")).unwrap(), "/tools");
         assert_eq!(config.terminal_marker.as_deref(), Some(tab.to_string().as_str()));
         assert!(!data.path().join("terminal-home").exists());
+        // A custom data directory has no 0.9 root to name.
+        assert!(config.host_paths.is_empty());
+    }
+
+    fn tab_in(service: &Service, profile: &str) -> TabId {
+        let env = vec![EnvVar { name: "NODE_OPTIONS".into(), value: "--require=x".into() }];
+        let snapshot = service
+            .host()
+            .create_session(CreateSession {
+                request_id: SessionId::new(),
+                title: None,
+                cwd: service.directory.to_string_lossy().into_owned(),
+                profile_id: ProfileId::new(profile).unwrap(),
+            })
+            .unwrap();
+        service.host().set_session_env(snapshot.sessions[0].id, env).unwrap();
+        snapshot.selection.tab_id.unwrap()
+    }
+
+    #[test]
+    fn tabs_name_the_hosts_data_root_for_the_cli() {
+        let scratch = crate::tests::scratch();
+        let data = scratch.path().join("Shellfox/rust-v1/host");
+        std::fs::create_dir_all(&data).unwrap();
+        let service = Service::open_owned(&data, &std::env::current_exe().unwrap()).unwrap();
+        let tab = tab_in(&service, "cmd");
+        let config = service.launch_config(service.host().terminal_launch(tab).unwrap()).unwrap();
+        assert_eq!(
+            config.host_paths.get(std::ffi::OsStr::new("SHELLFOX_USER_DATA")).map(PathBuf::from),
+            Some(scratch.path().join("Shellfox"))
+        );
+        assert!(config.env.contains_key(std::ffi::OsStr::new("NODE_OPTIONS")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn administrator_tabs_carry_no_settings_or_session_variables() {
+        let data = crate::tests::scratch();
+        let service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
+        service.host().set_terminal_env(vec![EnvVar { name: "PATH".into(), value: "/x".into() }]).unwrap();
+        let tab = tab_in(&service, ADMIN_POWERSHELL_PROFILE);
+        let config = service.launch_config(service.host().terminal_launch(tab).unwrap()).unwrap();
+        assert!(config.env.is_empty());
     }
 }

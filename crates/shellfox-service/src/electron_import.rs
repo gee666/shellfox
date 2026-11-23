@@ -85,7 +85,7 @@ pub(super) async fn import_electron_root(
     .await?
 }
 
-fn electron_root(data: &Path) -> Option<&Path> {
+pub(crate) fn electron_root(data: &Path) -> Option<&Path> {
     let mut tail = data.components().rev();
     let layout = tail.next() == Some(Component::Normal("host".as_ref()))
         && tail.next() == Some(Component::Normal("rust-v1".as_ref()));

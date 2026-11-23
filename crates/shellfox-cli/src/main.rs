@@ -59,6 +59,10 @@ fn main() {
         .first()
         .is_some_and(|flag| flag == shellfox_service::local::LocalBootstrap::DESKTOP_HOST_FLAG)
     {
+        // A Node launcher's IPC channel belongs to it, not to this host or its tabs.
+        for key in ["NODE_CHANNEL_FD", "NODE_CHANNEL_SERIALIZATION_MODE"] {
+            std::env::remove_var(key);
+        }
         std::process::exit(desktop_host::run(&arguments[1..]));
     }
     let watch = parent_watch::claim();

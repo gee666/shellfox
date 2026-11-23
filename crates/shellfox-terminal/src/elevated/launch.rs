@@ -29,14 +29,18 @@ impl Launch {
         if !cwd.is_dir() {
             return Err(AdapterError::InvalidLaunch);
         }
-        // The user's own environment and profile, like 0.9. Settings and session
-        // variables can come from a remote device, so they never reach an
-        // elevated shell.
+        // The user's own environment and profile, as a UAC-started PowerShell
+        // and 0.9 have them. Settings and session variables can come from a
+        // remote device, so they never reach an elevated shell.
         let mut env = BTreeMap::new();
         let user = crate::environment_user::compose(
-            crate::environment_user::user_base().map_err(|_| AdapterError::InvalidLaunch)?,
-            &BTreeMap::new(),
-            config.terminal_marker.as_deref(),
+            crate::environment_user::user_base(),
+            crate::environment_user::Layers {
+                configured: None,
+                cli_bin: config.cli_bin.as_deref(),
+                marker: config.terminal_marker.as_deref(),
+                host_paths: Some(&config.host_paths),
+            },
         );
         for (key, value) in user {
             let (Some(key), Some(value)) = (key.to_str(), value.to_str()) else {
@@ -67,23 +71,19 @@ impl Launch {
         if env.len() > 1024 {
             return Err(AdapterError::InvalidLaunch);
         }
+        // Windows limits each name and value to 32767 UTF-16 units, not the
+        // block; the frame bound limits the total.
         let mut names = std::collections::BTreeSet::new();
-        let mut units = 1usize;
         for (key, value) in &env {
             let key_units = key.encode_utf16().count();
             if key_units == 0
                 || key_units > 32767
+                || value.encode_utf16().count() > 32767
                 || key.chars().any(|c| c.is_control() || c == '=')
                 || value.contains('\0')
                 || !names.insert(key.to_uppercase())
                 || runtime_hook(key)
             {
-                return Err(AdapterError::InvalidLaunch);
-            }
-            units = units
-                .checked_add(key_units + value.encode_utf16().count() + 2)
-                .ok_or(AdapterError::InvalidLaunch)?;
-            if units > 32767 {
                 return Err(AdapterError::InvalidLaunch);
             }
         }

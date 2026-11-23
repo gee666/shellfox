@@ -38,6 +38,10 @@ pub struct PtyConfig {
     pub command: Option<PtyCommand>,
     /// Settings and session variables, applied over the base environment.
     pub env: BTreeMap<OsString, OsString>,
+    /// The installed Shellfox CLI launcher directory, put first on PATH.
+    pub cli_bin: Option<PathBuf>,
+    /// Host-owned paths such as SHELLFOX_USER_DATA, set last. WSL gets them translated.
+    pub host_paths: BTreeMap<OsString, OsString>,
     /// Trusted executable calling `supervisor_entry` before all other work.
     /// None is rejected before acquiring a PTY.
     pub supervisor: Option<PathBuf>,
@@ -71,6 +75,8 @@ impl PtyConfig {
             unix_privilege: UnixPrivilegeMode::Local,
             command: None,
             env: BTreeMap::new(),
+            cli_bin: None,
+            host_paths: BTreeMap::new(),
             supervisor: None,
             terminal_marker: None,
         }
@@ -144,6 +150,13 @@ impl PtyConfig {
                 "terminal marker must be a UUID"
             );
         }
+        if let Some(bin) = &self.cli_bin {
+            ensure!(
+                bin.is_absolute() && !has_nul(bin.as_os_str()),
+                "CLI directory must be an absolute path"
+            );
+        }
+        crate::environment::validate_extra(&self.host_paths)?;
         crate::environment::validate_extra(&self.env)
     }
 
@@ -166,7 +179,7 @@ impl PtyConfig {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         use crate::unix::environment as paths;
         let base = match &self.environment {
-            TerminalEnvironment::User => crate::environment_user::user_base()?,
+            TerminalEnvironment::User => crate::environment_user::user_base(),
             TerminalEnvironment::Isolated {
                 root,
                 policy,
@@ -177,8 +190,12 @@ impl PtyConfig {
         };
         Ok(crate::environment_user::compose(
             base,
-            &self.env,
-            self.terminal_marker.as_deref(),
+            crate::environment_user::Layers {
+                configured: Some(&self.env),
+                cli_bin: self.cli_bin.as_deref(),
+                marker: self.terminal_marker.as_deref(),
+                host_paths: Some(&self.host_paths),
+            },
         ))
     }
 }
