@@ -26,6 +26,11 @@ pub struct Fixture {
     // Last: scopes and handles close before the scratch folder is removed.
     scratch: tempfile::TempDir,
 }
+impl Default for Fixture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Fixture {
     pub fn new() -> Self {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");

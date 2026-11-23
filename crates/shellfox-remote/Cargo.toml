@@ -17,5 +17,6 @@ shellfox-transport = { path = "../shellfox-transport", features = ["helper", "ho
 shellfox-files = { path = "../shellfox-files" }
 
 [dev-dependencies]
+shellfox-test-support = { path = "../shellfox-test-support" }
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }

@@ -46,6 +46,7 @@ rustix = { version = "=1.1.6", features = ["fs", "process"] }
 zbus = { version = "=5.19.0", features = ["blocking-api"] }
 
 [dev-dependencies]
+shellfox-test-support = { path = "../shellfox-test-support" }
 rusqlite = { version = "=0.41.0", features = ["bundled"] }
 shellfox-mobile = { path = "../shellfox-mobile" }
 sha2 = "0.10"

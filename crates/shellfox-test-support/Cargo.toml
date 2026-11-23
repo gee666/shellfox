@@ -1,0 +1,12 @@
+[package]
+name = "shellfox-test-support"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+shellfox-files = { path = "../shellfox-files" }
+shellfox-protocol = { path = "../shellfox-protocol" }
+tempfile = "3"

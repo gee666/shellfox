@@ -1,6 +1,5 @@
 //! Real Go-owned Host actor/SQLite plus the existing owned legacy-inspection fixture.
-#[path = "../../shellfox-remote/tests/support/native_metadata.rs"]
-mod metadata;
+use shellfox_test_support::native_metadata as metadata;
 #[path = "support/native_bootstrap_owned.rs"]
 mod support;
 use anyhow::Result;

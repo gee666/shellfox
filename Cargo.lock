@@ -7897,6 +7897,7 @@ dependencies = [
  "shellfox-core",
  "shellfox-files",
  "shellfox-protocol",
+ "shellfox-test-support",
  "shellfox-transport",
  "tempfile",
  "thiserror 2.0.21",
@@ -7941,6 +7942,7 @@ dependencies = [
  "shellfox-runtime",
  "shellfox-ssh",
  "shellfox-terminal",
+ "shellfox-test-support",
  "shellfox-transport",
  "subtle",
  "tempfile",
@@ -7999,6 +8001,15 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "shellfox-test-support"
+version = "0.1.0"
+dependencies = [
+ "shellfox-files",
+ "shellfox-protocol",
+ "tempfile",
 ]
 
 [[package]]

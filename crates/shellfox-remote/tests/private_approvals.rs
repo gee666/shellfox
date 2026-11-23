@@ -1,7 +1,5 @@
 //! Legacy approval metadata is inspectable but cannot grant access or be rewritten.
-#[path = "support/native_metadata.rs"]
-mod fixture;
-use fixture::Fixture;
+use shellfox_test_support::native_metadata::Fixture;
 use shellfox_protocol::ErrorCode;
 use shellfox_remote::{Approval, ApprovalControl, PrivateApprovalStore, ViewPermission};
 use std::{ffi::OsStr, sync::Arc};

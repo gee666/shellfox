@@ -8,8 +8,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
 };
-#[path = "../tests/support/native_metadata.rs"]
-mod metadata;
+use shellfox_test_support::native_metadata as metadata;
 struct Repository {
     snapshot: Mutex<ApprovalStoreSnapshot>,
     fail: AtomicBool,

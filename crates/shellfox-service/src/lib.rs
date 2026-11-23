@@ -35,8 +35,7 @@ mod manager_delivery;
 mod manager_mailboxes;
 mod manager_retire;
 #[cfg(test)]
-#[path = "../../shellfox-remote/tests/support/native_metadata.rs"]
-mod native_metadata_fixture;
+use shellfox_test_support::native_metadata as native_metadata_fixture;
 mod owner;
 mod owner_automation;
 mod owner_wait;
