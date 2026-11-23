@@ -74,21 +74,21 @@ where
             if cell.faint && overridden.is_none() {
                 foreground.a *= 0.5;
             }
-            let run = TextRun {
-                len: cell.text.len(),
-                font,
-                color: foreground,
-                background_color: None,
-                underline: None,
-                strikethrough: None,
+            let mut chars = cell.text.chars();
+            let sprite = match (chars.next(), chars.next()) {
+                (Some(ch), None) => super::sprites::paint(
+                    ch,
+                    origin,
+                    style.cell_width * f32::from(cell.width),
+                    style.line_height,
+                    foreground,
+                    window,
+                ),
+                _ => false,
             };
-            let line = window.text_system().shape_line(
-                cell.text.clone().into(),
-                px(style.font_size),
-                &[run],
-                None,
-            );
-            line.paint(origin, px(style.line_height), window, cx)?;
+            if !sprite {
+                paint_glyph(cell, font, foreground, origin, &style, window, cx)?;
+            }
             for offset in [
                 cell.strikethrough.then_some(style.line_height * 0.5),
                 cell.underline.then_some(style.line_height - 2.),
@@ -107,5 +107,27 @@ where
         }
     }
 
+    Ok(())
+}
+
+fn paint_glyph(
+    cell: &shellfox_ghostty_vt::Cell,
+    font: Font,
+    color: Hsla,
+    origin: gpui::Point<Pixels>,
+    style: &CellStyle<'_>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Result<()> {
+    let run = TextRun {
+        len: cell.text.len(),
+        font,
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let line = window.text_system().shape_line(cell.text.clone().into(), px(style.font_size), &[run], None);
+    line.paint(origin, px(style.line_height), window, cx)?;
     Ok(())
 }

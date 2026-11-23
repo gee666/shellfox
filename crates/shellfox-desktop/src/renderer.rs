@@ -3,6 +3,7 @@ mod loading;
 pub(crate) use loading::terminal_loading;
 mod cells;
 pub(crate) use cells::{paint_cells, CellStyle, CellOverlay};
+mod sprites;
 mod surface;
 mod theme;
 use anyhow::{Context as _, Result, ensure};
