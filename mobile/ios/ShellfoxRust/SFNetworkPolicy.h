@@ -1,7 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
-// Exact carrier paths, shared by the legacy bridge and native Rust transport.
+// Exact carrier paths for the native Rust transport. Go checks them again.
 static inline BOOL SFNetworkPathAllowed(NSString *path) {
   if (![path isKindOfClass:NSString.class]) return NO;
   return [@[@"/v1/discover", @"/v1/pair", @"/v1/request", @"/v1/events", @"/v1/disconnect"] containsObject:path];

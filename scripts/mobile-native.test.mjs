@@ -90,11 +90,10 @@ test('Android source preserves exact five carrier paths and bounded poll/backgro
   assert.match(policy, /isPoll: Boolean get\(\) = traffic == Traffic\.POLL/);
   assert.match(policy, /needsBackgroundCompletion: Boolean get\(\) = traffic == Traffic\.PAIR \|\| traffic == Traffic\.DISCONNECT/);
   for (const path of invalidPaths) assert.equal(roles.has(path), false);
-  assert.match(source, /if \(endpoint == null\) \{[\s\S]*?promise\.reject[\s\S]*?return/);
-  for (const caller of [source, transport]) {
-    assert.match(caller, /MobileEndpoint\.fromPath\(/);
-    assert.match(caller, /if \(endpoint\.isPoll\) polls else requests/);
-  }
+  // The Rust client transport is the only request entry point; the JS module has none.
+  assert.doesNotMatch(source, /Mobile\.request|fun request/);
+  assert.match(transport, /val endpoint = MobileEndpoint\.fromPath\(route\)\s*if \(endpoint == null\) \{ finish\(6\); return \}/);
+  assert.match(transport, /if \(endpoint\.isPoll\) polls else requests/);
   assert.match(readSource('mobile/android/app/src/main/AndroidManifest.xml'), /<uses-permission android:name="android\.permission\.WAKE_LOCK"\s*\/>/);
   assert.match(helper, /MobileEndpoint\.fromPath\(path\)\?\.needsBackgroundCompletion == true/);
   assert.match(helper, /newWakeLock\(PowerManager\.PARTIAL_WAKE_LOCK,/);
@@ -105,7 +104,8 @@ test('Android source preserves exact five carrier paths and bounded poll/backgro
 });
 
 test('iOS source preserves exact five paths and finite poll/pair/disconnect completion', () => {
-  const source = readSource('mobile/ios/ShellfoxMobile/ShellfoxNetwork.mm');
+  const bridge = readSource('mobile/ios/ShellfoxMobile/ShellfoxNetwork.mm');
+  const source = readSource('mobile/ios/ShellfoxRust/SFGoTransport.mm');
   const policy = readSource('mobile/ios/ShellfoxRust/SFNetworkPolicy.h');
   const allowed = objcPolicyFunction(policy, 'SFNetworkPathAllowed');
   const poll = objcPolicyFunction(policy, 'SFNetworkPathPoll');
@@ -121,13 +121,14 @@ test('iOS source preserves exact five paths and finite poll/pair/disconnect comp
   assert.doesNotMatch(policy, /hasPrefix|rangeOfString|lowercaseString|URLWithString/);
   const closed = new Set(objectivePaths(allowed));
   for (const path of invalidPaths) assert.equal(closed.has(path), false);
-  assert.match(source, /if \(!SFNetworkPathAllowed\(path\)\) \{ reject\([\s\S]*?return; \}/);
+  // The Rust client transport is the only request entry point; the JS module has none.
+  assert.doesNotMatch(bridge, /MobileRequest/);
+  assert.equal([...source.matchAll(/MobileRequest\(/g)].length, 1);
+  assert.match(source, /if \(!p \|\| !SFNetworkPathAllowed\(route\) \|\|[^\n]*\) \{\s*Complete\([^;]*SFM_TRANSPORT_INVALID_RESPONSE, nil\); return;\s*\}/);
+  assert.match(source, /SFNetworkPathPoll\(path\) \? _pollSlots : _requestSlots/);
   assert.match(source, /if \(SFNetworkPathFiniteCompletion\(path\)\)/);
-  assert.match(source, /submitConcurrent:SFNetworkPathPoll\(path\)/);
-  assert.match(source, /beginBackgroundTaskWithName:@"Shellfox approval" expirationHandler:finish/);
-  assert.match(source, /endBackgroundTask:task/);
-  assert.match(source, /resolve:\^\(id value\) \{ finish\(\); resolve\(value\); \}/);
-  assert.match(source, /reject:\^\(NSString \*code, NSString \*message, NSError \*error\) \{ finish\(\); reject\(code, message, error\); \}/);
+  assert.match(source, /beginBackgroundTaskWithName:@"Shellfox network completion" expirationHandler:/);
+  assert.match(source, /endBackgroundTask:request\.backgroundTask/);
 });
 
 test('mobile uses the shared local health module and runs its tests', () => {
