@@ -42,27 +42,41 @@ impl RemoteDispatcher {
         self
     }
 }
+impl RemoteDispatcher {
+    /// Holds the request behind a close, or sends it to fact collection or dispatch.
+    fn route(&mut self, service: &mut Service, request: shellfox_remote::OwnerRequest) {
+        let Some(request) = self.state.hold(service, request) else {
+            return;
+        };
+        match &mut self.facts {
+            Some(facts)
+                if super::facts::requires_facts(&request.command, |tab| {
+                    service.terminals.contains_key(&tab)
+                }) =>
+            {
+                facts.admit(service, request, self.wake.clone())
+            }
+            _ => self.state.dispatch_request(service, request),
+        }
+    }
+}
 impl OwnerDispatcher for RemoteDispatcher {
     /// Handles every finished fact job and queued request, then wakes the
     /// long-polls whose next Poll has events.
     fn dispatch_one(&mut self, service: &mut Service) {
+        // Answer a finished close before anything can start another one.
+        self.state.finish_close(service);
         if let Some(facts) = &mut self.facts {
             while facts.finish(service, &mut self.state) {}
         }
         self.state.finish_stats(service);
         self.state.finish_close(service);
-        self.state.release_held(service);
+        // Held requests collect facts again: facts from before the commit are stale.
+        while let Some(request) = self.state.next_held(service) {
+            self.route(service, request);
+        }
         while let Ok(request) = self.receiver.try_recv() {
-            match &mut self.facts {
-                Some(facts)
-                    if super::facts::requires_facts(&request.command, |tab| {
-                        service.terminals.contains_key(&tab)
-                    }) =>
-                {
-                    facts.admit(service, request, self.wake.clone())
-                }
-                _ => self.state.dispatch_request(service, request),
-            }
+            self.route(service, request);
         }
         // A close that finished during this dispatch is answered now.
         self.state.finish_close(service);

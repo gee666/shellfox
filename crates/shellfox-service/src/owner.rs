@@ -16,6 +16,9 @@ use std::{
 };
 use tokio::sync::oneshot;
 
+/// Tasks held behind a close at most; the inbox holds the rest.
+const MAX_DEFERRED: usize = 64;
+
 #[cfg(test)]
 mod lifetime_tests;
 #[cfg(test)]
@@ -152,6 +155,11 @@ impl ServiceOwner {
                             if let Some(task) = held {
                                 deferred.push_front(task);
                             }
+                            if deferred.len() >= MAX_DEFERRED {
+                                // Leave the rest in the bounded inbox, so senders see "busy".
+                                service.pause_for_runtime(service.owner_pass_timeout());
+                                continue;
+                            }
                             incoming.recv_timeout(service.owner_pass_timeout())
                         }
                     };
@@ -196,9 +204,16 @@ impl ServiceOwner {
                                     }
                                 };
                             if let Some(target) = request.close_target() {
-                                service.close_request(target, Box::new(move |result| {
-                                    let _ = reply.send(result.map(LocalApiResponse::Snapshot));
-                                }));
+                                let admitted = shellfox_protocol::Validate::validate(&request).map_err(anyhow::Error::from);
+                                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    service.close_request(target, admitted, Box::new(move |result| {
+                                        let _ = reply.send(result.map(LocalApiResponse::Snapshot));
+                                    }))
+                                }))
+                                .is_err()
+                                {
+                                    break;
+                                }
                                 continue;
                             }
                             let detach = matches!(request, LocalApiRequest::Detach {});
@@ -267,9 +282,16 @@ impl ServiceOwner {
                                 }
                             }
                             if let Some(target) = action.close_target() {
-                                service.close_request(target, Box::new(move |result| {
-                                    let _ = reply.send(result.map(crate::native::NativeResponse::Snapshot));
-                                }));
+                                let admitted = action.validate();
+                                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    service.close_request(target, admitted, Box::new(move |result| {
+                                        let _ = reply.send(result.map(crate::native::NativeResponse::Snapshot));
+                                    }))
+                                }))
+                                .is_err()
+                                {
+                                    break;
+                                }
                                 continue;
                             }
                             let detach = matches!(*action, crate::native::NativeAction::DetachAll);

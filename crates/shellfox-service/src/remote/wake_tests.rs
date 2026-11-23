@@ -105,13 +105,66 @@ async fn peer_requests_wait_behind_a_close_in_order_and_polls_do_not() {
         state.dispatch_request(&mut service, poll);
         assert_eq!(state.held.0.len(), 1, "a poll is answered at once");
         service.abandon_close("test");
-        state.release_held(&mut service);
-        assert!(state.held.0.is_empty());
+        while let Some(request) = state.next_held(&service) {
+            state.dispatch_request(&mut service, request);
+        }
     };
     let (paired, polled, ()) = tokio::join!(pair, poll, drive);
     // The poll ran before the view existed; the pairing ran after the close.
     assert_eq!(polled.unwrap_err().code, ErrorCode::AuthFailed);
     paired.unwrap();
+    service.shutdown().unwrap();
+    drop(service);
+    owner.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_peer_revoked_during_its_close_commits_nothing() {
+    let scratch = crate::tests::scratch();
+    let approval_data = crate::tests::scratch();
+    let mut owner = approval_owner(approval_data.path()).await;
+    let metadata = native_metadata::Fixture::new();
+    let peer = PeerIdentity { id: "n-revoked".into(), hostname: "offline".into() };
+    let (approvals, store) = approve_peer(&owner, &metadata, &peer).await;
+    let actor = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let mut service =
+        Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
+    let mut state = RemoteState::new(Default::default(), None, None);
+    // A failed launch leaves a runtime the close has to stop.
+    let created = service
+        .host()
+        .create_session(shellfox_core::CreateSession {
+            request_id: SessionId::new(),
+            title: None,
+            cwd: scratch.path().join("missing-cwd").to_string_lossy().into_owned(),
+            profile_id: shellfox_core::ProfileId::new("cmd").unwrap(),
+        })
+        .unwrap();
+    let tab = created.sessions[0].tabs[0].id;
+    assert!(service.attach(tab, 1, false).is_err());
+    let generation = service.terminals[&tab].runtime.identity().generation;
+    let command = RemoteCommand::CloseTab(wire::CloseTab { tab_id: tab, generation });
+    let (sender, mut receiver) = shellfox_remote::owner_channel(1);
+    let close = sender.request(OwnerCommand::Execute { actor: actor.clone(), command: command.clone() });
+    let drive = async {
+        let request = receiver.recv().await.unwrap();
+        let mut bound = state.bind(&mut service);
+        let target = crate::close::CloseTarget::Tab(tab);
+        let kind = super::close::Kind::Tab { session: created.sessions[0].id };
+        bound.start_close(&actor, command, target, kind).unwrap();
+        assert!(bound.keep_closing(request).is_none());
+        approvals.revoke(&store, &peer.id).await.unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
+        while service.metadata_busy() {
+            assert!(std::time::Instant::now() < deadline, "close did not finish");
+            service.pump();
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        state.finish_close(&mut service);
+    };
+    let (closed, ()) = tokio::join!(close, drive);
+    assert_eq!(closed.unwrap_err().code, ErrorCode::AccessDenied);
+    assert_eq!(service.host().snapshot().unwrap().sessions[0].tabs.len(), 1, "metadata kept");
     service.shutdown().unwrap();
     drop(service);
     owner.shutdown().await.unwrap();

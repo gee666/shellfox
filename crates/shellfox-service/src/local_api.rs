@@ -224,12 +224,13 @@ impl Service {
             RenameSession { id, title } => {
                 LocalApiResponse::Snapshot(self.host().rename_session(id, &title)?)
             }
-            DeleteSession { id } => LocalApiResponse::Snapshot(self.delete_session(id)?),
+            DeleteSession { .. } | CloseTab { .. } => {
+                anyhow::bail!("Closes run on the owner's close route.")
+            }
             AddTab { id, input } => LocalApiResponse::Snapshot(self.host().add_tab(id, input)?),
             RenameTab { id, title } => {
                 LocalApiResponse::Snapshot(self.host().rename_tab(id, &title)?)
             }
-            CloseTab { id } => LocalApiResponse::Snapshot(self.close_tab(id)?),
             Settings { request } => {
                 LocalApiResponse::Settings(self.host().settings_request(request)?)
             }

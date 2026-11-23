@@ -23,6 +23,15 @@ pub(crate) struct Closing {
 }
 #[derive(Default)]
 pub(crate) struct Held(pub(super) VecDeque<OwnerRequest>);
+/// The peer lost authorization before the commit; nothing was committed.
+#[derive(Debug)]
+struct Refused(AppError);
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.message)
+    }
+}
+impl std::error::Error for Refused {}
 
 impl RemoteService<'_> {
     /// Starts a gated close from an authorized dispatch. Answered by `finish_close`.
@@ -33,14 +42,20 @@ impl RemoteService<'_> {
         target: CloseTarget,
         kind: Kind,
     ) -> Result<serde_json::Value, AppError> {
+        if self.state.closing.is_some() {
+            return Err(failure(ErrorCode::NativeUnavailable, "The host is busy closing a tab."));
+        }
         let (send, outcome) = mpsc::channel();
         let actor = actor.clone();
         let gate: crate::close::CommitGate = Box::new(move |commit| {
-            actor
-                .with_authorized(Some(&command), || {
-                    commit().map_err(|error| failure(ErrorCode::NativeUnavailable, &error.to_string()))
+            let mut failed = None;
+            let authorized = actor.with_authorized(Some(&command), || {
+                commit().map_err(|error| {
+                    failed = Some(error);
+                    failure(ErrorCode::NativeUnavailable, "")
                 })
-                .map_err(|error| anyhow::anyhow!(error.message))
+            });
+            authorized.map_err(|refused| failed.unwrap_or_else(|| Refused(refused).into()))
         });
         self.service.close_request_gated(
             target,
@@ -66,7 +81,10 @@ impl RemoteService<'_> {
 impl RemoteState {
     /// Holds `request` behind a close in flight. Returns it when it may run now.
     pub(super) fn hold(&mut self, service: &Service, request: OwnerRequest) -> Option<OwnerRequest> {
-        if !service.metadata_busy() || matches!(request.command, OwnerCommand::Poll { .. }) {
+        // Disconnect only releases this view; it writes no metadata.
+        if !service.metadata_busy()
+            || matches!(request.command, OwnerCommand::Poll { .. } | OwnerCommand::Disconnect { .. })
+        {
             return Some(request);
         }
         if self.held.0.len() >= MAX_HELD {
@@ -79,14 +97,12 @@ impl RemoteState {
         }
         None
     }
-    /// Dispatches held requests once no close is in flight.
-    pub(super) fn release_held(&mut self, service: &mut Service) {
-        while !service.metadata_busy() {
-            let Some(request) = self.held.0.pop_front() else {
-                return;
-            };
-            self.dispatch_request(service, request);
+    /// The oldest held request, once no close is in flight.
+    pub(super) fn next_held(&mut self, service: &Service) -> Option<OwnerRequest> {
+        if service.metadata_busy() {
+            return None;
         }
+        self.held.0.pop_front()
     }
     /// Answers the peer request of a finished close.
     pub(super) fn finish_close(&mut self, service: &mut Service) {
@@ -100,7 +116,10 @@ impl RemoteState {
         let Some(Closing { kind, request: Some(request), .. }) = self.closing.take() else {
             return;
         };
+        // A revoked peer gets its authorization error, not a cleanup failure.
+        let outcome = outcome.map_err(|error| error.downcast::<Refused>());
         let response = match (outcome, kind) {
+            (Err(Ok(Refused(error))), _) => Err(error),
             (Ok(snapshot), Kind::Tab { session }) => {
                 self.bind(service).session(&snapshot, session).and_then(checked)
             }

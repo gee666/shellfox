@@ -36,15 +36,17 @@ impl Task {
     /// Whether this task may run while a close is in flight (see close.rs).
     pub(super) fn flows(&self, service: &crate::Service) -> bool {
         match self {
+            // Approvals have their own revision, so they don't invalidate a close.
             Self::Wake
-            | Self::Shutdown
+            | Self::Approvals(_)
             | Self::Activate { .. }
             | Self::SourceFactsWatch { .. }
             | Self::Watches { .. } => true,
             Self::Execute { request, .. } => service.local_api_flows(request),
             Self::Native { action, .. } => service.native_flows(action),
             Self::Private(task) => task.flows(service),
-            Self::Approvals(_) | Self::InstallRemote(_) => false,
+            // Shutdown waits for the close, as it did when the owner blocked.
+            Self::Shutdown | Self::InstallRemote(_) => false,
         }
     }
 }

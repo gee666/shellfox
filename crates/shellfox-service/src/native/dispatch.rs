@@ -75,10 +75,10 @@ impl crate::Service {
             NativeAction::ChangedSince { revision } => {
                 NativeResponse::Changed(self.host().changed_since(revision)?)
             }
-            NativeAction::CloseTab { tab } => NativeResponse::Snapshot(self.close_tab(tab)?),
-            NativeAction::CloseTerminal(identity) => NativeResponse::Snapshot(self.close_terminal(identity)?),
-            NativeAction::DeleteSession { session } => {
-                NativeResponse::Snapshot(self.delete_session(session)?)
+            NativeAction::CloseTab { .. }
+            | NativeAction::CloseTerminal(_)
+            | NativeAction::DeleteSession { .. } => {
+                anyhow::bail!("Closes run on the owner's close route.")
             }
             NativeAction::Attach { tab, takeover } => {
                 self.native_attach(tab, controller, takeover)?

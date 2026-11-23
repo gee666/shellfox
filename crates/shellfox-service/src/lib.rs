@@ -125,9 +125,6 @@ impl Service {
     pub fn close_tab(&mut self, id: TabId) -> Result<Snapshot> {
         self.close_now(close::CloseTarget::Tab(id))
     }
-    pub(crate) fn close_terminal(&mut self, identity: TerminalIdentity) -> Result<Snapshot> {
-        self.close_now(close::CloseTarget::Terminal(identity))
-    }
     pub fn delete_session(&mut self, id: shellfox_core::SessionId) -> Result<Snapshot> {
         self.close_now(close::CloseTarget::Session(id))
     }

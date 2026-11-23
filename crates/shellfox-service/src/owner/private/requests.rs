@@ -87,7 +87,8 @@ impl PrivateOwner {
                     Err(error) => { let _ = reply.send(Err(error)); return; }
                 };
                 if let Some(target) = action.close_target() {
-                    service.close_request(target, Box::new(move |result| {
+                    let admitted = action.validate();
+                    service.close_request(target, admitted, Box::new(move |result| {
                         let _ = reply.send(result.and_then(|snapshot| {
                             crate::local::DesktopReply::try_from(crate::native::NativeResponse::Snapshot(snapshot))
                         }).and_then(encode));
@@ -110,14 +111,14 @@ impl PrivateOwner {
                     .and_then(encode);
                 let _ = reply.send(result);
             }
-            PrivateRequest::LocalApi(request) if request.close_target().is_some() => {
+            PrivateRequest::LocalApi(request) => {
                 if let Some(target) = request.close_target() {
-                    service.close_request(target, Box::new(move |result| {
+                    let admitted = shellfox_protocol::Validate::validate(&request).map_err(anyhow::Error::from);
+                    service.close_request(target, admitted, Box::new(move |result| {
                         let _ = reply.send(result.map(LocalApiResponse::Snapshot).and_then(encode));
                     }));
+                    return;
                 }
-            }
-            PrivateRequest::LocalApi(request) => {
                 let detach = matches!(request, LocalApiRequest::Detach {});
                 let result = service
                     .with_grant_recipient(cancel, |service| service.execute(request, controller))

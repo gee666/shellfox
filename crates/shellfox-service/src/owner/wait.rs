@@ -76,6 +76,11 @@ impl Service {
             timeout.min(deadline.saturating_duration_since(Instant::now()))
         })
     }
+    /// Sleeps until the next runtime event round, at most `timeout` (and 100 ms).
+    pub(crate) fn pause_for_runtime(&self, timeout: Duration) {
+        let seen = self.runtime_signal.rounds();
+        self.runtime_signal.wait_past(seen, timeout.min(Duration::from_millis(100)));
+    }
     /// Notifies the owner from a worker thread when it exits, even by panic.
     pub(crate) fn wake_on_exit(&self) -> WakeOnExit {
         WakeOnExit(self.event_wake.clone())

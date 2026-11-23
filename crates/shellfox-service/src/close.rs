@@ -45,10 +45,10 @@ pub(crate) struct Closing {
 }
 
 impl Service {
-    /// True while a close is in flight. Requests that could write metadata or
-    /// touch the closing tabs wait until it finishes.
+    /// True from a close's prepare until its commit or cancel. Requests that
+    /// could write metadata or touch the closing tabs wait until it finishes.
     pub(crate) fn metadata_busy(&self) -> bool {
-        self.closing.is_some()
+        self.metadata_closing
     }
     /// Whether `tab` belongs to the close in flight.
     pub(crate) fn tab_closing(&self, tab: TabId) -> bool {
@@ -64,12 +64,21 @@ impl Service {
         self.begin_close_gated(target, None, done);
     }
     fn begin_close_gated(&mut self, target: CloseTarget, gate: Option<CommitGate>, done: CloseDone) {
+        if let Err(error) = self.assert_owned() {
+            return done(Err(error));
+        }
+        if self.metadata_closing {
+            return done(Err(anyhow::anyhow!("Metadata cleanup is already active.")));
+        }
+        // Set before prepare: stopping an automation tab pumps the owner, and
+        // nothing may write metadata between prepare and commit.
+        self.metadata_closing = true;
         match self.start_close(target) {
             Ok(Started { token, tabs, session, terminals }) => {
                 // A gated close starts inside its caller's authorization check,
-                // which the gate takes again: the caller pumps it afterwards.
+                // which the gate takes again (that lock isn't reentrant), so the
+                // caller pumps it afterwards. No pump may run under that check.
                 let pump = gate.is_none();
-                self.metadata_closing = true;
                 self.closing = Some(Closing {
                     token,
                     tabs,
@@ -83,14 +92,16 @@ impl Service {
                     self.pump_closing();
                 }
             }
-            Err(error) => done(Err(error)),
+            Err(error) => {
+                self.metadata_closing = false;
+                done(Err(error))
+            }
         }
     }
+    /// Prepares the token and asks every runtime to stop. If one can't be
+    /// asked, the token is cancelled; runtimes already asked stay registered
+    /// until a retried close confirms them.
     fn start_close(&mut self, target: CloseTarget) -> Result<Started> {
-        self.assert_owned()?;
-        if self.metadata_closing {
-            bail!("Metadata cleanup is already active.");
-        }
         let (tabs, session, prepared) = match target {
             CloseTarget::Tab(id) => (vec![id], None, self.host.prepare_close_tab(id)?),
             CloseTarget::Terminal(identity) => (
@@ -284,8 +295,8 @@ impl NativeAction {
 impl Service {
     /// Starts the close a request names, with the checks its synchronous
     /// route made first.
-    pub(crate) fn close_request(&mut self, target: CloseTarget, done: CloseDone) {
-        if let Err(error) = self.assert_accepting() {
+    pub(crate) fn close_request(&mut self, target: CloseTarget, admitted: Result<()>, done: CloseDone) {
+        if let Err(error) = admitted.and_then(|()| self.assert_accepting()) {
             return done(Err(error));
         }
         self.begin_close(target, done);
@@ -297,7 +308,9 @@ impl Service {
         }
         self.begin_close_gated(target, Some(gate), done);
     }
-    /// Reads and terminal I/O on other tabs may run during a close.
+    /// Reads and terminal I/O on other tabs may run during a close. They can
+    /// overtake their own client's earlier deferred requests; clients await
+    /// each call, so they don't depend on that order.
     pub(crate) fn local_api_flows(&self, request: &LocalApiRequest) -> bool {
         use LocalApiRequest::*;
         match request {
@@ -352,80 +365,4 @@ impl Service {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tests::{default_catalog_profile, scratch};
-    use shellfox_core::{AddTab, CreateSession};
-
-    #[test]
-    fn a_close_in_flight_lets_reads_through_and_holds_metadata_writes() {
-        let data = scratch();
-        let mut service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
-        // A failed launch still registers a runtime that the close must stop.
-        let cwd = data.path().join("missing-cwd").to_string_lossy().into_owned();
-        let profile_id = shellfox_core::ProfileId::new("cmd").unwrap();
-        let created = service
-            .host()
-            .create_session(CreateSession { request_id: SessionId::new(), title: None, cwd, profile_id: profile_id.clone() })
-            .unwrap();
-        let session = created.sessions[0].id;
-        let (first, second) = {
-            let snapshot = service.host().add_tab(session, AddTab { title: None, cwd: None, profile_id }).unwrap();
-            (snapshot.sessions[0].tabs[0].id, snapshot.sessions[0].tabs[1].id)
-        };
-        assert!(service.attach(first, 1, false).is_err());
-        assert!(service.attach(second, 1, false).is_err());
-        assert_eq!(service.active_terminals(), 2);
-
-        // While a close waits for its runtime: reads and other tabs' I/O run.
-        let _parked = service.park_close(first);
-        {
-            assert!(service.tab_closing(first) && !service.tab_closing(second));
-            let attachment = crate::Attachment { controller: 1, epoch: 1, generation: Default::default() };
-            let read = |tab| LocalApiRequest::Poll { tab, attachment: attachment.clone() };
-            assert!(service.local_api_flows(&LocalApiRequest::Snapshot {}));
-            assert!(service.local_api_flows(&read(second)), "I/O on another tab runs");
-            assert!(!service.local_api_flows(&read(first)), "the closing tab waits");
-            let rename = LocalApiRequest::RenameSession { id: session, title: "later".into() };
-            assert!(!service.local_api_flows(&rename), "metadata writes wait");
-            assert!(service.host().snapshot().is_ok());
-            // A second close can't start while the first holds its token.
-            assert!(service.close_tab(second).is_err());
-        }
-        service.abandon_close("test");
-        let (send, outcome) = std::sync::mpsc::channel();
-        service.begin_close(CloseTarget::Tab(first), Box::new(move |result| {
-            let _ = send.send(result);
-        }));
-        let deadline = Instant::now() + STOP_DEADLINE;
-        let closed = loop {
-            if let Ok(result) = outcome.try_recv() {
-                break result.unwrap();
-            }
-            assert!(Instant::now() < deadline, "close did not finish");
-            service.pump();
-            std::thread::sleep(Duration::from_millis(5));
-        };
-        assert_eq!(closed.sessions[0].tabs.len(), 1);
-        assert!(!service.metadata_busy() && service.terminals.contains_key(&second));
-        service.close_tab(second).unwrap();
-        service.shutdown().unwrap();
-    }
-
-    #[test]
-    fn shutdown_fails_a_close_in_flight_and_keeps_its_metadata() {
-        let data = scratch();
-        let mut service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
-        let cwd = data.path().to_string_lossy().into_owned();
-        let created = service
-            .host()
-            .create_session(CreateSession { request_id: SessionId::new(), title: None, cwd, profile_id: default_catalog_profile() })
-            .unwrap();
-        let tab = created.sessions[0].tabs[0].id;
-        // No live terminal: the close would finish on its first pass, so park it.
-        let outcome = service.park_close(tab);
-        service.shutdown().unwrap();
-        assert!(outcome.try_recv().unwrap().is_err());
-        assert_eq!(service.host().snapshot().unwrap().sessions[0].tabs.len(), 1);
-    }
-}
+mod tests;
