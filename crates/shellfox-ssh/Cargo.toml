@@ -7,6 +7,7 @@ license = "MIT"
 publish = false
 
 [dependencies]
+shellfox-files = { path = "../shellfox-files" }
 base64 = "0.22"
 cap-std = "3.4.5"
 cap-fs-ext = "3.4.5"
@@ -34,9 +35,6 @@ zeroize = { version = "1", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"

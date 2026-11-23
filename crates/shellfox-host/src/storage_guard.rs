@@ -2,6 +2,7 @@
 //! This rejects existing links, but is not a sandbox against concurrent same-user changes.
 use crate::storage::{storage_error, STORE_FILENAME};
 use shellfox_core::{Error, ErrorCode, Result};
+use shellfox_files::handle::{is_link, is_single_link_file, nofollow_options};
 use std::{
     fs::{self, File, OpenOptions},
     io,
@@ -30,26 +31,6 @@ fn absolute(path: &Path) -> Result<PathBuf> {
         }
     }
     Ok(normalized)
-}
-
-#[cfg(windows)]
-use windows_sys::Win32::Storage::FileSystem::{
-    GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT,
-    FILE_FLAG_OPEN_REPARSE_POINT,
-};
-
-fn is_link(meta: &fs::Metadata) -> bool {
-    if meta.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return true;
-        }
-    }
-    false
 }
 
 // Validate every existing component before creating the next directory, and again after.
@@ -86,43 +67,9 @@ fn directory(path: &Path, create: bool) -> Result<PathBuf> {
     current.canonicalize().map_err(storage_error)
 }
 
-#[cfg(unix)]
-fn single_link(file: &File) -> io::Result<bool> {
-    use std::os::unix::fs::MetadataExt;
-    Ok(file.metadata()?.nlink() == 1)
-}
-
-#[cfg(windows)]
-fn single_link(file: &File) -> io::Result<bool> {
-    use std::{mem::MaybeUninit, os::windows::io::AsRawHandle};
-    let mut info = MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-    // SAFETY: the handle belongs to `file` and stays open for the call.
-    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the call succeeded and filled the structure.
-    let info = unsafe { info.assume_init() };
-    Ok(info.nNumberOfLinks == 1 && info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT == 0)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn single_link(_: &File) -> io::Result<bool> {
-    Ok(false)
-}
-
 fn options(write: bool) -> OpenOptions {
-    let mut options = OpenOptions::new();
+    let mut options = nofollow_options();
     options.read(true).write(write);
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
     options
 }
 
@@ -142,9 +89,7 @@ fn check_file(path: &Path, required: bool) -> Result<Option<File>> {
         return Err(storage_error("invalid artifact"));
     }
     let file = options(false).open(path).map_err(storage_error)?;
-    if !file.metadata().map_err(storage_error)?.is_file()
-        || !single_link(&file).map_err(storage_error)?
-    {
+    if !is_single_link_file(&file).map_err(storage_error)? {
         return Err(storage_error("linked artifact"));
     }
     let parent = path.parent().ok_or_else(|| storage_error("no parent"))?;
@@ -176,9 +121,7 @@ pub(crate) fn prepare(path: &Path) -> Result<(PathBuf, File, Vec<File>)> {
         .truncate(false)
         .open(&lock_path)
         .map_err(storage_error)?;
-    if !file.metadata().map_err(storage_error)?.is_file()
-        || !single_link(&file).map_err(storage_error)?
-    {
+    if !is_single_link_file(&file).map_err(storage_error)? {
         return Err(storage_error("invalid lock"));
     }
     check_file(&lock_path, true)?;

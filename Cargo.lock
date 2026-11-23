@@ -7853,14 +7853,13 @@ name = "shellfox-host"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "libc",
  "rusqlite",
  "serde",
  "serde_json",
  "shellfox-core",
+ "shellfox-files",
  "tempfile",
  "uuid",
- "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7981,11 +7980,11 @@ dependencies = [
  "serde_json",
  "sha1 0.10.6",
  "sha2 0.10.9",
+ "shellfox-files",
  "ssh-key 0.6.7",
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
- "windows-sys 0.59.0",
  "zeroize",
 ]
 
