@@ -20,7 +20,7 @@ impl HostClient {
         .validate()
         .map_err(|error| NativeAdmissionError::Invalid(error.to_string()))?;
         let _frame_admission =
-            match Admission::acquire_limit(self.frame_admission.clone(), MAX_FRAME_WAITERS) {
+            match Admission::acquire(self.frame_admission.clone(), MAX_FRAME_WAITERS) {
                 Ok(slot) => slot,
                 Err(_) => {
                     return Err(NativeAdmissionError::Full(Box::new(NativeAction::Frame {
@@ -85,7 +85,7 @@ impl HostClient {
         .validate()
         .map_err(|error| NativeAdmissionError::Invalid(error.to_string()))?;
         let _frame_admission =
-            match Admission::acquire_limit(self.frame_admission.clone(), MAX_FRAME_WAITERS) {
+            match Admission::acquire(self.frame_admission.clone(), MAX_FRAME_WAITERS) {
                 Ok(slot) => slot,
                 Err(_) => {
                     return Err(NativeAdmissionError::Full(Box::new(

@@ -40,7 +40,6 @@ fn bare_launch_is_show_and_new_session_preserves_request_and_disposition() {
     let show = scratch.parse([]).unwrap();
     assert!(matches!(show.launch.action, LaunchAction::Show {}));
     assert_eq!(show.launch.disposition, LaunchDisposition::ExistingWindow);
-    assert_eq!(show.launch_owner, None);
     let request = shellfox_core::SessionId::new();
     let project = scratch.0.join("project");
     let options = scratch
@@ -70,33 +69,6 @@ fn launch_pair_is_strict_and_cannot_leak_into_fixture_or_smoke() {
         vec!["--new-window".into(), "--new-window".into()],
         vec!["--fixture".into(), "--new-window".into()],
         vec!["--smoke".into(), "--new-window".into()],
-    ] {
-        assert!(scratch.parse(extra).is_err());
-    }
-}
-
-#[test]
-fn attach_existing_requires_the_exact_owner_pair() {
-    let scratch = Scratch::new();
-    let owner = "11111111-1111-4111-8111-111111111111";
-    let options = scratch
-        .parse([
-            "--attach-existing-host".into(),
-            "--launch-owner".into(),
-            owner.into(),
-        ])
-        .unwrap();
-    assert_eq!(options.launch_owner, Some(owner.parse().unwrap()));
-    assert!(!scratch.0.join("host").exists());
-    assert!(!scratch.0.join("ui").exists());
-    for extra in [
-        vec!["--attach-existing-host".into()],
-        vec!["--launch-owner".into(), owner.into()],
-        vec![
-            "--attach-existing-host".into(),
-            "--launch-owner".into(),
-            "not-an-owner".into(),
-        ],
     ] {
         assert!(scratch.parse(extra).is_err());
     }

@@ -1,29 +1,11 @@
-//! Route desktop launch intents through the same owner, whether it lives in
-//! this process or the verified local headless host.
-use super::{HostClient, HostEndpointConfig};
+//! The desktop window's side of launch routing: register, then claim and
+//! acknowledge each launch the host hands to this UI.
+use super::HostClient;
 use shellfox_service::desktop_launch::*;
-
-/// A fenced secondary launch must not replay a queued request to a new owner.
-pub async fn handoff_existing(
-    config: &HostEndpointConfig,
-    intent: DesktopLaunchIntent,
-    submission: LaunchRequestKind,
-    owner: LaunchOwnerFence,
-) -> anyhow::Result<LaunchReceipt> {
-    let client = shellfox_service::local::LocalClient::connect(
-        &config.data_dir,
-        &config.helper,
-        config.helper_sha256,
-    )
-    .await?;
-    client
-        .launch_existing_pinned(intent, submission, owner)
-        .await
-}
 
 impl HostClient {
     pub async fn desktop_register(&self) -> anyhow::Result<DesktopRegistration> {
-        self.local().register_desktop().await
+        self.port.register_desktop().await
     }
     pub async fn desktop_submit(
         &self,
@@ -32,7 +14,7 @@ impl HostClient {
         submission: LaunchRequestKind,
     ) -> anyhow::Result<LaunchReceipt> {
         let DesktopLaunchReply::Receipt(receipt) = self
-            .local()
+            .port
             .request(DesktopLaunchRequest::Submit {
                 owner,
                 intent,
@@ -46,7 +28,7 @@ impl HostClient {
     }
     pub async fn desktop_unregister(&self, token: DesktopClientToken) -> anyhow::Result<()> {
         let DesktopLaunchReply::Unregistered {} = self
-            .local()
+            .port
             .request(DesktopLaunchRequest::UnregisterAttached { token })
             .await?
         else {
@@ -59,7 +41,7 @@ impl HostClient {
         delivery: DesktopLaunchDelivery,
     ) -> anyhow::Result<LaunchClaim> {
         let DesktopLaunchReply::Claim(claim) = self
-            .local()
+            .port
             .request(DesktopLaunchRequest::ClaimAttached { delivery })
             .await?
         else {
@@ -74,7 +56,7 @@ impl HostClient {
     ) -> anyhow::Result<LaunchReceipt> {
         let request_id = delivery.intent.request_id;
         let DesktopLaunchReply::Receipt(receipt) = self
-            .local()
+            .port
             .request(DesktopLaunchRequest::CompleteAttached { delivery, handling })
             .await?
         else {

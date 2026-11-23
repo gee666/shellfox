@@ -50,11 +50,11 @@ fn frame(tab: TabId, frame_id: u64, sequence: u64) -> NativeFrame {
 fn native_admission_is_bounded_and_cancellation_returns_capacity() {
     let counter = Arc::new(AtomicUsize::new(0));
     let mut slots: Vec<_> = (0..16)
-        .map(|_| Admission::acquire(counter.clone()).unwrap())
+        .map(|_| Admission::acquire(counter.clone(), MAX_REQUESTS).unwrap())
         .collect();
-    assert!(Admission::acquire(counter.clone()).is_err());
+    assert!(Admission::acquire(counter.clone(), MAX_REQUESTS).is_err());
     slots.pop();
-    assert!(Admission::acquire(counter.clone()).is_ok());
+    assert!(Admission::acquire(counter.clone(), MAX_REQUESTS).is_ok());
     drop(slots);
     assert_eq!(counter.load(Ordering::Acquire), 0);
 }
@@ -81,9 +81,9 @@ fn frame_admission_is_fair_and_bounded_while_waiting() {
     assert!(later.as_mut().poll(&mut cx).is_ready());
     let counter = Arc::new(AtomicUsize::new(0));
     let waiters: Vec<_> = (0..MAX_FRAME_WAITERS)
-        .map(|_| Admission::acquire_limit(counter.clone(), MAX_FRAME_WAITERS).unwrap())
+        .map(|_| Admission::acquire(counter.clone(), MAX_FRAME_WAITERS).unwrap())
         .collect();
-    assert!(Admission::acquire_limit(counter.clone(), MAX_FRAME_WAITERS).is_err());
+    assert!(Admission::acquire(counter.clone(), MAX_FRAME_WAITERS).is_err());
     drop(waiters);
     assert_eq!(counter.load(Ordering::Acquire), 0);
 }

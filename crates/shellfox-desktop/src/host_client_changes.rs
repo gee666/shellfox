@@ -154,7 +154,7 @@ where
 
 impl HostClient {
     pub(super) fn feeds(&self) -> &Feeds {
-        self.feeds.get_or_init(|| Feeds::start(self.local()))
+        self.feeds.get_or_init(|| Feeds::start(&self.port))
     }
     fn changes<T>(&self, pick: impl FnOnce(&Feeds) -> &watch::Receiver<Option<T>>) -> Changes<T> {
         let changes = pick(self.feeds()).clone();

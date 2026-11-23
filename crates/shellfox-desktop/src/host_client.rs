@@ -1,5 +1,5 @@
-//! Non-GPUI client of the central service. UI code awaits these futures; it never
-//! opens Host/SQLite or consumes runtime events directly.
+//! A window's client of the host process, over its local API. UI code awaits
+//! these futures; only the host opens SQLite or runs shells.
 #[path = "host_client_attached.rs"]
 pub(crate) mod attached;
 #[path = "host_client_catalog.rs"]
@@ -15,7 +15,6 @@ mod frames;
 mod presentation;
 #[path = "host_client_launch.rs"]
 mod launch;
-pub use launch::handoff_existing;
 #[cfg(test)]
 #[path = "host_client_tests.rs"]
 mod tests;
@@ -55,17 +54,12 @@ pub struct HostClient {
 }
 struct Admission(Arc<AtomicUsize>);
 impl Admission {
-    fn acquire(counter: Arc<AtomicUsize>) -> Result<Self> {
-        Self::acquire_limit(counter, MAX_REQUESTS)
-    }
-    fn acquire_limit(counter: Arc<AtomicUsize>, limit: usize) -> Result<Self> {
+    fn acquire(counter: Arc<AtomicUsize>, limit: usize) -> Result<Self> {
         counter
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 (current < limit).then_some(current + 1)
             })
-            .map_err(|_| {
-                anyhow::anyhow!("Native client request limit reached; nothing was enqueued.")
-            })?;
+            .map_err(|_| anyhow::anyhow!("Host request limit reached; nothing was sent."))?;
         Ok(Self(counter))
     }
 }
@@ -85,11 +79,8 @@ impl HostClient {
             feeds: Arc::default(),
         }
     }
-    fn local(&self) -> &attached::AttachedLocal {
-        &self.port
-    }
     fn admit(&self) -> Result<Admission> {
-        Admission::acquire(self.admission.clone())
+        Admission::acquire(self.admission.clone(), MAX_REQUESTS)
     }
     pub fn same_window_client(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.admission, &other.admission)
@@ -159,13 +150,13 @@ impl HostClient {
     pub async fn status(&self) -> Result<NativeStatus> {
         match self.execute(NativeAction::Status).await? {
             NativeResponse::Status(status) => Ok(status),
-            _ => anyhow::bail!("Service returned an invalid native status response."),
+            _ => anyhow::bail!("Host returned an invalid status response."),
         }
     }
     pub async fn attach(&self, tab: TabId, takeover: bool) -> Result<Attachment> {
         match self.execute(NativeAction::Attach { tab, takeover }).await? {
             NativeResponse::Attached(attachment) => Ok(attachment),
-            _ => anyhow::bail!("Service returned an invalid native attachment."),
+            _ => anyhow::bail!("Host returned an invalid attachment."),
         }
     }
     pub async fn command(
@@ -201,5 +192,4 @@ impl HostClient {
         }
         Ok(())
     }
-
 }

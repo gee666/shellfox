@@ -18,7 +18,6 @@ pub enum Mode {
 pub struct Options {
     pub mode: Mode,
     pub launch: crate::app_launch::DesktopLaunchIntent,
-    pub launch_owner: Option<shellfox_service::desktop_launch::LaunchOwnerFence>,
     pub ui_acceptance: bool,
     pub data_dir: PathBuf,
     pub desktop_dir: PathBuf,
@@ -41,7 +40,6 @@ impl Options {
             .as_nanos();
         let mut options = self.clone();
         options.run_dir = desktop.join(format!("run-{}-{stamp}", std::process::id()));
-        options.launch_owner = None;
         Ok(options)
     }
     pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Self> {
@@ -55,8 +53,6 @@ impl Options {
         let mut helper_sha256 = None;
         let mut application = app_composition::ApplicationArguments::default();
         let mut launch_args = Vec::new();
-        let mut attach_existing = false;
-        let mut launch_owner = None;
         let mut application_args = Vec::new();
         let mut relaunch_args = Vec::new();
         let mut owned_host = false;
@@ -134,23 +130,6 @@ impl Options {
                         );
                     }
                 }
-                Some("--attach-existing-host") => {
-                    if attach_existing {
-                        bail!("--attach-existing-host may only be supplied once");
-                    }
-                    attach_existing = true;
-                }
-                Some("--launch-owner") => {
-                    if launch_owner.is_some() {
-                        bail!("--launch-owner may only be supplied once");
-                    }
-                    launch_owner = Some(
-                        args.next()
-                            .context("--launch-owner requires its owner fence")?
-                            .into_string()
-                            .map_err(|_| anyhow::anyhow!("Launch owner must be UTF-8"))?,
-                    );
-                }
                 Some("--shell") => mode = Mode::Shell,
                 Some("--smoke") => mode = Mode::Smoke,
                 Some("--device-config-root") => {
@@ -207,8 +186,7 @@ impl Options {
         }
         let device_config_root =
             crate::device_prefs::configured_root(&root, &desktop, device_config_root)?;
-        let (launch, launch_owner) =
-            launch::parse(&launch_args, attach_existing, launch_owner.as_deref(), mode)?;
+        let launch = launch::parse(&launch_args, mode)?;
         let stamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_nanos();
@@ -237,7 +215,6 @@ impl Options {
         Ok(Self {
             mode,
             launch,
-            launch_owner,
             ui_acceptance,
             data_dir: root,
             desktop_dir: desktop,

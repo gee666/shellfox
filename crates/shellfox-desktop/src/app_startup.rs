@@ -42,10 +42,6 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     if options.mode != Mode::Shell {
         return Ok(Startup::Graphical(None));
     }
-    // Internal flags remain pinned and never try ownership acquisition.
-    if crate::launch_handoff::forward_existing(options)? {
-        return Ok(Startup::Forwarded);
-    }
     let _frontend_proofs = crate::frontend_composition::inspect(options)?;
     let config = options
         .endpoint
