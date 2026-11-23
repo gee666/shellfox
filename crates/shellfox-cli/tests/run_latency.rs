@@ -1,7 +1,8 @@
 //! `shellfox run` of a program that prints one line and exits, against a
 //! running host. The output and the exit reach the CLI through held reads and
 //! raw-process wakes, so a run costs about the process's own startup.
-#![cfg(any(windows, target_os = "macos"))]
+// macOS has no automation processes yet.
+#![cfg(windows)]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 mod support;

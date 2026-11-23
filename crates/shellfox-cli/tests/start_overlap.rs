@@ -1,6 +1,8 @@
 //! While an attach waits for its new shell to start, the host keeps
 //! answering other requests: a snapshot sent after it returns first.
-#![cfg(any(windows, target_os = "macos"))]
+// Windows only: a ConPTY start outlasts the 5 ms the test waits before its
+// second request; a macOS shell is often up before then.
+#![cfg(windows)]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 mod support;

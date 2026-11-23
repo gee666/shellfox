@@ -260,7 +260,7 @@ async fn an_attach_routed_through_a_start_reports_a_failed_start() {
                     .join("missing-cwd")
                     .to_string_lossy()
                     .into_owned(),
-                profile_id: shellfox_core::ProfileId::new("cmd").unwrap(),
+                profile_id: default_catalog_profile(),
             },
         })
         .await
