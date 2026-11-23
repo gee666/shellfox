@@ -42,6 +42,9 @@ pub(crate) struct Closing {
     deadline: Instant,
     gate: Option<CommitGate>,
     done: CloseDone,
+    /// Test-only: a parked close never advances.
+    #[cfg(test)]
+    parked: bool,
 }
 
 impl Service {
@@ -87,6 +90,8 @@ impl Service {
                     deadline: Instant::now() + STOP_DEADLINE,
                     gate,
                     done,
+                    #[cfg(test)]
+                    parked: false,
                 });
                 if pump {
                     self.pump_closing();
@@ -102,6 +107,8 @@ impl Service {
     /// asked, the token is cancelled; runtimes already asked stay registered
     /// until a retried close confirms them.
     fn start_close(&mut self, target: CloseTarget) -> Result<Started> {
+        #[cfg(test)]
+        tests::panic_if_marked(target);
         let (tabs, session, prepared) = match target {
             CloseTarget::Tab(id) => (vec![id], None, self.host.prepare_close_tab(id)?),
             CloseTarget::Terminal(identity) => (
@@ -161,6 +168,10 @@ impl Service {
         }
     }
     fn advance_close(&mut self, closing: &mut Closing) -> Result<Option<Snapshot>> {
+        #[cfg(test)]
+        if closing.parked {
+            return Ok(None);
+        }
         let mut index = 0;
         while index < closing.waiting.len() {
             if self.confirm_stopped(closing.waiting[index])? {
@@ -343,7 +354,7 @@ impl Service {
 
 #[cfg(test)]
 impl Service {
-    /// A close in flight that never advances: nothing to wait for, no pump.
+    /// A close in flight that never advances until `unpark_close`.
     pub(crate) fn park_close(&mut self, tab: TabId) -> std::sync::mpsc::Receiver<Result<Snapshot>> {
         let (send, outcome) = std::sync::mpsc::channel();
         let prepared = self.host.prepare_close_tab(tab).unwrap();
@@ -357,9 +368,16 @@ impl Service {
             done: Box::new(move |result| {
                 let _ = send.send(result);
             }),
+            parked: true,
         });
         self.metadata_closing = true;
         outcome
+    }
+    /// Lets a parked close finish on the next pass.
+    pub(crate) fn unpark_close(&mut self) {
+        if let Some(closing) = &mut self.closing {
+            closing.parked = false;
+        }
     }
 
 }

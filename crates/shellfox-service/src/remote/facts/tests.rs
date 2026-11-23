@@ -123,3 +123,100 @@ async fn facts_refresh_before_projection_and_fence_mutations_after_it_starts() {
     drop(service);
     owner.shutdown().await.unwrap();
 }
+
+/// Counts projections; returns empty facts at once.
+#[derive(Default)]
+struct Counting(std::sync::atomic::AtomicUsize);
+impl super::super::SourceFactsProjector for Counting {
+    fn project(
+        &self,
+        _: Arc<crate::activity::integration::SourceFacts>,
+        _: ManagerFactsRequest,
+    ) -> ManagerFactsFuture<'_> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async { Ok(ManagerFactsResult { facts: Default::default(), profiles: None, home: None }) })
+    }
+}
+
+#[tokio::test]
+async fn a_facts_request_during_a_close_is_held_then_collects_fresh_facts() {
+    let scratch = crate::tests::scratch();
+    let approval_data = crate::tests::scratch();
+    let mut owner = approval_owner(approval_data.path()).await;
+    let metadata = native_metadata::Fixture::new();
+    let peer = PeerIdentity { id: "n-held-facts".into(), hostname: "offline".into() };
+    let (control, _store) = approve_peer(&owner, &metadata, &peer).await;
+    let actor = control.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let mut service =
+        Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
+    let create = |title: &str| shellfox_core::CreateSession {
+        request_id: SessionId::new(),
+        title: Some(title.into()),
+        cwd: scratch.path().to_str().unwrap().into(),
+        profile_id: Default::default(),
+    };
+    let renamed = service.host().create_session(create("Original")).unwrap().sessions[0].id;
+    let closing = service.host().create_session(create("Closing")).unwrap();
+    let closing_tab = closing.sessions.iter().find(|s| s.id != renamed).unwrap().tabs[0].id;
+    service.pump_activity();
+    let (client, receiver) = super::super::remote_channel();
+    let provider = Arc::new(Counting::default());
+    let mut state = RemoteState::new(Default::default(), None, None);
+    actor
+        .with_authorized(None, || {
+            shellfox_remote::ServiceHost::dispatch(
+                &mut state.bind(&mut service),
+                OwnerCommand::Pair { actor: actor.clone() },
+            )
+        })
+        .unwrap();
+    let slot = Arc::new(super::super::SourceFactsProviderSlot::new(provider.clone()));
+    slot.install(service.source_facts_watch()).unwrap();
+    let mut dispatcher = super::super::RemoteDispatcher::new(receiver, state)
+        .with_facts_provider(slot, tokio::runtime::Handle::current());
+    let _outcome = service.park_close(closing_tab);
+    let command = OwnerCommand::Execute {
+        actor,
+        command: wire::RemoteCommand::RenameSession(wire::RenameSession {
+            session_id: renamed,
+            title: "Renamed by the peer".into(),
+        }),
+    };
+    let finished = AtomicBool::new(false);
+    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(
+            async {
+                let result = client.request(command).await;
+                finished.store(true, Ordering::SeqCst);
+                result
+            },
+            async {
+                for _ in 0..20 {
+                    dispatcher.dispatch_one(&mut service);
+                    tokio::task::yield_now().await;
+                }
+                assert_eq!(provider.0.load(Ordering::SeqCst), 0, "no facts collected mid-close");
+                assert!(!finished.load(Ordering::SeqCst), "the request waits for the close");
+                // The commit moves the revision that a mid-close collection would be fenced on.
+                service.unpark_close();
+                service.pump_closing();
+                assert!(!service.metadata_busy());
+                while !finished.load(Ordering::SeqCst) {
+                    dispatcher.dispatch_one(&mut service);
+                    tokio::task::yield_now().await;
+                }
+            }
+        )
+    })
+    .await
+    .unwrap();
+    let code = result.as_ref().err().map(|error| error.code);
+    assert_ne!(code, Some(ErrorCode::TargetLost), "{result:?}");
+    assert!(provider.0.load(Ordering::SeqCst) >= 1, "facts were collected after the commit");
+    let snapshot = service.host().snapshot().unwrap();
+    assert!(snapshot.sessions.iter().all(|s| s.tabs.iter().all(|t| t.id != closing_tab)));
+    service.shutdown().unwrap();
+    drop(dispatcher);
+    drop(service);
+    owner.shutdown().await.unwrap();
+}

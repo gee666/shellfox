@@ -87,7 +87,10 @@ impl PrivateOwner {
                     Err(error) => { let _ = reply.send(Err(error)); return; }
                 };
                 if let Some(target) = action.close_target() {
-                    let admitted = action.validate();
+                    let admitted = action.validate().and_then(|()| {
+                        anyhow::ensure!(controller != 0, "A native controller identity is required.");
+                        Ok(())
+                    });
                     service.close_request(target, admitted, Box::new(move |result| {
                         let _ = reply.send(result.and_then(|snapshot| {
                             crate::local::DesktopReply::try_from(crate::native::NativeResponse::Snapshot(snapshot))

@@ -157,6 +157,8 @@ impl ServiceOwner {
                             }
                             if deferred.len() >= MAX_DEFERRED {
                                 // Leave the rest in the bounded inbox, so senders see "busy".
+                                // Requests that could flow wait there too, at most until
+                                // the close's deadline.
                                 service.pause_for_runtime(service.owner_pass_timeout());
                                 continue;
                             }
@@ -282,7 +284,10 @@ impl ServiceOwner {
                                 }
                             }
                             if let Some(target) = action.close_target() {
-                                let admitted = action.validate();
+                                let admitted = action.validate().and_then(|()| {
+                                    anyhow::ensure!(controller != 0, "A native controller identity is required.");
+                                    Ok(())
+                                });
                                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                     service.close_request(target, admitted, Box::new(move |result| {
                                         let _ = reply.send(result.map(crate::native::NativeResponse::Snapshot));

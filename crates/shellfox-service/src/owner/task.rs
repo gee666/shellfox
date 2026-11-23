@@ -45,7 +45,7 @@ impl Task {
             Self::Execute { request, .. } => service.local_api_flows(request),
             Self::Native { action, .. } => service.native_flows(action),
             Self::Private(task) => task.flows(service),
-            // Shutdown waits for the close, as it did when the owner blocked.
+            // Shutdown only wakes the loop; `abandon` ends it, and shutdown fails the close.
             Self::Shutdown | Self::InstallRemote(_) => false,
         }
     }

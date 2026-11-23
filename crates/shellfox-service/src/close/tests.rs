@@ -74,3 +74,105 @@ fn shutdown_fails_a_close_in_flight_and_keeps_its_metadata() {
     assert_eq!(service.host().snapshot().unwrap().sessions[0].tabs.len(), 1);
 }
 
+
+/// Tabs whose close panics in `start_close`, for the owner's panic test.
+static PANIC_ON_CLOSE: std::sync::Mutex<Vec<TabId>> = std::sync::Mutex::new(Vec::new());
+pub(super) fn panic_if_marked(target: CloseTarget) {
+    if let CloseTarget::Tab(tab) = target {
+        if PANIC_ON_CLOSE.lock().unwrap().contains(&tab) {
+            panic!("test close panic");
+        }
+    }
+}
+
+async fn owner_with<D: crate::OwnerDispatcher + 'static>(
+    data: &std::path::Path,
+    dispatcher: D,
+) -> crate::owner::ServiceOwner {
+    let owner = crate::owner::ServiceOwner::start(
+        data.to_owned(),
+        std::env::current_exe().unwrap(),
+        shellfox_protocol::CancellationToken::new(),
+        dispatcher,
+    )
+    .await
+    .unwrap();
+    owner.activate().await.unwrap();
+    owner
+}
+async fn session(client: &crate::OwnerClient, data: &std::path::Path) -> (SessionId, TabId) {
+    let crate::local_api::LocalApiResponse::Snapshot(created) = client
+        .execute(LocalApiRequest::CreateSession {
+            input: CreateSession {
+                request_id: SessionId::new(),
+                title: Some("Original".into()),
+                cwd: data.to_string_lossy().into_owned(),
+                profile_id: default_catalog_profile(),
+            },
+        })
+        .await
+        .unwrap()
+    else {
+        panic!("snapshot")
+    };
+    (created.sessions[0].id, created.sessions[0].tabs[0].id)
+}
+
+#[tokio::test]
+async fn a_panic_inside_a_close_still_runs_owner_cleanup() {
+    let data = scratch();
+    let mut owner = owner_with(data.path(), ()).await;
+    let client = owner.client(uuid::Uuid::new_v4());
+    let (_, tab) = session(&client, data.path()).await;
+    PANIC_ON_CLOSE.lock().unwrap().push(tab);
+    let closed = client.execute(LocalApiRequest::CloseTab { id: tab }).await;
+    assert!(closed.is_err(), "the panicked close gets no snapshot");
+    // Cleanup ran: shutdown is confirmed and the metadata lock is released.
+    owner.shutdown().await.unwrap();
+    let host = shellfox_host::Host::open(data.path()).unwrap();
+    assert_eq!(host.snapshot().unwrap().sessions[0].tabs.len(), 1, "nothing committed");
+}
+
+/// Parks a close on the first pass after a tab is named.
+type Outcome = std::sync::mpsc::Receiver<Result<Snapshot>>;
+struct Parker {
+    tab: std::sync::Arc<std::sync::Mutex<Option<TabId>>>,
+    outcome: std::sync::Arc<std::sync::Mutex<Option<Outcome>>>,
+}
+impl crate::OwnerDispatcher for Parker {
+    fn dispatch_one(&mut self, service: &mut Service) {
+        if let Some(tab) = self.tab.lock().unwrap().take() {
+            *self.outcome.lock().unwrap() = Some(service.park_close(tab));
+        }
+    }
+}
+
+#[tokio::test]
+async fn shutdown_answers_requests_held_behind_a_close_and_commits_none() {
+    use std::sync::Arc;
+    let data = scratch();
+    let tab = Arc::new(std::sync::Mutex::new(None));
+    let outcome = Arc::new(std::sync::Mutex::new(None));
+    let mut owner =
+        owner_with(data.path(), Parker { tab: tab.clone(), outcome: outcome.clone() }).await;
+    let client = owner.client(uuid::Uuid::new_v4());
+    let (session, closing) = session(&client, data.path()).await;
+    *tab.lock().unwrap() = Some(closing);
+    while outcome.lock().unwrap().is_none() {
+        client.execute(LocalApiRequest::Snapshot {}).await.unwrap();
+    }
+    let rename = client
+        .try_execute(LocalApiRequest::RenameSession { id: session, title: "Held".into() })
+        .unwrap();
+    // The inbox is FIFO: once this read is answered, the rename has been held.
+    client.execute(LocalApiRequest::Snapshot {}).await.unwrap();
+    owner.shutdown().await.unwrap();
+    let close = outcome.lock().unwrap().take().unwrap().try_recv();
+    assert!(matches!(close, Ok(Err(_))), "shutdown fails the close explicitly");
+    let held = tokio::time::timeout(Duration::from_secs(5), rename).await;
+    assert!(matches!(held, Ok(Err(_)) | Ok(Ok(Err(_)))), "the held request is answered, not committed");
+    let host = shellfox_host::Host::open(data.path()).unwrap();
+    let snapshot = host.snapshot().unwrap();
+    assert_eq!(snapshot.sessions[0].title, "Original");
+    assert_eq!(snapshot.sessions[0].tabs.len(), 1, "the close was not committed");
+}

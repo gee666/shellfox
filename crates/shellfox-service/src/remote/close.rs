@@ -97,6 +97,10 @@ impl RemoteState {
         }
         None
     }
+    /// Puts a request taken by `next_held` back at the front.
+    pub(super) fn unhold(&mut self, request: OwnerRequest) {
+        self.held.0.push_front(request);
+    }
     /// The oldest held request, once no close is in flight.
     pub(super) fn next_held(&mut self, service: &Service) -> Option<OwnerRequest> {
         if service.metadata_busy() {

@@ -48,16 +48,16 @@ impl RemoteDispatcher {
         let Some(request) = self.state.hold(service, request) else {
             return;
         };
-        match &mut self.facts {
-            Some(facts)
-                if super::facts::requires_facts(&request.command, |tab| {
-                    service.terminals.contains_key(&tab)
-                }) =>
-            {
-                facts.admit(service, request, self.wake.clone())
+        if self.needs_facts(service, &request) {
+            if let Some(facts) = &mut self.facts {
+                return facts.admit(service, request, self.wake.clone());
             }
-            _ => self.state.dispatch_request(service, request),
         }
+        self.state.dispatch_request(service, request);
+    }
+    fn needs_facts(&self, service: &Service, request: &shellfox_remote::OwnerRequest) -> bool {
+        self.facts.is_some()
+            && super::facts::requires_facts(&request.command, |tab| service.terminals.contains_key(&tab))
     }
 }
 impl OwnerDispatcher for RemoteDispatcher {
@@ -72,7 +72,14 @@ impl OwnerDispatcher for RemoteDispatcher {
         self.state.finish_stats(service);
         self.state.finish_close(service);
         // Held requests collect facts again: facts from before the commit are stale.
+        // Released in arrival order. A facts request answers when its job
+        // finishes, so later requests that need no facts can answer first, as
+        // they could without a close. A full facts queue leaves the rest held.
         while let Some(request) = self.state.next_held(service) {
+            if self.needs_facts(service, &request) && self.facts.as_ref().is_some_and(|f| f.full()) {
+                self.state.unhold(request);
+                break;
+            }
             self.route(service, request);
         }
         while let Ok(request) = self.receiver.try_recv() {

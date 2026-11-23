@@ -72,6 +72,10 @@ impl FactsPipeline {
         }
     }
     /// `wake` is notified when the collected job is ready for [`Self::finish`].
+    /// True when `admit` would refuse the next request.
+    pub fn full(&self) -> bool {
+        self.pending >= 8
+    }
     pub fn admit(
         &mut self,
         service: &mut Service,
@@ -81,7 +85,7 @@ impl FactsPipeline {
         if request.is_cancelled() {
             return;
         }
-        if self.pending >= 8 {
+        if self.full() {
             request.complete(Err(failure(
                 ErrorCode::NativeUnavailable,
                 "Fact collection queue full. No mutation was executed.",
