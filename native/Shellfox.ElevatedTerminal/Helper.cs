@@ -6,14 +6,14 @@ namespace Shellfox.ElevatedTerminal;
 
 internal static class Helper
 {
-    internal static async Task<int> Run(string name, int parentPid, long parentBirth, bool isolated = false)
+    internal static async Task<int> Run(string name, int parentPid, long parentBirth)
     {
         var stage = StartupStage.Elevation;
-        try { return await Serve(name, parentPid, parentBirth, isolated, next => stage = next); }
-        catch when (!isolated && stage != StartupStage.Active) { return (int)stage; }
+        try { return await Serve(name, parentPid, parentBirth, next => stage = next); }
+        catch when (stage != StartupStage.Active) { return (int)stage; }
     }
 
-    private static async Task<int> Serve(string name, int parentPid, long parentBirth, bool isolated, Action<StartupStage> stage)
+    private static async Task<int> Serve(string name, int parentPid, long parentBirth, Action<StartupStage> stage)
     {
         using var identity = WindowsIdentity.GetCurrent();
         if (!new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator)) throw new UnauthorizedAccessException("Elevation required.");
@@ -33,9 +33,7 @@ internal static class Helper
         }, TaskScheduler.Default);
         stage(StartupStage.ReadLaunch);
         var launch = await Wire.ReadFrame(pipe, cancel.Token) ?? throw new EndOfStreamException();
-        // The invocation mode is not host environment state. Both peers bind it
-        // to the launch type only after verifying the original pipe peer.
-        try { ConPty.ValidateLaunch(launch, isolated); }
+        try { ConPty.ValidateLaunch(launch); }
         catch
         {
             await Wire.Send(pipe, Wire.Object(("type", "error"), ("code", "failed"), ("message", "Invalid administrator working directory or environment.")), false, cancel.Token);
@@ -48,9 +46,9 @@ internal static class Helper
         _ = Task.Run(async () =>
         {
             await Task.Delay(15000);
-            if (Volatile.Read(ref initialized) == 0) Environment.Exit(isolated ? 1 : (int)StartupStage.CreatePowerShell);
+            if (Volatile.Read(ref initialized) == 0) Environment.Exit((int)StartupStage.CreatePowerShell);
         });
-        using var terminal = new ConPty(launch, isolated);
+        using var terminal = new ConPty(launch);
         Volatile.Write(ref initialized, 1);
         cancel.CancelAfter(Timeout.InfiniteTimeSpan);
         var gate = new SemaphoreSlim(1);

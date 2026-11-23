@@ -27,9 +27,7 @@ if (process.platform === 'win32') {
   if (arch === process.arch) {
     const helper = path.join(output, 'Shellfox.ElevatedTerminal.exe');
     run(helper, ['probe'], 15000, helperEnvironment());
-    run(helper, ['probe-isolated'], 15000, helperEnvironment());
-    if (aot) run(helper, ['probe-power'], 15000, helperEnvironment());
-  } else console.log('Cross-compiled win-' + arch + '; probes require a native runner.');
+  } else console.log('Cross-compiled win-' + arch + '; the probe requires a native runner.');
 } else if (process.platform !== 'darwin') {
   console.log('No Darwin native helper build on ' + process.platform + '.');
 } else {

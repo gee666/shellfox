@@ -70,7 +70,7 @@ public sealed class LauncherStartupTests
         using var input = new OpenInput();
         using var output = new MemoryStream();
         using var parent = Process.GetCurrentProcess();
-        await Launcher.RunPipe(input, output, parent, deadline, isolated: false, startElevated: start)
+        await Launcher.RunPipe(input, output, parent, deadline, startElevated: start)
             .WaitAsync(TimeSpan.FromSeconds(8));
         return Encoding.UTF8.GetString(output.ToArray()).Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(row => Wire.Parse(Encoding.UTF8.GetBytes(row))).ToList();

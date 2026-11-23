@@ -68,22 +68,20 @@ every old Windows x64/Arm64 machine. Arm64 publishing here is cross-compilation.
 
 ## Application loader review
 
-All 68 application P/Invokes have a per-method
+All 39 application P/Invokes have a per-method
 `DefaultDllImportSearchPaths(DllImportSearchPath.System32)` attribute. Their
-library names are fixed literals: kernel32.dll, advapi32.dll, powrprof.dll and
-user32.dll. This covers ConPty, LocalPipe, PipeRun, IsolatedLaunch, PowerFiles,
-PowerNative, PowerOwner and OriginalPeerExit. No assembly-wide attribute changes unrelated code.
+library names are fixed literals: kernel32.dll and advapi32.dll. This covers
+ConPty, LocalPipe and PipeRun. No assembly-wide attribute changes unrelated code.
 A compiled reflection test checks every reviewed import and its search policy.
 
 The helper source has no Assembly.Load/LoadFrom/LoadFile, AssemblyLoadContext,
 NativeLibrary, Reflection.Emit, LoadLibrary/GetProcAddress, DLL search-path
 mutation, plugin resolver, or payload-selected managed/native library name.
 The source regression check covers all active C# files. JSON fields carry data;
-PipeRun's explicit child executable and the fixed isolated shell/bootstrap are
-separate process launches, not library loads in the helper. Their existing
-validation and Job/authentication rules are unchanged. PowerGuardian has no
-child-process path. These checks supplement human source review, not a generic
-proof about arbitrary future C# code.
+PipeRun's explicit child executable and the fixed System32 PowerShell are
+separate process launches, not library loads in the helper. These checks
+supplement human source review, not a generic proof about arbitrary future C#
+code.
 
 The published runtimeconfig disables `System.StartupHookProvider.IsSupported`.
 The .NET 10 implementation and feature-switch definition are in:
@@ -95,20 +93,6 @@ sanitize native profiler or host override code that loads before that entry
 point. The Rust launcher's environment scrub and helper-directory cwd remain
 necessary. Standard CLR loading of declared framework dependencies is not an
 arbitrary extension/plugin API.
-
-In particular, PowerGuardian outlives the host. Host-owned bundle handles alone
-cannot protect late declared dependency loads after a host crash. Its factory
-must provide immutable trusted staging or retain the verified bundle leases in
-the guardian process, for example by explicitly inheriting duplicated read-only
-bundle handles. Such opaque OS handles can remain open until guardian exit
-without changing its JSON protocol. Include them only in the explicit handle
-allowlist. The guardian neither starts children nor sweeps unknown handles.
-Inherited read-only handles prevent replacement, not insertion of new names.
-Standard CLR optional/satellite probing must also stay within the reviewed closed
-set; otherwise immutable namespace staging is required. This application-source
-review does not by itself prove every vendor-runtime probing path closed.
-Elevated broker peers likewise require ownership beyond launcher exit. If these
-conditions are not established, real factories must stay gated.
 
 The optional [NativeAOT prototype](NATIVEAOT.md) is a separate, opt-in build of
 the same source. It is not a reason to relax the managed artifact gate. Its own
@@ -132,8 +116,7 @@ Packaging regenerates the managed inventory and vulnerability report for every
 architecture and refuses to package on findings or an unsupported channel.
 Packaging notices come from the exact runtime 10.0.15 tag.
 
-Allowed checks execute only safe probes, injected power APIs, owned metadata/
-journal fixtures, and ordinary owned process fixtures. They do not run UAC,
-PowerGuardian real mode, global power/lid/mouse changes, legacy self-test or an
-account/profile process. No release, signing, installation or production-data
-migration is part of this remediation.
+Allowed checks execute only the safe probe and ordinary owned process fixtures.
+They do not run UAC, legacy self-test or an account/profile process. No
+release, signing, installation or production-data migration is part of this
+remediation.

@@ -45,7 +45,7 @@ test('Windows ships the self-contained elevated ConPTY helper outside ASAR on bo
   assert.ok(build.includes('windowsBuildOptions(process.argv.slice(2))'));
   assert.ok(build.includes("aot ? 'tmp/terminal-native-aot' : 'tmp/terminal-native'"));
   assert.ok(build.includes('if (arch === process.arch)'));
-  assert.ok(build.includes("['probe-isolated']"));
+  assert.ok(build.includes("run(helper, ['probe']"));
   const project = readFileSync('native/Shellfox.ElevatedTerminal/Shellfox.ElevatedTerminal.csproj', 'utf8');
   assert.ok(!project.includes('ForSelfExtract')); assert.ok(!project.includes('<PublishSingleFile>true'));
 });

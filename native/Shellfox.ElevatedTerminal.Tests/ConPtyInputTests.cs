@@ -36,24 +36,20 @@ public sealed class ConPtyInputTests
 
     private static async Task Probe(string root)
     {
-        var system = IsolatedLaunch.SystemDirectory;
+        // A minimal environment rooted in the test directory. No profile, and
+        // PSReadLine must not save the test's commands to the account history.
+        var system = Environment.GetFolderPath(Environment.SpecialFolder.System);
         var windows = Path.GetDirectoryName(system)!;
         var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["SystemRoot"] = windows, ["WINDIR"] = windows, ["COMSPEC"] = Path.Combine(system, "cmd.exe"),
             ["PATH"] = system, ["PSModulePath"] = Path.Combine(system, "WindowsPowerShell/v1.0/Modules"),
-            ["PATHEXT"] = ".COM;.EXE;.BAT;.CMD", ["TERM"] = "xterm-256color", ["COLORTERM"] = "truecolor",
+            ["PATHEXT"] = ".COM;.EXE;.BAT;.CMD", ["TERM"] = "xterm-256color",
+            ["USERPROFILE"] = root, ["APPDATA"] = root, ["LOCALAPPDATA"] = root, ["TEMP"] = root, ["TMP"] = root,
         };
-        foreach (var pair in IsolatedLaunch.Directories)
-        {
-            var directory = Path.Combine(root, pair.Value);
-            Directory.CreateDirectory(directory);
-            env.Add(pair.Key, directory);
-        }
-        foreach (var pair in IsolatedLaunch.Files) env.Add(pair.Key, Path.GetFullPath(Path.Combine(root, pair.Value)));
-        var launch = Wire.Parse(JsonSerializer.SerializeToUtf8Bytes(new { type = "launch-isolated", isolationRoot = root, cwd = root, env, cols = 80, rows = 24 }));
+        var launch = Wire.Parse(JsonSerializer.SerializeToUtf8Bytes(new { type = "launch", cwd = root, env, cols = 80, rows = 24 }));
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-        using var terminal = new ConPty(launch, isolated: true);
+        using var terminal = new ConPty(launch, " -NoProfile -NoExit -Command \"Import-Module PSReadLine -ErrorAction SilentlyContinue; Set-PSReadLineOption -HistorySaveStyle SaveNothing -ErrorAction SilentlyContinue\"");
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var output = new StringBuilder();
         var pump = Task.Run(async () =>

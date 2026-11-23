@@ -19,7 +19,7 @@ The first command remains managed and writes `tmp/terminal-native/win-x64`.
 AOT writes to `tmp/terminal-native-aot/win-x64`, with separate intermediate/bin
 caches. It never overwrites managed output. Mac/Linux helpers are unchanged.
 No new runtime CLI command or arbitrary raw command-line field was added.
-All three existing probes and the launch/isolation/power schemas are unchanged.
+The probe and the launch schema are unchanged.
 
 The profile sets `PublishAot`, disables reflection JSON, enables invariant
 helper globalization and treats compiler, trimming and AOT warnings as errors.
@@ -27,12 +27,12 @@ Invariant mode avoids optional ICU selection. Protocol text remains full UTF-8;
 it does not change the child shell's environment or the user's OS locale.
 
 JSON emission now uses explicit JSON DOM fields and primitive values, not
-runtime type discovery. Tests compare every response/request shape and journal
-snapshot against the previous serializer byte-for-byte, including escaping,
+runtime type discovery. Tests compare every response/request shape against
+the previous serializer byte-for-byte, including escaping,
 Unicode, integer widths and multiple cultures. Validated JsonElement forwarding
 still uses the original raw text, preserving large apostrophe frames.
 Lifecycle, authentication, UAC, Job and rollback code were not replaced by an
-AOT-specific implementation. The isolated peer-exit fix is shared source.
+AOT-specific implementation.
 
 ## Prerequisites and OS floor
 
@@ -94,7 +94,7 @@ node scripts/dotnet-sdk.mjs test
 node --test scripts/terminal-aot.test.mjs scripts/terminal-aot-probe.test.mjs
 ```
 
-Safe probes were compared against managed output. The actual native image passed
+The safe probe was compared against managed output. The actual native image passed
 the PE policy audit. Actual NativeAOT/ILCompiler/runtime package graphs reported
 no listed NuGet findings and an active/current supported .NET 10 channel.
 That audit is not an MSVC, Windows SDK or whole-native-code security clearance.
@@ -118,6 +118,5 @@ license/notices, compiler/package/source/image hashes, linker-response hash,
 PE audit and a separate NuGet/lifecycle report. A native CRT/SDK license review
 is explicitly pending, never implied by the retained .NET notices.
 
-No UAC, real elevated terminal, real PowerGuardian or global power/lid/mouse
-operation was run. The AOT x64 prototype is not platform parity, ARM64 runtime
+No UAC or real elevated terminal was run. The AOT x64 prototype is not platform parity, ARM64 runtime
 acceptance, a release, signing or installation.

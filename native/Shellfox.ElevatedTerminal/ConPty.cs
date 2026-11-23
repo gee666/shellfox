@@ -24,11 +24,14 @@ internal sealed class ConPty : IDisposable
     private readonly object closeLock = new();
     private Task? closing;
 
-    internal static void ValidateLaunch(JsonElement value, bool isolated = false)
+    // The OS system directory, never PATH or a payload executable.
+    internal static string Executable =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
+
+    internal static void ValidateLaunch(JsonElement value)
     {
-        if (isolated) Wire.Fields(value, "type", "isolationRoot", "cwd", "env", "cols", "rows");
-        else Wire.Fields(value, "type", "cwd", "env", "cols", "rows");
-        if (Wire.Type(value) != (isolated ? "launch-isolated" : "launch")) throw new InvalidDataException("Expected launch.");
+        Wire.Fields(value, "type", "cwd", "env", "cols", "rows");
+        if (Wire.Type(value) != "launch") throw new InvalidDataException("Expected launch.");
         var cwd = value.GetProperty("cwd").GetString() ?? "";
         if (cwd.Length is < 1 or > 32767 || cwd.Any(c => c < 32) || !Path.IsPathFullyQualified(cwd)) throw new InvalidDataException("Invalid working directory.");
         Dimensions(value);
@@ -43,7 +46,6 @@ internal sealed class ConPty : IDisposable
             units += item.Name.Length + text.Length + 2;
         }
         if (names.Count > 1024 || units > 32767) throw new InvalidDataException("Oversized environment.");
-        if (isolated) IsolatedLaunch.Validate(value);
     }
     internal static bool SafeEnvironmentName(string name) =>
         !new[] { "COR_", "CORECLR_", "COMPLUS_", "DOTNET_" }.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
@@ -55,9 +57,10 @@ internal sealed class ConPty : IDisposable
         if (cols is < 2 or > 500 || rows is < 2 or > 500) throw new InvalidDataException("Invalid dimensions.");
         return new Coord { X = (short)cols, Y = (short)rows };
     }
-    internal ConPty(JsonElement launch, bool isolated = false)
+    // The shell loads the account's profile. Only tests pass arguments, to stay hermetic.
+    internal ConPty(JsonElement launch, string testArguments = "")
     {
-        ValidateLaunch(launch, isolated);
+        ValidateLaunch(launch);
         SafeFileHandle? inRead = null, outWrite = null, inWrite = null, outRead = null, thread = null, createdProcess = null, createdJob = null;
         IntPtr attributes = IntPtr.Zero, environment = IntPtr.Zero;
         try
@@ -80,10 +83,8 @@ internal sealed class ConPty : IDisposable
             // launcher stdio out of the shell. ConPTY supplies console handles;
             // otherwise PowerShell can read the app pipe and exit on its EOF.
             var start = new StartupInfoEx { Info = new StartupInfo { Size = Marshal.SizeOf<StartupInfoEx>(), Flags = 0x100 }, Attributes = attributes };
-            // Both modes use the OS system directory, never PATH or a payload
-            // executable. Only the separate isolated protocol suppresses profiles.
-            var executable = IsolatedLaunch.Executable;
-            var command = new StringBuilder(IsolatedLaunch.CommandLine(isolated));
+            var executable = Executable;
+            var command = new StringBuilder($"\"{executable}\" -NoLogo{testArguments}");
             // Final privileged boundary, after inherited and session variables
             // were merged. Never let either source inject a CLR profiler, startup
             // hook or runtime override before the first interactive command.

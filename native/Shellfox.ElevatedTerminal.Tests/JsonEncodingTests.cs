@@ -11,7 +11,6 @@ public sealed class JsonEncodingTests
     [Fact]
     public void ExplicitDomFramesMatchPreviousReflectionSerializerBytes()
     {
-        var nonce = new string('a', 32);
         var env = new Dictionary<string, string> { ["HOME"] = "C:\\owned\\雪🙂", ["CUSTOM"] = "'\"<&+\n" };
         var corpus = new (object Previous, object Current)[]
         {
@@ -20,10 +19,6 @@ public sealed class JsonEncodingTests
             (new { type = "ack", id = 9007199254740991L }, Wire.Object(("type", "ack"), ("id", 9007199254740991L))),
             (new { type = "exit", exitCode = -1 }, Wire.Object(("type", "exit"), ("exitCode", -1))),
             (new { type = "error", code = "failed", message = "'雪🙂\n\u0001<&+" }, Wire.Object(("type", "error"), ("code", "failed"), ("message", "'雪🙂\n\u0001<&+"))),
-            (new { type = "power-ready", version = 1, nonce, pid = uint.MaxValue, birth = "134355986344672889" }, Wire.Object(("type", "power-ready"), ("version", 1), ("nonce", nonce), ("pid", uint.MaxValue), ("birth", "134355986344672889"))),
-            (new { type = "power-active", version = 1, nonce }, Wire.Object(("type", "power-active"), ("version", 1), ("nonce", nonce))),
-            (new { type = "power-stopped", version = 1, nonce }, Wire.Object(("type", "power-stopped"), ("version", 1), ("nonce", nonce))),
-            (new { type = "power-error", version = 1, nonce, code = "rollback-pending" }, Wire.Object(("type", "power-error"), ("version", 1), ("nonce", nonce), ("code", "rollback-pending"))),
             (new { type = "close" }, Wire.Object(("type", "close"))),
             (new { type = "resize", cols = 80, rows = 24 }, Wire.Object(("type", "resize"), ("cols", 80), ("rows", 24))),
             (new { type = "write", id = 1, data = "'雪🙂" }, Wire.Object(("type", "write"), ("id", 1), ("data", "'雪🙂"))),

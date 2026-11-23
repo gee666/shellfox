@@ -15,5 +15,5 @@ if (mode === 'publish') {
   run('dotnet', ['test', project, '-c', 'Release', '--logger', 'trx;LogFileName=native.trx', '--results-directory', path.join(root, 'tmp/reports/native')]);
   const activeSdk = assertSdk();
   run(activeSdk, ['test', 'native/Shellfox.ElevatedTerminal.Tests/Shellfox.ElevatedTerminal.Tests.csproj', '-c', 'Release', '--logger', 'trx;LogFileName=isolated-helper.trx', '--results-directory', path.join(root, 'tmp/reports/isolated-helper')], 300000, dotnetEnvironment(activeSdk));
-  run(process.execPath, ['--test', 'scripts/pipe-run.test.mjs', 'scripts/elevated-isolated.test.mjs']);
+  run(process.execPath, ['--test', 'scripts/pipe-run.test.mjs', 'scripts/elevated-launch.test.mjs']);
 } else throw new Error('Unknown native command');

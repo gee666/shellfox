@@ -64,6 +64,6 @@ test('reviewed helper has no payload-selected managed/native library loader call
     imports += (source.match(/\[DllImport\(/g) ?? []).length;
     assert.doesNotMatch(source, /\b(?:NativeLibrary|AssemblyLoadContext|AssemblyDependencyResolver|Assembly\.(?:Load\w*|UnsafeLoadFrom)|Activator|Type\.GetType|Reflection\.Emit|LoadLibrary\w*|GetProcAddress|SetDllDirectory\w*|AddDllDirectory|SetDllImportResolver|GetDelegateForFunctionPointer)\b/, file);
   }
-  assert.equal(imports, 68, 'New import owners require review and compiled reflection coverage.');
+  assert.equal(imports, 39, 'New import owners require review and compiled reflection coverage.');
   // Regression guard; new loader-related imports still need human review.
 });

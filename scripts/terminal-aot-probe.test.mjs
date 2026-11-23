@@ -1,4 +1,4 @@
-// Never invokes launch/serve/power-guardian/self-test. The only child workload
+// Never invokes launch/serve/self-test. The only child workload
 // is owned System32 cmd.exe with AutoRun disabled and an empty environment.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -16,14 +16,12 @@ function execute(file, args, input = '') {
   const result = spawnSync(file, args, { env: { ...process.env, ...helperEnvironment() }, input, encoding: 'utf8', timeout: 15000, windowsHide: true });
   assert.ifError(result.error); return result;
 }
-test('actual NativeAOT image and all three safe probes preserve managed bytes', { skip: !supported }, () => {
+test('actual NativeAOT image and its safe probe preserve managed bytes', { skip: !supported }, () => {
   const pe = auditNativePe(helper, process.arch);
   assert.equal(pe.dependentLoadFlags, '0x800'); assert.equal(pe.clrDirectory, 'absent');
-  for (const mode of ['probe', 'probe-isolated', 'probe-power']) {
-    const actual = execute(helper, [mode]); assert.equal(actual.status, 0); assert.equal(actual.stderr, '');
-    if (existsSync(managed)) assert.equal(actual.stdout, execute(managed, [mode]).stdout);
-    if (mode === 'probe') assert.equal(actual.stdout, 'shellfox-elevated-conpty-v1\r\n');
-  }
+  const actual = execute(helper, ['probe']); assert.equal(actual.status, 0); assert.equal(actual.stderr, '');
+  assert.equal(actual.stdout, 'shellfox-elevated-conpty-v1\r\n');
+  if (existsSync(managed)) assert.equal(actual.stdout, execute(managed, ['probe']).stdout);
   const record = JSON.parse(readFileSync(path.join(directory, 'native-aot-build.json'), 'utf8'));
   assert.equal(record.embeddedRuntimeVersion, '10.0.15'); assert.equal(record.compilerWarningsAreErrors, true);
   const audit = JSON.parse(readFileSync(path.join(directory, 'native-aot-nuget-audit.json'), 'utf8'));
