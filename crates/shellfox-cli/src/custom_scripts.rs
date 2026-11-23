@@ -334,6 +334,11 @@ fn invocation(location: &Location, args: &[String]) -> Result<Command> {
             "-EncodedCommand",
         ]);
         command.arg(powershell_command(&location.path, args));
+        if cfg!(windows) {
+            // A PowerShell 7 module path inherited from a pwsh prompt hides
+            // Windows PowerShell's own modules. Unset, it builds its default.
+            command.env_remove("PSModulePath");
+        }
     } else {
         if cfg!(windows) && extension != ".exe" && extension != ".com" {
             bail!("Windows custom scripts must use .sh or .ps1, or be .exe/.com programs. Batch scripts are not supported.");
@@ -398,6 +403,19 @@ mod tests {
             distro: None
         }
         .valid());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn powershell_scripts_do_not_inherit_a_module_path() {
+        let location = Location {
+            path: r"C:\scripts\x.ps1".into(),
+            distro: None,
+        };
+        let command = invocation(&location, &[]).unwrap();
+        let module_path = command
+            .get_envs()
+            .find(|(key, _)| key.eq_ignore_ascii_case("PSModulePath"));
+        assert_eq!(module_path, Some((std::ffi::OsStr::new("PSModulePath"), None)));
     }
     #[cfg(windows)]
     #[test]

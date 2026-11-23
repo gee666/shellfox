@@ -84,12 +84,26 @@ impl RawCommand {
             .context("Automation executable is not Unicode.")?
             .to_owned();
         #[cfg(windows)]
+        if windows_powershell(Path::new(&command.executable)) {
+            // Like pwsh does for its own children: a PowerShell 7 module path
+            // from the caller hides Windows PowerShell's modules, PSReadLine
+            // included. Unset, Windows PowerShell builds its own default.
+            command.env.retain(|key, _| !key.eq_ignore_ascii_case("PSModulePath"));
+        }
+        #[cfg(windows)]
         ensure!(
             windows_command_units(&command) < 32767,
             "Automation command line exceeds Windows limit."
         );
         Ok(command)
     }
+}
+/// powershell.exe, Windows PowerShell 5.1.
+#[cfg(windows)]
+fn windows_powershell(executable: &Path) -> bool {
+    executable
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("powershell.exe"))
 }
 fn text(value: &str) -> Result<()> {
     ensure!(
@@ -234,4 +248,28 @@ fn windows_command_units(command: &RawCommand) -> usize {
             .iter()
             .map(|s| 1 + argument(s, false))
             .sum::<usize>()
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    #[test]
+    fn windows_powershell_computes_its_own_module_path() {
+        let system = crate::windows::system_directory().unwrap();
+        let command = |executable: PathBuf| RawCommand {
+            executable: executable.to_str().unwrap().into(),
+            args: vec![],
+            cwd: system.to_str().unwrap().into(),
+            env: BTreeMap::from([
+                ("psmodulepath".into(), r"C:\Program Files\PowerShell\7\Modules".into()),
+                ("KEEP".into(), "1".into()),
+            ]),
+        };
+        let powershell = command(system.join("WindowsPowerShell/v1.0/powershell.exe"))
+            .resolved()
+            .unwrap();
+        assert_eq!(powershell.env.keys().collect::<Vec<_>>(), ["KEEP"]);
+        let cmd = command(system.join("cmd.exe")).resolved().unwrap();
+        assert_eq!(cmd.env.len(), 2);
+    }
 }
