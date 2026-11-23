@@ -16,6 +16,7 @@ use shellfox_service::{
     Attachment,
 };
 use std::{
+    os::windows::process::CommandExt,
     path::Path,
     process::{Command, Stdio},
     time::{Duration, Instant},
@@ -33,8 +34,12 @@ fn conpty_shells_edit_lines_with_ghostty_keys() -> Result<()> {
     let scratch = tempfile::Builder::new().prefix("cli-keys-conpty-").tempdir_in(root.join("tmp"))?;
     let data = scratch.path().join("data");
     std::fs::create_dir(&data)?;
+    // The desktop starts its host in a new process group, which hands every
+    // tab the "ignore Ctrl+C" flag unless the supervisor clears it.
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     let mut host = OwnedHost(
         Command::new(env!("CARGO_BIN_EXE_shellfox-cli"))
+            .creation_flags(CREATE_NEW_PROCESS_GROUP)
             .arg("--data-dir")
             .arg(&data)
             .arg("--helper")
@@ -97,7 +102,8 @@ async fn cmd(s: &mut Shell<'_>) -> Result<()> {
     s.text("B").await?;
     s.key(P::Enter, M::NONE).await?;
     s.wait_row("SFABC").await?;
-    s.text("ping -n 30 127.0.0.1").await?;
+    // Long enough that only an interrupt brings the prompt back in time.
+    s.text("ping -n 120 127.0.0.1").await?;
     s.key(P::Enter, M::NONE).await?;
     s.wait_contains("127.0.0.1").await?;
     s.ctrl('c').await?;
@@ -142,6 +148,14 @@ async fn psreadline(s: &mut Shell<'_>) -> Result<()> {
     s.key(P::ArrowUp, M::NONE).await?;
     s.key(P::Enter, M::NONE).await?;
     s.wait_rows("SFW SFV", 2).await?;
+    // Ctrl+C interrupts a running program on any layout.
+    s.text("ping -n 120 127.0.0.1").await?;
+    s.key(P::Enter, M::NONE).await?;
+    s.wait_contains("127.0.0.1:").await?;
+    s.ctrl('c').await?;
+    s.text("Write-Host SFINT").await?;
+    s.key(P::Enter, M::NONE).await?;
+    s.wait_row("SFINT").await?;
     // Ctrl+C abandons the line. Shellfox sends ETX on any layout and ConPTY
     // turns it into a Ctrl+C key record, but PSReadLine maps that record
     // through the shell's keyboard layout. With a layout that has no Latin C
