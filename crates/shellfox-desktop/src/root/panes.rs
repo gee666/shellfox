@@ -3,6 +3,10 @@
 //! GPUI re-renders a notifying view and its ancestors, but reuses the last frame of any
 //! clean cached view below them. Each pane re-renders when Root notifies, so a change that
 //! only touches a terminal (cursor blink, output) no longer rebuilds these panes.
+//!
+//! So a pane may only show Root state changed with `cx.notify()` outside of drawing, or
+//! child views it renders itself. Root forwards changes of other entities a pane reads (a
+//! terminal's phase, see workspace/attach.rs) by notifying.
 use super::Root;
 use crate::accessibility::SemanticCache;
 use gpui::{

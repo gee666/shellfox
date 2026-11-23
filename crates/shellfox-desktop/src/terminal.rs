@@ -63,8 +63,6 @@ pub struct TerminalView {
     detached: bool,
     presentation_focused: bool,
     phase: Option<Phase>,
-    /// Phase and failure last reported to the window, which shows them in its tab strip.
-    reported_status: (Option<Phase>, bool),
     grid: (u16, u16),
     lease: Option<Lease>,
     captured_settlement: Option<shellfox_host::CapturedSettlement>,
@@ -243,17 +241,8 @@ impl Drop for TerminalView {
     }
 }
 
-/// The terminal's phase or failure changed. Cached window panes read both.
-pub(crate) struct TerminalStatusChanged;
-impl gpui::EventEmitter<TerminalStatusChanged> for TerminalView {}
-
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status = (self.runtime_phase(), self.failed);
-        if status != self.reported_status {
-            self.reported_status = status;
-            cx.emit(TerminalStatusChanged);
-        }
         if self.presentation_focus(window) != self.presentation_focused {
             // The link menu changes focus state without a focus event.
             cx.defer_in(window, |view, window, cx| view.sync_presentation_focus(window, cx));

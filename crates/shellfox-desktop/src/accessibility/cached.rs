@@ -15,6 +15,8 @@ pub struct SemanticCache(Rc<RefCell<CacheState>>);
 struct CacheState {
     rendered: bool,
     nodes: Vec<SemanticNode>,
+    /// The error the measured paint hit; a replay of its partial nodes reports it again.
+    error: Option<super::SemanticError>,
 }
 
 impl SemanticCache {
@@ -26,6 +28,7 @@ impl SemanticCache {
 impl SemanticFrame {
     /// Wraps a cached view (`AnyView::cached`) whose subtree holds semantic nodes.
     /// Bounds are part of GPUI's cache key, so replayed nodes are still where they were painted.
+    /// Deferred overlays paint after the view and are not replayed; keep them outside.
     pub fn cached<E: IntoElement>(&self, cache: &SemanticCache, child: E) -> CachedSemantics<E::Element> {
         CachedSemantics {
             child: child.into_element(),
@@ -41,12 +44,17 @@ impl SemanticFrame {
         &self,
         cache: &SemanticCache,
         start: usize,
+        error_before: bool,
         focused: impl Fn(&gpui::FocusHandle) -> bool,
     ) {
         let mut cache = cache.0.borrow_mut();
         if std::mem::take(&mut cache.rendered) {
             cache.nodes = self.recorded_since(start);
+            cache.error = if error_before { None } else { self.collecting_error() };
         } else {
+            if let Some(error) = cache.error.clone() {
+                self.record_error(error);
+            }
             for node in &cache.nodes {
                 let focused = node.focus.as_ref().is_some_and(&focused);
                 self.record(node.clone(), focused);
@@ -108,7 +116,8 @@ impl<E: Element> Element for CachedSemantics<E> {
         cx: &mut App,
     ) {
         let start = self.frame.recorded();
+        let error_before = self.frame.collecting_error().is_some();
         self.child.paint(id, inspector, bounds, state, prepaint, window, cx);
-        self.frame.settle_cached(&self.cache, start, |handle| handle.is_focused(window));
+        self.frame.settle_cached(&self.cache, start, error_before, |handle| handle.is_focused(window));
     }
 }

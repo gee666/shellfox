@@ -36,19 +36,23 @@ impl FrontendDirectories {
     }
 
     pub fn device_root(&mut self) -> Result<Arc<FileService>> {
-        if self.device_root.is_none() {
-            self.device_root = Some(private(&self.device).context("Create private frontend device root")?);
+        if let Some(root) = &self.device_root {
+            return Ok(root.clone());
         }
-        self.device_root.clone().context("Device capability is unavailable")
+        let root = private(&self.device).context("Create private frontend device root")?;
+        self.device_root = Some(root.clone());
+        Ok(root)
     }
 
     /// The editor works with the local account document authority.
     pub fn prepare_editor(&mut self) -> Result<Arc<EditorBackend>> {
-        if self.editor.is_none() {
-            let files = Arc::new(FileService::local_desktop(Access::ReadWrite));
-            self.editor = Some(Arc::new(EditorBackend::new(files)?));
+        if let Some(editor) = &self.editor {
+            return Ok(editor.clone());
         }
-        self.editor.clone().context("Editor is unavailable")
+        let files = Arc::new(FileService::local_desktop(Access::ReadWrite));
+        let editor = Arc::new(EditorBackend::new(files)?);
+        self.editor = Some(editor.clone());
+        Ok(editor)
     }
 }
 

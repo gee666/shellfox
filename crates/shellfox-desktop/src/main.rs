@@ -122,7 +122,6 @@ fn main() -> Result<()> {
             return Err(error);
         }
     };
-    // Original issuer and panic keeper are OUTSIDE the unwind/error scope.
     // Logging only. Unlike --ui-acceptance this does not change presentation.
     let trace = options.ui_acceptance
         || std::env::var_os("SHELLFOX_UI_INIT_TRACE").is_some_and(|value| value == "1");

@@ -62,6 +62,8 @@ impl Root {
             }
         };
         cx.spawn_in(window, async move |root, cx| {
+            // Taken first: a change during the read bumps it and reads again.
+            let catalog = binding.state().catalog;
             let result = connect(&binding).await;
             let mut phase = match binding.state().status {
                 ConnectionStatus::AwaitingApproval => source::Phase::AwaitingApproval,
@@ -80,13 +82,16 @@ impl Root {
                 if !root.peers.current(&cycle) || root.close.closing {
                     return;
                 }
-                root.peer_ui.paused.remove(&cycle.peer);
                 if keep {
                     root.peer_ui.legacy.insert(peer.clone(), binding);
                 }
                 match result {
                     Ok(Connected { snapshot, home }) => {
                         root.peers.phase(&cycle, source::Phase::Connected, None);
+                        root.peer_ui.catalog_reads.insert(
+                            cycle.peer.clone(),
+                            super::metadata_poll::CatalogRead::new(cycle.generation, catalog),
+                        );
                         if let Some(state) = root.peers.peers.get_mut(&cycle.peer) {
                             state.home = home;
                         }

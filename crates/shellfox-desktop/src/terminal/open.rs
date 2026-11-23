@@ -158,7 +158,6 @@ impl TerminalView {
                 detached: false,
                 presentation_focused,
                 phase: None,
-                reported_status: (None, false),
                 grid: (80, 24),
                 lease,
                 captured_settlement: None,

@@ -273,8 +273,12 @@ impl LaunchWindowTransport for Windows {
                             .app
                             .background_executor()
                             .spawn(async move {
-                                crate::frontend_composition::FrontendDirectories::plan(&options)?.prepare()?;
-                                Ok::<_, anyhow::Error>(options)
+                                // The executor does not catch panics; an uncaught one would hang this launch.
+                                std::panic::catch_unwind(|| {
+                                    crate::frontend_composition::FrontendDirectories::plan(&options)?.prepare()
+                                })
+                                .unwrap_or_else(|_| Err(anyhow::anyhow!("New-window frontend preparation panicked")))
+                                .map(|()| options)
                             })
                             .await
                             .map_err(error)?;

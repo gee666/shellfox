@@ -1,4 +1,4 @@
-//! Peer catalog reads: once after each connect, then whenever the host reports a change.
+//! Peer catalog reads after connect: again only when the host reports a change.
 use super::*;
 use std::time::{Duration, Instant};
 
@@ -34,11 +34,12 @@ impl Root {
             self.notify_at(now + Duration::from_secs(2), cx);
             self.connect_catalog(id, window, cx);
         }
-        // A stream outlives its connection only while views still need it to recover.
+        // A stream outlives its connection only while a live view still needs it to recover.
         let idle: Vec<_> = self.peer_ui.v1_streams.keys()
             .filter(|peer| {
                 self.peers.peers.get(*peer).is_none_or(|state| state.phase != source::Phase::Connected)
-                    && !self.peer_ui.v1_views.keys().any(|(id, _)| id == *peer)
+                    && !self.peer_ui.v1_views.iter()
+                        .any(|((id, _), view)| id == *peer && !view.read(cx).peer_released())
             })
             .cloned()
             .collect();
@@ -88,7 +89,7 @@ impl Root {
                         Ok(snapshot) => {
                             root.peer_ui.catalog_reads.insert(
                                 cycle.peer.clone(),
-                                CatalogRead { generation: cycle.generation, catalog },
+                                CatalogRead::new(cycle.generation, catalog),
                             );
                             match root.peers.catalog(&cycle, snapshot) {
                                 Ok(true) => root.reconcile_peer_file_catalog(&cycle.peer, cx),
@@ -124,6 +125,10 @@ pub(super) struct CatalogRead {
 }
 
 impl CatalogRead {
+    pub(super) fn new(generation: u64, catalog: u64) -> Self {
+        Self { generation, catalog }
+    }
+
     /// A connected peer is read once per connection, then again only after a reported change.
     fn covers(read: Option<&Self>, generation: u64, catalog: u64) -> bool {
         read.is_some_and(|read| read.generation == generation && read.catalog == catalog)

@@ -167,7 +167,16 @@ impl Root {
             return;
         };
         view.update(cx, |view, cx| view.set_captured_settlement(marker, cx));
-        cx.subscribe(&view, |_, _, _: &crate::terminal::TerminalStatusChanged, cx| cx.notify()).detach();
+        // The tab strip and sidebar are cached panes; they show each terminal's phase and
+        // failure, which change with a notify on the view, rendered or not.
+        let mut status = (view.read(cx).runtime_phase(), view.read(cx).is_failed());
+        cx.observe(&view, move |_, view, cx| {
+            let now = (view.read(cx).runtime_phase(), view.read(cx).is_failed());
+            if std::mem::replace(&mut status, now) != now {
+                cx.notify();
+            }
+        })
+        .detach();
         cx.subscribe_in(&view, window, move |root, emitter, event: &TerminalRecovery, window, cx| {
             if root.selected_tab() == Some(id) && root.tabs.views.get(&id) == Some(emitter) {
                 root.attach_local_view(id, Some(*event), window, cx);

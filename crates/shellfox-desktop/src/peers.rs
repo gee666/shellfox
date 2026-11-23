@@ -31,7 +31,6 @@ pub(crate) struct PeerUi {
     v1_activity: HashMap<(AuthenticatedPeerId, TabId), bool>,
     metadata_polls: HashMap<AuthenticatedPeerId, Option<std::time::Instant>>,
     catalog_reads: HashMap<AuthenticatedPeerId, metadata_poll::CatalogRead>,
-    pub paused: HashSet<AuthenticatedPeerId>,
     pub pending: HashSet<AuthenticatedPeerId>,
     opening: sidebar_actions::PeerActivations,
     pair_watches: HashMap<AuthenticatedPeerId, (uuid::Uuid, shellfox_protocol::CancellationToken)>,
@@ -293,7 +292,6 @@ impl Root {
     }
     pub(crate) fn retire_peer_views(&mut self, peer: &AuthenticatedPeerId, cx: &mut Context<Self>) {
         // Terminal retirement: old views never resume after uncertain poll I/O.
-        self.peer_ui.paused.insert(peer.clone());
         self.peer_ui.pending.remove(peer);
         self.peer_ui.opening.retire(peer);
         self.peer_ui.metadata_polls.remove(peer);

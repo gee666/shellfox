@@ -212,6 +212,10 @@ impl SemanticFrame {
         frame.nodes.push(node);
     }
 
+    pub(super) fn collecting_error(&self) -> Option<SemanticError> {
+        self.data.borrow().error.clone()
+    }
+
     pub(super) fn recorded(&self) -> usize {
         self.data.borrow().nodes.len()
     }
