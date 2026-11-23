@@ -20,8 +20,13 @@ use std::{
 };
 use tokio::sync::watch;
 
-/// Write end of the started host's stdin, kept open for this process's life.
-static STARTED: Mutex<Option<ChildStdin>> = Mutex::new(None);
+/// The host this UI started. Its stdin stays open for this process's life.
+static STARTED: Mutex<Option<Started>> = Mutex::new(None);
+struct Started {
+    stdin: ChildStdin,
+    child: std::process::Child,
+}
+const READY_TIMEOUT: Duration = Duration::from_secs(60);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 const OWNER_MARKER: &str = "desktop-host-owner";
 
@@ -87,20 +92,27 @@ fn start_and_discover(
     config: &HostEndpointConfig,
 ) -> Result<(LocalClient, LaunchRouteInfo, bool)> {
     let deadline = Instant::now() + Duration::from_secs(30);
-    let mut started = false;
     loop {
-        match start(executable, relaunch_args, application_args, config) {
-            Ok(()) => started = true,
+        // A host that lost the directory lock exits silently: a concurrent
+        // launch's host answers soon, or a stopping one releases the lock.
+        let (started, patience) = match start(executable, relaunch_args, application_args, config) {
+            Ok(()) => (true, deadline),
             Err(StartError::Permanent(error)) => return Err(error),
-            Err(StartError::Exited(error)) if Instant::now() >= deadline => return Err(error),
-            Err(StartError::Exited(_)) => std::thread::sleep(Duration::from_millis(100)),
-        }
-        match runtime.block_on(discover(config)) {
-            Ok((client, route)) => return Ok((client, route, started)),
-            Err(error) if started || Instant::now() >= deadline => {
-                return Err(error.context("The Shellfox host did not answer"));
+            Err(StartError::Exited) => (false, (Instant::now() + Duration::from_secs(3)).min(deadline)),
+        };
+        loop {
+            match runtime.block_on(discover(config)) {
+                Ok((client, route)) => return Ok((client, route, started)),
+                Err(error) if Instant::now() >= deadline => {
+                    if started {
+                        // Never leave a host that this UI cannot reach.
+                        stop_started(Duration::from_secs(10));
+                    }
+                    return Err(error.context("The Shellfox host did not answer"));
+                }
+                Err(_) if Instant::now() >= patience => break,
+                Err(_) => std::thread::sleep(Duration::from_millis(100)),
             }
-            Err(_) => {}
         }
     }
 }
@@ -132,7 +144,7 @@ enum StartError {
     Permanent(anyhow::Error),
     /// The host exited silently, as one does after losing the directory lock
     /// to a concurrent launch's host. Discovery finds the winner.
-    Exited(anyhow::Error),
+    Exited,
 }
 
 /// Starts the host and waits until its local API admits clients.
@@ -159,7 +171,7 @@ fn start(
         // No systemd user manager or no job breakaway: the wrapper failed before the host ran.
         None => spawn(&mut platform::direct(&cli, &arguments))
             .map_err(StartError::Permanent)?
-            .ok_or_else(|| StartError::Exited(anyhow::anyhow!("The Shellfox host exited during startup")))?,
+            .ok_or(StartError::Exited)?,
     };
     if output == LocalBootstrap::DESKTOP_HOST_READY {
         return Ok(());
@@ -176,31 +188,77 @@ fn spawn(command: &mut Command) -> Result<Option<String>> {
         .stderr(if cfg!(debug_assertions) { Stdio::inherit() } else { Stdio::null() });
     let mut child = command.spawn().context("Start the Shellfox host")?;
     let stdout = child.stdout.take().context("Host output missing")?;
-    let mut line = String::new();
-    BufReader::new(stdout).read_line(&mut line)?;
-    let line = line.trim_end().to_owned();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = sender.send(BufReader::new(stdout).read_line(&mut line).map(|_| line));
+    });
+    let line = match receiver.recv_timeout(READY_TIMEOUT) {
+        Ok(line) => line?.trim_end().to_owned(),
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("The Shellfox host did not become ready in time");
+        }
+    };
     if line == LocalBootstrap::DESKTOP_HOST_READY {
-        *STARTED.lock().unwrap_or_else(|error| error.into_inner()) = child.stdin.take();
-        // Not waited: the host outlives this UI by design.
+        let stdin = child.stdin.take().context("Host input missing")?;
+        // Not waited here: the host outlives this UI by design.
+        *STARTED.lock().unwrap_or_else(|error| error.into_inner()) = Some(Started { stdin, child });
         return Ok(Some(line));
     }
     let _ = child.wait();
     Ok((!line.is_empty()).then_some(line))
 }
 
-/// Call before this UI stops the host it started, so the host does not take
-/// the UI's exit for a crash and relaunch it.
+/// Call once this UI's Stop was admitted, so the host does not take the UI's
+/// exit for a crash and relaunch it.
 pub(crate) fn announce_quit() {
     QUITTING.store(true, Ordering::SeqCst);
-    if let Some(stdin) = STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut() {
-        let _ = stdin.write_all(&[LocalBootstrap::DESKTOP_HOST_QUIT]);
-        let _ = stdin.flush();
+    if let Some(started) = STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut() {
+        let _ = started.stdin.write_all(&[LocalBootstrap::DESKTOP_HOST_QUIT]);
+        let _ = started.stdin.flush();
     }
 }
 
 /// This UI is stopping its host, so the host's end is expected.
 pub(crate) fn quit_announced() -> bool {
     QUITTING.load(Ordering::SeqCst)
+}
+
+/// Whether this UI started the host process it is attached to.
+pub(crate) fn started_host() -> bool {
+    STARTED.lock().unwrap_or_else(|error| error.into_inner()).is_some()
+}
+
+/// Waits for the host this UI started to exit. False if it is still running,
+/// or if this UI did not start it.
+pub(crate) fn wait_started_exit(timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let exited = match STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut() {
+            Some(started) => !matches!(started.child.try_wait(), Ok(None)),
+            None => return false,
+        };
+        if exited {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Ends a host this UI started but could not reach: no shell can be in it.
+fn stop_started(grace: Duration) {
+    announce_quit();
+    if !wait_started_exit(grace)
+        && let Some(started) = STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut()
+    {
+        let _ = started.child.kill();
+        let _ = started.child.wait();
+    }
 }
 
 /// Remembers which host a desktop UI started, so a UI that reattaches after a
@@ -213,6 +271,14 @@ pub(crate) fn record_owner(desktop_dir: &Path, owner: LaunchOwnerFence) -> Resul
 }
 pub(crate) fn recorded_owner(desktop_dir: &Path) -> Option<LaunchOwnerFence> {
     std::fs::read_to_string(desktop_dir.join(OWNER_MARKER)).ok()?.trim().parse().ok()
+}
+
+/// The build stamp a host started by this UI reports.
+pub(crate) fn expected_build() -> u64 {
+    cli_path()
+        .ok()
+        .and_then(|cli| shellfox_service::desktop_launch::build_stamp(&cli).ok())
+        .unwrap_or(0)
 }
 
 /// Packages keep the CLI in bin/ (Windows) or beside the desktop binary.
@@ -232,86 +298,8 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-#[cfg(windows)]
-mod platform {
-    use std::{ffi::OsString, os::windows::process::CommandExt, path::Path, process::Command};
-    // A hidden console of its own: its console children never flash a window,
-    // and closing the terminal that started the UI does not end the host.
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-    /// Break away from a job the UI may run in, such as a launcher's kill-on-close job.
-    pub fn scope(cli: &Path, arguments: &[OsString]) -> Option<Command> {
-        let mut command = direct(cli, arguments);
-        command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
-        Some(command)
-    }
-    pub fn direct(cli: &Path, arguments: &[OsString]) -> Command {
-        let mut command = Command::new(cli);
-        command.args(arguments).creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
-        command
-    }
-}
-
-#[cfg(unix)]
-mod platform {
-    use std::{ffi::OsString, os::unix::process::CommandExt, path::Path, process::Command};
-    unsafe extern "C" {
-        fn setsid() -> i32;
-    }
-    /// Linux: a transient scope of its own with OOMPolicy=continue, so an OOM
-    /// kill of the UI (whose app scope systemd may stop) leaves the host alone.
-    #[cfg(target_os = "linux")]
-    pub fn scope(cli: &Path, arguments: &[OsString]) -> Option<Command> {
-        let runner = Path::new("/usr/bin/systemd-run");
-        // systemd-run may expand `$` in arguments; keep such paths direct.
-        let plain = std::iter::once(cli.as_os_str())
-            .chain(arguments.iter().map(OsString::as_os_str))
-            .all(|argument| !argument.as_encoded_bytes().contains(&b'$'));
-        if !plain || !runner.is_file() {
-            return None;
-        }
-        let mut command = detached(runner);
-        command.args(scope_arguments(&uuid::Uuid::new_v4())).arg(cli).args(arguments);
-        Some(command)
-    }
-    #[cfg(target_os = "linux")]
-    pub(super) fn scope_arguments(unit: &uuid::Uuid) -> Vec<String> {
-        vec![
-            "--user".into(),
-            "--scope".into(),
-            "--quiet".into(),
-            "--collect".into(),
-            format!("--unit=shellfox-host-{unit}"),
-            "--description=Shellfox host".into(),
-            "--property=OOMPolicy=continue".into(),
-            "--".into(),
-        ]
-    }
-    #[cfg(not(target_os = "linux"))]
-    pub fn scope(_cli: &Path, _arguments: &[OsString]) -> Option<Command> {
-        None
-    }
-    pub fn direct(cli: &Path, arguments: &[OsString]) -> Command {
-        let mut command = detached(cli);
-        command.args(arguments);
-        command
-    }
-    /// A session of its own: no SIGHUP when the UI's terminal closes.
-    fn detached(program: &Path) -> Command {
-        let mut command = Command::new(program);
-        // SAFETY: setsid is async-signal-safe and touches no parent state.
-        unsafe {
-            command.pre_exec(|| {
-                if setsid() < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-        command
-    }
-}
+#[path = "host_process_platform.rs"]
+mod platform;
 
 #[cfg(test)]
 #[path = "host_process_tests.rs"]

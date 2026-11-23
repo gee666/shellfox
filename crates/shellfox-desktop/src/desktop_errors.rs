@@ -5,12 +5,19 @@ use windows::{
     core::HSTRING,
 };
 
-pub(crate) fn startup() {
+pub(crate) fn startup(error: &anyhow::Error) {
+    let other = error.chain().any(|cause| cause.is::<crate::app_startup::OtherVersionRunning>());
     #[cfg(windows)]
     alert(
         "Shellfox",
-        "The manager could not start. Check the installed application and data directory.",
+        if other {
+            "A different Shellfox version is still running. Close it first."
+        } else {
+            "The manager could not start. Check the installed application and data directory."
+        },
     );
+    #[cfg(not(windows))]
+    let _ = other;
 }
 
 pub(crate) fn shutdown(cx: &gpui::App) -> bool {

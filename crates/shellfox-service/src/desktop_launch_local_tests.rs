@@ -163,3 +163,20 @@ fn known_submit_uses_only_durable_resolution_not_new_creation() {
         })
     );
 }
+
+#[test]
+fn a_rebuilt_executable_gets_another_build_stamp() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
+    std::fs::create_dir_all(&root).unwrap();
+    let directory = tempfile::tempdir_in(root).unwrap();
+    let executable = directory.path().join("shellfox-cli");
+    std::fs::write(&executable, b"first build").unwrap();
+    let first = crate::desktop_launch::build_stamp(&executable).unwrap();
+    assert_ne!(first, 0);
+    assert_eq!(crate::desktop_launch::build_stamp(&executable).unwrap(), first);
+    std::fs::write(&executable, b"second, longer build").unwrap();
+    assert_ne!(crate::desktop_launch::build_stamp(&executable).unwrap(), first);
+    let moved = directory.path().join("app-0.10.1-shellfox-cli");
+    std::fs::rename(&executable, &moved).unwrap();
+    assert_ne!(crate::desktop_launch::build_stamp(&moved).unwrap(), first);
+}

@@ -103,8 +103,8 @@ fn main() -> Result<()> {
         return finish_frontend(frontend.preserve(), result);
     }
     let show_startup_error = options.mode == Mode::Shell && !options.ui_acceptance;
-    let startup = app_startup::prepare(&options).inspect_err(|_| {
-        if show_startup_error { desktop_errors::startup(); }
+    let startup = app_startup::prepare(&options).inspect_err(|error| {
+        if show_startup_error { desktop_errors::startup(error); }
     })?;
     let app_startup::Startup::Graphical(owner) = startup else {
         return Ok(());
@@ -126,7 +126,7 @@ fn main() -> Result<()> {
             if let Some(owner) = &owner {
                 owner.cleanup_until_confirmed();
             }
-            if show_startup_error { desktop_errors::startup(); }
+            if show_startup_error { desktop_errors::startup(&error); }
             return Err(error);
         }
     };
@@ -170,8 +170,8 @@ fn main() -> Result<()> {
     {
         eprintln!("Shellfox update did not start: {error:#}");
     }
-    finish_frontend(preserved, graphics).inspect_err(|_| {
-        if show_startup_error { desktop_errors::startup(); }
+    finish_frontend(preserved, graphics).inspect_err(|error| {
+        if show_startup_error { desktop_errors::startup(error); }
     })
 }
 

@@ -30,6 +30,7 @@ fn pinned_owner_replacement_rejects_before_submit_without_rediscovery() {
                 Ok(DesktopLaunchReply::Route(LaunchRouteInfo {
                     owner: owner(2),
                     desktop_registered: true,
+                    build: 0,
                 }))
             }
         },
@@ -59,6 +60,7 @@ fn pinned_receipt_polling_never_adopts_replacement_or_replays_known_intent() {
                     Ok(DesktopLaunchReply::Route(LaunchRouteInfo {
                         owner: owner(1),
                         desktop_registered: true,
+                        build: 0,
                     }))
                 }
                 DesktopLaunchRequest::Submit {
@@ -111,6 +113,7 @@ fn owner_without_desktop_never_submits_or_starts_anything() {
                 Ok(DesktopLaunchReply::Route(LaunchRouteInfo {
                     owner: owner(1),
                     desktop_registered: false,
+                    build: 0,
                 }))
             }
         },
@@ -138,6 +141,7 @@ fn queued_is_not_success_and_only_correlated_handled_completes_the_pinned_handof
                 DesktopLaunchRequest::Discover {} => DesktopLaunchReply::Route(LaunchRouteInfo {
                     owner: owner(1),
                     desktop_registered: true,
+                    build: 0,
                 }),
                 DesktopLaunchRequest::Submit { owner: fence, .. } => {
                     assert_eq!(*fence, owner(1));
@@ -212,6 +216,7 @@ fn unpinned_cli_discovery_preserves_fresh_submission_and_validates_receipt_id() 
                     Ok(DesktopLaunchReply::Route(LaunchRouteInfo {
                         owner: owner(2),
                         desktop_registered: true,
+                        build: 0,
                     }))
                 }
                 DesktopLaunchRequest::Submit {

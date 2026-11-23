@@ -65,7 +65,8 @@ fn serve(arguments: &[OsString]) -> Result<()> {
         helper: args.helper.clone(),
         digest: args.helper_sha256,
     };
-    watch_ui(ui, relaunch, serving);
+    let (ready, serving_now) = std::sync::mpsc::channel();
+    watch_ui(ui, relaunch, serving, serving_now);
     LocalBootstrap::serve_foreground(
         &args.data_dir,
         &args.helper,
@@ -76,6 +77,7 @@ fn serve(arguments: &[OsString]) -> Result<()> {
             let mut stdout = std::io::stdout();
             let _ = writeln!(stdout, "{}", LocalBootstrap::DESKTOP_HOST_READY);
             let _ = stdout.flush();
+            let _ = ready.send(());
         },
     )
 }
@@ -103,8 +105,13 @@ impl Serving {
     }
 }
 
-fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving) {
+fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving, ready: std::sync::mpsc::Receiver<()>) {
     let watch = move || {
+        // Decide only once the host serves: a UI that died during startup is
+        // relaunched too, instead of leaving an idle host behind.
+        if ready.recv().is_err() {
+            return;
+        }
         let mut stdin = std::io::stdin().lock();
         let mut byte = [0; 1];
         loop {
@@ -122,6 +129,9 @@ fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving) {
             .args(&relaunch)
             .arg("--owned-host")
             .stdin(Stdio::null())
+            // This host's stdout and stderr belong to the UI that died.
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             // A startup token belongs to the launch that already used it.
             .env_remove("DESKTOP_STARTUP_ID")
             .env_remove("XDG_ACTIVATION_TOKEN");

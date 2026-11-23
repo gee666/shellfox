@@ -67,13 +67,6 @@ impl Cgroup {
             let procs = open_at(&directory, c"cgroup.procs", libc::O_WRONLY)?;
             let kill = open_at(&directory, c"cgroup.kill", libc::O_WRONLY)?;
             let events = open_at(&directory, c"cgroup.events", libc::O_RDONLY)?;
-            // An OOM kill takes only the chosen process, never the whole terminal
-            // tree or a sibling. This cgroup is not a systemd unit, so no OOMPolicy
-            // applies, and user@.service (Delegate=yes) defaults to OOMPolicy=continue.
-            // The file is missing when the memory controller is not delegated.
-            if let Ok(mut group) = open_at(&directory, c"memory.oom.group", libc::O_WRONLY) {
-                group.write_all(b"0").context("keep per-process OOM kills")?;
-            }
             Ok(Self {
                 parent: parent.try_clone()?,
                 directory,

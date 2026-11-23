@@ -53,9 +53,11 @@ pub struct LocalBootstrap {
 #[derive(Clone)]
 pub struct LocalBootStop {
     closing: shellfox_protocol::CancellationToken,
+    orderly: shellfox_protocol::CancellationToken,
 }
 impl LocalBootStop {
     pub fn request(&self) {
+        self.orderly.cancel();
         self.closing.cancel();
     }
 }
@@ -81,6 +83,7 @@ impl LocalBootstrap {
     pub fn stop_handle(&self) -> LocalBootStop {
         LocalBootStop {
             closing: self.boot.server.stop.clone(),
+            orderly: self.boot.server.orderly.clone(),
         }
     }
     pub async fn run_with_dispatcher<D: crate::OwnerDispatcher + 'static>(

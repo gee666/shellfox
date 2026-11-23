@@ -4,6 +4,9 @@ mod boot;
 pub(crate) use boot::NativeControlChild;
 #[path = "local_client.rs"]
 mod client;
+#[path = "local_server.rs"]
+mod server;
+use server::{stop_signal, ServerState};
 #[path = "local_connection.rs"]
 mod connection;
 #[path = "local_long_poll.rs"]
@@ -128,11 +131,13 @@ async fn serve_retained_plan<D: crate::OwnerDispatcher + 'static>(
     };
     progress(LocalBootStatus::RetainedCleanup);
     let stop = boot.server.stop.clone();
+    let orderly = boot.server.orderly.clone();
     let mut signal_error = None;
     let result = {
         let signal = async {
-            if let Err(error) = stop_signal().await {
-                signal_error = Some(error);
+            match stop_signal().await {
+                Ok(()) => orderly.cancel(),
+                Err(error) => signal_error = Some(error),
             }
             stop.cancel();
             std::future::pending::<()>().await;
@@ -193,55 +198,6 @@ async fn serve_retained_plan<D: crate::OwnerDispatcher + 'static>(
     result.map_err(|error| preparation::retain_error(error, &boot.private))
 }
 
-struct ServerState {
-    stop: shellfox_protocol::CancellationToken,
-    tasks: tokio::task::JoinSet<Result<connection::ConnectionOutcome>>,
-    lifetimes: tokio::task::JoinSet<()>,
-    lifetime_slots: std::sync::Arc<tokio::sync::Semaphore>,
-    lifetime_cancel: shellfox_protocol::CancellationToken,
-}
-impl ServerState {
-    fn new() -> Self {
-        Self {
-            stop: shellfox_protocol::CancellationToken::new(),
-            tasks: tokio::task::JoinSet::new(),
-            lifetimes: tokio::task::JoinSet::new(),
-            lifetime_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(128)),
-            lifetime_cancel: shellfox_protocol::CancellationToken::new(),
-        }
-    }
-    fn request_stop(&self) {
-        self.stop.cancel();
-    }
-    fn ensure_running(&self) -> Result<()> {
-        anyhow::ensure!(
-            !self.stop.is_cancelled(),
-            "Local host stop requested"
-        );
-        Ok(())
-    }
-    async fn drain(&mut self, client: Option<crate::OwnerClient>, alive: bool) {
-        self.request_stop();
-        // Keep all accepted response-consumption and opening-epoch bookkeeping,
-        // including after unwind of the listener loop. Each connection has its deadline.
-        while let Some(result) = self.tasks.join_next().await {
-            if let Ok(Ok(connection::ConnectionOutcome::Lifetime(lifetime))) = result {
-                self.lifetimes
-                    .spawn(lifetime.watch(self.lifetime_cancel.clone()));
-            }
-        }
-        self.lifetime_cancel.cancel();
-        while self.lifetimes.join_next().await.is_some() {}
-        if alive {
-            if let Some(client) = client {
-                // Best effort only. An exited actor cannot receive this command;
-                // the following original actor ACK/join remains mandatory.
-                let _ = client.close_all_lifetimes().await;
-            }
-        }
-    }
-}
-
 async fn run_started(
     boot: &mut boot::BootGuard,
     ready: impl FnOnce(crate::OwnerClient),
@@ -296,9 +252,7 @@ async fn run_started(
             },
             result = server.tasks.join_next(), if !server.tasks.is_empty() => {
                 match result {
-                    Some(Ok(Ok(connection::ConnectionOutcome::Lifetime(lifetime)))) => {
-                        server.lifetimes.spawn(lifetime.watch(server.lifetime_cancel.clone()));
-                    }
+                    Some(Ok(outcome)) => server.adopt(outcome),
                     Some(Err(error)) => return Err(error.into()),
                     _ => {}
                 }
@@ -307,7 +261,7 @@ async fn run_started(
                 let stream = accepted?;
                 server.tasks.spawn(connection::serve_connection(
                     stream, record.secret.clone(), client.clone(), lost.clone(),
-                    server.stop.clone(), server.lifetime_slots.clone(), polls.clone(),
+                    server.stop.clone(), server.orderly.clone(), server.lifetime_slots.clone(), polls.clone(),
                 ));
             },
             _ = server.stop.cancelled() => {}
@@ -315,22 +269,6 @@ async fn run_started(
         }
     }
     Ok(())
-}
-
-/// Ctrl+C, or the stop signal systemd, launchd and `kill` send to a headless host.
-async fn stop_signal() -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-        let (mut terminate, mut hangup) = (signal(SignalKind::terminate())?, signal(SignalKind::hangup())?);
-        tokio::select! {
-            result = tokio::signal::ctrl_c() => result,
-            _ = terminate.recv() => Ok(()),
-            _ = hangup.recv() => Ok(()),
-        }
-    }
-    #[cfg(not(unix))]
-    tokio::signal::ctrl_c().await
 }
 
 fn preflight_boot_paths(data: &Path, helper: &Path) -> Result<()> {

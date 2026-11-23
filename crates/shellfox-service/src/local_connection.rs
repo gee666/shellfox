@@ -16,12 +16,12 @@ pub(super) struct LifetimeConnection {
     _permit: OwnedSemaphorePermit,
 }
 impl LifetimeConnection {
-    pub async fn watch(mut self, cancel: CancellationToken) {
+    pub async fn watch(mut self, cancel: CancellationToken, orderly: CancellationToken) {
         let mut byte = [0; 1];
         tokio::select! {
             _ = self.stream.read(&mut byte) => {} // EOF/error or forbidden data: release this epoch.
-            _ = cancel.cancelled() => {
-                // An orderly stop says so before closing; a crash only closes.
+            _ = cancel.cancelled() => if orderly.is_cancelled() {
+                // An orderly stop says so before closing; a failure only closes.
                 let _ = tokio::time::timeout(Duration::from_secs(1), async {
                     self.stream.write_all(&[super::transport_frame::LIFETIME_STOPPING]).await?;
                     self.stream.flush().await
@@ -42,6 +42,7 @@ pub(super) async fn serve_connection(
     client: OwnerClient,
     lost: CancellationToken,
     stop: CancellationToken,
+    orderly: CancellationToken,
     slots: Arc<Semaphore>,
     polls: Arc<super::long_poll::LongPolls>,
 ) -> Result<ConnectionOutcome> {
@@ -143,6 +144,7 @@ pub(super) async fn serve_connection(
                 let reply = match result {
                     Ok(value) => {
                         if requested_stop {
+                            orderly.cancel();
                             stop.cancel();
                         }
                         shellfox_protocol::Reply::Success(value)

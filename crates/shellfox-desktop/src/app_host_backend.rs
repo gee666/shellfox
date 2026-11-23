@@ -1,7 +1,7 @@
 //! Injectable host boundary. No view can construct a Host, PTY or controller ID.
 use crate::host_client::{HostClient, HostEndpointConfig};
 use anyhow::Result;
-use std::{future::Future, pin::Pin};
+use std::{future::Future, pin::Pin, time::Duration};
 
 pub type HostFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
 
@@ -79,21 +79,36 @@ impl AppHostBackend for AttachedBackend {
     }
     fn stop(&self) -> HostFuture<'_, ()> {
         Box::pin(async {
-            if !self.owned() || self.route.get().await.is_err() {
+            if !self.owned() {
                 return Ok(());
             }
-            crate::host_process::announce_quit();
+            if self.route.get().await.is_err() && !crate::host_process::started_host() {
+                // No host answered and this UI started none: nothing to stop.
+                return Ok(());
+            }
             let stopped = with_local(&self.config, async |client| {
                 client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
-                // Stop replies once admitted; the host exits after closing its shells.
+                crate::host_process::announce_quit();
+                // Stop replies once admitted, before the host has closed its shells.
                 client.closed().await;
                 Ok(())
             })
             .await;
+            crate::host_process::announce_quit();
+            // The host's exit, not its last reply, proves its shells are closed.
+            let (reply, exited) = tokio::sync::oneshot::channel();
+            std::thread::spawn(move || {
+                let _ = reply.send(crate::host_process::wait_started_exit(Duration::from_secs(60)));
+            });
+            if exited.await.unwrap_or(false) {
+                return Ok(());
+            }
             match stopped {
-                // A host that no longer accepts clients has already stopped or died.
-                Err(error) if crate::host_process::serving(&self.config).await => Err(error),
-                _ => Ok(()),
+                Ok(()) if !crate::host_process::started_host() => Ok(()),
+                Ok(()) => anyhow::bail!("The Shellfox host did not exit after Stop."),
+                // A host this UI did not start and that no longer answers has ended.
+                Err(error) if crate::host_process::started_host() || crate::host_process::serving(&self.config).await => Err(error),
+                Err(_) => Ok(()),
             }
         })
     }

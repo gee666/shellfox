@@ -97,6 +97,13 @@ pub(crate) fn install(cx: &mut App) {
             }
         };
         let owner = registration.token.owner();
+        // Only now is this window the host's desktop: a UI that reattaches after a
+        // crash also stops this host on Quit. A second launch meanwhile hands off.
+        if !original_host.is_external()
+            && let Err(error) = crate::host_process::record_owner(&options.desktop_dir, owner)
+        {
+            eprintln!("Shellfox host ownership not recorded: {error:#}");
+        }
         let token = registration.token;
         let Some(bootstrap) = cx
             .update(|cx| cx.global::<LaunchGlobal>().bootstrap)

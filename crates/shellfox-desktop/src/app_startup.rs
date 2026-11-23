@@ -12,6 +12,7 @@ use shellfox_service::{
 };
 use std::{
     cell::RefCell,
+    fmt,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -57,7 +58,16 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
         &config.helper,
         config.helper_sha256,
     ))?;
-    let Some(running) = crate::host_process::find_running(&runtime, &config) else {
+    let running = crate::host_process::find_running(&runtime, &config);
+    let running = match running {
+        Some(running) => match stale_host(&runtime, options, &running)? {
+            // A previous build's idle host was stopped; start the right one.
+            true => None,
+            false => Some(running),
+        },
+        None => None,
+    };
+    let Some(running) = running else {
         // The host boots while the UI initializes; windows wait for it.
         let route = crate::host_process::start_in_background(
             options.relaunch_args.clone(),
@@ -80,6 +90,65 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     Ok(Startup::Graphical(Some(Prestarted { config, host })))
 }
 
+/// Another build of Shellfox still owns this data directory.
+#[derive(Debug)]
+pub(crate) struct OtherVersionRunning;
+impl fmt::Display for OtherVersionRunning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("A different Shellfox version is still running. Close it first.")
+    }
+}
+impl std::error::Error for OtherVersionRunning {}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Stale {
+    Attach,
+    Replace,
+    Refuse,
+}
+/// Only a desktop-started host of this exact build is attached. An idle one of
+/// another build is replaced; one with shells or another window is refused.
+fn stale(desktop_owned: bool, same_build: bool, desktop_registered: bool, terminals: usize) -> Stale {
+    match (desktop_owned, same_build) {
+        (false, _) | (true, true) => Stale::Attach,
+        (true, false) if !desktop_registered && terminals == 0 => Stale::Replace,
+        (true, false) => Stale::Refuse,
+    }
+}
+
+/// True after stopping an idle host of another build.
+fn stale_host(runtime: &tokio::runtime::Runtime, options: &Options, running: &crate::host_process::Running) -> Result<bool> {
+    let route = running.route;
+    let desktop_owned = options.owned_host || recorded(options, route);
+    let same_build = route.build == crate::host_process::expected_build();
+    let terminals = if desktop_owned && !same_build {
+        runtime.block_on(terminal_count(&running.client))?
+    } else {
+        0
+    };
+    match stale(desktop_owned, same_build, route.desktop_registered, terminals) {
+        Stale::Attach => Ok(false),
+        Stale::Refuse => Err(OtherVersionRunning.into()),
+        Stale::Replace => {
+            runtime.block_on(async {
+                running.client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
+                tokio::time::timeout(Duration::from_secs(30), running.client.closed())
+                    .await
+                    .context("The previous Shellfox host did not stop")?;
+                anyhow::Ok(())
+            })?;
+            Ok(true)
+        }
+    }
+}
+
+async fn terminal_count(client: &LocalClient) -> Result<usize> {
+    match client.request(&shellfox_service::local::DesktopRequest::Status).await? {
+        shellfox_service::local::DesktopReply::Status(status) => Ok(status.active_terminals),
+        _ => anyhow::bail!("Host returned an invalid status response."),
+    }
+}
+
 fn recorded(options: &Options, route: LaunchRouteInfo) -> bool {
     crate::host_process::recorded_owner(&options.desktop_dir) == Some(route.owner)
 }
@@ -97,11 +166,17 @@ pub(crate) enum Ready {
     Forwarded,
 }
 /// Waits for the host before any window opens, then reads the window chrome.
-/// Records a desktop-started host so a reattached UI stops it on Quit.
 pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Options) -> Result<Ready> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let route = runtime.block_on(host.route())?;
     if !route.started {
+        // A concurrent launch's host answered instead of ours: it is ours only
+        // if it is the one this UI is meant to own.
+        host.set_owned(options.owned_host || recorded(options, route.info));
+        if route.info.build != crate::host_process::expected_build() && !host.is_external() {
+            host.host_ended();
+            return Err(OtherVersionRunning.into());
+        }
         if route.info.desktop_registered {
             let client = runtime.block_on(LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256))?;
             handoff(&runtime, &client, options, route.info)?;
@@ -109,12 +184,6 @@ pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Optio
             host.host_ended();
             return Ok(Ready::Forwarded);
         }
-        host.set_owned(options.owned_host || recorded(options, route.info));
-    }
-    if !host.is_external()
-        && let Err(error) = crate::host_process::record_owner(&options.desktop_dir, route.info.owner)
-    {
-        eprintln!("Shellfox host ownership not recorded: {error:#}");
     }
     if options.ui_acceptance {
         return Ok(Ready::Attach(None));
@@ -132,7 +201,7 @@ impl Prestarted {
         if self.host.is_stopped().unwrap_or(false) || self.host.is_external() {
             return;
         }
-        let mut next_diagnostic = Instant::now();
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let result = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -142,22 +211,30 @@ impl Prestarted {
                     match self.host.owned_terminal_count().await {
                         Ok(0) => self.host.cleanup().await,
                         Ok(_) => Ok(()),
-                        Err(_) if !crate::host_process::serving(&self.config).await => Ok(()),
                         Err(error) => Err(error),
                     }
                 }),
                 Err(error) => Err(error.into()),
             };
-            match result {
-                Ok(()) => return,
-                Err(error) => {
-                    if Instant::now() >= next_diagnostic {
-                        eprintln!("Host cleanup is unconfirmed; retrying: {error:#}");
-                        next_diagnostic = Instant::now() + Duration::from_secs(30);
-                    }
-                    std::thread::sleep(Duration::from_millis(250));
-                }
+            let Err(error) = result else { return };
+            if Instant::now() >= deadline {
+                eprintln!("Host cleanup is unconfirmed; leaving the host running: {error:#}");
+                return;
             }
+            std::thread::sleep(Duration::from_millis(250));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn only_a_desktop_host_of_this_build_is_attached() {
+        assert_eq!(stale(true, true, true, 3), Stale::Attach);
+        assert_eq!(stale(false, false, false, 3), Stale::Attach, "a `host run` host");
+        assert_eq!(stale(true, false, false, 0), Stale::Replace);
+        assert_eq!(stale(true, false, false, 1), Stale::Refuse);
+        assert_eq!(stale(true, false, true, 0), Stale::Refuse);
     }
 }
