@@ -234,10 +234,16 @@ describe('compact terminal chrome', () => {
     expect(f.request).not.toHaveBeenCalledWith('addTab', expect.anything());
     expect(f.item.tabs[0].lifecycle).toBe(lifecycle);
   });
+  it('attaches a tab whose shell is not running yet, as after a host restart', () => {
+    const item = session(); item.tabs[0].lifecycle = 'launch-uncertain'; delete item.tabs[0].generation;
+    setup(true, item);
+    expect(screen.getByTestId('terminal')).toHaveAttribute('data-tab', item.tabs[0].id);
+  });
   it('never mounts closed tabs and opens the new default shell without a stale global warning', async () => {
     const item = session(); item.tabs[0].lifecycle = 'closed';
     const f = setup(true, item);
     expect(screen.queryByTestId('terminal')).toBeNull(); expect(f.model.report).not.toHaveBeenCalled();
+    expect(screen.getByText('This terminal has exited.')).toBeInTheDocument();
     expect(screen.queryByText('No open terminal.')).toBeNull();
     const added = newLiveSession(item); f.request.mockResolvedValueOnce(success(added));
     vi.mocked(f.model.refresh).mockImplementation(async () => { f.replace(added); });

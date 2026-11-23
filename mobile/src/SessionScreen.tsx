@@ -65,7 +65,10 @@ export function SessionScreen({
       return { ...value, tabId: active.id, generation: active.generation };
     });
   }, [machine.state.connectionId, metadataCurrent, active?.id, active?.generation]);
-  const canAttach = metadataCurrent && !!active && (active.lifecycle === 'open' || active.lifecycle === 'closed' && isAutomationView(active)) && active.terminalKind !== 'external-legacy';
+  // A tab with no live shell (launch-uncertain, e.g. after a host restart) attaches too:
+  // the host starts its shell on attach. Never leave the tab blank.
+  const canAttach = metadataCurrent && !!active && (active.lifecycle === 'open' || active.lifecycle === 'launch-uncertain'
+    || active.lifecycle === 'closed' && isAutomationView(active)) && active.terminalKind !== 'external-legacy';
   const terminalKey = `${machine.peer.id}/${sessionId}/${active?.id ?? ''}/${active?.generation ?? ''}/${machine.state.connectionId ?? ''}`;
   const currentTerminalKey = useRef(terminalKey);
   currentTerminalKey.current = terminalKey;
@@ -287,7 +290,8 @@ export function SessionScreen({
             />
           ) : (
             <View style={styles.content}>
-              {!metadataCurrent || active?.lifecycle === 'launching' ? <StatusIndicator loading label="Opening terminal" /> : active?.terminalKind === 'external-legacy' ? <Note>External terminal</Note> : null}
+              {!metadataCurrent || active?.lifecycle === 'launching' ? <StatusIndicator loading label="Opening terminal" /> : active?.terminalKind === 'external-legacy' ? <Note>External terminal</Note>
+                : active?.lifecycle === 'closed' ? <Note>This terminal has exited.</Note> : null}
             </View>
           )}
         </>
