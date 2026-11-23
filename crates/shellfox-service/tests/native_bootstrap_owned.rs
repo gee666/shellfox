@@ -57,6 +57,40 @@ fn real_go_cold_existing_and_occupied_share_one_owner() -> Result<()> {
     })?;
     Ok(())
 }
+/// A data dir usually sits under a parent with inherited permissive ACLs or a
+/// shared mode. The host makes its own dir private there instead of refusing.
+#[test]
+fn real_go_host_starts_in_fresh_and_empty_dirs_under_a_permissive_parent() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let runtime = runtime()?;
+    let verifier = shellfox_transport::PermissionVerifier::new(shellfox_transport::VerifiedHelper::new(
+        fixture.helper.clone(),
+        fixture.digest,
+    )?);
+    let directory = shellfox_transport::PrivatePathKind::Directory;
+    let parent = fixture.data("permissive");
+    let empty = parent.join("empty");
+    std::fs::create_dir_all(&empty)?;
+    #[cfg(unix)]
+    for path in [&parent, &empty] {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    anyhow::ensure!(
+        runtime.block_on(verifier.check(&parent, directory)).is_err(),
+        "fixture parent is already private"
+    );
+    for data in [parent.join("fresh"), empty] {
+        cycle(&fixture, &data, |client, _| async move {
+            client.execute(ExperimentRequest::Snapshot {}).await?;
+            Ok(())
+        })?;
+        runtime
+            .block_on(verifier.check(&data, directory))
+            .with_context(|| format!("{} is not private", data.display()))?;
+    }
+    Ok(())
+}
 #[test]
 fn preparation_collision_preserves_original_error_without_repair() -> Result<()> {
     let fixture = Fixture::new()?;
