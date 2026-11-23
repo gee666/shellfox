@@ -138,3 +138,12 @@ fn discovery_slots_are_bounded_cancelled_and_original_threads_join_on_stop() {
     }
     service.shutdown().unwrap();
 }
+
+#[test]
+fn the_effective_default_is_the_saved_one_only_when_this_host_can_run_it() {
+    use crate::effective_default_profile as pick;
+    assert_eq!(pick("zsh", ["login-shell", "zsh"]), Some("zsh"));
+    // 0.9's macOS default, pwsh, falls back to the first usable profile.
+    assert_eq!(pick("pwsh", ["login-shell", "zsh"]), Some("login-shell"));
+    assert_eq!(pick("pwsh", std::iter::empty()), None);
+}

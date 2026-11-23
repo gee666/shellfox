@@ -52,12 +52,15 @@ impl Root {
     pub(crate) fn default_profile(&self) -> String {
         let saved = self.snapshot
             .as_ref()
-            .map(|snapshot| snapshot.preferences.default_profile_id.as_str());
-        match saved {
-            Some(id) if id != shellfox_terminal::elevated::ADMINISTRATOR_PROFILE_ID => id,
-            _ => self.profiles.iter().find(|profile| profile.available && !profile.elevation)
-                .map_or("login-shell", |profile| profile.id.as_str()),
-        }.to_owned()
+            .map_or("", |snapshot| snapshot.preferences.default_profile_id.as_str());
+        let usable = self.profiles.iter().filter(|p| p.available && !p.elevation).map(|p| p.id.as_str());
+        // Before the catalog arrives, keep the saved one unless it needs elevation.
+        shellfox_service::effective_default_profile(saved, usable)
+            .unwrap_or(match saved {
+                "" | shellfox_terminal::elevated::ADMINISTRATOR_PROFILE_ID => "login-shell",
+                saved => saved,
+            })
+            .to_owned()
     }
     /// Refreshes the snapshot whenever the host commits a newer revision.
     pub(crate) fn watch_workspace(

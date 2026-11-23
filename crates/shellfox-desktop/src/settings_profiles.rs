@@ -36,11 +36,12 @@ impl SettingsPanel {
             .or_else(|| self.catalog.as_ref()?.default_profile_id.as_deref())
     }
 
+    /// The effective default, as 0.9 showed it: the saved one only if this host can run it.
     pub(super) fn selected_shell(&self) -> Option<&api::Profile> {
-        let selected = self.configured_shell_id();
-        self.shell_profiles()
-            .find(|profile| Some(profile.id.as_str()) == selected)
-            .or_else(|| self.shell_profiles().find(|profile| profile.available))
+        let saved = self.configured_shell_id().unwrap_or_default();
+        let usable = self.shell_profiles().filter(|p| p.available).map(|p| p.id.as_str());
+        let id = shellfox_service::effective_default_profile(saved, usable)?;
+        self.shell_profiles().find(|profile| profile.id == id)
     }
 
     pub(super) fn toggle_profiles(&mut self, window: &mut Window, cx: &mut Context<Self>) {

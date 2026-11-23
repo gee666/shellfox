@@ -152,10 +152,8 @@ impl NativeFactsDiscovery {
             .as_ref()
             .and_then(|value| value.clone())
             .unwrap_or_else(|| default.to_string());
-        let default_profile_id = profiles
-            .iter()
-            .find(|profile| profile.id == configured && profile.available && profile.elevation.is_none())
-            .map(|profile| profile.id.clone());
+        let default_profile_id =
+            crate::effective_default_profile(&configured, crate::usable_profiles(&profiles)).map(str::to_owned);
         let profiles = wire::TerminalProfiles {
             profiles,
             default_profile_id,

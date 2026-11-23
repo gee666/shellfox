@@ -9,6 +9,27 @@ use std::thread::JoinHandle;
 use tokio::sync::oneshot;
 
 const MAX_JOBS: usize = 4;
+
+/// The profile a new session or tab launches with when none is asked for: the
+/// saved default when this host can run it, else the first one it can. A saved
+/// default can come from another OS, such as 0.9's pwsh on macOS.
+pub fn effective_default_profile<'a>(saved: &str, usable: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+    let mut first = None;
+    for id in usable {
+        if id == saved {
+            return Some(id);
+        }
+        first = first.or(Some(id));
+    }
+    first
+}
+/// Ids of the catalog profiles a launch may use: available and not elevated.
+pub fn usable_profiles(profiles: &[shellfox_protocol::TerminalProfile]) -> impl Iterator<Item = &str> {
+    profiles
+        .iter()
+        .filter(|p| p.available && p.elevation.is_none())
+        .map(|p| p.id.as_str())
+}
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeLaunchCatalog {

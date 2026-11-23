@@ -3,14 +3,8 @@ use shellfox_core::{ProfileId, TabState};
 use shellfox_host::CreationRequestReceipt;
 
 pub(super) fn default_profile(profiles: &wire::TerminalProfiles) -> Option<&str> {
-    let available = |p: &&wire::TerminalProfile| p.available && p.elevation.is_none();
-    profiles
-        .profiles
-        .iter()
-        .filter(available)
-        .find(|p| profiles.default_profile_id.as_ref() == Some(&p.id))
-        .or_else(|| profiles.profiles.iter().find(available))
-        .map(|p| p.id.as_str())
+    let saved = profiles.default_profile_id.as_deref().unwrap_or_default();
+    crate::effective_default_profile(saved, crate::usable_profiles(&profiles.profiles))
 }
 
 pub(super) fn ensure_launch_profile(state: &RemoteState, id: &str) -> Result<(), AppError> {

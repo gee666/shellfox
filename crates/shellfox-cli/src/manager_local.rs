@@ -85,6 +85,17 @@ impl Local<'_> {
             .find(|a| a.tab == tab && !a.closed)
             .map(|a| a.generation))
     }
+    /// The host's effective default profile; see shellfox_service::effective_default_profile.
+    async fn default_profile(&self, snapshot: &Snapshot) -> Result<shellfox_core::ProfileId> {
+        let saved = snapshot.preferences.default_profile_id.clone();
+        let DesktopReply::TerminalProfiles(catalog) = self.desktop(DesktopRequest::TerminalProfiles).await? else {
+            return Err(unexpected());
+        };
+        let usable = shellfox_service::usable_profiles(&catalog.profiles.profiles);
+        shellfox_service::effective_default_profile(saved.as_str(), usable)
+            .and_then(|id| id.parse().ok())
+            .ok_or_else(|| CliError::new("UNSUPPORTED", "No terminal profile is available on this host.", false))
+    }
     async fn after(&self, id: SessionId, snapshot: Result<Snapshot>) -> Result<Value> {
         self.session(&snapshot?, id).await
     }
@@ -142,7 +153,6 @@ impl Local<'_> {
                 );
             }
         };
-        let default_profile = |snapshot: &Snapshot| snapshot.preferences.default_profile_id.clone();
         match command {
             R::GetSnapshot(_) => {
                 let snapshot = self.snapshot().await?;
@@ -168,8 +178,10 @@ impl Local<'_> {
             }
             R::CreateSession(input) => {
                 let before = self.snapshot().await?;
-                let profile_id = shellfox_service::desktop_launch::folder_profile(&input.cwd)
-                    .unwrap_or_else(|| default_profile(&before));
+                let profile_id = match shellfox_service::desktop_launch::folder_profile(&input.cwd) {
+                    Some(profile) => profile,
+                    None => self.default_profile(&before).await?,
+                };
                 let request = shellfox_core::CreateSession {
                     request_id: input.request_id,
                     title: input.title,
@@ -193,7 +205,7 @@ impl Local<'_> {
                     Some(profile) => profile
                         .parse()
                         .map_err(|_| CliError::usage("Invalid profile ID."))?,
-                    None => default_profile(&before),
+                    None => self.default_profile(&before).await?,
                 };
                 let tab = shellfox_core::AddTab {
                     title: input.title,

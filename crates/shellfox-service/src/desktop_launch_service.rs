@@ -140,8 +140,13 @@ impl<D: LaunchDirectoryPolicy> LaunchSessionResolver for ServiceLaunchResolver<'
                     .host()
                     .snapshot()
                     .map_err(|_| LaunchError::Unavailable)?;
-                let profile_id =
-                    folder_profile(&cwd).unwrap_or(snapshot.preferences.default_profile_id);
+                let profile_id = match folder_profile(&cwd) {
+                    Some(profile) => profile,
+                    None => self
+                        .service
+                        .default_launch_profile(&snapshot.preferences.default_profile_id)
+                        .map_err(|_| LaunchError::Unavailable)?,
+                };
                 self.service
                     .create_application_session(CreateSession {
                         request_id: intent.request_id,

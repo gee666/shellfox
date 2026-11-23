@@ -28,7 +28,7 @@ pub use native_endpoint_report::{
     EndpointArtifactDisposition, EndpointPublicationOutcome, NativeEndpointReport,
 };
 mod native_catalog;
-pub use native_catalog::NativeLaunchCatalog;
+pub use native_catalog::{effective_default_profile, usable_profiles, NativeLaunchCatalog};
 #[cfg(test)]
 use shellfox_test_support::native_metadata as native_metadata_fixture;
 mod owner;

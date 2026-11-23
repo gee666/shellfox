@@ -88,10 +88,10 @@ impl Root {
                 api.call(wire::GetTerminalProfiles {}, |value| value)
                 .await
                 .and_then(|catalog| {
-                    let profile = configured.or(catalog.default_profile_id);
-                    if catalog.profiles.iter().any(|item| {
-                        item.available && (windows || Some(&item.id) == profile.as_ref())
-                    }) {
+                    let saved = configured.or(catalog.default_profile_id).unwrap_or_default();
+                    let usable = shellfox_service::usable_profiles(&catalog.profiles);
+                    let profile = shellfox_service::effective_default_profile(&saved, usable).map(str::to_owned);
+                    if profile.is_some() {
                         Ok(if windows { None } else { profile })
                     } else {
                         Err(PeerCallError {
