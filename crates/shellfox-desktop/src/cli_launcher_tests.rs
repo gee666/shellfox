@@ -174,4 +174,20 @@ fn wsl_folders_reach_windows_as_wsl_paths() {
         ]
     );
     assert_eq!(run(&["session", "list"]), ["session", "list"]);
+    // The tab marker goes back to the Windows CLI through WSLENV.
+    let forwarded = Command::new(&shell)
+        .arg("-c")
+        .arg(format!(
+            "{}\nprintf '%s\\n' \"$WSLENV\"",
+            WSL_FOLDER.split("  windows_path()").next().unwrap()
+        ))
+        .env("WSLENV", "KEEP/p:shellfox_terminal_marker/w")
+        .env("SHELLFOX_TERMINAL_MARKER", "12345678-1234-4234-8234-123456789abc")
+        .env("NO_COLOR", "")
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&forwarded.stdout).trim(),
+        "KEEP/p:NO_COLOR:SHELLFOX_TERMINAL_MARKER"
+    );
 }

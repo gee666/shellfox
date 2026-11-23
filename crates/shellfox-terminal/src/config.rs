@@ -45,6 +45,9 @@ pub struct PtyConfig {
     /// Trusted executable calling `supervisor_entry` before all other work.
     /// None is rejected before acquiring a PTY.
     pub supervisor: Option<PathBuf>,
+    /// The tab UUID, exported as SHELLFOX_TERMINAL_MARKER so the `shellfox`
+    /// CLI run inside the tab can target its session. WSL tabs get it via WSLENV.
+    pub terminal_marker: Option<String>,
 }
 
 impl PtyConfig {
@@ -62,6 +65,7 @@ impl PtyConfig {
             command: None,
             env: BTreeMap::new(),
             supervisor: None,
+            terminal_marker: None,
         }
     }
 
@@ -116,6 +120,15 @@ impl PtyConfig {
                 "tool directory must be an existing absolute path"
             );
         }
+        if let Some(marker) = &self.terminal_marker {
+            ensure!(
+                marker.len() == 36
+                    && marker
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() || b == b'-'),
+                "terminal marker must be a UUID"
+            );
+        }
         crate::environment::validate_extra(&self.env)
     }
 
@@ -137,6 +150,24 @@ impl PtyConfig {
         }
         for (key, value) in &self.env {
             command.env(key, value);
+        }
+        if let Some(marker) = &self.terminal_marker {
+            const MARKER: &str = "SHELLFOX_TERMINAL_MARKER";
+            command.env(MARKER, marker);
+            #[cfg(windows)]
+            {
+                // wsl.exe forwards only the names WSLENV lists into the guest.
+                let user = self
+                    .env
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case("WSLENV"))
+                    .map(|(_, value)| value.to_string_lossy().into_owned());
+                let forwarded = match user.filter(|value| !value.is_empty()) {
+                    Some(value) => format!("{value}:{MARKER}"),
+                    None => MARKER.to_owned(),
+                };
+                command.env("WSLENV", forwarded);
+            }
         }
         Ok(command)
     }

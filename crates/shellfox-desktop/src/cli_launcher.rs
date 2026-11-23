@@ -210,7 +210,24 @@ fn posix_router() -> String {
 /// [PATH]` (default: the current one) goes to Windows as wslpath -w spells it,
 /// `\\wsl.localhost\<distro>\...`, as 0.9 did. Windows paths pass unchanged.
 #[cfg(any(windows, test))]
-const WSL_FOLDER: &str = r#"  windows_path() {
+const WSL_FOLDER: &str = r#"  # Windows programs see only the WSLENV names. Replace old flags and
+  # duplicates on this name and keep every other entry, as 0.9 did.
+  shellfox_wsl_env() {
+    shellfox_env_rest=${WSLENV:-}
+    shellfox_env_keep=
+    while [ -n "$shellfox_env_rest" ]; do
+      shellfox_env_entry=${shellfox_env_rest%%:*}
+      case "$shellfox_env_rest" in *:*) shellfox_env_rest=${shellfox_env_rest#*:} ;; *) shellfox_env_rest= ;; esac
+      shellfox_env_name=$(printf '%s' "${shellfox_env_entry%%/*}" | tr '[:lower:]' '[:upper:]')
+      if [ -n "$shellfox_env_entry" ] && [ "$shellfox_env_name" != "$1" ]; then
+        shellfox_env_keep=${shellfox_env_keep:+$shellfox_env_keep:}$shellfox_env_entry
+      fi
+    done
+    export WSLENV="${shellfox_env_keep:+$shellfox_env_keep:}$1"
+  }
+  if [ "${NO_COLOR+x}" = x ]; then shellfox_wsl_env NO_COLOR; fi
+  if [ -n "${SHELLFOX_TERMINAL_MARKER:-}" ]; then shellfox_wsl_env SHELLFOX_TERMINAL_MARKER; fi
+  windows_path() {
     case "$1" in
       [A-Za-z]:[\\/]*|\\\\*) printf '%s\n' "$1" ;;
       *)

@@ -24,6 +24,7 @@ impl Service {
         config.environment = EnvironmentPolicy::InstalledTools;
         config.cwd = PathBuf::from(launch.cwd);
         config.supervisor = Some(self.supervisor.clone());
+        config.terminal_marker = Some(launch.tab_id.to_string());
         config.env = launch
             .env
             .into_iter()
