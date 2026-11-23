@@ -196,7 +196,7 @@ pub fn run(words: &[String], user_data: &Path, json: bool) -> Result<i32> {
         }
         Err(error) if json => Err(match error.downcast_ref::<Usage>() {
             Some(usage) => CliError::usage(format!("Shellfox: {}", display(&usage.0))),
-            None => CliError::new(
+            None => CliError::coded(
                 "COMMAND_FAILED",
                 format!("Shellfox: {}", display(&error.to_string())),
                 false,

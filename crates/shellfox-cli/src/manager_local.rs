@@ -15,7 +15,7 @@ use shellfox_service::{
 pub struct Local<'a>(pub &'a LocalClient);
 
 fn not_found(message: &str) -> anyhow::Error {
-    CliError::new("NOT_FOUND", message, false)
+    CliError::coded("NOT_FOUND", message, false)
 }
 fn unexpected() -> anyhow::Error {
     anyhow::anyhow!("Unexpected host response.")
@@ -94,7 +94,7 @@ impl Local<'_> {
         let usable = shellfox_service::usable_profiles(&catalog.profiles.profiles);
         shellfox_service::effective_default_profile(saved.as_str(), usable)
             .and_then(|id| id.parse().ok())
-            .ok_or_else(|| CliError::new("UNSUPPORTED", "No terminal profile is available on this host.", false))
+            .ok_or_else(|| CliError::coded("UNSUPPORTED", "No terminal profile is available on this host.", false))
     }
     async fn after(&self, id: SessionId, snapshot: Result<Snapshot>) -> Result<Value> {
         self.session(&snapshot?, id).await
@@ -116,7 +116,7 @@ impl Local<'_> {
                     .iter()
                     .any(|t| activity.iter().any(|a| a.tab == t.id && !a.closed))
                 {
-                    return Err(CliError::new(
+                    return Err(CliError::coded(
                         "TARGET_LOST",
                         "No live embedded shell. Activate the session to open one.",
                         false,
@@ -140,7 +140,7 @@ impl Local<'_> {
             Call::SetKeepAwake(active) => {
                 let report = self.0.set_power(active).await?;
                 if report.pending || report.error.is_some() {
-                    return Err(CliError::new(
+                    return Err(CliError::coded(
                         "NATIVE_UNAVAILABLE",
                         report
                             .error
@@ -314,7 +314,7 @@ impl Local<'_> {
             }
             R::CloseTab(input) => {
                 if self.live(input.tab_id).await? != Some(input.generation) {
-                    return Err(CliError::new(
+                    return Err(CliError::coded(
                         "TARGET_LOST",
                         "Stale terminal generation.",
                         false,
@@ -357,7 +357,7 @@ impl Local<'_> {
                 }
                 Ok(json!({ "sessions": sessions, "tabs": tabs }))
             }
-            command => Err(CliError::new(
+            command => Err(CliError::coded(
                 "UNSUPPORTED",
                 format!(
                     "{} is not available from the local CLI. Use the matching shellfox command.",
@@ -372,7 +372,7 @@ impl Local<'_> {
 fn home() -> Result<String> {
     std::env::home_dir()
         .and_then(|home| home.into_os_string().into_string().ok())
-        .ok_or_else(|| CliError::new("INTERNAL", "Could not determine the home directory.", false))
+        .ok_or_else(|| CliError::coded("INTERNAL", "Could not determine the home directory.", false))
 }
 
 enum Directory {
@@ -412,6 +412,6 @@ fn directory(path: &str, operation: Directory) -> Result<Value> {
             shellfox_files::ErrorCode::FileConflict => "FILE_CONFLICT",
             shellfox_files::ErrorCode::Validation => "VALIDATION",
         };
-        CliError::new(code, error.message, false)
+        CliError::coded(code, error.message, false)
     })
 }

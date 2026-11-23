@@ -57,7 +57,7 @@ pub struct Peer<'a> {
 }
 
 fn uncertain() -> anyhow::Error {
-    CliError::new(
+    CliError::coded(
         "TARGET_LOST",
         "The remote host did not answer. The outcome is unknown and the request was not retried.",
         false,
@@ -68,7 +68,7 @@ fn failed(error: shellfox_client::ClientError) -> anyhow::Error {
     use shellfox_client::ClientError as E;
     match error {
         E::Validation(_) => CliError::usage("Invalid remote request."),
-        E::NotConnected | E::StaleConnection | E::TooManyRequests => CliError::new(
+        E::NotConnected | E::StaleConnection | E::TooManyRequests => CliError::coded(
             "INTERNAL",
             "The remote view is not connected. Nothing was sent.",
             false,
@@ -131,7 +131,7 @@ impl<'a> Peer<'a> {
     }
     pub async fn call(&self, call: Call) -> Result<Value> {
         let Call::Remote(command) = call else {
-            return Err(CliError::new(
+            return Err(CliError::coded(
                 "UNSUPPORTED",
                 format!("{} is not available over a remote connection.", call.name()),
                 false,

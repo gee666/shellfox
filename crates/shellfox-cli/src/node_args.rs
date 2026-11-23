@@ -368,7 +368,7 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
             Action::Manager(crate::manager_args::ManagerCommand::Settings)
         }
         ["settings", "update", ..] if remote => {
-            return Err(CliError::new(
+            return Err(CliError::coded(
                 "UNSUPPORTED",
                 "saveSettings is not available over a remote connection.",
                 false,

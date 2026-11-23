@@ -40,7 +40,7 @@ pub async fn run(client: &LocalClient, command: NetworkCommand) -> Result<()> {
     // 0.9 never echoed why a keyed login failed.
     let state = match client.remote_control(request).await {
         Err(_) if login => {
-            return Err(crate::output::CliError::new(
+            return Err(crate::output::CliError::coded(
                 "AUTH_FAILED",
                 "Network login failed. Check host network status.",
                 false,

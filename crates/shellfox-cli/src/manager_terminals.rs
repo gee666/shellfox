@@ -115,14 +115,14 @@ async fn generation(host: &Host<'_>, tab: TabId) -> Result<Value> {
 }
 
 fn control_required() -> anyhow::Error {
-    CliError::new(
+    CliError::coded(
         "TERMINAL_CONTROL_REQUIRED",
         "Another client is controlling this terminal. Use --take to switch control explicitly.",
         false,
     )
 }
 fn uncertain() -> anyhow::Error {
-    CliError::new(
+    CliError::coded(
         "TARGET_LOST",
         "Terminal input delivery is uncertain; input was not retried. Inspect the terminal before sending it again.",
         false,
@@ -141,7 +141,7 @@ async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) ->
             _ => return Err(control_required()),
         },
         Err(_) if local.live(tab).await?.is_none() => {
-            return Err(CliError::new(
+            return Err(CliError::coded(
                 "NOT_FOUND",
                 "Open embedded terminal not found.",
                 false,

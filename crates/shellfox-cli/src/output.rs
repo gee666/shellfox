@@ -46,7 +46,8 @@ impl CliError {
         }
         .into()
     }
-    pub fn new(code: &'static str, message: impl Into<String>, retryable: bool) -> anyhow::Error {
+    /// A failure with a fixed code, such as NOT_FOUND.
+    pub fn coded(code: &'static str, message: impl Into<String>, retryable: bool) -> anyhow::Error {
         Self {
             code: Cow::Borrowed(code),
             message: message.into(),

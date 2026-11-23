@@ -38,11 +38,11 @@ pub struct UpdateResult {
 pub async fn run(check: bool) -> Result<UpdateResult> {
     let current = env!("SHELLFOX_VERSION");
     let root = layout::current_root().ok_or_else(|| {
-        CliError::new("UNSUPPORTED", "Headless updates require an extracted headless release package. Desktop installs use their own updater.", false)
+        CliError::coded("UNSUPPORTED", "Headless updates require an extracted headless release package. Desktop installs use their own updater.", false)
     })?;
     package::validate(&root, current, platform(), arch())?;
     let release = latest().await.map_err(|cause| {
-        CliError::new("UPDATE_FAILED", format!("Could not check the latest Shellfox release. {cause:#} Check your connection or see {RELEASES}"), true)
+        CliError::coded("UPDATE_FAILED", format!("Could not check the latest Shellfox release. {cause:#} Check your connection or see {RELEASES}"), true)
     })?;
     let Some((version, asset)) = release else {
         return Ok(result(
@@ -63,7 +63,7 @@ pub async fn run(check: bool) -> Result<UpdateResult> {
         ));
     }
     let asset = asset.ok_or_else(|| {
-        CliError::new("UNSUPPORTED", format!("Release {latest} has no unique, SHA-256-verified headless archive for {}/{}. See {RELEASES}", platform(), arch()), false)
+        CliError::coded("UNSUPPORTED", format!("Release {latest} has no unique, SHA-256-verified headless archive for {}/{}. See {RELEASES}", platform(), arch()), false)
     })?;
     let mut found = result(current, Some(latest.clone()), "available", &format!("Shellfox {latest} is available. Run shellfox update to install it for future launches."));
     if check {
@@ -72,7 +72,7 @@ pub async fn run(check: bool) -> Result<UpdateResult> {
     let anchor = layout::anchor(&root)?;
     let installation = install(&root, &anchor, &latest, |archive| download(&asset, archive))
         .await
-        .map_err(|cause| CliError::new("UPDATE_FAILED", format!("Could not install the headless update. {cause:#} The active version and running hosts were not changed. See {RELEASES}"), true))?;
+        .map_err(|cause| CliError::coded("UPDATE_FAILED", format!("Could not install the headless update. {cause:#} The active version and running hosts were not changed. See {RELEASES}"), true))?;
     found.phase = "installed";
     found.restart_required = true;
     found.message = format!(

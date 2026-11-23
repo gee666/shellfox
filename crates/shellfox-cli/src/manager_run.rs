@@ -47,7 +47,7 @@ fn call(method: &str, payload: Value) -> Result<Call> {
     manager::parse(method, payload)
 }
 fn not_found(message: &str) -> anyhow::Error {
-    CliError::new("NOT_FOUND", message, false)
+    CliError::coded("NOT_FOUND", message, false)
 }
 
 pub async fn run(client: &LocalClient, command: ManagerCommand, options: &Options) -> Result<()> {

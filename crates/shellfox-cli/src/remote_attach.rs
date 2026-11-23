@@ -66,7 +66,7 @@ fn value<V>(reply: Reply<V>) -> Result<V> {
     }
 }
 fn lost() -> anyhow::Error {
-    CliError::new(
+    CliError::coded(
         "TARGET_LOST",
         "The remote host did not answer. Input was not retried; inspect the terminal before sending it again.",
         false,

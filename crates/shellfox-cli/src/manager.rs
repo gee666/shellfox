@@ -72,7 +72,7 @@ pub fn parse(method: &str, payload: Value) -> Result<Call> {
         }
         "setKeepAwake" => Call::SetKeepAwake(input::<Active>(method, payload)?.active),
         method if UNAVAILABLE.contains(&method) => {
-            return Err(CliError::new(
+            return Err(CliError::coded(
                 "UNSUPPORTED",
                 format!("{method} is not available in this version of Shellfox."),
                 false,

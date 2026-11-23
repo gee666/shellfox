@@ -92,7 +92,7 @@ pub fn run(
             let runtime = runtime()?;
             if let Some(legacy) = legacy_host(&runtime) {
                 runtime.block_on(legacy.close());
-                return Err(CliError::new("HOST_RUNNING", "A Shellfox 0.9 host still owns this data directory. Stop it with host stop --yes, or restart it through its startup manager.", false));
+                return Err(CliError::coded("HOST_RUNNING", "A Shellfox 0.9 host still owns this data directory. Stop it with host stop --yes, or restart it through its startup manager.", false));
             }
             drop(runtime);
             let target = target()?;
@@ -256,7 +256,7 @@ impl Target {
     }
 }
 fn unavailable() -> anyhow::Error {
-    CliError::new(
+    CliError::coded(
         "HOST_UNAVAILABLE",
         "Host connection failed. Run shellfox host run with the same --user-data directory.",
         false,
@@ -283,7 +283,7 @@ pub(crate) fn confirm(json: bool, yes: bool, what: &str) -> Result<()> {
     if matches!(answer.trim(), "y" | "Y" | "yes") {
         Ok(())
     } else {
-        Err(CliError::new(
+        Err(CliError::coded(
             "CANCELLED",
             "Cancelled. No changes made.",
             false,
