@@ -1,0 +1,92 @@
+name: Linux workspace checks
+
+# Compile, lint and test the Rust workspace on Linux on every push, so
+# Linux-only errors don't wait for a release run. The glibc floor is checked
+# by the release workflow's Ubuntu 20.04 build.
+on:
+  workflow_dispatch:
+  push:
+    branches: [experiment/ghostty-rust]
+    paths:
+      - .github/workflows/linux-check.yml
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - crates/**
+      - vendor/**
+      - scripts/tailscale.mjs
+      - scripts/rust-package-prereqs.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: linux-${{ matrix.arch }} check, clippy and tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: x64, target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, arch: arm64, target: aarch64-unknown-linux-gnu }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    env:
+      CARGO_TERM_COLOR: always
+      GOTOOLCHAIN: local
+      SHELLFOX_UBUNTU_MIRROR: ${{ vars.SHELLFOX_UBUNTU_MIRROR }}
+      SHELLFOX_UBUNTU_PORTS_MIRROR: ${{ vars.SHELLFOX_UBUNTU_PORTS_MIRROR }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.3'
+          cache: false
+      - name: Rust pin
+        run: rustup show
+      - name: GPUI build dependencies
+        run: |
+          bash .github/scripts/setup-ubuntu-apt.sh
+          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev
+      # The prepared libghostty-vt depends only on the pinned Zig and Ghostty inputs.
+      # Saved right after preparation, so a later failing step doesn't lose it.
+      - name: Cached Ghostty
+        id: ghostty
+        uses: actions/cache/restore@v4
+        with:
+          path: tmp/rust-package-ghostty/${{ matrix.target }}
+          key: ghostty-${{ matrix.target }}-${{ hashFiles('crates/ghostty-vt-sys/build-support/zig-*.json', 'crates/ghostty-vt-sys/build-support/*.mjs', 'crates/ghostty-vt-sys/build-support/vendor/SHA256SUMS') }}
+      - name: Prepare pinned Ghostty
+        id: prepare
+        if: steps.ghostty.outputs.cache-hit != 'true'
+        run: node scripts/rust-package-prereqs.mjs
+        timeout-minutes: 35
+      - name: Save Ghostty
+        if: steps.prepare.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: tmp/rust-package-ghostty/${{ matrix.target }}
+          key: ${{ steps.ghostty.outputs.cache-primary-key }}
+      - name: Ghostty location
+        run: echo "GHOSTTY_VT_DIR=$PWD/tmp/rust-package-ghostty/${{ matrix.target }}" >> "$GITHUB_ENV"
+      - name: Check
+        id: check
+        run: cargo check --locked --workspace --all-targets
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # Crates whose behavior differs on Linux. The tests run even when clippy fails.
+      - name: Terminal tests
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        run: cargo test --locked -p shellfox-terminal --features test-support --no-fail-fast
+      - name: Runtime, service, CLI and Files tests
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        run: cargo test --locked -p shellfox-runtime -p shellfox-service -p shellfox-cli -p shellfox-files --no-fail-fast
+      - name: Service automation against the owned raw fixture
+        if: ${{ !cancelled() && steps.check.outcome == 'success' }}
+        run: |
+          cargo build --locked -p shellfox-terminal --features test-support --bin shellfox-raw-test-helper
+          SHELLFOX_RAW_TEST_HELPER="$PWD/target/debug/shellfox-raw-test-helper" \
+            cargo test --locked -p shellfox-service --lib automation -- --ignored
