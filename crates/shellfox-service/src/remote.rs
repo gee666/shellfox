@@ -63,11 +63,14 @@ struct View {
     terminals: HashMap<shellfox_core::TabId, v1_delivery::Delivery>,
     replays: HashMap<shellfox_core::TabId, v1_replay::Replay>,
     wake: shellfox_remote::PollWake,
+    /// Tab activity this view was last told about.
+    activity: std::sync::Arc<[crate::NativeTabActivity]>,
 }
 impl View {
     /// True when the next Poll would return events, given the host's latest revision.
     fn has_events(&self, service: &Service, latest_revision: u64) -> bool {
         latest_revision > self.revision
+            || !std::sync::Arc::ptr_eq(&self.activity, &service.published_tab_activity())
             || self.terminals.iter().any(|(&tab, delivery)| {
                 delivery.has_events(service.remote_v1_status(tab, &delivery.lease).ok())
             })
@@ -213,6 +216,7 @@ impl ServiceHost for RemoteService<'_> {
                         terminals: HashMap::new(),
                         replays: HashMap::new(),
                         wake: actor.poll_wake(),
+                        activity: self.service.published_tab_activity(),
                     },
                 ) {
                     #[cfg(windows)]
@@ -259,6 +263,21 @@ impl ServiceHost for RemoteService<'_> {
                     event.select_session_id = None;
                     view.revision = event.revision;
                     events.push(adapter::changed_event(&event).map_err(AppError::from)?);
+                }
+                // Activity has no metadata revision. As in 0.9, a "native" change
+                // tells the client to read the catalog again.
+                let activity = self.service.published_tab_activity();
+                if !std::sync::Arc::ptr_eq(&view.activity, &activity) {
+                    view.activity = activity;
+                    if events.is_empty() {
+                        events.push(wire::HostEvent::Changed {
+                            event: wire::ChangedEvent {
+                                revision: view.revision,
+                                reason: wire::ChangeReason::Native,
+                                select_session_id: None,
+                            },
+                        });
+                    }
                 }
                 let quota = 64 / view.terminals.len().max(1);
                 for (&tab, delivery) in &mut view.terminals {

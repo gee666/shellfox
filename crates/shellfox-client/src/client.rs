@@ -51,6 +51,7 @@ impl<T: OutboundTransport> Client<T> {
                     connection_id: 0,
                     last_error: None,
                     retry_after: None,
+                    catalog: 0,
                 },
                 client_id,
                 cycle: 0,
@@ -63,7 +64,7 @@ impl<T: OutboundTransport> Client<T> {
             waker: StateWaker::default(),
         }
     }
-    /// Called after status, permission or connection_id changes, on whichever
+    /// Called after status, permission, connection_id or catalog changes, on whichever
     /// task made the change. Must not block or re-enter the client. Replaces
     /// any previous waker.
     pub fn set_state_waker(&self, wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
@@ -265,7 +266,7 @@ impl<T: OutboundTransport> Client<T> {
             kind: CallKind::Poll,
             cancel: cancel.clone(),
         };
-        let result = self
+        let result: Result<Reply<PollResponse>, ClientError> = self
             .send(Endpoint::Events, &ViewIdentity { client_id: id }, cancel)
             .await;
         let mut s = lock(&self.session, &self.waker);
@@ -273,6 +274,11 @@ impl<T: OutboundTransport> Client<T> {
             return Err(ClientError::StaleConnection);
         }
         match &result {
+            Ok(Reply::Success(response))
+                if response.events.iter().any(|event| matches!(event, HostEvent::Changed { .. })) =>
+            {
+                s.state.catalog = s.state.catalog.wrapping_add(1);
+            }
             Ok(Reply::Failure(error)) => Self::failed(&mut s, Some(error)),
             Err(ClientError::Transport(TransportError::Cancelled)) => {}
             Err(_) => Self::failed(&mut s, None),

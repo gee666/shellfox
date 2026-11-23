@@ -23,6 +23,10 @@ pub struct ClientState {
     pub connection_id: u64,
     pub last_error: Option<AppError>,
     pub retry_after: Option<Duration>,
+    /// Counts polls that reported a host change (sessions, settings or tab
+    /// activity). A catalog read is due when it differs from the value seen
+    /// at the last read.
+    pub catalog: u64,
 }
 #[derive(Clone, Debug)]
 pub enum ClientError {
@@ -69,14 +73,14 @@ impl StateWaker {
     }
 }
 /// Session lock that calls the waker after the lock is released, if status,
-/// permission or connection_id changed while it was held.
+/// permission, connection_id or catalog changed while it was held.
 pub(crate) struct Locked<'a> {
     guard: Option<MutexGuard<'a, Session>>,
-    before: (ConnectionStatus, Permission, u64),
+    before: (ConnectionStatus, Permission, u64, u64),
     waker: &'a StateWaker,
 }
-fn key(s: &Session) -> (ConnectionStatus, Permission, u64) {
-    (s.state.status, s.state.permission, s.state.connection_id)
+fn key(s: &Session) -> (ConnectionStatus, Permission, u64, u64) {
+    (s.state.status, s.state.permission, s.state.connection_id, s.state.catalog)
 }
 pub(crate) fn lock<'a>(session: &'a Mutex<Session>, waker: &'a StateWaker) -> Locked<'a> {
     let guard = session.lock().expect("client state");

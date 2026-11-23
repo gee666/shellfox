@@ -84,3 +84,16 @@ fn the_waker_may_read_client_state() {
         [ConnectionStatus::Connecting, ConnectionStatus::Connected]
     );
 }
+
+#[test]
+fn a_changed_event_moves_the_catalog_counter_and_wakes() {
+    let native = br#"{"ok":true,"value":{"events":[{"type":"changed","event":{"revision":1,"reason":"native"}}]}}"#;
+    let quiet = br#"{"ok":true,"value":{"events":[]}}"#;
+    let client = client(&[PAIR, native, quiet]);
+    block_on(client.pair()).unwrap();
+    let wakes = counter(&client);
+    block_on(client.poll()).unwrap();
+    assert_eq!((client.state().catalog, wakes.load(Ordering::SeqCst)), (1, 1));
+    block_on(client.poll()).unwrap();
+    assert_eq!((client.state().catalog, wakes.load(Ordering::SeqCst)), (1, 1), "no change, no wake");
+}

@@ -89,6 +89,14 @@ impl crate::Service {
             std::mem::replace(current, generation) != generation
         });
     }
+    /// The tab activity rows last published. A new value means they changed.
+    pub(crate) fn published_tab_activity(&self) -> Arc<[NativeTabActivity]> {
+        self.native.watches.tab_activity.borrow().clone()
+    }
+    #[cfg(test)]
+    pub(crate) fn replace_tab_activity(&self, rows: Vec<NativeTabActivity>) {
+        self.native.watches.tab_activity.send_replace(Arc::from(rows));
+    }
     pub(crate) fn publish_native_watches(&self) {
         let watches = &self.native.watches;
         let revision = self.host().revision();
