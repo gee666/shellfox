@@ -6,9 +6,10 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::{Receiver, SyncSender},
-        Arc,
+        Arc, Condvar, Mutex,
     },
     thread::JoinHandle,
+    time::Instant,
 };
 
 #[derive(Default)]
@@ -24,10 +25,41 @@ pub(super) struct Shared {
     /// Pipe workers still running. Each one wakes the owner as it ends.
     running: AtomicUsize,
     pub wake: WakeSlot,
+    /// Bumped on every change a local waiter cares about: a frame sent or
+    /// taken, a write done, output discarded, the launcher's exit or a
+    /// worker's end.
+    changes: Mutex<u64>,
+    changed: Condvar,
 }
 impl Shared {
     pub fn workers_finished(&self) -> bool {
         self.running.load(Ordering::Acquire) == 0
+    }
+    pub fn change(&self) -> u64 {
+        *self.changes.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    pub fn notify(&self) {
+        *self.changes.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        self.changed.notify_all();
+    }
+    /// Waits until a change after `seen`, or until `deadline`.
+    pub fn wait_change(&self, seen: u64, deadline: Option<Instant>) {
+        let mut changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
+        while *changes == seen {
+            changes = match deadline {
+                None => self.changed.wait(changes).unwrap_or_else(|e| e.into_inner()),
+                Some(deadline) => {
+                    let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                        return;
+                    };
+                    self.changed.wait_timeout(changes, left).unwrap_or_else(|e| e.into_inner()).0
+                }
+            };
+        }
+    }
+    pub fn discard(&self) {
+        self.discard_output.store(true, Ordering::Release);
+        self.notify();
     }
 }
 /// Held by each worker thread: its end is the owner's cue to check cleanup.
@@ -41,6 +73,7 @@ impl Running {
 impl Drop for Running {
     fn drop(&mut self) {
         self.0.running.fetch_sub(1, Ordering::AcqRel);
+        self.0.notify();
         self.0.wake.wake();
     }
 }
@@ -63,23 +96,27 @@ impl Drop for QueuedWrite {
         self.state
             .queued
             .fetch_sub(self.bytes.len(), Ordering::AcqRel);
+        self.state.notify();
     }
 }
 
+/// Blocks while the channel is full, until the owner takes a frame or discards output.
 fn publish(frames: &SyncSender<ReadEvent>, state: &Shared, mut event: ReadEvent) -> bool {
     loop {
+        let seen = state.change();
         if state.discard_output.load(Ordering::Acquire) {
             return false;
         }
         match frames.try_send(event) {
             Ok(()) => {
+                state.notify();
                 state.wake.wake();
                 return true;
             }
             Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return false,
             Err(std::sync::mpsc::TrySendError::Full(returned)) => event = returned,
         }
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        state.wait_change(seen, None);
     }
 }
 

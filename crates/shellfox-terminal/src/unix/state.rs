@@ -171,6 +171,7 @@ impl State {
                 Instant::now() < deadline,
                 "PTY cleanup unconfirmed; original owners retained"
             );
+            // Bounded poll: the cgroup, root and pipe workers share no wake.
             std::thread::sleep(Duration::from_millis(2));
         }
         self.writer.join()?;

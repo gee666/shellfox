@@ -24,6 +24,12 @@ impl Observation {
     pub fn resources_held(&self) -> bool {
         self.0.held.load(Ordering::Acquire)
     }
+    pub(super) fn change(&self) -> u64 {
+        self.0.change()
+    }
+    pub(super) fn wait_change(&self, seen: u64) {
+        self.0.wait_change(seen, None);
+    }
     pub(super) fn set_wake(&self, wake: crate::Wake) {
         self.0.wake.set(wake);
         self.0.wake.wake();
@@ -174,7 +180,11 @@ impl HelperIo for StdioIo {
         if self.eof_reported {
             return Ok(None);
         }
-        match self.frames.try_recv() {
+        let frame = self.frames.try_recv();
+        if frame.is_ok() {
+            self.state.notify();
+        }
+        match frame {
             Ok(ReadEvent::Frame(HelperFrame::Eof)) => {
                 self.eof_reported = true;
                 Ok(Some(HelperFrame::Eof))
@@ -197,7 +207,7 @@ impl HelperIo for StdioIo {
         self.workers.cancel_writer();
     }
     fn distrust_output(&mut self) {
-        self.state.discard_output.store(true, Ordering::Release);
+        self.state.discard();
     }
     fn launch_started(&mut self) {
         self.peer_required = true;
@@ -211,6 +221,7 @@ impl HelperIo for StdioIo {
         }
         let deadline = Instant::now() + budget;
         loop {
+            let seen = self.state.change();
             self.disconnect_input();
             let peer = !self.peer_required || self.state.peer_gone.load(Ordering::Acquire);
             if peer
@@ -227,7 +238,7 @@ impl HelperIo for StdioIo {
             if Instant::now() >= deadline {
                 return Err(AdapterError::CleanupUnconfirmed);
             }
-            std::thread::sleep(Duration::from_millis(2));
+            self.state.wait_change(seen, Some(deadline));
         }
     }
 }
@@ -235,7 +246,10 @@ impl HelperIo for StdioIo {
 /// Wakes the owner when the original launcher exits; it stays unreaped for try_wait.
 fn watch_launcher(child: &Child, state: &Arc<Shared>) -> io::Result<()> {
     let state = Arc::clone(state);
-    let wake: crate::Wake = Arc::new(move || state.wake.wake());
+    let wake: crate::Wake = Arc::new(move || {
+        state.notify();
+        state.wake.wake();
+    });
     #[cfg(windows)]
     let target = std::os::windows::io::AsRawHandle::as_raw_handle(child);
     #[cfg(unix)]
@@ -254,7 +268,7 @@ static RETAINED: OnceLock<Mutex<Vec<Retained>>> = OnceLock::new();
 impl Drop for StdioIo {
     fn drop(&mut self) {
         self.disconnect_input();
-        self.state.discard_output.store(true, Ordering::Release);
+        self.state.discard();
         let (Some(child), Some(hold)) = (self.child.take(), self.hold.take()) else {
             return;
         };

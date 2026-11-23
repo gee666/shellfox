@@ -10,7 +10,7 @@ use std::{
 /// authenticated elevated peer's final exit, not merely launcher termination.
 pub struct Session {
     channel: Option<Channel<StdioIo>>,
-    recovery: SyncSender<Channel<StdioIo>>,
+    recovery: SyncSender<(Channel<StdioIo>, Observation)>,
     observation: Observation,
 }
 pub struct StartError {
@@ -154,19 +154,20 @@ impl Drop for Session {
         let _ = channel.begin_close(generation);
         // A disconnected recovery owner cannot silently unlock the bundle.
         // StdioIo's fallback retains original handles and its complete hold.
-        let _ = self.recovery.send(channel);
+        let _ = self.recovery.send((channel, self.observation.clone()));
     }
 }
-fn recovery_owner() -> std::io::Result<SyncSender<Channel<StdioIo>>> {
-    let (send, receive) = mpsc::sync_channel::<Channel<StdioIo>>(1);
+fn recovery_owner() -> std::io::Result<SyncSender<(Channel<StdioIo>, Observation)>> {
+    let (send, receive) = mpsc::sync_channel::<(Channel<StdioIo>, Observation)>(1);
     std::thread::Builder::new()
         .name("elevated-cleanup-owner".into())
         .spawn(move || {
-            let Ok(mut channel) = receive.recv() else {
+            let Ok((mut channel, observation)) = receive.recv() else {
                 return;
             };
             let generation = channel.generation();
             loop {
+                let seen = observation.change();
                 let _ = channel.begin_close(generation);
                 // Bound each batch, discard retired bytes and keep ownership. This
                 // is cleanup, never a second terminal parser or query responder.
@@ -183,7 +184,9 @@ fn recovery_owner() -> std::io::Result<SyncSender<Channel<StdioIo>>> {
                 {
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(20));
+                // Every input to these checks (a frame, a finished write, the
+                // launcher's exit, a worker's end) is a change.
+                observation.wait_change(seen);
             }
         })?;
     Ok(send)

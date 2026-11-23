@@ -110,6 +110,7 @@ impl RawProcess {
             .spawn(move || {
                 while let Ok(mut inner) = incoming.recv() {
                     while inner.close().is_err() {
+                        // Backoff before retrying a cleanup that could not confirm.
                         std::thread::sleep(Duration::from_millis(100));
                     }
                 }
@@ -203,36 +204,25 @@ impl RawProcess {
                 gate.release()?;
             }
             let deadline = Instant::now() + Duration::from_millis(u64::from(STARTUP_TIMEOUT_MS));
-            let mut stdin = None;
-            loop {
-                if stdin.is_none() {
-                    match receive_writer.try_recv() {
-                        Ok(result) => {
-                            stdin = Some(result.context("Raw launch frame write failed.")?)
-                        }
-                        Err(mpsc::TryRecvError::Empty) => {}
-                        Err(mpsc::TryRecvError::Disconnected) => {
-                            anyhow::bail!("Raw launch writer stopped.")
-                        }
-                    }
-                }
-                if gate.ready()? && stdin.is_some() {
-                    inner.input = Some(Input::start(
-                        stdin.take().context("Missing raw stdin writer.")?,
-                    )?);
-                    ensure!(
-                        !fail_cleanup,
-                        "Injected post-READY failure with retained cleanup."
-                    );
-                    return Ok(());
-                }
+            // A target that exits early breaks the pipe, so this write ends too.
+            let stdin = match receive_writer.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                Ok(result) => result.context("Raw launch frame write failed.")?,
+                Err(mpsc::RecvTimeoutError::Timeout) => anyhow::bail!("Raw target READY timed out."),
+                Err(mpsc::RecvTimeoutError::Disconnected) => anyhow::bail!("Raw launch writer stopped."),
+            };
+            if !gate.wait_ready(inner.child.as_raw_handle().cast(), deadline)? {
                 ensure!(
                     inner.child.try_wait()?.is_none(),
                     "Raw target did not reach READY."
                 );
-                ensure!(Instant::now() < deadline, "Raw target READY timed out.");
-                std::thread::sleep(Duration::from_millis(2));
+                anyhow::bail!("Raw target READY timed out.");
             }
+            inner.input = Some(Input::start(stdin)?);
+            ensure!(
+                !fail_cleanup,
+                "Injected post-READY failure with retained cleanup."
+            );
+            Ok(())
         })();
         if let Err(error) = startup {
             if fail_cleanup || process.close().is_err() {

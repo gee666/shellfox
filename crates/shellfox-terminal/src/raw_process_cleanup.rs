@@ -43,6 +43,8 @@ impl Inner {
                 Instant::now() < deadline,
                 "Raw process cleanup unconfirmed; original handles retained."
             );
+            // Bounded poll: Job completion-port messages aren't guaranteed, so
+            // the Job's emptiness is read directly.
             std::thread::sleep(Duration::from_millis(5));
         }
     }
