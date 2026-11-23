@@ -2,7 +2,7 @@
 
 `shellfox-service` runs the experimental metadata host and owned terminal runtimes without GPUI or a display. The `shellfox-cli` binary starts it with `host serve`. Other CLI invocations connect to that same process through the shared typed local client. They do not open SQLite or start their own PTY.
 
-This is not full Shellfox parity. Private metadata/settings use `experimental.rust.v1`; six explicit local automation routes and `experimental.desktop.launch.v1` are separately typed. They do not widen the remote 43-method allowlist or mobile API. Native SSH and authenticated remote adapters share this owner when their trusted resources are installed, but their integration and platform acceptance remain separate from a completed migration.
+This is not full Shellfox parity. Private metadata/settings use `private.local.v1`; six explicit local automation routes and `private.desktop.launch.v1` are separately typed. They do not widen the remote 43-method allowlist or mobile API. Native SSH and authenticated remote adapters share this owner when their trusted resources are installed, but their integration and platform acceptance remain separate from a completed migration.
 
 ## Run
 
