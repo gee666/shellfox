@@ -75,7 +75,7 @@ fn main() -> Result<()> {
         attach_parent_console();
     }
     if arguments.len() == 1 && arguments[0] == "--version" {
-        println!("Shellfox {}", env!("SHELLFOX_VERSION"));
+        println!("{}", env!("SHELLFOX_VERSION"));
         return Ok(());
     }
     // `shellfox update` on desktop installs, forwarded by shellfox-cli.
