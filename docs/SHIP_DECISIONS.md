@@ -38,6 +38,7 @@ Ship Shellfox on Rust + GPUI + libghostty-vt. The desktop app must match the Ele
 - Android and iOS default to the native V1 Rust client and official Ghostty engine. The WebView terminal and unused TypeScript client are removed. The unshipped ManagerV2/Observer-v2 profiles and Native002 are removed.
 - macOS/iOS: build and test in GitHub Actions on the experiment branch. Pushing the branch and running CI is allowed. Releases are not.
 - Release version: the first Rust release is 0.10.0.
+- The desktop UI is a client of a separate host process, `shellfox-cli --desktop-host` ([desktop-host.md](desktop-host.md)). A UI crash keeps the shells. Logout, shutdown, SIGTERM and SIGHUP stop the host and its shells, as 0.9.15 did.
 - Rust uses a native Linux PTY and supervisor even for imported GNOME Terminal settings. Drop the legacy Linux Python preference on import. WSL guest Python requirements stay in place.
 
 ## Completion status (2026-11-20)
