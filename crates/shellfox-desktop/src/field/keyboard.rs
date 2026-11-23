@@ -54,21 +54,15 @@ impl Field {
         } else if self.multiline && matches!(key, "enter" | "tab") {
             self.replace(None, if key == "tab" { "\t" } else { "\n" });
         } else if command && key == "a" {
-            self.anchor = 0;
-            self.set_cursor(self.text.len(), true);
+            self.select_all();
         } else if command && key == "v" {
-            if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-                self.replace(None, &text);
-            }
+            self.paste(cx);
         } else if command && matches!(key, "c" | "x") {
-            if self.secret {
+            if !self.copy(cx) {
                 window.prevent_default();
                 cx.stop_propagation();
                 return;
             }
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                self.text[self.selection.clone()].to_owned(),
-            ));
             if key == "x" {
                 self.replace(None, "");
             }
@@ -97,6 +91,44 @@ impl Field {
         cx.stop_propagation();
         cx.notify();
     }
+    fn select_all(&mut self) {
+        self.anchor = 0;
+        self.set_cursor(self.text.len(), true);
+    }
+
+    fn paste(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+            self.replace(None, &text);
+        }
+    }
+
+    /// Copies the selection; secret fields never reach the clipboard.
+    fn copy(&self, cx: &mut Context<Self>) -> bool {
+        if !self.secret {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                self.text[self.selection.clone()].to_owned(),
+            ));
+        }
+        !self.secret
+    }
+
+    /// The macOS Edit menu items, for the focused field.
+    pub(super) fn menu_copy(&mut self, _: &crate::app_menu::Copy, _: &mut Window, cx: &mut Context<Self>) {
+        self.copy(cx);
+    }
+
+    pub(super) fn menu_paste(&mut self, _: &crate::app_menu::Paste, _: &mut Window, cx: &mut Context<Self>) {
+        if self.marked.is_none() {
+            self.paste(cx);
+            cx.notify();
+        }
+    }
+
+    pub(super) fn menu_select_all(&mut self, _: &crate::app_menu::SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_all();
+        cx.notify();
+    }
+
     pub(super) fn ensure_caret_visible(&self) {
         if !self.multiline {
             return;

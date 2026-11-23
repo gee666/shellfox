@@ -19,6 +19,19 @@ impl TerminalView {
         }
     }
 
+    /// The macOS Edit menu items, for the focused terminal.
+    pub(super) fn menu_copy(&mut self, _: &crate::app_menu::Copy, _: &mut Window, cx: &mut Context<Self>) {
+        self.copy_selection(cx);
+    }
+
+    pub(super) fn menu_paste(&mut self, _: &crate::app_menu::Paste, _: &mut Window, cx: &mut Context<Self>) {
+        self.paste(cx);
+    }
+
+    pub(super) fn menu_select_all(&mut self, _: &crate::app_menu::SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.select(Some(Selection::All), cx);
+    }
+
     pub(super) fn key_down(
         &mut self,
         event: &KeyDownEvent,

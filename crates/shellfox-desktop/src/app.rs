@@ -268,6 +268,9 @@ impl Render for TerminalView {
                 cx.notify();
             }))
             .on_key_down(cx.listener(Self::key_down))
+            .on_action(cx.listener(Self::menu_copy))
+            .on_action(cx.listener(Self::menu_paste))
+            .on_action(cx.listener(Self::menu_select_all))
             .on_key_up(cx.listener(Self::physical_key_up))
             .on_mouse_move(cx.listener(Self::pointer_move))
             .on_scroll_wheel(cx.listener(Self::pointer_scroll));
