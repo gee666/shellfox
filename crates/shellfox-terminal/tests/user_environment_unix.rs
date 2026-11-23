@@ -77,10 +77,9 @@ fn user_tabs_keep_the_session_environment_and_run_a_login_shell() {
     // Set before any tab starts; this test binary runs nothing else in parallel
     // that reads these names.
     std::env::set_var("DISPLAY", ":shellfox-test");
-    std::env::set_var(
-        "DBUS_SESSION_BUS_ADDRESS",
-        "unix:path=/tmp/shellfox-test-bus",
-    );
+    // The real user bus: on Linux the tab's systemd-run --user scope needs it.
+    let bus = format!("unix:path=/run/user/{}/bus", unsafe { libc::getuid() });
+    std::env::set_var("DBUS_SESSION_BUS_ADDRESS", &bus);
     std::env::set_var("SHELLFOX_TEST_INTERNAL", "host-only");
     std::env::set_var("TMUX", "/tmp/tmux-test/default,1,0");
     let scratch = Scratch::new("user");
@@ -113,12 +112,23 @@ fn user_tabs_keep_the_session_environment_and_run_a_login_shell() {
         env.get("DISPLAY").map(String::as_str),
         Some(":shellfox-test")
     );
-    assert_eq!(
-        env.get("DBUS_SESSION_BUS_ADDRESS").map(String::as_str),
-        Some("unix:path=/tmp/shellfox-test-bus")
+    assert_eq!(env.get("DBUS_SESSION_BUS_ADDRESS"), Some(&bus));
+    // Only the documented values reach the shell: no host internals and nothing
+    // the supervisor uses itself (SHELLFOX_PTY_ISOLATED, SHELLFOX_SUPERVISOR_*).
+    let internal: Vec<_> = env
+        .keys()
+        .filter(|key| key.starts_with("SHELLFOX_"))
+        .filter(|key| {
+            !matches!(
+                key.as_str(),
+                "SHELLFOX_TERMINAL_MARKER" | "SHELLFOX_USER_DATA"
+            )
+        })
+        .collect();
+    assert!(
+        internal.is_empty(),
+        "internal variables reached the shell: {internal:?}"
     );
-    assert_eq!(env.get("SHELLFOX_TEST_INTERNAL"), None);
-    assert_eq!(env.get("SHELLFOX_PTY_ISOLATED"), None);
     assert_eq!(env.get("TMUX"), None);
     assert_eq!(env.get("TERM").map(String::as_str), Some("xterm-256color"));
     assert_eq!(
