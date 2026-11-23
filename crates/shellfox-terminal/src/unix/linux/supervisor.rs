@@ -58,7 +58,11 @@ pub(super) fn run(
     let mut tree = Tree::supervisor_self(own.identity, handle)?;
     stream.set_nonblocking(true)?;
     let mut command_builder = Command::new(command);
-    command_builder.args(args);
+    // The marker authenticates this supervisor only; like the Darwin
+    // supervisor's SHELLFOX_SUPERVISOR_* variables, it never reaches the shell.
+    command_builder
+        .args(args)
+        .env_remove("SHELLFOX_SUPERVISOR_MARKER");
     // SAFETY: only async-signal-safe operations run between fork and exec.
     unsafe {
         command_builder.pre_exec(|| {
