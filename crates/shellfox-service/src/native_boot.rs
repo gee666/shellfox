@@ -139,10 +139,10 @@ impl BootGuard {
         )
         .await
         {
-            if let Some(failure) = error.downcast_ref::<crate::owner::StartupFailure>() {
+            if let crate::owner::StartError::Cleaned(failure) = &error {
                 self.shutdown = Some(failure.shutdown.clone());
             }
-            return Err(error);
+            return Err(error.into());
         }
         self.server.ensure_running()?;
         if let Some(remote) = &self.remote {

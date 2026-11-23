@@ -48,11 +48,10 @@ impl ServiceOwner {
         lost: CancellationToken,
         lifetime: shellfox_transport::RootLifetimeGuard,
         dispatcher: D,
-    ) -> Result<()> {
-        anyhow::ensure!(
-            slot.is_none(),
-            "Original service owner is already installed"
-        );
+    ) -> std::result::Result<(), StartError> {
+        if slot.is_some() {
+            return Err(anyhow::anyhow!("Original service owner is already installed").into());
+        }
         *slot = Some(Self::spawn_inner(
             directory,
             supervisor,
@@ -78,10 +77,12 @@ impl ServiceOwner {
     }
     /// Shutdown errors are permanent (lost acknowledgement or a panicked
     /// owner), so they're reported with the startup cause, not retried.
-    async fn startup_failed(&mut self, cause: anyhow::Error) -> anyhow::Error {
+    async fn startup_failed(&mut self, cause: anyhow::Error) -> StartError {
         match self.shutdown().await {
-            Ok(shutdown) => StartupFailure { cause, shutdown }.into(),
-            Err(cleanup) => cause.context(format!("Service owner cleanup failed: {cleanup}")),
+            Ok(shutdown) => StartError::Cleaned(StartupFailure { cause, shutdown }),
+            Err(cleanup) => StartError::Unconfirmed(
+                cause.context(format!("Service owner cleanup failed: {cleanup}")),
+            ),
         }
     }
     #[cfg(test)]
@@ -93,8 +94,26 @@ impl ServiceOwner {
     ) -> Result<Self> {
         let mut owner = Self::spawn_inner(directory, supervisor, lost, None, dispatcher)?;
         if let Err(error) = owner.wait_started().await {
-            return Err(owner.startup_failed(error).await);
+            return Err(owner.startup_failed(error).await.into());
         }
         Ok(owner)
+    }
+}
+/// Why the owner did not start. Only `Cleaned` carries a confirmed shutdown.
+pub(crate) enum StartError {
+    Cleaned(StartupFailure),
+    Unconfirmed(anyhow::Error),
+}
+impl From<anyhow::Error> for StartError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Unconfirmed(error)
+    }
+}
+impl From<StartError> for anyhow::Error {
+    fn from(error: StartError) -> Self {
+        match error {
+            StartError::Cleaned(failure) => failure.into(),
+            StartError::Unconfirmed(error) => error,
+        }
     }
 }

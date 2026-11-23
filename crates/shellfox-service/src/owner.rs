@@ -48,7 +48,9 @@ mod start;
 #[path = "owner_wake.rs"]
 mod wake;
 pub use wake::{OwnerWake, OwnerWakeSlot};
-pub(crate) use cleanup::{report_warning, StartupFailure};
+pub(crate) use cleanup::report_warning;
+use cleanup::StartupFailure;
+pub(crate) use start::StartError;
 pub use native_reply::{ExperimentAccepted, NativeAccepted};
 
 const CAPACITY: usize = 16;
