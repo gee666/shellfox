@@ -47,16 +47,23 @@ pub(super) struct Feeds {
 
 impl Feeds {
     fn start(local: &AttachedLocal) -> Self {
-        let mut loops = tokio::task::JoinSet::new();
-        let revision = feed(local, &mut loops, PartialEq::eq, |local, last: Option<u64>| async move {
-            let request = DesktopRequest::ChangedSince { revision: last.unwrap_or(0) };
-            match local.request(request).await? {
-                // The host's hold deadline passed without a change.
-                DesktopReply::Changed(None) => Ok(last),
-                DesktopReply::Changed(Some(event)) => Ok(Some(event.revision)),
-                _ => anyhow::bail!("Host returned an invalid change response."),
-            }
-        });
+        let mut loops = Vec::new();
+        let revision = feed(
+            local,
+            &mut loops,
+            PartialEq::eq,
+            |local, last: Option<u64>| async move {
+                let request = DesktopRequest::ChangedSince {
+                    revision: last.unwrap_or(0),
+                };
+                match local.request(request).await? {
+                    // The host's hold deadline passed without a change.
+                    DesktopReply::Changed(None) => Ok(last),
+                    DesktopReply::Changed(Some(event)) => Ok(Some(event.revision)),
+                    _ => anyhow::bail!("Host returned an invalid change response."),
+                }
+            },
+        );
         let activity = feed(local, &mut loops, PartialEq::eq, |local, _| async move {
             match local.request(DesktopRequest::ReadTabActivity).await? {
                 DesktopReply::TabActivity(states) => Ok(Some(states.into())),
@@ -67,16 +74,35 @@ impl Feeds {
             Ok(Some(local.request(PowerRequest::Status {}).await?))
         });
         // The host answers remote state only when it changed or its hold expired.
-        let remote = feed(local, &mut loops, |_, _| false, |local, _| async move {
-            Ok(Some(local.remote(RemoteRequest::State).await?))
-        });
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build();
+        let remote = feed(
+            local,
+            &mut loops,
+            |_, _| false,
+            |local, _| async move { Ok(Some(local.remote(RemoteRequest::State).await?)) },
+        );
+        // The loops use Tokio timers, so they run inside this thread's runtime.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build();
         if let Ok(runtime) = runtime {
             let _ = std::thread::Builder::new()
                 .name("shellfox-host-feeds".into())
-                .spawn(move || runtime.block_on(async { while loops.join_next().await.is_some() {} }));
+                .spawn(move || {
+                    runtime.block_on(async {
+                        let mut running = tokio::task::JoinSet::new();
+                        for read in loops {
+                            running.spawn(read);
+                        }
+                        while running.join_next().await.is_some() {}
+                    })
+                });
         }
-        Self { revision, activity, power, remote }
+        Self {
+            revision,
+            activity,
+            power,
+            remote,
+        }
     }
     /// The latest remote state, once the first read returned.
     pub(super) async fn remote_state(&self) -> Result<RemoteControlState> {
@@ -86,11 +112,13 @@ impl Feeds {
     }
 }
 
+type FeedLoop = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
 /// Runs `read` until nobody observes it, publishing each changed value. The
 /// host holds each read until it has something new.
 fn feed<T, F, R>(
     local: &AttachedLocal,
-    loops: &mut tokio::task::JoinSet<()>,
+    loops: &mut Vec<FeedLoop>,
     same: fn(&T, &T) -> bool,
     read: R,
 ) -> watch::Receiver<Option<T>>
@@ -101,26 +129,26 @@ where
 {
     let (sender, receiver) = watch::channel(None);
     let local = local.clone();
-    loops.spawn(async move {
-            while !sender.is_closed() {
-                let last = sender.borrow().clone();
-                match read(local.clone(), last).await {
-                    Ok(value) => {
-                        sender.send_if_modified(|current| {
-                            let changed = match (&*current, &value) {
-                                (Some(current), Some(value)) => !same(current, value),
-                                (current, value) => current.is_some() != value.is_some(),
-                            };
-                            if changed {
-                                *current = value;
-                            }
-                            changed
-                        });
-                    }
-                    Err(_) => tokio::time::sleep(FAILED_READ).await,
+    loops.push(Box::pin(async move {
+        while !sender.is_closed() {
+            let last = sender.borrow().clone();
+            match read(local.clone(), last).await {
+                Ok(value) => {
+                    sender.send_if_modified(|current| {
+                        let changed = match (&*current, &value) {
+                            (Some(current), Some(value)) => !same(current, value),
+                            (current, value) => current.is_some() != value.is_some(),
+                        };
+                        if changed {
+                            *current = value;
+                        }
+                        changed
+                    });
                 }
+                Err(_) => tokio::time::sleep(FAILED_READ).await,
             }
-    });
+        }
+    }));
     receiver
 }
 
@@ -130,7 +158,10 @@ impl HostClient {
     }
     fn changes<T>(&self, pick: impl FnOnce(&Feeds) -> &watch::Receiver<Option<T>>) -> Changes<T> {
         let changes = pick(self.feeds()).clone();
-        Changes { changes, started: false }
+        Changes {
+            changes,
+            started: false,
+        }
     }
     /// Host metadata revisions (sessions, tabs, settings).
     pub(crate) fn revisions(&self) -> Changes<u64> {
