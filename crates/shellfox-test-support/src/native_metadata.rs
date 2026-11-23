@@ -33,9 +33,9 @@ impl Default for Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+        // No `..` in the spelling: private roots refuse it, and Unix absolute() keeps it.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
         std::fs::create_dir_all(&root).unwrap();
-        let root = std::path::absolute(root).unwrap();
         let scratch = tempfile::Builder::new()
             .prefix("native-metadata-")
             .tempdir_in(root)

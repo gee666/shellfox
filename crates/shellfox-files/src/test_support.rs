@@ -10,9 +10,9 @@ pub(crate) struct TempDir {
 impl TempDir {
     /// A fresh owner-only directory, so it passes the private-parent rules.
     pub fn new() -> Self {
-        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+        // No `..` in the spelling: private roots refuse it, and Unix absolute() keeps it.
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
         fs::create_dir_all(&base).unwrap();
-        let base = std::path::absolute(base).unwrap();
         let path = base.join(format!("shellfox-files-{}", uuid::Uuid::new_v4().simple()));
         fs::create_dir(&path).unwrap();
         let dir = Self { path };
