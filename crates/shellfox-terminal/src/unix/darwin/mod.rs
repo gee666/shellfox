@@ -94,7 +94,9 @@ impl PreparedSupervisor {
                     "SHELLFOX_SUPERVISOR_TOKEN".into(),
                     control.token.clone().into(),
                 ),
-                ("SHELLFOX_SUPERVISOR_MARKER".into(), marker.into()),
+                // The retained C supervisor (shared with the Node headless package)
+                // reads this name; it is the same value as the terminal marker.
+                ("SHELLFOX_TERMINAL_MARKER".into(), marker.into()),
             ]),
         })
     }
