@@ -112,11 +112,13 @@ impl WslProfiles {
             );
             // The guest validates this cwd as the pinned account. The Windows
             // UNC server may already be using a different default user, so
-            // wsl.exe starts in the host's own directory, as it did in 0.9.
-            config.cwd = std::env::current_dir()
-                .ok()
-                .filter(|dir| dir.is_dir())
-                .or_else(|| std::env::var_os("USERPROFILE").map(std::path::PathBuf::from))
+            // wsl.exe starts in the user's profile folder, or else the host's
+            // own directory as in 0.9 (which may be the install directory).
+            config.cwd = std::env::var_os("USERPROFILE")
+                .map(std::path::PathBuf::from)
+                .into_iter()
+                .chain(std::env::current_dir().ok())
+                .find(|dir| dir.is_absolute() && dir.is_dir())
                 .context("No Windows directory to start WSL from.")?;
         }
         config.command = Some(PtyCommand {
