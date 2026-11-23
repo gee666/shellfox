@@ -1,46 +1,36 @@
 use anyhow::{Context, Result};
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
-use std::{ffi::OsString, process::Command};
+use std::ffi::OsString;
+#[cfg(any(unix, test))]
+use std::process::Command;
 #[cfg(any(windows, target_os = "macos"))]
 use {anyhow::ensure, std::path::Path};
 
-/// Portable installations have no PATH shim. The desktop binary still supports
-/// the same route before it initializes GPUI, a host, or any native services.
+/// `shellfox ssh` normally reaches shellfox-cli through the PATH shim. Run on
+/// the desktop binary itself, Unix hands it to shellfox-cli before GPUI, a
+/// host or any native service starts.
+#[cfg(unix)]
+pub(crate) fn forward_ssh(args: &[OsString]) -> Result<Option<i32>> {
+    use std::os::unix::process::CommandExt;
+    if !args.first().is_some_and(|arg| arg == "ssh") {
+        return Ok(None);
+    }
+    let cli = crate::host_process::cli_path()?;
+    Err(Command::new(cli).args(args).exec()).context("Unable to launch shellfox-cli")
+}
+
+/// Shellfox.exe is a GUI program, which cmd and PowerShell do not wait for,
+/// so an interactive ssh session would share the console with the prompt.
+/// Point to the console program instead.
+#[cfg(windows)]
 pub(crate) fn forward_ssh(args: &[OsString]) -> Result<Option<i32>> {
     if !args.first().is_some_and(|arg| arg == "ssh") {
         return Ok(None);
     }
-    let executable = std::env::current_exe()?;
-    let bin = executable
-        .parent()
-        .context("Missing Shellfox executable directory")?;
-    let cli = bin.join(if cfg!(windows) {
-        "bin/shellfox-cli.exe"
-    } else {
-        "shellfox-cli"
-    });
-    let cli = if cli.is_file() {
-        cli
-    } else {
-        bin.join(if cfg!(windows) {
-            "shellfox-cli.exe"
-        } else {
-            "shellfox-cli"
-        })
-    };
-    let mut command = Command::new(cli);
-    command.args(args);
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        Err(command.exec()).context("Unable to launch shellfox-cli")
-    }
-    #[cfg(not(unix))]
-    {
-        let status = command.status().context("Unable to launch shellfox-cli")?;
-        Ok(Some(status.code().unwrap_or(1)))
-    }
+    let cli = crate::host_process::cli_path()?;
+    eprintln!("Run ssh from a terminal with `shellfox ssh` or \"{}\" ssh.", cli.display());
+    Ok(Some(2))
 }
 
 #[cfg(any(windows, target_os = "macos"))]

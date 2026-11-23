@@ -38,18 +38,21 @@ fn windows_shims_forward_cli_output_and_exit_status() {
     std::fs::write(root.path().join("shellfox.cmd"), &shims.cmd).unwrap();
     std::fs::write(root.path().join("shellfox.ps1"), &shims.powershell).unwrap();
     let system = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32");
-    let cmd = Command::new(system.join("cmd.exe"))
-        .arg("/d")
-        .arg("/c")
-        .arg(root.path().join("shellfox.cmd"))
-        .args(["session", "list"])
-        .output()
-        .unwrap();
-    assert_eq!(cmd.status.code(), Some(7));
-    assert_eq!(
-        String::from_utf8_lossy(&cmd.stdout).trim(),
-        "cli:session list"
-    );
+    // ssh and --version are console programs too, never the GUI binary.
+    for args in [&["session", "list"][..], &["ssh", "host"], &["--version"]] {
+        let cmd = Command::new(system.join("cmd.exe"))
+            .arg("/d")
+            .arg("/c")
+            .arg(root.path().join("shellfox.cmd"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(cmd.status.code(), Some(7));
+        assert_eq!(
+            String::from_utf8_lossy(&cmd.stdout).trim(),
+            format!("cli:{}", args.join(" "))
+        );
+    }
     let ps = Command::new(system.join("WindowsPowerShell/v1.0/powershell.exe"))
         .env_remove("PSModulePath")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
