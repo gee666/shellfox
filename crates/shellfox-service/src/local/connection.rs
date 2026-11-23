@@ -129,7 +129,7 @@ pub(super) async fn serve_connection(
                 };
                 let requested_stop = request.requested_stop();
                 let original = client.for_private_client(client_id);
-                let output_tab = super::long_poll::LongPolls::output_tab(&request);
+                let output_read = super::long_poll::LongPolls::output_read(&request);
                 let operation = async {
                     // Reads wait here, per connection, until they can return something new.
                     polls.hold(client_id, &request, &stop).await?;
@@ -144,8 +144,8 @@ pub(super) async fn serve_connection(
                 } else {
                     operation.await
                 };
-                if let (Some(tab), Ok(value)) = (output_tab, &result) {
-                    polls.answered_output(client_id, tab, value);
+                if let (Some(read), Ok(value)) = (output_read, &result) {
+                    polls.answered_output(client_id, read, value);
                 }
                 let reply = match result {
                     Ok(value) => {

@@ -7,7 +7,7 @@ impl AutomationRuns {
         self.failed
             .retain_mut(|failed| failed.process.close().is_err());
         for run in self.runs.values_mut() {
-            if run.capturing && run.last_read.elapsed() > Duration::from_secs(30) {
+            if run.capturing && run.last_read.elapsed() > CAPTURE_IDLE {
                 run.release();
             }
             if run.source_failure.is_some() {

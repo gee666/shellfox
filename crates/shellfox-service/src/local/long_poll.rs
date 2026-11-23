@@ -37,6 +37,9 @@ enum Kind {
     /// Terminal output for an attached CLI. Held only after an empty answer,
     /// since a batch may leave more output queued.
     Output(TabId),
+    /// Output of an automation run for `shellfox run`. Held only after an
+    /// empty answer, like Output.
+    Automation(uuid::Uuid),
     /// An attached desktop's next launch delivery; dispatch and completion both
     /// move the launch generation, so queued deliveries are released in turn.
     Delivery,
@@ -51,7 +54,8 @@ enum Seen {
     /// None, or a closed sender, when this host runs without remote access:
     /// the state then never changes.
     Remote(Option<watch::Receiver<RemoteControlState>>),
-    Launch(watch::Receiver<u64>),
+    /// A plain change counter: launch receipts or automation output.
+    Counter(watch::Receiver<u64>),
 }
 impl Seen {
     fn has_changed(&self) -> bool {
@@ -60,7 +64,7 @@ impl Seen {
             Self::Activity(changes) => changes.has_changed(),
             Self::Power(changes) => changes.has_changed(),
             Self::Remote(changes) => Ok(changes.as_ref().is_some_and(|changes| changes.has_changed().unwrap_or(false))),
-            Self::Launch(changes) => changes.has_changed(),
+            Self::Counter(changes) => changes.has_changed(),
         }
         .unwrap_or(true)
     }
@@ -78,7 +82,7 @@ impl Seen {
                 }
                 std::future::pending().await
             }
-            Self::Launch(changes) => changes.changed().await,
+            Self::Counter(changes) => changes.changed().await,
         };
     }
     fn mark_seen(&mut self) {
@@ -97,12 +101,16 @@ impl Seen {
                     changes.borrow_and_update();
                 }
             }
-            Self::Launch(changes) => {
+            Self::Counter(changes) => {
                 changes.borrow_and_update();
             }
         }
     }
 }
+
+/// Which output read a request was; see `LongPolls::output_read`.
+#[derive(Clone, Copy)]
+pub(super) struct OutputRead(Kind);
 
 pub(super) struct LongPolls {
     watches: NativeWatches,
@@ -245,6 +253,7 @@ impl LongPolls {
             PrivateRequest::DesktopLaunch(DesktopLaunchRequest::PollAttached { .. }) => {
                 Some((Kind::Delivery, false))
             }
+            PrivateRequest::AutomationRead(read) => Some((Kind::Automation(read.id), false)),
             _ => None,
         }
     }
@@ -263,7 +272,8 @@ impl LongPolls {
             Kind::Activity => Seen::Activity(self.watches.tab_activity.clone()),
             Kind::Power => Seen::Power(self.watches.power.clone()),
             Kind::Remote => Seen::Remote(self.remote.clone()),
-            Kind::Launch(_) | Kind::Delivery => Seen::Launch(self.watches.launches.clone()),
+            Kind::Launch(_) | Kind::Delivery => Seen::Counter(self.watches.launches.clone()),
+            Kind::Automation(_) => Seen::Counter(self.watches.automation.clone()),
         })
         .map(|mut seen| {
             seen.mark_seen();
@@ -271,19 +281,26 @@ impl LongPolls {
         })
     }
 
-    /// The tab of a CLI output read, which `answered_output` needs after the reply.
-    pub fn output_tab(request: &PrivateRequest) -> Option<TabId> {
+    /// A CLI output read, which `answered_output` needs after the reply.
+    pub fn output_read(request: &PrivateRequest) -> Option<OutputRead> {
         match request {
-            PrivateRequest::LocalApi(crate::local_api::LocalApiRequest::Poll { tab, .. }) => Some(*tab),
+            PrivateRequest::LocalApi(crate::local_api::LocalApiRequest::Poll { tab, .. }) => {
+                Some(OutputRead(Kind::Output(*tab)))
+            }
+            PrivateRequest::AutomationRead(read) => Some(OutputRead(Kind::Automation(read.id))),
             _ => None,
         }
     }
     /// After output was returned, the next read is answered at once: the
     /// batch may have left more queued.
-    pub fn answered_output(&self, client: uuid::Uuid, tab: TabId, reply: &serde_json::Value) {
-        let empty = reply.get("value").and_then(serde_json::Value::as_array).is_some_and(Vec::is_empty);
+    pub fn answered_output(&self, client: uuid::Uuid, read: OutputRead, reply: &serde_json::Value) {
+        let frames = match read.0 {
+            Kind::Automation(_) => reply.get("frames"),
+            _ => reply.get("value"),
+        };
+        let empty = frames.and_then(serde_json::Value::as_array).is_some_and(Vec::is_empty);
         if !empty {
-            self.lock().remove(&(client, Kind::Output(tab)));
+            self.lock().remove(&(client, read.0));
         }
     }
 
@@ -342,8 +359,32 @@ mod tests {
             tab_activity: activity.1,
             frames: Default::default(),
             launches: launches.1,
+            automation: watch::channel(0).1,
         };
         (LongPolls::new(watches, None), (revision, power.0, activity.0, launches.0))
+    }
+    #[tokio::test]
+    async fn an_automation_read_is_held_only_after_an_empty_answer() {
+        let (automation, changes) = watch::channel(0);
+        let (mut polls, _senders) = polls();
+        polls.watches.automation = changes;
+        let (client, stop) = (uuid::Uuid::new_v4(), CancellationToken::new());
+        let id = uuid::Uuid::new_v4();
+        let read = || PrivateRequest::AutomationRead(shellfox_protocol::automation::AutomationRead { id, after: 0 });
+        let answered = |polls: &LongPolls, frames: serde_json::Value| {
+            let output = LongPolls::output_read(&read()).unwrap();
+            polls.answered_output(client, output, &serde_json::json!({ "frames": frames }));
+        };
+        assert!(returns_soon(polls.hold(client, &read(), &stop)).await, "first read at once");
+        answered(&polls, serde_json::json!([{}]));
+        assert!(returns_soon(polls.hold(client, &read(), &stop)).await, "after output, at once");
+        answered(&polls, serde_json::json!([]));
+        let request = read();
+        let held = polls.hold(client, &request, &stop);
+        tokio::pin!(held);
+        assert!(!returns_soon(&mut held).await, "after an empty answer, held");
+        automation.send_replace(1);
+        assert!(returns_soon(held).await, "new output releases it");
     }
     fn activity() -> PrivateRequest {
         PrivateRequest::DesktopView(Box::new(DesktopRequest::ReadTabActivity))

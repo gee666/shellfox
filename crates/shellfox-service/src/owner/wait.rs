@@ -8,8 +8,8 @@ use std::{
 /// Longest pause between wait attempts. Runtime events end it early; the
 /// bound covers waits on workers that can't signal (catalog, automation).
 const WAIT_STEP: Duration = Duration::from_millis(2);
-/// Owner pass interval while raw automation processes run: their output and
-/// exit are polled from shellfox-terminal, which has no wake hook yet.
+/// Owner pass interval while automation has work that can't wake it (see
+/// AutomationState::needs_polling).
 const AUTOMATION_POLL: Duration = Duration::from_millis(20);
 
 /// Wakes the owner when dropped, so a worker's result is collected at once.
@@ -58,7 +58,7 @@ impl Service {
     /// grant cancellation, inspections and desktop-launch retries), busy-quiet
     /// transitions, debounced activity persistence and a close's deadline.
     pub(crate) fn owner_pass_timeout(&self) -> Duration {
-        if self.automation.busy() {
+        if self.automation.needs_polling() {
             return AUTOMATION_POLL;
         }
         let activity = &self.activity;
@@ -72,9 +72,12 @@ impl Service {
             .instant_at(due)
             .map_or(Duration::ZERO, |at| at.saturating_duration_since(Instant::now()));
         // Runtime events end the wait for a close; its deadline is the fallback.
-        self.close_deadline().map_or(timeout, |deadline| {
-            timeout.min(deadline.saturating_duration_since(Instant::now()))
-        })
+        [self.close_deadline(), self.automation.next_deadline()]
+            .into_iter()
+            .flatten()
+            .fold(timeout, |timeout, deadline| {
+                timeout.min(deadline.saturating_duration_since(Instant::now()))
+            })
     }
     /// Sleeps until the next runtime event round, at most `timeout` (and 100 ms).
     pub(crate) fn pause_for_runtime(&self, timeout: Duration) {
@@ -94,6 +97,7 @@ impl Service {
             wake();
         });
         self.power.set_wake(Arc::clone(&wake));
+        self.automation.set_wake(Arc::clone(&wake));
         self.event_wake = Some(wake);
     }
     pub(crate) fn install_terminal(

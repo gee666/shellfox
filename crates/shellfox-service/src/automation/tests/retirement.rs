@@ -63,6 +63,8 @@ fn completed(
             source_failure: None,
             failed_cleanup: None,
             launch_evidence: None,
+            polled: true,
+            changes: Default::default(),
         },
     );
     source

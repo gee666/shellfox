@@ -177,6 +177,11 @@ impl AutomationRuns {
             session_id: None,
             tab_id: None,
         };
+        // Without a wake (or if its exit watch can't start) the owner polls it.
+        let polled = match &self.wake {
+            Some(wake) => process.set_output_wake(wake.clone()).is_err(),
+            None => true,
+        };
         let launch_evidence = process.take_launch_evidence();
         let detached = input.detached;
         if detached {
@@ -207,6 +212,8 @@ impl AutomationRuns {
                 source_failure: None,
                 failed_cleanup: None,
                 launch_evidence,
+                polled,
+                changes: self.changes.clone(),
             },
         );
         Ok(dto)

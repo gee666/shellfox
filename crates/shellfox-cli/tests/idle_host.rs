@@ -11,7 +11,7 @@ use anyhow::{ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 use shellfox_service::{
     local_api::{LocalApiRequest as Request, LocalApiResponse as Response},
-    local::{DesktopReply, DesktopRequest, LocalClient},
+    local::{automation::{AutomationRead, AutomationStart}, DesktopReply, DesktopRequest, LocalClient},
     native::{NativePresentation, NativeResponse, NativeViewAttachment},
     power::PowerRequest,
     remote::native::RemoteRequest,
@@ -194,8 +194,44 @@ async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
             Box::pin(async move { client.remote_control(RemoteRequest::State).await.map(drop) })
         });
     }
+    // A quiet `shellfox run` with its output read held, as the CLI does.
+    let quiet = AutomationStart {
+        request_id: uuid::Uuid::new_v4(),
+        executable: quiet_program().0,
+        args: quiet_program().1,
+        cwd: data.to_string_lossy().into_owned(),
+        env: Default::default(),
+        title: Some("quiet run".into()),
+        detached: false,
+    };
+    let run = client.request(&quiet).await?;
+    {
+        let client = client.clone();
+        // Advances its cursor like the CLI, so only new output is answered.
+        let cursor = Rc::new(Cell::new(0));
+        keep_reading(count.clone(), move || {
+            let (client, cursor) = (client.clone(), cursor.clone());
+            Box::pin(async move {
+                let output = client.request(&AutomationRead { id: run.id, after: cursor.get() }).await?;
+                if let Some(last) = output.frames.last() {
+                    cursor.set(last.sequence);
+                }
+                Ok(())
+            })
+        });
+    }
     tokio::time::sleep(SETTLE).await;
     let before = count.get();
     tokio::time::sleep(MEASURE).await;
     Ok(count.get() - before)
+}
+
+/// A program that prints nothing for longer than the measurement.
+fn quiet_program() -> (String, Vec<String>) {
+    if cfg!(windows) {
+        let shell = std::env::var("ComSpec").unwrap_or_else(|_| r"C:WindowsSystem32cmd.exe".into());
+        (shell, vec!["/c".into(), "ping -n 12 127.0.0.1 >nul".into()])
+    } else {
+        ("/bin/sleep".into(), vec!["12".into()])
+    }
 }

@@ -215,9 +215,6 @@ async fn pipe_output(
                 result.run.signal.as_deref(),
             ));
         }
-        if empty {
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
     }
 }
 #[cfg(test)]

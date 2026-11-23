@@ -38,13 +38,20 @@ pub(crate) struct AutomationState {
     closed_external: HashMap<TabId, ClosedExternal>,
 }
 impl AutomationState {
-    /// Raw automation processes and their relays are pumped, not event-driven.
-    pub(crate) fn busy(&self) -> bool {
-        !self.relays.is_empty()
-            || !self.startup.is_empty()
-            || !self.writes.is_empty()
-            || !self.stops.is_empty()
-            || self.runs.active_processes() > 0
+    /// True when the owner must poll automation. Output, process exits and
+    /// parser runtime events wake it; stdin write receipts and processes
+    /// without a wake don't.
+    pub(crate) fn needs_polling(&self) -> bool {
+        !self.writes.is_empty() || self.runs.needs_polling()
+    }
+    pub(crate) fn next_deadline(&self) -> Option<std::time::Instant> {
+        self.runs.next_deadline()
+    }
+    pub(crate) fn changes(&self) -> u64 {
+        self.runs.changes()
+    }
+    pub(crate) fn set_wake(&mut self, wake: shellfox_terminal::Wake) {
+        self.runs.set_wake(wake);
     }
 }
 struct Relay {

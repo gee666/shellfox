@@ -18,6 +18,8 @@ pub struct NativeWatches {
     pub frames: FrameWakes,
     /// Moves when any desktop launch receipt changes state.
     pub launches: watch::Receiver<u64>,
+    /// Moves when any automation run stores output or exits.
+    pub automation: watch::Receiver<u64>,
 }
 
 /// Per-tab counters bumped when a tab's presentation may have changed:
@@ -48,6 +50,7 @@ pub(crate) struct WatchSenders {
     tab_activity: watch::Sender<Arc<[NativeTabActivity]>>,
     pub(crate) frames: FrameWakes,
     launches: watch::Sender<u64>,
+    automation: watch::Sender<u64>,
 }
 impl Default for WatchSenders {
     fn default() -> Self {
@@ -63,6 +66,7 @@ impl Default for WatchSenders {
             tab_activity: watch::channel(Arc::from([])).0,
             frames: FrameWakes::default(),
             launches: watch::channel(0).0,
+            automation: watch::channel(0).0,
         }
     }
 }
@@ -74,6 +78,7 @@ impl WatchSenders {
             tab_activity: self.tab_activity.subscribe(),
             frames: self.frames.clone(),
             launches: self.launches.subscribe(),
+            automation: self.automation.subscribe(),
         }
     }
 }
@@ -102,6 +107,10 @@ impl crate::Service {
         let revision = self.host().revision();
         watches.revision.send_if_modified(|current| {
             std::mem::replace(current, revision) != revision
+        });
+        let automation = self.automation.changes();
+        watches.automation.send_if_modified(|current| {
+            std::mem::replace(current, automation) != automation
         });
         let power = self.power_report();
         watches.power.send_if_modified(|current| {

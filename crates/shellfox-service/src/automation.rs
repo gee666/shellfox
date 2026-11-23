@@ -36,6 +36,21 @@ pub struct AutomationRuns {
     prepared: BTreeMap<Uuid, Prepared>,
     retired: BTreeMap<Uuid, AutomationRetirement>,
     closing: bool,
+    /// The owner's wake, given to every process spawned from now on.
+    wake: Option<shellfox_terminal::Wake>,
+    /// Moves whenever any run stores output or exits.
+    changes: Changes,
+}
+/// Shared by every run, so a run can report changes itself.
+#[derive(Clone, Default)]
+pub(crate) struct Changes(std::sync::Arc<std::sync::atomic::AtomicU64>);
+impl Changes {
+    fn bump(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Release);
+    }
+    pub(crate) fn get(&self) -> u64 {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
 }
 struct Run {
     input: AutomationStart,
@@ -60,6 +75,9 @@ struct Run {
     source_failure: Option<AutomationSourceFailure>,
     failed_cleanup: Option<AutomationFailedCleanupProof>,
     launch_evidence: Option<shellfox_terminal::NativeLaunchEvidence>,
+    /// The process has no output/exit wake, so the owner must poll it.
+    polled: bool,
+    changes: Changes,
 }
 struct Prepared {
     input: AutomationStart,
@@ -74,6 +92,8 @@ struct FailedProcess {
     _publisher: view::Publisher,
 }
 const MAX_PIPE_FRAMES: usize = 1024;
+/// An attached run nobody reads for this long stops capturing.
+const CAPTURE_IDLE: Duration = Duration::from_secs(30);
 struct StoredFrame {
     frame: AutomationFrame,
     bytes: usize,
@@ -87,7 +107,29 @@ impl AutomationRuns {
             prepared: BTreeMap::new(),
             retired: BTreeMap::new(),
             closing: false,
+            wake: None,
+            changes: Changes::default(),
         }
+    }
+    /// Moves whenever any run stores output or exits: what an AutomationRead could return.
+    pub(crate) fn changes(&self) -> u64 {
+        self.changes.get()
+    }
+    pub(crate) fn set_wake(&mut self, wake: shellfox_terminal::Wake) {
+        self.wake = Some(wake);
+    }
+    /// Whether the owner must poll: a process without a wake, or a failed
+    /// spawn still being closed.
+    pub(crate) fn needs_polling(&self) -> bool {
+        !self.failed.is_empty() || self.runs.values().any(|run| run.polled && run.process.is_some())
+    }
+    /// When an unread capture is released, for the owner's pass timeout.
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        self.runs
+            .values()
+            .filter(|run| run.capturing && run.dto.state != AutomationState::Exited)
+            .map(|run| run.last_read + CAPTURE_IDLE)
+            .min()
     }
     pub fn list(&mut self) -> Result<AutomationListing> {
         self.pump()?;
@@ -221,6 +263,7 @@ fn compatible_natural_exit(code: i32) -> i64 {
 }
 impl Run {
     fn finalize_dto(&mut self, code: i32) {
+        self.changes.bump();
         self.dto.state = AutomationState::Exited;
         self.input_ended = true;
         // Legacy local API convention, not OS-signal evidence or cleanup proof.
@@ -293,6 +336,7 @@ impl Run {
         if let Some(frame) = frame {
             self.bytes += frame.bytes;
             self.frames.push_back(frame);
+            self.changes.bump();
         }
         if let Some(index) = eof {
             self.eof[index] = true;
