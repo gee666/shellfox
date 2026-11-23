@@ -14,10 +14,10 @@ pub struct Fixture {
 }
 impl Fixture {
     pub fn new() -> Self {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tmp")
-            .canonicalize()
-            .unwrap();
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
+        // A fresh checkout has no tmp/ yet.
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
