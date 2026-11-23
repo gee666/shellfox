@@ -2,10 +2,7 @@
 use crate::{offline_control::OfflineControl, offline_scope::OfflineScope, HelperError};
 use std::{
     path::Path,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
@@ -17,7 +14,8 @@ pub use ownership::HostOwnership;
 pub(crate) struct OfflineCommand {
     pub(crate) control: Arc<OfflineControl>,
     stdout: Option<BufReader<tokio::process::ChildStdout>>,
-    stderr_done: Arc<AtomicBool>,
+    /// Becomes true once the stderr reader has seen end of file.
+    stderr_done: tokio::sync::watch::Receiver<bool>,
     disarmed: bool,
     _scope: OfflineScope,
 }
@@ -35,8 +33,7 @@ impl OfflineCommand {
             tokio::process::ChildStdout::from_std(stdout).map_err(|_| HelperError::Spawn)?;
         let mut stderr =
             tokio::process::ChildStderr::from_std(stderr).map_err(|_| HelperError::Spawn)?;
-        let stderr_done = Arc::new(AtomicBool::new(false));
-        let done = stderr_done.clone();
+        let (done, stderr_done) = tokio::sync::watch::channel(false);
         let original = control.clone();
         let task = tokio::spawn(async move {
             let mut scratch = [0; 1024];
@@ -50,7 +47,7 @@ impl OfflineCommand {
                     }
                 }
             }
-            done.store(true, Ordering::Release);
+            let _ = done.send(true);
         });
         control.task(task);
         Ok(Self {
@@ -102,12 +99,11 @@ impl OfflineCommand {
             return Err(HelperError::Protocol);
         }
         let exit = self.control.wait_exit(Duration::from_secs(2)).await?;
+        // A reader that stops without reaching end of file counts as a missed deadline.
         let end = Instant::now() + Duration::from_secs(2);
-        while !self.stderr_done.load(Ordering::Acquire) {
-            if Instant::now() >= end {
-                return Err(HelperError::Deadline);
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        match tokio::time::timeout_at(end.into(), self.stderr_done.wait_for(|done| *done)).await {
+            Ok(Ok(_)) => {}
+            _ => return Err(HelperError::Deadline),
         }
         if self.control.has_fault() {
             return Err(HelperError::Command);
