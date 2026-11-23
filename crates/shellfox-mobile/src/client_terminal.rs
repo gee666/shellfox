@@ -8,6 +8,9 @@ pub(super) struct Binding {
     pub cursor: Option<ViewCursor>,
     pub attaching: Option<(u64, AttachTerminal)>,
     pub pending_settlement: VecDeque<TerminalEvent>,
+    /// Output that arrived while an attachment was in flight or not yet installed.
+    pub early: VecDeque<TerminalEvent>,
+    pub early_bytes: usize,
     pub connection: u64,
     pub tickets: VecDeque<(u64, u64)>,
     pub pending: VecDeque<(u64, Vec<u8>)>,
@@ -43,6 +46,7 @@ pub(super) fn invalidate(s: &mut State) -> Result<()> {
         binding.cursor = None;
         binding.attaching = None;
         binding.pending_settlement.clear();
+        binding.clear_early();
         binding.pending.clear();
         binding.tickets.clear();
         binding.consumed = None;
@@ -83,7 +87,47 @@ fn install(b: &mut Binding, value: &TerminalAttachment, connection: u64) -> Resu
             b.pending
                 .push_back((chunk.sequence, chunk.data.as_bytes().to_vec()));
         }
+        replay_early(b, connection)?;
         flush(b)?;
+    }
+    b.clear_early();
+    Ok(())
+}
+impl Binding {
+    pub(super) fn clear_early(&mut self) {
+        self.early.clear();
+        self.early_bytes = 0;
+    }
+}
+/// Hold output for a tab whose attachment is still settling; install replays it.
+fn hold_early(b: &mut Binding, event: &TerminalEvent) -> bool {
+    if b.attaching.is_none() && b.held.is_none() {
+        return false;
+    }
+    if let TerminalEvent::Data { data, .. } = event {
+        // Past the bound, live output after install shows a gap and reattaches.
+        if b.early.len() < crate::MAX_CHUNKS && b.early_bytes + data.len() <= crate::MAX_QUEUE {
+            b.early_bytes += data.len();
+            b.early.push_back(event.clone());
+        }
+        return true;
+    }
+    false
+}
+/// Deliver held output that follows the snapshot. Stop at a gap: the next live
+/// event then reports it and the view reattaches as usual.
+fn replay_early(b: &mut Binding, connection: u64) -> Result<()> {
+    let cursor = b.cursor.as_mut().ok_or(STALE)?;
+    for event in b.early.drain(..) {
+        let mut trial = cursor.clone();
+        let disposition = trial.observe(&event, connection).map_err(|_| STALE)?;
+        if matches!(disposition, EventDisposition::Reattach) {
+            break;
+        }
+        *cursor = trial;
+        if let (EventDisposition::Deliver, TerminalEvent::Data { sequence, data, .. }) = (disposition, event) {
+            b.pending.push_back((sequence, data.into_bytes()));
+        }
     }
     Ok(())
 }
@@ -188,6 +232,9 @@ pub(super) fn events(mobile: &Mobile, response: PollResponse) -> Result<serde_js
                     continue;
                 };
                 let recorded = record_settlement(b, &event)?;
+                if hold_early(b, &event) {
+                    continue;
+                }
                 let Some(cursor) = b.cursor.as_mut() else {
                     if recorded {
                         coarse.push(serde_json::json!({"type":"terminal","event":event}));

@@ -68,6 +68,7 @@ fn accept_attachment(mobile: Arc<Mobile>, request: AttachTerminal) -> Result<u64
         let b = s.bindings.get_mut(&request.tab_id).ok_or(STALE)?;
         b.attaching = Some((operation.id, request.clone()));
         b.pending_settlement.clear();
+        b.clear_early();
         b.lane.fence();
         b.uploads.fence();
         operation

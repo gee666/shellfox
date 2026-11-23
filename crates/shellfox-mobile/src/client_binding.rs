@@ -33,6 +33,8 @@ pub(crate) fn bind(mobile: &Mobile, tab: TabId, terminal: u64) -> Result<()> {
             cursor: None,
             attaching: None,
             pending_settlement: VecDeque::new(),
+            early: VecDeque::new(),
+            early_bytes: 0,
             connection: 0,
             tickets: VecDeque::new(),
             pending: VecDeque::new(),

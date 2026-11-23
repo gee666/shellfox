@@ -25,6 +25,7 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
                 binding.attaching = None;
                 if binding.held.is_none() {
                     binding.pending_settlement.clear();
+                    binding.clear_early();
                 }
             }
         }
@@ -36,6 +37,7 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
                 binding.cursor = None;
                 binding.attaching = None;
                 binding.pending_settlement.clear();
+                binding.clear_early();
                 binding.pending.clear();
                 binding.tickets.clear();
             }
