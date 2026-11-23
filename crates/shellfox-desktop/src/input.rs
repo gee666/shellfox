@@ -115,14 +115,14 @@ pub(crate) fn page_scroll(stroke: &Keystroke, rows: u16) -> Option<isize> {
 
 /// Keys whose text the platform delivers through the input handler (IME,
 /// dead keys, Option on Mac, AltGr on Windows). Sending them here too would
-/// type them twice.
+/// type them twice. Mac Option that composes nothing is an Alt chord, as in 0.9.
 fn text_commit_expected(stroke: &Keystroke, mac: bool, windows: bool) -> bool {
     let m = stroke.modifiers;
     let single = stroke.key.chars().count() == 1 || stroke.key == "space";
     single
         && !m.platform
         && (!m.control && !m.alt
-            || mac && m.alt && !m.control
+            || mac && m.alt && !m.control && stroke.key_char.is_some()
             || windows && m.alt && m.control && stroke.key_char.is_some())
 }
 

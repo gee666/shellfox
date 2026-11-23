@@ -64,8 +64,16 @@ fn control_chords_and_signals() {
 }
 
 #[test]
+fn mac_option_types_its_text_and_is_alt_only_when_it_composes_none() {
+    // Option+x on a US layout composes ≈, which the input handler types.
+    assert!(event(Os::Mac, &stroke("alt-x", Some("≈")), KeyAction::Press).is_none());
+    let mut terminal = Terminal::new(80, 24).unwrap();
+    assert_eq!(bytes(Os::Mac, &mut terminal, &stroke("alt-x", None)).unwrap(), b"\x1bx");
+}
+
+#[test]
 fn alt_chords() {
-    // Mac Alt is Option and composes text, so Linux and Windows only.
+    // Mac Option sends its composed text instead; see the test above.
     for os in [Os::Linux, Os::Windows] {
         assert_eq!(sent(os, "alt-x"), b"\x1bx");
         assert_eq!(sent(os, "alt-shift-x"), b"\x1bX");

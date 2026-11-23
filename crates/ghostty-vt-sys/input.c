@@ -19,6 +19,10 @@ int sf_key(SfVt *vt, uint32_t key, uint32_t action, uint32_t mods,
     int result = ghostty_key_event_new(NULL, &event);
     if (result) return result;
     TRY(ghostty_key_encoder_set_from_terminal(vt->encoder, vt->terminal));
+    /* Callers send Alt only when Option composed no text, so on macOS it
+       is Alt too. Ghostty defaults to Option-as-text there. */
+    GhosttyOptionAsAlt option_as_alt = GHOSTTY_OPTION_AS_ALT_TRUE;
+    TRY(ghostty_key_encoder_set(vt->encoder, GHOSTTY_KEY_ENCODER_OPT_MACOS_OPTION_AS_ALT, &option_as_alt));
     TRY(ghostty_key_event_set_key(event, (GhosttyKey)key));
     TRY(ghostty_key_event_set_action(event, (GhosttyKeyAction)action));
     TRY(ghostty_key_event_set_mods(event, (GhosttyMods)mods));
