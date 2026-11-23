@@ -4,18 +4,10 @@ use shellfox_service::native::{NativeAdmissionError, NativeFrame};
 use std::sync::Arc;
 
 const BUSY_RETRY: std::time::Duration = std::time::Duration::from_millis(16);
-const ATTACHED_PACE: std::time::Duration = std::time::Duration::from_millis(16);
-
-/// What a frame fetch did.
-enum Fetched {
-    Frame(anyhow::Result<Option<NativeFrame>>),
-    /// Canceled, kicked (focus changed) or the view stopped presenting.
-    Interrupted,
-}
 
 impl TerminalView {
-    /// Fetches a frame whenever the host signals the tab may have changed or the
-    /// view kicks itself (focus). An attached desktop paces its reads instead.
+    /// Keeps one frame read outstanding. The host holds it until the tab may
+    /// have changed; a kick (focus) or cancel replaces it at once.
     pub(in crate::app) fn start_frames(&self, cx: &mut Context<Self>) {
         let Backend::Attached(connection) = &self.backend else {
             return;
@@ -24,66 +16,34 @@ impl TerminalView {
         let access = connection.access.clone();
         let tab = connection.tab;
         let mut life = connection.frame_cancellation();
-        cx.spawn(async move |view, cx| {
-            let mut changes = client.watches().await.map(|watches| watches.frames.subscribe(tab));
-            loop {
-                life.borrow_and_update();
-                let Ok(focused) = view.update(cx, |view, _| view.frame_gate()) else {
+        cx.spawn(async move |view, cx| loop {
+            life.borrow_and_update();
+            let Ok(focused) = view.update(cx, |view, _| view.frame_gate()) else {
+                return;
+            };
+            let Some(focused) = focused else {
+                // Stopped presenting; wait for a resume or kick.
+                if life.changed().await.is_err() {
                     return;
-                };
-                let fetched = match focused {
-                    Some(focused) => {
-                        if let Some(changes) = &mut changes {
-                            changes.borrow_and_update();
-                        }
-                        tokio::select! {
-                            biased;
-                            changed = life.changed() => {
-                                if changed.is_err() {
-                                    return;
-                                }
-                                Fetched::Interrupted
-                            }
-                            result = fetch(&client, tab, &access, focused) => Fetched::Frame(result),
-                        }
-                    }
-                    None => Fetched::Interrupted,
-                };
-                let interrupted = matches!(fetched, Fetched::Interrupted);
-                if let Fetched::Frame(result) = fetched {
-                    let Ok(busy) = view.update(cx, |view, cx| view.accept_frame_result(result, cx)) else {
+                }
+                continue;
+            };
+            let result = tokio::select! {
+                biased;
+                changed = life.changed() => {
+                    if changed.is_err() {
                         return;
-                    };
-                    if busy {
-                        // Admission was full; retry shortly instead of waiting for a change.
-                        cx.background_executor().timer(BUSY_RETRY).await;
-                        continue;
                     }
-                }
-                // An interrupted fetch retries at once with the new state; an
-                // idle gate waits for the next kick, cancel or resume.
-                if interrupted && focused.is_some() {
                     continue;
                 }
-                if changes.is_none() && focused.is_some() {
-                    // Attached hosts answer frame reads at once for now.
-                    cx.background_executor().timer(ATTACHED_PACE).await;
-                    continue;
-                }
-                let tab_changed = async {
-                    match &mut changes {
-                        Some(changes) if focused.is_some() => {
-                            if changes.changed().await.is_err() {
-                                std::future::pending::<()>().await;
-                            }
-                        }
-                        _ => std::future::pending::<()>().await,
-                    }
-                };
-                tokio::select! {
-                    changed = life.changed() => if changed.is_err() { return },
-                    () = tab_changed => {}
-                }
+                result = fetch(&client, tab, &access, focused) => result,
+            };
+            let Ok(busy) = view.update(cx, |view, cx| view.accept_frame_result(result, cx)) else {
+                return;
+            };
+            if busy {
+                // Admission was full; retry shortly instead of waiting for a change.
+                cx.background_executor().timer(BUSY_RETRY).await;
             }
         })
         .detach();

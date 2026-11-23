@@ -8,7 +8,6 @@ use shellfox_core::{Session, Tab, TabId, TabState, TerminalIdentity};
 use shellfox_service::{
     NativeTabActivity,
     activity::AgentState,
-    activity_integration::read_source,
 };
 use std::collections::HashMap;
 
@@ -21,43 +20,11 @@ pub(crate) struct TabActivity {
 impl Root {
     pub(crate) fn watch_tab_activity(&mut self, client: HostClient, window: &Window, cx: &mut Context<Self>) {
         self.tab_activity.task = Some(cx.spawn_in(window, async move |root, cx| {
-            // Source facts carry the history page size; attached desktops read it from settings.
-            let mut facts = if client.connected_to_headless() { None } else { client.source_facts_watch().await.ok() };
-            let initial = facts.as_mut().and_then(|facts| {
-                facts.borrow_and_update();
-                read_source(facts).map(|source| source.settings.history_page_size as usize)
-            });
-            if root.update(cx, |root, cx| {
-                if initial.is_some_and(|size| root.apply_history_page_size(size)) { cx.notify(); }
-            }).is_err() { return; }
             let mut changes = client.tab_activity_changes(cx.background_executor().clone()).await;
-            let mut next = Box::pin(changes.next());
-            loop {
-                let facts_changed = async {
-                    match facts.as_mut() {
-                        Some(facts) => facts.changed().await.is_ok(),
-                        None => std::future::pending().await,
-                    }
-                };
-                let (page_size, states) = tokio::select! {
-                    live = facts_changed => {
-                        if !live {
-                            break;
-                        }
-                        let size = facts.as_ref().and_then(read_source)
-                            .map(|source| source.settings.history_page_size as usize);
-                        (size, None)
-                    }
-                    states = &mut next => {
-                        let Ok(states) = states else { break };
-                        drop(next);
-                        next = Box::pin(changes.next());
-                        (None, Some(states.iter().map(|state| (state.tab, state.clone())).collect()))
-                    }
-                };
+            while let Ok(states) = changes.next().await {
+                let states = states.iter().map(|state| (state.tab, state.clone())).collect();
                 if root.update_in(cx, |root, window, cx| {
-                    if page_size.is_some_and(|size| root.apply_history_page_size(size)) { cx.notify(); }
-                    if let Some(states) = states { root.accept_tab_activity(states, window, cx); }
+                    root.accept_tab_activity(states, window, cx);
                     !root.closing_window
                 }).ok() != Some(true) { return; }
             }

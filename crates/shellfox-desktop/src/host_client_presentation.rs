@@ -30,19 +30,14 @@ impl HostClient {
                     .into());
                 }
             };
-        let _permit = self
-            .frame_slots
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| {
-                NativeAdmissionError::Stopped(Box::new(NativeAction::Frame {
-                    tab,
-                    attachment: attachment.clone(),
-                }))
-            })?;
+        let _permit = self.frame_slot().await.map_err(|_| {
+            NativeAdmissionError::Stopped(Box::new(NativeAction::Frame {
+                tab,
+                attachment: attachment.clone(),
+            }))
+        })?;
         let NativeResponse::Frame(frame) = self
-            .execute(NativeAction::Presentation {
+            .execute_frame_read(NativeAction::Presentation {
                 tab,
                 attachment: NativeViewAttachment::Controller(attachment.clone()),
                 action: NativePresentation::Frame { focused },
@@ -105,19 +100,14 @@ impl HostClient {
                     .into());
                 }
             };
-        let _permit = self
-            .frame_slots
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|_| {
-                NativeAdmissionError::Stopped(Box::new(NativeAction::ObserverFrame {
-                    tab,
-                    attachment: attachment.clone(),
-                }))
-            })?;
+        let _permit = self.frame_slot().await.map_err(|_| {
+            NativeAdmissionError::Stopped(Box::new(NativeAction::ObserverFrame {
+                tab,
+                attachment: attachment.clone(),
+            }))
+        })?;
         let NativeResponse::Frame(frame) = self
-            .execute(NativeAction::Presentation {
+            .execute_frame_read(NativeAction::Presentation {
                 tab,
                 attachment: NativeViewAttachment::Observer(attachment.clone()),
                 action: NativePresentation::Frame { focused },
@@ -148,6 +138,16 @@ impl HostClient {
             .await?;
         }
         Ok(Some(frame))
+    }
+    /// In process, two frame cycles compete with key admission. An attached
+    /// host holds each read per tab, so every view keeps one read waiting.
+    async fn frame_slot(
+        &self,
+    ) -> std::result::Result<Option<tokio::sync::OwnedSemaphorePermit>, tokio::sync::AcquireError> {
+        if self.local().is_some() {
+            return Ok(None);
+        }
+        self.frame_slots.clone().acquire_owned().await.map(Some)
     }
     pub fn latest(&self, tab: TabId, observer: bool) -> Result<Option<NativeFrame>> {
         Ok(self

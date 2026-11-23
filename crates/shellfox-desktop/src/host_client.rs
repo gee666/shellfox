@@ -27,7 +27,7 @@ use shellfox_service::{
     native::{
         NativeAction, NativeAdmissionError, NativeClient, NativeCommand, NativeFrame,
         NativeInputContext, NativeObserverAttachment, NativePresentation, NativeResponse,
-        NativeStatus, NativeViewAttachment, NativeWatches,
+        NativeStatus, NativeViewAttachment,
     },
 };
 use std::sync::{
@@ -58,7 +58,7 @@ pub struct HostClient {
     frame_admission: Arc<AtomicUsize>,
     frame_slots: Arc<tokio::sync::Semaphore>,
     frames: Arc<Mutex<frames::Frames>>,
-    watches: Arc<tokio::sync::OnceCell<NativeWatches>>,
+    feeds: Arc<tokio::sync::OnceCell<changes::Feeds>>,
 }
 struct Admission(Arc<AtomicUsize>);
 impl Admission {
@@ -96,7 +96,7 @@ impl HostClient {
             frame_admission: Arc::new(AtomicUsize::new(0)),
             frame_slots: Arc::new(tokio::sync::Semaphore::new(MAX_FRAME_REQUESTS)),
             frames: Arc::new(Mutex::new(frames::Frames::default())),
-            watches: Arc::default(),
+            feeds: Arc::default(),
         }
     }
     /// Clone shares a window/controller. Fork gives a new window a private UUID,
@@ -106,9 +106,6 @@ impl HostClient {
             HostPort::Native(client) => Self::new(client.fork()),
             HostPort::Attached(_) => self.clone(),
         }
-    }
-    pub(crate) fn connected_to_headless(&self) -> bool {
-        matches!(self.port, HostPort::Attached(_))
     }
 
     fn native(&self) -> Result<&NativeClient> {
@@ -126,21 +123,7 @@ impl HostClient {
     pub fn same_window_client(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.admission, &other.admission)
     }
-    pub(crate) async fn source_facts_watch(
-        &self,
-    ) -> Result<shellfox_service::activity_integration::SourceFactsWatch> {
-        let _admission = self.admit()?;
-        self.native()?.source_facts_watch().await
-    }
 
-    /// In-process change signals. None on an attached desktop: its host parks
-    /// the same requests until something changes.
-    pub(crate) async fn watches(&self) -> Option<&NativeWatches> {
-        let HostPort::Native(native) = &self.port else {
-            return None;
-        };
-        self.watches.get_or_try_init(|| native.watches()).await.ok()
-    }
     pub async fn power_status(&self) -> Result<shellfox_service::power::PowerReport> {
         let _admission = self.admit()?;
         if let Some(client) = self.local() {
@@ -174,6 +157,18 @@ impl HostClient {
             Ok(admission) => admission,
             Err(_) => return Err(NativeAdmissionError::Full(Box::new(action)).into()),
         };
+        self.dispatch(action).await
+    }
+    /// An attached host holds frame reads until the tab changes, so they
+    /// don't take one of the few slots that bound ordinary requests.
+    async fn execute_frame_read(&self, action: NativeAction) -> Result<NativeResponse> {
+        if self.local().is_some() {
+            self.dispatch(action).await
+        } else {
+            self.execute(action).await
+        }
+    }
+    async fn dispatch(&self, action: NativeAction) -> Result<NativeResponse> {
         let detached = match &action {
             NativeAction::Detach { tab, .. } => Some((*tab, false)),
             NativeAction::Unobserve { tab, .. } => Some((*tab, true)),

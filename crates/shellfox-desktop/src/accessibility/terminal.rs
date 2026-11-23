@@ -226,6 +226,7 @@ impl TerminalDocument {
             terminal_stamp: self.source,
         }
     }
+    #[cfg(test)]
     pub fn refresh_due(&self, now: Instant) -> bool {
         self.pending && self.sample_due(now)
     }

@@ -69,7 +69,18 @@ impl Root {
         cx.spawn_in(window, async move |root, cx| {
             let mut revisions = client.revisions(cx.background_executor().clone()).await;
             while let Ok(revision) = revisions.next().await {
+                // Settings changes bump the revision too; the page size lives in settings.
+                let page_size = match client
+                    .execute(NativeAction::Settings(shellfox_host::SettingsRequest::Get {}))
+                    .await
+                {
+                    Ok(NativeResponse::Settings(settings)) => Some(settings.history_page_size as usize),
+                    _ => None,
+                };
                 let current = root.update_in(cx, |root, window, cx| {
+                    if page_size.is_some_and(|size| root.apply_history_page_size(size)) {
+                        cx.notify();
+                    }
                     if root.snapshot.as_ref().is_none_or(|snapshot| snapshot.revision < revision) {
                         root.refresh_snapshot(window, cx);
                     }
