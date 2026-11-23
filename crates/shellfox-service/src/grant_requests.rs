@@ -92,6 +92,7 @@ impl ControllerGrantOffer {
     pub fn identity(&self) -> Identity {
         self.ticket().identity()
     }
+    #[cfg(test)]
     pub fn lease(&self) -> Lease {
         self.lease
     }
@@ -109,13 +110,6 @@ impl ObserverGrantOffer {
     pub fn ticket(&self) -> GrantTicket {
         self.ticket
     }
-}
-#[derive(Clone, Copy)]
-pub(crate) enum GrantHolder {
-    LegacyController,
-    NativeObserver,
-    ObserverMailbox,
-    ManagerMailbox,
 }
 impl Service {
     pub(crate) fn execute_for_recipient(
@@ -276,7 +270,6 @@ impl Service {
     pub(crate) fn adopt_controller_grant(
         &mut self,
         mut offer: ControllerGrantOffer,
-        holder: GrantHolder,
     ) -> Result<Attachment> {
         self.assert_accepting()?;
         let identity = offer.identity();
@@ -286,24 +279,9 @@ impl Service {
             .get_mut(&identity.tab_id)
             .filter(|terminal| terminal.runtime.identity() == identity)
             .context("Controller source owner is not current.")?;
-        let book = match holder {
-            GrantHolder::LegacyController => None,
-            GrantHolder::ManagerMailbox => Some(
-                self.manager_v2_mailboxes
-                    .prepare_adoption(identity, crate::manager_delivery::Role::Controller(lease))
-                    .context(
-                        "Current provisional manager book does not own the exact controller grant.",
-                    )?,
-            ),
-            _ => anyhow::bail!("Controller grant requires a real controller custody book."),
-        };
         self.grants
             .adopt(offer.ticket, ActualGrant::Controller(lease))
             .map_err(GrantFailure::from)?;
-        // No lookup/allocation/fallible work after custody transfer.
-        if let Some(book) = book {
-            book.commit();
-        }
         terminal.install_lease(lease);
         offer.guard.disarm();
         Ok(Attachment {
@@ -315,40 +293,16 @@ impl Service {
     pub(crate) fn adopt_observer_grant(
         &mut self,
         mut offer: ObserverGrantOffer,
-        holder: GrantHolder,
     ) -> Result<ObserverLease> {
         self.assert_accepting()?;
         let identity = offer.identity();
         let lease = offer.lease;
-        let book = match holder {
-            GrantHolder::NativeObserver => {
-                if !self.has_native_observer_grant(identity, lease) {
-                    anyhow::bail!("Current native view does not own the exact observer grant.");
-                }
-                None
-            }
-            GrantHolder::ObserverMailbox => Some(
-                self.remote_v2_mailboxes
-                    .prepare_adoption(identity, lease)
-                    .context(
-                        "Current provisional observer book does not own the exact observer grant.",
-                    )?,
-            ),
-            GrantHolder::ManagerMailbox => Some(
-                self.manager_v2_mailboxes
-                    .prepare_adoption(identity, crate::manager_delivery::Role::Observer(lease))
-                    .context(
-                        "Current provisional manager book does not own the exact observer grant.",
-                    )?,
-            ),
-            _ => anyhow::bail!("Observer grant requires a real observer custody book."),
-        };
+        if !self.has_native_observer_grant(identity, lease) {
+            anyhow::bail!("Current native view does not own the exact observer grant.");
+        }
         self.grants
             .adopt(offer.ticket, ActualGrant::Observer(lease))
             .map_err(GrantFailure::from)?;
-        if let Some(book) = book {
-            book.commit();
-        }
         offer.guard.disarm();
         Ok(lease)
     }

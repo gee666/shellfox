@@ -180,8 +180,6 @@ pub use crate::remote::SourceFactsInstaller;
 pub struct RemoteBootOptions {
     /// Actual trusted dispatcher executable; never infer it from a test/GUI host.
     pub supervisor: std::path::PathBuf,
-    /// Explicit native policy only; Disabled is the default, never a wire option.
-    pub observer_factory_policy: crate::NativeFactoryPolicy,
     pub install_source: SourceFactsInstaller,
     pub facts: std::sync::Arc<dyn crate::remote::ManagerFactsProvider>,
     pub resources: crate::remote::RemoteBootResources,
@@ -201,10 +199,6 @@ impl RemoteBootOptions {
         self.native_providers = Some(providers);
         Ok(self)
     }
-    pub fn with_observer_factory_policy(mut self, policy: crate::NativeFactoryPolicy) -> Self {
-        self.observer_factory_policy = policy;
-        self
-    }
     /// One composition for live boot and owned fixtures. The system provider is
     /// caller-supplied actual evidence, never guessed installation defaults.
     pub fn native<R: Into<crate::remote::RemoteBootResources>>(
@@ -221,7 +215,6 @@ impl RemoteBootOptions {
         ));
         Ok(Self {
             supervisor,
-            observer_factory_policy: crate::NativeFactoryPolicy::Disabled,
             facts: slot.clone(),
             install_source: slot.installer(),
             resources: resources.into(),

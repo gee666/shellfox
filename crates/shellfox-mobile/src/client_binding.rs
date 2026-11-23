@@ -4,12 +4,11 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-pub(crate) fn owners() -> &'static Mutex<HashMap<u64, u64>> {
+fn owners() -> &'static Mutex<HashMap<u64, u64>> {
     static OWNERS: OnceLock<Mutex<HashMap<u64, u64>>> = OnceLock::new();
     OWNERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 pub(crate) fn bind(mobile: &Mobile, tab: TabId, terminal: u64) -> Result<()> {
-    mobile.legacy()?;
     let shared = crate::engine::lookup(terminal).map_err(|e| e as i32)?;
     let q = shared.queue.lock().map_err(|_| PANIC)?;
     if q.closed || q.failed {

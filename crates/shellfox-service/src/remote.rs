@@ -31,10 +31,6 @@ mod files;
 #[cfg(windows)]
 #[path = "remote_wsl_files.rs"]
 mod wsl_files;
-#[path = "manager_owner.rs"]
-mod manager;
-#[path = "remote_v2_manager.rs"]
-mod observer;
 #[path = "remote_privacy.rs"]
 mod privacy;
 #[path = "remote_stats.rs"]
@@ -43,9 +39,6 @@ mod stats;
 mod v1_delivery;
 #[path = "remote_v1_replay.rs"]
 mod v1_replay;
-#[cfg(all(test, windows))]
-#[path = "remote_v2_replay_tests.rs"]
-mod v2_replay_tests;
 #[path = "remote_v1_launch.rs"]
 mod v1_launch;
 #[path = "remote_v1_privilege.rs"]
@@ -88,10 +81,6 @@ pub use native::{AuthKey, RemoteControl, RemoteControlState, RemoteRequest, Remo
 pub use runtime::{GoNetworkFactory, RemoteNetwork, RemoteNetworkFactory, RemoteRuntime};
 /// Bounded loopback-only boot setting, never a peer request URL.
 pub use shellfox_transport::LoopbackOrigin as ControlServerOrigin;
-pub(super) struct MetadataV2 {
-    pub revision: u64,
-    pub visible: Vec<SessionId>,
-}
 struct View {
     epoch: u64,
     revision: u64,
@@ -123,10 +112,6 @@ pub struct RemoteState {
     transfers: Option<shellfox_remote::RemoteTransfers>,
     #[cfg(windows)]
     wsl_transfers: wsl_files::Transfers,
-    observer_views: observer::ObserverViews,
-    manager_views: manager::ManagerViews,
-    manager_uploads: Option<shellfox_remote::terminal_upload::UploadInbox>,
-    metadata_v2: HashMap<wire::observer_v2::Id, MetadataV2>,
     visibility_dirty: bool,
 }
 impl RemoteState {
@@ -143,10 +128,6 @@ impl RemoteState {
             transfers: None,
             #[cfg(windows)]
             wsl_transfers: Default::default(),
-            observer_views: observer::ObserverViews::default(),
-            manager_views: manager::ManagerViews::default(),
-            manager_uploads: None,
-            metadata_v2: HashMap::new(),
             visibility_dirty: false,
         }
     }
@@ -159,9 +140,7 @@ impl RemoteState {
         service.with_grant_recipient(cancel, |service| request.dispatch(&mut self.bind(service)));
         if std::mem::take(&mut self.visibility_dirty) {
             service.activity.report_remote_visibility(
-                self.views.values().map(|view| &view.visible)
-                    .chain(self.metadata_v2.values().map(|view| &view.visible))
-                    .flatten().copied().collect(),
+                self.views.values().flat_map(|view| &view.visible).copied().collect(),
             );
         }
     }
@@ -178,9 +157,6 @@ impl RemoteState {
         // so the in-memory revision tells whether Poll would see a change.
         let latest = service.host().revision();
         self.views.values().filter(move |view| view.has_events(service, latest))
-    }
-    fn remove_metadata_view(&mut self, id: wire::observer_v2::Id) {
-        self.visibility_dirty |= self.metadata_v2.remove(&id).is_some_and(|view| !view.visible.is_empty());
     }
     pub fn bind<'a>(&'a mut self, service: &'a mut Service) -> RemoteService<'a> {
         RemoteService {
@@ -227,21 +203,12 @@ impl ServiceHost for RemoteService<'_> {
     /// OwnerRequest::dispatch holds approval through this synchronous call.
     /// Call that wrapper rather than invoking this method from network tasks.
     fn dispatch(&mut self, request: OwnerCommand) -> Result<serde_json::Value, AppError> {
-        if !matches!(
-            &request,
-            OwnerCommand::Disconnect { .. }
-                | OwnerCommand::ObserverV2(_)
-                | OwnerCommand::ManagerV2(_)
-        ) {
+        if !matches!(&request, OwnerCommand::Disconnect { .. }) {
             self.service.assert_owned().map_err(|_| {
                 failure(ErrorCode::NativeUnavailable, "Native host ownership lost.")
             })?;
         }
         match request {
-            OwnerCommand::ObserverV2(request) => {
-                observer::handle(self.state, self.service, *request)
-            }
-            OwnerCommand::ManagerV2(request) => manager::handle(self.state, self.service, *request),
             OwnerCommand::Pair { actor } => {
                 let key = key(&actor);
                 if self.state.views.len() >= 32 && !self.state.views.contains_key(&key) {

@@ -30,7 +30,6 @@ impl OutboundTransport for Transport {
                 Endpoint::Request => OutgoingV2Endpoint::RequestV1,
                 Endpoint::Events => OutgoingV2Endpoint::EventsV1,
                 Endpoint::Disconnect => OutgoingV2Endpoint::DisconnectV1,
-                _ => return Err(TransportError::InvalidRequest),
             };
             let response = self.0.outgoing(peer.clone(), endpoint, body, limits).await?;
             if !(200..300).contains(&response.status) {

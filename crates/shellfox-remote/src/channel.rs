@@ -8,8 +8,6 @@ mod tests;
 
 #[derive(Clone)]
 pub enum OwnerCommand {
-    ObserverV2(Box<crate::ObserverOwnerRequest>),
-    ManagerV2(Box<crate::ManagerOwnerRequest>),
     Pair {
         actor: Actor,
     },
@@ -27,8 +25,6 @@ pub enum OwnerCommand {
 impl OwnerCommand {
     pub fn actor(&self) -> &Actor {
         match self {
-            Self::ObserverV2(request) => request.connection.actor(),
-            Self::ManagerV2(request) => request.connection.actor(),
             Self::Pair { actor }
             | Self::Execute { actor, .. }
             | Self::Poll { actor }
@@ -143,29 +139,7 @@ impl OwnerRequest {
         }
         // Cleanup must still run after revocation. Its unforgeable actor identifies
         // only that peer/view; the service must not perform host mutations here.
-        let result = if let OwnerCommand::ObserverV2(request) = &self.command {
-            request.dispatch(|| {
-                if self.is_cancelled() {
-                    return Err(error(
-                        ErrorCode::NativeUnavailable,
-                        "Observer request cancelled before owner dispatch.",
-                        false,
-                    ));
-                }
-                host.dispatch(self.command.clone())
-            })
-        } else if let OwnerCommand::ManagerV2(request) = &self.command {
-            request.dispatch(|| {
-                if self.is_cancelled() {
-                    return Err(error(
-                        ErrorCode::NativeUnavailable,
-                        "Manager request cancelled before owner dispatch.",
-                        false,
-                    ));
-                }
-                host.dispatch(self.command.clone())
-            })
-        } else if matches!(self.command, OwnerCommand::Disconnect { .. }) {
+        let result = if matches!(self.command, OwnerCommand::Disconnect { .. }) {
             host.dispatch(self.command.clone())
         } else {
             let actor = self.command.actor().clone();

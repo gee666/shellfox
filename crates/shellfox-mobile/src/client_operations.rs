@@ -20,12 +20,12 @@ pub(super) fn validate(mobile: &Mobile, command: &RemoteCommand) -> Result<()> {
             }
         }
         RemoteCommand::WriteTerminal(v) => {
-            let connection = mobile.legacy()?.state().connection_id;
+            let connection = mobile.client.state().connection_id;
             let s = mobile.state.lock().map_err(|_| PANIC)?;
             super::mutations::validate(s.bindings.get(&v.tab_id).ok_or(STALE)?, command, connection)
         }
         RemoteCommand::ResizeTerminal(v) => {
-            let connection = mobile.legacy()?.state().connection_id;
+            let connection = mobile.client.state().connection_id;
             let s = mobile.state.lock().map_err(|_| PANIC)?;
             super::mutations::validate(s.bindings.get(&v.tab_id).ok_or(STALE)?, command, connection)
         }
@@ -33,7 +33,6 @@ pub(super) fn validate(mobile: &Mobile, command: &RemoteCommand) -> Result<()> {
     }
 }
 pub(super) fn accept(mobile: Arc<Mobile>, value: RemoteCommand) -> Result<u64> {
-    mobile.legacy()?;
     // The JS-facing command channel has no raw terminal-input or credit capability.
     // Native encoded input enters the FIFO through terminal_write[_ex] instead.
     if matches!(
@@ -101,7 +100,7 @@ pub(super) async fn command(
     match command {
         RemoteCommand::AttachTerminal(value) => {
             match mobile
-                .legacy()?
+                .client
                 .execute(&value)
                 .await
                 .map_err(client_error)?
@@ -114,7 +113,7 @@ pub(super) async fn command(
         }
         RemoteCommand::AcknowledgeTerminal(_) => Err(INVALID),
         RemoteCommand::DetachTerminal(v) => {
-            let result = mobile.legacy()?.execute(&v).await.map_err(client_error)?;
+            let result = mobile.client.execute(&v).await.map_err(client_error)?;
             if matches!(result, Reply::Success(_)) {
                 if let Ok(mut s) = mobile.state.lock() {
                     if let Some(b) = s.bindings.get_mut(&v.tab_id) {
@@ -128,7 +127,7 @@ pub(super) async fn command(
         }
         command => json(
             mobile
-                .legacy()?
+                .client
                 .execute_command(&command)
                 .await
                 .map_err(client_error)?,
@@ -136,19 +135,17 @@ pub(super) async fn command(
     }
 }
 pub(super) fn pair(mobile: Arc<Mobile>) -> Result<u64> {
-    mobile.legacy()?;
     launch(mobile, CompletionOrigin::Explicit, |mobile| async move {
-        json(mobile.legacy()?.pair().await.map_err(client_error)?)
+        json(mobile.client.pair().await.map_err(client_error)?)
     })
 }
 pub(super) fn poll(mobile: Arc<Mobile>) -> Result<u64> {
-    mobile.legacy()?;
     terminal::poll_ready(&mobile)?;
     launch(
         mobile,
         CompletionOrigin::NativeInternal,
         |mobile| async move {
-            match mobile.legacy()?.poll().await.map_err(client_error)? {
+            match mobile.client.poll().await.map_err(client_error)? {
                 Reply::Success(value) => terminal::events(&mobile, value),
                 Reply::Failure(error) => json(Reply::<PollResponse>::Failure(error)),
             }

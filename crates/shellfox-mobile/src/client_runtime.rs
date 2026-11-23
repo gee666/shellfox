@@ -1,7 +1,6 @@
 use super::{terminal::Binding, transport::Pending};
 #[path = "client_events.rs"]
 mod events;
-use super::profile::Driver;
 use events::finish;
 use shellfox_client::{Client, ClientError, ConnectionStatus};
 use shellfox_protocol::{CancellationToken, ClientId, Permission, TabId};
@@ -34,7 +33,7 @@ impl Mobile {
 
 pub(super) struct Mobile {
     pub id: u64,
-    pub driver: Driver,
+    pub client: Client<super::transport::NativeTransport>,
     pub state: Mutex<State>,
     pub dispatch_gate: Mutex<()>,
     pub waker: super::waker::Waker,
@@ -55,9 +54,6 @@ pub(super) struct State {
     pub events: VecDeque<Vec<u8>>,
     pub event_bytes: usize,
     pub bindings: HashMap<TabId, Binding>,
-    pub observers: HashMap<shellfox_protocol::observer_v2::Id, super::observer::DeliveryBinding>,
-    pub observer_withdrawing: bool,
-    pub observer_disconnect: Option<u64>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -75,9 +71,6 @@ impl Default for State {
             events: VecDeque::new(),
             event_bytes: 0,
             bindings: HashMap::new(),
-            observers: HashMap::new(),
-            observer_withdrawing: false,
-            observer_disconnect: None,
         }
     }
 }
@@ -113,7 +106,7 @@ pub(super) fn remove(id: u64) -> Result<Arc<Mobile>> {
 }
 #[path = "client_creation.rs"]
 mod creation;
-pub(super) use creation::{create, create_observer};
+pub(super) use creation::create;
 pub(super) fn runtime() -> Result<&'static Runtime> {
     static RUNTIME: OnceLock<std::result::Result<Runtime, std::io::Error>> = OnceLock::new();
     RUNTIME

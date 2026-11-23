@@ -25,7 +25,6 @@ impl BootGuard {
             .prepare_remote_envelope(options.facts, options.resources)
             .await?;
         self.remote_control = Some(control);
-        self.observer_factory_policy = options.observer_factory_policy;
         self.install_source = Some(options.install_source);
         let actor = self
             .actor

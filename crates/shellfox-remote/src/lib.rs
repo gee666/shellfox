@@ -12,18 +12,10 @@ pub mod directories;
 mod file_adapter_tests;
 pub mod file_ops;
 mod http;
-mod manager_connection;
-pub mod manager_policy;
-mod observer_connection;
-pub mod observer_policy;
 mod policy;
 mod poll_wake;
 mod store;
 pub mod terminal_upload;
-pub use manager_connection::{
-    ManagerConnection, ManagerFailure, ManagerOperation, ManagerOwnerRequest,
-};
-pub use observer_connection::{ObserverConnection, ObserverOperation, ObserverOwnerRequest};
 #[cfg(test)]
 mod test_support;
 pub mod transfer_bridge;
@@ -32,7 +24,7 @@ pub use transfers::RemoteTransfers;
 
 pub use approval_repository::{ApprovalRepository, ApprovalRepositoryFuture};
 pub use approvals::{Actor, ApprovalControl, ApprovalState, PendingPeer};
-pub use backend::{Backend, BackendHandle, ManagerHttpReply, ObserverHttpReply};
+pub use backend::{Backend, BackendHandle};
 pub use channel::{
     owner_channel, owner_channel_with_wake, OwnerClient, OwnerCommand, OwnerReceiver, OwnerRequest, RemoteHost, ServiceHost,
 };

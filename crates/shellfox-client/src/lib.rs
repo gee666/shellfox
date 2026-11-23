@@ -21,11 +21,8 @@ use shellfox_client::protocol::DESKTOP_LAUNCH_NAMESPACE;
 ```
 "#
 )]
-mod v2_common;
 mod client;
 mod commands;
-pub mod observer_v2;
-pub mod manager_v2;
 mod state;
 pub use state::{ClientError, ClientState, ConnectionStatus};
 mod cursor;

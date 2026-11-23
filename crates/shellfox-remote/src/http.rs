@@ -10,17 +10,6 @@ pub(crate) struct Request {
     pub signature: String,
 }
 impl Request {
-    pub fn manager_endpoint(&self) -> Option<shellfox_protocol::Endpoint> {
-        use shellfox_protocol::Endpoint;
-        match self.path.as_str() {
-            "/v2/discover" => Some(Endpoint::DiscoverV2),
-            "/v2/pair" => Some(Endpoint::PairV2),
-            "/v2/request" => Some(Endpoint::RequestV2),
-            "/v2/events" => Some(Endpoint::EventsV2),
-            "/v2/disconnect" => Some(Endpoint::DisconnectV2),
-            _ => None,
-        }
-    }
     pub fn signed_headers(&self) -> SignedHeaders<'_> {
         SignedHeaders {
             peer: &self.peer,
@@ -44,11 +33,6 @@ pub(crate) async fn read(stream: &mut TcpStream) -> Result<Request, ()> {
             "/v1/request",
             "/v1/events",
             "/v1/disconnect",
-            "/v2/discover",
-            "/v2/pair",
-            "/v2/request",
-            "/v2/events",
-            "/v2/disconnect",
         ]
         .contains(&parts[1])
     {

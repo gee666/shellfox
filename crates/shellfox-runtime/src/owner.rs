@@ -6,9 +6,6 @@ mod controller_tests;
 #[path = "owner_event_tests.rs"]
 mod event_tests;
 #[cfg(test)]
-#[path = "owner_key_v2_tests.rs"]
-mod key_v2_tests;
-#[cfg(test)]
 #[path = "owner_recovery_audit_tests.rs"]
 mod recovery_audit_tests;
 #[cfg(test)]

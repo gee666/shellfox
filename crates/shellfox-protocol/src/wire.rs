@@ -11,11 +11,6 @@ pub enum Endpoint {
     Request,
     Events,
     Disconnect,
-    DiscoverV2,
-    PairV2,
-    RequestV2,
-    EventsV2,
-    DisconnectV2,
 }
 impl Endpoint {
     pub const fn path(self) -> &'static str {
@@ -25,11 +20,6 @@ impl Endpoint {
             Self::Request => "/v1/request",
             Self::Events => "/v1/events",
             Self::Disconnect => "/v1/disconnect",
-            Self::DiscoverV2 => "/v2/discover",
-            Self::PairV2 => "/v2/pair",
-            Self::RequestV2 => "/v2/request",
-            Self::EventsV2 => "/v2/events",
-            Self::DisconnectV2 => "/v2/disconnect",
         }
     }
 }

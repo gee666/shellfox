@@ -1,17 +1,11 @@
 #[cfg(test)]
 #[path = "backend_http_tests.rs"]
 mod http_tests;
-#[path = "backend_manager.rs"]
-mod manager;
-#[path = "backend_observer.rs"]
-mod observer;
 #[cfg(test)]
 #[path = "backend_poll_tests.rs"]
 mod poll_tests;
 #[path = "backend_server.rs"]
 mod server;
-pub use manager::ManagerHttpReply;
-pub use observer::ObserverHttpReply;
 #[cfg(test)]
 #[path = "backend_tests.rs"]
 mod tests;
@@ -70,8 +64,6 @@ pub struct Backend {
     secret: Secret,
     limits: Mutex<Limits>,
     clock: fn() -> u64,
-    observer_v2: Option<observer::ObserverBackend>,
-    manager_v2: Option<manager::ManagerBackend>,
 }
 /// Dropping the owner closes the listener and all accepted sockets.
 pub struct BackendHandle {
@@ -122,8 +114,6 @@ impl Backend {
             secret,
             limits: Mutex::new(Limits::default()),
             clock: now_millis,
-            observer_v2: None,
-            manager_v2: None,
         }
     }
     async fn handle(&self, request: http::Request) -> Result<Value, AppError> {

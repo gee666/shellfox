@@ -9,7 +9,6 @@ use shellfox_transport::{
 use std::sync::Arc;
 pub struct RemoteBackend {
     backend: BackendHandle,
-    engine: Arc<Backend>,
     approvals: ApprovalControl,
     store: Arc<PrivateApprovalStore>,
     origin: LoopbackOrigin,
@@ -52,7 +51,6 @@ impl BackendAssembly {
     pub fn finish(self, origin: LoopbackOrigin, backend: BackendHandle) -> RemoteBackend {
         RemoteBackend {
             backend,
-            engine: self.engine,
             approvals: self.approvals,
             store: self.store,
             origin,
@@ -63,26 +61,6 @@ impl BackendAssembly {
     }
 }
 impl RemoteBackend {
-    pub async fn observer_v2_signed(
-        &self,
-        endpoint: shellfox_protocol::Endpoint,
-        body: &[u8],
-        headers: shellfox_transport::incoming::SignedHeaders<'_>,
-    ) -> shellfox_remote::ObserverHttpReply {
-        self.engine
-            .handle_observer_v2_signed(endpoint, body, headers)
-            .await
-    }
-    pub async fn manager_v2_signed(
-        &self,
-        endpoint: shellfox_protocol::Endpoint,
-        body: &[u8],
-        headers: shellfox_transport::incoming::SignedHeaders<'_>,
-    ) -> shellfox_remote::ManagerHttpReply {
-        self.engine
-            .handle_manager_v2_signed(endpoint, body, headers)
-            .await
-    }
     pub fn approvals(&self) -> ApprovalControl {
         self.approvals.clone()
     }

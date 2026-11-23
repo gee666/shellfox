@@ -31,7 +31,6 @@ impl Service {
                 | Command::Key { .. }
                 | Command::Paste { .. }
                 | Command::Mouse { .. }
-                | Command::KeyV2 { .. }
                 | Command::InteractiveBytes { .. }
                 | Command::MouseStamped { .. }
         ) {

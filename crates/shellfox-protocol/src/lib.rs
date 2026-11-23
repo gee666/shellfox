@@ -13,8 +13,6 @@ pub mod files;
 mod ids;
 mod manager;
 mod methods;
-pub mod observer_v2;
-pub mod manager_v2;
 mod probe;
 mod remote_commands;
 mod session_requests;
@@ -28,7 +26,6 @@ mod transport;
 mod upload_requests;
 pub mod validation;
 mod wire;
-mod v2_replies;
 
 pub use assets::*;
 pub use chunks::*;

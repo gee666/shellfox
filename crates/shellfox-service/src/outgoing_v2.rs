@@ -11,11 +11,6 @@ use tokio::sync::oneshot;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OutgoingV2Endpoint {
-    Discover,
-    Pair,
-    Request,
-    Events,
-    Disconnect,
     DiscoverV1,
     PairV1,
     RequestV1,
@@ -26,11 +21,6 @@ impl OutgoingV2Endpoint {
     pub(crate) fn wire(self) -> shellfox_protocol::Endpoint {
         use shellfox_protocol::Endpoint;
         match self {
-            Self::Discover => Endpoint::DiscoverV2,
-            Self::Pair => Endpoint::PairV2,
-            Self::Request => Endpoint::RequestV2,
-            Self::Events => Endpoint::EventsV2,
-            Self::Disconnect => Endpoint::DisconnectV2,
             Self::DiscoverV1 => Endpoint::Discover,
             Self::PairV1 => Endpoint::Pair,
             Self::RequestV1 => Endpoint::Request,

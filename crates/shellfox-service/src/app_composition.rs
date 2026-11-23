@@ -5,7 +5,6 @@ mod package_arguments;
 use anyhow::{Context, Result, bail, ensure};
 use shellfox_protocol::{AppError, ErrorCode};
 use crate::{
-    NativeFactoryPolicy,
     local::RemoteBootOptions,
     native_providers::NativeHostProviders,
     remote::{ControlServerOrigin, RemoteBootResources},
@@ -106,11 +105,6 @@ impl SourceFactory {
             _ => bail!("--source-factory must be local"),
         }
     }
-    pub fn policy(self) -> Result<NativeFactoryPolicy> {
-        match self {
-            Self::Local => Ok(NativeFactoryPolicy::Disabled),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -167,7 +161,6 @@ impl NativeApplicationConfig {
                 && !hostname.ends_with('-'),
             "Remote hostname must be a 1-63 character DNS label"
         );
-        source_factory.policy()?;
         Ok(Self {
             remote_state_dir: state,
             hostname,
@@ -216,8 +209,7 @@ impl NativeApplicationConfig {
             SystemScope::User,
             resources,
         )?
-        .with_native_providers(providers)?
-        .with_observer_factory_policy(self.source_factory.policy()?))
+        .with_native_providers(providers)?)
     }
 }
 // Early lexical rejection only. Native preparation retains/revalidates actual path identities.

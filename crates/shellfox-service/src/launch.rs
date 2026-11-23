@@ -17,7 +17,6 @@ impl Service {
         config.isolation_root = self.generation_home(tab, generation)?;
         Ok(config)
     }
-    // Pure config capture: cold remote admission must precede directory/activity/registration effects.
     fn catalog_launch_config(&self, launch: shellfox_core::TerminalLaunch) -> Result<PtyConfig> {
         let mut config = PtyConfig::new(self.isolation.clone());
         // Interactive app launches opt into executables, never installed account
@@ -56,25 +55,18 @@ impl Service {
         Ok(home)
     }
     pub(crate) fn start_terminal(&mut self, tab: TabId) -> Result<()> {
-        self.start_terminal_policy(tab, false, false).map(|_| ())
-    }
-    pub(crate) fn start_manager_native0_terminal(&mut self, tab: TabId) -> Result<bool> {
-        self.start_terminal_policy(tab, true, false)
+        self.start_terminal_policy(tab, false)
     }
     #[cfg(windows)]
     pub(crate) fn start_administrator_tab(&mut self, tab: TabId) -> Result<()> {
-        self.start_terminal_policy(tab, false, true).map(|_| ())
+        self.start_terminal_policy(tab, true)
     }
     fn start_terminal_policy(
         &mut self,
         tab: TabId,
-        require_native0: bool,
         explicit_admin: bool,
-    ) -> Result<bool> {
+    ) -> Result<()> {
         self.assert_accepting()?;
-        if require_native0 && self.terminals.contains_key(&tab) {
-            bail!("Cold Manager source already exists.");
-        }
         if self.terminals.len() >= 64 {
             bail!("At most 64 live terminals are supported by this experimental host.");
         }
@@ -97,18 +89,8 @@ impl Service {
             tab_id: tab,
             generation,
         };
-        let mut config = if require_native0 {
-            self.catalog_launch_config(launch)?
-        } else {
-            self.prepare_launch_config(launch, generation)?
-        };
-        let origin = crate::native_sharing::capture_catalog_origin(&config);
-        if require_native0 {
-            return Ok(false);
-        }
-        if require_native0 {
-            config.isolation_root = self.generation_home(tab, generation)?;
-        }
+        #[cfg_attr(not(windows), allow(unused_mut))]
+        let mut config = self.prepare_launch_config(launch, generation)?;
         #[cfg(windows)]
         let wsl_account = match wsl_launch {
             Some((profile, binding, cwd)) => self.catalog.wsl.cache.ready()?
@@ -146,11 +128,11 @@ impl Service {
                 return Err(error.into());
             }
         };
-        self.install_terminal(tab, OwnedTerminal::from_catalog(runtime, origin));
+        self.install_terminal(tab, OwnedTerminal::new(runtime));
         // UAC runs on the Runtime owner. Keep Service available for attach,
         // status and cancellation while the secure desktop is open.
         if administrator {
-            return Ok(true);
+            return Ok(());
         }
         self.wait_until(
             Instant::now() + Duration::from_secs(12),
@@ -166,11 +148,7 @@ impl Service {
                     );
                 }
                 match terminal.runtime.phase() {
-                    Phase::Active
-                        if !require_native0 || matches!(terminal.startup, Some(Ok(()))) =>
-                    {
-                        Ok(Some(()))
-                    }
+                    Phase::Active => Ok(Some(())),
                     Phase::Closed => bail!(
                         "Terminal launch failed; closed owner retained until confirmed cleanup."
                     ),
@@ -183,7 +161,7 @@ impl Service {
         if let Some(account) = wsl_account {
             self.host.record_wsl_launch_account(registration, account)?;
         }
-        Ok(true)
+        Ok(())
     }
 }
 

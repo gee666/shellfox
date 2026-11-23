@@ -27,8 +27,6 @@ mod handle_tests;
 mod hooks;
 pub use hooks::{LiveOutputFailure, LiveOutputSink, LiveOutputStatus, RuntimeHooks};
 mod input_receipt;
-mod key_v2;
-pub use key_v2::{InvalidKeyV2, KeyActionV2, ModifiersV2, OwnedKeyEventV2, PhysicalKey};
 mod inspection;
 pub use input_receipt::{InputKind, InputReceipt};
 mod launch;

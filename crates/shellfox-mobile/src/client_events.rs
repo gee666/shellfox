@@ -1,10 +1,6 @@
 use super::*;
 
 pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json::Value>) {
-    if mobile.is_observer() {
-        super::super::observer::finish_event(mobile, op, result);
-        return;
-    }
     if let Ok(mut s) = mobile.state.lock() {
         let Some(reserved) = s.operations.remove(&op.id) else {
             return;
@@ -32,10 +28,7 @@ pub(super) fn finish(mobile: &Mobile, op: &Operation, result: Result<serde_json:
                 }
             }
         }
-        let Ok(client) = mobile.legacy() else {
-            return;
-        };
-        let state = client.state();
+        let state = mobile.client.state();
         if state.status != ConnectionStatus::Connected {
             for binding in s.bindings.values_mut() {
                 binding.lane.fence();

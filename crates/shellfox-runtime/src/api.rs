@@ -131,11 +131,6 @@ pub enum Command {
         lease: Lease,
         event: KeyEvent,
     },
-    /// Manager-v2 input; the same event and encoding as `Key`.
-    KeyV2 {
-        lease: Lease,
-        event: crate::OwnedKeyEventV2,
-    },
     Paste {
         lease: Lease,
         text: String,
@@ -239,7 +234,7 @@ impl Command {
         let bytes = match self {
             Self::Paste { text, .. } => text.len(),
             Self::RawInput { bytes, .. } | Self::InteractiveBytes { bytes, .. } => bytes.len(),
-            Self::Key { event, .. } | Self::KeyV2 { event, .. } => event.text.len(),
+            Self::Key { event, .. } => event.text.len(),
             Self::Resize { cols, rows, .. } => return limits.validate_size(*cols, *rows),
             _ => 0,
         };

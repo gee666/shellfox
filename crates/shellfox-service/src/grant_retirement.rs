@@ -79,7 +79,5 @@ impl Service {
     /// existing cleanup path. Source Finish/Phase never calls this callback.
     pub(crate) fn ownership_source_destroyed(&mut self, identity: Identity) {
         self.grants.destroy_source(identity);
-        self.remote_v2_mailboxes.source_destroyed(identity);
-        self.manager_v2_mailboxes.source_destroyed(identity);
     }
 }

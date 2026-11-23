@@ -12,17 +12,6 @@ impl OwnerClient {
             Err(TrySendError::Disconnected(_)) => bail!("Private owner stopped before admission."),
         }
     }
-    /// Explicit owner-native policy, never a wire request or privilege fact.
-    pub async fn install_observer_factory_policy(
-        &self,
-        policy: crate::NativeFactoryPolicy,
-    ) -> Result<()> {
-        let (reply, response) = oneshot::channel();
-        self.submit_private(PrivateTask::InstallFactoryPolicy { policy, reply })?;
-        response.await.context(
-            "Native factory policy installation reply lost; source stays fenced on uncertainty.",
-        )?
-    }
     /// Protected native bootstrap only. Backend resources are externally validated;
     /// the real Service selects its final ownership-loss token internally.
     pub async fn install_system_native(

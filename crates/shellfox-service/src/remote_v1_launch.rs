@@ -13,6 +13,31 @@ pub(super) fn default_profile(profiles: &wire::TerminalProfiles) -> Option<&str>
         .map(|p| p.id.as_str())
 }
 
+pub(super) fn ensure_launch_profile(state: &RemoteState, id: &str) -> Result<(), AppError> {
+    if super::privacy::elevated_profile(id) {
+        return Err(failure(ErrorCode::AccessDenied, "Elevated launch remains local-only."));
+    }
+    let profiles = state
+        .profiles
+        .as_ref()
+        .ok_or_else(|| capability_unavailable("trusted manager launch profiles"))?;
+    profiles
+        .validate()
+        .map_err(|_| failure(ErrorCode::Internal, "Invalid native profile evidence."))?;
+    let profile = profiles
+        .profiles
+        .iter()
+        .find(|profile| profile.id == id)
+        .ok_or_else(|| failure(ErrorCode::NotFound, "Authorized launch profile not found."))?;
+    if profile.elevation.is_some() {
+        return Err(failure(ErrorCode::AccessDenied, "Elevated launch remains local-only."));
+    }
+    if !profile.available {
+        return Err(capability_unavailable("requested native shell launch"));
+    }
+    Ok(())
+}
+
 impl RemoteService<'_> {
     fn default_v1_profile(&self) -> Result<ProfileId, AppError> {
         let id = self
@@ -63,7 +88,7 @@ impl RemoteService<'_> {
     fn start_remote_tab(&mut self, tab: &shellfox_core::Tab) -> Result<(), AppError> {
         if !self.service.terminals.contains_key(&tab.id) {
             super::v1_privilege::ensure_normal_launch()?;
-            observer::launch::ensure_launch_profile(self.state, tab.profile_id.as_str())?;
+            ensure_launch_profile(self.state, tab.profile_id.as_str())?;
             self.service.start_terminal(tab.id).map_err(|_| {
                 failure(
                     ErrorCode::NativeUnavailable,
@@ -92,7 +117,7 @@ impl RemoteService<'_> {
         } else {
             self.default_v1_profile()?
         };
-        observer::launch::ensure_launch_profile(self.state, profile.as_str())?;
+        ensure_launch_profile(self.state, profile.as_str())?;
         let snapshot = self
             .service
             .create_application_session(shellfox_core::CreateSession {
@@ -137,7 +162,7 @@ impl RemoteService<'_> {
             None => self.default_v1_profile()?,
         };
         super::v1_privilege::ensure_normal_launch()?;
-        observer::launch::ensure_launch_profile(self.state, profile.as_str())?;
+        ensure_launch_profile(self.state, profile.as_str())?;
         let updated = host
             .add_tab(
                 session.id,

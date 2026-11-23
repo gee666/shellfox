@@ -237,16 +237,7 @@ mod status_tests;
 mod tests {
     use super::*;
     #[tokio::test]
-    async fn observer_v2_uses_canonical_paths_and_preserves_numeric_http_rejections() {
-        for (endpoint, path) in [
-            (Endpoint::DiscoverV2, "/v2/discover"),
-            (Endpoint::PairV2, "/v2/pair"),
-            (Endpoint::RequestV2, "/v2/request"),
-            (Endpoint::EventsV2, "/v2/events"),
-            (Endpoint::DisconnectV2, "/v2/disconnect"),
-        ] {
-            assert_eq!(endpoint.path(), path);
-        }
+    async fn http_rejections_keep_their_numeric_status() {
         for status in [401, 403, 404, 429, 500, 503] {
             let raw=format!("HTTP/1.1 {status} Rejected\r\nContent-Length: 999\r\n\r\n404 private diagnostics, deliberately not JSON");
             assert_eq!(

@@ -39,7 +39,7 @@ fn native_deadline_cancels_dispatched_call_without_waiting_for_go() {
             };
             transport
                 .send(
-                    mobile.legacy()?.peer(),
+                    mobile.client.peer(),
                     Endpoint::Discover,
                     b"{}".to_vec(),
                     limits,

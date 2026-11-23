@@ -24,10 +24,6 @@ pub(super) enum PrivateTask {
         store: crate::ssh::Store,
         reply: oneshot::Sender<Result<()>>,
     },
-    InstallFactoryPolicy {
-        policy: crate::NativeFactoryPolicy,
-        reply: oneshot::Sender<Result<()>>,
-    },
     OpenLifetime {
         client_id: uuid::Uuid,
         epoch: uuid::Uuid,
@@ -123,9 +119,6 @@ impl PrivateOwner {
                         .install_system_native(backend)
                         .map_err(|error| anyhow::anyhow!(error.message)),
                 );
-            }
-            PrivateTask::InstallFactoryPolicy { policy, reply } => {
-                let _ = reply.send(service.install_observer_factory_policy(policy));
             }
             PrivateTask::InstallSshProfiles { store, reply } => {
                 let result = service.assert_accepting().and_then(|()| {

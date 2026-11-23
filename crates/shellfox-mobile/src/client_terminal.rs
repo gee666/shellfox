@@ -25,7 +25,7 @@ pub(super) struct Binding {
 }
 #[path = "client_binding.rs"]
 mod binding;
-pub(super) use binding::{bind, owners, release, unbind};
+pub(super) use binding::{bind, release, unbind};
 #[path = "client_settlement.rs"]
 mod settlement;
 use settlement::{apply_settlement, record_settlement};
@@ -163,7 +163,7 @@ pub(super) fn poll_ready(mobile: &Mobile) -> Result<()> {
     Ok(())
 }
 pub(super) fn events(mobile: &Mobile, response: PollResponse) -> Result<serde_json::Value> {
-    let connection = mobile.legacy()?.state().connection_id;
+    let connection = mobile.client.state().connection_id;
     let mut s = mobile.state.lock().map_err(|_| PANIC)?;
     if s.closed {
         return Err(STALE);
@@ -223,7 +223,7 @@ pub(super) fn events(mobile: &Mobile, response: PollResponse) -> Result<serde_js
     Ok(serde_json::json!({"ok":true,"value":{"events":coarse}}))
 }
 pub(super) fn consumed(mobile: &Mobile, terminal: u64) -> Result<AcknowledgeTerminal> {
-    let connection = mobile.legacy()?.state().connection_id;
+    let connection = mobile.client.state().connection_id;
     let mut s = mobile.state.lock().map_err(|_| PANIC)?;
     let b = s
         .bindings
@@ -265,7 +265,7 @@ pub(super) fn resized(
     cols: u16,
     rows: u16,
 ) -> Result<ResizeTerminal> {
-    let connection = mobile.legacy()?.state().connection_id;
+    let connection = mobile.client.state().connection_id;
     let s = mobile.state.lock().map_err(|_| PANIC)?;
     let b = s
         .bindings
@@ -287,7 +287,7 @@ pub(super) fn written(
     data: String,
     user_initiated: bool,
 ) -> Result<WriteTerminal> {
-    let connection = mobile.legacy()?.state().connection_id;
+    let connection = mobile.client.state().connection_id;
     let s = mobile.state.lock().map_err(|_| PANIC)?;
     let b = s
         .bindings

@@ -22,10 +22,6 @@ fn defaults_are_planned_original_control_namespace_and_local_factory_without_eff
     };
     assert_eq!(config.hostname, hostname);
     assert_eq!(config.source_factory, SourceFactory::Local);
-    assert_eq!(
-        config.source_factory.policy().unwrap(),
-        NativeFactoryPolicy::Disabled
-    );
     assert!(!host.exists());
     assert!(!config.remote_state_dir.exists());
 }
@@ -122,8 +118,7 @@ fn trusted_resource_input_reaches_boot_options_without_materializing_storage() {
         .with_provider_resources(resources);
     assert!(configured.provider_resources.is_some());
     // This is only the explicit supervisor planning fixture, never askpass or package authority.
-    let options = configured.remote_options(std::env::current_exe().unwrap(), false).unwrap();
-    assert_eq!(options.observer_factory_policy, NativeFactoryPolicy::Disabled);
+    configured.remote_options(std::env::current_exe().unwrap(), false).unwrap();
     assert!(!host.exists());
     assert!(!host.join("rust-service-v1/ssh").exists());
 }

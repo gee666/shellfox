@@ -1,6 +1,4 @@
 use super::*;
-#[path = "backend_http_manager_tests.rs"]
-mod manager;
 use crate::{Approval, ViewPermission};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 struct OfflineOwner;

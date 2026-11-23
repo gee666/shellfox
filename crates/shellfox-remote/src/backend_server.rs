@@ -42,16 +42,7 @@ impl Backend {
                             let _permit = permit;
                             let operation = async {
                                 let result = match tokio::time::timeout(Duration::from_secs(10), http::read(&mut stream)).await {
-                                    Ok(Ok(request)) => {
-                                        if let Some(endpoint)=request.manager_endpoint() {
-                                            // The signed handler owns authentication, policy and
-                                            // canonical V2 encoding. Never wrap it in legacy Reply.
-                                            let reply=backend.handle_manager_v2_signed(endpoint,&request.body,request.signed_headers()).await;
-                                            let _=http::reply_with_status(&mut stream,reply.status,&reply.body).await;
-                                            return;
-                                        }
-                                        backend.handle(request).await
-                                    },
+                                    Ok(Ok(request)) => backend.handle(request).await,
                                     _ => Err(invalid()),
                                 };
                                 let reply = match result { Ok(value) => Reply::Success(value), Err(error) => Reply::Failure(error) };
@@ -70,8 +61,6 @@ impl Backend {
         Ok((origin, BackendHandle { task, address }))
     }
     async fn sweep(&self) {
-        self.sweep_observer_v2().await;
-        self.sweep_manager_v2().await;
         let now = (self.clock)();
         let _ = self.approvals.expire_pending_async(now).await;
         let views = if let Ok(limits) = self.limits.lock() {

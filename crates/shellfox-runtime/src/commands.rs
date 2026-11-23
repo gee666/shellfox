@@ -64,7 +64,6 @@ impl Owner {
             | Command::ObserverLayoutAck { .. }
             | Command::Unobserve { .. } => return self.observer_command(command),
             Command::Key { lease, .. }
-            | Command::KeyV2 { lease, .. }
             | Command::Paste { lease, .. }
             | Command::RawInput { lease, .. }
             | Command::Mouse { lease, .. }
@@ -91,7 +90,6 @@ impl Owner {
         self.delivery.check(lease).map_err(RuntimeError::control)?;
         match &command {
             Command::Key { .. }
-            | Command::KeyV2 { .. }
             | Command::Paste { .. }
             | Command::RawInput { .. }
             | Command::Mouse { .. }
@@ -135,7 +133,7 @@ impl Owner {
                 stamp,
                 ..
             } => return self.stamped_mouse(request_id, lease, event, geometry, stamp),
-            Command::Key { event, .. } | Command::KeyV2 { event, .. } => {
+            Command::Key { event, .. } => {
                 self.active()?;
                 let bytes = self.terminal.encode_key_event(&event).map_err(engine)?;
                 let result = self.accept_input(

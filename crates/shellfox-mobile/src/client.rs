@@ -3,26 +3,8 @@
 mod lifecycle;
 #[path = "client_mutations.rs"]
 mod mutations;
-#[path = "client_observer.rs"]
-mod observer;
-#[path = "client_observer_actions.rs"]
-mod observer_actions;
-#[path = "client_observer_delivery.rs"]
-mod observer_delivery;
-#[path = "client_observer_events.rs"]
-mod observer_events;
-#[path = "client_observer_flow.rs"]
-mod observer_flow;
-#[path = "client_observer_http.rs"]
-mod observer_http;
-#[path = "client_observer_owner.rs"]
-mod observer_owner;
 #[path = "client_operations.rs"]
 mod operations;
-#[path = "client_profile.rs"]
-mod profile;
-pub use observer::*;
-pub(crate) use profile::observer_bound;
 #[path = "client_runtime.rs"]
 mod runtime;
 #[path = "client_terminal.rs"]
@@ -189,7 +171,6 @@ pub unsafe extern "C" fn sfm_client_complete(
 ) -> i32 {
     boundary(|| {
         let mobile = registry_lookup(handle)?;
-        mobile.legacy()?;
         // SAFETY: forwarded native memory contract, checked before copying.
         let bytes = unsafe { bytes(ptr, len, shellfox_protocol::MAX_RESPONSE_BYTES)? };
         transport::complete(&mobile, generation, request, outcome, bytes)

@@ -1,7 +1,6 @@
 use super::*;
 
 fn fence_native(mobile: &Mobile) -> Result<()> {
-    mobile.legacy()?;
     let mut s = mobile.state.lock().map_err(|_| PANIC)?;
     if s.closed {
         return Err(STALE);
@@ -18,7 +17,7 @@ fn fence_native(mobile: &Mobile) -> Result<()> {
         }
     }
     terminal::invalidate(&mut s)?;
-    mobile.legacy()?.suspend();
+    mobile.client.suspend();
     Ok(())
 }
 
@@ -57,7 +56,7 @@ pub unsafe extern "C" fn sfm_client_reconnect(handle: u64, out: *mut u64) -> i32
             let mobile = registry_lookup(handle)?;
             let _dispatch = mobile.dispatch_gate.lock().map_err(|_| PANIC)?;
             fence_native(&mobile)?;
-            mobile.legacy()?.reconnect(ClientId::new_v4());
+            mobile.client.reconnect(ClientId::new_v4());
             operations::pair(mobile.clone())
         })
     })
@@ -75,7 +74,7 @@ pub unsafe extern "C" fn sfm_client_disconnect(handle: u64, out: *mut u64) -> i3
                 mobile.clone(),
                 CompletionOrigin::Explicit,
                 |mobile| async move {
-                    let result = mobile.legacy()?.disconnect().await.map_err(client_error)?;
+                    let result = mobile.client.disconnect().await.map_err(client_error)?;
                     serde_json::to_value(result).map_err(|_| PROTOCOL)
                 },
             )
@@ -114,10 +113,9 @@ pub unsafe extern "C" fn sfm_client_close(
             s.events.clear();
             s.event_bytes = 0;
             s.bindings.clear();
-            s.observers.clear();
             s.cancels.drain(..).collect::<Vec<_>>()
         };
-        mobile.close_client();
+        mobile.client.suspend();
         remove(handle)?;
         terminal::release(&mobile);
         for (generation, request) in cancellations {

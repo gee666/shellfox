@@ -28,19 +28,12 @@ pub use native_endpoint_report::{
 };
 mod native_catalog;
 pub use native_catalog::NativeLaunchCatalog;
-mod native_sharing;
-pub use native_sharing::NativeFactoryPolicy;
-mod mailbox_custody;
-mod manager_delivery;
-mod manager_mailboxes;
-mod manager_retire;
 #[cfg(test)]
 use shellfox_test_support::native_metadata as native_metadata_fixture;
 mod owner;
 mod owner_automation;
 mod owner_wait;
 mod automation_replay;
-pub mod peer;
 #[cfg(windows)]
 mod pipe_identity;
 mod platform;
@@ -48,8 +41,6 @@ pub mod power;
 mod power_client;
 mod power_service;
 pub mod remote;
-pub mod remote_v2;
-mod remote_v2_retire;
 mod security;
 mod service_activity;
 mod service_open;
@@ -120,12 +111,9 @@ pub struct Service {
     grants: grant_custody::GrantCustody,
     grant_recipient: shellfox_protocol::CancellationToken,
     next_viewer_id: u64,
-    remote_v2_mailboxes: remote_v2::mailboxes::ObserverMailboxes,
-    manager_v2_mailboxes: manager_mailboxes::ManagerMailboxes,
     native: native::NativeState,
     catalog: native_catalog::NativeCatalogState,
     power: power_service::ServicePower,
-    factory_policy: native_sharing::FactoryPolicyState,
     activity: service_activity::ServiceActivity,
     ownership_lost: shellfox_protocol::CancellationToken,
     stopping: bool,
@@ -287,8 +275,6 @@ impl Service {
         self.begin_stop_power();
         self.begin_stop_native_catalog();
         self.begin_stop_system_native();
-        self.disable_observer_factory_policy()
-            .map_err(ShutdownFailure::ResourceCleanup)?;
         self.stop_automation()
             .map_err(ShutdownFailure::ResourceCleanup)?;
         let identities: Vec<_> = self

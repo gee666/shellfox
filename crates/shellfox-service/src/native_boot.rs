@@ -35,7 +35,6 @@ pub(super) struct BootGuard {
     shutdown: Option<crate::ShutdownOutcome>,
     install_source: Option<super::SourceFactsInstaller>,
     supervisor: Option<std::path::PathBuf>,
-    observer_factory_policy: crate::NativeFactoryPolicy,
     providers: provider_boot::NativeProviderState,
 }
 impl BootGuard {
@@ -56,7 +55,6 @@ impl BootGuard {
             shutdown: None,
             install_source: None,
             supervisor: None,
-            observer_factory_policy: crate::NativeFactoryPolicy::Disabled,
             providers: provider_boot::NativeProviderState::default(),
         })
     }
@@ -164,14 +162,6 @@ impl BootGuard {
         self.install_native_providers().await?;
         let ownership = self.preparation.acquired_view()?;
         self.server.ensure_running()?;
-        if self.observer_factory_policy != crate::NativeFactoryPolicy::Disabled {
-            self.actor
-                .as_ref()
-                .context("Service owner missing before native policy installation.")?
-                .client(uuid::Uuid::new_v4())
-                .install_observer_factory_policy(self.observer_factory_policy)
-                .await?;
-        }
         self.private
             .protect_artifacts(ownership.permission_verifier())
             .await?;

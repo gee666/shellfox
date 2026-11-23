@@ -1,6 +1,6 @@
 use super::*;
 #[tokio::test]
-async fn v2_returns_actual_status_and_opaque_bounded_body_without_legacy_relabel() {
+async fn status_reads_return_the_actual_status_and_opaque_bounded_body() {
     for status in [200_u16, 302, 403, 404, 409, 503] {
         let body: &[u8] = if status == 200 { b"{}" } else { b"opaque\xffbody" };
         let mut raw = format!("HTTP/1.1 {status} Actual\r\nContent-Length: {}\r\n\r\n",body.len()).into_bytes();

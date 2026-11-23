@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    grant_requests::{GrantFailure, GrantHolder},
+    grant_requests::GrantFailure,
     terminals::Attachment,
 };
 use shellfox_core::{Generation, TabId, TabState};
@@ -57,7 +57,7 @@ impl RemoteService<'_> {
                 return Err(lost());
             }
             super::v1_privilege::ensure_normal_launch()?;
-            observer::launch::ensure_launch_profile(self.state, saved.profile_id.as_str())?;
+            super::v1_launch::ensure_launch_profile(self.state, saved.profile_id.as_str())?;
             self.service.start_terminal(tab).map_err(|_| {
                 failure(
                     ErrorCode::NativeUnavailable,
@@ -94,7 +94,7 @@ impl RemoteService<'_> {
         };
         let lease = self
             .service
-            .adopt_controller_grant(offer, GrantHolder::LegacyController)
+            .adopt_controller_grant(offer)
             .map_err(|_| lost())?;
         let projection = (|| {
             let (bytes, raw_cut, cols, rows) =

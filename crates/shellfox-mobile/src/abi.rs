@@ -141,9 +141,6 @@ pub extern "C" fn sfm_terminal_frame(
 #[no_mangle]
 pub extern "C" fn sfm_terminal_resize(handle: u64, cols: u16, rows: u16) -> i32 {
     boundary(|| {
-        if crate::client::observer_bound(handle) {
-            return Err(Status::Invalid);
-        }
         engine::dimensions(cols, rows)?;
         engine::with_engine(handle, |owned| {
             owned
@@ -185,9 +182,6 @@ pub unsafe extern "C" fn sfm_terminal_input_ex(
 }
 
 pub(crate) fn encode_input(handle: u64, json: &[u8]) -> Result<(Vec<u8>, u8)> {
-    if crate::client::observer_bound(handle) {
-        return Err(Status::Invalid);
-    }
     let event = serde_json::from_slice::<input::Input>(json).map_err(|_| Status::Invalid)?;
     let user_initiated = event.user_initiated();
     let encoded = engine::with_engine(handle, |owned| input::encode(&mut owned.terminal, event))?;

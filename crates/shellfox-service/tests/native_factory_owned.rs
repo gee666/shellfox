@@ -207,21 +207,21 @@ fn outgoing_native_and_private_clients_share_disabled_host_without_implicit_pair
             max_request_bytes: shellfox_protocol::MAX_REQUEST_BYTES,
             max_response_bytes: shellfox_protocol::MAX_RESPONSE_BYTES,
         };
-        for endpoint in [OutgoingV2Endpoint::Discover, OutgoingV2Endpoint::Pair, OutgoingV2Endpoint::Request, OutgoingV2Endpoint::Events, OutgoingV2Endpoint::Disconnect] {
+        for endpoint in [OutgoingV2Endpoint::DiscoverV1, OutgoingV2Endpoint::PairV1, OutgoingV2Endpoint::RequestV1, OutgoingV2Endpoint::EventsV1, OutgoingV2Endpoint::DisconnectV1] {
             assert_eq!(native.outgoing_v2_with_status(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
             assert_eq!(local.outgoing_v2_with_status(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
         }
         let cancelled = limits(); cancelled.cancel.cancel();
-        assert_eq!(native.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::Request, b"{}".to_vec(), cancelled.clone()).await, Err(TransportError::Cancelled));
-        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::Request, b"{}".to_vec(), cancelled).await, Err(TransportError::Cancelled));
+        assert_eq!(native.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), cancelled.clone()).await, Err(TransportError::Cancelled));
+        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), cancelled).await, Err(TransportError::Cancelled));
         let expired = RequestLimits { deadline:Instant::now()-Duration::from_millis(1), ..limits() };
-        assert_eq!(native.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::Request, b"{}".to_vec(), expired.clone()).await, Err(TransportError::Deadline));
-        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::Request, b"{}".to_vec(), expired).await, Err(TransportError::Deadline));
+        assert_eq!(native.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), expired.clone()).await, Err(TransportError::Deadline));
+        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), expired).await, Err(TransportError::Deadline));
         let state = native.execute(NativeAction::Remote(shellfox_service::remote::RemoteRequest::State)).await?;
         let NativeResponse::Remote(state) = state else { anyhow::bail!("Remote state absent") };
         ensure!(!state.enabled && state.attempts.is_empty() && state.pending.is_empty() && state.approvals.is_empty(), "Opaque outgoing operation implicitly changed authority/networking");
         local.disconnect().await?;
-        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::Discover, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
+        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::DiscoverV1, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
         Ok(())
     })?;
     Ok(())

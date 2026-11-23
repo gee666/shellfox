@@ -141,7 +141,7 @@ pub(super) fn enqueue(
         RemoteCommand::ResizeTerminal(v) => v.tab_id,
         _ => return Err(INVALID),
     };
-    let connection = mobile.legacy()?.state();
+    let connection = mobile.client.state();
     if connection.status != shellfox_client::ConnectionStatus::Connected {
         return Err(STALE);
     }

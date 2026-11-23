@@ -144,7 +144,7 @@ pub(super) fn accept(mobile: Arc<Mobile>, command: RemoteCommand) -> Result<u64>
     let executor = runtime()?;
     command.validate().map_err(|_| INVALID)?;
     let tab = tab(&command)?;
-    let connection = mobile.legacy()?.state();
+    let connection = mobile.client.state();
     if connection.status != shellfox_client::ConnectionStatus::Connected {
         return Err(STALE);
     }
@@ -193,7 +193,7 @@ pub(super) fn accept(mobile: Arc<Mobile>, command: RemoteCommand) -> Result<u64>
     let worker = executor.spawn(CURRENT.scope(operation.clone(), async move {
         let result = match request_slot(&owner).await {
             Ok(_slot) => owner
-                .legacy()?
+                .client
                 .execute_command(&task.command)
                 .await
                 .map_err(client_error),

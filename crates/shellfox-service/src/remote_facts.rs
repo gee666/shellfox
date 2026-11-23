@@ -194,11 +194,6 @@ impl FactsPipeline {
                 state.home = facts.home;
                 state.dispatch_request(service, job.request);
             }
-            Err(_) if snapshot_v2(&job.request.command) => {
-                // Saved authorized metadata remains answerable with explicit
-                // unknown capabilities, never a failed whole V1 projection.
-                state.dispatch_request(service, job.request);
-            }
             Err(error) => job.request.complete(Err(error)),
         }
         true
@@ -238,26 +233,7 @@ fn required_session(
         _ => None,
     })
 }
-fn snapshot_v2(command: &OwnerCommand) -> bool {
-    match command {
-        OwnerCommand::ObserverV2(request) => matches!(
-            &request.operation,
-            shellfox_remote::ObserverOperation::Execute(wire::observer_v2::Command::GetSnapshot(_))
-        ),
-        OwnerCommand::ManagerV2(request) => matches!(
-            &request.operation,
-            shellfox_remote::ManagerOperation::Execute(wire::manager_v2::Command::GetSnapshot(_))
-        ),
-        _ => false,
-    }
-}
 fn capabilities_only(command: &OwnerCommand) -> bool {
-    if matches!(
-        command,
-        OwnerCommand::ObserverV2(_) | OwnerCommand::ManagerV2(_)
-    ) {
-        return true;
-    }
     let OwnerCommand::Execute { command, .. } = command else {
         return false;
     };
@@ -305,34 +281,8 @@ pub(super) fn requires_facts(
         // validates and adopts the runtime on this same owner turn.
         return !has_runtime(input.tab_id);
     }
-    if capabilities_only(command) && matches!(command, OwnerCommand::Execute { .. }) {
+    if capabilities_only(command) {
         return true;
-    }
-    if let OwnerCommand::ManagerV2(request) = command {
-        return matches!(
-            &request.operation,
-            shellfox_remote::ManagerOperation::Execute(
-                wire::manager_v2::Command::GetSnapshot(_)
-                    | wire::manager_v2::Command::GetTerminalProfiles(_)
-                    | wire::manager_v2::Command::GetHomeDirectory(_)
-                    | wire::manager_v2::Command::CreateSession(_)
-                    | wire::manager_v2::Command::AddTab(_)
-                    | wire::manager_v2::Command::ActivateSession(_)
-            )
-        );
-    }
-    if let OwnerCommand::ObserverV2(request) = command {
-        return matches!(
-            &request.operation,
-            shellfox_remote::ObserverOperation::Execute(
-                wire::observer_v2::Command::GetSnapshot(_)
-                    | wire::observer_v2::Command::GetTerminalProfiles(_)
-                    | wire::observer_v2::Command::GetHomeDirectory(_)
-                    | wire::observer_v2::Command::CreateSession(_)
-                    | wire::observer_v2::Command::AddTab(_)
-                    | wire::observer_v2::Command::ActivateSession(_)
-            )
-        );
     }
     matches!(
         command,

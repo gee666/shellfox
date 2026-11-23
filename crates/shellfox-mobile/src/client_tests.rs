@@ -16,8 +16,6 @@ mod input_metadata;
 mod mutation_order;
 #[path = "client_tests_terminal.rs"]
 mod native_terminal;
-#[path = "client_tests_observer.rs"]
-mod observer_v2;
 #[path = "client_tests_geometry.rs"]
 mod recovery_geometry;
 #[path = "client_tests_settlement.rs"]

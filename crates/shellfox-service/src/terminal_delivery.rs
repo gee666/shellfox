@@ -2,7 +2,6 @@ use super::*;
 
 impl Service {
     pub(crate) fn pump(&mut self) {
-        let _ = self.pump_remote_observer_retirements();
         let tabs: Vec<_> = self.terminals.keys().copied().collect();
         for tab in tabs {
             let _ = self.drain(tab);
@@ -49,12 +48,6 @@ impl Service {
                 // Frame requests queue behind this pass, so they see every event drained here.
                 self.native.watches.frames.wake(tab);
             }
-            let Some(event) = self.remote_v2_mailboxes.record(identity, event) else {
-                continue;
-            };
-            let Some(event) = self.manager_v2_mailboxes.record(identity, event) else {
-                continue;
-            };
             if let Event::Reply { id, result } = &event {
                 self.activity_input_reply(identity, *id, result);
             }
@@ -73,12 +66,8 @@ impl Service {
                 .context("Terminal owner disappeared.")?;
             match event {
                 Event::Started(result) => {
-                    let first = terminal.startup.is_none();
-                    if first {
+                    if terminal.startup.is_none() {
                         terminal.startup = Some(result);
-                    }
-                    if first {
-                        self.activate_observer_factory_policy(tab);
                     }
                     self.activity.dirty = true;
                 }

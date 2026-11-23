@@ -94,7 +94,7 @@ pub extern "C" fn sfm_client_terminal_consumed(handle: u64, engine: u64) -> i32 
     boundary(|| {
         let mobile = registry_lookup(handle)?;
         let ack = terminal::consumed(&mobile, engine)?;
-        let connection = mobile.legacy()?.state().connection_id;
+        let connection = mobile.client.state().connection_id;
         let retry = ack.clone();
         let owner = mobile.clone();
         if let Err(error) = launch_small(
@@ -102,7 +102,7 @@ pub extern "C" fn sfm_client_terminal_consumed(handle: u64, engine: u64) -> i32 
             CompletionOrigin::NativeInternal,
             move |mobile| async move {
                 let result = match request_slot(&mobile).await {
-                    Ok(_slot) => mobile.legacy()?.execute(&ack).await.map_err(client_error),
+                    Ok(_slot) => mobile.client.execute(&ack).await.map_err(client_error),
                     Err(error) => Err(error),
                 };
                 terminal::ack_finished(
@@ -152,9 +152,6 @@ pub unsafe extern "C" fn sfm_client_terminal_write_ex(
                 1 => true,
                 _ => return Err(INVALID),
             };
-            if observer_bound(engine) {
-                return Err(INVALID);
-            }
             let mobile = registry_lookup(handle)?;
             let data = text(ptr, len, crate::MAX_INPUT)?.to_owned();
             let request = terminal::written(&mobile, engine, data, user_initiated)?;
@@ -178,9 +175,6 @@ pub unsafe extern "C" fn sfm_client_terminal_resize(
 ) -> i32 {
     boundary(|| unsafe {
         output(out, || {
-            if observer_bound(engine) {
-                return Err(INVALID);
-            }
             let mobile = registry_lookup(handle)?;
             let request = terminal::resized(&mobile, engine, cols, rows)?;
             mutations::enqueue(

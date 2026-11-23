@@ -30,7 +30,6 @@ pub(crate) struct OwnedTerminal {
     pub(crate) startup: Option<std::result::Result<(), shellfox_runtime::RuntimeError>>,
     pub(crate) startup_error_acknowledged: bool,
     pub(crate) external_cleanup: Option<crate::automation::AutomationCleanupProof>,
-    pub(crate) source_share: crate::native_sharing::SourceShareRecord,
     pub(crate) control_epoch: u64,
     replies: VecDeque<(
         RequestId,
@@ -48,10 +47,8 @@ pub(crate) struct OwnedTerminal {
 }
 impl OwnedTerminal {
     pub(crate) fn new(runtime: Runtime) -> Self {
-        let source_share = crate::native_sharing::SourceShareRecord::local_only(runtime.identity());
         Self {
             runtime,
-            source_share,
             control_epoch: 0,
             startup: None,
             startup_error_acknowledged: false,
@@ -67,15 +64,6 @@ impl OwnedTerminal {
             acked: None,
             recovery_pending: None,
         }
-    }
-    pub(crate) fn from_catalog(
-        runtime: Runtime,
-        origin: crate::native_sharing::CapturedCatalogOrigin,
-    ) -> Self {
-        let mut terminal = Self::new(runtime);
-        terminal.source_share =
-            crate::native_sharing::SourceShareRecord::captured(terminal.runtime.identity(), origin);
-        terminal
     }
     pub(crate) fn install_lease(&mut self, lease: Lease) {
         self.discard_output();
@@ -112,7 +100,7 @@ impl OwnedTerminal {
 impl Service {
     pub fn attach(&mut self, tab: TabId, controller: u64, takeover: bool) -> Result<Attachment> {
         let offer = self.attach_with_policy(tab, controller, takeover, true)?;
-        self.adopt_controller_grant(offer, crate::grant_requests::GrantHolder::LegacyController)
+        self.adopt_controller_grant(offer)
     }
     /// Manager IfFree must reach the actual Runtime unchanged. A missing local
     /// Service slot does not prove the Runtime controller is free.

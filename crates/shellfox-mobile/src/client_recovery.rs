@@ -29,7 +29,7 @@ pub(crate) fn reset_grid(mobile: &Mobile, terminal: u64, ticket: u64) -> Result<
     b.required_grid.ok_or(EMPTY)
 }
 pub(crate) fn reset_done(mobile: &Mobile, terminal: u64, ticket: u64) -> Result<()> {
-    let connection = mobile.legacy()?.state().connection_id;
+    let connection = mobile.client.state().connection_id;
     let mut s = mobile.state.lock().map_err(|_| PANIC)?;
     let b = s
         .bindings
