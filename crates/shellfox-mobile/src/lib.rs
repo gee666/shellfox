@@ -4,6 +4,9 @@ mod client;
 mod configure;
 mod engine;
 mod frame;
+// Wired into terminal input with the platform editors (next step).
+#[allow(dead_code)]
+mod composer;
 mod input;
 mod interaction;
 mod queue;
