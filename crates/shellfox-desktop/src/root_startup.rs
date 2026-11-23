@@ -80,7 +80,6 @@ impl Root {
                 return root;
             }
         }
-        Self::start_poll(window, cx);
         root.watches.extend(root.watch_updates(window, cx));
         root.watches.extend(root.watch_semantics(window, cx));
         if options.mode == Mode::Fixture {
@@ -161,7 +160,8 @@ impl Root {
                                 root.watch_tab_activity(client.clone(), window, cx);
                                 let workspace = root.watch_workspace(client.clone(), window, cx);
                                 let power = root.watch_power(client.clone(), window, cx);
-                                root.watches.extend([workspace, power]);
+                                let peers = root.watch_peer_inventory(client.clone(), window, cx);
+                                root.watches.extend([workspace, power, peers]);
                                 crate::update_view::read_initial_preference(client.clone(), cx);
                                 root.host = Some(client);
                                 root.refresh_snapshot(window, cx);

@@ -220,28 +220,25 @@ impl Root {
             view.read(cx).focus.focus(window);
         }
     }
-    fn start_poll(window: &Window, cx: &Context<Self>) {
-        cx.spawn_in(window, async move |root, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(std::time::Duration::from_millis(250))
-                    .await;
-                if root
-                    .update_in(cx, |root, window, cx| {
-                        root.poll_session_visibility(window, cx);
-                        root.poll_peer_inventory(window, cx);
-                        root.poll_peer_sources(window, cx);
-                        root.resume_peer_files(cx);
-                        if let Err(error) = root.sync_app_guard(cx) {
-                            root.error = Some(error.to_string());
-                            cx.notify();
-                        }
-                    })
-                    .is_err()
-                {
-                    break;
-                }
+    /// Work whose inputs are window state. Runs after every render, which
+    /// follows each change; time-based retries call notify_at.
+    pub(crate) fn after_render(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_peer_sources(window, cx);
+        self.resume_peer_files(cx);
+        if let Err(error) = self.sync_app_guard(cx) {
+            let message = error.to_string();
+            if self.error.as_ref() != Some(&message) {
+                self.error = Some(message);
+                cx.notify();
             }
+        }
+    }
+    /// Re-renders once `deadline` has passed, so after_render sees it.
+    pub(crate) fn notify_at(&self, deadline: std::time::Instant, cx: &mut Context<Self>) {
+        cx.spawn(async move |root, cx| {
+            let delay = deadline.saturating_duration_since(std::time::Instant::now());
+            cx.background_executor().timer(delay).await;
+            let _ = root.update(cx, |_, cx| cx.notify());
         })
         .detach();
     }

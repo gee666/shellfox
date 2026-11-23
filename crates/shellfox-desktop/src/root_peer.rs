@@ -63,6 +63,28 @@ impl Root {
         self.focus_selected(window, cx);
         cx.notify();
     }
+    /// Follows the host's remote state; the host holds each read until it changes.
+    pub(crate) fn watch_peer_inventory(
+        &self,
+        client: crate::host_client::HostClient,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::Task<()> {
+        cx.spawn_in(window, async move |root, cx| {
+            let mut changes = client.remote_changes();
+            while let Ok(state) = changes.next().await {
+                let current = root.update_in(cx, |root, window, cx| {
+                    if !root.closing_window && !root.peer_ui.frozen {
+                        root.accept_peer_remote(state, window, cx);
+                    }
+                    !root.closing_window
+                });
+                if !matches!(current, Ok(true)) {
+                    return;
+                }
+            }
+        })
+    }
     pub(crate) fn poll_peer_inventory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.closing_window || self.peer_ui.frozen || self.peers.inventory_pending {
             return;

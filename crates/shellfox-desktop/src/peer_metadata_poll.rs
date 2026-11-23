@@ -31,6 +31,7 @@ impl Root {
             self.peer_ui
                 .metadata_polls
                 .insert(id.clone(), Some(now + Duration::from_secs(2)));
+            self.notify_at(now + Duration::from_secs(2), cx);
             self.connect_catalog(id, window, cx);
         }
         let peers: Vec<_> = self
@@ -69,6 +70,7 @@ impl Root {
                         cycle.peer.clone(),
                         Some(Instant::now() + Duration::from_secs(1)),
                     );
+                    root.notify_at(Instant::now() + Duration::from_secs(1), cx);
                     if root.peer_ui.frozen || root.closing_window {
                         return;
                     }

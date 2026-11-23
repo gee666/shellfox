@@ -1,23 +1,33 @@
 use super::*;
 impl SettingsPanel {
+    /// While Settings is open, rereads settings when the host revision moves
+    /// and remote state when it changes. Both reads are held by the host.
     pub(super) fn start_remote_poll(&mut self, cx: &mut Context<Self>) {
         if self.remote.polling || !self.visible {
             return;
         }
         self.remote.polling = true;
+        let mut revisions = self.client.revisions();
+        let mut remote = self.client.remote_changes();
         cx.spawn(async move |panel, cx| {
+            // Both streams yield their current value first; that read is done by opened().
+            let _ = revisions.next().await;
+            let _ = remote.next().await;
             loop {
-                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let settings = tokio::select! {
+                    changed = revisions.next() => if changed.is_err() { break } else { true },
+                    changed = remote.next() => if changed.is_err() { break } else { false },
+                };
                 let keep = panel.update(cx, |panel, cx| {
                     if !panel.visible {
-                        panel.remote.polling = false;
                         return false;
                     }
                     if panel.operations.frozen() {
                         return true;
                     }
-                    panel.refresh(cx);
-                    if panel.services.is_some() {
+                    if settings {
+                        panel.refresh(cx);
+                    } else if panel.services.is_some() {
                         panel.load_remote(cx);
                     }
                     true
@@ -26,6 +36,7 @@ impl SettingsPanel {
                     break;
                 }
             }
+            let _ = panel.update(cx, |panel, _| panel.remote.polling = false);
         })
         .detach();
     }

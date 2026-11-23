@@ -48,6 +48,7 @@ pub(crate) fn button(
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_file_source(cx);
+        cx.defer_in(window, |root, window, cx| root.after_render(window, cx));
         self.sidebar_ui.list.begin_frame();
         self.html_preview.begin_frame();
         let resize_root = cx.entity();

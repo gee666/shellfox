@@ -122,7 +122,8 @@ impl Root {
         files.request += 1;
         let request = files.request;
         files.busy = true;
-        files.resume_retry = Some(Instant::now() + Duration::from_secs(2));
+        let retry = Instant::now() + Duration::from_secs(2);
+        files.resume_retry = Some(retry);
         let cancel = EditorCancellation::default();
         files.operation = Some(FileOperation::Revalidate(cancel.clone()));
         let reading = fresh.clone();
@@ -186,6 +187,7 @@ impl Root {
             });
         })
         .detach();
+        self.notify_at(retry, cx);
         cx.notify();
     }
 }
