@@ -6,71 +6,123 @@ import android.text.SpannableStringBuilder
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.InputMethodManager
 
-/** The editable holds marked text only, never a second terminal transcript. */
+/**
+ * The keyboard's own small editor. It holds the text typed since the last
+ * Enter or key, so the keyboard can autocorrect, swipe and suggest on it.
+ * After every keyboard call, its committed text goes to Rust, which sends the
+ * terminal the edit (backspaces + new text). Composing text stays a preedit.
+ */
 internal class TerminalInputConnection(
   private val view: View, private val input: TerminalInput, private val preedit: (String) -> Unit,
   private val writable: () -> Boolean,
 ) : BaseInputConnection(view, true) {
-  private val marked = SpannableStringBuilder()
+  private val editor = SpannableStringBuilder()
+  private var reported = ""
   private var monitorCursor = false
   private var anchor = floatArrayOf(0f, 0f, 0f, 0f)
   private var lastAnchor = ""
-  override fun getEditable(): Editable = marked
+  override fun getEditable(): Editable = editor
 
-  override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
-    if (!writable() || (text?.length ?: 0) > 4096) return false
-    super.setComposingText(text, newCursorPosition)
-    updatePreedit()
-    return true
-  }
-
-  override fun setComposingRegion(start: Int, end: Int): Boolean {
-    if (!boundary(start) || !boundary(end)) return false
-    return super.setComposingRegion(start, end)
-  }
-
-  override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+  private inline fun edit(action: () -> Boolean): Boolean {
     if (!writable()) return false
-    val value = text?.toString().orEmpty()
-    if (!TerminalInput.validUnicode(value) || value.toByteArray(Charsets.UTF_8).size > 60_000) return false
-    clearMarked()
-    if (value.isNotEmpty()) input.text("commit", value)
-    return true
+    val handled = action()
+    report()
+    return handled
   }
-
+  override fun setComposingText(text: CharSequence?, newCursorPosition: Int) = edit {
+    super.setComposingText(text, newCursorPosition)
+  }
+  override fun setComposingRegion(start: Int, end: Int) = edit { super.setComposingRegion(start, end) }
+  override fun commitText(text: CharSequence?, newCursorPosition: Int) = edit {
+    TerminalInput.validUnicode(text?.toString().orEmpty()) && super.commitText(text, newCursorPosition)
+  }
   override fun finishComposingText(): Boolean {
-    if (!writable()) { clearMarked(); return true }
-    val value = marked.toString()
-    if (!TerminalInput.validUnicode(value)) return false
-    clearMarked()
-    if (value.isNotEmpty()) input.text("commit", value)
-    return true
+    if (!writable()) { clear(); return true }
+    return edit { super.finishComposingText() }
   }
-
   override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-    if (!writable() || beforeLength !in 0..256 || afterLength !in 0..256) return false
-    if (marked.isNotEmpty()) {
-      deleteMarked(beforeLength, afterLength, false)
-    } else {
-      repeat(beforeLength) { input.key("backspace"); input.key("backspace", "release") }
-      repeat(afterLength) { input.key("delete"); input.key("delete", "release") }
+    if (!writable() || beforeLength < 0 || afterLength < 0) return false
+    // Nothing left in the editor: the deletion reaches older terminal text.
+    if (editor.isEmpty()) {
+      repeat(minOf(beforeLength, 256)) { input.tap(TerminalInput.BACKSPACE, 0) }
+      return true
     }
-    return true
+    return edit { super.deleteSurroundingText(beforeLength, afterLength) }
   }
-
   override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
-    if (marked.isEmpty()) return deleteSurroundingText(beforeLength, afterLength)
-    if (!writable() || beforeLength !in 0..256 || afterLength !in 0..256) return false
-    deleteMarked(beforeLength, afterLength, true)
+    if (!writable() || beforeLength < 0 || afterLength < 0) return false
+    if (editor.isEmpty()) return deleteSurroundingText(beforeLength, afterLength)
+    return edit { super.deleteSurroundingTextInCodePoints(beforeLength, afterLength) }
+  }
+  override fun setSelection(start: Int, end: Int) = edit { super.setSelection(start, end) }
+
+  override fun sendKeyEvent(event: KeyEvent): Boolean {
+    if (!writable()) return false
+    // Soft-keyboard Backspace edits the editor while it has text, then the terminal.
+    if (event.keyCode == KeyEvent.KEYCODE_DEL && event.action == KeyEvent.ACTION_DOWN && editor.isNotEmpty()) {
+      val end = Selection.getSelectionEnd(editor).coerceIn(0, editor.length)
+      val start = Selection.getSelectionStart(editor).coerceIn(0, editor.length)
+      return edit {
+        if (start != end) editor.delete(minOf(start, end), maxOf(start, end))
+        else if (end > 0) editor.delete(Character.offsetByCodePoints(editor, end, -1), end)
+        true
+      }
+    }
+    if (event.action == KeyEvent.ACTION_DOWN) finishAndClear()
+    return input.hardware(event, preedit)
+  }
+  override fun performEditorAction(editorAction: Int): Boolean {
+    if (!writable()) return false
+    finishAndClear()
+    input.tap(TerminalInput.ENTER, 0)
     return true
   }
 
-  override fun setSelection(start: Int, end: Int): Boolean {
-    if (!boundary(start) || !boundary(end)) return false
-    Selection.setSelection(marked, start, end)
+  /** What is typed so far stays; the next word starts in an empty editor. */
+  fun finishAndClear() {
+    if (editor.isEmpty() && reported.isEmpty()) return
+    super.finishComposingText()
+    report()
+    clear()
+  }
+  fun cancelComposition() = clear()
+  override fun closeConnection() { monitorCursor = false; clear(); super.closeConnection() }
+
+  private fun report() {
+    val start = getComposingSpanStart(editor)
+    val end = getComposingSpanEnd(editor)
+    val composing = start in 0..end && end <= editor.length && start != end
+    val committed = if (composing) editor.substring(0, start) + editor.substring(end) else editor.toString()
+    val marked = if (composing) editor.substring(start, end) else ""
+    val sticky = input.stickyModifiers != 0
+    val typed = (committed + marked).removePrefix(reported)
+    if (sticky && (committed + marked).startsWith(reported) && typed.isNotEmpty()) {
+      // A held key-bar modifier applies to the characters just typed.
+      typed.codePoints().toArray().forEach(input::chord)
+      clear()
+      return
+    }
+    if (committed != reported) input.editor(committed)
+    reported = committed
+    preedit(marked)
+    // Line breaks end the line; start the next one empty.
+    if (committed.contains('\n')) clear()
+    else if (editor.length > 4096) finishAndClear()
     if (monitorCursor) publishCursor()
-    return true
+  }
+  private fun clear() {
+    removeComposingSpans(editor)
+    editor.clear()
+    Selection.setSelection(editor, 0)
+    reported = ""
+    preedit("")
+    input.editorReset()
+    // The keyboard reads its context again from the now empty editor.
+    (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+      ?.updateSelection(view, 0, 0, -1, -1)
+    if (monitorCursor) publishCursor()
   }
 
   override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean {
@@ -87,63 +139,17 @@ internal class TerminalInputConnection(
     if (!writable() || !view.isFocused) return
     val location = IntArray(2)
     view.getLocationOnScreen(location)
-    val start = Selection.getSelectionStart(marked).coerceAtLeast(0)
-    val end = Selection.getSelectionEnd(marked).coerceAtLeast(0)
-    val signature = "${anchor.contentToString()}|${location.contentToString()}|$start|$end|$marked"
+    val start = Selection.getSelectionStart(editor).coerceAtLeast(0)
+    val end = Selection.getSelectionEnd(editor).coerceAtLeast(0)
+    val signature = "${anchor.contentToString()}|${location.contentToString()}|$start|$end|$editor"
     if (!force && lastAnchor == signature) return
     lastAnchor = signature
     val matrix = android.graphics.Matrix().apply { setTranslate(location[0].toFloat(), location[1].toFloat()) }
     val builder = android.view.inputmethod.CursorAnchorInfo.Builder().setMatrix(matrix).setSelectionRange(start, end)
       .setInsertionMarkerLocation(anchor[0], anchor[1], anchor[2], anchor[3], android.view.inputmethod.CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION)
-    if (marked.isNotEmpty()) builder.setComposingText(0, marked.toString())
-    (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+    val composingStart = getComposingSpanStart(editor)
+    if (composingStart >= 0) builder.setComposingText(composingStart, editor.subSequence(composingStart, getComposingSpanEnd(editor)))
+    (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
       ?.updateCursorAnchorInfo(view, builder.build())
-  }
-
-  override fun sendKeyEvent(event: KeyEvent): Boolean = writable() && input.hardware(event)
-  override fun performEditorAction(editorAction: Int): Boolean {
-    if (!writable()) return false
-    finishComposingText()
-    input.key("enter")
-    input.key("enter", "release")
-    return true
-  }
-
-  override fun closeConnection() { monitorCursor = false; cancelComposition(); super.closeConnection() }
-  fun cancelComposition() { clearMarked() }
-  private fun boundary(index: Int): Boolean = index in 0..marked.length &&
-    (index == 0 || index == marked.length || !marked[index].isLowSurrogate() || !marked[index - 1].isHighSurrogate())
-  private fun deleteMarked(before: Int, after: Int, codepoints: Boolean) {
-    if (before == 0 && after == 0) return
-    val text = marked.toString()
-    val selectionStart = Selection.getSelectionStart(marked).coerceIn(0, text.length)
-    val selectionEnd = Selection.getSelectionEnd(marked).coerceIn(0, text.length)
-    val left = minOf(selectionStart, selectionEnd)
-    val right = maxOf(selectionStart, selectionEnd)
-    var start = if (codepoints) text.offsetByCodePoints(left, -minOf(before, text.codePointCount(0, left)))
-      else (left - before).coerceAtLeast(0)
-    var end = if (codepoints) text.offsetByCodePoints(right, minOf(after, text.codePointCount(right, text.length)))
-      else (right + after).coerceAtMost(text.length)
-    if (start in 1 until text.length && text[start].isLowSurrogate() && text[start - 1].isHighSurrogate()) start--
-    if (end in 1 until text.length && text[end - 1].isHighSurrogate() && text[end].isLowSurrogate()) end++
-    // Android deletes around a selection, not the selected preedit itself.
-    marked.delete(right, end)
-    marked.delete(start, left)
-    Selection.setSelection(marked, start, start + right - left)
-    updatePreedit()
-  }
-  private fun updatePreedit() {
-    val text = marked.toString()
-    input.text("preedit", text)
-    preedit(text)
-    if (monitorCursor) publishCursor()
-  }
-  private fun clearMarked() {
-    removeComposingSpans(marked)
-    marked.clear()
-    Selection.setSelection(marked, 0)
-    input.text("preedit", "")
-    preedit("")
-    if (monitorCursor) publishCursor()
   }
 }

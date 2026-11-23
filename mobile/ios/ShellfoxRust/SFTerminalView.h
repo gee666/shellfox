@@ -1,5 +1,8 @@
 #pragma once
 #import <UIKit/UIKit.h>
+
+/// Posted on the main thread with the terminal handle as object.
+static NSString *const SFTerminalTypedInputNotification = @"SFTerminalTypedInput";
 #import "SFOwner.h"
 #import "SFTextInput.h"
 

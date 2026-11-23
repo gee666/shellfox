@@ -1,33 +1,29 @@
+//! Platform input as Ghostty input. The platforms describe what happened (the
+//! keyboard's editor text, a key, a paste, a pointer); Ghostty encodes it
+//! with the terminal's live modes. Nothing here builds escape sequences.
+use crate::composer::Composer;
 use crate::engine::{Result, Status};
 use serde::Deserialize;
+use shellfox_ghostty_vt::key::{KeyAction, KeyEvent};
 use shellfox_ghostty_vt::{
-    Key, KeyAction, KeyEvent, Modifiers, MouseAction, MouseButton, MouseEvent, MouseGeometry,
-    Terminal,
+    Modifiers, MouseAction, MouseButton, MouseEvent, MouseGeometry, Terminal,
 };
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) enum Input {
-    Commit {
-        text: String,
+    /// The soft keyboard's committed text after its latest edit. Marked
+    /// (composing) text is excluded: it stays a local preedit.
+    Editor {
+        committed: String,
     },
-    Preedit {
-        text: String,
-    },
+    /// The platform cleared its keyboard editor; the next text starts fresh.
+    EditorReset {},
     Paste {
         text: String,
     },
     Key {
-        key: PhysicalKey,
-        action: Action,
-        #[serde(default)]
-        modifiers: u8,
-        #[serde(default, rename = "consumedModifiers")]
-        consumed_modifiers: u8,
-        #[serde(default)]
-        text: Option<String>,
-        #[serde(default, rename = "unshiftedCodepoint")]
-        unshifted_codepoint: u32,
+        event: KeyEvent,
     },
     Mouse {
         action: PointerAction,
@@ -48,13 +44,10 @@ impl Input {
     /// Gesture intent only. The host still filters passive encoded reports.
     pub(crate) fn user_initiated(&self) -> bool {
         match self {
-            Self::Commit { text } | Self::Paste { text } => !text.is_empty(),
-            Self::Preedit { .. }
-            | Self::Key {
-                action: Action::Release,
-                ..
-            } => false,
-            Self::Key { .. } => true,
+            Self::Editor { .. } => true,
+            Self::EditorReset {} => false,
+            Self::Paste { text } => !text.is_empty(),
+            Self::Key { event } => event.action != KeyAction::Release,
             Self::Mouse {
                 action: PointerAction::Motion,
                 any_button_pressed,
@@ -63,13 +56,6 @@ impl Input {
             Self::Mouse { .. } => true,
         }
     }
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum Action {
-    Press,
-    Repeat,
-    Release,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,32 +77,6 @@ pub(crate) enum Button {
     Back,
     Forward,
 }
-#[derive(Deserialize)]
-#[serde(
-    tag = "kind",
-    content = "value",
-    rename_all = "camelCase",
-    deny_unknown_fields
-)]
-pub(crate) enum PhysicalKey {
-    Unidentified,
-    Character(char),
-    Enter,
-    Tab,
-    Backspace,
-    Escape,
-    ArrowUp,
-    ArrowDown,
-    ArrowLeft,
-    ArrowRight,
-    Home,
-    End,
-    PageUp,
-    PageDown,
-    Insert,
-    Delete,
-    Function(u8),
-}
 fn modifiers(bits: u8) -> Result<Modifiers> {
     if bits > 15 {
         return Err(Status::Invalid);
@@ -128,74 +88,38 @@ fn modifiers(bits: u8) -> Result<Modifiers> {
         super_key: bits & 8 != 0,
     })
 }
-impl PhysicalKey {
-    fn key(self) -> Result<Key> {
-        Ok(match self {
-            Self::Unidentified => Key::Unidentified,
-            Self::Character(c) if c.is_ascii() && !c.is_ascii_control() => Key::Character(c),
-            Self::Character(_) => return Err(Status::Invalid),
-            Self::Function(n) if (1..=25).contains(&n) => Key::F(n),
-            Self::Function(_) => return Err(Status::Invalid),
-            Self::Enter => Key::Enter,
-            Self::Tab => Key::Tab,
-            Self::Backspace => Key::Backspace,
-            Self::Escape => Key::Escape,
-            Self::ArrowUp => Key::ArrowUp,
-            Self::ArrowDown => Key::ArrowDown,
-            Self::ArrowLeft => Key::ArrowLeft,
-            Self::ArrowRight => Key::ArrowRight,
-            Self::Home => Key::Home,
-            Self::End => Key::End,
-            Self::PageUp => Key::PageUp,
-            Self::PageDown => Key::PageDown,
-            Self::Insert => Key::Insert,
-            Self::Delete => Key::Delete,
-        })
-    }
-}
 fn encode_error(error: shellfox_ghostty_vt::Error) -> Status {
     match error.0 {
         -2 | -7 => Status::Invalid,
         _ => Status::Engine,
     }
 }
-pub(crate) fn encode(terminal: &mut Terminal, input: Input) -> Result<Vec<u8>> {
+pub(crate) fn encode(terminal: &mut Terminal, composer: &mut Composer, input: Input) -> Result<Vec<u8>> {
     match input {
-        Input::Preedit { text } => {
-            if text.chars().any(char::is_control) {
+        Input::Editor { committed } => {
+            // A keyboard types line breaks and tabs, never other controls.
+            let typed = |c: char| matches!(c, '\n' | '\r' | '\t') || !c.is_control();
+            if !committed.chars().all(typed) {
                 return Err(Status::Invalid);
             }
+            let mut bytes = Vec::new();
+            for event in composer.update(&committed) {
+                bytes.extend(terminal.encode_key_event(&event).map_err(encode_error)?);
+            }
+            Ok(bytes)
+        }
+        Input::EditorReset {} => {
+            composer.reset();
             Ok(Vec::new())
         }
-        Input::Commit { text } => terminal
-            .encode_key(&KeyEvent {
-                text: Some(text),
-                ..Default::default()
-            })
-            .map_err(encode_error),
-        Input::Paste { text } => terminal.encode_paste(&text).map_err(encode_error),
-        Input::Key {
-            key,
-            action,
-            modifiers: bits,
-            consumed_modifiers,
-            text,
-            unshifted_codepoint,
-        } => {
-            let event = KeyEvent {
-                key: key.key()?,
-                action: match action {
-                    Action::Press => KeyAction::Press,
-                    Action::Release => KeyAction::Release,
-                    Action::Repeat => KeyAction::Repeat,
-                },
-                modifiers: modifiers(bits)?,
-                consumed_modifiers: modifiers(consumed_modifiers)?,
-                text,
-                unshifted_codepoint,
-                composing: false,
-            };
-            terminal.encode_key(&event).map_err(encode_error)
+        Input::Paste { text } => {
+            composer.detach();
+            terminal.encode_paste(&text).map_err(encode_error)
+        }
+        Input::Key { event } => {
+            event.validate().map_err(|_| Status::Invalid)?;
+            composer.detach();
+            terminal.encode_key_event(&event).map_err(encode_error)
         }
         Input::Mouse {
             action,
@@ -245,70 +169,43 @@ pub(crate) fn encode(terminal: &mut Terminal, input: Input) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn run(terminal: &mut Terminal, composer: &mut Composer, json: &str) -> Result<Vec<u8>> {
+        let input = serde_json::from_str::<Input>(json).map_err(|_| Status::Invalid)?;
+        encode(terminal, composer, input)
+    }
     #[test]
     fn input_rejects_unknown_fields_and_variants() {
         for value in [
             r#"{"type":"escape","text":"bad"}"#,
-            r#"{"type":"commit","text":"a","hostSecret":"bad"}"#,
-            r#"{"type":"key","key":{"kind":"enter","value":4},"action":"press"}"#,
+            r#"{"type":"editor","committed":"a","hostSecret":"bad"}"#,
+            r#"{"type":"commit","text":"a"}"#,
+            r#"{"type":"key","event":{"physical":999,"action":"press","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}"#,
         ] {
             assert!(serde_json::from_str::<Input>(value).is_err(), "{value}");
         }
     }
     #[test]
-    fn preedit_does_not_commit_and_unicode_commit_uses_encoder() {
+    fn editor_text_key_paste_and_mouse_use_terminal_modes() {
         let mut terminal = Terminal::new(20, 5).unwrap();
-        assert!(encode(
-            &mut terminal,
-            Input::Preedit {
-                text: "日本".into()
-            }
-        )
-        .unwrap()
-        .is_empty());
-        assert_eq!(
-            encode(
-                &mut terminal,
-                Input::Commit {
-                    text: "日本".into()
-                }
-            )
-            .unwrap(),
-            "日本".as_bytes()
-        );
-        assert_eq!(
-            encode(
-                &mut terminal,
-                Input::Commit {
-                    text: "\u{1b}[A".into()
-                }
-            ),
-            Err(Status::Invalid)
-        );
-    }
-    #[test]
-    fn uses_terminal_key_paste_and_mouse_modes() {
-        let mut terminal = Terminal::new(20, 5).unwrap();
+        let mut composer = Composer::default();
         terminal
             .feed(b"\x1b[?1h\x1b[?2004h\x1b[?1000h\x1b[?1006h")
             .unwrap();
-        let key = serde_json::from_str::<Input>(
-            r#"{"type":"key","key":{"kind":"arrowUp"},"action":"press"}"#,
-        )
-        .unwrap();
-        assert_eq!(encode(&mut terminal, key).unwrap(), b"\x1bOA");
+        let t = &mut terminal;
+        let c = &mut composer;
+        assert_eq!(run(t, c, r#"{"type":"editor","committed":"日本"}"#).unwrap(), "日本".as_bytes());
+        assert_eq!(run(t, c, r#"{"type":"editor","committed":"日"}"#).unwrap(), b"\x7f");
+        assert!(run(t, c, r#"{"type":"editorReset"}"#).unwrap().is_empty());
+        assert_eq!(run(t, c, r#"{"type":"editor","committed":"x"}"#).unwrap(), b"x");
+        let up = r#"{"type":"key","event":{"physical":78,"action":"press","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}"#;
+        assert_eq!(run(t, c, up).unwrap(), b"\x1bOA");
+        let ctrl_c = r#"{"type":"key","event":{"physical":22,"action":"press","modifiers":2,"consumedModifiers":0,"text":"c","unshiftedCodepoint":99,"composing":false}}"#;
+        assert_eq!(run(t, c, ctrl_c).unwrap(), b"\x03");
         assert_eq!(
-            encode(
-                &mut terminal,
-                Input::Paste {
-                    text: "x\ny".into()
-                }
-            )
-            .unwrap(),
+            run(t, c, r#"{"type":"paste","text":"x\ny"}"#).unwrap(),
             b"\x1b[200~x\ny\x1b[201~"
         );
-        let mouse = serde_json::from_str::<Input>(
-            r#"{"type":"mouse","action":"press","button":"left","x":1,"y":1,"cellWidth":8,"cellHeight":16,"anyButtonPressed":true}"#).unwrap();
-        assert_eq!(encode(&mut terminal, mouse).unwrap(), b"\x1b[<0;1;1M");
+        let mouse = r#"{"type":"mouse","action":"press","button":"left","x":1,"y":1,"cellWidth":8,"cellHeight":16,"anyButtonPressed":true}"#;
+        assert_eq!(run(t, c, mouse).unwrap(), b"\x1b[<0;1;1M");
     }
 }

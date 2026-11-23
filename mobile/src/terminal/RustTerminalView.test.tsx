@@ -91,9 +91,10 @@ describe('native terminal in the existing mobile controls', () => {
     expect(native.configureTerminal).toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Esc', exact: true }));
-    expect(native.terminalInput).toHaveBeenCalledWith('100', JSON.stringify({
-      type: 'key', key: { kind: 'escape' }, action: 'press', modifiers: 2,
-    }));
+    const escape = { physical: 120, modifiers: 2, consumedModifiers: 0, text: '', unshiftedCodepoint: null, composing: false };
+    await tick(0);
+    expect(native.terminalInput.mock.calls.map(([handle, json]) => [handle, JSON.parse(json)])).toEqual(
+      ['press', 'release'].map(action => ['100', { type: 'key', event: { ...escape, action } }]));
     expect(screen.getByLabelText('Native terminal')).toHaveAttribute('data-modifiers', '2');
     fireEvent.click(screen.getByRole('button', { name: 'Native input' }));
     await tick(500);

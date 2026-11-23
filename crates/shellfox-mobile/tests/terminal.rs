@@ -101,22 +101,22 @@ fn owner_exit_drops_engine_and_invalidates_handle() {
 fn ime_and_control_input_use_ghostty_and_not_literal_escapes() {
     let handle = create();
     assert_eq!(
-        input(handle, r#"{"type":"preedit","text":"日本"}"#),
+        input(handle, r#"{"type":"editorReset"}"#),
         (0, vec![])
     );
     assert_eq!(
-        input(handle, r#"{"type":"commit","text":"日本"}"#),
+        input(handle, r#"{"type":"editor","committed":"日本"}"#),
         (0, "日本".as_bytes().to_vec())
     );
     assert_eq!(
         input(
             handle,
-            r#"{"type":"key","key":{"kind":"enter"},"action":"press"}"#
+            r#"{"type":"key","event":{"physical":58,"action":"press","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}"#
         ),
         (0, b"\r".to_vec())
     );
     assert_eq!(
-        input(handle, r#"{"type":"commit","text":"\u001b[A"}"#).0,
+        input(handle, r#"{"type":"editor","committed":"\u001b[A"}"#).0,
         Status::Invalid as i32
     );
     assert_eq!(sfm_terminal_close(handle), 0);

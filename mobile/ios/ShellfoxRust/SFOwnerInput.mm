@@ -52,6 +52,9 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
   }
   return status;
 }
+static BOOL SFIsRelease(NSDictionary *event) {
+  return [event[@"type"] isEqual:@"key"] && [event[@"event"][@"action"] isEqual:@"release"];
+}
 - (SfmStatus)input:(NSString *)identifier event:(NSDictionary *)event {
   return [self input:identifier events:@[event]];
 }
@@ -63,11 +66,11 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
   BOOL release = YES;
   for (NSDictionary *event in events) {
     if (![event isKindOfClass:NSDictionary.class] ||
-        ([event[@"kind"] isEqual:@"key"] && ![event[@"event"] isKindOfClass:NSDictionary.class])) return SFM_INVALID;
-    NSDictionary *key = [event[@"kind"] isEqual:@"key"] ? event[@"event"] : event;
-    if (![key[@"action"] isEqual:@"release"]) release = NO;
+        ([event[@"type"] isEqual:@"key"] && ![event[@"event"] isKindOfClass:NSDictionary.class])) return SFM_INVALID;
+    if (!SFIsRelease(event)) release = NO;
   }
-  BOOL preedit = events.count == 1 && [events.firstObject[@"type"] isEqual:@"preedit"];
+  // An editor reset only clears Rust's record of the keyboard editor.
+  BOOL preedit = events.count == 1 && [events.firstObject[@"type"] isEqual:@"editorReset"];
   if (terminal.recovering && release) return SFM_OK; // Old physical state was fenced; never replay its release into the new lease.
   if (!preedit && (terminal.recovering || (terminal.readOnly && !release))) return SFM_BUSY;
   SfmStatus status = preedit ? SFM_OK : [self drainBeforeCommand:terminal];
@@ -77,7 +80,7 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
     NSData *json = [NSJSONSerialization dataWithJSONObject:event options:0 error:nil];
     if (!json || json.length > SFM_MAX_INPUT_BYTES) return SFM_INVALID;
     // This kind reserves release capacity only. Rust alone supplies settlement/activity metadata.
-    encoded.kind = [event[@"type"] isEqual:@"key"] && [event[@"action"] isEqual:@"release"] ? SFIntentRelease : SFIntentWrite;
+    encoded.kind = SFIsRelease(event) ? SFIntentRelease : SFIntentWrite;
     status = sfm_terminal_input_ex(terminal.handle, (const uint8_t *)json.bytes, json.length, CopyInputEx, &encoded);
     if (status != SFM_OK) return status;
     if (encoded.failed) return SFM_INVALID;

@@ -4,98 +4,93 @@ import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import org.json.JSONObject
 
+/** Keys, pastes and keyboard-editor text as Rust input JSON. Ghostty encodes. */
 internal class TerminalInput(private val send: (JSONObject) -> Unit) {
+  /** Key-bar modifiers (shift 1, ctrl 2, alt 4, super 8) held for the next key. */
   var stickyModifiers = 0
   private var accent = 0
   private val pressed = mutableMapOf<Int, JSONObject>()
 
-  fun text(type: String, text: String) {
-    if (type == "preedit" && !validUnicode(text)) return
-    require(validUnicode(text))
-    if (type == "commit" && text.any { it == '\r' || it == '\n' || it == '\t' }) {
-      var start = 0
-      for (match in Regex("\\r\\n|[\\r\\n\\t]").findAll(text)) {
-        if (match.range.first > start) text("commit", text.substring(start, match.range.first))
-        val kind = if (match.value == "\t") "tab" else "enter"
-        key(kind); key(kind, "release")
-        start = match.range.last + 1
-      }
-      if (start < text.length) text("commit", text.substring(start))
-      return
-    }
-    if (type == "commit" && stickyModifiers != 0) {
-      val key = if (text.length == 1 && text[0].code in 32..126)
-        JSONObject().put("kind", "character").put("value", text.lowercase(java.util.Locale.ROOT))
-        else JSONObject().put("kind", "unidentified")
-      val event = JSONObject().put("type", "key").put("key", key)
-        .put("action", "press").put("text", text).put("modifiers", stickyModifiers)
-      send(event)
-      send(JSONObject(event.toString()).apply { put("action", "release"); remove("text") })
-    } else send(JSONObject().put("type", type).put("text", text))
+  fun editor(committed: String) = send(JSONObject().put("type", "editor").put("committed", committed))
+  fun editorReset() = send(JSONObject().put("type", "editorReset"))
+  fun paste(text: String) = send(JSONObject().put("type", "paste").put("text", text))
+
+  /** Press and release, as from the key bar or an IME editor action. */
+  fun tap(physical: Int, modifiers: Int = stickyModifiers, text: String = "", unshifted: Int? = null) {
+    val press = key(physical, "press", modifiers, text, unshifted)
+    send(press); send(release(press))
   }
 
-  fun key(kind: String, action: String = "press") {
-    send(JSONObject().put("type", "key").put("key", JSONObject().put("kind", kind))
-      .put("action", action).put("modifiers", stickyModifiers))
+  /** A soft-keyboard character typed while a key-bar modifier is held. */
+  fun chord(codepoint: Int) {
+    val base = Character.toLowerCase(codepoint)
+    tap(usPosition(base), stickyModifiers, String(Character.toChars(codepoint)), base.takeIf(::printable))
   }
 
   fun reset(releaseHeld: Boolean = true) {
-    if (releaseHeld) pressed.values.forEach { event ->
-      send(JSONObject(event.toString()).apply { put("action", "release"); remove("text") })
-    }
-    accent = 0
+    if (releaseHeld) pressed.values.forEach { send(release(it)) }
     pressed.clear()
-    text("preedit", "")
+    accent = 0
   }
 
-  fun hardware(event: KeyEvent): Boolean {
-    if (event.action == KeyEvent.ACTION_MULTIPLE) {
-      event.characters?.let { if (!validUnicode(it)) return false; text("commit", it); return true }
-      return false
-    }
-    if (event.keyCode in modifierKeys || event.keyCode == KeyEvent.KEYCODE_BACK) return false
+  /** A hardware (or IME-synthesized) key. False lets Android handle it. */
+  fun hardware(event: KeyEvent, preedit: (String) -> Unit): Boolean {
     if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return false
-    val kind = specialKeys[event.keyCode]
-    val altGr = event.metaState and KeyEvent.META_ALT_RIGHT_ON != 0
-    val unicode = event.getUnicodeChar(if (altGr) event.metaState and KeyEvent.META_CTRL_MASK.inv() else event.metaState)
-    if (kind == null && unicode == 0 && event.keyCode !in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12 && event.action == KeyEvent.ACTION_DOWN) return false
-    if (unicode and KeyCharacterMap.COMBINING_ACCENT != 0 && event.action == KeyEvent.ACTION_DOWN) {
-      accent = unicode and KeyCharacterMap.COMBINING_ACCENT_MASK
-      text("preedit", String(Character.toChars(accent)))
+    val physical = physical(event.keyCode) ?: return false
+    if (event.action == KeyEvent.ACTION_UP) {
+      // Only keys whose press reached the terminal are released there.
+      pressed.remove(event.keyCode)?.let { send(release(it)) }
       return true
     }
-    if (event.action == KeyEvent.ACTION_UP && pressed.remove(event.keyCode) == null) return true
-    var logical = unicode
-    if (accent != 0 && event.action == KeyEvent.ACTION_DOWN) {
+    // Layout text without Ctrl, which Ghostty applies itself. Right Alt is AltGr.
+    val meta = event.metaState
+    val altGr = meta and KeyEvent.META_ALT_RIGHT_ON != 0
+    val layout = meta and KeyEvent.META_CTRL_MASK.inv() and (if (altGr) -1 else KeyEvent.META_ALT_MASK.inv())
+    var unicode = event.getUnicodeChar(layout)
+    if (unicode and KeyCharacterMap.COMBINING_ACCENT != 0) {
+      accent = unicode and KeyCharacterMap.COMBINING_ACCENT_MASK
+      preedit(String(Character.toChars(accent)))
+      return true
+    }
+    if (accent != 0) {
       val combined = KeyCharacterMap.getDeadChar(accent, unicode)
-      if (combined == 0) text("commit", String(Character.toChars(accent)))
-      logical = if (combined == 0) unicode else combined
+      // No combination: the accent stands alone, then the key types as usual.
+      if (combined == 0 && printable(accent)) tap(0, 0, String(Character.toChars(accent)))
+      unicode = if (combined != 0) combined else unicode
       accent = 0
-      text("preedit", "")
+      preedit("")
     }
-    val unshifted = event.getUnicodeChar(0)
-    val key = JSONObject()
-    when {
-      kind != null -> key.put("kind", kind)
-      event.keyCode in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12 ->
-        key.put("kind", "function").put("value", event.keyCode - KeyEvent.KEYCODE_F1 + 1)
-      unshifted in 32..126 -> key.put("kind", "character").put("value", unshifted.toChar().toString())
-      else -> key.put("kind", "unidentified")
-    }
-    val modifiers = stickyModifiers or (if (event.isShiftPressed) 1 else 0) or
-      (if (event.isCtrlPressed) 2 else 0) or (if (event.isAltPressed) 4 else 0) or (if (event.isMetaPressed) 8 else 0)
-    val action = if (event.action == KeyEvent.ACTION_UP) "release" else if (event.repeatCount > 0) "repeat" else "press"
-    val json = JSONObject().put("type", "key").put("key", key).put("action", action)
-      .put("modifiers", modifiers).put("consumedModifiers", if (altGr && kind == null && logical >= 32) modifiers and 6 else 0)
-      .put("unshiftedCodepoint", unshifted.coerceAtLeast(0))
-    if (event.action == KeyEvent.ACTION_DOWN && kind == null && logical >= 32 && logical !in 0xd800..0xdfff && Character.isValidCodePoint(logical))
-      json.put("text", String(Character.toChars(logical)))
-    if (event.action == KeyEvent.ACTION_DOWN) pressed[event.keyCode] = json
+    var modifiers = stickyModifiers or modifierBits(meta)
+    if (altGr && printable(unicode)) modifiers = modifiers and (CTRL or ALT).inv()
+    val action = if (event.repeatCount > 0) "repeat" else "press"
+    val unshifted = event.getUnicodeChar(0).takeIf(::printable)
+    val text = if (printable(unicode)) String(Character.toChars(unicode)) else ""
+    val consumed = if (text.isNotEmpty() && event.isShiftPressed && unicode != unshifted) SHIFT else 0
+    val json = key(physical, action, modifiers, text, unshifted, consumed)
+    pressed[event.keyCode] = json
     send(json)
     return true
   }
 
   companion object {
+    const val SHIFT = 1
+    const val CTRL = 2
+    const val ALT = 4
+    const val SUPER = 8
+    const val ENTER = 58
+    const val BACKSPACE = 53
+    const val TAB = 64
+
+    fun key(physical: Int, action: String, modifiers: Int, text: String = "", unshifted: Int? = null,
+      consumed: Int = 0): JSONObject =
+      JSONObject().put("type", "key").put("event", JSONObject().put("physical", physical)
+        .put("action", action).put("modifiers", modifiers).put("consumedModifiers", consumed)
+        .put("text", text).put("unshiftedCodepoint", unshifted ?: JSONObject.NULL).put("composing", false))
+
+    fun release(press: JSONObject): JSONObject = JSONObject(press.toString()).also {
+      it.getJSONObject("event").put("action", "release").put("text", "")
+    }
+
     fun validUnicode(text: String): Boolean {
       var index = 0
       while (index < text.length) {
@@ -106,17 +101,57 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
       }
       return true
     }
-    private val modifierKeys = setOf(KeyEvent.KEYCODE_SHIFT_LEFT, KeyEvent.KEYCODE_SHIFT_RIGHT,
-      KeyEvent.KEYCODE_CTRL_LEFT, KeyEvent.KEYCODE_CTRL_RIGHT, KeyEvent.KEYCODE_ALT_LEFT,
-      KeyEvent.KEYCODE_ALT_RIGHT, KeyEvent.KEYCODE_META_LEFT, KeyEvent.KEYCODE_META_RIGHT)
-    private val specialKeys = mapOf(
-      KeyEvent.KEYCODE_ENTER to "enter", KeyEvent.KEYCODE_NUMPAD_ENTER to "enter",
-      KeyEvent.KEYCODE_TAB to "tab", KeyEvent.KEYCODE_DEL to "backspace", KeyEvent.KEYCODE_ESCAPE to "escape",
-      KeyEvent.KEYCODE_DPAD_UP to "arrowUp", KeyEvent.KEYCODE_DPAD_DOWN to "arrowDown",
-      KeyEvent.KEYCODE_DPAD_LEFT to "arrowLeft", KeyEvent.KEYCODE_DPAD_RIGHT to "arrowRight",
-      KeyEvent.KEYCODE_MOVE_HOME to "home", KeyEvent.KEYCODE_MOVE_END to "end",
-      KeyEvent.KEYCODE_PAGE_UP to "pageUp", KeyEvent.KEYCODE_PAGE_DOWN to "pageDown",
-      KeyEvent.KEYCODE_INSERT to "insert", KeyEvent.KEYCODE_FORWARD_DEL to "delete",
+
+    private fun printable(value: Int): Boolean = Character.isValidCodePoint(value) && value >= 32 &&
+      value != 127 && value !in 0xd800..0xdfff && value !in 0xf700..0xf8ff
+
+    private fun modifierBits(meta: Int): Int =
+      (if (meta and KeyEvent.META_SHIFT_ON != 0) SHIFT else 0) or
+        (if (meta and KeyEvent.META_CTRL_ON != 0) CTRL else 0) or
+        (if (meta and KeyEvent.META_ALT_ON != 0) ALT else 0) or
+        (if (meta and KeyEvent.META_META_ON != 0) SUPER else 0) or
+        (if (meta and KeyEvent.META_CAPS_LOCK_ON != 0) 16 else 0) or
+        (if (meta and KeyEvent.META_NUM_LOCK_ON != 0) 32 else 0)
+
+    /** The US key that types this ASCII character unshifted, else Unidentified. */
+    fun usPosition(codepoint: Int): Int = when (codepoint) {
+      in 'a'.code..'z'.code -> 20 + codepoint - 'a'.code
+      in '0'.code..'9'.code -> 6 + codepoint - '0'.code
+      else -> mapOf('`' to 1, '\\' to 2, '[' to 3, ']' to 4, ',' to 5, '=' to 16, '-' to 46, '.' to 47,
+        '\'' to 48, ';' to 49, '/' to 50, ' ' to 63).entries.firstOrNull { it.key.code == codepoint }?.value ?: 0
+    }
+
+    /** Android key code to the public GhosttyKey number. System keys stay Android's. */
+    fun physical(code: Int): Int? = when (code) {
+      in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z -> 20 + code - KeyEvent.KEYCODE_A
+      in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> 6 + code - KeyEvent.KEYCODE_0
+      in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12 -> 121 + code - KeyEvent.KEYCODE_F1
+      in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_9 -> 80 + code - KeyEvent.KEYCODE_NUMPAD_0
+      else -> named[code]
+    }
+    private val named = mapOf(
+      KeyEvent.KEYCODE_GRAVE to 1, KeyEvent.KEYCODE_BACKSLASH to 2,
+      KeyEvent.KEYCODE_LEFT_BRACKET to 3, KeyEvent.KEYCODE_RIGHT_BRACKET to 4,
+      KeyEvent.KEYCODE_COMMA to 5, KeyEvent.KEYCODE_EQUALS to 16,
+      KeyEvent.KEYCODE_MINUS to 46, KeyEvent.KEYCODE_PERIOD to 47, KeyEvent.KEYCODE_APOSTROPHE to 48,
+      KeyEvent.KEYCODE_SEMICOLON to 49, KeyEvent.KEYCODE_SLASH to 50,
+      KeyEvent.KEYCODE_ALT_LEFT to 51, KeyEvent.KEYCODE_ALT_RIGHT to 52, KeyEvent.KEYCODE_DEL to BACKSPACE,
+      KeyEvent.KEYCODE_CAPS_LOCK to 54, KeyEvent.KEYCODE_MENU to 55,
+      KeyEvent.KEYCODE_CTRL_LEFT to 56, KeyEvent.KEYCODE_CTRL_RIGHT to 57, KeyEvent.KEYCODE_ENTER to ENTER,
+      KeyEvent.KEYCODE_META_LEFT to 59, KeyEvent.KEYCODE_META_RIGHT to 60,
+      KeyEvent.KEYCODE_SHIFT_LEFT to 61, KeyEvent.KEYCODE_SHIFT_RIGHT to 62,
+      KeyEvent.KEYCODE_SPACE to 63, KeyEvent.KEYCODE_TAB to TAB, KeyEvent.KEYCODE_FORWARD_DEL to 68,
+      KeyEvent.KEYCODE_MOVE_END to 69, KeyEvent.KEYCODE_MOVE_HOME to 71, KeyEvent.KEYCODE_INSERT to 72,
+      KeyEvent.KEYCODE_PAGE_DOWN to 73, KeyEvent.KEYCODE_PAGE_UP to 74,
+      KeyEvent.KEYCODE_DPAD_DOWN to 75, KeyEvent.KEYCODE_DPAD_LEFT to 76,
+      KeyEvent.KEYCODE_DPAD_RIGHT to 77, KeyEvent.KEYCODE_DPAD_UP to 78, KeyEvent.KEYCODE_NUM_LOCK to 79,
+      KeyEvent.KEYCODE_NUMPAD_ADD to 90, KeyEvent.KEYCODE_NUMPAD_COMMA to 94,
+      KeyEvent.KEYCODE_NUMPAD_DOT to 95, KeyEvent.KEYCODE_NUMPAD_DIVIDE to 96,
+      KeyEvent.KEYCODE_NUMPAD_ENTER to 97, KeyEvent.KEYCODE_NUMPAD_EQUALS to 98,
+      KeyEvent.KEYCODE_NUMPAD_MULTIPLY to 104, KeyEvent.KEYCODE_NUMPAD_LEFT_PAREN to 105,
+      KeyEvent.KEYCODE_NUMPAD_RIGHT_PAREN to 106, KeyEvent.KEYCODE_NUMPAD_SUBTRACT to 107,
+      KeyEvent.KEYCODE_ESCAPE to 120, KeyEvent.KEYCODE_SYSRQ to 148,
+      KeyEvent.KEYCODE_SCROLL_LOCK to 149, KeyEvent.KEYCODE_BREAK to 150,
     )
   }
 }

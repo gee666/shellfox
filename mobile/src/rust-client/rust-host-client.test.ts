@@ -116,7 +116,8 @@ describe('Rust host client in existing mobile presentation', () => {
     expect(native.configureTerminal).toHaveBeenCalledWith(view.handle, JSON.stringify(config));
     await view.input(keyInput('ArrowUp', { ...emptyModifiers, ctrl: true }));
     expect(native.terminalInput).toHaveBeenCalledWith(view.handle, JSON.stringify({
-      type: 'key', key: { kind: 'arrowUp' }, action: 'press', modifiers: 2,
+      type: 'key', event: { physical: 78, action: 'press', modifiers: 2, consumedModifiers: 0,
+        text: '', unshiftedCodepoint: null, composing: false },
     }));
     expect(native.operation.mock.calls.every(([, json]) => !json.includes('writeTerminal'))).toBe(true);
     view.nativeState('recovering');

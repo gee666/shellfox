@@ -37,7 +37,6 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
   private var preedit = ""
   private var connection: TerminalInputConnection? = null
   private val input = TerminalInput { json ->
-    if (json.optString("type") == "preedit") { preedit = json.optString("text"); invalidate() }
     val active = sink
     if (acceptsInput && active != null) {
       TerminalCoordinator.input(terminalHandle, active, active.inputEpoch, json)
@@ -64,6 +63,7 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
         if (inputReset === originalReset) { inputRefresh.invalidate(); refreshInputContext() }
       } }
     }
+    override fun typedInput() { post { if (sink === this) connection?.finishAndClear() } }
     override fun userInput() { post { if (sink === this) emit("topInput", Arguments.createMap().apply {
       putString("terminalHandle", handle)
     }) } }
@@ -186,21 +186,26 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
   override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
     if (!acceptsInput) return null
     connection?.cancelComposition()
-    outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or
-      InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+    // As 0.9.15's WebView textarea: suggestions, swipe and voice on; no
+    // autocorrect or auto-capitalization. Replacements are edits, not retyping.
+    outAttrs.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
     outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_FULLSCREEN
     outAttrs.initialSelStart = 0
     outAttrs.initialSelEnd = 0
     val active = sink
     val epoch = active?.inputEpoch
-    return TerminalInputConnection(this, input, { preedit = it; invalidate() }, {
+    return TerminalInputConnection(this, input, ::showPreedit, {
       acceptsInput && isFocused && active != null && sink === active && active.inputAvailable && active.inputEpoch == epoch
     }).also { connection = it }
   }
-  override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean =
-    (acceptsInput && input.hardware(event)) || super.onKeyDown(keyCode, event)
+  override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    if (!acceptsInput || TerminalInput.physical(keyCode) == null) return super.onKeyDown(keyCode, event)
+    connection?.finishAndClear()
+    return input.hardware(event, ::showPreedit) || super.onKeyDown(keyCode, event)
+  }
   override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
-    (acceptsInput && input.hardware(event)) || super.onKeyUp(keyCode, event)
+    (acceptsInput && input.hardware(event, ::showPreedit)) || super.onKeyUp(keyCode, event)
+  private fun showPreedit(text: String) { preedit = text; invalidate() }
   override fun onFocusChanged(gainFocus: Boolean, direction: Int, previous: android.graphics.Rect?) {
     super.onFocusChanged(gainFocus, direction, previous)
     if (!gainFocus) { connection?.cancelComposition(); input.reset() }
@@ -289,7 +294,10 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
   }
   fun paste(text: String) {
     if (!acceptsInput) return
-    if (!TerminalInput.validUnicode(text) || text.toByteArray().size > 60_000) reportError(2) else input.text("paste", text)
+    if (!TerminalInput.validUnicode(text) || text.toByteArray().size > 60_000) reportError(2) else {
+      connection?.finishAndClear()
+      input.paste(text)
+    }
   }
 
   override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {

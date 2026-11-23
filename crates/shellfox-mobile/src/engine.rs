@@ -26,6 +26,7 @@ pub(crate) struct Shared {
 }
 pub(crate) struct Owned {
     pub terminal: Terminal,
+    pub composer: crate::composer::Composer,
     pub colors: Option<shellfox_ghostty_vt::TerminalColors>,
     pub shared: Arc<Shared>,
 }
@@ -101,6 +102,7 @@ pub(crate) fn create(cols: u16, rows: u16) -> Result<u64> {
                 id,
                 Owned {
                     terminal,
+                    composer: Default::default(),
                     colors: None,
                     shared: shared.clone(),
                 },

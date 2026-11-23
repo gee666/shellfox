@@ -180,7 +180,9 @@ fn serde_round_trip_and_invalid_text() {
     let event = letter('A', SHIFT);
     let json = serde_json::to_string(&event).unwrap();
     assert_eq!(serde_json::from_str::<KeyEvent>(&json).unwrap(), event);
+    assert!(json.contains("\"unshiftedCodepoint\":97"), "{json}");
     assert!(serde_json::from_str::<KeyEvent>(&json.replace("\"physical\":20", "\"physical\":999")).is_err());
+    assert!(serde_json::from_str::<KeyEvent>(&json.replace(":97", ":0")).is_err());
     let mut t = Terminal::new(80, 24).unwrap();
     assert!(KeyEvent::text("\x1b[A").validate().is_err());
     assert!(t.encode_key_event(&KeyEvent::text("\x1b[A")).is_err());

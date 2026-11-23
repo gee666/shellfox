@@ -94,10 +94,10 @@ SfmStatus sfm_terminal_reset(SfmHandle handle, uint16_t cols, uint16_t rows);
  */
 SfmStatus sfm_terminal_configure(SfmHandle handle, const uint8_t *json, size_t length);
 /* Strict UTF-8 JSON described by ../schema/input.schema.json. Ghostty encodes
- * commit/key/paste/mouse; preedit never sends bytes. Callback bytes are borrowed
- * and must enter the shared client's ownership/epoch-checked input operation.
- * Native text input owns marked text and UTF-16 selection; commit exactly once
- * on IME commit, do not also send a physical key's duplicated text.
+ * keyboard-editor edits, keys, paste and mouse; editorReset never sends bytes.
+ * Callback bytes are borrowed and must enter the shared client's
+ * ownership/epoch-checked input operation. Native text input owns marked text;
+ * report only committed text, and do not also send a hardware key's text.
  * Input callbacks run AFTER all engine borrows and queue locks are released.
  * They may enter the client API or query terminal progress/frame/mouse tracking
  * on this owner thread. Do not recursively encode input or reset/close the engine.
@@ -108,8 +108,8 @@ SfmStatus sfm_terminal_input(SfmHandle handle, const uint8_t *json, size_t lengt
  * lifetime as input. Callback runs only for nonempty encoded bytes; bytes may
  * contain NUL, so always honor length rather than strlen.
  * Rust derives user_initiated as 0 or 1 from the validated input variant:
- * nonempty commit/paste, key press/repeat, mouse press/release/wheel and drag=1;
- * key release and mouse motion with no pressed button=0. Preedit emits nothing.
+ * editor edits, nonempty paste, key press/repeat, mouse press/release/wheel and
+ * drag=1; key release and mouse motion with no pressed button=0.
  * Forward this hint unchanged to sfm_client_terminal_write_ex. Native and JS
  * must not reclassify bytes or accept a caller-provided JSON hint. The host's
  * meaningful_input policy remains authoritative for passive terminal reports.

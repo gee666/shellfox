@@ -39,6 +39,8 @@
     _input.requestCopy = ^{ [weakSelf copySelection]; };
     [self addSubview:_input];
     [self installGestures];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(typedInput:)
+      name:SFTerminalTypedInputNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(cancelInput)
       name:UIApplicationWillResignActiveNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(background)
@@ -99,7 +101,10 @@
     if (self.selectionChanged) self.selectionChanged(@"");
   }
 }
-- (void)setModifiers:(NSInteger)value { _modifiers = value >= 0 && value <= 15 ? value : 0; }
+- (void)setModifiers:(NSInteger)value {
+  _modifiers = value >= 0 && value <= 15 ? value : 0;
+  _input.stickyModifiers = _modifiers;
+}
 - (void)setFontSize:(CGFloat)value {
   CGFloat bounded = std::isfinite(value) ? std::clamp(value, CGFloat(8), CGFloat(40)) : 14;
   if (_fontSize == bounded) return;
@@ -124,6 +129,10 @@
   }
 }
 - (void)cancelInput { [_input cancelComposition]; }
+// Key-bar keys and pastes reach the terminal outside the keyboard editor.
+- (void)typedInput:(NSNotification *)note {
+  if ([note.object isEqual:_terminalHandle]) [_input finishAndClear];
+}
 - (void)background { [self detach]; }
 - (void)foreground { if (self.window) [self bind]; }
 - (void)bind {
@@ -263,27 +272,19 @@
   if (!accepted && self.failed) self.failed(SFM_BUSY);
 }
 - (void)send:(NSDictionary *)event {
-  BOOL release = [event[@"action"] isEqual:@"release"] || ([event[@"kind"] isEqual:@"key"] && [event[@"event"][@"action"] isEqual:@"release"]);
+  BOOL release = [event[@"type"] isEqual:@"key"] && [event[@"event"][@"action"] isEqual:@"release"];
   if (self.readOnly && !release) return;
-  NSMutableDictionary *encoded = [event mutableCopy];
-  if ([event[@"kind"] isEqual:@"key"]) {
-    NSMutableDictionary *key = [event[@"event"] mutableCopy];
-    key[@"modifiers"] = @([key[@"modifiers"] unsignedIntegerValue] | self.modifiers);
-    encoded[@"event"] = key;
-  }
-  if ([event[@"type"] isEqual:@"key"] || [event[@"type"] isEqual:@"mouse"])
-    encoded[@"modifiers"] = @([event[@"modifiers"] unsignedIntegerValue] | self.modifiers);
-  else if (self.modifiers && [event[@"type"] isEqual:@"commit"]) {
-    NSString *text = event[@"text"];
-    if (text.length == 1 && [text characterAtIndex:0] >= 32 && [text characterAtIndex:0] < 127)
-      encoded = [@{@"type":@"key", @"key":@{@"kind":@"character", @"value":text},
-        @"action":@"press", @"modifiers":@(self.modifiers)} mutableCopy];
+  NSDictionary *encoded = event;
+  if ([event[@"type"] isEqual:@"mouse"] && self.modifiers) {
+    NSMutableDictionary *mouse = [event mutableCopy];
+    mouse[@"modifiers"] = @([event[@"modifiers"] unsignedIntegerValue] | self.modifiers);
+    encoded = mouse;
   }
   __weak SFTerminalView *weakSelf = self;
   NSUInteger binding = _binding;
   void (^work)(SFTerminal *) = ^(SFTerminal *terminal) {
     SfmStatus status = [[SFOwner shared] input:terminal.identifier event:encoded];
-    BOOL userInput = ![event[@"type"] isEqual:@"preedit"] && !release;
+    BOOL userInput = ![event[@"type"] isEqual:@"editorReset"] && !release;
     dispatch_async(dispatch_get_main_queue(), ^{
       SFTerminalView *view = weakSelf;
       if (!view || view->_binding != binding || !view.window) return;

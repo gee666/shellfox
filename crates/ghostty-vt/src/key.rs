@@ -6,15 +6,36 @@ pub use sys::{validate_text, InvalidKey, KeyAction, KeyModifiers, PhysicalKey};
 /// Owned key event. `text` is the layout text without Ctrl applied, never
 /// control characters; `unshifted_codepoint` is the key's base character.
 #[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct KeyEvent {
     pub physical: PhysicalKey,
     pub action: KeyAction,
     pub modifiers: KeyModifiers,
     pub consumed_modifiers: KeyModifiers,
     pub text: String,
+    #[serde(with = "scalar")]
     pub unshifted_codepoint: Option<char>,
     pub composing: bool,
+}
+
+/// The unshifted character travels as its number, like the C ABI.
+mod scalar {
+    use serde::{de::Error, Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(value: &Option<char>, s: S) -> Result<S::Ok, S::Error> {
+        match value {
+            Some(c) => s.serialize_some(&u32::from(*c)),
+            None => s.serialize_none(),
+        }
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<char>, D::Error> {
+        Option::<u32>::deserialize(d)?
+            .map(|n| {
+                char::from_u32(n)
+                    .filter(|c| *c != char::MIN)
+                    .ok_or_else(|| D::Error::custom("invalid scalar"))
+            })
+            .transpose()
+    }
 }
 impl KeyEvent {
     pub fn press(physical: PhysicalKey, modifiers: KeyModifiers) -> Self {

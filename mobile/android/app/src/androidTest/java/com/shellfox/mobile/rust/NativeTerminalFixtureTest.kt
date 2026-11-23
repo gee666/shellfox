@@ -56,13 +56,13 @@ class NativeTerminalFixtureTest {
       assertTrue(RustBindings.fileLink(terminal, 1, 2).isEmpty())
     }
   }
-  @Test fun preeditIsEmptyAndGhosttyEncodesApplicationCursorAndBracketedPaste() {
+  @Test fun editorResetIsEmptyAndGhosttyEncodesApplicationCursorAndBracketedPaste() {
     RustBindings.submit(terminal, 1, "\u001b[?1h\u001b[?2004h".toByteArray())
     native {
       RustBindings.pumpFrame(terminal)
-      assertTrue(RustBindings.input(terminal, """{"type":"preedit","text":"日本"}""".toByteArray()).isEmpty())
+      assertTrue(RustBindings.input(terminal, """{"type":"editorReset"}""".toByteArray()).isEmpty())
       assertArrayEquals("\u001bOA".toByteArray(), RustBindings.input(terminal,
-        """{"type":"key","key":{"kind":"arrowUp"},"action":"press"}""".toByteArray()))
+        """{"type":"key","event":{"physical":78,"action":"press","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}""".toByteArray()))
       assertArrayEquals("\u001b[200~x\ny\u001b[201~".toByteArray(), RustBindings.input(terminal,
         """{"type":"paste","text":"x\ny"}""".toByteArray()))
     }
@@ -70,12 +70,12 @@ class NativeTerminalFixtureTest {
   @Test fun extendedEncoderCopiesRustHintAndEmbeddedNulWithoutStringConversion() {
     native {
       val committed = requireNotNull(EncodedInput.decode(RustBindings.inputEx(terminal,
-        """{"type":"commit","text":"x"}""".toByteArray())))
+        """{"type":"editor","committed":"x"}""".toByteArray())))
       assertTrue(committed.userInitiated)
       assertArrayEquals(byteArrayOf('x'.code.toByte()), committed.bytes)
-      assertTrue(RustBindings.inputEx(terminal, """{"type":"preedit","text":"日本"}""".toByteArray()).isEmpty())
+      assertTrue(RustBindings.inputEx(terminal, """{"type":"editorReset"}""".toByteArray()).isEmpty())
       val nul = requireNotNull(EncodedInput.decode(RustBindings.inputEx(terminal,
-        """{"type":"key","key":{"kind":"character","value":" "},"action":"press","modifiers":2,"unshiftedCodepoint":32}""".toByteArray())))
+        """{"type":"key","event":{"physical":63,"action":"press","modifiers":2,"consumedModifiers":0,"text":" ","unshiftedCodepoint":32,"composing":false}}""".toByteArray())))
       assertTrue(nul.userInitiated)
       assertArrayEquals(byteArrayOf(0), nul.bytes)
     }
@@ -105,7 +105,7 @@ class NativeTerminalFixtureTest {
         assertTrue(ClientBindings.recoveryReady(client, terminal))
       }
       val nul = native { forward(client,
-        """{"type":"key","key":{"kind":"character","value":" "},"action":"press","modifiers":2,"unshiftedCodepoint":32}""") }
+        """{"type":"key","event":{"physical":63,"action":"press","modifiers":2,"consumedModifiers":0,"text":" ","unshiftedCodepoint":32,"composing":false}}""") }
       assertArrayEquals(byteArrayOf(0), nul.bytes)
       awaitEvent(client)
       val written = requireNotNull(FixtureTransport.writes.poll()).getJSONObject("payload")
@@ -115,7 +115,7 @@ class NativeTerminalFixtureTest {
       awaitEvent(client)
       native { RustBindings.pump(terminal) }
       for (json in listOf(
-        """{"type":"key","key":{"kind":"arrowUp"},"action":"release"}""",
+        """{"type":"key","event":{"physical":78,"action":"release","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}""",
         """{"type":"mouse","action":"motion","button":null,"x":16,"y":32,"cellWidth":8,"cellHeight":16,"anyButtonPressed":false}""",
       )) {
         assertFalse(native { forward(client, json) }.userInitiated)

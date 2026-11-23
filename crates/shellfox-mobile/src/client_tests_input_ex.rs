@@ -100,18 +100,18 @@ fn validated_encoder_hint_forwards_unchanged_after_engine_borrow_into_native_fif
         "x":16,"y":32,"cellWidth":8,"cellHeight":16,"anyButtonPressed":pressed})
     };
     let cases = [
-        (json!({"type":"commit","text":"🙂"}), 1),
+        (json!({"type":"editor","committed":"🙂"}), 1),
         (json!({"type":"paste","text":"paste"}), 1),
         (
-            json!({"type":"key","key":{"kind":"character","value":"a"},"text":"a","action":"press"}),
+            json!({"type":"key","event":{"physical":20,"action":"press","modifiers":0,"consumedModifiers":0,"text":"a","unshiftedCodepoint":97,"composing":false}}),
             1,
         ),
         (
-            json!({"type":"key","key":{"kind":"character","value":"a"},"text":"a","action":"repeat"}),
+            json!({"type":"key","event":{"physical":20,"action":"repeat","modifiers":0,"consumedModifiers":0,"text":"a","unshiftedCodepoint":97,"composing":false}}),
             1,
         ),
         (
-            json!({"type":"key","key":{"kind":"character","value":"a"},"text":"a","action":"release"}),
+            json!({"type":"key","event":{"physical":20,"action":"release","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":97,"composing":false}}),
             0,
         ),
         (mouse("motion", Value::Null, false), 0),
@@ -135,7 +135,7 @@ fn validated_encoder_hint_forwards_unchanged_after_engine_borrow_into_native_fif
             },
             0
         );
-        if context.calls.len() == before && event["type"] == "key" && event["action"] == "release" {
+        if context.calls.len() == before && event["type"] == "key" && event["event"]["action"] == "release" {
             // Ghostty may suppress a release in the active keyboard protocol.
             // Empty output must not create a client operation at all.
             h.dispatch();
@@ -161,8 +161,8 @@ fn validated_encoder_hint_forwards_unchanged_after_engine_borrow_into_native_fif
         written(&mut h, &request);
     }
     for event in [
-        json!({"type":"preedit","text":"marked"}),
-        json!({"type":"commit","text":""}),
+        json!({"type":"editorReset"}),
+        json!({"type":"editor","committed":""}),
         json!({"type":"paste","text":""}),
     ] {
         let input = serde_json::to_vec(&event).unwrap();
@@ -179,7 +179,7 @@ fn validated_encoder_hint_forwards_unchanged_after_engine_borrow_into_native_fif
             },
             0
         );
-        if event["type"] == "preedit" {
+        if event["type"] != "paste" {
             assert_eq!(context.calls.len(), before);
         } else if context.calls.len() != before {
             // An empty bracketed paste can still encode wrapper bytes, but its
@@ -260,7 +260,7 @@ fn ctrl_space_nul_is_length_delimited_from_real_encoder_through_typed_request() 
         terminal: view.0,
         calls: Vec::new(),
     };
-    let input = br#"{"type":"key","key":{"kind":"character","value":" "},"action":"press","modifiers":2,"text":" "}"#;
+    let input = br#"{"type":"key","event":{"physical":63,"action":"press","modifiers":2,"consumedModifiers":0,"text":" ","unshiftedCodepoint":32,"composing":false}}"#;
     assert_eq!(
         unsafe {
             crate::sfm_terminal_input_ex(

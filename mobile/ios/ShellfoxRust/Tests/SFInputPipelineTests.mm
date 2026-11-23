@@ -1,3 +1,4 @@
+#import "../SFTextInput.h"
 #import <XCTest/XCTest.h>
 #import "SFClientTestSupport.h"
 
@@ -105,8 +106,7 @@ static NSString *JSON(id value) {
       terminal.recovering = NO;
       XCTAssertEqual(sfm_client_terminal_consumed(client.handle, terminal.handle), SFM_OK);
       XCTAssertTrue(SFTestClientSuccess(SFTestClientEvent(client.handle, transport)));
-      NSDictionary *ctrlSpace = @{@"type":@"key", @"key":@{@"kind":@"character", @"value":@" "},
-        @"action":@"press", @"modifiers":@2};
+      NSDictionary *ctrlSpace = SFKey(@63, @"press", 2, @" ", @32);
       XCTAssertEqual([owner input:terminal.identifier event:ctrlSpace], SFM_OK);
       XCTAssertTrue(SFTestClientSuccess(SFTestClientEvent(client.handle, transport)));
       NSDictionary *write = [mock lastWrite];

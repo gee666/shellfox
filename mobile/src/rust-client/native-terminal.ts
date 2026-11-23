@@ -7,6 +7,8 @@ import type { UploadIdentity } from '../terminal/upload';
 import { TerminalOperationError } from '../terminal/errors';
 import { RustTerminalAdapter, type TerminalHandle, type NativeTerminalBinding } from './adapter';
 import type { TerminalInput } from './input';
+import { keyInput, keyRelease } from './key-input';
+import type { TerminalKey, TerminalModifiers } from '../terminal/protocol';
 import type { TerminalConfiguration } from './configure';
 import type { RustRemoteClient, RustRemoteMethod } from './remote-adapter';
 import type { NativeTerminalState } from './native-events';
@@ -26,7 +28,7 @@ export type NativeExecute = <M extends RustRemoteMethod>(method: M, payload: Rem
 export type NativeLayoutPresentation = Readonly<{kind:'layoutRecovery';phase:'pending'|'validated';identity:UploadIdentity}>
   | Readonly<{kind:'layoutRetired';phase?:never;identity?:never;outcome:LayoutComparisonOutcome}>;
 export type NativeViewStateListener = (state:TerminalViewState,presentation?:NativeLayoutPresentation)=>void;
-export type NativeViewSession = Pick<NativeTerminalSession, 'tabId' | 'handle' | 'readOnly' | 'getState' | 'nativeState' | 'getIdentity' | 'subscribeError' | 'configure' | 'takeControl' | 'input' | 'close'> & {
+export type NativeViewSession = Pick<NativeTerminalSession, 'tabId' | 'handle' | 'readOnly' | 'getState' | 'nativeState' | 'getIdentity' | 'subscribeError' | 'configure' | 'takeControl' | 'input' | 'key' | 'close'> & {
   subscribe(listener:NativeViewStateListener):()=>void;
 };
 export interface NativeViewDriver { open(tabId:string,readOnly:boolean,configuration:TerminalConfiguration):Promise<NativeViewSession> }
@@ -159,6 +161,13 @@ export class NativeTerminalSession {
   async input(event: TerminalInput): Promise<void> {
     if (this.closed || this.readOnly || !this.parserReady || this.state !== 'attached') return;
     await this.terminal.input(this.handle, event);
+  }
+
+  /** A key-bar tap: the press and then its release, for apps that track both. */
+  async key(key: TerminalKey, modifiers: TerminalModifiers): Promise<void> {
+    const press = keyInput(key, modifiers);
+    await this.input(press);
+    await this.input(keyRelease(press));
   }
 
   event(event: TerminalEvent): void {

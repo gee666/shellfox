@@ -29,7 +29,7 @@ fn input_forwarding_runs_after_engine_borrow_and_queue_lock_are_released() {
         frame_status: -1,
         bytes: Vec::new(),
     };
-    let input = br#"{"type":"commit","text":"user input"}"#;
+    let input = br#"{"type":"editor","committed":"user input"}"#;
     assert_eq!(
         unsafe {
             sfm_terminal_input(

@@ -1,4 +1,5 @@
 #import "ShellfoxRustClient.h"
+#import "SFTerminalView.h"
 #include <cmath>
 
 
@@ -102,6 +103,9 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
   if (!bytes || bytes.length > SFM_MAX_INPUT_BYTES) { reject(@"RUST_INVALID", @"Invalid input event.", nil); return; }
   id input = [NSJSONSerialization JSONObjectWithData:bytes options:0 error:nil];
   if (![input isKindOfClass:NSDictionary.class]) { reject(@"RUST_INVALID", @"Invalid input event.", nil); return; }
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [NSNotificationCenter.defaultCenter postNotificationName:SFTerminalTypedInputNotification object:identifier];
+  });
   [self submit:^id(SfmStatus *status) {
     if (![self ownsTerminal:identifier]) { *status = SFM_STALE; return nil; }
     *status = [[SFOwner shared] input:identifier event:input];

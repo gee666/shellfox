@@ -78,10 +78,10 @@ impl Drop for Terminal {
 }
 
 #[test]
-fn commit_paste_press_repeat_and_ctrl_space_are_length_delimited_user_input() {
+fn editor_paste_press_repeat_and_ctrl_space_are_length_delimited_user_input() {
     let terminal = Terminal::new();
     assert_eq!(
-        terminal.expect_hint(r#"{"type":"commit","text":"日本"}"#, 1),
+        terminal.expect_hint(r#"{"type":"editor","committed":"日本"}"#, 1),
         "日本".as_bytes()
     );
     assert_eq!(
@@ -89,18 +89,18 @@ fn commit_paste_press_repeat_and_ctrl_space_are_length_delimited_user_input() {
         b"paste"
     );
     for action in ["press", "repeat"] {
-        let json = format!(r#"{{"type":"key","key":{{"kind":"arrowUp"}},"action":"{action}"}}"#);
+        let json = format!(r#"{{"type":"key","event":{{"physical":78,"action":"{action}","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}}}"#);
         assert_eq!(terminal.expect_hint(&json, 1), b"\x1b[A");
     }
     // Control-Space is a real one-byte NUL, not an empty C string or JSON text.
-    assert_eq!(terminal.expect_hint(r#"{"type":"key","key":{"kind":"character","value":" "},"action":"press","modifiers":2,"text":" ","unshiftedCodepoint":32}"#, 1), [0]);
+    assert_eq!(terminal.expect_hint(r#"{"type":"key","event":{"physical":63,"action":"press","modifiers":2,"consumedModifiers":0,"text":" ","unshiftedCodepoint":32,"composing":false}}"#, 1), [0]);
 }
 
 #[test]
 fn kitty_key_release_is_forwarded_without_claiming_meaningful_user_input() {
     let mut terminal = Terminal::new();
     terminal.feed(b"\x1b[>11u");
-    let bytes = terminal.expect_hint(r#"{"type":"key","key":{"kind":"character","value":"a"},"action":"release","unshiftedCodepoint":97}"#, 0);
+    let bytes = terminal.expect_hint(r#"{"type":"key","event":{"physical":20,"action":"release","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":97,"composing":false}}"#, 0);
     assert!(!bytes.is_empty());
 }
 
@@ -124,13 +124,13 @@ fn mouse_hover_is_passive_while_drag_click_release_and_wheel_are_active() {
 }
 
 #[test]
-fn preedit_and_empty_encoder_output_never_call_the_forwarder() {
+fn editor_reset_and_empty_encoder_output_never_call_the_forwarder() {
     let mut terminal = Terminal::new();
     for json in [
-        r#"{"type":"preedit","text":"日本"}"#,
-        r#"{"type":"commit","text":""}"#,
+        r#"{"type":"editorReset"}"#,
+        r#"{"type":"editor","committed":""}"#,
         r#"{"type":"paste","text":""}"#,
-        r#"{"type":"key","key":{"kind":"enter"},"action":"release"}"#,
+        r#"{"type":"key","event":{"physical":58,"action":"release","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}"#,
     ] {
         let (status, result) = terminal.input(json);
         assert_eq!(status, 0);
@@ -147,7 +147,7 @@ fn input_metadata_does_not_bypass_engine_thread_ownership() {
     let terminal = Terminal::new();
     let handle = terminal.handle;
     let (status, calls) = std::thread::spawn(move || {
-        let json = br#"{"type":"commit","text":"x"}"#;
+        let json = br#"{"type":"editor","committed":"x"}"#;
         let mut result = InputResult {
             handle,
             ..Default::default()
@@ -173,9 +173,9 @@ fn input_metadata_does_not_bypass_engine_thread_ownership() {
 fn rejects_forged_intent_and_invalid_events_without_calling_forwarder() {
     let terminal = Terminal::new();
     for json in [
-        r#"{"type":"commit","text":"hello","userInitiated":true}"#,
-        r#"{"type":"key","key":{"kind":"enter"},"action":"release","user_initiated":1}"#,
-        r#"{"type":"commit","text":"\u001b[0n"}"#,
+        r#"{"type":"editor","committed":"hello","userInitiated":true}"#,
+        r#"{"type":"key","event":{"physical":58,"action":"release","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false},"user_initiated":1}"#,
+        r#"{"type":"editor","committed":"\u001b[0n"}"#,
         r#"{"type":"mouse","action":"motion","x":0,"y":0,"cellWidth":0,"cellHeight":16,"anyButtonPressed":false}"#,
     ] {
         let (status, result) = terminal.input(json);
@@ -194,7 +194,7 @@ fn rejects_forged_intent_and_invalid_events_without_calling_forwarder() {
         },
         Status::Invalid as i32
     );
-    let json = br#"{"type":"commit","text":"x"}"#;
+    let json = br#"{"type":"editor","committed":"x"}"#;
     assert_eq!(
         unsafe {
             sfm_terminal_input_ex(

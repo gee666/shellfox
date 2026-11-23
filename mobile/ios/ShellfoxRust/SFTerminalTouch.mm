@@ -187,7 +187,7 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
 - (void)pasteClipboard {
   if (!self.inputReady) return;
   NSUInteger binding = _binding;
-  if (_input.markedTextRange) [_input unmarkText];
+  [_input finishAndClear];
   // Only an explicit paste reads the OS clipboard. OSC output never reaches it.
   NSString *text = UIPasteboard.generalPasteboard.string;
   if (!text.length || binding != _binding || !self.window) return;

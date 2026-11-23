@@ -3,7 +3,7 @@ import { Keyboard, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NativeTerminal from '../rust-client/specs/ShellfoxRustTerminalNativeComponent';
 import { terminalConfiguration } from '../rust-client/configure';
-import { keyInput, modifierBits } from '../rust-client/key-input';
+import { modifierBits } from '../rust-client/key-input';
 import { nativeTerminalStateSchema } from '../rust-client/native-events';
 import type { NativeLayoutPresentation, NativeViewDriver, NativeViewSession } from '../rust-client/native-terminal';
 import { useTheme } from '../theme';
@@ -134,7 +134,7 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
     : focusObservation?.intent===keyboardActionIntent ? focusActionNotice(focusObservation)+(keyboardRetirement?` ${retirementNotice(keyboardRetirement)}`:'')
     : keyboardRetirement ? retirementNotice(keyboardRetirement) : null;
   const sendKey = (key: TerminalKey) => {
-    void current.current?.input(keyInput(key, modifiersRef.current)).catch(report);
+    void current.current?.key(key, modifiersRef.current).catch(report);
     activity();
   };
   const paste = (text: string) => {

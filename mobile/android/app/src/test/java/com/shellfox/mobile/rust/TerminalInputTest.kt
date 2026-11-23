@@ -16,121 +16,96 @@ class TerminalInputTest {
   private val events = mutableListOf<JSONObject>()
   private val input = TerminalInput { events.add(it) }
   private fun connection() = TerminalInputConnection(View(RuntimeEnvironment.getApplication()), input, {}, { true })
-  private fun commits() = events.filter { it.optString("type") == "commit" }.map { it.getString("text") }
+  private fun editors() = events.filter { it.optString("type") == "editor" }.map { it.getString("committed") }
+  private fun keys() = events.filter { it.optString("type") == "key" }.map { it.getJSONObject("event") }
 
-  @Test fun compositionDoesNotCommitUntilImeCommitAndFinishDoesNotDuplicate() {
+  @Test fun theEditorReportsCommittedTextAndKeepsCompositionLocal() {
     val ime = connection()
     ime.setComposingText("に", 1)
     ime.setComposingText("日本", 1)
-    assertTrue(commits().isEmpty())
+    assertTrue(editors().isEmpty())
     ime.commitText("日本", 1)
     ime.finishComposingText()
-    assertEquals(listOf("日本"), commits())
-    assertEquals("", ime.editable.toString())
+    assertEquals(listOf("日本"), editors())
+    // The editor keeps the text so the keyboard can correct it.
+    assertEquals("日本", ime.editable.toString())
   }
-  @Test fun partialUtf16CompositionNeverTurnsIntoReplacementInput() {
+  @Test fun replacingAWordReportsTheWholeEditedText() {
     val ime = connection()
-    ime.setComposingText("\uD83D", 1)
-    assertFalse(ime.finishComposingText())
+    ime.commitText("git stauts", 1)
+    ime.setComposingRegion(4, 10)
+    ime.commitText("status", 1)
+    assertEquals(listOf("git stauts", "git ", "git status"), editors())
+  }
+  @Test fun partialUtf16TextIsRejected() {
+    val ime = connection()
     assertFalse(ime.commitText("\uD83D", 1))
-    assertTrue(commits().isEmpty())
-    ime.setComposingText("😀", 1)
+    assertTrue(editors().isEmpty())
     assertTrue(ime.commitText("😀", 1))
-    assertEquals(listOf("😀"), commits())
+    assertEquals(listOf("😀"), editors())
   }
-  @Test fun finishCommitsMarkedTextOnceAndCancelDoesNotCommit() {
+  @Test fun enterAndKeysClearTheEditorFirst() {
     val ime = connection()
-    ime.setComposingText("😀", 1)
-    ime.finishComposingText()
-    ime.finishComposingText()
-    ime.setComposingText("discard", 1)
-    ime.cancelComposition()
-    assertEquals(listOf("😀"), commits())
+    ime.setComposingText("ls", 1)
+    ime.performEditorAction(0)
+    assertEquals(listOf("editor", "editorReset", "key", "key"), events.map { it.getString("type") })
+    assertEquals(listOf(TerminalInput.ENTER, TerminalInput.ENTER), keys().map { it.getInt("physical") })
+    assertEquals("", ime.editable.toString())
+    events.clear()
+    ime.commitText("a", 1)
+    ime.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT))
+    assertEquals(listOf("editor", "editorReset", "key"), events.map { it.getString("type") })
+    assertEquals(76, keys().single().getInt("physical"))
   }
-  @Test fun deletingPreeditKeepsSurrogatesWholeAndDoesNotBackspaceTheTerminal() {
+  @Test fun backspaceEditsTheEditorThenTheTerminal() {
     val ime = connection()
-    ime.setComposingText("x😀", 1)
+    ime.commitText("a😀", 1)
+    ime.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+    assertEquals("a", ime.editable.toString())
     ime.deleteSurroundingText(1, 0)
-    assertEquals("x", ime.editable.toString())
-    assertTrue(events.none { it.optString("type") == "key" })
-    ime.commitText("x", 1)
-    assertEquals(listOf("x"), commits())
+    assertEquals(listOf("a😀", "a", ""), editors())
+    assertTrue(keys().isEmpty())
+    ime.deleteSurroundingText(2, 0)
+    assertEquals(listOf("press", "release", "press", "release"), keys().map { it.getString("action") })
+    assertTrue(keys().all { it.getInt("physical") == TerminalInput.BACKSPACE })
   }
-  @Test fun surroundingDeletionPreservesSelectedPreeditAndRejectsSplitSurrogateSelections() {
+  @Test fun stickyControlTurnsTheTypedLetterIntoAChord() {
     val ime = connection()
-    ime.setComposingText("ab😀cd", 1)
-    assertTrue(ime.setSelection(2, 4))
-    ime.deleteSurroundingText(0, 0)
-    assertEquals("ab😀cd", ime.editable.toString())
-    ime.deleteSurroundingText(1, 1)
-    assertEquals("a😀d", ime.editable.toString())
-    assertFalse(ime.setSelection(2, 2))
-    assertFalse(ime.setComposingRegion(2, 3))
-    assertTrue(commits().isEmpty())
+    input.stickyModifiers = TerminalInput.CTRL
+    ime.setComposingText("c", 1)
+    val key = keys().first()
+    assertEquals(22, key.getInt("physical"))
+    assertEquals("c", key.getString("text"))
+    assertEquals(TerminalInput.CTRL, key.getInt("modifiers"))
+    assertEquals("", ime.editable.toString())
+    assertTrue(editors().isEmpty())
   }
-  @Test fun imeNewlineTabUseGhosttyKeysAndFunctionKeysAreNotDropped() {
-    input.text("commit", "a\r\nb\tc")
-    assertEquals(listOf("a", "b", "c"), commits())
-    assertEquals(listOf("enter", "enter", "tab", "tab"),
-      events.filter { it.optString("type") == "key" }.map { it.getJSONObject("key").getString("kind") })
+  @Test fun hardwarePressRepeatReleaseAndFocusLossReleasesHeldKeys() {
+    val preedit = { _: String -> }
+    assertTrue(input.hardware(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 0), preedit))
+    assertTrue(input.hardware(KeyEvent(0, 1, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 1), preedit))
+    assertTrue(input.hardware(KeyEvent(0, 2, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP, 0), preedit))
+    assertEquals(listOf("press", "repeat", "release"), keys().map { it.getString("action") })
     events.clear()
-    assertTrue(input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F5)))
-    assertEquals("function", events.single().getJSONObject("key").getString("kind"))
-    assertEquals(5, events.single().getJSONObject("key").getInt("value"))
-  }
-  @Test fun virtualKeyboardDeletionEncodesKeysNotRawEscapes() {
-    val ime = connection()
-    ime.deleteSurroundingText(2, 1)
-    assertEquals(listOf("backspace", "backspace", "backspace", "backspace", "delete", "delete"),
-      events.map { it.getJSONObject("key").getString("kind") })
-    assertEquals(listOf("press", "release", "press", "release", "press", "release"),
-      events.map { it.getString("action") })
-  }
-  @Test fun stickyControlUsesPhysicalCharacterAndPreeditStaysSeparate() {
-    input.stickyModifiers = 2
-    input.text("preedit", "c")
-    input.text("commit", "c")
-    assertEquals("preedit", events[0].getString("type"))
-    assertEquals("character", events[1].getJSONObject("key").getString("kind"))
-    assertEquals("c", events[1].getJSONObject("key").getString("value"))
-    assertEquals(2, events[1].getInt("modifiers"))
-  }
-  @Test fun hardwarePressRepeatReleaseStaySeparateAndFocusLossReleasesHeldKeys() {
-    assertTrue(input.hardware(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 0)))
-    assertTrue(input.hardware(KeyEvent(0, 1, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_UP, 1)))
-    assertTrue(input.hardware(KeyEvent(0, 2, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_UP, 0)))
-    assertEquals(listOf("press", "repeat", "release"), events.map { it.getString("action") })
-    events.clear()
-    input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
+    input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER), preedit)
     input.reset()
-    assertEquals("release", events[1].getString("action"))
-    assertFalse(input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK)))
+    assertEquals("release", keys()[1].getString("action"))
+    assertFalse(input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK), preedit))
+    assertFalse(input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP), preedit))
     events.clear()
-    input.hardware(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, 0,
-      KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON or KeyEvent.META_ALT_RIGHT_ON))
-    assertEquals(6, events.single().getInt("modifiers"))
-    assertEquals(0, events.single().getInt("consumedModifiers"))
+    input.hardware(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_C, 0, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON), preedit)
+    val ctrl = keys().single()
+    assertEquals(22, ctrl.getInt("physical"))
+    assertEquals("c", ctrl.getString("text"))
+    assertEquals(TerminalInput.CTRL, ctrl.getInt("modifiers"))
+    assertEquals(99, ctrl.getInt("unshiftedCodepoint"))
   }
-  @Test fun readonlyImeRejectsEditsAndUtf16SelectionsAreBounded() {
+  @Test fun readonlyImeRejectsEdits() {
     val ime = TerminalInputConnection(View(RuntimeEnvironment.getApplication()), input, {}, { false })
     assertFalse(ime.commitText("x", 1))
     assertFalse(ime.setComposingText("x", 1))
     assertFalse(ime.deleteSurroundingText(1, 0))
-    assertFalse(ime.setSelection(-1, 3))
-    assertTrue(commits().isEmpty())
-  }
-  @Test fun retiredImeCannotCommitAfterTheNativeBindingChanges() {
-    var current = true
-    val ime = TerminalInputConnection(View(RuntimeEnvironment.getApplication()), input, {}, { current })
-    ime.setComposingText("old", 1)
-    current = false
-    assertFalse(ime.commitText("old", 1))
-    ime.finishComposingText()
-    assertTrue(commits().isEmpty())
-    events.clear()
-    input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-    input.reset(releaseHeld = false)
-    assertTrue(events.none { it.optString("action") == "release" })
+    assertTrue(editors().isEmpty())
   }
   @Test fun untrustedOsc8LinksAllowOnlyExplicitHttpSchemes() {
     assertNotNull(TerminalTouch.safeLink("https://example.invalid/a"))

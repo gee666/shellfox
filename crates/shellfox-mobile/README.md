@@ -40,13 +40,15 @@ network payload travels through JavaScript to render the screen. JavaScript
 receives coarse lifecycle, operation and connection state. It must keep handles,
 operation IDs, sequence IDs and connection IDs as decimal strings.
 
-Native IME owns marked text and UTF-16 selection. Preedit emits no input bytes.
-Commit exactly once, without also sending duplicate hardware-key text. Rust
-passes committed text, keys, mouse and paste through Ghostty's encoders.
+The platform keyboard keeps a small editor (the text since the last Enter or
+key) so suggestions, swipe, voice and autocorrect work. After every keyboard
+edit it reports the editor's committed text; Rust's composer sends the terminal
+backspaces back to the first changed character and the new text. Marked text
+stays a local preedit. Keys, mouse and paste go through Ghostty's encoders.
 Native forwarding uses the additive \`sfm_terminal_input_ex\` callback and sends its
 validated 0/1 gesture hint unchanged to \`sfm_client_terminal_write_ex\`. Key
 release and button-free mouse motion are passive. Drag, click, wheel and nonempty
-text/paste are active. Preedit and empty encoded results emit no callback. Native
+text/paste are active. Editor resets and empty encoded results emit no callback. Native
 and JavaScript never duplicate this classification. The host still applies its
 meaningful-input policy before clearing settlement. The client captures the
 tri-state settlement token when its bounded FIFO accepts the write, not on dequeue.

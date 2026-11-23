@@ -6,17 +6,31 @@
 //! preedit. When a keyboard rewrites text it already committed (autocorrect,
 //! a tapped suggestion, swipe replacement), the terminal gets backspaces back
 //! to the first changed character and then the new text. The platform clears
-//! its editor after Enter or any key event, and this state resets with it.
+//! its editor after Enter or any key event and then sends a reset.
+//!
+//! A key or paste that reaches the terminal before that reset moves the
+//! terminal's cursor away from the editor's text. Until the reset, appended
+//! text still goes through, but nothing is erased: the old text may no
+//! longer be where backspaces would reach.
 use shellfox_ghostty_vt::key::{validate_text, KeyEvent, KeyModifiers, PhysicalKey};
 
 #[derive(Default)]
 pub(crate) struct Composer {
     sent: String,
+    detached: bool,
 }
 
 impl Composer {
     /// The keyboard's committed text changed to `committed`.
     pub(crate) fn update(&mut self, committed: &str) -> Vec<KeyEvent> {
+        if self.detached {
+            let mut events = Vec::new();
+            if let Some(appended) = committed.strip_prefix(self.sent.as_str()) {
+                text(&mut events, appended);
+                self.sent = committed.to_owned();
+            }
+            return events;
+        }
         let common = self
             .sent
             .char_indices()
@@ -37,8 +51,13 @@ impl Composer {
         self.sent = committed.to_owned();
         events
     }
+    /// A key or paste went to the terminal outside the editor.
+    pub(crate) fn detach(&mut self) {
+        self.detached = true;
+    }
+    /// The platform cleared its editor.
     pub(crate) fn reset(&mut self) {
-        self.sent.clear();
+        *self = Self::default();
     }
 }
 

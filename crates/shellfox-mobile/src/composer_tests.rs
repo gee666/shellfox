@@ -26,7 +26,7 @@ impl Editor {
         let range = self.region();
         let start = range.start;
         self.cursor = self.replace(range, text);
-        self.composing = (!text.is_empty()).then(|| start..self.cursor);
+        self.composing = (!text.is_empty()).then_some(start..self.cursor);
     }
     fn commit_text(&mut self, text: &str) {
         let range = self.region();
@@ -93,6 +93,7 @@ impl Session {
     }
     /// A key event (Gboard Backspace on an empty editor, the key bar).
     fn key(&mut self, physical: PhysicalKey) {
+        self.composer.detach();
         self.editor.clear();
         self.composer.reset();
         let event = KeyEvent::press(physical, KeyModifiers::NONE);
@@ -283,4 +284,23 @@ fn tabs_and_controls_in_committed_text() {
         ]
     );
     assert!(composer.update("a\tb\u{7}c").is_empty());
+}
+
+#[test]
+fn a_key_before_the_editor_reset_never_duplicates_or_erases() {
+    let mut s = Session::new();
+    s.ime(|e| e.commit_text("echo foo"));
+    // The key bar's Left arrow reaches the terminal; the platform's reset is
+    // still on its way when the keyboard edits its old text.
+    s.composer.detach();
+    s.ime(|e| e.commit_text("x"));
+    assert_eq!(s.line(), "echo foox");
+    // Replacing text from before the key would erase the wrong characters.
+    s.ime(|e| e.set_composing_region(5, 9));
+    s.ime(|e| e.commit_text("bar"));
+    assert_eq!(s.line(), "echo foox");
+    s.editor.clear();
+    s.composer.reset();
+    s.ime(|e| e.commit_text("y"));
+    assert_eq!(s.line(), "echo fooxy");
 }

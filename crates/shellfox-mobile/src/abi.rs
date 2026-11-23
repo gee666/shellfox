@@ -184,7 +184,9 @@ pub unsafe extern "C" fn sfm_terminal_input_ex(
 pub(crate) fn encode_input(handle: u64, json: &[u8]) -> Result<(Vec<u8>, u8)> {
     let event = serde_json::from_slice::<input::Input>(json).map_err(|_| Status::Invalid)?;
     let user_initiated = event.user_initiated();
-    let encoded = engine::with_engine(handle, |owned| input::encode(&mut owned.terminal, event))?;
+    let encoded = engine::with_engine(handle, |owned| {
+        input::encode(&mut owned.terminal, &mut owned.composer, event)
+    })?;
     let user_initiated = u8::from(user_initiated && !encoded.is_empty());
     Ok((encoded, user_initiated))
 }

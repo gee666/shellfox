@@ -28,15 +28,15 @@ describe('native terminal preferences and user input', () => {
     })).toThrow();
   });
 
-  it('sends typed keys, commits, IME preedit and paste rather than caller escapes', () => {
-    expect(JSON.parse(encodeTerminalInput({
-      type: 'key', key: { kind: 'arrowUp' }, action: 'press', modifiers: 2,
-    }))).toEqual({ type: 'key', key: { kind: 'arrowUp' }, action: 'press', modifiers: 2 });
-    expect(() => encodeTerminalInput({ type: 'commit', text: '\u001b[A' })).toThrow();
-    expect(() => encodeTerminalInput({
-      type: 'key', key: { kind: 'enter' }, action: 'press', modifiers: 16,
-    })).toThrow();
-    expect(() => encodeTerminalInput({ type: 'commit', text: '日'.repeat(25000) })).toThrow();
-    expect(JSON.parse(encodeTerminalInput({ type: 'preedit', text: '日本' }))).toEqual({ type: 'preedit', text: '日本' });
+  it('sends keyboard editor text, typed keys and paste rather than caller escapes', () => {
+    const up = { physical: 78, action: 'press', modifiers: 2, consumedModifiers: 0,
+      text: '', unshiftedCodepoint: null, composing: false } as const;
+    expect(JSON.parse(encodeTerminalInput({ type: 'key', event: up }))).toEqual({ type: 'key', event: up });
+    expect(() => encodeTerminalInput({ type: 'editor', committed: '\u001b[A' })).toThrow();
+    expect(() => encodeTerminalInput({ type: 'key', event: { ...up, physical: 176 } })).toThrow();
+    expect(() => encodeTerminalInput({ type: 'key', event: { ...up, modifiers: 0x400 } })).toThrow();
+    expect(() => encodeTerminalInput({ type: 'key', event: { ...up, text: '\u001b' } })).toThrow();
+    expect(() => encodeTerminalInput({ type: 'editor', committed: '日'.repeat(25000) })).toThrow();
+    expect(JSON.parse(encodeTerminalInput({ type: 'editor', committed: 'ls\n' }))).toEqual({ type: 'editor', committed: 'ls\n' });
   });
 });
