@@ -42,7 +42,10 @@ fn main() {
         }
     }
     let mut arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
-    if arguments.first().is_some_and(|flag| flag == shellfox_service::local::LocalBootstrap::DESKTOP_HOST_FLAG) {
+    if arguments
+        .first()
+        .is_some_and(|flag| flag == shellfox_service::local::LocalBootstrap::DESKTOP_HOST_FLAG)
+    {
         std::process::exit(desktop_host::run(&arguments[1..]));
     }
     let watch = parent_watch::claim();
@@ -57,39 +60,26 @@ fn main() {
     }
     let code = match ssh::dispatch(&arguments) {
         Some(result) => result.unwrap_or_else(|error| output::print_error(&error)),
-        None if experimental(&arguments) => run(arguments).unwrap_or_else(|error| output::print_error(&error)),
         None => {
-            let json = arguments.iter().take_while(|a| *a != "--").any(|a| a == "--json");
-            output::set_mode(if json { output::Mode::Json } else { output::Mode::Human });
-            node_args::parse(&arguments)
-                .and_then(|invocation| node_run::run(invocation, watch))
-                .unwrap_or_else(|error| output::print_error(&error))
+            let json = arguments
+                .iter()
+                .take_while(|a| *a != "--")
+                .any(|a| a == "--json");
+            output::set_mode(if json {
+                output::Mode::Json
+            } else {
+                output::Mode::Human
+            });
+            run(arguments, watch).unwrap_or_else(|error| output::print_error(&error))
         }
     };
     std::process::exit(code);
 }
 
-/// Development and package smoke tests select the host with explicit paths.
-fn experimental(arguments: &[OsString]) -> bool {
-    arguments.first().is_some_and(|first| {
-        first == "--data-dir"
-            || first == "--helper"
-            || first == "--helper-sha256"
-            || app_composition::ApplicationArguments::is_flag(first)
-    })
-}
-
-fn run(arguments: Vec<OsString>) -> Result<i32> {
-    let Some(args) = args::parse(arguments)? else {
-        println!("{}", args::HELP);
-        return Ok(0);
-    };
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-    if matches!(&args.command, args::Command::Serve) {
-        commands::serve(args, &runtime, || {})
-    } else {
-        runtime.block_on(commands::run(args))
-    }
+/// One command grammar. Explicit --data-dir/--helper selection may precede it.
+fn run(arguments: Vec<OsString>, watch: Option<parent_watch::Watch>) -> Result<i32> {
+    let mut words = arguments.into_iter().peekable();
+    let selection = args::Selection::parse(&mut words)?;
+    let invocation = node_args::parse(&words.collect::<Vec<_>>())?;
+    node_run::run(invocation, selection, watch)
 }

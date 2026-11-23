@@ -14,15 +14,7 @@ fn parse_command_args(words: &[&str]) -> Result<Args> {
         OsString::from(DIGEST),
     ];
     args.extend(words.iter().map(OsString::from));
-    parse(args)?.context("Expected a command, not help.")
-}
-
-#[test]
-fn help_does_not_need_a_host_or_paths() {
-    for help in ["--help", "-h"] {
-        assert!(parse([OsString::from(help)]).unwrap().is_none());
-    }
-    assert!(parse([OsString::from("--help"), OsString::from("extra")]).is_err());
+    parse(args)
 }
 
 #[test]
@@ -336,7 +328,6 @@ fn native_paths_can_be_non_utf8_but_metadata_cannot() {
         OsString::from("session"),
         OsString::from("list"),
     ])
-    .unwrap()
     .unwrap();
     assert_eq!(parsed.data_dir.as_os_str(), data);
     assert_eq!(parsed.helper.as_os_str(), helper);

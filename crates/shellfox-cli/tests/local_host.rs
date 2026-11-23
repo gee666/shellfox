@@ -98,16 +98,16 @@ async fn exercise(
         data,
         helper,
         digest,
-        &["settings", "set", r#"{"historyPageSize":17}"#],
+        &["settings", "update", "--input", r#"{"historyPageSize":17}"#, "--json"],
     )?;
     ensure!(
         saved.history_page_size == 17,
         "CLI did not save full global settings."
     );
-    let loaded = support::settings(cli, data, helper, digest, &["settings", "get"])?;
+    let loaded = support::settings(cli, data, helper, digest, &["settings", "read", "--json"])?;
     ensure!(
         loaded == saved,
-        "CLI settings get did not return the committed global settings."
+        "CLI settings read did not return the committed global settings."
     );
     let snapshot = match first
         .execute(Request::CreateSession {

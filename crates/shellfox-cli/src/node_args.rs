@@ -7,7 +7,7 @@ use std::{ffi::OsString, path::PathBuf};
 #[derive(Debug)]
 pub struct Invocation {
     /// 0.9.x data root. Rust keeps its own state in `<root>/rust-v1/host`.
-    pub user_data: PathBuf,
+    pub user_data: Option<PathBuf>,
     pub json: bool,
     pub yes: bool,
     pub action: Action,
@@ -35,6 +35,7 @@ pub enum Action {
     CreateSession {
         cwd: String,
         title: Option<String>,
+        request_id: Option<shellfox_core::SessionId>,
     },
     CreateTab {
         session: String,
@@ -44,6 +45,9 @@ pub enum Action {
     Inspect(String),
     Machines,
     Approvals,
+    /// Not a 0.9.x command. Development hosts selected with --data-dir also
+    /// accept the operator commands in args.rs; everything else rejects it.
+    Unknown(Vec<String>),
 }
 
 const GLOBALS: [&str; 4] = ["--json", "--yes", "--host", "--user-data"];
@@ -153,7 +157,8 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
     })
 }
 
-fn user_data_root(explicit: Option<String>) -> Result<PathBuf> {
+/// The chosen 0.9.x data root; None means the platform default.
+fn user_data_root(explicit: Option<String>) -> Result<Option<PathBuf>> {
     let chosen = explicit
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("SHELLFOX_USER_DATA").map(PathBuf::from));
@@ -161,12 +166,22 @@ fn user_data_root(explicit: Option<String>) -> Result<PathBuf> {
         Some(path) if path.as_os_str().is_empty() => {
             Err(CliError::usage("Invalid user data directory."))
         }
-        Some(path) => Ok(resolve(&std::path::absolute(path)?)),
-        None => Ok(shellfox_service::app_paths::default_data_root()?
-            .ancestors()
-            .nth(2)
-            .context("Missing Shellfox data root")?
-            .to_owned()),
+        Some(path) => Ok(Some(resolve(&std::path::absolute(path)?))),
+        None => Ok(None),
+    }
+}
+
+impl Invocation {
+    /// Resolved lazily: an explicit --data-dir needs no platform default.
+    pub fn user_data(&self) -> Result<PathBuf> {
+        match &self.user_data {
+            Some(path) => Ok(path.clone()),
+            None => Ok(shellfox_service::app_paths::default_data_root()?
+                .ancestors()
+                .nth(2)
+                .context("Missing Shellfox data root")?
+                .to_owned()),
+        }
     }
 }
 
@@ -224,56 +239,89 @@ fn action(args: &[String], json: bool) -> Result<Action> {
         ["update"] => Action::Update { check: false },
         ["update", "--check"] => Action::Update { check: true },
         ["update", ..] => return Err(CliError::usage("Usage: shellfox update [--check] [--json]")),
-        ["host", "run"] => Action::HostRun,
+        // `host serve` is the name development scripts and tests use.
+        ["host", "run" | "serve"] => Action::HostRun,
         ["host", "status"] => Action::HostStatus,
         ["host", "stop"] => Action::HostStop,
         ["host", "keep-awake"] => host(&["host", "power", "status"]),
         ["host", "keep-awake", state @ ("on" | "off")] => host(&["host", "power", state]),
-        ["host", "service", "install"] => Action::Service { install: true, startup: false },
-        ["host", "service", "install", "--startup"] => Action::Service { install: true, startup: true },
-        ["host", "service", "uninstall"] => Action::Service { install: false, startup: false },
+        ["host", "service", "install"] => Action::Service {
+            install: true,
+            startup: false,
+        },
+        ["host", "service", "install", "--startup"] => Action::Service {
+            install: true,
+            startup: true,
+        },
+        ["host", "service", "uninstall"] => Action::Service {
+            install: false,
+            startup: false,
+        },
         [namespace, "list"] if session(namespace) => host(&["session", "list"]),
         [namespace, "create", rest @ ..] if session(namespace) => create_session(rest)?,
         [namespace, "inspect", id] if session(namespace) => Action::Inspect((*id).into()),
-        [namespace, "rename", id, title] if session(namespace) => host(&["session", "rename", id, title]),
+        [namespace, "rename", id, title] if session(namespace) => {
+            host(&["session", "rename", id, title])
+        }
         [namespace, "delete" | "rm" | "-rm", id] if session(namespace) => {
             confirm(format!("session delete {id}"), &["session", "close", id])
         }
         [namespace, "list"] if terminal(namespace) => host(&["tab", "list"]),
         [namespace, "list", id] if terminal(namespace) => host(&["tab", "list", id]),
-        [namespace, "create", session, rest @ ..] if terminal(namespace) => create_tab(session, rest)?,
-        [namespace, "rename", _session, tab, title] if terminal(namespace) => host(&["tab", "rename", tab, title]),
-        [namespace, "close", tab] if terminal(namespace) => confirm(format!("Close terminal {tab}"), &["tab", "close", tab]),
+        [namespace, "create", session, rest @ ..] if terminal(namespace) => {
+            create_tab(session, rest)?
+        }
+        [namespace, "rename", _session, tab, title] if terminal(namespace) => {
+            host(&["tab", "rename", tab, title])
+        }
+        [namespace, "close", tab] if terminal(namespace) => {
+            confirm(format!("Close terminal {tab}"), &["tab", "close", tab])
+        }
         [namespace, "attach", _] if terminal(namespace) && json => {
-            return Err(CliError::usage("Interactive attach does not support --json."));
+            return Err(CliError::usage(
+                "Interactive attach does not support --json.",
+            ));
         }
         [namespace, "attach", tab] if terminal(namespace) => host(&["attach", tab]),
         ["settings", "read"] => host(&["settings", "get"]),
         ["settings", "update", "--input", input] => host(&["settings", "set", &read_input(input)?]),
         ["network", "status"] => host(&["host", "network", "status"]),
         ["network", "enable"] => host(&["host", "network", "on"]),
-        ["network", "enable", "--hostname", name] => host(&["host", "network", "on", "--hostname", name]),
+        ["network", "enable", "--hostname", name] => {
+            host(&["host", "network", "on", "--hostname", name])
+        }
         ["network", "disable"] => confirm("network:disable".into(), &["host", "network", "off"]),
         ["network", "login"] => host(&["host", "network", "login"]),
-        ["network", "login", "--auth-key-stdin"] => host(&["host", "network", "login", "--auth-key-stdin"]),
+        ["network", "login", "--auth-key-stdin"] => {
+            host(&["host", "network", "login", "--auth-key-stdin"])
+        }
         ["machines", "list"] => Action::Machines,
-        ["machines", op @ ("connect" | "disconnect"), peer] => host(&["host", "network", "peer", peer, op]),
-        ["machines", "forget", peer] => confirm("machines:forget".into(), &["host", "network", "peer", peer, "forget"]),
+        ["machines", op @ ("connect" | "disconnect"), peer] => {
+            host(&["host", "network", "peer", peer, op])
+        }
+        ["machines", "forget", peer] => confirm(
+            "machines:forget".into(),
+            &["host", "network", "peer", peer, "forget"],
+        ),
         ["approvals", "list"] => Action::Approvals,
         ["approvals", "approve", peer] => host(&["host", "network", "peer", peer, "approve"]),
-        ["approvals", op @ ("reject" | "revoke"), peer] => {
-            confirm(format!("approvals:{op}"), &["host", "network", "peer", peer, op])
-        }
+        ["approvals", op @ ("reject" | "revoke"), peer] => confirm(
+            format!("approvals:{op}"),
+            &["host", "network", "peer", peer, op],
+        ),
         ["run", ..] if json && !parts.contains(&"--detach") => {
-            return Err(CliError::usage("Foreground run does not support --json. Use run --detach --json."));
+            return Err(CliError::usage(
+                "Foreground run does not support --json. Use run --detach --json.",
+            ));
         }
-        ["run", rest @ ..] => Action::Host { words: with_rest(&["run"], rest), confirm: None },
+        ["run", rest @ ..] => Action::Host {
+            words: with_rest(&["run"], rest),
+            confirm: None,
+        },
         ["runs"] | ["runs", "list"] => host(&["runs", "list"]),
         ["runs", "show", id] => host(&["runs", "show", id]),
         ["runs", "stop", id] => confirm(format!("Stop run {id}"), &["runs", "stop", id]),
-        _ => return Err(CliError::usage(
-            "Unknown or unsupported command. Run shellfox help for the commands this version supports.",
-        )),
+        _ => Action::Unknown(args.to_vec()),
     })
 }
 
@@ -310,13 +358,13 @@ fn flag(flags: &[(&str, &str)], name: &str) -> Option<String> {
 }
 
 fn create_session(rest: &[&str]) -> Result<Action> {
-    let (positional, flags) = options(rest, &["--title"])?;
+    let (positional, flags) = options(rest, &["--title", "--request-id"])?;
     let path = match positional.as_slice() {
         [] => ".",
         [path] => path,
         _ => {
             return Err(CliError::usage(
-                "Usage: shellfox session create [PATH] [--title TITLE]",
+                "Usage: shellfox session create [PATH] [--title TITLE] [--request-id UUID]",
             ))
         }
     };
@@ -328,9 +376,16 @@ fn create_session(rest: &[&str]) -> Result<Action> {
         .into_os_string()
         .into_string()
         .map_err(|_| CliError::usage("Invalid directory."))?;
+    let request_id = flag(&flags, "--request-id")
+        .map(|id| {
+            id.parse()
+                .map_err(|_| CliError::usage("Invalid session title or request ID."))
+        })
+        .transpose()?;
     Ok(Action::CreateSession {
         cwd,
         title: flag(&flags, "--title"),
+        request_id,
     })
 }
 

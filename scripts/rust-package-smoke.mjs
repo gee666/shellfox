@@ -46,7 +46,7 @@ export async function ownHostSmoke(cli, helper, work, helperSha256, env = {}) {
   // Handle spawn failure even if the readiness loop has not reached await exited.
   exited.catch(() => {});
   const invoke = args => run(cli, [...flags, ...args], { cwd: work, env, timeout: 15_000 });
-  const command = args => JSON.parse(invoke(args));
+  const command = args => { const reply = JSON.parse(invoke([...args, '--json'])); assert.equal(reply.ok, true); return reply.value; };
   let stopped = false;
   try {
     const deadline = Date.now() + 30_000;
@@ -56,22 +56,22 @@ export async function ownHostSmoke(cli, helper, work, helperSha256, env = {}) {
       catch { await delay(100); }
     }
     assert.ok(ready, `Owned host did not become ready: ${diagnostics}`);
-    command(['session', 'create', '--cwd', work, '--profile', process.platform === 'win32' ? 'cmd' : 'login-shell', '--title', 'Packaged metadata smoke']);
+    command(['session', 'create', work, '--title', 'Packaged metadata smoke']);
     const sessions = command(['session', 'list']);
     assert.equal(sessions.length, 1);
     const id = sessions[0].id;
     command(['session', 'rename', id, 'Renamed packaged smoke']);
     assert.equal(command(['session', 'list'])[0].title, 'Renamed packaged smoke');
-    assert.ok(command(['settings', 'get']));
+    assert.ok(command(['settings', 'read']));
     if (process.platform === 'darwin') {
-      const tabs = command(['tab', 'list', id]);
+      const tabs = command(['terminals', 'list', id]);
       assert.equal(tabs.length, 1);
-      run('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'attach', tabs[0].id],
+      run('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'terminals', 'attach', tabs[0].id],
         { cwd: work, env, timeout: 60_000 });
     }
-    command(['session', 'close', id]);
+    command(['session', 'delete', id, '--yes']);
     assert.deepEqual(command(['session', 'list']), []);
-    invoke(['host', 'stop']);
+    invoke(['host', 'stop', '--yes']);
     const result = await Promise.race([exited, delay(15_000).then(() => { throw new Error('Owned host did not exit after stop'); })]);
     assert.deepEqual(result, { code: 0, signal: null });
     stopped = true;
@@ -79,7 +79,7 @@ export async function ownHostSmoke(cli, helper, work, helperSha256, env = {}) {
       + (process.platform === 'darwin' ? ', packaged CLI attach and PTY echo' : '');
   } finally {
     if (!stopped && child.exitCode === null && child.signalCode === null) {
-      try { invoke(['host', 'stop']); } catch { /* Only this smoke's private endpoint was contacted. */ }
+      try { invoke(['host', 'stop', '--yes']); } catch { /* Only this smoke's private endpoint was contacted. */ }
       const ended = await Promise.race([exited.then(() => true).catch(() => true), delay(5_000).then(() => false)]);
       if (!ended) {
         // Never force-stop a host, even our fixture. Preserve its isolated data.

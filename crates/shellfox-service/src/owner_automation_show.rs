@@ -22,6 +22,8 @@ struct Viewer<'a> {
     relays: &'a HashMap<Uuid, Relay>,
     terminals: &'a HashMap<TabId, terminals::OwnedTerminal>,
     launches: &'a mut DesktopLaunchRouter,
+    /// Headless hosts publish the view for remote clients without focusing a window.
+    desktop: bool,
     authority: ShowAuthority<'a>,
     activity: &'a mut crate::activity_integration::OwnerActivity,
 }
@@ -86,6 +88,9 @@ impl AutomationViewer for Viewer<'_> {
             ReservedPublicationReceipt::Published { session_id, tab_id } if session_id == identity.session_id && tab_id == identity.tab_id => {}
             _ => bail!("Original automation view metadata is unavailable; no recreation or selection was inferred."),
         }
+        if !self.desktop {
+            return Ok(());
+        }
         // Explicit Show targets one registered native coordinator. Metadata
         // publication itself never selects/focuses every application window.
         self.launches.enqueue(
@@ -112,9 +117,7 @@ impl Service {
             lost: &self.ownership_lost,
             stopping: self.stopping,
         };
-        if !launches.route_info(&authority)?.desktop_registered {
-            bail!("No native desktop is registered for automation Show.");
-        }
+        let desktop = launches.route_info(&authority)?.desktop_registered;
         if self.automation.runs.is_stopped(request.id)? {
             if let Some(relay) = self.automation.relays.get(&request.id) {
                 let normal = self
@@ -138,6 +141,7 @@ impl Service {
             relays,
             terminals: &self.terminals,
             launches,
+            desktop,
             authority,
             activity: &mut self.activity.owner,
         };

@@ -61,7 +61,7 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
   const close = async () => {
     try {
       if (owner && existsSync(path.join(host, 'rust-service-v1/endpoint.json'))) {
-        try { hostCLI('host', 'stop'); } catch (error) { console.error('Owned P4 peer cleanup:', error.message); }
+        try { hostCLI('host', 'stop', '--yes'); } catch (error) { console.error('Owned P4 peer cleanup:', error.message); }
       }
     } finally { await owner?.close(); await control.close(); }
   };
@@ -79,10 +79,9 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
       return existsSync(path.join(host, 'rust-service-v1/endpoint.json'));
     }, Boolean);
     for (const [cwd, title] of [[a, 'P4 peer A'], [b, 'P4 peer B']]) {
-      hostCLI('session', 'create', '--cwd', cwd, '--profile', 'login-shell', '--title', title);
-      const session = hostCLI('session', 'list').find(item => item.title === title);
-      const [tab] = hostCLI('tab', 'list', session.id);
-      run('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...hostFlags, 'attach', tab.id],
+      const session = hostCLI('session', 'create', cwd, '--title', title, '--json').value;
+      const [tab] = hostCLI('terminals', 'list', session.id, '--json').value;
+      run('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...hostFlags, 'terminals', 'attach', tab.id],
         { ...hostOptions, timeout: 60_000 });
     }
     assert.equal(hostCLI('host', 'network', 'on', '--hostname', hostName).enabled, true);

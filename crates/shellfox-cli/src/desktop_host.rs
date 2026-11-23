@@ -55,7 +55,7 @@ fn plan(arguments: &[OsString]) -> Result<Plan> {
 fn serve(arguments: &[OsString]) -> Result<()> {
     let Plan { ui, relaunch, mut host } = plan(arguments)?;
     host.extend(["host".into(), "serve".into()]);
-    let args = crate::args::parse(host)?.context("Host arguments missing")?;
+    let args = crate::args::parse(host)?;
     ensure!(matches!(args.command, crate::args::Command::Serve), "Unexpected host command");
     // The desktop host opens folders and links for its UI, unlike a headless host.
     let remote = args.application.remote_options(std::env::current_exe()?, true)?;

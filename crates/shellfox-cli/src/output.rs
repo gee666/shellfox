@@ -1,10 +1,10 @@
-//! One output policy per process: the experimental raw JSON, or the 0.9.x CLI
-//! contract (`{"ok":true,"value":...}` with `--json`, readable text otherwise).
+//! Output policy: the 0.9.x CLI contract (`{"ok":true,"value":...}` with
+//! `--json`, readable text otherwise), or raw JSON for development operator commands.
 use serde::Serialize;
 use std::{
     fmt,
     io::{self, Write},
-    sync::OnceLock,
+    sync::atomic::{AtomicU8, Ordering},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,13 +13,17 @@ pub enum Mode {
     Json,
     Human,
 }
-static MODE: OnceLock<Mode> = OnceLock::new();
+static MODE: AtomicU8 = AtomicU8::new(Mode::Raw as u8);
 
 pub fn set_mode(mode: Mode) {
-    let _ = MODE.set(mode);
+    MODE.store(mode as u8, Ordering::Relaxed);
 }
 pub fn mode() -> Mode {
-    *MODE.get().unwrap_or(&Mode::Raw)
+    match MODE.load(Ordering::Relaxed) {
+        1 => Mode::Json,
+        2 => Mode::Human,
+        _ => Mode::Raw,
+    }
 }
 
 /// A failure with the stable code and exit status that 0.9.x scripts check.

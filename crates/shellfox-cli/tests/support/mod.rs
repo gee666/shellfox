@@ -48,7 +48,9 @@ pub fn settings(
         bytes.len() <= 8 * 1024 * 1024,
         "Settings CLI output exceeded limit."
     );
-    let settings: shellfox_core::Settings = serde_json::from_slice(&bytes)?;
+    let reply: serde_json::Value = serde_json::from_slice(&bytes)?;
+    ensure!(reply["ok"] == true, "Settings CLI command failed: {reply}");
+    let settings: shellfox_core::Settings = serde_json::from_value(reply["value"].clone())?;
     settings.validate()?;
     Ok(settings)
 }

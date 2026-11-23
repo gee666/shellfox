@@ -5,10 +5,6 @@ use shellfox_core::{
 use shellfox_service::experiment::{ExperimentRequest, SettingsRequest};
 use std::{collections::HashMap, ffi::OsString, path::PathBuf};
 
-#[path = "args_help.rs"]
-mod help;
-pub use help::HELP;
-
 #[derive(Debug)]
 pub struct Args {
     pub data_dir: PathBuf,
@@ -31,66 +27,88 @@ pub enum Command {
     Automation(crate::automation_args::AutomationCommand),
 }
 
-/// Paths retain their native encoding. Command arguments are UTF-8 metadata.
-pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<Args>> {
-    let mut args = arguments.into_iter().peekable();
-    if args
-        .peek()
-        .is_some_and(|arg| arg == "--help" || arg == "-h")
-    {
-        args.next();
-        if args.next().is_some() {
-            bail!("--help does not take other arguments.");
-        }
-        return Ok(None);
-    }
-    let mut data_dir = None;
-    let mut helper = None;
-    let mut helper_sha256 = None;
-    let mut application = crate::app_composition::ApplicationArguments::default();
-    while let Some(flag) = args.peek() {
-        if crate::app_composition::ApplicationArguments::is_flag(flag) {
-            let flag = args.next().context("Missing application flag")?;
-            let value = args.next().context("Application flag requires a value")?;
-            application.push(
-                flag.to_str().context("Application flag must be UTF-8")?,
-                value,
-            )?;
-            continue;
-        }
-        if flag == "--helper-sha256" {
-            args.next();
-            if helper_sha256.is_some() {
-                bail!("Duplicate flag --helper-sha256.");
+/// Explicit host selection that may precede any command. Development builds
+/// need it; packaged builds default to their data root and bundled helper.
+#[derive(Default)]
+pub struct Selection {
+    pub data_dir: Option<PathBuf>,
+    helper: Option<PathBuf>,
+    helper_sha256: Option<[u8; 32]>,
+    application: crate::app_composition::ApplicationArguments,
+}
+impl Selection {
+    /// Consumes leading selection flags and stops at the first other word.
+    pub fn parse<I: Iterator<Item = OsString>>(args: &mut std::iter::Peekable<I>) -> Result<Self> {
+        let mut selection = Self::default();
+        while let Some(flag) = args.peek() {
+            if crate::app_composition::ApplicationArguments::is_flag(flag) {
+                let flag = args.next().context("Missing application flag")?;
+                let value = args.next().context("Application flag requires a value")?;
+                selection.application.push(
+                    flag.to_str().context("Application flag must be UTF-8")?,
+                    value,
+                )?;
+                continue;
             }
-            let value = args.next().context("--helper-sha256 requires a value.")?;
-            helper_sha256 = Some(parse_digest(
-                value.to_str().context("Invalid SHA-256 encoding.")?,
-            )?);
-            continue;
+            if flag == "--helper-sha256" {
+                args.next();
+                if selection.helper_sha256.is_some() {
+                    bail!("Duplicate flag --helper-sha256.");
+                }
+                let value = args.next().context("--helper-sha256 requires a value.")?;
+                selection.helper_sha256 = Some(parse_digest(
+                    value.to_str().context("Invalid SHA-256 encoding.")?,
+                )?);
+                continue;
+            }
+            let target = if flag == "--data-dir" {
+                &mut selection.data_dir
+            } else if flag == "--helper" {
+                &mut selection.helper
+            } else {
+                break;
+            };
+            let flag = args.next().context("Missing path flag.")?;
+            if target.is_some() {
+                bail!("Duplicate flag {}.", flag.to_string_lossy());
+            }
+            let path = PathBuf::from(args.next().context("Path flag requires a value.")?);
+            if !path.is_absolute() {
+                bail!("{} requires an absolute path.", flag.to_string_lossy());
+            }
+            *target = Some(path);
         }
-        let target = if flag == "--data-dir" {
-            &mut data_dir
-        } else if flag == "--helper" {
-            &mut helper
-        } else {
-            break;
-        };
-        let flag = args.next().context("Missing path flag.")?;
-        if target.is_some() {
-            bail!("Duplicate flag {}.", flag.to_string_lossy());
-        }
-        let path = PathBuf::from(args.next().context("Path flag requires a value.")?);
-        if !path.is_absolute() {
-            bail!("{} requires an absolute path.", flag.to_string_lossy());
-        }
-        *target = Some(path);
+        Ok(selection)
     }
-    let packaged = !cfg!(test) && shellfox_service::app_paths::is_packaged();
-    let data_dir = match data_dir {
+    /// The trusted helper: explicit pair, or the packaged one.
+    pub fn helper(&self) -> Result<(PathBuf, [u8; 32])> {
+        match (&self.helper, self.helper_sha256) {
+            (Some(helper), Some(digest)) => Ok((helper.clone(), digest)),
+            (None, None) if !cfg!(test) && shellfox_service::app_paths::is_packaged() => {
+                shellfox_service::app_paths::packaged_helper()
+            }
+            (None, None) => bail!("This build has no bundled helper. Supply --helper ABSOLUTE_EXE --helper-sha256 HEX."),
+            _ => bail!("Supply both --helper ABSOLUTE_EXE and --helper-sha256 HEX from a trusted build."),
+        }
+    }
+    /// Host arguments for one internal command.
+    pub fn args(self, data_dir: PathBuf, words: &[String]) -> Result<Args> {
+        let command = parse_command(words)?;
+        let (helper, helper_sha256) = self.helper()?;
+        finish(data_dir, helper, helper_sha256, command, self.application)
+    }
+}
+
+/// Explicit selection plus an internal command, as the desktop host passes them.
+pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Args> {
+    let mut args = arguments.into_iter().peekable();
+    let selection = Selection::parse(&mut args)?;
+    let data_dir = match selection.data_dir.clone() {
         Some(dir) => dir,
-        None if packaged => shellfox_service::app_paths::default_data_root()?,
-        None => bail!("Explicit --data-dir ABSOLUTE_DIR required. Use --help for usage."),
+        None if !cfg!(test) && shellfox_service::app_paths::is_packaged() => {
+            shellfox_service::app_paths::default_data_root()?
+        }
+        None => bail!("Explicit --data-dir ABSOLUTE_DIR required."),
     };
     let words: Vec<String> = args
         .map(|arg| {
@@ -98,23 +116,7 @@ pub fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<Arg
                 .map_err(|_| anyhow::anyhow!("Command arguments must be valid UTF-8."))
         })
         .collect::<Result<_>>()?;
-    let command = parse_command(&words)?;
-    let (helper, helper_sha256) = match (helper, helper_sha256) {
-        (Some(helper), Some(digest)) => (helper, digest),
-        (None, None) if packaged => shellfox_service::app_paths::packaged_helper()?,
-        _ => {
-            bail!("Supply both --helper ABSOLUTE_EXE and --helper-sha256 HEX from a trusted build.")
-        }
-    };
-    finish(data_dir, helper, helper_sha256, command, application).map(Some)
-}
-
-/// The 0.9.x command surface: packaged helper, default application options.
-pub fn packaged(data_dir: PathBuf, words: &[String]) -> Result<Args> {
-    let command = parse_command(words)?;
-    let (helper, helper_sha256) = shellfox_service::app_paths::packaged_helper()?;
-    let application = crate::app_composition::ApplicationArguments::default();
-    finish(data_dir, helper, helper_sha256, command, application)
+    selection.args(data_dir, &words)
 }
 
 fn finish(

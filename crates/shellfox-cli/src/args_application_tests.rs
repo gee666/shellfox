@@ -15,7 +15,7 @@ fn command(words: &[&str]) -> Command {
         "owned-parser".into(),
     ];
     values.extend(words.iter().map(OsString::from));
-    parse(values).unwrap().unwrap().command
+    parse(values).unwrap().command
 }
 #[test]
 fn a_portable_pass_through_alias_is_not_a_configured_native_launcher() {

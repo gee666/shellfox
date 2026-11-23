@@ -19,12 +19,12 @@ fn service_unit_command_lines_from_0_9_keep_working() {
     let invocation = parse_words(&["--user-data", "/srv/shellfox-data", "host", "run"]).unwrap();
     assert_eq!(invocation.action, Action::HostRun);
     assert_eq!(
-        invocation.user_data,
+        invocation.user_data().unwrap(),
         std::path::absolute("/srv/shellfox-data").unwrap()
     );
     assert_eq!(
-        data_dir(&invocation.user_data),
-        invocation.user_data.join("rust-v1").join("host")
+        data_dir(&invocation.user_data().unwrap()),
+        invocation.user_data().unwrap().join("rust-v1").join("host")
     );
     let trailing = parse_words(&["host", "status", "--json", "--user-data=/srv/d"]).unwrap();
     assert!(trailing.json);
@@ -107,7 +107,6 @@ fn option_values_are_never_globals_and_errors_are_validation() {
     for bad in [
         &["--json=1", "version"][..],
         &["--user-data", "a", "--user-data", "b", "version"],
-        &["session", "stats"],
         &["update", "now"],
     ] {
         let error = parse_words(bad).unwrap_err();
@@ -117,6 +116,22 @@ fn option_values_are_never_globals_and_errors_are_validation() {
             "{bad:?}"
         );
     }
+    assert_eq!(
+        action(&["session", "stats"]),
+        Action::Unknown(vec!["session".into(), "stats".into()])
+    );
+    assert_eq!(action(&["host", "serve"]), Action::HostRun);
+    match action(&[
+        "session",
+        "create",
+        ".",
+        "--request-id",
+        "0b6f8f5e-6f62-4c1b-9d0e-6f1b1a2b3c4d",
+    ]) {
+        Action::CreateSession { request_id, .. } => assert!(request_id.is_some()),
+        other => panic!("{other:?}"),
+    }
+    assert!(parse_words(&["session", "create", ".", "--request-id", "nope"]).is_err());
     let remote = parse_words(&["--host", "other", "session", "list"]).unwrap_err();
     assert_eq!(
         remote.downcast_ref::<CliError>().unwrap().code,
@@ -128,7 +143,10 @@ fn option_values_are_never_globals_and_errors_are_validation() {
 #[test]
 fn old_host_terminal_shims_and_path_spellings_resolve_like_0_9() {
     let shim = parse_words(&["--shellfox-default-user-data", "/srv/a", "session", "list"]).unwrap();
-    assert_eq!(shim.user_data, std::path::absolute("/srv/a").unwrap());
+    assert_eq!(
+        shim.user_data().unwrap(),
+        std::path::absolute("/srv/a").unwrap()
+    );
     let explicit = parse_words(&[
         "--shellfox-default-user-data",
         "/srv/a",
@@ -137,8 +155,14 @@ fn old_host_terminal_shims_and_path_spellings_resolve_like_0_9() {
         "version",
     ])
     .unwrap();
-    assert_eq!(explicit.user_data, std::path::absolute("/srv/b").unwrap());
+    assert_eq!(
+        explicit.user_data().unwrap(),
+        std::path::absolute("/srv/b").unwrap()
+    );
     assert!(parse_words(&["--shellfox-default-user-data", "a\nb", "version"]).is_err());
     let messy = parse_words(&["--user-data", "/srv/x/../data/./", "version"]).unwrap();
-    assert_eq!(messy.user_data, std::path::absolute("/srv/data").unwrap());
+    assert_eq!(
+        messy.user_data().unwrap(),
+        std::path::absolute("/srv/data").unwrap()
+    );
 }

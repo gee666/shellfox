@@ -11,7 +11,12 @@ pub fn service_name(user_data: &Path) -> String {
     format!("shellfox-host-{}", &format!("{digest:x}")[..12])
 }
 
-pub fn run(install: bool, startup: bool, user_data: &Path, data: &Path) -> Result<String> {
+pub fn run(
+    install: bool,
+    startup: bool,
+    user_data: &Path,
+    host: &crate::node_run::Target,
+) -> Result<String> {
     if startup && !cfg!(windows) {
         bail!("--startup is only supported for Windows boot tasks.");
     }
@@ -29,7 +34,7 @@ pub fn run(install: bool, startup: bool, user_data: &Path, data: &Path) -> Resul
     if install {
         std::fs::create_dir_all(user_data)?;
     } else {
-        stop_host(user_data, data);
+        stop_host(user_data, host);
     }
     let template = |file: &str| {
         std::fs::read_to_string(anchor.join("service").join(file))
@@ -43,9 +48,9 @@ pub fn run(install: bool, startup: bool, user_data: &Path, data: &Path) -> Resul
 }
 
 /// Uninstall stops the host gracefully first; no PID kills.
-fn stop_host(user_data: &Path, data: &Path) {
+fn stop_host(user_data: &Path, host: &crate::node_run::Target) {
     let stop = async {
-        if let Ok(client) = crate::node_run::connect(data).await {
+        if let Ok(client) = host.connect().await {
             client
                 .execute(shellfox_service::experiment::ExperimentRequest::Stop {})
                 .await?;

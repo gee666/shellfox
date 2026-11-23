@@ -13,7 +13,7 @@ use shellfox_service::{
 };
 use std::{
     io::{IsTerminal, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 pub const HELP: &str = "Shellfox
@@ -46,14 +46,40 @@ Other
 Destructive commands need --yes in noninteractive or --json mode.
 Ctrl+] detaches from an attached terminal.";
 
-pub fn run(invocation: Invocation, watch: Option<crate::parent_watch::Watch>) -> Result<i32> {
+pub fn run(
+    invocation: Invocation,
+    selection: crate::args::Selection,
+    watch: Option<crate::parent_watch::Watch>,
+) -> Result<i32> {
+    // An explicit --data-dir names a Rust host directly: no 0.9 data, no desktop cold start.
+    let legacy = selection.data_dir.is_none();
+    let user_data = match &selection.data_dir {
+        Some(_) => invocation.user_data.clone(),
+        None => Some(invocation.user_data()?),
+    };
     let Invocation {
-        user_data,
-        json,
-        yes,
-        action,
+        json, yes, action, ..
     } = invocation;
-    let data = data_dir(&user_data);
+    let data = match (&selection.data_dir, &user_data) {
+        (Some(data), _) => data.clone(),
+        (None, Some(root)) => data_dir(root),
+        (None, None) => unreachable!("default user data resolved above"),
+    };
+    let target = || -> Result<Target> {
+        let (helper, digest) = selection.helper()?;
+        Ok(Target {
+            data: data.clone(),
+            helper,
+            digest,
+        })
+    };
+    let legacy_host = |runtime: &tokio::runtime::Runtime| {
+        legacy
+            .then(|| user_data.as_deref())
+            .flatten()
+            .map(|root| runtime.block_on(LegacyHost::connect(root)))
+            .flatten()
+    };
     let runtime = || {
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -61,6 +87,16 @@ pub fn run(invocation: Invocation, watch: Option<crate::parent_watch::Watch>) ->
     };
     match action {
         Action::Help => print_value(&HELP)?,
+        Action::Unknown(words) if !legacy => {
+            crate::output::set_mode(crate::output::Mode::Raw);
+            let args = selection.args(data, &words)?;
+            return runtime()?.block_on(crate::commands::run(args));
+        }
+        Action::Unknown(_) => {
+            return Err(CliError::usage(
+                "Unknown or unsupported command. Run shellfox help for the commands this version supports.",
+            ))
+        }
         Action::Version => print_value(&env!("SHELLFOX_VERSION"))?,
         Action::Update { check } if crate::desktop_handoff::desktop_binary().is_some() => {
             if json {
@@ -79,43 +115,48 @@ pub fn run(invocation: Invocation, watch: Option<crate::parent_watch::Watch>) ->
             }
         }
         Action::HostRun => {
-            if let Some(legacy) = runtime()?.block_on(LegacyHost::connect(&user_data)) {
-                runtime()?.block_on(legacy.close());
+            let runtime = runtime()?;
+            if let Some(legacy) = legacy_host(&runtime) {
+                runtime.block_on(legacy.close());
                 return Err(CliError::new("HOST_RUNNING", "A Shellfox 0.9 host still owns this data directory. Stop it with host stop --yes, or restart it through its startup manager.", false));
             }
-            return host_run(&data, json, watch);
+            drop(runtime);
+            let target = target()?;
+            return host_run(&target, selection, json, watch);
         }
-        Action::HostStatus => runtime()?.block_on(async {
-            if let Ok(client) = connect(&data).await {
-                let _ = client.disconnect().await;
-                return print_value(&serde_json::json!({ "running": true }));
+        Action::HostStatus => {
+            let (runtime, target) = (runtime()?, target()?);
+            if let Ok(client) = runtime.block_on(target.connect()) {
+                let _ = runtime.block_on(client.disconnect());
+                print_value(&serde_json::json!({ "running": true }))?;
+            } else {
+                let legacy = legacy_host(&runtime).ok_or_else(unavailable)?;
+                let status = runtime.block_on(legacy.status());
+                runtime.block_on(legacy.close());
+                print_value(&status?)?;
             }
-            let legacy = LegacyHost::connect(&user_data)
-                .await
-                .ok_or_else(unavailable)?;
-            let status = legacy.status().await;
-            legacy.close().await;
-            print_value(&status?)
-        })?,
+        }
         Action::HostStop => {
             confirm(json, yes, "Stop the host and all its terminals")?;
-            runtime()?.block_on(async {
-                if let Ok(client) = connect(&data).await {
-                    client.execute(ExperimentRequest::Stop {}).await?;
-                } else {
-                    let legacy = LegacyHost::connect(&user_data)
-                        .await
-                        .ok_or_else(unavailable)?;
-                    legacy.stop().await?;
-                }
-                print_value(&serde_json::json!({ "stopped": true }))
-            })?
+            let (runtime, target) = (runtime()?, target()?);
+            if let Ok(client) = runtime.block_on(target.connect()) {
+                runtime.block_on(client.execute(ExperimentRequest::Stop {}))?;
+            } else {
+                let legacy = legacy_host(&runtime).ok_or_else(unavailable)?;
+                runtime.block_on(legacy.stop())?;
+            }
+            print_value(&serde_json::json!({ "stopped": true }))?
         }
         Action::Service { install, startup } => {
             if !install {
                 confirm(json, yes, "Remove host startup and stop the host")?;
             }
-            let message = crate::host_service::run(install, startup, &user_data, &data)?;
+            let message = crate::host_service::run(
+                install,
+                startup,
+                user_data.as_deref().context("host service needs --user-data, not --data-dir")?,
+                &target()?,
+            )?;
             print_value(&message)?;
         }
         Action::Host {
@@ -125,14 +166,14 @@ pub fn run(invocation: Invocation, watch: Option<crate::parent_watch::Watch>) ->
             if let Some(what) = what {
                 confirm(json, yes, &what)?;
             }
-            let args = crate::args::packaged(data, &words)?;
+            let args = selection.args(data, &words)?;
             if let Some(watch) = watch {
                 watch.spawn(|| std::process::exit(1));
             }
             return runtime()?.block_on(crate::commands::run(args));
         }
         Action::CreateSession { cwd, .. }
-            if !json && !crate::desktop_handoff::endpoint_exists(&data) =>
+            if legacy && !json && !crate::desktop_handoff::endpoint_exists(&data) =>
         {
             // 0.9.x: with no host running, a desktop install opens the window on the new session.
             match crate::desktop_handoff::desktop_binary() {
@@ -140,13 +181,13 @@ pub fn run(invocation: Invocation, watch: Option<crate::parent_watch::Watch>) ->
                 None => return Err(unavailable()),
             }
         }
-        action => runtime()?.block_on(connected(&data, action))?,
+        action => runtime()?.block_on(connected(&target()?, action))?,
     }
     Ok(0)
 }
 
-async fn connected(data: &Path, action: Action) -> Result<()> {
-    let client = connect(data).await?;
+async fn connected(target: &Target, action: Action) -> Result<()> {
+    let client = target.connect().await?;
     let result = query(&client, action).await;
     let _ = client.disconnect().await;
     result
@@ -154,10 +195,14 @@ async fn connected(data: &Path, action: Action) -> Result<()> {
 
 async fn query(client: &LocalClient, action: Action) -> Result<()> {
     match action {
-        Action::CreateSession { cwd, title } => {
+        Action::CreateSession {
+            cwd,
+            title,
+            request_id,
+        } => {
             let before = snapshot(client).await?;
             let input = CreateSession {
-                request_id: SessionId::new(),
+                request_id: request_id.unwrap_or_else(SessionId::new),
                 title,
                 cwd,
                 profile_id: default_profile(&before),
@@ -246,11 +291,18 @@ async fn mutate(client: &LocalClient, request: ExperimentRequest) -> Result<Snap
     }
 }
 
-pub async fn connect(data: &Path) -> Result<LocalClient> {
-    let (helper, digest) = shellfox_service::app_paths::packaged_helper()?;
-    LocalClient::connect(data, &helper, digest)
-        .await
-        .map_err(|_| unavailable())
+/// The Rust host this invocation addresses.
+pub struct Target {
+    pub data: PathBuf,
+    helper: PathBuf,
+    digest: [u8; 32],
+}
+impl Target {
+    pub async fn connect(&self) -> Result<LocalClient> {
+        LocalClient::connect(&self.data, &self.helper, self.digest)
+            .await
+            .map_err(|_| unavailable())
+    }
 }
 fn unavailable() -> anyhow::Error {
     CliError::new(
@@ -285,15 +337,24 @@ fn confirm(json: bool, yes: bool, what: &str) -> Result<()> {
 }
 
 /// Foreground host. Readiness is one record; a lost launcher stops it cleanly.
-fn host_run(data: &Path, json: bool, watch: Option<crate::parent_watch::Watch>) -> Result<i32> {
-    create_private_dir(data)?;
-    let args = crate::args::packaged(data.to_owned(), &["host".into(), "serve".into()])?;
+fn host_run(
+    target: &Target,
+    selection: crate::args::Selection,
+    json: bool,
+    watch: Option<crate::parent_watch::Watch>,
+) -> Result<i32> {
+    create_private_dir(&target.data)?;
+    let args = selection.args(target.data.clone(), &["host".into(), "serve".into()])?;
     let started = crate::time_text::now_iso();
     if let Some(watch) = watch {
-        let data = data.to_owned();
+        let target = Target {
+            data: target.data.clone(),
+            helper: target.helper.clone(),
+            digest: target.digest,
+        };
         watch.spawn(move || {
             let stop = async {
-                let client = connect(&data).await?;
+                let client = target.connect().await?;
                 client.execute(ExperimentRequest::Stop {}).await
             };
             let stopped = tokio::runtime::Builder::new_current_thread()
