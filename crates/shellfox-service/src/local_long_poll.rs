@@ -23,6 +23,9 @@ use tokio::sync::watch;
 const HOLD: Duration = Duration::from_secs(25);
 /// Bounds forgotten clients; a cleared entry only answers its next read at once.
 const MAX_HELD: usize = 1024;
+/// Reads one client may have waiting at once: one per terminal view plus its
+/// change feeds. More are refused instead of piling up connection tasks.
+const MAX_WAITING_PER_CLIENT: usize = 136;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 enum Kind {
@@ -88,6 +91,24 @@ pub(super) struct LongPolls {
     watches: NativeWatches,
     remote: Option<watch::Receiver<RemoteControlState>>,
     seen: Mutex<HashMap<(uuid::Uuid, Kind), Seen>>,
+    waiting: Arc<Mutex<HashMap<uuid::Uuid, usize>>>,
+}
+
+/// Counts one waiting read until dropped.
+struct Waiting {
+    client: uuid::Uuid,
+    waiting: Arc<Mutex<HashMap<uuid::Uuid, usize>>>,
+}
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        let mut waiting = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(count) = waiting.get_mut(&self.client) {
+            *count -= 1;
+            if *count == 0 {
+                waiting.remove(&self.client);
+            }
+        }
+    }
 }
 
 impl LongPolls {
@@ -99,21 +120,31 @@ impl LongPolls {
             watches,
             remote,
             seen: Mutex::default(),
+            waiting: Arc::default(),
         }
     }
 
     /// Waits until `request` from `client` would return something new, the
     /// deadline passes or `stop` fires. Requests that aren't reads pass through.
-    pub async fn hold(&self, client: uuid::Uuid, request: &PrivateRequest, stop: &CancellationToken) {
+    /// Refused when this client already has too many reads waiting.
+    pub async fn hold(
+        &self,
+        client: uuid::Uuid,
+        request: &PrivateRequest,
+        stop: &CancellationToken,
+    ) -> anyhow::Result<()> {
         if let PrivateRequest::DesktopView(view) = request {
             if let DesktopRequest::ChangedSince { revision } = view.as_ref() {
-                self.hold_revision(*revision, stop).await;
-                return;
+                if *self.watches.revision.borrow() <= *revision {
+                    let _waiting = self.wait_slot(client)?;
+                    self.hold_revision(*revision, stop).await;
+                }
+                return Ok(());
             }
         }
         self.forget(client, request);
         let Some((kind, focused)) = self.kind(request) else {
-            return;
+            return Ok(());
         };
         let key = (client, kind);
         let mut seen = {
@@ -124,9 +155,9 @@ impl LongPolls {
                 None => match self.subscribe(kind, focused) {
                     Some(seen) => {
                         self.store(&mut held, key, seen);
-                        return;
+                        return Ok(());
                     }
-                    None => return,
+                    None => return Ok(()),
                 },
             }
         };
@@ -135,6 +166,13 @@ impl LongPolls {
             _ => false,
         };
         if !focus_changed && !seen.has_changed() {
+            let _waiting = match self.wait_slot(client) {
+                Ok(waiting) => waiting,
+                Err(error) => {
+                    self.store(&mut self.lock(), key, seen);
+                    return Err(error);
+                }
+            };
             tokio::select! {
                 _ = tokio::time::timeout(HOLD, seen.changed()) => {}
                 () = stop.cancelled() => {}
@@ -142,6 +180,15 @@ impl LongPolls {
         }
         seen.mark_seen();
         self.store(&mut self.lock(), key, seen);
+        Ok(())
+    }
+
+    fn wait_slot(&self, client: uuid::Uuid) -> anyhow::Result<Waiting> {
+        let mut waiting = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        let count = waiting.entry(client).or_default();
+        anyhow::ensure!(*count < MAX_WAITING_PER_CLIENT, "Too many reads are already waiting.");
+        *count += 1;
+        Ok(Waiting { client, waiting: self.waiting.clone() })
     }
 
     async fn hold_revision(&self, seen: u64, stop: &CancellationToken) {
@@ -258,8 +305,10 @@ mod tests {
     fn activity() -> PrivateRequest {
         PrivateRequest::DesktopView(Box::new(DesktopRequest::ReadTabActivity))
     }
-    async fn returns_soon(future: impl std::future::Future<Output = ()>) -> bool {
-        tokio::time::timeout(Duration::from_millis(200), future).await.is_ok()
+    async fn returns_soon(future: impl std::future::Future<Output = anyhow::Result<()>>) -> bool {
+        tokio::time::timeout(Duration::from_millis(200), future)
+            .await
+            .is_ok_and(|result| result.is_ok())
     }
 
     #[tokio::test]
@@ -286,6 +335,41 @@ mod tests {
         assert!(!returns_soon(&mut held).await);
         revision.send_replace(4);
         assert!(returns_soon(held).await);
+    }
+
+    #[tokio::test]
+    async fn a_client_cannot_pile_up_waiting_reads() {
+        let (polls, _senders) = polls();
+        let polls = Arc::new(polls);
+        let (client, stop) = (uuid::Uuid::new_v4(), CancellationToken::new());
+        let frame = |tab| {
+            PrivateRequest::DesktopView(Box::new(DesktopRequest::Presentation {
+                tab,
+                attachment: NativeViewAttachment::Observer(crate::native::NativeObserverAttachment {
+                    viewer: 1,
+                    epoch: 1,
+                    generation: shellfox_core::Generation::new(),
+                }),
+                action: NativePresentation::Frame { focused: true },
+            }))
+        };
+        let tabs: Vec<_> = (0..=MAX_WAITING_PER_CLIENT).map(|_| TabId::new()).collect();
+        let mut waiting = tokio::task::JoinSet::new();
+        for tab in &tabs[..MAX_WAITING_PER_CLIENT] {
+            polls.hold(client, &frame(*tab), &stop).await.unwrap();
+            let (polls, stop, request) = (polls.clone(), stop.clone(), frame(*tab));
+            waiting.spawn(async move { polls.hold(client, &request, &stop).await });
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let over = tabs[MAX_WAITING_PER_CLIENT];
+        polls.hold(client, &frame(over), &stop).await.unwrap();
+        assert!(polls.hold(client, &frame(over), &stop).await.is_err());
+        // Other clients are unaffected.
+        assert!(returns_soon(polls.hold(uuid::Uuid::new_v4(), &frame(over), &stop)).await);
+        stop.cancel();
+        while let Some(result) = waiting.join_next().await {
+            assert!(result.unwrap().is_ok());
+        }
     }
 
     #[tokio::test]

@@ -118,7 +118,7 @@ pub(super) async fn serve_connection(
                 let original = client.for_private_client(client_id);
                 let operation = async {
                     // Reads wait here, per connection, until they can return something new.
-                    polls.hold(client_id, &request, &stop).await;
+                    polls.hold(client_id, &request, &stop).await?;
                     original.private_request_in_epoch(request, epoch).await
                 };
                 let result = if asynchronous {
