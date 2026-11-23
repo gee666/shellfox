@@ -119,6 +119,9 @@ async fn approve_installs_only_after_commit_reply_and_revoke_denies_before_io() 
     assert!(actor.with_authorized(None, || Ok(())).is_err());
     assert!(control.authorize(&peer(), ClientId::new_v4(), 3).is_err());
     assert!(control.state().unwrap().approvals.is_empty());
+    // A failed save keeps the policy closed: later changes never reach storage.
+    let again = control.approve(&store, approval()).await.unwrap_err();
+    assert_eq!(again.message, "Saving approvals failed. Restart Shellfox to retry.");
     assert_eq!(repository.commits.load(Ordering::SeqCst), 2);
     assert!(!fixture
         .control_path()

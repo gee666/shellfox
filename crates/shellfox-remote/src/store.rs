@@ -132,7 +132,7 @@ impl PrivateApprovalStore {
             .repository
             .is_some();
         if bound {
-            return Ok(self.load_policy().await?.approvals);
+            return self.load_policy().await;
         }
         let _gate = self.gate.lock().await;
         let directory = self.directory()?;
@@ -143,7 +143,7 @@ impl PrivateApprovalStore {
             return Err(failed());
         }
         match self.read(&directory, OsStr::new("approvals.json"))? {
-            Some(read) => Ok(crate::approval_records::decode(&read.bytes)?.approvals),
+            Some(read) => crate::approval_records::decode(&read.bytes),
             None => Ok(Vec::new()),
         }
     }
@@ -175,7 +175,7 @@ impl PrivateApprovalStore {
         state.uncertain = false;
         Ok(())
     }
-    pub(crate) async fn load_policy(&self) -> Result<crate::approval_records::Decoded, AppError> {
+    pub(crate) async fn load_policy(&self) -> Result<Vec<Approval>, AppError> {
         let _gate = self.gate.lock().await;
         let (repository, _) = self.enter_repository(false)?;
         self.legacy_clear()?;
@@ -194,10 +194,7 @@ impl PrivateApprovalStore {
             .collect();
         crate::approval_records::validate(&approvals)?;
         self.finish_repository(&loaded)?;
-        Ok(crate::approval_records::Decoded {
-            approvals,
-            migrated: false,
-        })
+        Ok(approvals)
     }
     pub async fn save(&self, approvals: &[Approval]) -> Result<(), AppError> {
         let _gate = self.gate.lock().await;

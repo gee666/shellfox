@@ -13,12 +13,8 @@ impl ApprovalControl {
     }
 
     pub async fn load(store: &PrivateApprovalStore) -> Result<Self, AppError> {
-        let loaded = store.load_policy().await?;
-        if loaded.migrated {
-            return Err(native_unavailable());
-        }
         let control = Self::default();
-        for approval in loaded.approvals {
+        for approval in store.load_policy().await? {
             control.install_committed(approval)?;
         }
         Ok(control)
@@ -27,8 +23,8 @@ impl ApprovalControl {
         let approval = crate::approval_records::normalized(approval)?;
         let files = vec![Arc::new(FileService::approved_full_account())];
         let mut state = self.lock()?;
-        if state.native_unavailable {
-            return Err(native_unavailable());
+        if state.commit_fenced {
+            return Err(storage_failed());
         }
         state.epoch = state.epoch.checked_add(1).ok_or_else(denied)?;
         let epoch = state.epoch;
@@ -48,13 +44,13 @@ impl ApprovalControl {
     pub(crate) fn install(&self, approval: Approval) -> Result<(), AppError> {
         self.install_committed(approval)
     }
-    /// Permanently close this policy instance's native persistence boundary.
-    /// Denial happens before capability revocation or later view retirement.
-    fn deny_native_runtime(&self) -> AppError {
+    /// A failed save leaves memory and disk out of step, so this policy stays
+    /// closed until restart. Deny first, then revoke file capabilities.
+    fn close_after_failed_save(&self) -> AppError {
         let result = (|| {
             let mut state = self.lock()?;
             state.enabled = false;
-            state.native_unavailable = true;
+            state.commit_fenced = true;
             let grants = std::mem::take(&mut state.grants);
             state.pending.clear();
             let mut revocation_failed = false;
@@ -69,13 +65,13 @@ impl ApprovalControl {
             if revocation_failed {
                 return Err(error(
                     ErrorCode::NativeUnavailable,
-                    "Native authority is denied; capability cleanup remains unavailable.",
+                    "Saving approvals failed and file access could not be revoked. Restart Shellfox.",
                     false,
                 ));
             }
             Ok(())
         })();
-        result.err().unwrap_or_else(native_unavailable)
+        result.err().unwrap_or_else(storage_failed)
     }
     pub async fn approve_full_account(
         &self,
@@ -104,12 +100,12 @@ impl ApprovalControl {
         approval: Option<Approval>,
     ) -> Result<(Vec<Approval>, u64), AppError> {
         let mut state = self.lock()?;
-        if state.native_unavailable {
-            return Err(native_unavailable());
+        if state.commit_fenced {
+            return Err(storage_failed());
         }
         // Deny before capability revocation, enqueue or any persistence I/O.
         // Cancellation keeps this fence closed until a new policy is loaded.
-        state.native_unavailable = true;
+        state.commit_fenced = true;
         self.notify();
         if let Some(old) = state.grants.remove(peer_id) {
             for files in old.files {
@@ -148,7 +144,7 @@ impl ApprovalControl {
         if let Err(error) = store.save(&records).await {
             let control = self.clone();
             let _ = crate::approval_async::blocking(move || {
-                control.deny_native_runtime();
+                control.close_after_failed_save();
                 Ok(())
             })
             .await;
@@ -157,8 +153,8 @@ impl ApprovalControl {
         let control = self.clone();
         crate::approval_async::blocking(move || {
             let mut state = control.lock()?;
-            if !state.native_unavailable || state.epoch != epoch {
-                return Err(native_unavailable());
+            if !state.commit_fenced || state.epoch != epoch {
+                return Err(storage_failed());
             }
             if let Some(approval) = approval {
                 let files = vec![Arc::new(FileService::approved_full_account())];
@@ -172,7 +168,7 @@ impl ApprovalControl {
                 );
             }
             // No await between checking the confirmed commit and installing.
-            state.native_unavailable = false;
+            state.commit_fenced = false;
             control.notify();
             Ok(())
         })
@@ -214,7 +210,7 @@ impl ApprovalControl {
         if state.grants.contains_key(peer_id) {
             return Err(error(
                 ErrorCode::Validation,
-                "Persisted native approval management is unavailable.",
+                "This device is approved. Revoke it instead.",
                 false,
             ));
         }
@@ -223,8 +219,12 @@ impl ApprovalControl {
         Ok(())
     }
 }
-fn native_unavailable() -> AppError {
-    error(ErrorCode::Unsupported,"Native persisted approval authority is unavailable pending approval/revocation storage review.",false)
+fn storage_failed() -> AppError {
+    error(
+        ErrorCode::Unsupported,
+        "Saving approvals failed. Restart Shellfox to retry.",
+        false,
+    )
 }
 fn deny_attempts(state: &mut State, peer_id: &str) {
     state.pending.remove(peer_id);

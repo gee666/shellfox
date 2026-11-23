@@ -33,10 +33,6 @@ struct Current {
     version: u8,
     approvals: Vec<Record>,
 }
-pub(crate) struct Decoded {
-    pub approvals: Vec<Approval>,
-    pub migrated: bool,
-}
 pub(crate) fn normalized(mut approval: Approval) -> Result<Approval, AppError> {
     approval.validate()?;
     // This applies the user's fixed approved-device policy, not a roots-empty
@@ -58,48 +54,38 @@ pub(crate) fn validate(records: &[Approval]) -> Result<(), AppError> {
     }
     Ok(())
 }
-pub(crate) fn decode(bytes: &[u8]) -> Result<Decoded, AppError> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<Vec<Approval>, AppError> {
     let header: Header = serde_json::from_slice(bytes).map_err(|_| invalid())?;
     let _ = header.approvals;
-    let (records, migrated) = match header.version {
+    let records = match header.version {
         1 => {
             let legacy: Legacy = serde_json::from_slice(bytes).map_err(|_| invalid())?;
             if legacy.version != 1 {
                 return Err(invalid());
             }
-            (legacy.approvals, true)
+            legacy.approvals
         }
         2 => {
             let current: Current = serde_json::from_slice(bytes).map_err(|_| invalid())?;
             if current.version != 2 {
                 return Err(invalid());
             }
-            (
-                current
-                    .approvals
-                    .into_iter()
-                    .map(|record| Approval {
-                        peer_id: record.peer_id,
-                        hostname: record.hostname,
-                        approved_at_millis: record.approved_at_millis,
-                        permission: ViewPermission::Write,
-                        file_roots: Vec::new(),
-                    })
-                    .collect(),
-                false,
-            )
+            current
+                .approvals
+                .into_iter()
+                .map(|record| Approval {
+                    peer_id: record.peer_id,
+                    hostname: record.hostname,
+                    approved_at_millis: record.approved_at_millis,
+                    permission: ViewPermission::Write,
+                    file_roots: Vec::new(),
+                })
+                .collect()
         }
         _ => return Err(invalid()),
     };
     validate(&records)?;
-    let approvals = records
-        .into_iter()
-        .map(normalized)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(Decoded {
-        approvals,
-        migrated,
-    })
+    records.into_iter().map(normalized).collect()
 }
 // Fixture encoder only while the native approval write protocol is gated.
 #[cfg(test)]
@@ -156,13 +142,12 @@ mod tests {
     #[test]
     fn only_closed_known_approved_records_migrate_to_explicit_full_account_policy() {
         let decoded = decode(&serde_json::to_vec(&legacy()).unwrap()).unwrap();
-        assert!(decoded.migrated);
-        assert_eq!(decoded.approvals[0].permission, ViewPermission::Write);
-        let encoded = encode(&decoded.approvals).unwrap();
+        assert_eq!(decoded[0].permission, ViewPermission::Write);
+        let encoded = encode(&decoded).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(value["version"], 2);
         assert_eq!(value["approvals"][0]["policy"], "control-full-account-v1");
-        assert!(!decode(&encoded).unwrap().migrated);
+        assert_eq!(decode(&encoded).unwrap()[0].peer_id, "n-approved");
         for version in [0, 3, 255] {
             let mut bad = legacy();
             bad["version"] = json!(version);
@@ -176,7 +161,7 @@ mod tests {
         assert!(decode(&serde_json::to_vec(&bad).unwrap()).is_err());
         let empty = decode(br#"{"version":1,"approvals":[]}"#).unwrap();
         assert!(
-            empty.approvals.is_empty(),
+            empty.is_empty(),
             "pending/revoked peers are never manufactured"
         );
     }

@@ -43,7 +43,9 @@ struct State {
     attempts: HashMap<String, Attempts>,
     epoch: u64,
     enabled: bool,
-    native_unavailable: bool,
+    /// Closed while an approve or revoke is being saved, and for good after a
+    /// failed save. No grant is used or changed while it is set.
+    commit_fenced: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -53,7 +55,7 @@ impl Default for State {
             attempts: HashMap::new(),
             epoch: 0,
             enabled: true,
-            native_unavailable: false,
+            commit_fenced: false,
         }
     }
 }
@@ -108,7 +110,7 @@ impl Actor {
         operation()
     }
     fn check(&self, state: &State) -> Result<(), AppError> {
-        if !state.enabled || state.native_unavailable {
+        if !state.enabled || state.commit_fenced {
             return Err(denied());
         }
         let grant = state.grants.get(&self.peer_id).ok_or_else(denied)?;
@@ -141,10 +143,10 @@ impl ApprovalControl {
     /// Local enable switch. Disable fences tickets without deleting approvals.
     pub fn set_enabled(&self, enabled: bool) -> Result<(), AppError> {
         let mut state = self.lock()?;
-        if enabled && state.native_unavailable {
+        if enabled && state.commit_fenced {
             return Err(error(
                 ErrorCode::Unsupported,
-                "Native approval authority remains unavailable; enable cannot restore it.",
+                "Approvals are being saved, or saving failed. Restart Shellfox if this persists.",
                 false,
             ));
         }
@@ -204,7 +206,7 @@ impl ApprovalControl {
         now: u64,
     ) -> Result<Actor, AppError> {
         let mut state = self.lock()?;
-        if !state.enabled || state.native_unavailable {
+        if !state.enabled || state.commit_fenced {
             return Err(denied());
         }
         Self::expire(&mut state, now);
