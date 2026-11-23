@@ -61,7 +61,7 @@ impl PreparedLaunch {
             program: supervisor,
             args: argv,
             env: std::collections::BTreeMap::from([(
-                "SHELLFOX_TERMINAL_MARKER".into(),
+                "SHELLFOX_SUPERVISOR_MARKER".into(),
                 marker.into(),
             )]),
         })

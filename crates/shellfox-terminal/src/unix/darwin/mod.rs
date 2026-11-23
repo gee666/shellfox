@@ -94,7 +94,7 @@ impl PreparedSupervisor {
                     "SHELLFOX_SUPERVISOR_TOKEN".into(),
                     control.token.clone().into(),
                 ),
-                ("SHELLFOX_TERMINAL_MARKER".into(), marker.into()),
+                ("SHELLFOX_SUPERVISOR_MARKER".into(), marker.into()),
             ]),
         })
     }

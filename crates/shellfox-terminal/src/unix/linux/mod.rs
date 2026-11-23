@@ -111,7 +111,7 @@ impl LinuxOwner {
         // Install the exact owner BEFORE marker/authentication reads can fail.
         self.tree = Some(Tree::new(before.identity.clone(), handle));
         let environment = procfs::bounded(format!("/proc/{pid}/environ"), 1024 * 1024)?;
-        let expected = format!("SHELLFOX_TERMINAL_MARKER={}", self.marker);
+        let expected = format!("SHELLFOX_SUPERVISOR_MARKER={}", self.marker);
         ensure!(
             environment
                 .split(|b| *b == 0)
