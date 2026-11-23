@@ -107,6 +107,7 @@ pub(super) async fn serve_connection(
                     outgoing || matches!(&request, PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_)
                         | PrivateRequest::Power(crate::power::PowerRequest::Status {})
                         // Held reads end when their caller goes away.
+                        | PrivateRequest::Experiment(crate::experiment::ExperimentRequest::Poll { .. })
                         | PrivateRequest::DesktopLaunch(
                             crate::desktop_launch::DesktopLaunchRequest::PollAttached { .. }
                                 | crate::desktop_launch::DesktopLaunchRequest::Receipt { .. }
@@ -121,6 +122,7 @@ pub(super) async fn serve_connection(
                 };
                 let requested_stop = request.requested_stop();
                 let original = client.for_private_client(client_id);
+                let output_tab = super::long_poll::LongPolls::output_tab(&request);
                 let operation = async {
                     // Reads wait here, per connection, until they can return something new.
                     polls.hold(client_id, &request, &stop).await?;
@@ -135,6 +137,9 @@ pub(super) async fn serve_connection(
                 } else {
                     operation.await
                 };
+                if let (Some(tab), Ok(value)) = (output_tab, &result) {
+                    polls.answered_output(client_id, tab, value);
+                }
                 let reply = match result {
                     Ok(value) => {
                         if requested_stop {

@@ -34,6 +34,9 @@ enum Kind {
     Power,
     Remote,
     Launch(SessionId),
+    /// Terminal output for an attached CLI. Held only after an empty answer,
+    /// since a batch may leave more output queued.
+    Output(TabId),
     /// An attached desktop's next launch delivery; dispatch and completion both
     /// move the launch generation, so queued deliveries are released in turn.
     Delivery,
@@ -236,6 +239,9 @@ impl LongPolls {
             PrivateRequest::DesktopLaunch(DesktopLaunchRequest::Receipt { request_id, .. }) => {
                 Some((Kind::Launch(*request_id), false))
             }
+            PrivateRequest::Experiment(crate::experiment::ExperimentRequest::Poll { tab, .. }) => {
+                Some((Kind::Output(*tab), false))
+            }
             PrivateRequest::DesktopLaunch(DesktopLaunchRequest::PollAttached { .. }) => {
                 Some((Kind::Delivery, false))
             }
@@ -250,6 +256,10 @@ impl LongPolls {
                 changes: self.watches.frames.subscribe(tab),
                 focused,
             },
+            Kind::Output(tab) => Seen::Frame {
+                changes: self.watches.frames.subscribe(tab),
+                focused,
+            },
             Kind::Activity => Seen::Activity(self.watches.tab_activity.clone()),
             Kind::Power => Seen::Power(self.watches.power.clone()),
             Kind::Remote => Seen::Remote(self.remote.clone()),
@@ -259,6 +269,22 @@ impl LongPolls {
             seen.mark_seen();
             seen
         })
+    }
+
+    /// The tab of a CLI output read, which `answered_output` needs after the reply.
+    pub fn output_tab(request: &PrivateRequest) -> Option<TabId> {
+        match request {
+            PrivateRequest::Experiment(crate::experiment::ExperimentRequest::Poll { tab, .. }) => Some(*tab),
+            _ => None,
+        }
+    }
+    /// After output was returned, the next read is answered at once: the
+    /// batch may have left more queued.
+    pub fn answered_output(&self, client: uuid::Uuid, tab: TabId, reply: &serde_json::Value) {
+        let empty = reply.get("value").and_then(serde_json::Value::as_array).is_some_and(Vec::is_empty);
+        if !empty {
+            self.lock().remove(&(client, Kind::Output(tab)));
+        }
     }
 
     /// A detached view starts over on its next attach.

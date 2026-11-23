@@ -4,19 +4,17 @@ use crate::{
 };
 use anyhow::{bail, Result};
 use crossterm::{
-    event::{self, Event},
+    event::{Event, EventStream},
     terminal,
 };
+use futures_util::StreamExt;
 use shellfox_core::TabId;
 use shellfox_service::{
     experiment::{ExperimentRequest, ExperimentResponse, RecoveryCapability},
     local::LocalClient,
     Attachment, TerminalOutput,
 };
-use std::{
-    io::{self, Write},
-    time::Duration,
-};
+use std::io::{self, Write};
 
 const PASTE_CHUNK: usize = 16 * 1024;
 
@@ -41,42 +39,52 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
     resize(client, tab, &attachment, cols, rows).await?;
     let mut queries = QueryFilter::default();
     let mut last_sequence = recover(client, tab, &attachment, &mut queries).await?;
+    let client = &*client;
+    let mut events = EventStream::new();
+    // The host holds each output read until the terminal has something new,
+    // so keys and output are awaited together instead of polled.
+    let poll = || {
+        client.execute(ExperimentRequest::Poll {
+            tab,
+            attachment: attachment.clone(),
+        })
+    };
+    let mut output = None;
     loop {
-        // A bounded batch prevents keyboard repeat from starving output polling.
-        for _ in 0..64 {
-            if !event::poll(Duration::ZERO)? {
-                break;
-            }
-            let event = event::read()?;
-            if let Event::Resize(cols, rows) = event {
-                resize(client, tab, &attachment, cols, rows).await?;
-                continue;
-            }
-            // The host's terminal encodes keys and pastes with the modes the
-            // application set, even ones recovery could not replay locally.
-            let attachment = attachment.clone();
-            let request = match keys::from_event(event) {
-                Input::Detach => return Ok(()),
-                Input::Key(event) => ExperimentRequest::Key { tab, attachment, event },
-                Input::Paste(text) => {
-                    for text in paste_chunks(&text) {
-                        let attachment = attachment.clone();
-                        let paste = ExperimentRequest::Paste { tab, attachment, text: text.to_owned() };
-                        done(client.execute(paste).await?)?;
-                    }
+        // A new read starts only after the previous reply was handled, so it
+        // never overtakes a recovery.
+        let pending = output.get_or_insert_with(|| Box::pin(poll()));
+        let reply = tokio::select! {
+            event = events.next() => {
+                let Some(event) = event else { return Ok(()) };
+                let event = event?;
+                if let Event::Resize(cols, rows) = event {
+                    resize(client, tab, &attachment, cols, rows).await?;
                     continue;
                 }
-                Input::Ignore => continue,
-            };
-            done(client.execute(request).await?)?;
-        }
-        let mut chunks = match client
-            .execute(ExperimentRequest::Poll {
-                tab,
-                attachment: attachment.clone(),
-            })
-            .await?
-        {
+                // The host's terminal encodes keys and pastes with the modes the
+                // application set, even ones recovery could not replay locally.
+                let attachment = attachment.clone();
+                let request = match keys::from_event(event) {
+                    Input::Detach => return Ok(()),
+                    Input::Key(event) => ExperimentRequest::Key { tab, attachment, event },
+                    Input::Paste(text) => {
+                        for text in paste_chunks(&text) {
+                            let attachment = attachment.clone();
+                            let paste = ExperimentRequest::Paste { tab, attachment, text: text.to_owned() };
+                            done(client.execute(paste).await?)?;
+                        }
+                        continue;
+                    }
+                    Input::Ignore => continue,
+                };
+                done(client.execute(request).await?)?;
+                continue;
+            }
+            reply = pending => reply?,
+        };
+        output = None;
+        let mut chunks = match reply {
             ExperimentResponse::Output(chunks) => chunks,
             ExperimentResponse::RecoveryRequired {} => {
                 last_sequence = recover(client, tab, &attachment, &mut queries).await?;
@@ -108,7 +116,6 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
             acknowledge(client, tab, &attachment, sequence).await?;
             last_sequence = sequence;
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
     }
     // Dropping the client releases the attachment. Never send CloseTab or Stop.
 }
@@ -131,7 +138,7 @@ fn paste_chunks(text: &str) -> impl Iterator<Item = &str> {
 }
 
 async fn resize(
-    client: &mut LocalClient,
+    client: &LocalClient,
     tab: TabId,
     attachment: &Attachment,
     cols: u16,
@@ -153,7 +160,7 @@ async fn resize(
 }
 
 async fn recover(
-    client: &mut LocalClient,
+    client: &LocalClient,
     tab: TabId,
     attachment: &Attachment,
     queries: &mut QueryFilter,
@@ -183,7 +190,7 @@ async fn recover(
 }
 
 async fn acknowledge(
-    client: &mut LocalClient,
+    client: &LocalClient,
     tab: TabId,
     attachment: &Attachment,
     sequence: u64,
