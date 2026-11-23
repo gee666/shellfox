@@ -201,11 +201,13 @@ async fn query(client: &LocalClient, action: Action) -> Result<()> {
             request_id,
         } => {
             let before = snapshot(client).await?;
+            let profile_id = shellfox_service::desktop_launch::folder_profile(&cwd)
+                .unwrap_or_else(|| default_profile(&before));
             let input = CreateSession {
                 request_id: request_id.unwrap_or_else(SessionId::new),
                 title,
                 cwd,
-                profile_id: default_profile(&before),
+                profile_id,
             };
             let snapshot = mutate(client, ExperimentRequest::CreateSession { input }).await?;
             let created = snapshot
