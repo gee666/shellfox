@@ -177,7 +177,8 @@ impl Root {
         let (Some(entry), Some(palette)) = (list.entry(index), list.palette.get()) else {
             return div().into_any_element();
         };
-        match entry {
+        // List items size to their content; rows span the sidebar.
+        let element = match entry {
             Entry::LocalHeader => self.local_header(palette, cx),
             Entry::Local(id) => {
                 let Some(session) = self
@@ -194,7 +195,8 @@ impl Root {
             Entry::LocalEmpty => empty_sessions(palette).into_any_element(),
             Entry::PeersGap => div().h(px(4.)).into_any_element(),
             entry => self.render_peer_entry(&entry, palette, window, cx),
-        }
+        };
+        div().w_full().flex().flex_col().child(element).into_any_element()
     }
 
     fn local_header(&self, palette: Palette, cx: &Context<Self>) -> AnyElement {
