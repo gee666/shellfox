@@ -95,7 +95,7 @@ try {
   mkdirSync(home);
   const env = { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, 'config'),
     XDG_DATA_HOME: path.join(home, 'data'), XDG_STATE_HOME: path.join(home, 'state'), XDG_CACHE_HOME: path.join(home, 'cache') };
-  assert.equal(run(desktop, ['--version']).trim(), `Shellfox ${version}`);
+  assert.equal(run(desktop, ['--version']).trim(), version);
   assert.equal(run(cli, ['--version']).trim(), version);
   assert.match(run(desktop, ['--data-dir', path.join(work, 'data'), '--smoke'], { cwd: work, env, timeout: 60_000 }), /PASS: owned PTY/);
   console.log(await desktopLaunchSmoke(desktop, cli, helper, work, env));
