@@ -61,7 +61,7 @@ export async function startRustPeer({ cli, helper, testcontrol, env, parent, vie
   const close = async () => {
     try {
       if (owner && existsSync(path.join(host, 'rust-service-v1/endpoint.json'))) {
-        try { hostCLI('host', 'stop', '--yes'); } catch (error) { console.error('Owned P4 peer cleanup:', error.message); }
+        try { hostCLI('host', 'stop', '--yes', '--json'); } catch (error) { console.error('Owned P4 peer cleanup:', error.message); }
       }
     } finally { await owner?.close(); await control.close(); }
   };
