@@ -1,4 +1,5 @@
 use super::{AdapterError, HelperFrame, LineDecoder};
+use crate::wake::WakeSlot;
 use std::{
     io::{Read, Write},
     process::{ChildStderr, ChildStdin, ChildStdout},
@@ -20,6 +21,28 @@ pub(super) struct Shared {
     pub launcher_gone: AtomicBool,
     pub peer_gone: AtomicBool,
     pub held: AtomicBool,
+    /// Pipe workers still running. Each one wakes the owner as it ends.
+    running: AtomicUsize,
+    pub wake: WakeSlot,
+}
+impl Shared {
+    pub fn workers_finished(&self) -> bool {
+        self.running.load(Ordering::Acquire) == 0
+    }
+}
+/// Held by each worker thread: its end is the owner's cue to check cleanup.
+struct Running(Arc<Shared>);
+impl Running {
+    fn new(state: &Arc<Shared>) -> Self {
+        state.running.fetch_add(1, Ordering::AcqRel);
+        Self(Arc::clone(state))
+    }
+}
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.running.fetch_sub(1, Ordering::AcqRel);
+        self.0.wake.wake();
+    }
 }
 pub(super) enum ReadEvent {
     Frame(HelperFrame),
@@ -49,7 +72,10 @@ fn publish(frames: &SyncSender<ReadEvent>, state: &Shared, mut event: ReadEvent)
             return false;
         }
         match frames.try_send(event) {
-            Ok(()) => return true,
+            Ok(()) => {
+                state.wake.wake();
+                return true;
+            }
             Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return false,
             Err(std::sync::mpsc::TrySendError::Full(returned)) => event = returned,
         }
@@ -69,9 +95,11 @@ impl Workers {
         requests: Receiver<QueuedWrite>,
         state: Arc<Shared>,
     ) -> std::io::Result<()> {
+        let running = Running::new(&state);
         let worker = std::thread::Builder::new()
             .name("elevated-input".into())
             .spawn(move || {
+                let _running = running;
                 for request in requests {
                     if state.cancel.load(Ordering::Acquire) {
                         break;
@@ -100,9 +128,11 @@ impl Workers {
         frames: SyncSender<ReadEvent>,
         state: Arc<Shared>,
     ) -> std::io::Result<()> {
+        let running = Running::new(&state);
         let worker = std::thread::Builder::new()
             .name("elevated-output".into())
             .spawn(move || {
+                let _running = running;
                 let mut decoder = LineDecoder::default();
                 let mut buffer = [0u8; 4096];
                 let mut listening = true;
@@ -148,10 +178,16 @@ impl Workers {
         self.threads.push(worker);
         Ok(())
     }
-    pub fn start_stderr(&mut self, mut error: ChildStderr) -> std::io::Result<()> {
+    pub fn start_stderr(
+        &mut self,
+        mut error: ChildStderr,
+        state: &Arc<Shared>,
+    ) -> std::io::Result<()> {
+        let running = Running::new(state);
         let worker = std::thread::Builder::new()
             .name("elevated-diagnostics".into())
             .spawn(move || {
+                let _running = running;
                 let mut buffer = [0u8; 4096];
                 while matches!(error.read(&mut buffer), Ok(count) if count != 0) {}
             })?;
@@ -168,9 +204,6 @@ impl Workers {
                 windows_sys::Win32::System::IO::CancelSynchronousIo(worker.as_raw_handle().cast());
             }
         }
-    }
-    pub fn finished(&self) -> bool {
-        self.threads.iter().all(JoinHandle::is_finished)
     }
     pub fn join(&mut self) -> Result<(), AdapterError> {
         while let Some(thread) = self.threads.pop() {

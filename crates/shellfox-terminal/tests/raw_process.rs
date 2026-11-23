@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 use support::*;
 #[path = "support/raw_wake.rs"]
 mod wake;
+#[path = "support/wakes.rs"]
+mod wakes;
 
 #[test]
 fn raw_binary_stdio_and_real_write_ack_are_preserved() {

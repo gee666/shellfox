@@ -9,8 +9,7 @@ impl Owner {
         }
         #[cfg(windows)]
         if self.elevated.is_some() {
-            self.poll_administrator(budget);
-            return false;
+            return self.poll_administrator(budget);
         }
         if self.pty.is_none() || self.phase == Phase::Closed {
             return false;

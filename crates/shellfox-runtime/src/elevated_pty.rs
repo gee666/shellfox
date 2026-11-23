@@ -95,6 +95,9 @@ impl Owner {
             Ok(session) => (Some(session), None),
             Err(error) => (error.retained.map(|session| *session), Some(error.error)),
         };
+        if let Some(session) = &session {
+            session.set_wake(self.shared.signal.waker());
+        }
         self.elevated = session.map(|session| ElevatedPty {
             session,
             generation,
@@ -105,23 +108,24 @@ impl Owner {
         }
     }
 
-    pub(crate) fn poll_administrator(&mut self, budget: usize) {
+    /// Reads at most `budget` helper events. True means the budget ran out.
+    pub(crate) fn poll_administrator(&mut self, budget: usize) -> bool {
         for _ in 0..budget {
             let Some(pty) = self.elevated.as_mut() else {
-                return;
+                return false;
             };
             if pty.session.phase() == helper::Phase::Closed {
                 // The ordered exit was already drained. The launcher and pipe
-                // workers can still be exiting; keep polling until they join.
+                // workers can still be exiting; their ends wake the owner to retry.
                 let _ = self.cleanup();
-                return;
+                return false;
             }
             let result = match pty.poll() {
                 Ok(Some(helper::Event::Ready(_))) if self.phase == Phase::Starting => {
                     if let Some((cols, rows)) = pty.pending_size.take() {
                         if let Err(error) = pty.resize(cols, rows) {
                             self.administrator_failed(error);
-                            return;
+                            return false;
                         }
                     }
                     self.set_phase(Phase::Active, None);
@@ -137,7 +141,7 @@ impl Owner {
                         self.administrator_failed(RuntimeError::unavailable(
                             "Administrator PowerShell did not start.",
                         ));
-                        return;
+                        return false;
                     }
                     self.set_phase(Phase::Draining, None);
                     continue;
@@ -150,14 +154,15 @@ impl Owner {
                     })
                 }
                 Ok(Some(_)) => Ok(()),
-                Ok(None) => break,
+                Ok(None) => return false,
                 Err(error) => Err(error),
             };
             if let Err(error) = result {
                 self.administrator_failed(error);
-                break;
+                return false;
             }
         }
+        true
     }
 
     fn administrator_failed(&mut self, error: RuntimeError) {

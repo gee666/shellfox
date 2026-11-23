@@ -4,6 +4,8 @@
 mod hold;
 #[path = "support/elevated_fixture.rs"]
 mod support;
+#[path = "support/wakes.rs"]
+mod wakes;
 use shellfox_terminal::elevated::{
     fixture_session, AdapterError, Event, FixtureScenario, Generation, Phase, Session,
 };
@@ -15,6 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 use support::Fixture;
+use wakes::Wakes;
 
 fn generation() -> Generation {
     Generation::new(11).unwrap()
@@ -79,6 +82,44 @@ fn owned_stdio_delivers_bytes_ordered_acks_resize_and_final_output_before_close(
     assert!(session.observation().launcher_exited());
     assert!(session.observation().peer_exit_confirmed());
     assert!(!session.observation().resources_held());
+}
+
+/// Runs a scenario to confirmed cleanup, looking only after a wake.
+fn finish_on_wakes(scenario: FixtureScenario) {
+    let fixture = Fixture::new();
+    let mut session = fixture_session(
+        fixture.verified(),
+        (),
+        scenario,
+        generation(),
+        fixture.launch(),
+    )
+    .unwrap();
+    let wakes = Arc::new(Wakes::default());
+    session.set_wake(wakes.wake());
+    let mut exited = false;
+    loop {
+        let seen = wakes.count();
+        while let Some(event) = session.poll(generation()).unwrap() {
+            match event {
+                Event::Ready(_) => session.begin_close(generation()).unwrap(),
+                Event::ExitConfirmed(0) => exited = true,
+                Event::Data(_) => {}
+                other => panic!("unexpected owned fixture event {other:?}"),
+            }
+        }
+        if exited && session.finish(generation(), Duration::ZERO).is_ok() {
+            break;
+        }
+        wakes.wait_past(seen);
+    }
+    assert!(session.observation().launcher_exited());
+    assert!(!session.observation().resources_held());
+}
+#[test]
+fn helper_frames_launcher_exit_and_pipe_ends_wake_the_owner() {
+    finish_on_wakes(FixtureScenario::Normal);
+    finish_on_wakes(FixtureScenario::LauncherFirst);
 }
 
 struct Hold(Arc<AtomicBool>);

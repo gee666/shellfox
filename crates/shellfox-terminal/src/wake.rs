@@ -30,18 +30,31 @@ impl WakeSlot {
 }
 
 /// Set once the root process has exited. Exit is not completion: the session
-/// may still be tearing down descendants, so owners poll `try_wait` until it
-/// reports the status.
+/// may still be tearing down descendants. Unless the wake also covers that
+/// teardown, owners poll `try_wait` after exit until it reports the status.
 #[derive(Clone, Debug, Default)]
-pub struct ExitSignal(Arc<AtomicBool>);
+pub struct ExitSignal {
+    exited: Arc<AtomicBool>,
+    teardown: bool,
+}
 
 impl ExitSignal {
     pub fn exited(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.exited.load(Ordering::Acquire)
+    }
+    /// True when the wake also fires as descendants exit and the process tree
+    /// empties, so no step of the shutdown needs polling.
+    pub fn wakes_teardown(&self) -> bool {
+        self.teardown
+    }
+    #[cfg(any(windows, target_os = "linux"))]
+    pub(crate) fn with_teardown(mut self) -> Self {
+        self.teardown = true;
+        self
     }
     #[cfg(any(unix, windows))]
     fn notify(&self, wake: &Wake) {
-        self.0.store(true, Ordering::Release);
+        self.exited.store(true, Ordering::Release);
         wake();
     }
 }

@@ -21,7 +21,7 @@ use std::{
 
 /// Cleanup retry after a failed teardown.
 const CLEANUP_RETRY: Duration = Duration::from_millis(100);
-/// Poll cadence for states without a notification (see Owner::deadline).
+/// Poll cadence for teardown the platform can't signal (see Owner::deadline).
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
 
 #[cfg(windows)]
@@ -239,9 +239,9 @@ fn drive(mut owner: Owner, incoming: Receiver<Request>, events: EventSender) {
     }
 }
 impl Owner {
-    /// The next time the owner must look without being woken. Only states
-    /// that have no notification poll: cleanup retries, Draining (descendant
-    /// and console teardown) and an exited root waiting for its process tree.
+    /// The next time the owner must look without being woken: cleanup
+    /// retries, and PTY teardown where the platform has no wake for it
+    /// (macOS, or a PTY whose wake failed to register).
     fn deadline(&self) -> Option<Instant> {
         if self.shared.abandoned.load(Ordering::Acquire) {
             return Some(Instant::now());
@@ -249,13 +249,12 @@ impl Owner {
         if self.fatal {
             return Some(self.retry_at);
         }
-        #[cfg(windows)]
-        if self.elevated.is_some() {
-            return Some(Instant::now() + POLL_INTERVAL);
-        }
         self.pty.as_ref()?;
-        let exited = self.exit.as_ref().is_none_or(|exit| exit.exited());
-        (exited || self.phase == Phase::Draining).then(|| Instant::now() + POLL_INTERVAL)
+        let Some(exit) = &self.exit else {
+            return Some(Instant::now() + POLL_INTERVAL);
+        };
+        let tearing_down = exit.exited() || self.phase == Phase::Draining;
+        (tearing_down && !exit.wakes_teardown()).then(|| Instant::now() + POLL_INTERVAL)
     }
 }
 impl Owner {

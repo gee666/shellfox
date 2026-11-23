@@ -188,12 +188,22 @@ impl PtySession {
         Ok(session)
     }
 
-    /// Registers the owner wake for queued output and root-process exit. Call once.
+    /// Registers the owner wake for queued output, root exit and Job teardown. Call once.
     pub fn set_wake(&self, wake: crate::Wake) -> Result<crate::ExitSignal> {
         let inner = self.inner.as_ref().context("PTY is closed")?;
         inner.output.set_wake(wake.clone());
-        let process = inner.child.as_raw_handle().context("PTY child handle missing")?;
-        crate::wake::watch_exit(process, wake).context("start PTY exit watch")
+        let process = inner
+            .child
+            .as_raw_handle()
+            .context("PTY child handle missing")?;
+        let exit =
+            crate::wake::watch_exit(process, wake.clone()).context("start PTY exit watch")?;
+        inner
+            .job
+            .as_ref()
+            .context("owned Job missing")?
+            .watch(wake)?;
+        Ok(exit.with_teardown())
     }
 
     pub fn try_read(&self) -> std::result::Result<Option<PtyOutput>, TryRecvError> {

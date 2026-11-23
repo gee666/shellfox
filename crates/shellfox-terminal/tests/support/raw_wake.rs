@@ -1,40 +1,10 @@
 //! Output and exit wakes let an owner block between raw process events.
-use super::support::Fixture;
+use super::{support::Fixture, wakes::Wakes};
 use shellfox_terminal::raw_process::{RawOutput, RawProcess, RawStream};
 use std::{
-    sync::{Arc, Condvar, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
-
-#[derive(Default)]
-struct Wakes {
-    count: Mutex<u64>,
-    changed: Condvar,
-}
-impl Wakes {
-    fn wake(self: &Arc<Self>) -> Arc<dyn Fn() + Send + Sync> {
-        let wakes = Arc::clone(self);
-        Arc::new(move || {
-            *wakes.count.lock().unwrap() += 1;
-            wakes.changed.notify_all();
-        })
-    }
-    fn count(&self) -> u64 {
-        *self.count.lock().unwrap()
-    }
-    /// Fails the test if nothing wakes the owner within the bound.
-    fn wait_past(&self, seen: u64) {
-        let count = self.count.lock().unwrap();
-        let (_count, timeout) = self
-            .changed
-            .wait_timeout_while(count, Duration::from_secs(10), |count| *count == seen)
-            .unwrap();
-        assert!(
-            !timeout.timed_out(),
-            "the raw process went quiet without a wake"
-        );
-    }
-}
 
 /// Reads to exit, checking state only after a wake. A missing wake times out.
 fn drain_on_wakes(process: &mut RawProcess, wakes: &Wakes) -> (Vec<u8>, i32) {

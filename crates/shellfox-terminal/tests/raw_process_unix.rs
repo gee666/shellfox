@@ -6,6 +6,8 @@ mod support;
 use support::*;
 #[path = "support/raw_wake.rs"]
 mod wake;
+#[path = "support/wakes.rs"]
+mod wakes;
 #[path = "support/raw_unix_common.rs"]
 mod common;
 

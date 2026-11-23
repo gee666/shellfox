@@ -1,13 +1,52 @@
 #![cfg(all(windows, feature = "test-support"))]
 #[path = "support/pty.rs"]
 mod support;
-use shellfox_terminal::PtySession;
+#[path = "support/wakes.rs"]
+mod wakes;
+use shellfox_terminal::{PtyOutput, PtySession};
 use std::{
     ffi::OsString,
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
 use support::{drain, Scratch};
+use wakes::Wakes;
+
+/// Reads to EOF, looking only after a wake. A missing wake times out.
+fn drain_on_wakes(session: &mut PtySession, wakes: &Wakes) {
+    loop {
+        let seen = wakes.count();
+        session.try_wait().unwrap();
+        while let Some(output) = session.try_read().unwrap() {
+            match output {
+                PtyOutput::Data(_) => {}
+                PtyOutput::Eof => return,
+                PtyOutput::ReadError(error) => panic!("PTY read: {error}"),
+            }
+        }
+        wakes.wait_past(seen);
+    }
+}
+
+#[test]
+fn exit_and_job_teardown_wake_the_owner() {
+    let scratch = Scratch::new();
+    // The root exits first and leaves a descendant in the Job.
+    let mut session = PtySession::spawn(scratch.config("--leave-child")).unwrap();
+    let wakes = Arc::new(Wakes::default());
+    assert!(session.set_wake(wakes.wake()).unwrap().wakes_teardown());
+    drain_on_wakes(&mut session, &wakes);
+    session.shutdown().unwrap();
+    assert!(!scratch.0.join("descendant-survived").exists());
+
+    // A close before the root exits goes through the same wakes.
+    let mut session = PtySession::spawn(scratch.config("--idle")).unwrap();
+    session.set_wake(wakes.wake()).unwrap();
+    session.begin_shutdown().unwrap();
+    drain_on_wakes(&mut session, &wakes);
+    session.shutdown().unwrap();
+}
 
 #[test]
 fn draining_close_preserves_queued_output_and_retains_failed_cleanup() {

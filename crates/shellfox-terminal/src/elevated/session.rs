@@ -66,6 +66,11 @@ impl Session {
             .ok_or(AdapterError::CleanupUnconfirmed)?
             .service(generation)
     }
+    /// Calls `wake` after every helper frame, launcher exit and pipe worker
+    /// end, so the owner can block between polls. Fires once now.
+    pub fn set_wake(&self, wake: crate::Wake) {
+        self.observation.set_wake(wake);
+    }
     pub fn observation(&self) -> Observation {
         self.observation.clone()
     }

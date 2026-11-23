@@ -24,6 +24,10 @@ impl Observation {
     pub fn resources_held(&self) -> bool {
         self.0.held.load(Ordering::Acquire)
     }
+    pub(super) fn set_wake(&self, wake: crate::Wake) {
+        self.0.wake.set(wake);
+        self.0.wake.wake();
+    }
 }
 
 pub(super) struct StdioIo {
@@ -94,7 +98,8 @@ impl StdioIo {
                 .start_writer(input, requests, Arc::clone(&io.state))?;
             io.workers
                 .start_reader(output, send_frames, Arc::clone(&io.state))?;
-            io.workers.start_stderr(error)
+            io.workers.start_stderr(error, &io.state)?;
+            watch_launcher(child, &io.state)
         })();
         if setup.is_err() {
             return Err(SpawnError {
@@ -211,7 +216,7 @@ impl HelperIo for StdioIo {
             if peer
                 && self.poll_launcher()?
                 && self.state.eof.load(Ordering::Acquire)
-                && self.workers.finished()
+                && self.state.workers_finished()
             {
                 self.workers.join()?;
                 self.child.take();
@@ -227,10 +232,21 @@ impl HelperIo for StdioIo {
     }
 }
 
+/// Wakes the owner when the original launcher exits; it stays unreaped for try_wait.
+fn watch_launcher(child: &Child, state: &Arc<Shared>) -> io::Result<()> {
+    let state = Arc::clone(state);
+    let wake: crate::Wake = Arc::new(move || state.wake.wake());
+    #[cfg(windows)]
+    let target = std::os::windows::io::AsRawHandle::as_raw_handle(child);
+    #[cfg(unix)]
+    let target = child.id();
+    crate::wake::watch_exit(target, wake).map(|_| ())
+}
+
 struct Retained {
     child: Child,
     _hold: Box<dyn Send>,
-    workers: Workers,
+    _workers: Workers,
     state: Arc<Shared>,
     peer_required: bool,
 }
@@ -251,7 +267,7 @@ impl Drop for StdioIo {
             .push(Retained {
                 child,
                 _hold: hold,
-                workers: std::mem::take(&mut self.workers),
+                _workers: std::mem::take(&mut self.workers),
                 state: Arc::clone(&self.state),
                 peer_required: self.peer_required,
             });
@@ -269,7 +285,7 @@ pub fn reap_retained_launchers() -> usize {
     while index < owners.len() {
         let owner = &mut owners[index];
         let peer = !owner.peer_required || owner.state.peer_gone.load(Ordering::Acquire);
-        if peer && matches!(owner.child.try_wait(), Ok(Some(_))) && owner.workers.finished() {
+        if peer && matches!(owner.child.try_wait(), Ok(Some(_))) && owner.state.workers_finished() {
             owner.state.held.store(false, Ordering::Release);
             owners.swap_remove(index);
             reaped += 1;
