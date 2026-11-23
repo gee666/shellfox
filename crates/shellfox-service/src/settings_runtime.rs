@@ -1,9 +1,9 @@
 //! Settings validation only. Catalog reads never launch executables.
 use shellfox_core::{Error, ErrorCode, Result, Settings, SettingsShell};
-use shellfox_host::{SettingsProfile, SettingsRuntime, normalize_settings_profile};
+use shellfox_host::{normalize_settings_profile, SettingsProfile, SettingsRuntime};
 use shellfox_protocol::CancellationToken;
 use shellfox_terminal::{
-    ShellProfile, ShellProfileId, default_shell_profile, discover_shell_profiles, shell_profile,
+    default_shell_profile, discover_shell_profiles, shell_profile, ShellProfile, ShellProfileId,
 };
 use std::time::{Duration, Instant};
 

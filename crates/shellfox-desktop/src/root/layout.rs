@@ -14,7 +14,10 @@ impl Root {
     pub(crate) fn workspace_width(&self, window: &Window) -> f32 {
         f32::from(window.viewport_size().width)
             - if self.sidebar.visible {
-                crate::sidebar::clamp_width(self.sidebar.width, f32::from(window.viewport_size().width)) + 4.
+                crate::sidebar::clamp_width(
+                    self.sidebar.width,
+                    f32::from(window.viewport_size().width),
+                ) + 4.
             } else {
                 28.
             }
@@ -28,12 +31,17 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        if self.resize_session_environment(event, window, cx) { return; }
+        if self.resize_session_environment(event, window, cx) {
+            return;
+        }
         let left = event.pressed_button == Some(gpui::MouseButton::Left);
         let mut changed = self.sidebar.resizing;
         if self.sidebar.resizing {
             if left && let Some(start) = self.sidebar.resize_origin {
-                self.sidebar.width = start.width(f32::from(event.position.x), f32::from(window.viewport_size().width));
+                self.sidebar.width = start.width(
+                    f32::from(event.position.x),
+                    f32::from(window.viewport_size().width),
+                );
             } else {
                 self.sidebar.resizing = false;
                 self.sidebar.resize_origin = None;
@@ -46,15 +54,25 @@ impl Root {
         }
     }
 
-    fn sidebar_resize_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let step = if event.keystroke.modifiers.shift { 32. } else { 4. };
+    fn sidebar_resize_key(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let step = if event.keystroke.modifiers.shift {
+            32.
+        } else {
+            4.
+        };
         let width = match event.keystroke.key.as_str() {
             "left" => self.sidebar.width - step,
             "right" => self.sidebar.width + step,
             "home" => 220.,
             _ => return,
         };
-        self.sidebar.width = crate::sidebar::clamp_width(width, f32::from(window.viewport_size().width));
+        self.sidebar.width =
+            crate::sidebar::clamp_width(width, f32::from(window.viewport_size().width));
         window.prevent_default();
         cx.stop_propagation();
         cx.notify();
@@ -68,56 +86,73 @@ impl Root {
     ) -> AnyElement {
         let mut content = div().flex().size_full();
         if self.sidebar.visible {
-            let width = crate::sidebar::clamp_width(self.sidebar.width, f32::from(window.viewport_size().width));
-            content = content.child(div().w(px(width)).flex_shrink_0().h_full().child(self.pane(PaneKind::Sidebar, cx))).child(
-                div()
-                    .id("sidebar-resizer")
-                    .track_focus(&self.sidebar.resizer)
-                    .on_key_down(cx.listener(Self::sidebar_resize_key))
-                    .w(px(4.))
-                    .h_full()
-                    .flex_shrink_0()
-                    .bg(palette.sidebar)
-                    .border_r_1()
-                    .border_color(palette.border)
-                    .cursor(gpui::CursorStyle::ResizeColumn)
-                    .hover(|style| style.bg(palette.accent))
-                    .focus(|style| style.border_1().border_color(palette.accent))
-                    .when(self.sidebar.resizing, |style| style.bg(palette.accent))
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(|root, event: &gpui::MouseDownEvent, window, cx| {
-                            root.sidebar.resizer.focus(window);
-                            let viewport = f32::from(window.viewport_size().width);
-                            if event.click_count > 1 {
-                                root.sidebar.width = crate::sidebar::clamp_width(220., viewport);
+            let width = crate::sidebar::clamp_width(
+                self.sidebar.width,
+                f32::from(window.viewport_size().width),
+            );
+            content = content
+                .child(
+                    div()
+                        .w(px(width))
+                        .flex_shrink_0()
+                        .h_full()
+                        .child(self.pane(PaneKind::Sidebar, cx)),
+                )
+                .child(
+                    div()
+                        .id("sidebar-resizer")
+                        .track_focus(&self.sidebar.resizer)
+                        .on_key_down(cx.listener(Self::sidebar_resize_key))
+                        .w(px(4.))
+                        .h_full()
+                        .flex_shrink_0()
+                        .bg(palette.sidebar)
+                        .border_r_1()
+                        .border_color(palette.border)
+                        .cursor(gpui::CursorStyle::ResizeColumn)
+                        .hover(|style| style.bg(palette.accent))
+                        .focus(|style| style.border_1().border_color(palette.accent))
+                        .when(self.sidebar.resizing, |style| style.bg(palette.accent))
+                        .on_mouse_down(
+                            gpui::MouseButton::Left,
+                            cx.listener(|root, event: &gpui::MouseDownEvent, window, cx| {
+                                root.sidebar.resizer.focus(window);
+                                let viewport = f32::from(window.viewport_size().width);
+                                if event.click_count > 1 {
+                                    root.sidebar.width =
+                                        crate::sidebar::clamp_width(220., viewport);
+                                    root.sidebar.resizing = false;
+                                    root.sidebar.resize_origin = None;
+                                } else {
+                                    root.sidebar.resize_origin =
+                                        Some(crate::sidebar::SidebarDrag::start(
+                                            f32::from(event.position.x),
+                                            root.sidebar.width,
+                                            viewport,
+                                        ));
+                                    root.sidebar.resizing = true;
+                                }
+                                cx.notify();
+                                cx.stop_propagation();
+                            }),
+                        )
+                        .on_mouse_up(
+                            gpui::MouseButton::Left,
+                            cx.listener(|root, _, _, cx| {
                                 root.sidebar.resizing = false;
                                 root.sidebar.resize_origin = None;
-                            } else {
-                                root.sidebar.resize_origin = Some(crate::sidebar::SidebarDrag::start(f32::from(event.position.x), root.sidebar.width, viewport));
-                                root.sidebar.resizing = true;
-                            }
-                            cx.notify();
-                            cx.stop_propagation();
-                        }),
-                    )
-                    .on_mouse_up(
-                        gpui::MouseButton::Left,
-                        cx.listener(|root, _, _, cx| {
-                            root.sidebar.resizing = false;
-                            root.sidebar.resize_origin = None;
-                            cx.notify();
-                        }),
-                    )
-                    .on_mouse_up_out(
-                        gpui::MouseButton::Left,
-                        cx.listener(|root, _, _, cx| {
-                            root.sidebar.resizing = false;
-                            root.sidebar.resize_origin = None;
-                            cx.notify();
-                        }),
-                    ),
-            );
+                                cx.notify();
+                            }),
+                        )
+                        .on_mouse_up_out(
+                            gpui::MouseButton::Left,
+                            cx.listener(|root, _, _, cx| {
+                                root.sidebar.resizing = false;
+                                root.sidebar.resize_origin = None;
+                                cx.notify();
+                            }),
+                        ),
+                );
         }
         let mut workspace = div().flex().flex_col().flex_1().min_w_0().min_h_0();
         if !self.sidebar.visible {
@@ -142,7 +177,10 @@ impl Root {
                                     .w(px(24.))
                                     .track_focus(&self.sidebar.toggle)
                                     .focus(|style| style.border_1().border_color(palette.accent))
-                                    .tooltip(crate::assets::tooltip(sessions_tooltip(false), palette))
+                                    .tooltip(crate::assets::tooltip(
+                                        sessions_tooltip(false),
+                                        palette,
+                                    ))
                                     .on_click(cx.listener(|root, _, window, cx| {
                                         root.sidebar.toggle.focus(window);
                                         root.toggle_sessions_layout(window, cx);

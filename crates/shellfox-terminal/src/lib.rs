@@ -44,7 +44,6 @@ pub use error::SpawnError;
 pub(crate) use isolation::{validate_isolated_path, IsolationPathKind};
 pub use output::{PtyOutput, OUTPUT_CHUNK_BYTES, OUTPUT_QUEUE_CHUNKS};
 pub use portable_pty::ExitStatus;
-pub use wake::{ExitSignal, Wake};
 pub use profile::{
     default_shell_profile, discover_shell_profiles, shell_profile, ShellProfile, ShellProfileId,
 };
@@ -56,6 +55,7 @@ pub use unix::darwin_session::PtySession;
 pub use unix::session::PtySession;
 #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 pub use unsupported::PtySession;
+pub use wake::{ExitSignal, Wake};
 
 /// Call before initializing any GUI or starting threads.
 /// Returns the supervised command's exit code only in supervisor mode.

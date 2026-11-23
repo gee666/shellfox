@@ -7,10 +7,10 @@ use gpui::{Bounds, Pixels, point};
 use std::{cell::Cell, rc::Rc};
 
 mod model;
-mod view;
 mod open;
-pub(super) use open::remember_anchor;
+mod view;
 use model::{Hsv, Rgb, from_hsl, hex, parse_channel, parse_hex, to_hsl};
+pub(super) use open::remember_anchor;
 
 const PAD: f32 = 6.;
 const GAP: f32 = 4.;
@@ -125,7 +125,14 @@ impl Picker {
             initial,
             value: initial,
             hsl: to_hsl(initial),
-            hsv: Hsv::from_rgb(initial, Hsv { hue: 0., saturation: 0., value: 0. }),
+            hsv: Hsv::from_rgb(
+                initial,
+                Hsv {
+                    hue: 0.,
+                    saturation: 0.,
+                    value: 0.,
+                },
+            ),
             drag: None,
             fields,
             seen: Default::default(),
@@ -226,7 +233,13 @@ impl Picker {
     }
 
     /// Moves the dragged marker to the pointer, clamped to its area.
-    fn drag_to(&mut self, drag: Drag, position: gpui::Point<Pixels>, viewport: gpui::Size<Pixels>, cx: &mut Context<Self>) {
+    fn drag_to(
+        &mut self,
+        drag: Drag,
+        position: gpui::Point<Pixels>,
+        viewport: gpui::Size<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         let origin = self.popup(viewport).origin;
         let x = (f32::from(position.x - origin.x) - PAD - 1.) / INNER;
         match drag {
@@ -262,7 +275,11 @@ impl Picker {
     }
 
     fn key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.fields.iter().any(|field| field.read(cx).is_composing()) {
+        if self
+            .fields
+            .iter()
+            .any(|field| field.read(cx).is_composing())
+        {
             return;
         }
         match event.keystroke.key.as_str() {
@@ -275,7 +292,11 @@ impl Picker {
                     .iter()
                     .position(|field| field.read(cx).is_focused(window))
                     .unwrap_or(0);
-                let step = if event.keystroke.modifiers.shift { 6 } else { 1 };
+                let step = if event.keystroke.modifiers.shift {
+                    6
+                } else {
+                    1
+                };
                 self.fields[(current + step) % 7].read(cx).focus(window);
             }
             _ => return,

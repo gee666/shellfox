@@ -36,11 +36,9 @@ fn producer_verified_read_returns_exact_bounded_bytes_and_retains_its_guard() ->
     let file = fixture.path().join("producer-input");
     std::fs::write(&file, b"provider-program-fixture\n")?;
     let gone = Arc::new(AtomicBool::new(false));
-    let helper = shellfox_transport::VerifiedHelper::new(
-        file.clone(),
-        inputs::digest_file(&file)?,
-    )?
-    .with_resource_guard(Arc::new(Guard(gone.clone())));
+    let helper =
+        shellfox_transport::VerifiedHelper::new(file.clone(), inputs::digest_file(&file)?)?
+            .with_resource_guard(Arc::new(Guard(gone.clone())));
     ensure!(helper.read_verified(1024)? == b"provider-program-fixture\n");
     ensure!(helper.read_verified(1).is_err());
     ensure!(helper.read_verified(0).is_err());
@@ -112,9 +110,14 @@ fn query_only_startup_needs_no_ssh_executables() -> Result<()> {
             }))
             .await
             .is_err());
-        ensure!(ssh_path.is_dir(), "SSH settings should work without OpenSSH");
-        ensure!(matches!(client.native(NativeAction::Ssh(ssh::Request::List)).await?,
-            NativeResponse::Ssh(ssh::Response::Profiles(rows)) if rows.is_empty()));
+        ensure!(
+            ssh_path.is_dir(),
+            "SSH settings should work without OpenSSH"
+        );
+        ensure!(
+            matches!(client.native(NativeAction::Ssh(ssh::Request::List)).await?,
+            NativeResponse::Ssh(ssh::Response::Profiles(rows)) if rows.is_empty())
+        );
         Ok(())
     })?;
     Ok(())

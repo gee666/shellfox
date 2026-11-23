@@ -320,7 +320,6 @@ fn typing_after_a_key_with_an_empty_editor_is_never_dropped() {
     assert_eq!(s.line(), "echo habx");
 }
 
-
 #[test]
 fn characters_the_terminal_never_got_are_not_erased_later() {
     let mut s = Session::new();

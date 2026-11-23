@@ -123,10 +123,7 @@ impl RemoteNetwork for GoNetwork {
         body: Vec<u8>,
         limits: wire::RequestLimits,
     ) -> crate::remote::PeerFuture<'a> {
-        Box::pin(
-            self.0
-                .request_with_status(peer, endpoint, body, limits),
-        )
+        Box::pin(self.0.request_with_status(peer, endpoint, body, limits))
     }
     fn status(&self) -> NetworkFuture<'_, NetworkStatus> {
         Box::pin(async { self.0.status().await.map_err(helper_error) })

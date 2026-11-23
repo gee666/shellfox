@@ -3,7 +3,9 @@
 use super::*;
 use crossterm::event::{KeyEvent as Crossterm, KeyEventState};
 use serde_json::{json, Value};
-use shellfox_protocol::{AuthenticatedPeerId, ClientId, Endpoint, RequestLimits, TransportError, TransportFuture};
+use shellfox_protocol::{
+    AuthenticatedPeerId, ClientId, Endpoint, RequestLimits, TransportError, TransportFuture,
+};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -26,15 +28,26 @@ struct Script {
 #[derive(Clone, Default)]
 struct Peer(Arc<Mutex<Script>>);
 impl OutboundTransport for Peer {
-    fn send<'a>(&'a self, _: &'a AuthenticatedPeerId, endpoint: Endpoint, body: Vec<u8>, _: RequestLimits) -> TransportFuture<'a> {
+    fn send<'a>(
+        &'a self,
+        _: &'a AuthenticatedPeerId,
+        endpoint: Endpoint,
+        body: Vec<u8>,
+        _: RequestLimits,
+    ) -> TransportFuture<'a> {
         Box::pin(async move {
-            let body: Value = serde_json::from_slice(&body).map_err(|_| TransportError::InvalidRequest)?;
+            let body: Value =
+                serde_json::from_slice(&body).map_err(|_| TransportError::InvalidRequest)?;
             let method = body["method"].as_str().unwrap_or_default().to_owned();
-            let ok = |value: Value| Ok(serde_json::to_vec(&json!({ "ok": true, "value": value })).unwrap());
+            let ok = |value: Value| {
+                Ok(serde_json::to_vec(&json!({ "ok": true, "value": value })).unwrap())
+            };
             let batch = {
                 let mut script = self.0.lock().unwrap();
                 match endpoint {
-                    Endpoint::Pair => return ok(json!({ "paired": true, "terminalControl": "exclusive-v1" })),
+                    Endpoint::Pair => {
+                        return ok(json!({ "paired": true, "terminalControl": "exclusive-v1" }))
+                    }
                     Endpoint::Events => script.polls.pop_front(),
                     _ => {
                         script.seen.push((method.clone(), body["payload"].clone()));
@@ -53,7 +66,11 @@ impl OutboundTransport for Peer {
             if batch.is_none() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            let events: Vec<Value> = batch.unwrap_or_default().into_iter().map(|event| json!({ "type": "terminal", "event": event })).collect();
+            let events: Vec<Value> = batch
+                .unwrap_or_default()
+                .into_iter()
+                .map(|event| json!({ "type": "terminal", "event": event }))
+                .collect();
             ok(json!({ "events": events }))
         })
     }
@@ -71,22 +88,39 @@ fn data(epoch: u64, sequence: u64, text: &str) -> Value {
     json!({ "type": "data", "tabId": TAB, "generation": GENERATION, "controlEpoch": epoch, "sequence": sequence, "data": text })
 }
 fn key(code: KeyCode, modifiers: KeyModifiers) -> std::io::Result<Event> {
-    Ok(Event::Key(Crossterm { code, modifiers, kind: KeyEventKind::Press, state: KeyEventState::NONE }))
+    Ok(Event::Key(Crossterm {
+        code,
+        modifiers,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    }))
 }
 /// Scripted keyboard: each event after a pause, so the output stream runs between them.
-fn typed(events: Vec<std::io::Result<Event>>) -> impl Stream<Item = std::io::Result<Event>> + Unpin {
+fn typed(
+    events: Vec<std::io::Result<Event>>,
+) -> impl Stream<Item = std::io::Result<Event>> + Unpin {
     Box::pin(futures_util::stream::iter(events).then(|event| async {
         tokio::time::sleep(Duration::from_millis(150)).await;
         event
     }))
 }
 async fn paired(peer: &Peer) -> Client<Peer> {
-    let client = Client::new(AuthenticatedPeerId::new("n-box".to_owned()).unwrap(), ClientId::new_v4(), peer.clone());
+    let client = Client::new(
+        AuthenticatedPeerId::new("n-box".to_owned()).unwrap(),
+        ClientId::new_v4(),
+        peer.clone(),
+    );
     client.pair().await.unwrap();
     client
 }
 fn methods(peer: &Peer) -> Vec<String> {
-    peer.0.lock().unwrap().seen.iter().map(|(m, _)| m.clone()).collect()
+    peer.0
+        .lock()
+        .unwrap()
+        .seen
+        .iter()
+        .map(|(m, _)| m.clone())
+        .collect()
 }
 
 #[tokio::test]
@@ -105,13 +139,26 @@ async fn output_streams_keys_are_encoded_and_detach_leaves_the_shell() {
         Ok(Event::Resize(100, 30)),
         key(KeyCode::Char(']'), KeyModifiers::CONTROL),
     ]);
-    run(&client, TAB.parse().unwrap(), (90, 40), &mut output, input).await.unwrap();
+    run(&client, TAB.parse().unwrap(), (90, 40), &mut output, input)
+        .await
+        .unwrap();
     let screen = String::from_utf8_lossy(&output);
-    assert!(screen.contains("hello") && screen.contains(" world"), "{screen}");
+    assert!(
+        screen.contains("hello") && screen.contains(" world"),
+        "{screen}"
+    );
     let seen = peer.0.lock().unwrap().seen.clone();
-    let writes: Vec<&str> = seen.iter().filter(|(m, _)| m == "writeTerminal").map(|(_, p)| p["data"].as_str().unwrap()).collect();
+    let writes: Vec<&str> = seen
+        .iter()
+        .filter(|(m, _)| m == "writeTerminal")
+        .map(|(_, p)| p["data"].as_str().unwrap())
+        .collect();
     assert_eq!(writes, ["a", "\x1b[A"]);
-    let acks: Vec<u64> = seen.iter().filter(|(m, _)| m == "acknowledgeTerminal").map(|(_, p)| p["sequence"].as_u64().unwrap()).collect();
+    let acks: Vec<u64> = seen
+        .iter()
+        .filter(|(m, _)| m == "acknowledgeTerminal")
+        .map(|(_, p)| p["sequence"].as_u64().unwrap())
+        .collect();
     assert_eq!(acks, [1, 2]);
     let sizes: Vec<(u64, u64)> = seen
         .iter()
@@ -150,14 +197,27 @@ async fn a_held_terminal_is_taken_only_with_ctrl_t_and_exit_ends_attach() {
         std::future::pending::<std::io::Result<Event>>().await
     }));
     let input = Box::pin(input);
-    tokio::time::timeout(Duration::from_secs(10), run(&client, TAB.parse().unwrap(), (80, 24), &mut output, input))
-        .await
-        .expect("exit ends attach")
-        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        run(&client, TAB.parse().unwrap(), (80, 24), &mut output, input),
+    )
+    .await
+    .expect("exit ends attach")
+    .unwrap();
     let screen = String::from_utf8_lossy(&output);
-    assert!(screen.contains("Another client is controlling this terminal.") && screen.contains("mine"), "{screen}");
+    assert!(
+        screen.contains("Another client is controlling this terminal.") && screen.contains("mine"),
+        "{screen}"
+    );
     assert_eq!(
         methods(&peer),
-        ["attachTerminal", "takeTerminalControl", "attachTerminal", "acknowledgeTerminal", "resizeTerminal", "detachTerminal"]
+        [
+            "attachTerminal",
+            "takeTerminalControl",
+            "attachTerminal",
+            "acknowledgeTerminal",
+            "resizeTerminal",
+            "detachTerminal"
+        ]
     );
 }

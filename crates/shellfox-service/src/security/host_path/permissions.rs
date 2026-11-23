@@ -38,7 +38,8 @@ fn verify_acl(file: &std::fs::File) -> Result<()> {
     } else {
         file
     };
-    shellfox_transport::verify_held_acl(inspected).context("Host resource has access or inheritance ACLs")
+    shellfox_transport::verify_held_acl(inspected)
+        .context("Host resource has access or inheritance ACLs")
 }
 
 fn verify_ancestor(dir: &Dir) -> Result<()> {
@@ -78,7 +79,8 @@ pub(super) fn protect_directory(dir: &Dir, user: u32) -> Result<()> {
     verify_acl(&file)?;
     file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
     #[cfg(target_os = "macos")]
-    shellfox_transport::tighten_held_acl(&file).context("Tighten ACL on the owned host directory")?;
+    shellfox_transport::tighten_held_acl(&file)
+        .context("Tighten ACL on the owned host directory")?;
     Ok(())
 }
 impl HostRoot {

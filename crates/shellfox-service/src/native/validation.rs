@@ -53,7 +53,9 @@ impl NativeAction {
         match self {
             Self::Metadata(request) => validate_metadata(request)?,
             Self::SetVisibleSessions(report) => shellfox_protocol::Validate::validate(report)?,
-            Self::SaveWindowState(state) => ensure!(state.valid(), "Invalid desktop window bounds."),
+            Self::SaveWindowState(state) => {
+                ensure!(state.valid(), "Invalid desktop window bounds.")
+            }
             Self::Presentation {
                 attachment, action, ..
             } => {
@@ -69,7 +71,9 @@ impl NativeAction {
                 }
             }
             Self::Ssh(request) => request.validate()?,
-            Self::System(request) => request.validate().map_err(|error|anyhow::anyhow!(error.message))?,
+            Self::System(request) => request
+                .validate()
+                .map_err(|error| anyhow::anyhow!(error.message))?,
             Self::Remote(request) => request
                 .validate()
                 .map_err(|error| anyhow::anyhow!(error.message))?,

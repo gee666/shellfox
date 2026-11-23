@@ -16,34 +16,37 @@ impl TerminalView {
         let access = connection.access.clone();
         let tab = connection.tab;
         let mut life = connection.frame_cancellation();
-        cx.spawn(async move |view, cx| loop {
-            life.borrow_and_update();
-            let Ok(focused) = view.update(cx, |view, _| view.frame_gate()) else {
-                return;
-            };
-            let Some(focused) = focused else {
-                // Stopped presenting; wait for a resume or kick.
-                if life.changed().await.is_err() {
+        cx.spawn(async move |view, cx| {
+            loop {
+                life.borrow_and_update();
+                let Ok(focused) = view.update(cx, |view, _| view.frame_gate()) else {
                     return;
-                }
-                continue;
-            };
-            let result = tokio::select! {
-                biased;
-                changed = life.changed() => {
-                    if changed.is_err() {
+                };
+                let Some(focused) = focused else {
+                    // Stopped presenting; wait for a resume or kick.
+                    if life.changed().await.is_err() {
                         return;
                     }
                     continue;
+                };
+                let result = tokio::select! {
+                    biased;
+                    changed = life.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                    result = fetch(&client, tab, &access, focused) => result,
+                };
+                let Ok(busy) = view.update(cx, |view, cx| view.accept_frame_result(result, cx))
+                else {
+                    return;
+                };
+                if busy {
+                    // Admission was full; retry shortly instead of waiting for a change.
+                    cx.background_executor().timer(BUSY_RETRY).await;
                 }
-                result = fetch(&client, tab, &access, focused) => result,
-            };
-            let Ok(busy) = view.update(cx, |view, cx| view.accept_frame_result(result, cx)) else {
-                return;
-            };
-            if busy {
-                // Admission was full; retry shortly instead of waiting for a change.
-                cx.background_executor().timer(BUSY_RETRY).await;
             }
         })
         .detach();
@@ -55,7 +58,11 @@ impl TerminalView {
             .then_some(self.presentation_focused)
     }
     /// Returns true when admission was full and the fetch should be retried.
-    fn accept_frame_result(&mut self, result: anyhow::Result<Option<NativeFrame>>, cx: &mut Context<Self>) -> bool {
+    fn accept_frame_result(
+        &mut self,
+        result: anyhow::Result<Option<NativeFrame>>,
+        cx: &mut Context<Self>,
+    ) -> bool {
         match result {
             Ok(Some(frame)) => self.accept_native_frame(frame, cx),
             Ok(None) => {}
@@ -65,9 +72,11 @@ impl TerminalView {
                 if matches!(
                     error.downcast_ref::<NativeAdmissionError>(),
                     Some(NativeAdmissionError::Full(_))
-                ) => return true,
-            Err(error) if super::control_required(&error) =>
+                ) =>
             {
+                return true;
+            }
+            Err(error) if super::control_required(&error) => {
                 self.block_control();
                 cx.notify();
             }
@@ -83,7 +92,12 @@ impl TerminalView {
             return;
         }
         let same_frame = matches!(&self.screen, SharedScreen::Native(previous) if Arc::ptr_eq(previous, &frame.presentation));
-        let shown = (self.phase, self.mouse_tracking, self.status.clone(), self.notice.clone());
+        let shown = (
+            self.phase,
+            self.mouse_tracking,
+            self.status.clone(),
+            self.notice.clone(),
+        );
         self.delivery.consumed = self.delivery.consumed.max(frame.frame.sequence);
         self.delivery.delivered = frame.highest_delivered;
         self.delivery.exited = frame.exited;
@@ -109,7 +123,15 @@ impl TerminalView {
             self.recover();
         }
         // Repaint only when something visible changed.
-        if !same_frame || shown != (self.phase, self.mouse_tracking, self.status.clone(), self.notice.clone()) {
+        if !same_frame
+            || shown
+                != (
+                    self.phase,
+                    self.mouse_tracking,
+                    self.status.clone(),
+                    self.notice.clone(),
+                )
+        {
             cx.notify();
         }
     }
@@ -137,7 +159,11 @@ impl TerminalView {
     }
     /// Focus is part of the frame request (terminal focus reporting), so a
     /// change refetches at once.
-    pub(in crate::terminal) fn sync_presentation_focus(&mut self, window: &gpui::Window, cx: &mut Context<Self>) {
+    pub(in crate::terminal) fn sync_presentation_focus(
+        &mut self,
+        window: &gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
         let focused = self.presentation_focus(window);
         if focused == self.presentation_focused {
             return;

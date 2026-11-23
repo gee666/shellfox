@@ -21,5 +21,9 @@ pub(super) fn parse(args: &[String], mode: Mode) -> Result<DesktopLaunchIntent> 
     let cwd = invoking_cwd
         .to_str()
         .context("Launch directory must be UTF-8")?;
-    Ok(crate::app_launch::parse_launch_args(args, cwd, &DirectoryPreflight)?)
+    Ok(crate::app_launch::parse_launch_args(
+        args,
+        cwd,
+        &DirectoryPreflight,
+    )?)
 }

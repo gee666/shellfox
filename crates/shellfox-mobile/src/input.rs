@@ -94,7 +94,11 @@ fn encode_error(error: shellfox_ghostty_vt::Error) -> Status {
         _ => Status::Engine,
     }
 }
-pub(crate) fn encode(terminal: &mut Terminal, composer: &mut Composer, input: Input) -> Result<Vec<u8>> {
+pub(crate) fn encode(
+    terminal: &mut Terminal,
+    composer: &mut Composer,
+    input: Input,
+) -> Result<Vec<u8>> {
     match input {
         Input::Editor { committed } => {
             // A keyboard types line breaks and tabs, never other C0 controls or DEL.
@@ -193,10 +197,19 @@ mod tests {
             .unwrap();
         let t = &mut terminal;
         let c = &mut composer;
-        assert_eq!(run(t, c, r#"{"type":"editor","committed":"日本"}"#).unwrap(), "日本".as_bytes());
-        assert_eq!(run(t, c, r#"{"type":"editor","committed":"日"}"#).unwrap(), b"\x7f");
+        assert_eq!(
+            run(t, c, r#"{"type":"editor","committed":"日本"}"#).unwrap(),
+            "日本".as_bytes()
+        );
+        assert_eq!(
+            run(t, c, r#"{"type":"editor","committed":"日"}"#).unwrap(),
+            b"\x7f"
+        );
         assert!(run(t, c, r#"{"type":"editorReset"}"#).unwrap().is_empty());
-        assert_eq!(run(t, c, r#"{"type":"editor","committed":"x"}"#).unwrap(), b"x");
+        assert_eq!(
+            run(t, c, r#"{"type":"editor","committed":"x"}"#).unwrap(),
+            b"x"
+        );
         let up = r#"{"type":"key","event":{"physical":78,"action":"press","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}"#;
         assert_eq!(run(t, c, up).unwrap(), b"\x1bOA");
         let ctrl_c = r#"{"type":"key","event":{"physical":22,"action":"press","modifiers":2,"consumedModifiers":0,"text":"c","unshiftedCodepoint":99,"composing":false}}"#;

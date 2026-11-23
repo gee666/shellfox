@@ -19,12 +19,13 @@ fn owner_queue_admission_is_bounded_and_views_share_no_controller_ids() {
     let next_view = client.fork();
     assert_ne!(client.client_id(), next_view.client_id());
     let mut controllers = std::collections::HashMap::new();
-    let data=scratch();
-    let mut service=crate::Service::open_owned(data.path(),&std::env::current_exe().unwrap()).unwrap();
+    let data = scratch();
+    let mut service =
+        crate::Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
     let a = super::controller_id(&mut controllers, &mut service, client.client_id()).unwrap();
-    let observer=service.allocate_viewer_id().unwrap();
+    let observer = service.allocate_viewer_id().unwrap();
     let b = super::controller_id(&mut controllers, &mut service, next_view.client_id()).unwrap();
-    assert!(a<observer&&observer<b);
+    assert!(a < observer && observer < b);
     controllers.remove(&client.client_id());
     assert!(super::controller_id(&mut controllers, &mut service, client.client_id()).unwrap() > b);
 }
@@ -148,7 +149,9 @@ fn remote_without_owned_manager_is_unsent_not_a_fake_state_or_owner_task() {
     ));
     // The same sender/client still admits LOCAL work after remote rejection.
     let _local = client.try_native(NativeAction::Status).unwrap();
-    assert!(matches!(incoming.try_recv(), Ok(super::Task::Native { action, .. }) if matches!(*action, NativeAction::Status)));
+    assert!(
+        matches!(incoming.try_recv(), Ok(super::Task::Native { action, .. }) if matches!(*action, NativeAction::Status))
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]

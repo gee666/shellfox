@@ -57,8 +57,9 @@ impl FrontendDirectories {
 }
 
 fn private(path: &std::path::Path) -> Result<Arc<FileService>> {
-    FileService::private_root(path)
-        .map_err(|error| anyhow::Error::new(error).context("Cannot prepare a private Shellfox frontend directory"))
+    FileService::private_root(path).map_err(|error| {
+        anyhow::Error::new(error).context("Cannot prepare a private Shellfox frontend directory")
+    })
 }
 
 #[cfg(test)]
@@ -70,7 +71,11 @@ pub(crate) fn prepare(options: &Options) -> Result<FrontendDirectories> {
 
 /// Each frontend path must be UTF-8 and free of links and aliases up to its existing prefix.
 pub(crate) fn inspect(options: &Options) -> Result<()> {
-    for path in [&options.desktop_dir, &options.device_config_root, &options.run_dir] {
+    for path in [
+        &options.desktop_dir,
+        &options.device_config_root,
+        &options.run_dir,
+    ] {
         path.to_str().context("Frontend root must be UTF-8")?;
         FileService::check_private_root(path)
             .with_context(|| format!("Unsafe frontend directory: {}", path.display()))?;

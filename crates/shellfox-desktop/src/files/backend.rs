@@ -34,15 +34,22 @@ impl DocumentBackend {
     pub fn same_panel_scope(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Local(_), Self::Local(_)) => true,
-            (Self::Peer(a), Self::Peer(b)) => a.ids() == b.ids()
-                && match (&a.scope, &b.scope) {
-                    (None, None) => true,
-                    (Some(a), Some(b)) => a.guest.distro().eq_ignore_ascii_case(b.guest.distro()),
-                    _ => false,
-                },
+            (Self::Peer(a), Self::Peer(b)) => {
+                a.ids() == b.ids()
+                    && match (&a.scope, &b.scope) {
+                        (None, None) => true,
+                        (Some(a), Some(b)) => {
+                            a.guest.distro().eq_ignore_ascii_case(b.guest.distro())
+                        }
+                        _ => false,
+                    }
+            }
             #[cfg(windows)]
-            (Self::Wsl(a), Self::Wsl(b)) => a.tab == b.tab && a.account == b.account
-                && a.scope.distro().eq_ignore_ascii_case(b.scope.distro()),
+            (Self::Wsl(a), Self::Wsl(b)) => {
+                a.tab == b.tab
+                    && a.account == b.account
+                    && a.scope.distro().eq_ignore_ascii_case(b.scope.distro())
+            }
             _ => false,
         }
     }
@@ -86,7 +93,10 @@ impl DocumentBackend {
         }
     }
 
-    pub fn peer(binding: Arc<crate::host_client::peer_v1::V1Binding>, scope: Option<PeerFileScope>) -> Result<Self> {
+    pub fn peer(
+        binding: Arc<crate::host_client::peer_v1::V1Binding>,
+        scope: Option<PeerFileScope>,
+    ) -> Result<Self> {
         Ok(Self::Peer(peer::PeerDocumentBackend::new(binding, scope)?))
     }
     pub fn peer_backend(&self) -> Option<&Arc<peer::PeerDocumentBackend>> {
@@ -134,13 +144,21 @@ impl DocumentBackend {
     }
     pub(super) async fn complete(&self, path: &str) -> Result<Vec<String>> {
         if self.is_wsl() {
-            if path.starts_with('~') { return Ok(Vec::new()); }
+            if path.starts_with('~') {
+                return Ok(Vec::new());
+            }
             let (parent, prefix) = path.rsplit_once(['/', '\\']).unwrap_or((".", path));
             let parent = if parent.is_empty() { "/" } else { parent };
             let listing = self.list(parent).await?;
-            return Ok(listing.entries.into_iter().filter(|entry| {
-                entry.kind == EntryKind::Directory && entry.name.starts_with(prefix)
-            }).take(30).map(|entry| format!("{}/", entry.path)).collect());
+            return Ok(listing
+                .entries
+                .into_iter()
+                .filter(|entry| {
+                    entry.kind == EntryKind::Directory && entry.name.starts_with(prefix)
+                })
+                .take(30)
+                .map(|entry| format!("{}/", entry.path))
+                .collect());
         }
         match self {
             Self::Local(backend) => {
@@ -295,7 +313,9 @@ impl DocumentBackend {
                 .service
                 .stat(&local.service.browser_existing(&local.location(path)?)?)?),
             #[cfg(windows)]
-            Self::Wsl(_) => Err(anyhow!("Open the path in the WSL terminal. WSL Files does not use Windows Explorer.")),
+            Self::Wsl(_) => Err(anyhow!(
+                "Open the path in the WSL terminal. WSL Files does not use Windows Explorer."
+            )),
             Self::Peer(_) => Err(anyhow!("Peer explorer operation refused.")),
         }
     }

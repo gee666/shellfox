@@ -51,7 +51,11 @@ pub fn min_size() -> Size<Pixels> {
 pub fn place(saved: Option<&WindowState>, screens: &[Screen], primary: usize) -> Option<Placement> {
     let screen = saved
         .and_then(|saved| saved.display.as_ref())
-        .and_then(|id| screens.iter().position(|screen| screen.uuid.as_ref() == Some(id)))
+        .and_then(|id| {
+            screens
+                .iter()
+                .position(|screen| screen.uuid.as_ref() == Some(id))
+        })
         .unwrap_or(primary);
     let display = screens.get(screen)?;
     let work = display.work;
@@ -60,8 +64,12 @@ pub fn place(saved: Option<&WindowState>, screens: &[Screen], primary: usize) ->
         (saved.width, saved.height)
     });
     let min = min_size();
-    let width = (width as f32).min(work.size.width.into()).max(min.width.into());
-    let height = (height as f32).min(work.size.height.into()).max(min.height.into());
+    let width = (width as f32)
+        .min(work.size.width.into())
+        .max(min.width.into());
+    let height = (height as f32)
+        .min(work.size.height.into())
+        .max(min.height.into());
     let free_x = (f32::from(work.size.width) - width).max(0.);
     let free_y = (f32::from(work.size.height) - height).max(0.);
     let (x, y) = saved.map_or(((free_x / 2.).round(), (free_y / 2.).round()), |saved| {

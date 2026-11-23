@@ -1,12 +1,19 @@
+#[cfg(target_os = "macos")]
+use anyhow::Context;
 use anyhow::Result;
 #[cfg(unix)]
 use anyhow::ensure;
-#[cfg(target_os = "macos")]
-use anyhow::Context;
 use semver::Version;
-use std::{ffi::OsStr, fs, path::{Path, PathBuf}};
+use std::{
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+};
 #[cfg(unix)]
-use std::{process::{Command, Stdio}, time::{Duration, Instant}};
+use std::{
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 use tempfile::TempDir;
 mod handoff;
 pub(super) use handoff::Prepared;
@@ -224,7 +231,10 @@ fn deb_version(version: &Version) -> String {
 #[test]
 fn deb_versions_match_the_package_mapping() {
     assert_eq!(deb_version(&Version::new(0, 10, 0)), "0.10.0");
-    assert_eq!(deb_version(&Version::parse("0.10.0-beta.1").unwrap()), "0.10.0~beta.1");
+    assert_eq!(
+        deb_version(&Version::parse("0.10.0-beta.1").unwrap()),
+        "0.10.0~beta.1"
+    );
 }
 fn deb_arch() -> &'static str {
     if cfg!(target_arch = "aarch64") {

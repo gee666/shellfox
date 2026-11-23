@@ -32,15 +32,27 @@ impl Root {
         self.snapshot
             .as_ref()
             .map(|s| Palette::new(&s.preferences.accent_color, &s.preferences.background_color))
-            .or_else(|| cx.try_global::<crate::startup_chrome::StartupPalette>().map(|colors| colors.palette))
+            .or_else(|| {
+                cx.try_global::<crate::startup_chrome::StartupPalette>()
+                    .map(|colors| colors.palette)
+            })
             .unwrap_or_else(|| Palette::new("#ec4899", "#111016"))
     }
 
     /// Whether menus, dialogs or Settings cover the Files pane, so its native HTML preview must hide.
     pub(crate) fn files_covered(&self) -> bool {
-        self.close.closing || self.settings.open || self.dialogs.current.is_some() || self.sidebar.new_session_menu_open()
-            || self.sidebar.session_menu.is_some() || self.tabs.profile_menu.is_some() || self.tabs.menu.is_some()
-            || self.files.panel.as_ref().is_some_and(|files| files.pending_file_action.is_some())
+        self.close.closing
+            || self.settings.open
+            || self.dialogs.current.is_some()
+            || self.sidebar.new_session_menu_open()
+            || self.sidebar.session_menu.is_some()
+            || self.tabs.profile_menu.is_some()
+            || self.tabs.menu.is_some()
+            || self
+                .files
+                .panel
+                .as_ref()
+                .is_some_and(|files| files.pending_file_action.is_some())
     }
 }
 
@@ -87,7 +99,11 @@ impl Render for Root {
             .on_action(cx.listener(Self::on_toggle_files))
             .on_action(cx.listener(Self::on_toggle_folders))
             .child(motion);
-        let maximized = self.files.panel.as_ref().is_some_and(|files| files.visible && files.maximized);
+        let maximized = self
+            .files
+            .panel
+            .as_ref()
+            .is_some_and(|files| files.visible && files.maximized);
         if !self.sidebar.visible || maximized {
             self.sidebar.list.begin_frame();
         }
@@ -98,14 +114,18 @@ impl Render for Root {
         };
         #[cfg(target_os = "linux")]
         let body = match Self::linux_titlebar(palette, window, cx) {
-            Some(title) => div().size_full().flex().flex_col()
+            Some(title) => div()
+                .size_full()
+                .flex()
+                .flex_col()
                 .child(title)
                 .child(div().flex_1().min_h_0().w_full().child(body))
                 .into_any_element(),
             None => body,
         };
         content = content.child(body);
-        if self.close.closing && !matches!(self.dialogs.current, Some(crate::dialogs::Dialog::Quit)) {
+        if self.close.closing && !matches!(self.dialogs.current, Some(crate::dialogs::Dialog::Quit))
+        {
             content = content.child(
                 div()
                     .absolute()
@@ -132,18 +152,31 @@ impl Render for Root {
             content = content.child(self.render_tab_menu(palette, window, cx));
         }
         if self.dialogs.current.is_some()
-            && !matches!(self.dialogs.current, Some(crate::dialogs::Dialog::RenameTab { .. } | crate::dialogs::Dialog::CloseTab(_)))
+            && !matches!(
+                self.dialogs.current,
+                Some(
+                    crate::dialogs::Dialog::RenameTab { .. } | crate::dialogs::Dialog::CloseTab(_)
+                )
+            )
         {
             content = content.child(self.render_dialog(palette, window, cx));
         }
         self.collect_errors(cx);
         content = content.child(self.render_toasts(palette, window, cx));
         let weak = cx.weak_entity();
-        content = content.child(gpui::canvas(|_, _, _| (), move |_, (), window, cx| {
-            window.defer(cx, move |window, cx| {
-                let _ = weak.update(cx, |root, cx| root.poll_session_visibility(window, cx));
-            });
-        }).absolute().inset_0());
+        content = content.child(
+            gpui::canvas(
+                |_, _, _| (),
+                move |_, (), window, cx| {
+                    window.defer(cx, move |window, cx| {
+                        let _ =
+                            weak.update(cx, |root, cx| root.poll_session_visibility(window, cx));
+                    });
+                },
+            )
+            .absolute()
+            .inset_0(),
+        );
         self.finish_semantic_root(content, cx)
     }
 }

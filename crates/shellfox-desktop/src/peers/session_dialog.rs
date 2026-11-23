@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     field::{Field, FieldOptions},
-    sidebar::session_menu::Item,
     settings::environment_data,
+    sidebar::session_menu::Item,
 };
 use gpui::FocusHandle;
 use shellfox_protocol::TabLifecycle;
@@ -160,8 +160,10 @@ impl Root {
         }
         let session = self.peer_session(&dialog.cycle, dialog.id)?;
         let running = session.tabs.iter().any(|tab| {
-            matches!(tab.terminal_kind, Some(shellfox_protocol::TerminalKind::Embedded))
-                && !matches!(tab.lifecycle, TabLifecycle::Closed)
+            matches!(
+                tab.terminal_kind,
+                Some(shellfox_protocol::TerminalKind::Embedded)
+            ) && !matches!(tab.lifecycle, TabLifecycle::Closed)
         });
         Some(self.inline_session_delete(session.title.clone(), running, palette, cx))
     }

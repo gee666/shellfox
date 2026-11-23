@@ -10,8 +10,14 @@ async fn creation_receipt(
     owner: &shellfox_service::OwnerClient,
     request_id: SessionId,
 ) -> Result<shellfox_host::CreationRequestReceipt> {
-    match owner.native(NativeAction::CreationRequestReceipt { request_id }).await? {
-        NativeResponse::CreationRequestReceipt { request_id: actual, receipt } if actual == request_id => Ok(receipt),
+    match owner
+        .native(NativeAction::CreationRequestReceipt { request_id })
+        .await?
+    {
+        NativeResponse::CreationRequestReceipt {
+            request_id: actual,
+            receipt,
+        } if actual == request_id => Ok(receipt),
         _ => anyhow::bail!("Creation receipt reply does not match its request."),
     }
 }

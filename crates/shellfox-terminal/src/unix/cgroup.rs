@@ -51,8 +51,7 @@ impl Cgroup {
         // f_type and the magic differ in type across gnu and musl; the magic fits all.
         let filesystem = unsafe { stat.assume_init() }.f_type as u64;
         ensure!(
-            filesystem == libc::CGROUP2_SUPER_MAGIC as u64
-                && parent.metadata()?.uid() == uid,
+            filesystem == libc::CGROUP2_SUPER_MAGIC as u64 && parent.metadata()?.uid() == uid,
             "not an owned cgroup-v2 delegation"
         );
         let name = CString::new(format!(

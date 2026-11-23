@@ -26,6 +26,9 @@ fn five_thousand_lines_keep_at_least_three_thousand_in_history() -> TestResult {
 #[test]
 fn history_stays_bounded() -> TestResult {
     let rows = retained_rows(200, 20_000)?;
-    assert!((3000..20_000).contains(&rows), "200 columns kept {rows} rows");
+    assert!(
+        (3000..20_000).contains(&rows),
+        "200 columns kept {rows} rows"
+    );
     Ok(())
 }

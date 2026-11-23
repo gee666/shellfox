@@ -5,7 +5,7 @@ use shellfox_core::{
     CreateSession, Generation, ProfileId, SessionId, SettingsProcessRule, TerminalIdentity,
 };
 use shellfox_runtime::{Command, Phase, Response};
-use shellfox_service::{activity::*, activity::integration::*};
+use shellfox_service::{activity::integration::*, activity::*};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},

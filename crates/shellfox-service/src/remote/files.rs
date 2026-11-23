@@ -1,7 +1,7 @@
 use super::{failure, host_error};
 use crate::Service;
 use shellfox_protocol::{self as wire, AppError, ErrorCode, SessionId, TabId};
-use shellfox_remote::{Actor, file_ops};
+use shellfox_remote::{file_ops, Actor};
 use std::path::Path;
 
 fn resolve_path(

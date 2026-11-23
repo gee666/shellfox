@@ -10,8 +10,8 @@ use crossterm::{
 use futures_util::StreamExt;
 use shellfox_core::TabId;
 use shellfox_service::{
-    local_api::{LocalApiRequest, LocalApiResponse, RecoveryCapability},
     local::LocalClient,
+    local_api::{LocalApiRequest, LocalApiResponse, RecoveryCapability},
     Attachment, TerminalOutput,
 };
 use std::io::{self, Write};

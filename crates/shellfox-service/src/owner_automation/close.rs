@@ -68,7 +68,11 @@ impl Service {
                     .runtime;
                 Ok(runtime.poll_external_closed()?.then_some(()))
             },
-            || anyhow::anyhow!("Original external parser-thread join is unconfirmed; owner retained."),
+            || {
+                anyhow::anyhow!(
+                    "Original external parser-thread join is unconfirmed; owner retained."
+                )
+            },
         )?;
         self.activity_collect_live();
         self.forget_activity(
@@ -82,7 +86,12 @@ impl Service {
             .terminals
             .get(&identity.tab_id)
             .and_then(|terminal| terminal.external_cleanup);
-        let destroyed=self.terminals.get(&identity.tab_id).context("External source disappeared before destruction proof.")?.runtime.identity();
+        let destroyed = self
+            .terminals
+            .get(&identity.tab_id)
+            .context("External source disappeared before destruction proof.")?
+            .runtime
+            .identity();
         self.terminals.remove(&identity.tab_id);
         self.ownership_source_destroyed(destroyed);
         self.retire_external_source(identity.tab_id);

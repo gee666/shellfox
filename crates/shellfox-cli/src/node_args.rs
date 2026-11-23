@@ -442,10 +442,7 @@ fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
 /// Flag names with their values, in order.
 type Flags<'a> = Vec<(&'a str, &'a str)>;
 
-fn options<'a>(
-    rest: &[&'a str],
-    allowed: &[&str],
-) -> Result<(Vec<&'a str>, Flags<'a>)> {
+fn options<'a>(rest: &[&'a str], allowed: &[&str]) -> Result<(Vec<&'a str>, Flags<'a>)> {
     let (mut positional, mut flags) = (Vec::new(), Vec::new());
     let mut items = rest.iter();
     while let Some(item) = items.next() {

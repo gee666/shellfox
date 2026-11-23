@@ -4,12 +4,12 @@ use std::time::{Duration, Instant};
 #[path = "support/raw_unix.rs"]
 mod support;
 use support::*;
+#[path = "support/raw_unix_common.rs"]
+mod common;
 #[path = "support/raw_wake.rs"]
 mod wake;
 #[path = "support/wakes.rs"]
 mod wakes;
-#[path = "support/raw_unix_common.rs"]
-mod common;
 
 #[test]
 fn actual_guest_codes_are_not_controller_cleanup_sigkill() {
@@ -197,7 +197,10 @@ fn raw_sealed_facts_prove_same_account_non_elevating_launch() {
     assert_eq!(facts.privilege, LaunchPrivilege::Normal);
     assert!(facts.unknown.is_none());
     assert!(facts.token.is_none());
-    assert!(facts.posix.unwrap().is_non_elevating_account(unsafe { libc::getuid() }));
+    assert!(facts
+        .posix
+        .unwrap()
+        .is_non_elevating_account(unsafe { libc::getuid() }));
     process.request_stop().unwrap();
     assert_eq!(collect(&mut process).2, 137);
 }

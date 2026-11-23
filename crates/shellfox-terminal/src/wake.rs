@@ -105,7 +105,15 @@ pub(crate) fn watch_exit(
     // duplicate is a new non-inheritable handle that this function owns.
     let duplicated = unsafe {
         let current = GetCurrentProcess();
-        DuplicateHandle(current, process.cast(), current, &mut duplicate, SYNCHRONIZATION_SYNCHRONIZE, 0, 0)
+        DuplicateHandle(
+            current,
+            process.cast(),
+            current,
+            &mut duplicate,
+            SYNCHRONIZATION_SYNCHRONIZE,
+            0,
+            0,
+        )
     };
     if duplicated == 0 || duplicate.is_null() {
         return Err(std::io::Error::last_os_error());

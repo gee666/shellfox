@@ -12,12 +12,16 @@ mod os {
     /// Break away from a job the UI may run in, such as a launcher's kill-on-close job.
     pub fn scope(cli: &Path, arguments: &[OsString]) -> Option<Command> {
         let mut command = direct(cli, arguments);
-        command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB);
+        command.creation_flags(
+            CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB,
+        );
         Some(command)
     }
     pub fn direct(cli: &Path, arguments: &[OsString]) -> Command {
         let mut command = Command::new(cli);
-        command.args(arguments).creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+        command
+            .args(arguments)
+            .creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
         command
     }
 }
@@ -41,7 +45,10 @@ mod os {
             return None;
         }
         let mut command = detached(runner);
-        command.args(scope_arguments(&uuid::Uuid::new_v4())).arg(cli).args(arguments);
+        command
+            .args(scope_arguments(&uuid::Uuid::new_v4()))
+            .arg(cli)
+            .args(arguments);
         Some(command)
     }
     #[cfg(target_os = "linux")]

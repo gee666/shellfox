@@ -29,7 +29,10 @@ fn focus_loss_and_capture_cancel_release_once_under_backpressure() {
         queue.cancel(pointer_only).unwrap();
         queue.cancel(pointer_only).unwrap();
         assert_eq!(queue.buttons(), 0);
-        assert_eq!(queue.key_release((PhysicalKey::ArrowUp, None)).is_some(), pointer_only);
+        assert_eq!(
+            queue.key_release((PhysicalKey::ArrowUp, None)).is_some(),
+            pointer_only
+        );
         let requests = transport.finish(&mut queue);
         assert_eq!(requests.iter().filter(|r| matches!(&r.command, Command::Mouse {event, ..} if event.action == MouseAction::Release)).count(), 1);
         assert_eq!(requests.iter().filter(|r| matches!(&r.command, Command::Key {event, ..} if event.action == KeyAction::Release)).count(), usize::from(!pointer_only));
@@ -220,7 +223,13 @@ fn app_shortcut_repeats_and_key_ups_never_reach_the_terminal() {
     for action in [KeyAction::Repeat, KeyAction::Release] {
         let event = crate::input::key_event(&stroke, action).unwrap();
         queue
-            .enqueue(Command::Key { lease: LEASE, event }, Pending::Applied)
+            .enqueue(
+                Command::Key {
+                    lease: LEASE,
+                    event,
+                },
+                Pending::Applied,
+            )
             .unwrap();
     }
     assert!(queue.key_release(crate::input::key_identity("b")).is_none());

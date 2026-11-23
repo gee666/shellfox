@@ -1,11 +1,11 @@
 //! Activity policy only. The service owns clocks, persistence and process handles.
-pub mod integration;
-pub(crate) mod service;
 pub(crate) mod hooks;
-pub(crate) mod native;
 mod inspection;
+pub mod integration;
 mod matching;
+pub(crate) mod native;
 mod process;
+pub(crate) mod service;
 mod session;
 mod status;
 pub use inspection::*;

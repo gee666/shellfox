@@ -155,7 +155,9 @@ impl Validate for LocalApiRequest {
                 rows,
                 ..
             } => {
-                shellfox_runtime::GridLimits::default().validate_size(*cols, *rows).map_err(|_|ValidationError)?;
+                shellfox_runtime::GridLimits::default()
+                    .validate_size(*cols, *rows)
+                    .map_err(|_| ValidationError)?;
                 validate_attachment(attachment)?;
             }
             Recover { attachment, .. }
@@ -194,8 +196,13 @@ impl Validate for LocalApiResponse {
 }
 pub(crate) fn validate_snapshot(snapshot: &Snapshot) -> Result<(), ValidationError> {
     ensure(snapshot.sessions.len() <= 10000)?;
-    snapshot.preferences.validate().map_err(|_| ValidationError)?;
-    for session in &snapshot.sessions { session.validate().map_err(|_| ValidationError)?; }
+    snapshot
+        .preferences
+        .validate()
+        .map_err(|_| ValidationError)?;
+    for session in &snapshot.sessions {
+        session.validate().map_err(|_| ValidationError)?;
+    }
     Ok(())
 }
 
@@ -213,7 +220,17 @@ impl Service {
         use LocalApiRequest::*;
         self.assert_owned()?;
         request.validate()?;
-        if self.stopping && !matches!(request, Snapshot {} | Poll { .. } | Acknowledge { .. } | Recover { .. } | Detach {} | Stop {}) {
+        if self.stopping
+            && !matches!(
+                request,
+                Snapshot {}
+                    | Poll { .. }
+                    | Acknowledge { .. }
+                    | Recover { .. }
+                    | Detach {}
+                    | Stop {}
+            )
+        {
             self.assert_accepting()?;
         }
         let response = match request {

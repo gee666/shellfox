@@ -1,8 +1,8 @@
 use crate::theme::Palette;
 use gpui::{
-    AnyElement, Bounds, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ListState, Pixels, Point, ScrollHandle, Size, Window, canvas, fill, point, prelude::*, px, rgb,
-    size,
+    AnyElement, Bounds, DispatchPhase, ListState, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, ScrollHandle, Size, Window, canvas, fill, point, prelude::*, px,
+    rgb, size,
 };
 use std::{cell::Cell, rc::Rc};
 

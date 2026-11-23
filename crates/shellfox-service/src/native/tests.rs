@@ -270,7 +270,9 @@ fn native_metadata_uses_real_core_snapshot_and_safe_close_path() {
     assert!(service
         .execute_native(NativeAction::Observe { tab }, 2)
         .is_err()); // No implicit PTY for read-only view.
-    assert!(service.execute_native(NativeAction::CloseTab { tab }, 1).is_err());
+    assert!(service
+        .execute_native(NativeAction::CloseTab { tab }, 1)
+        .is_err());
     let closed = service.close_tab(tab).unwrap();
     assert!(closed.sessions[0].tabs.is_empty());
     assert_eq!(service.active_terminals(), 0);

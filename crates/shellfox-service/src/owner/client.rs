@@ -27,7 +27,9 @@ impl OwnerClient {
     pub fn remote_state(
         &self,
     ) -> Option<tokio::sync::watch::Receiver<crate::remote::native::RemoteControlState>> {
-        self.remote.as_ref().map(crate::remote::native::RemoteControl::subscribe)
+        self.remote
+            .as_ref()
+            .map(crate::remote::native::RemoteControl::subscribe)
     }
     pub fn try_native(
         &self,

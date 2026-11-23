@@ -13,8 +13,8 @@ use futures_util::{Stream, StreamExt};
 use shellfox_client::{Client, EventDisposition, ViewCursor};
 use shellfox_core::TabId;
 use shellfox_protocol::{
-    AcknowledgeTerminal, AttachTerminal, DetachTerminal, Generation, HostEvent, OutboundTransport, Reply, Request,
-    TakeTerminalControl, TerminalAttachment, TerminalEvent,
+    AcknowledgeTerminal, AttachTerminal, DetachTerminal, Generation, HostEvent, OutboundTransport,
+    Reply, Request, TakeTerminalControl, TerminalAttachment, TerminalEvent,
 };
 use std::{cell::RefCell, io::Write};
 
@@ -87,7 +87,9 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
     }
     /// A request only the owner may make. Losing control shows the blocked screen.
     async fn owned<R: Request>(&self, request: Option<R>) -> Result<()> {
-        let Some(request) = request else { return Ok(()) };
+        let Some(request) = request else {
+            return Ok(());
+        };
         match self.send(&request).await {
             Err(error) if control_required(&error) => self.view.borrow_mut().blocked(),
             result => result.map(|_| ()),
@@ -98,7 +100,11 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
     async fn attach(&self) -> Result<()> {
         let generation = self.view.borrow().generation;
         let attachment = self
-            .send(&AttachTerminal { tab_id: self.tab, after_sequence: None, generation })
+            .send(&AttachTerminal {
+                tab_id: self.tab,
+                after_sequence: None,
+                generation,
+            })
             .await?;
         let connection = self.connection();
         let mut cursor = ViewCursor::from_attachment(&attachment, connection)
@@ -138,7 +144,10 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
     fn observe(&self, event: &TerminalEvent) -> Result<(Next, Option<AcknowledgeTerminal>)> {
         let connection = self.connection();
         let mut view = self.view.borrow_mut();
-        if let TerminalEvent::Exit { tab_id, generation, .. } = event {
+        if let TerminalEvent::Exit {
+            tab_id, generation, ..
+        } = event
+        {
             if *tab_id == self.tab && Some(*generation) == view.generation && !view.owned {
                 return Ok((Next::Finished, None));
             }
@@ -148,18 +157,23 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
         };
         let disposition = cursor.observe(event, connection);
         let ack = match (&disposition, event) {
-            (Ok(EventDisposition::Deliver), TerminalEvent::Data { sequence, .. }) => cursor.consumed(*sequence, connection).ok(),
+            (Ok(EventDisposition::Deliver), TerminalEvent::Data { sequence, .. }) => {
+                cursor.consumed(*sequence, connection).ok()
+            }
             _ => None,
         };
         view.cursor = Some(cursor);
-        let disposition = disposition.map_err(|_| anyhow::anyhow!("The remote host sent an invalid terminal event."))?;
+        let disposition = disposition
+            .map_err(|_| anyhow::anyhow!("The remote host sent an invalid terminal event."))?;
         Ok(match (disposition, event) {
             (EventDisposition::Deliver, TerminalEvent::Data { data, .. }) => {
                 view.show(data.as_bytes(), false)?;
                 (Next::Continue, ack)
             }
             (EventDisposition::Deliver, TerminalEvent::Exit { .. }) => (Next::Finished, None),
-            (EventDisposition::Deliver, TerminalEvent::Error { error, .. }) => return Err(CliError::app(error.clone())),
+            (EventDisposition::Deliver, TerminalEvent::Error { error, .. }) => {
+                return Err(CliError::app(error.clone()))
+            }
             (EventDisposition::Reattach, _) => (Next::Reattach, None),
             (EventDisposition::Blocked, _) => {
                 view.blocked()?;
@@ -174,7 +188,9 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
         loop {
             let events = value(self.client.poll().await.map_err(|_| lost())?)?.events;
             for event in events {
-                let HostEvent::Terminal { event } = event else { continue };
+                let HostEvent::Terminal { event } = event else {
+                    continue;
+                };
                 let (next, ack) = self.observe(&event)?;
                 self.owned(ack).await?;
                 match next {
@@ -187,7 +203,8 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
     }
 
     async fn write(&self, bytes: Vec<u8>) -> Result<()> {
-        let text = String::from_utf8(bytes).map_err(|_| anyhow::anyhow!("Encoded input is not UTF-8."))?;
+        let text =
+            String::from_utf8(bytes).map_err(|_| anyhow::anyhow!("Encoded input is not UTF-8."))?;
         let mut rest = text.as_str();
         while !rest.is_empty() {
             let mut end = rest.len().min(INPUT_CHUNK);
@@ -201,7 +218,10 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
                 if !view.owned {
                     return Ok(());
                 }
-                view.cursor.as_ref().and_then(|c| c.write(chunk.to_owned(), Some(true), self.connection()).ok())
+                view.cursor.as_ref().and_then(|c| {
+                    c.write(chunk.to_owned(), Some(true), self.connection())
+                        .ok()
+                })
             };
             self.owned(request).await?;
         }
@@ -217,7 +237,10 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
                 view.size = size;
                 view.encoder.resize(size.0, size.1)?;
                 let owned = view.owned;
-                view.cursor.as_ref().filter(|_| owned).and_then(|c| c.resize(size.0, size.1, self.connection()).ok())
+                view.cursor
+                    .as_ref()
+                    .filter(|_| owned)
+                    .and_then(|c| c.resize(size.0, size.1, self.connection()).ok())
             };
             self.owned(request).await?;
             return Ok(true);
@@ -225,10 +248,18 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
         if let Event::Key(key) = &event {
             let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
             let blocked = !self.view.borrow().owned;
-            if ctrl && key.code == KeyCode::Char('t') && key.kind != KeyEventKind::Release && blocked {
+            if ctrl
+                && key.code == KeyCode::Char('t')
+                && key.kind != KeyEventKind::Release
+                && blocked
+            {
                 let generation = self.view.borrow().generation;
                 if let Some(generation) = generation {
-                    self.send(&TakeTerminalControl { tab_id: self.tab, generation }).await?;
+                    self.send(&TakeTerminalControl {
+                        tab_id: self.tab,
+                        generation,
+                    })
+                    .await?;
                 }
                 self.attach().await?;
                 return Ok(true);
@@ -246,7 +277,13 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
 
 /// Attaches `tab` on the paired peer until Ctrl+], the shell exits or input ends.
 /// Detaching never closes the remote shell.
-pub async fn run<T, W, S>(client: &Client<T>, tab: TabId, size: (u16, u16), output: W, mut input: S) -> Result<()>
+pub async fn run<T, W, S>(
+    client: &Client<T>,
+    tab: TabId,
+    size: (u16, u16),
+    output: W,
+    mut input: S,
+) -> Result<()>
 where
     T: OutboundTransport,
     W: Write,
@@ -282,7 +319,12 @@ where
     };
     let generation = attach.view.borrow().generation;
     if let Some(generation) = generation {
-        let _ = client.execute(&DetachTerminal { tab_id: tab, generation }).await;
+        let _ = client
+            .execute(&DetachTerminal {
+                tab_id: tab,
+                generation,
+            })
+            .await;
     }
     result
 }

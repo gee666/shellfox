@@ -14,8 +14,14 @@ impl Root {
         }
     }
     pub(crate) fn review_access_requests(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(panel) = &self.settings.panel else { return; };
-        if matches!(self.dialogs.current, Some(crate::dialogs::Dialog::Create(_))) && !self.dialog_locked() {
+        let Some(panel) = &self.settings.panel else {
+            return;
+        };
+        if matches!(
+            self.dialogs.current,
+            Some(crate::dialogs::Dialog::Create(_))
+        ) && !self.dialog_locked()
+        {
             self.dialogs.current = None;
         }
         panel.update(cx, |panel, cx| {
@@ -50,8 +56,12 @@ impl Root {
         let mut fields = Vec::new();
         match &self.dialogs.current {
             Some(crate::dialogs::Dialog::Create(draft)) => fields.push(draft.path.clone()),
-            Some(crate::dialogs::Dialog::SessionEnvironment { text, .. }) => fields.push(text.clone()),
-            Some(crate::dialogs::Dialog::PeerSession(dialog)) => fields.extend(dialog.field().cloned()),
+            Some(crate::dialogs::Dialog::SessionEnvironment { text, .. }) => {
+                fields.push(text.clone())
+            }
+            Some(crate::dialogs::Dialog::PeerSession(dialog)) => {
+                fields.extend(dialog.field().cloned())
+            }
             Some(
                 crate::dialogs::Dialog::RenameSession { title, .. }
                 | crate::dialogs::Dialog::RenameTab { title, .. },

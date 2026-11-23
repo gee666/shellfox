@@ -108,15 +108,21 @@ impl Root {
         files.transfer = Some(state.clone());
         match direction {
             TransferDirection::Upload => {
-                let picker = crate::files::view::picker::open(window, cx, PathPromptOptions {
-                    files: true,
-                    directories: false,
-                    multiple: false,
-                    prompt: Some("Upload file".into()),
-                });
+                let picker = crate::files::view::picker::open(
+                    window,
+                    cx,
+                    PathPromptOptions {
+                        files: true,
+                        directories: false,
+                        multiple: false,
+                        prompt: Some("Upload file".into()),
+                    },
+                );
                 cx.spawn_in(window, async move |root, cx| {
                     let result = async {
-                        let Some(path) = picker.await? else { return Ok(None); };
+                        let Some(path) = picker.await? else {
+                            return Ok(None);
+                        };
                         call.backend.check_current()?;
                         let task = cx.background_executor().spawn(io::upload(
                             call.backend.clone(),
@@ -196,19 +202,21 @@ impl Root {
                 if !root
                     .update(cx, |root, cx| {
                         let active = root
-                            .files.panel
+                            .files
+                            .panel
                             .as_ref()
                             .and_then(|files| files.transfer.as_ref())
-                            .is_some_and(|transfer| std::ptr::eq(Arc::as_ptr(transfer), state.as_ptr()));
+                            .is_some_and(|transfer| {
+                                std::ptr::eq(Arc::as_ptr(transfer), state.as_ptr())
+                            });
                         if active {
                             cx.notify();
                         }
                         active
                             || root.files.retained.iter().any(|files| {
-                                files
-                                    .transfer
-                                    .as_ref()
-                                    .is_some_and(|transfer| std::ptr::eq(Arc::as_ptr(transfer), state.as_ptr()))
+                                files.transfer.as_ref().is_some_and(|transfer| {
+                                    std::ptr::eq(Arc::as_ptr(transfer), state.as_ptr())
+                                })
                             })
                     })
                     .unwrap_or(false)
@@ -223,7 +231,8 @@ impl Root {
 
     pub(crate) fn cancel_file_transfer(&mut self, cx: &mut Context<Self>) {
         if let Some(transfer) = self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .and_then(|files| files.transfer.as_ref())
         {
@@ -240,11 +249,13 @@ impl Root {
     ) {
         let current = self.files_source_current()
             && self
-                .files.panel
+                .files
+                .panel
                 .as_ref()
                 .is_some_and(|f| f.backend.same_origin(&call.backend));
         let Some(files) = self
-            .files.panel
+            .files
+            .panel
             .iter_mut()
             .chain(self.files.retained.iter_mut())
             .find(|files| {

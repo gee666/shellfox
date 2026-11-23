@@ -1,4 +1,9 @@
-use crate::{accessibility::{Role, SemanticFrame, SemanticNode}, files::DocumentBackend, root::Root, theme::Palette};
+use crate::{
+    accessibility::{Role, SemanticFrame, SemanticNode},
+    files::DocumentBackend,
+    root::Root,
+    theme::Palette,
+};
 use gpui::{AnyElement, Context, Task, div, prelude::*, px};
 use shellfox_files::EditorCancellation;
 use std::{cell::Cell, rc::Rc, sync::Arc};
@@ -34,7 +39,9 @@ impl HtmlPreview {
                 cx.background_executor().clone(),
             )))
         } else {
-            Err(anyhow::anyhow!("This HTML document is too large to preview."))
+            Err(anyhow::anyhow!(
+                "This HTML document is too large to preview."
+            ))
         };
         // Assets load while the page renders; repaint when one fails.
         let warnings = page.as_ref().ok().map(|page| {
@@ -77,8 +84,16 @@ impl HtmlPreview {
                 let open = self.warnings_open.clone();
                 let caption = format!("{} unavailable preview assets", warnings.len());
                 let text = div().child(format!("{} {caption}", if expanded { "▾" } else { "▸" }));
-                let label = match (frame.id_for("files/html-warnings"), frame.id_for("root/files")) {
-                    (Ok(id), Ok(parent)) => frame.wrap(SemanticNode::new(id, Some(parent), Role::Label, caption), text).into_any_element(),
+                let label = match (
+                    frame.id_for("files/html-warnings"),
+                    frame.id_for("root/files"),
+                ) {
+                    (Ok(id), Ok(parent)) => frame
+                        .wrap(
+                            SemanticNode::new(id, Some(parent), Role::Label, caption),
+                            text,
+                        )
+                        .into_any_element(),
                     (Err(error), _) | (_, Err(error)) => {
                         frame.reject(error);
                         text.into_any_element()

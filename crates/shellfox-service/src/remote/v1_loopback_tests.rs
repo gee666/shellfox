@@ -46,7 +46,9 @@ async fn mobile_v1_client_drives_the_real_rust_owner() -> Result<()> {
     )));
     let (sender, receiver) = remote_channel();
     let mut state = RemoteState::new(Default::default(), None, None);
-    state.transfers = Some(app(shellfox_remote::RemoteTransfers::open(Default::default()))?);
+    state.transfers = Some(app(shellfox_remote::RemoteTransfers::open(
+        Default::default(),
+    ))?);
     let dispatcher = RemoteDispatcher::new(receiver, state)
         .with_facts_provider(slot.clone(), tokio::runtime::Handle::current());
     let mut owner = ServiceOwner::start(

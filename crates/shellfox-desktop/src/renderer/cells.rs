@@ -35,7 +35,11 @@ where
         let y = bounds.top() + px(row as f32 * style.line_height);
         let background = |index: usize| {
             let cell = &cells[index];
-            if cell.selected { style.theme.selection() } else { color(resolved_colors(cell).1) }
+            if cell.selected {
+                style.theme.selection()
+            } else {
+                color(resolved_colors(cell).1)
+            }
         };
         let mut col = 0;
         while col < cells.len() {
@@ -127,7 +131,12 @@ fn paint_glyph(
         underline: None,
         strikethrough: None,
     };
-    let line = window.text_system().shape_line(cell.text.clone().into(), px(style.font_size), &[run], None);
+    let line = window.text_system().shape_line(
+        cell.text.clone().into(),
+        px(style.font_size),
+        &[run],
+        None,
+    );
     line.paint(origin, px(style.line_height), window, cx)?;
     Ok(())
 }

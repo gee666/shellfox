@@ -4,7 +4,10 @@
 use crate::{editor_composition::EditorOutcome, root::Root};
 use gpui::{App, Context, KeyBinding, KeyContext, Window, actions};
 
-actions!(shellfox_layout, [ToggleSessions, ToggleFiles, ToggleFolders]);
+actions!(
+    shellfox_layout,
+    [ToggleSessions, ToggleFiles, ToggleFolders]
+);
 
 const CONTEXT: &str = "LayoutShortcuts";
 
@@ -42,7 +45,8 @@ impl Root {
             || self.sidebar.session_menu.is_some()
             || self.sidebar.menu_open()
             || self
-                .settings.panel
+                .settings
+                .panel
                 .as_ref()
                 .is_some_and(|panel| self.settings.open && panel.read(cx).blocks_layout_shortcuts())
             || self.tabs.profile_menu.is_some()
@@ -119,10 +123,10 @@ impl Root {
     }
 
     pub(crate) fn toggle_files_layout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let restore = self
-            .files.panel
-            .as_ref()
-            .is_some_and(|files| files.visible && files.panel_focus.contains_focused(window, cx));
+        let restore =
+            self.files.panel.as_ref().is_some_and(|files| {
+                files.visible && files.panel_focus.contains_focused(window, cx)
+            });
         self.toggle_files(cx);
         if restore && self.files.panel.as_ref().is_none_or(|files| !files.visible) {
             if self.is_local_source() && self.selected_tab().is_none() {
@@ -135,7 +139,9 @@ impl Root {
 
     fn layout_terminal(&self) -> Option<&gpui::Entity<crate::terminal::TerminalView>> {
         if self.is_local_source() {
-            return self.selected_tab().and_then(|tab| self.tabs.views.get(&tab));
+            return self
+                .selected_tab()
+                .and_then(|tab| self.tabs.views.get(&tab));
         }
         self.peers.selected_peer().and_then(|(peer, state)| {
             self.peer_ui
@@ -162,7 +168,11 @@ mod tests {
 
     #[test]
     fn bindings_use_ctrl_or_cmd_and_only_the_exact_chords() {
-        let primary = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+        let primary = if cfg!(target_os = "macos") {
+            "cmd"
+        } else {
+            "ctrl"
+        };
         let expected: [(&str, &dyn Action); 3] = [
             ("b", &ToggleSessions),
             ("shift-b", &ToggleFiles),
@@ -171,7 +181,11 @@ mod tests {
         // Electron binds nothing to a lone Alt or Alt+Enter; both reach the terminal.
         for stroke in ["alt", "alt-enter", "enter"] {
             let stroke = Keystroke::parse(stroke).unwrap();
-            assert!(bindings().iter().all(|binding| binding.match_keystrokes(std::slice::from_ref(&stroke)).is_none()));
+            assert!(bindings().iter().all(|binding| {
+                binding
+                    .match_keystrokes(std::slice::from_ref(&stroke))
+                    .is_none()
+            }));
         }
         for (binding, (chord, action)) in bindings().iter().zip(expected) {
             let stroke = Keystroke::parse(&format!("{primary}-{chord}")).unwrap();

@@ -49,7 +49,10 @@ fn an_unreadable_record_is_another_build_only_while_its_host_answers() -> Result
     let result = runtime.block_on(async {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
-            ensure!(host.0.try_wait()?.is_none(), "CLI host exited before publishing its endpoint.");
+            ensure!(
+                host.0.try_wait()?.is_none(),
+                "CLI host exited before publishing its endpoint."
+            );
             if endpoint.is_file() && LocalClient::connect(&data, &helper, digest).await.is_ok() {
                 break;
             }
@@ -60,8 +63,13 @@ fn an_unreadable_record_is_another_build_only_while_its_host_answers() -> Result
         let foreign = older_build(&ours)?;
         std::fs::write(&endpoint, &foreign)?;
         let live = LocalClient::connect(&data, &helper, digest).await;
-        let error = live.err().context("An older build's record was accepted.")?;
-        ensure!(error.is::<OtherBuildRunning>(), "Live foreign host: {error:#}");
+        let error = live
+            .err()
+            .context("An older build's record was accepted.")?;
+        ensure!(
+            error.is::<OtherBuildRunning>(),
+            "Live foreign host: {error:#}"
+        );
         anyhow::Ok(foreign)
     });
     // A crashed host leaves its record behind. Rewriting the file in place

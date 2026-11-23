@@ -3,11 +3,11 @@
 pub(crate) mod attached;
 mod catalog;
 mod changes;
-pub mod peer_v1;
-pub mod peer;
 mod frames;
-mod presentation;
 mod launch;
+pub mod peer;
+pub mod peer_v1;
+mod presentation;
 #[cfg(test)]
 mod tests;
 
@@ -16,9 +16,9 @@ use shellfox_core::TabId;
 use shellfox_service::{
     Attachment,
     native::{
-        NativeAction, NativeAdmissionError, NativeCommand, NativeFrame,
-        NativeInputContext, NativeObserverAttachment, NativePresentation, NativeResponse,
-        NativeStatus, NativeViewAttachment,
+        NativeAction, NativeAdmissionError, NativeCommand, NativeFrame, NativeInputContext,
+        NativeObserverAttachment, NativePresentation, NativeResponse, NativeStatus,
+        NativeViewAttachment,
     },
 };
 use std::sync::{
@@ -80,18 +80,28 @@ impl HostClient {
 
     pub async fn power_status(&self) -> Result<shellfox_service::power::PowerReport> {
         let _admission = self.admit()?;
-        self.port.request(shellfox_service::power::PowerRequest::Status {}).await
+        self.port
+            .request(shellfox_service::power::PowerRequest::Status {})
+            .await
     }
     pub async fn set_power(&self, active: bool) -> Result<shellfox_service::power::PowerReport> {
         let _admission = self.admit()?;
-        self.port.request(shellfox_service::power::PowerRequest::Set { active }).await
+        self.port
+            .request(shellfox_service::power::PowerRequest::Set { active })
+            .await
     }
     pub async fn creation_request_receipt(
         &self,
         request_id: shellfox_core::SessionId,
     ) -> Result<shellfox_host::CreationRequestReceipt> {
-        match self.execute(NativeAction::CreationRequestReceipt { request_id }).await? {
-            NativeResponse::CreationRequestReceipt { request_id: id, receipt } if id == request_id => Ok(receipt),
+        match self
+            .execute(NativeAction::CreationRequestReceipt { request_id })
+            .await?
+        {
+            NativeResponse::CreationRequestReceipt {
+                request_id: id,
+                receipt,
+            } if id == request_id => Ok(receipt),
             _ => anyhow::bail!("Unexpected creation receipt."),
         }
     }
@@ -119,8 +129,14 @@ impl HostClient {
                 NativeResponse::Remote(self.feeds().remote_state().await?)
             }
             NativeAction::Remote(request) => NativeResponse::Remote(client.remote(request).await?),
-            action @ (NativeAction::System(_) | NativeAction::Ssh(_)) => client.provider_request(action).await?,
-            action => NativeResponse::from(client.request(shellfox_service::local::DesktopRequest::try_from(action)?).await?),
+            action @ (NativeAction::System(_) | NativeAction::Ssh(_)) => {
+                client.provider_request(action).await?
+            }
+            action => NativeResponse::from(
+                client
+                    .request(shellfox_service::local::DesktopRequest::try_from(action)?)
+                    .await?,
+            ),
         };
         if detached.is_some() || detach_all || matches!(response, NativeResponse::Snapshot(_)) {
             let mut frames = self

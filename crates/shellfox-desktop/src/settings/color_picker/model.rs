@@ -23,7 +23,10 @@ pub(super) fn parse_channel(text: &str, max: u16) -> Option<u16> {
     if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
-    Some(text.parse::<u32>().map_or(max, |value| value.min(u32::from(max)) as u16))
+    Some(
+        text.parse::<u32>()
+            .map_or(max, |value| value.min(u32::from(max)) as u16),
+    )
 }
 
 /// Hue in degrees, saturation and lightness in percent.
@@ -91,8 +94,16 @@ impl Hsv {
         } else {
             ((r - g) / delta + 4.) * 60.
         };
-        let saturation = if max == 0. { previous.saturation } else { delta / max };
-        Self { hue, saturation, value: max }
+        let saturation = if max == 0. {
+            previous.saturation
+        } else {
+            delta / max
+        };
+        Self {
+            hue,
+            saturation,
+            value: max,
+        }
     }
 
     pub fn rgb(self) -> Rgb {
@@ -118,8 +129,14 @@ mod tests {
 
     #[test]
     fn hsv_round_trips_and_keeps_hue_for_grays() {
-        let start = Hsv { hue: 200., saturation: 0.5, value: 0.5 };
-        for hex_value in ["#ec4899", "#60a5fa", "#ff0000", "#00ff00", "#0000ff", "#111016"] {
+        let start = Hsv {
+            hue: 200.,
+            saturation: 0.5,
+            value: 0.5,
+        };
+        for hex_value in [
+            "#ec4899", "#60a5fa", "#ff0000", "#00ff00", "#0000ff", "#111016",
+        ] {
             let rgb = parse_hex(hex_value).unwrap();
             assert_eq!(Hsv::from_rgb(rgb, start).rgb(), rgb, "{hex_value}");
         }
@@ -127,7 +144,15 @@ mod tests {
         assert_eq!((gray.hue, gray.saturation), (200., 0.));
         let black = Hsv::from_rgb([0, 0, 0], start);
         assert_eq!((black.hue, black.saturation, black.value), (200., 0.5, 0.));
-        assert_eq!(Hsv { hue: 360., saturation: 1., value: 1. }.rgb(), [255, 0, 0]);
+        assert_eq!(
+            Hsv {
+                hue: 360.,
+                saturation: 1.,
+                value: 1.
+            }
+            .rgb(),
+            [255, 0, 0]
+        );
     }
 
     #[test]
@@ -162,7 +187,10 @@ mod tests {
         for preset in ["#a78bfa", "#60a5fa", "#111016", "#fdf6e3"] {
             let rgb = parse_hex(preset).unwrap();
             let back = from_hsl(to_hsl(rgb));
-            assert!(rgb.iter().zip(back).all(|(a, b)| a.abs_diff(b) <= 3), "{preset}: {back:?}");
+            assert!(
+                rgb.iter().zip(back).all(|(a, b)| a.abs_diff(b) <= 3),
+                "{preset}: {back:?}"
+            );
         }
     }
 }

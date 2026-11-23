@@ -133,7 +133,10 @@ mod tests {
         navigation.accept_snapshot(&snapshot);
         let session = &snapshot.sessions[1];
         let tab = session.tabs[0].id;
-        let target = LaunchTarget::Session { session: session.id, tab: Some(tab) };
+        let target = LaunchTarget::Session {
+            session: session.id,
+            tab: Some(tab),
+        };
         select_target(&mut navigation, &snapshot, &target).unwrap();
         assert_eq!(navigation.selected().tab_id, Some(tab));
         assert_eq!(navigation.selected().session_id, Some(session.id));

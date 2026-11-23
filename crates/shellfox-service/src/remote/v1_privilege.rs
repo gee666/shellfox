@@ -41,7 +41,7 @@ fn normal_host_account() -> bool {
 fn normal_host_account() -> bool {
     use windows_sys::Win32::{
         Foundation::CloseHandle,
-        Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation},
+        Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY},
         System::Threading::{GetCurrentProcess, OpenProcessToken},
     };
     let mut token = std::ptr::null_mut();

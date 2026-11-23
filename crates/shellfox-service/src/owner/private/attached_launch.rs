@@ -8,7 +8,12 @@ pub(super) struct AttachedRegistration {
 impl PrivateOwner {
     pub(super) fn admits_attached_provider(&self, token: DesktopClientToken) -> bool {
         self.attached_desktop.as_ref().is_some_and(|attached| {
-            attached.registration.token == token && self.lifetimes.get(&attached.id).map(|lifetime| lifetime.epoch) == Some(attached.epoch)
+            attached.registration.token == token
+                && self
+                    .lifetimes
+                    .get(&attached.id)
+                    .map(|lifetime| lifetime.epoch)
+                    == Some(attached.epoch)
         })
     }
 

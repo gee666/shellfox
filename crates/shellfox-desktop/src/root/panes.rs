@@ -76,10 +76,19 @@ impl Root {
         };
         let cache = pane.read(cx).semantics.clone();
         let view = AnyView::from(pane.clone()).cached(StyleRefinement::default().size_full());
-        self.semantics.context.frame().cached(&cache, view).into_any_element()
+        self.semantics
+            .context
+            .frame()
+            .cached(&cache, view)
+            .into_any_element()
     }
 
-    fn render_pane(&mut self, kind: PaneKind, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_pane(
+        &mut self,
+        kind: PaneKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let palette = self.palette(cx);
         match kind {
             PaneKind::Sidebar => self.session_sidebar(palette, window, cx),

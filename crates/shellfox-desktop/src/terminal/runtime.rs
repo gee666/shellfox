@@ -164,7 +164,10 @@ impl TerminalView {
                 self.open_link(text, modifiers, cx);
             }
             (Some(Pending::LinkHover(at)), result) => {
-                let uri = match result { Ok(Response::Text(text)) => text, _ => None };
+                let uri = match result {
+                    Ok(Response::Text(text)) => text,
+                    _ => None,
+                };
                 self.apply_link_hover(at, uri, cx);
             }
             (pending, Err(error)) => {
@@ -178,8 +181,9 @@ impl TerminalView {
                     // Drop this stale intent. A fresh native pull/publication is
                     // scheduled by the existing poll; never retry old coordinates.
                     self.semantic_binding = None;
-                    self.notice =
-                        Some("Selection view changed; requesting a fresh accessibility frame".into());
+                    self.notice = Some(
+                        "Selection view changed; requesting a fresh accessibility frame".into(),
+                    );
                     cx.notify();
                 } else if control_required(&error) {
                     self.block_control();

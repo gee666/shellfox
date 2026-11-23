@@ -57,7 +57,10 @@ impl Painter<'_> {
         let origin = self.cell.point(x0 as f32, y0 as f32);
         let scale = self.cell.scale;
         self.window.paint_quad(fill(
-            Bounds::new(origin, size(px((x1 - x0) as f32 / scale), px((y1 - y0) as f32 / scale))),
+            Bounds::new(
+                origin,
+                size(px((x1 - x0) as f32 / scale), px((y1 - y0) as f32 / scale)),
+            ),
             color,
         ));
     }
@@ -104,7 +107,11 @@ pub(super) fn paint(
         return false;
     }
     let cell = Cell::new(origin, width, height, window.scale_factor());
-    let mut painter = Painter { cell, color, window };
+    let mut painter = Painter {
+        cell,
+        color,
+        window,
+    };
     match ch as u32 {
         0x2500..=0x257F => box_drawing::paint(ch, &mut painter),
         0x2580..=0x259F => block(ch, &mut painter),
@@ -124,7 +131,12 @@ fn block(ch: char, p: &mut Painter) {
     let eighth_w = |n: i32| (w as f32 * n as f32 / 8.).round() as i32;
     let (hw, hh) = (w / 2, h / 2);
     let quadrants = |p: &mut Painter, [ul, ur, ll, lr]: [bool; 4]| {
-        for (on, x0, y0, x1, y1) in [(ul, 0, 0, hw, hh), (ur, hw, 0, w, hh), (ll, 0, hh, hw, h), (lr, hw, hh, w, h)] {
+        for (on, x0, y0, x1, y1) in [
+            (ul, 0, 0, hw, hh),
+            (ur, hw, 0, w, hh),
+            (ll, 0, hh, hw, h),
+            (lr, hw, hh, w, h),
+        ] {
             if on {
                 p.rect(x0, y0, x1, y1);
             }
@@ -137,7 +149,10 @@ fn block(ch: char, p: &mut Painter) {
         0x2590 => p.rect(hw, 0, w, h),
         n @ 0x2591..=0x2593 => {
             let alpha = (n - 0x2590) as f32 * 0.25;
-            let color = Hsla { a: p.color.a * alpha, ..p.color };
+            let color = Hsla {
+                a: p.color.a * alpha,
+                ..p.color
+            };
             p.rect_color(0, 0, w, h, color);
         }
         0x2594 => p.rect(0, 0, w, eighth_h(1)),
@@ -162,8 +177,16 @@ fn powerline(ch: char, p: &mut Painter) {
     match ch as u32 {
         0xE0B0 => p.path(&[(0., 0.), (w, h / 2.), (0., h)], None, None),
         0xE0B2 => p.path(&[(w, 0.), (0., h / 2.), (w, h)], None, None),
-        0xE0B1 => p.path(&[(half, half), (w - half, h / 2.), (half, h - half)], Some(line), None),
-        0xE0B3 => p.path(&[(w - half, half), (half, h / 2.), (w - half, h - half)], Some(line), None),
+        0xE0B1 => p.path(
+            &[(half, half), (w - half, h / 2.), (half, h - half)],
+            Some(line),
+            None,
+        ),
+        0xE0B3 => p.path(
+            &[(w - half, half), (half, h / 2.), (w - half, h - half)],
+            Some(line),
+            None,
+        ),
         // Half discs: one quadratic per quarter keeps the shape to two paths.
         0xE0B4 => {
             p.path(&[(0., 0.), (w, h / 2.), (0., h / 2.)], None, Some((w, 0.)));
@@ -174,12 +197,24 @@ fn powerline(ch: char, p: &mut Painter) {
             p.path(&[(w, h), (0., h / 2.), (w, h / 2.)], None, Some((0., h)));
         }
         0xE0B5 => {
-            p.path(&[(0., half), (w - half, h / 2.)], Some(line), Some((w - half, half)));
-            p.path(&[(0., h - half), (w - half, h / 2.)], Some(line), Some((w - half, h - half)));
+            p.path(
+                &[(0., half), (w - half, h / 2.)],
+                Some(line),
+                Some((w - half, half)),
+            );
+            p.path(
+                &[(0., h - half), (w - half, h / 2.)],
+                Some(line),
+                Some((w - half, h - half)),
+            );
         }
         _ => {
             p.path(&[(w, half), (half, h / 2.)], Some(line), Some((half, half)));
-            p.path(&[(w, h - half), (half, h / 2.)], Some(line), Some((half, h - half)));
+            p.path(
+                &[(w, h - half), (half, h / 2.)],
+                Some(line),
+                Some((half, h - half)),
+            );
         }
     }
 }
@@ -211,7 +246,20 @@ mod tests {
 
     #[test]
     fn handled_ranges_cover_boxes_blocks_powerline_and_sextants() {
-        for ch in ['─', '╬', '╭', '╳', '▀', '█', '░', '▟', '\u{E0B0}', '\u{E0B7}', '\u{1FB00}', '\u{1FB3B}'] {
+        for ch in [
+            '─',
+            '╬',
+            '╭',
+            '╳',
+            '▀',
+            '█',
+            '░',
+            '▟',
+            '\u{E0B0}',
+            '\u{E0B7}',
+            '\u{1FB00}',
+            '\u{1FB3B}',
+        ] {
             assert!(handles(ch), "{ch:?}");
         }
         for ch in ['a', ' ', '■', '\u{E0B8}', '\u{1FB3C}'] {
@@ -224,6 +272,9 @@ mod tests {
         let cell = Cell::new(point(px(10.2), px(5.)), 8.8, 18.4, 1.25);
         assert_eq!((cell.x, cell.y, cell.w, cell.h), (13., 6., 11, 23));
         assert_eq!(cell.light(), 1);
-        assert_eq!(Cell::new(point(px(0.), px(0.)), 26. / 3., 56. / 3., 1.5).light(), 2);
+        assert_eq!(
+            Cell::new(point(px(0.), px(0.)), 26. / 3., 56. / 3., 1.5).light(),
+            2
+        );
     }
 }

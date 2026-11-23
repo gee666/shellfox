@@ -7,8 +7,8 @@ use shellfox_core::{SessionId, Snapshot, TabId};
 use shellfox_host::HostRequest;
 use shellfox_protocol::RemoteCommand as R;
 use shellfox_service::{
-    local_api::{LocalApiRequest, LocalApiResponse, SettingsRequest},
     local::{DesktopReply, DesktopRequest, LocalClient},
+    local_api::{LocalApiRequest, LocalApiResponse, SettingsRequest},
     NativeTabActivity,
 };
 
@@ -88,13 +88,21 @@ impl Local<'_> {
     /// The host's effective default profile; see shellfox_service::effective_default_profile.
     async fn default_profile(&self, snapshot: &Snapshot) -> Result<shellfox_core::ProfileId> {
         let saved = snapshot.preferences.default_profile_id.clone();
-        let DesktopReply::TerminalProfiles(catalog) = self.desktop(DesktopRequest::TerminalProfiles).await? else {
+        let DesktopReply::TerminalProfiles(catalog) =
+            self.desktop(DesktopRequest::TerminalProfiles).await?
+        else {
             return Err(unexpected());
         };
         let usable = shellfox_service::usable_profiles(&catalog.profiles.profiles);
         shellfox_service::effective_default_profile(saved.as_str(), usable)
             .and_then(|id| id.parse().ok())
-            .ok_or_else(|| CliError::coded("UNSUPPORTED", "No terminal profile is available on this host.", false))
+            .ok_or_else(|| {
+                CliError::coded(
+                    "UNSUPPORTED",
+                    "No terminal profile is available on this host.",
+                    false,
+                )
+            })
     }
     async fn after(&self, id: SessionId, snapshot: Result<Snapshot>) -> Result<Value> {
         self.session(&snapshot?, id).await
@@ -178,7 +186,8 @@ impl Local<'_> {
             }
             R::CreateSession(input) => {
                 let before = self.snapshot().await?;
-                let profile_id = match shellfox_service::desktop_launch::folder_profile(&input.cwd) {
+                let profile_id = match shellfox_service::desktop_launch::folder_profile(&input.cwd)
+                {
                     Some(profile) => profile,
                     None => self.default_profile(&before).await?,
                 };
@@ -341,14 +350,18 @@ impl Local<'_> {
                         return Err(not_found("Session not found."));
                     }
                 }
-                let DesktopReply::TabStats(measured) = self.desktop(DesktopRequest::TabStats).await? else {
+                let DesktopReply::TabStats(measured) =
+                    self.desktop(DesktopRequest::TabStats).await?
+                else {
                     return Err(unexpected());
                 };
                 let mut tabs = Vec::new();
                 for session in &mut sessions {
                     session["env"] = json!([]);
                     for tab in session["tabs"].as_array().into_iter().flatten() {
-                        let stat = measured.iter().find(|stat| tab["id"] == stat.tab_id.to_string());
+                        let stat = measured
+                            .iter()
+                            .find(|stat| tab["id"] == stat.tab_id.to_string());
                         // Measured tabs have a running shell, even before the activity feed says so.
                         if let Some(stat) = stat {
                             tabs.push(serde_json::to_value(stat)?);
@@ -372,7 +385,9 @@ impl Local<'_> {
 fn home() -> Result<String> {
     std::env::home_dir()
         .and_then(|home| home.into_os_string().into_string().ok())
-        .ok_or_else(|| CliError::coded("INTERNAL", "Could not determine the home directory.", false))
+        .ok_or_else(|| {
+            CliError::coded("INTERNAL", "Could not determine the home directory.", false)
+        })
 }
 
 enum Directory {

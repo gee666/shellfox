@@ -1,9 +1,4 @@
-use crate::{
-    dialogs::Dialog,
-    root::Root,
-    theme::Palette,
-    workspace::AfterAction,
-};
+use crate::{dialogs::Dialog, root::Root, theme::Palette, workspace::AfterAction};
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 use shellfox_core::TerminalIdentity;
 use shellfox_service::native::NativeAction;
@@ -24,16 +19,31 @@ impl Root {
     ) -> AnyElement {
         let key = super::scroll::TabFocus::Close(state.target);
         let button = crate::assets::icon_button_sized(
-            format!("close-{}", state.target.tab_id), "close", 24., 12., palette,
+            format!("close-{}", state.target.tab_id),
+            "close",
+            24.,
+            12.,
+            palette,
         )
         .mt(px(2.))
         .mr(px(2.))
         .when(!state.visible, |button| {
-            button.opacity(0.).group_hover("terminal-tab", |style| style.opacity(1.))
+            button
+                .opacity(0.)
+                .group_hover("terminal-tab", |style| style.opacity(1.))
         })
-        .when(state.locked, |button| button.cursor(gpui::CursorStyle::Arrow));
+        .when(state.locked, |button| {
+            button.cursor(gpui::CursorStyle::Arrow)
+        });
         let focus = (!state.locked).then(|| self.tabs.scroll.control_focus(key, cx).tab_stop(true));
-        self.tab_strip_control(key, format!("Close terminal {title}"), button, focus, palette, cx)
+        self.tab_strip_control(
+            key,
+            format!("Close terminal {title}"),
+            button,
+            focus,
+            palette,
+            cx,
+        )
     }
 
     pub(crate) fn request_tab_close(
@@ -42,9 +52,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.close.closing
-            || self.dialogs.user_action_pending
-            || self.dialogs.current.is_some()
+        if self.close.closing || self.dialogs.user_action_pending || self.dialogs.current.is_some()
         {
             return;
         }
@@ -54,7 +62,8 @@ impl Root {
             return;
         }
         if self.wsl_tab_has_draft(target.tab_id, cx) {
-            self.error = Some("Save or close this tab's Files draft before closing the terminal.".into());
+            self.error =
+                Some("Save or close this tab's Files draft before closing the terminal.".into());
             cx.notify();
             return;
         }

@@ -1,13 +1,13 @@
 use std::{
     sync::{
-        OnceLock,
         atomic::{AtomicUsize, Ordering},
+        OnceLock,
     },
     thread,
 };
 
 #[cfg(windows)]
-use super::{OsWsl, WslError, interactive_distro_list};
+use super::{interactive_distro_list, OsWsl, WslError};
 
 const READY: &str = "SHELLFOX_PIDFD_READY_V1";
 

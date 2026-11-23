@@ -15,8 +15,10 @@ impl BootGuard {
     ) -> Result<()> {
         anyhow::ensure!(self.remote.is_none(), "Remote envelope is already retained");
         anyhow::ensure!(
-            self.actor.is_none() && self.supervisor.is_none()
-                && options.supervisor.is_absolute() && options.supervisor.is_file(),
+            self.actor.is_none()
+                && self.supervisor.is_none()
+                && options.supervisor.is_absolute()
+                && options.supervisor.is_file(),
             "Original explicit supervisor is unavailable before actor creation"
         );
         self.providers.plan = options.native_providers;

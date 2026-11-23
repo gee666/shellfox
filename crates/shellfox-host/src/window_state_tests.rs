@@ -56,6 +56,9 @@ fn invalid_or_corrupt_bounds_are_not_restored() {
             (KEY, malformed),
         )
         .unwrap();
-        assert_eq!(read(&db, "desktop_preferences", WindowState::parse).unwrap(), None);
+        assert_eq!(
+            read(&db, "desktop_preferences", WindowState::parse).unwrap(),
+            None
+        );
     }
 }

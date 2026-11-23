@@ -13,7 +13,9 @@ pub(crate) struct Semantics {
 impl Semantics {
     pub(crate) fn new(caption: String) -> Self {
         Self {
-            context: crate::accessibility::WindowSemanticContext::new(crate::accessibility::SemanticId(1)),
+            context: crate::accessibility::WindowSemanticContext::new(
+                crate::accessibility::SemanticId(1),
+            ),
             native: None,
             caption,
         }
@@ -29,7 +31,8 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> Result<(), SemanticError> {
         let task = self
-            .semantics.native
+            .semantics
+            .native
             .as_mut()
             .ok_or_else(|| SemanticError::Native("Native provider did not attach.".into()))?
             .queue_present_hidden(window, plan, cx)?;
@@ -57,7 +60,8 @@ impl Root {
         plan: &crate::accessibility::HiddenWindowPresentation,
         cx: &gpui::App,
     ) -> Result<(), SemanticError> {
-        self.semantics.native
+        self.semantics
+            .native
             .as_mut()
             .ok_or_else(|| SemanticError::Native("Native provider did not attach.".into()))?
             .present_hidden(window, plan, cx)
@@ -98,7 +102,9 @@ impl Root {
                 }
             }
             Some(Dialog::SessionEnvironment { text, .. }) => {
-                if let Err(error) = text.update(cx, |field, cx| field.set_frame(frame.clone(), parent, "Environment variables", cx)) {
+                if let Err(error) = text.update(cx, |field, cx| {
+                    field.set_frame(frame.clone(), parent, "Environment variables", cx)
+                }) {
                     frame.reject(error);
                 }
             }
@@ -175,7 +181,10 @@ impl Root {
                 node.data.add_action(crate::accessibility::Action::Click);
                 frame.wrap(node, child).into_any_element()
             }
-            Err(error) => { frame.reject(error); child.into_any_element() }
+            Err(error) => {
+                frame.reject(error);
+                child.into_any_element()
+            }
         }
     }
     pub(crate) fn finish_semantic_root<E: IntoElement>(
@@ -207,7 +216,8 @@ impl Root {
         cx: &mut Context<Self>,
     ) {
         let result = tree.and_then(|tree| {
-            self.semantics.native
+            self.semantics
+                .native
                 .as_mut()
                 .ok_or_else(|| SemanticError::Native("Native provider unavailable.".into()))?
                 .publish(tree, window)
@@ -220,12 +230,21 @@ impl Root {
         }
     }
     /// Runs the actions and tree requests queued by OS accessibility callbacks.
-    pub(super) fn watch_semantics(&self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
+    pub(super) fn watch_semantics(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Task<()>> {
         let wake = self.semantics.native.as_ref()?.wake();
-        Some(cx.spawn_in(window, async move |root, cx| loop {
-            wake.notified().await;
-            if root.update_in(cx, |root, window, cx| root.poll_semantics(window, cx)).is_err() {
-                return;
+        Some(cx.spawn_in(window, async move |root, cx| {
+            loop {
+                wake.notified().await;
+                if root
+                    .update_in(cx, |root, window, cx| root.poll_semantics(window, cx))
+                    .is_err()
+                {
+                    return;
+                }
             }
         }))
     }
@@ -269,9 +288,11 @@ impl Root {
             let mut fields = Vec::new();
             match &self.dialogs.current {
                 Some(Dialog::Create(draft)) => fields.push(draft.path.clone()),
-                Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. } | Dialog::SessionEnvironment { text: title, .. }) => {
-                    fields.push(title.clone())
-                }
+                Some(
+                    Dialog::RenameSession { title, .. }
+                    | Dialog::RenameTab { title, .. }
+                    | Dialog::SessionEnvironment { text: title, .. },
+                ) => fields.push(title.clone()),
                 _ => {}
             }
             if self.dialogs.current.is_none()
@@ -293,8 +314,8 @@ impl Root {
             if self.settings.open || self.dialogs.current.is_some() {
                 continue;
             }
-            let covered =
-                self.files.panel.as_ref().is_some_and(|files| files.visible) && self.files_narrow(window);
+            let covered = self.files.panel.as_ref().is_some_and(|files| files.visible)
+                && self.files_narrow(window);
             if !covered
                 && let Some(view) = self.selected_tab().and_then(|id| self.tabs.views.get(&id))
                 && view.update(cx, |view, cx| {

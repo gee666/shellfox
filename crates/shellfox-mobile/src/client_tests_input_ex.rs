@@ -135,7 +135,10 @@ fn validated_encoder_hint_forwards_unchanged_after_engine_borrow_into_native_fif
             },
             0
         );
-        if context.calls.len() == before && event["type"] == "key" && event["event"]["action"] == "release" {
+        if context.calls.len() == before
+            && event["type"] == "key"
+            && event["event"]["action"] == "release"
+        {
             // Ghostty may suppress a release in the active keyboard protocol.
             // Empty output must not create a client operation at all.
             h.dispatch();

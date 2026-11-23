@@ -47,11 +47,19 @@ impl Root {
         let mut pane = div().flex().flex_col().flex_1().min_w_0().min_h_0();
         let files_available = self.peer_api(&cycle).is_ok();
         let session = state.snapshot.as_ref().and_then(|snapshot| {
-            snapshot.sessions.iter().find(|session| Some(session.id) == state.selected_session)
+            snapshot
+                .sessions
+                .iter()
+                .find(|session| Some(session.id) == state.selected_session)
         });
-        let visible_selected = state.selected_tab.filter(|id| session.is_some_and(|session| {
-            session.tabs.iter().any(|tab| tab.id == *id && source::viewable_tab(tab))
-        }));
+        let visible_selected = state.selected_tab.filter(|id| {
+            session.is_some_and(|session| {
+                session
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.id == *id && source::viewable_tab(tab))
+            })
+        });
         if let Some(session) = session {
             let mut tabs = div()
                 .flex()
@@ -83,27 +91,51 @@ impl Root {
                 tabs.child(div().flex_1())
                     .child(self.render_files_toggle(true, palette, cx))
                     .when(visible_selected.is_some(), |tabs| {
-                        tabs.child(self.workspace_button("workspace/peer/terminal-folder", "Open terminal folder",
-                            icon_button("peer-terminal-folder", "folder-terminal", palette)
-                                .tab_index(0)
-                                .tooltip(tooltip("Open terminal folder", palette))
-                                .on_click(cx.listener(|root, _, _, cx| root.open_peer_terminal_folder(cx))),
-                        ))
+                        tabs.child(
+                            self.workspace_button(
+                                "workspace/peer/terminal-folder",
+                                "Open terminal folder",
+                                icon_button("peer-terminal-folder", "folder-terminal", palette)
+                                    .tab_index(0)
+                                    .tooltip(tooltip("Open terminal folder", palette))
+                                    .on_click(cx.listener(|root, _, _, cx| {
+                                        root.open_peer_terminal_folder(cx)
+                                    })),
+                            ),
+                        )
                     })
             }));
         } else if files_available {
-            pane = pane.child(div().h(px(30.)).flex().justify_end().border_b_1().border_color(palette.border)
-                .child(self.render_files_toggle(true, palette, cx)));
+            pane = pane.child(
+                div()
+                    .h(px(30.))
+                    .flex()
+                    .justify_end()
+                    .border_b_1()
+                    .border_color(palette.border)
+                    .child(self.render_files_toggle(true, palette, cx)),
+            );
         }
         if let Some(tab) = visible_selected {
             let key = (peer.clone(), tab);
             if let Some(view) = self.peer_ui.v1_views.get(&key) {
                 pane = pane.child(view.clone());
             } else if self.peer_ui.v1_failed.as_ref() == Some(&key) {
-                pane = pane.child(div().flex_1().flex().items_start().justify_end().p(px(8.)).child(
-                    button("peer-retry-terminal", "Reconnect terminal", palette)
-                        .on_click(cx.listener(|root, _, window, cx| root.ensure_peer_terminal(window, cx))),
-                ));
+                pane = pane.child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .items_start()
+                        .justify_end()
+                        .p(px(8.))
+                        .child(
+                            button("peer-retry-terminal", "Reconnect terminal", palette).on_click(
+                                cx.listener(|root, _, window, cx| {
+                                    root.ensure_peer_terminal(window, cx)
+                                }),
+                            ),
+                        ),
+                );
             } else {
                 pane = pane.child(crate::renderer::terminal_loading(palette.accent));
             }

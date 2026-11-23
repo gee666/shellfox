@@ -329,7 +329,12 @@ fn cancel_watch_follows_the_recipient_and_ends_when_the_entry_leaves() {
     let mut ledger = GrantCustody::default();
     let recipient = CancellationToken::new();
     let (ticket, mut guard) = ledger
-        .reserve(identity(), RequestId(1), GrantKind::Controller(7), recipient.clone())
+        .reserve(
+            identity(),
+            RequestId(1),
+            GrantKind::Controller(7),
+            recipient.clone(),
+        )
         .unwrap();
     let (cancel, removed) = ledger.cancel_watch(ticket).unwrap();
     recipient.cancel();

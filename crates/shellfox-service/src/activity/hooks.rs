@@ -143,7 +143,10 @@ impl Service {
         let closed: Vec<_> = self
             .terminals
             .values()
-            .filter(|terminal| terminal.runtime.source_kind()==shellfox_runtime::SourceKind::OwnedPty && terminal.runtime.phase() == Phase::Closed)
+            .filter(|terminal| {
+                terminal.runtime.source_kind() == shellfox_runtime::SourceKind::OwnedPty
+                    && terminal.runtime.phase() == Phase::Closed
+            })
             .map(|terminal| terminal.runtime.identity())
             .collect();
         for identity in closed {
@@ -251,7 +254,9 @@ impl Service {
             .map(|terminal| crate::facts::capture::terminal(self, terminal))
             .collect();
         #[cfg(windows)]
-        self.activity.publisher.set_wsl_profiles(self.catalog.wsl.cache.current());
+        self.activity
+            .publisher
+            .set_wsl_profiles(self.catalog.wsl.cache.current());
         self.activity
             .publisher
             .publish_with_creation_facts(
@@ -265,14 +270,22 @@ impl Service {
         self.activity.dirty = false;
         Ok(())
     }
-    pub(crate) fn acknowledge_session_error(&mut self, id: shellfox_core::SessionId) -> Result<shellfox_core::Snapshot> {
+    pub(crate) fn acknowledge_session_error(
+        &mut self,
+        id: shellfox_core::SessionId,
+    ) -> Result<shellfox_core::Snapshot> {
         let snapshot = self.host.snapshot()?;
-        anyhow::ensure!(snapshot.sessions.iter().any(|session| session.id == id), "Session not found.");
+        anyhow::ensure!(
+            snapshot.sessions.iter().any(|session| session.id == id),
+            "Session not found."
+        );
         let settings = self.host.global_settings()?;
         for terminal in self.terminals.values_mut() {
             let identity = terminal.runtime.identity();
-            if identity.session_id == id && crate::facts::membership::contains(&snapshot, identity)
-                && terminal.startup.as_ref().is_some_and(Result::is_err) {
+            if identity.session_id == id
+                && crate::facts::membership::contains(&snapshot, identity)
+                && terminal.startup.as_ref().is_some_and(Result::is_err)
+            {
                 terminal.startup_error_acknowledged = true;
             }
         }

@@ -43,17 +43,23 @@ impl Root {
         else {
             return;
         };
-        if !self.workspace.navigation.select_tab(snapshot, session.id, id) {
+        if !self
+            .workspace
+            .navigation
+            .select_tab(snapshot, session.id, id)
+        {
             return;
         }
-        self.workspace.pending_recent = Some((RecentSelection::Tab(id), self.source_selection_epoch()));
+        self.workspace.pending_recent =
+            Some((RecentSelection::Tab(id), self.source_selection_epoch()));
         self.follow_wsl_file_tab(cx);
         self.ensure_terminal(window, cx);
         self.flush_recent(window, cx);
         cx.notify();
     }
     pub(crate) fn flush_recent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.workspace.action_pending || self.workspace.background.remember || self.close.closing {
+        if self.workspace.action_pending || self.workspace.background.remember || self.close.closing
+        {
             return;
         }
         let Some((recent, source_epoch)) = self.workspace.pending_recent.take() else {

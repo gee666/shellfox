@@ -46,7 +46,8 @@ impl FileCompletion {
         let id = field.entity_id();
         let on_focus = cx.on_focus(&focus, window, move |root, _, cx| {
             if let Some(files) = root
-                .files.panel
+                .files
+                .panel
                 .as_mut()
                 .filter(|files| files.location.entity_id() == id)
             {
@@ -56,7 +57,8 @@ impl FileCompletion {
         });
         let on_blur = cx.on_blur(&focus, window, move |root, _, cx| {
             if let Some(files) = root
-                .files.panel
+                .files
+                .panel
                 .as_mut()
                 .filter(|files| files.location.entity_id() == id)
             {
@@ -98,7 +100,9 @@ impl Root {
     }
 
     pub(crate) fn reopen_file_completion(&mut self, cx: &mut Context<Self>) {
-        let Some(files) = &mut self.files.panel else { return };
+        let Some(files) = &mut self.files.panel else {
+            return;
+        };
         if files.completion.state.reopen() {
             files.completion.state.reset();
             self.query_file_matches(false, cx);
@@ -266,7 +270,9 @@ fn accept(files: &mut Files, value: String, cx: &mut Context<Root>) {
         .update(cx, |field, cx| field.set_text(value, cx));
 }
 
-pub(crate) fn completion_key(value: &str) -> String { format!("files/completion/{value}") }
+pub(crate) fn completion_key(value: &str) -> String {
+    format!("files/completion/{value}")
+}
 
 pub(crate) fn completion_list(
     root: &Root,
@@ -328,7 +334,10 @@ pub(crate) fn completion_list(
                 .on_click(cx.listener(move |root, _, window, cx| {
                     root.choose_file_completion(index, window, cx)
                 }));
-            match (frame.id_for(&completion_key(value)), frame.id_for("root/files")) {
+            match (
+                frame.id_for(&completion_key(value)),
+                frame.id_for("root/files"),
+            ) {
                 (Ok(id), Ok(parent)) => {
                     let mut node = SemanticNode::new(id, Some(parent), Role::Button, value.clone());
                     node.data.set_selected(index == active);

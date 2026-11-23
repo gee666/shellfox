@@ -1,8 +1,6 @@
 use super::*;
+use crate::system::{CliInstallPlan, DesktopLaunch, SystemResult, SystemScope};
 use shellfox_protocol::{AppError, ErrorCode};
-use crate::{
-    system::{CliInstallPlan, DesktopLaunch, SystemResult, SystemScope},
-};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct QueryFixture(Arc<AtomicUsize>);

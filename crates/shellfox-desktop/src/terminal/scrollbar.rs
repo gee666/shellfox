@@ -1,6 +1,6 @@
 use super::TerminalView;
 use crate::renderer;
-use gpui::{div, prelude::*, px, AnyElement, Context, MouseButton, Pixels, Point, Window};
+use gpui::{AnyElement, Context, MouseButton, Pixels, Point, Window, div, prelude::*, px};
 use std::time::{Duration, Instant};
 
 #[derive(Default)]

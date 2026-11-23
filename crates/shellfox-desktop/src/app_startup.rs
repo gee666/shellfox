@@ -81,11 +81,13 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     }
     let _ = runtime.block_on(running.client.disconnect());
     let owned = options.owned_host || recorded(options, route);
-    let route = crate::host_process::Route::known(crate::host_process::HostRoute { info: route, started: false });
+    let route = crate::host_process::Route::known(crate::host_process::HostRoute {
+        info: route,
+        started: false,
+    });
     let host = AppHost::attached(config.clone(), route, owned)?;
     Ok(Startup::Graphical(Some(Prestarted { config, host })))
 }
-
 
 #[derive(Debug, PartialEq, Eq)]
 enum Stale {
@@ -95,7 +97,12 @@ enum Stale {
 }
 /// Only a desktop-started host of this exact build is attached. An idle one of
 /// another build is replaced; one with shells or another window is refused.
-fn stale(desktop_owned: bool, same_build: bool, desktop_registered: bool, terminals: usize) -> Stale {
+fn stale(
+    desktop_owned: bool,
+    same_build: bool,
+    desktop_registered: bool,
+    terminals: usize,
+) -> Stale {
     match (desktop_owned, same_build) {
         (false, _) | (true, true) => Stale::Attach,
         (true, false) if !desktop_registered && terminals == 0 => Stale::Replace,
@@ -104,7 +111,11 @@ fn stale(desktop_owned: bool, same_build: bool, desktop_registered: bool, termin
 }
 
 /// True after stopping an idle host of another build.
-fn stale_host(runtime: &tokio::runtime::Runtime, options: &Options, running: &crate::host_process::Running) -> Result<bool> {
+fn stale_host(
+    runtime: &tokio::runtime::Runtime,
+    options: &Options,
+    running: &crate::host_process::Running,
+) -> Result<bool> {
     let route = running.route;
     let desktop_owned = options.owned_host || recorded(options, route);
     let same_build = route.build == crate::host_process::expected_build();
@@ -113,12 +124,20 @@ fn stale_host(runtime: &tokio::runtime::Runtime, options: &Options, running: &cr
     } else {
         0
     };
-    match stale(desktop_owned, same_build, route.desktop_registered, terminals) {
+    match stale(
+        desktop_owned,
+        same_build,
+        route.desktop_registered,
+        terminals,
+    ) {
         Stale::Attach => Ok(false),
         Stale::Refuse => Err(OtherBuildRunning.into()),
         Stale::Replace => {
             runtime.block_on(async {
-                running.client.execute(shellfox_service::local_api::LocalApiRequest::Stop {}).await?;
+                running
+                    .client
+                    .execute(shellfox_service::local_api::LocalApiRequest::Stop {})
+                    .await?;
                 tokio::time::timeout(Duration::from_secs(30), running.client.closed())
                     .await
                     .context("The previous Shellfox host did not stop")?;
@@ -130,7 +149,10 @@ fn stale_host(runtime: &tokio::runtime::Runtime, options: &Options, running: &cr
 }
 
 async fn terminal_count(client: &LocalClient) -> Result<usize> {
-    match client.request(&shellfox_service::local::DesktopRequest::Status).await? {
+    match client
+        .request(&shellfox_service::local::DesktopRequest::Status)
+        .await?
+    {
         shellfox_service::local::DesktopReply::Status(status) => Ok(status.active_terminals),
         _ => anyhow::bail!("Host returned an invalid status response."),
     }
@@ -140,9 +162,18 @@ fn recorded(options: &Options, route: LaunchRouteInfo) -> bool {
     crate::host_process::recorded_owner(&options.desktop_dir) == Some(route.owner)
 }
 
-fn handoff(runtime: &tokio::runtime::Runtime, client: &LocalClient, options: &Options, route: LaunchRouteInfo) -> Result<()> {
+fn handoff(
+    runtime: &tokio::runtime::Runtime,
+    client: &LocalClient,
+    options: &Options,
+    route: LaunchRouteInfo,
+) -> Result<()> {
     runtime
-        .block_on(client.launch_existing_pinned(options.launch.clone(), LaunchRequestKind::Fresh, route.owner))
+        .block_on(client.launch_existing_pinned(
+            options.launch.clone(),
+            LaunchRequestKind::Fresh,
+            route.owner,
+        ))
         .context("The running Shellfox did not accept this launch")?;
     Ok(())
 }
@@ -153,8 +184,14 @@ pub(crate) enum Ready {
     Forwarded,
 }
 /// Waits for the host before any window opens, then reads the window chrome.
-pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Options) -> Result<Ready> {
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+pub(crate) fn ready(
+    host: &AppHost,
+    config: &HostEndpointConfig,
+    options: &Options,
+) -> Result<Ready> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let route = runtime.block_on(host.route())?;
     if !route.started {
         // A concurrent launch's host answered instead of ours: it is ours only
@@ -165,7 +202,11 @@ pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Optio
             return Err(OtherBuildRunning.into());
         }
         if route.info.desktop_registered {
-            let client = runtime.block_on(LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256))?;
+            let client = runtime.block_on(LocalClient::connect(
+                &config.data_dir,
+                &config.helper,
+                config.helper_sha256,
+            ))?;
             handoff(&runtime, &client, options, route.info)?;
             let _ = runtime.block_on(client.disconnect());
             host.host_ended();
@@ -178,7 +219,12 @@ pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Optio
     let chrome = runtime.block_on(async {
         anyhow::Ok(crate::startup_chrome::StartupChrome::read(host.chrome_client().await?).await)
     });
-    Ok(Ready::Attach(chrome.inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}")).ok().map(Box::new)))
+    Ok(Ready::Attach(
+        chrome
+            .inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}"))
+            .ok()
+            .map(Box::new),
+    ))
 }
 impl Prestarted {
     /// Called once as the app ends (app_exit.rs), including after a GPU failure.
@@ -219,7 +265,11 @@ mod tests {
     #[test]
     fn only_a_desktop_host_of_this_build_is_attached() {
         assert_eq!(stale(true, true, true, 3), Stale::Attach);
-        assert_eq!(stale(false, false, false, 3), Stale::Attach, "a `host run` host");
+        assert_eq!(
+            stale(false, false, false, 3),
+            Stale::Attach,
+            "a `host run` host"
+        );
         assert_eq!(stale(true, false, false, 0), Stale::Replace);
         assert_eq!(stale(true, false, false, 1), Stale::Refuse);
         assert_eq!(stale(true, false, true, 0), Stale::Refuse);

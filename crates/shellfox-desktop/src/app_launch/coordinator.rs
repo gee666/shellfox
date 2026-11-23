@@ -72,7 +72,11 @@ impl AppLaunchCoordinator {
         windows: &mut impl LaunchWindowTransport,
     ) -> Result<Option<LaunchReceipt>, LaunchError> {
         if self.pending.is_none() {
-            let delivery = match self.next.take().map_or_else(|| self.receiver.try_recv(), Ok) {
+            let delivery = match self
+                .next
+                .take()
+                .map_or_else(|| self.receiver.try_recv(), Ok)
+            {
                 Ok(delivery) => delivery,
                 Err(mpsc::error::TryRecvError::Empty) => return Ok(None),
                 Err(mpsc::error::TryRecvError::Disconnected) => {

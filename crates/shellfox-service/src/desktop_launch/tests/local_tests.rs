@@ -168,7 +168,10 @@ fn known_submit_uses_only_durable_resolution_not_new_creation() {
 fn builds_match_only_their_own_build_id() {
     let stamp = crate::desktop_launch::build_stamp("0.10.0+abc");
     assert_eq!(crate::desktop_launch::build_stamp("0.10.0+abc"), stamp);
-    assert_ne!(crate::desktop_launch::build_stamp("0.10.0+abc-dirty"), stamp);
+    assert_ne!(
+        crate::desktop_launch::build_stamp("0.10.0+abc-dirty"),
+        stamp
+    );
     assert_ne!(crate::desktop_launch::build_stamp("0.10.1+abc"), stamp);
     assert_ne!(stamp, 0, "0 is reserved for hosts that report no build");
 }

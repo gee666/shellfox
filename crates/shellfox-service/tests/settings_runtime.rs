@@ -42,13 +42,12 @@ fn lost_native_ownership_rejects_before_work_and_preserves_all_persisted_state()
     let settings = host.global_settings().unwrap();
     let snapshot = host.snapshot().unwrap();
     lost.cancel();
-    assert!(
-        host.save_global_settings(SettingsPatch {
+    assert!(host
+        .save_global_settings(SettingsPatch {
             accent_color: Some("#123456".into()),
             ..Default::default()
         })
-        .is_err()
-    );
+        .is_err());
     assert_eq!(host.global_settings().unwrap(), settings);
     assert_eq!(host.snapshot().unwrap(), snapshot);
 }
@@ -136,17 +135,15 @@ fn settings_validation_budget_is_bounded() {
         Duration::ZERO,
         SETTINGS_PROBE_TIMEOUT + Duration::from_secs(1),
     ] {
-        assert!(
-            SettingsRuntimeAdapter::new(CancellationToken::new())
-                .with_probe_timeout(timeout)
-                .is_err()
-        );
+        assert!(SettingsRuntimeAdapter::new(CancellationToken::new())
+            .with_probe_timeout(timeout)
+            .is_err());
     }
 }
 #[cfg(windows)]
 #[test]
 fn actual_windows_catalog_changes_normalize_without_launching() {
-    use shellfox_terminal::{ShellProfileId, discover_shell_profiles, shell_profile};
+    use shellfox_terminal::{discover_shell_profiles, shell_profile, ShellProfileId};
     let scratch = Scratch::new();
     let host = scratch.host();
     host.install_settings_runtime(Arc::new(SettingsRuntimeAdapter::new(
@@ -194,12 +191,11 @@ fn actual_windows_catalog_changes_normalize_without_launching() {
         "Windows must discover its actual standard shells"
     );
     let before = host.snapshot().unwrap();
-    assert!(
-        host.save_global_settings(SettingsPatch {
+    assert!(host
+        .save_global_settings(SettingsPatch {
             shell_executable: Some(Some("C:\\untrusted-settings-runtime.exe".into())),
             ..Default::default()
         })
-        .is_err()
-    );
+        .is_err());
     assert_eq!(host.snapshot().unwrap(), before);
 }

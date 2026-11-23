@@ -46,7 +46,10 @@ fn revision_follows_commits_and_survives_reopen() {
     assert!(after_settings > renamed.revision);
     assert_eq!(after_settings, host.snapshot().unwrap().revision);
     drop(host);
-    assert_eq!(Host::open(directory.path()).unwrap().revision(), after_settings);
+    assert_eq!(
+        Host::open(directory.path()).unwrap().revision(),
+        after_settings
+    );
 }
 
 #[test]

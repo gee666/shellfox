@@ -4,6 +4,7 @@ mod accessibility;
 mod app_exit;
 pub mod app_host;
 mod app_launch;
+mod app_menu;
 mod app_startup;
 mod assets;
 mod brand;
@@ -12,7 +13,6 @@ mod cli_launcher;
 mod composition;
 mod desktop_errors;
 mod desktop_geometry;
-mod startup_chrome;
 mod desktop_windows;
 mod device_prefs;
 mod dialogs;
@@ -25,26 +25,26 @@ mod host_lost;
 mod host_process;
 mod input;
 mod launch_runtime;
-mod app_menu;
-mod options;
-mod renderer;
-mod root;
+#[cfg(target_os = "linux")]
+mod linux_fontconfig;
 #[cfg(target_os = "macos")]
 mod macos_terminate;
 #[cfg(target_os = "macos")]
 mod macos_window;
+mod options;
+mod renderer;
+mod root;
 mod settings;
 mod sidebar;
 mod smoke;
-mod system_end;
 #[cfg(windows)]
 mod squirrel;
+mod startup_chrome;
 #[cfg(test)]
 mod startup_dispatch_tests;
+mod system_end;
 mod theme;
 mod ui_font;
-#[cfg(target_os = "linux")]
-mod linux_fontconfig;
 mod update;
 pub mod window_manager;
 mod workspace;
@@ -58,7 +58,11 @@ use options::{Mode, Options};
 fn main() -> Result<()> {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
     #[cfg(windows)]
-    if arguments.first().is_some_and(|first| ["--version", "--smoke", "ssh"].iter().any(|flag| first == flag)) {
+    if arguments.first().is_some_and(|first| {
+        ["--version", "--smoke", "ssh"]
+            .iter()
+            .any(|flag| first == flag)
+    }) {
         attach_parent_console();
     }
     if arguments.len() == 1 && arguments[0] == "--version" {
@@ -66,7 +70,10 @@ fn main() -> Result<()> {
         return Ok(());
     }
     // `shellfox update` on desktop installs, forwarded by shellfox-cli.
-    if arguments.first().is_some_and(|first| first == update::cli::FLAG) {
+    if arguments
+        .first()
+        .is_some_and(|first| first == update::cli::FLAG)
+    {
         std::process::exit(update::cli::run(&arguments[1..]));
     }
     // Squirrel invokes the app before installation is complete. Never start a host then.
@@ -74,8 +81,12 @@ fn main() -> Result<()> {
     let arguments = {
         let mut arguments = arguments;
         if let Some(event) = arguments.first() {
-            if squirrel::handle(event)? { return Ok(()); }
-            if event == "--squirrel-firstrun" { arguments.remove(0); }
+            if squirrel::handle(event)? {
+                return Ok(());
+            }
+            if event == "--squirrel-firstrun" {
+                arguments.remove(0);
+            }
         }
         squirrel::set_app_user_model_id();
         arguments
@@ -96,7 +107,9 @@ fn main() -> Result<()> {
     }
     let show_startup_error = options.mode == Mode::Shell && !options.ui_acceptance;
     let startup = app_startup::prepare(&options).inspect_err(|error| {
-        if show_startup_error { desktop_errors::startup(error); }
+        if show_startup_error {
+            desktop_errors::startup(error);
+        }
     })?;
     let app_startup::Startup::Graphical(owner) = startup else {
         return Ok(());
@@ -118,7 +131,9 @@ fn main() -> Result<()> {
             if let Some(owner) = &owner {
                 owner.cleanup_until_confirmed();
             }
-            if show_startup_error { desktop_errors::startup(&error); }
+            if show_startup_error {
+                desktop_errors::startup(&error);
+            }
             return Err(error);
         }
     };
@@ -128,9 +143,12 @@ fn main() -> Result<()> {
     let updater = if options.ui_acceptance || owner.is_none() {
         None
     } else {
-        update::Updater::start().map(std::sync::Arc::new).map_err(|error| {
-            eprintln!("Updater unavailable: {error:#}");
-        }).ok()
+        update::Updater::start()
+            .map(std::sync::Arc::new)
+            .map_err(|error| {
+                eprintln!("Updater unavailable: {error:#}");
+            })
+            .ok()
     };
     let exit = app_exit::Exit::new(owner.clone(), updater.clone());
     let graphics = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -151,7 +169,15 @@ fn main() -> Result<()> {
                 }
             },
         );
-        run_graphics(options, owner.as_ref(), device_colors, editors, trace, updater, exit.clone())
+        run_graphics(
+            options,
+            owner.as_ref(),
+            device_colors,
+            editors,
+            trace,
+            updater,
+            exit.clone(),
+        )
     }));
     // A no-op when GPUI's quit hook already ran it.
     exit.finish(match &graphics {
@@ -160,7 +186,9 @@ fn main() -> Result<()> {
         Err(_) => app_exit::Outcome::Panicked,
     });
     finish_frontend(graphics).inspect_err(|error| {
-        if show_startup_error { desktop_errors::startup(error); }
+        if show_startup_error {
+            desktop_errors::startup(error);
+        }
     })
 }
 
@@ -233,7 +261,9 @@ fn run_graphics(
                 trace_ui_init(trace, "host wait begin");
                 match app_startup::ready(&host, &config, &options) {
                     Ok(app_startup::Ready::Attach(chrome)) => {
-                        if let Some(chrome) = chrome { chrome.install(cx); }
+                        if let Some(chrome) = chrome {
+                            chrome.install(cx);
+                        }
                     }
                     Ok(app_startup::Ready::Forwarded) => {
                         app_exit::quit(cx);
@@ -246,7 +276,8 @@ fn run_graphics(
                     }
                 }
                 trace_ui_init(trace, "host wait returned");
-                if let Err(error) = app_host::adapter::install_prestarted(cx, config.clone(), &host) {
+                if let Err(error) = app_host::adapter::install_prestarted(cx, config.clone(), &host)
+                {
                     app_startup::record_init_failure(error, cx);
                     app_exit::quit(cx);
                     return;

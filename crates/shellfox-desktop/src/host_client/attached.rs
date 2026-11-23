@@ -5,7 +5,8 @@ use anyhow::Result;
 use shellfox_protocol::{AuthenticatedPeerId, LocalRequest, RequestLimits, TransportError};
 use shellfox_service::{
     desktop_launch::{
-        DesktopClientToken, DesktopLaunchReply, DesktopLaunchRequest, DesktopRegistration, LaunchOwnerFence,
+        DesktopClientToken, DesktopLaunchReply, DesktopLaunchRequest, DesktopRegistration,
+        LaunchOwnerFence,
     },
     local::{DesktopProviderRequest, DesktopRequest, LocalClient},
     native::{NativeAction, NativeResponse},
@@ -32,11 +33,13 @@ pub struct AttachedRuntime {
 impl AttachedRuntime {
     pub(crate) fn new() -> Result<Self> {
         Ok(Self {
-            runtime: Some(tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
-                .thread_name("shellfox-attached-desktop")
-                .enable_all()
-                .build()?),
+            runtime: Some(
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(1)
+                    .thread_name("shellfox-attached-desktop")
+                    .enable_all()
+                    .build()?,
+            ),
             renderer: Arc::default(),
         })
     }
@@ -106,10 +109,16 @@ impl AttachedLocal {
         .await?
     }
     pub(crate) async fn provider_request(&self, action: NativeAction) -> Result<NativeResponse> {
-        let renderer = self.renderer.lock().map_err(|_| anyhow::anyhow!("Desktop registration unavailable."))?
+        let renderer = self
+            .renderer
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Desktop registration unavailable."))?
             .ok_or_else(|| anyhow::anyhow!("Desktop registration not ready."))?;
         let provider = DesktopProviderRequest::from_native(renderer, action)?;
-        Ok(self.request(DesktopRequest::Provider(provider)).await?.into())
+        Ok(self
+            .request(DesktopRequest::Provider(provider))
+            .await?
+            .into())
     }
 
     pub(crate) async fn register_desktop(&self) -> Result<DesktopRegistration> {
@@ -123,7 +132,10 @@ impl AttachedLocal {
             token.owner() == self.owner,
             "Attached desktop registration owner mismatch."
         );
-        *self.renderer.lock().map_err(|_| anyhow::anyhow!("Desktop registration unavailable."))? = Some(token);
+        *self
+            .renderer
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Desktop registration unavailable."))? = Some(token);
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         let local = self.local.clone();
         self.reactor.spawn(async move {

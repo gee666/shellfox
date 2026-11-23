@@ -3,7 +3,12 @@ use gpui::actions;
 
 // Edit items act on the focused terminal or text field. Cmd+C/V/A stay with
 // those views' own key handling; the Edit bindings only label the menu.
-actions!(shellfox_app, [About, Hide, HideOthers, Quit, Minimize, Copy, Paste, SelectAll]);
+actions!(
+    shellfox_app,
+    [
+        About, Hide, HideOthers, Quit, Minimize, Copy, Paste, SelectAll
+    ]
+);
 
 #[cfg(target_os = "macos")]
 const MENU_LABEL_ONLY: &str = "MenuLabelOnly";
@@ -65,7 +70,13 @@ fn about(cx: &mut gpui::App) {
     };
     let version = concat!("Version ", env!("SHELLFOX_VERSION"));
     let _ = window.update(cx, |_, window, cx| {
-        let _ = window.prompt(gpui::PromptLevel::Info, "Shellfox", Some(version), &["OK"], cx);
+        let _ = window.prompt(
+            gpui::PromptLevel::Info,
+            "Shellfox",
+            Some(version),
+            &["OK"],
+            cx,
+        );
     });
 }
 

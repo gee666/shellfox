@@ -52,11 +52,7 @@ impl Blink {
 }
 
 /// The state is owned by the painted canvas, so hidden/dropped views cancel their blink task.
-pub(super) fn phase(
-    key: CursorKey,
-    window: &mut Window,
-    cx: &mut gpui::App,
-) -> bool {
+pub(super) fn phase(key: CursorKey, window: &mut Window, cx: &mut gpui::App) -> bool {
     let clock = window.use_keyed_state("terminal-cursor-blink", cx, |_, _| Blink::default());
     clock.update(cx, |clock, cx| clock.update(key, cx))
 }
@@ -161,7 +157,9 @@ fn paint_inset_outline(bounds: Bounds<Pixels>, color: gpui::Hsla, window: &mut W
     let width = right - left;
     let height = bottom - top;
     let edge = snap(px(1.)).min(width).min(height);
-    if edge <= px(0.) { return; }
+    if edge <= px(0.) {
+        return;
+    }
     for (x, y, w, h) in [
         (left, top, width, edge),
         (left, bottom - edge, width, edge),

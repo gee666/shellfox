@@ -17,8 +17,7 @@ fn linux_acquires_separate_lid_inhibitor_and_reports_denial() {
     assert_eq!(requests.primary, 42);
     assert!(requests.lid.is_none());
     assert!(requests.partial_reason.unwrap().contains("policy denied"));
-    let requests =
-        acquire_linux_inhibitors(|what| Ok::<_, PowerError>(what.to_owned())).unwrap();
+    let requests = acquire_linux_inhibitors(|what| Ok::<_, PowerError>(what.to_owned())).unwrap();
     assert_eq!(requests.lid.as_deref(), Some("handle-lid-switch"));
     assert!(requests.partial_reason.is_none());
     let mut calls = 0;
@@ -29,4 +28,3 @@ fn linux_acquires_separate_lid_inhibitor_and_reports_denial() {
     .is_err());
     assert_eq!(calls, 1);
 }
-

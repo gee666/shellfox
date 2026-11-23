@@ -213,7 +213,11 @@ fn native_names_comm_and_rewritten_argv0_use_toggles_before_script_fallbacks() {
 #[test]
 fn every_supported_agent_projects_the_same_idle_status() {
     for windows in [false, true] {
-        let node = if windows { r"C:\Tools\node.exe" } else { "/usr/bin/node" };
+        let node = if windows {
+            r"C:\Tools\node.exe"
+        } else {
+            "/usr/bin/node"
+        };
         let custom = if windows { "agent.exe" } else { "agent" };
         let mut rules = default_process_rules();
         let mut rule = script_rule(custom);
@@ -225,7 +229,11 @@ fn every_supported_agent_projects_the_same_idle_status() {
             ("codex", "/pkg/@openai/codex/bin/codex.js"),
             ("agent", ""),
         ] {
-            let binary = if windows { format!(r"C:\Tools\{name}.exe") } else { format!("/opt/{name}") };
+            let binary = if windows {
+                format!(r"C:\Tools\{name}.exe")
+            } else {
+                format!("/opt/{name}")
+            };
             let processes = std::iter::once(row(&binary, None))
                 .chain((!script.is_empty()).then(|| row(node, args(&[node, script]))));
             for process in processes {
@@ -234,9 +242,19 @@ fn every_supported_agent_projects_the_same_idle_status() {
                 let lifecycle = TabLifecycle::Open;
                 let status = tab_status(lifecycle, false, Some(&observation));
                 assert_eq!(status, TabStatus::Running, "{name}");
-                let tab = TabFacts { lifecycle, status, agents: observation.agents, busy: false, error: false };
+                let tab = TabFacts {
+                    lifecycle,
+                    status,
+                    agents: observation.agents,
+                    busy: false,
+                    error: false,
+                };
                 assert_eq!(tab_agent_state(&tab), AgentState::Running, "{name}");
-                assert_eq!(session_facts(&[tab], false, false).agent_state, AgentState::Running, "{name}");
+                assert_eq!(
+                    session_facts(&[tab], false, false).agent_state,
+                    AgentState::Running,
+                    "{name}"
+                );
             }
         }
     }

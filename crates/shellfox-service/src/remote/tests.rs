@@ -69,9 +69,14 @@ async fn first_attach_of_a_running_remote_tab_does_not_wait_for_projected_facts(
     let data = crate::tests::scratch();
     let mut owner = approval_owner(data.path()).await;
     let metadata = native_metadata::Fixture::new();
-    let peer = PeerIdentity { id: "n-first-attach".into(), hostname: "fixture".into() };
+    let peer = PeerIdentity {
+        id: "n-first-attach".into(),
+        hostname: "fixture".into(),
+    };
     let (approvals, _store) = approve_peer(&owner, &metadata, &peer).await;
-    let actor = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let actor = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
     let tab_id = wire::TabId::new();
     let attach = OwnerCommand::Execute {
         actor,
@@ -202,13 +207,22 @@ async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
         service.host().snapshot().unwrap().sessions[0].title,
         "After"
     );
-    let snapshot = service.host().add_tab(session_id, shellfox_core::AddTab {
-        title: None,
-        cwd: None,
-        profile_id: shellfox_core::ProfileId::new(crate::ADMIN_POWERSHELL_PROFILE).unwrap(),
-    }).unwrap();
+    let snapshot = service
+        .host()
+        .add_tab(
+            session_id,
+            shellfox_core::AddTab {
+                title: None,
+                cwd: None,
+                profile_id: shellfox_core::ProfileId::new(crate::ADMIN_POWERSHELL_PROFILE).unwrap(),
+            },
+        )
+        .unwrap();
     let administrator = snapshot.selection.tab_id.unwrap();
-    let listed = state.bind(&mut service).session(&snapshot, session_id).unwrap();
+    let listed = state
+        .bind(&mut service)
+        .session(&snapshot, session_id)
+        .unwrap();
     assert_eq!(listed.tabs.len(), 1);
     assert_eq!(listed.tabs[0].id, tab.id);
     let attach = dispatch(
@@ -222,7 +236,9 @@ async fn same_service_owner_metadata_adapter_and_revocation_end_to_end() {
                 generation: None,
             }),
         },
-    ).await.unwrap_err();
+    )
+    .await
+    .unwrap_err();
     assert_eq!(attach.code, ErrorCode::AccessDenied);
     assert_eq!(service.active_terminals(), 0);
     let delete = RemoteCommand::DeleteSession(wire::DeleteSession { session_id });

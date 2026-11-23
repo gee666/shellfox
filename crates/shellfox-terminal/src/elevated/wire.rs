@@ -1,4 +1,4 @@
-use super::startup_stage::{DENIED, StartupStage, WAIT_CANCELLED};
+use super::startup_stage::{StartupStage, DENIED, WAIT_CANCELLED};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use std::{fmt, num::NonZeroU32};
@@ -31,8 +31,12 @@ impl fmt::Display for AdapterError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::InvalidLaunch => "invalid administrator launch specification",
-            Self::InvalidResource => "administrator helper resource is missing, redirected or invalid",
-            Self::IntegrityMismatch => "administrator helper does not match the trusted build digest",
+            Self::InvalidResource => {
+                "administrator helper resource is missing, redirected or invalid"
+            }
+            Self::IntegrityMismatch => {
+                "administrator helper does not match the trusted build digest"
+            }
             Self::InvalidProtocol => "invalid administrator helper protocol",
             Self::InvalidInput => "invalid administrator terminal input or dimensions",
             Self::InputUnavailable => "administrator terminal is not available for input",

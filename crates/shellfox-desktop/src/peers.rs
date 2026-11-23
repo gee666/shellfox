@@ -1,28 +1,25 @@
-use crate::{
-    dialogs::Dialog,
-    root::Root,
-    theme::Palette,
-};
+use crate::{dialogs::Dialog, root::Root, theme::Palette};
 use gpui::{AnyElement, Context, Entity, Window, div, prelude::*, px};
-use std::collections::{HashMap, HashSet};
 use shellfox_protocol::{AuthenticatedPeerId, SessionId, TabId};
+use std::collections::{HashMap, HashSet};
+mod close;
 mod connect;
 mod connection_view;
 pub(crate) mod metadata;
 mod metadata_poll;
 mod mutations;
+mod pairing;
 pub(crate) mod session_dialog;
 pub(crate) mod sidebar;
 mod sidebar_actions;
 mod sidebar_layout;
+pub(crate) mod source;
 mod v1_stream;
 mod workspace;
-mod pairing;
-pub(crate) mod source;
-mod close;
 #[derive(Default)]
 pub(crate) struct PeerUi {
-    pub(crate) v1_views: HashMap<(AuthenticatedPeerId, TabId), Entity<crate::terminal::TerminalView>>,
+    pub(crate) v1_views:
+        HashMap<(AuthenticatedPeerId, TabId), Entity<crate::terminal::TerminalView>>,
     /// Last view that failed to open; the render hook skips it until Reconnect.
     pub(crate) v1_failed: Option<(AuthenticatedPeerId, TabId)>,
     v1_streams: HashMap<AuthenticatedPeerId, gpui::Task<()>>,
@@ -39,16 +36,15 @@ pub(crate) struct PeerUi {
     legacy: HashMap<AuthenticatedPeerId, std::sync::Arc<crate::host_client::peer_v1::V1Binding>>,
     pub pending_create: Option<AuthenticatedPeerId>,
     pub collapsed: HashSet<AuthenticatedPeerId>,
-    sidebar_layout: std::cell::RefCell<HashMap<AuthenticatedPeerId, sidebar_layout::PeerSectionLayout>>,
+    sidebar_layout:
+        std::cell::RefCell<HashMap<AuthenticatedPeerId, sidebar_layout::PeerSectionLayout>>,
     pub pages: HashMap<AuthenticatedPeerId, usize>,
     pub navigation: HashMap<AuthenticatedPeerId, u64>,
     pub frozen: bool,
     pub withdrawn: bool,
 }
-impl PeerUi {
-}
+impl PeerUi {}
 impl Root {
-
     pub(crate) fn select_local_source(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.peer_ui.pending_create = None;
         if let Err(error) = self.peers.choose(source::Source::Local) {
@@ -231,15 +227,19 @@ impl Root {
             return;
         };
         *nav = next;
-        let selection = |root: &Self| root.peers.selected_peer().map(|(peer, state)| {
-            (peer.clone(), state.selected_session, state.selected_tab)
-        });
+        let selection = |root: &Self| {
+            root.peers
+                .selected_peer()
+                .map(|(peer, state)| (peer.clone(), state.selected_session, state.selected_tab))
+        };
         let previous = selection(self);
         if let Err(error) = self.peers.select(&cycle, session, tab) {
             self.error = Some(error.to_string());
         } else {
             self.reveal_peer_session(&cycle, session);
-            if selection(self) != previous { self.follow_peer_file_tab(cx); }
+            if selection(self) != previous {
+                self.follow_peer_file_tab(cx);
+            }
             self.ensure_peer_terminal(window, cx);
         }
         cx.notify();
@@ -250,7 +250,9 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(state) = self.peers.peers.get(&peer) else { return; };
+        let Some(state) = self.peers.peers.get(&peer) else {
+            return;
+        };
         if state.connection_action() != Some(source::ConnectionAction::Disconnect) {
             return;
         }
@@ -268,10 +270,17 @@ impl Root {
             return;
         };
         cx.spawn_in(window, async move |root, cx| {
-            use shellfox_service::{native::{NativeAction, NativeResponse}, remote::native::RemoteRequest};
+            use shellfox_service::{
+                native::{NativeAction, NativeResponse},
+                remote::native::RemoteRequest,
+            };
             let local = host.disconnect_peer(&peer).await;
             let owner = if owner_connected {
-                host.execute(NativeAction::Remote(RemoteRequest::Disconnect { peer_id: peer.as_str().into() })).await.map(Some)
+                host.execute(NativeAction::Remote(RemoteRequest::Disconnect {
+                    peer_id: peer.as_str().into(),
+                }))
+                .await
+                .map(Some)
             } else {
                 Ok(None)
             };
@@ -280,7 +289,9 @@ impl Root {
                     root.error = Some(format!("Peer withdrawal failed: {error:#}"));
                 }
                 match owner {
-                    Ok(Some(NativeResponse::Remote(state))) => root.accept_peer_remote(state, window, cx),
+                    Ok(Some(NativeResponse::Remote(state))) => {
+                        root.accept_peer_remote(state, window, cx)
+                    }
                     Err(error) => root.error = Some(format!("Peer withdrawal failed: {error:#}")),
                     _ => {}
                 }

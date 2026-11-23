@@ -1,8 +1,12 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::{ensure, Context, Result};
 use shellfox_core::{SettingsShell, WslLaunchAccount, WslLaunchBinding};
 use shellfox_host::SettingsProfile;
 use shellfox_protocol::{Elevation, ProfileEnvironment, TerminalProfile};
-use shellfox_terminal::{PtyCommand, PtyConfig, elevated::InteractiveHelper, wsl::{OsWsl, WslProfileId}};
+use shellfox_terminal::{
+    elevated::InteractiveHelper,
+    wsl::{OsWsl, WslProfileId},
+    PtyCommand, PtyConfig,
+};
 
 mod cache;
 pub(crate) use cache::{WslCatalogCache, WslCatalogWorker};
@@ -104,8 +108,7 @@ impl WslProfiles {
     pub(crate) fn configure(&self, id: &str, config: &mut PtyConfig) -> Result<()> {
         let distro = self.select(id)?;
         let args = Self::args(distro).into_iter().map(Into::into).collect();
-        if let Some((name, _)) = wsl_unc(config.cwd.to_str().context("Invalid WSL directory")?)
-        {
+        if let Some((name, _)) = wsl_unc(config.cwd.to_str().context("Invalid WSL directory")?) {
             ensure!(
                 name.eq_ignore_ascii_case(distro),
                 "The folder belongs to a different WSL distribution."
@@ -140,7 +143,9 @@ impl WslProfiles {
         let account = match binding {
             Some(WslLaunchBinding::Bound { account }) => account,
             _ => {
-                let bytes = self.wsl.launch_account(&WslProfileId::parse(id)?)
+                let bytes = self
+                    .wsl
+                    .launch_account(&WslProfileId::parse(id)?)
                     .context("Could not verify the default Linux user for this WSL launch.")?;
                 observed = serde_json::from_slice::<WslLaunchAccount>(&bytes)
                     .context("WSL requires a verified ordinary default user. A root account is not supported.")?;
@@ -149,17 +154,27 @@ impl WslProfiles {
         };
         // WSL's --user accepts a name, not a numeric UID. The guest bootstrap verifies
         // the resolved account before exec, even if the default or passwd entry changed.
-        let command = config.command.as_mut().context("WSL launch command was not prepared")?;
+        let command = config
+            .command
+            .as_mut()
+            .context("WSL launch command was not prepared")?;
         let guest = wsl_unc(cwd).map(|(_, path)| path);
-        command.args.extend(["--user".into(), account.name().into()]);
+        command
+            .args
+            .extend(["--user".into(), account.name().into()]);
         if guest.is_some() {
             command.args.extend(["--cd".into(), "/".into()]);
         }
         command.args.extend([
             "--exec".into(),
-            "/usr/bin/python3".into(), "-I".into(), "-S".into(), "-c".into(),
+            "/usr/bin/python3".into(),
+            "-I".into(),
+            "-S".into(),
+            "-c".into(),
             include_str!("../../../native/wsl/launch-shell.py").into(),
-            distro.into(), account.uid().to_string().into(), account.name().into(),
+            distro.into(),
+            account.uid().to_string().into(),
+            account.name().into(),
             guest.unwrap_or_default().into(),
         ]);
         Ok(matches!(binding, Some(WslLaunchBinding::Pending)).then(|| account.clone()))

@@ -6,21 +6,24 @@ use anyhow::{ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 use shellfox_host::HostRequest;
 use shellfox_protocol::{ProfileEnvironment, Validate};
-use shellfox_service::native::{
-    NativeAction, NativeCommand, NativeInputContext, NativeResponse,
-};
+use shellfox_service::native::{NativeAction, NativeCommand, NativeInputContext, NativeResponse};
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
 
-
 async fn creation_receipt(
     owner: &shellfox_service::OwnerClient,
     request_id: SessionId,
 ) -> Result<shellfox_host::CreationRequestReceipt> {
-    match owner.native(NativeAction::CreationRequestReceipt { request_id }).await? {
-        NativeResponse::CreationRequestReceipt { request_id: actual, receipt } if actual == request_id => Ok(receipt),
+    match owner
+        .native(NativeAction::CreationRequestReceipt { request_id })
+        .await?
+    {
+        NativeResponse::CreationRequestReceipt {
+            request_id: actual,
+            receipt,
+        } if actual == request_id => Ok(receipt),
         _ => anyhow::bail!("Creation receipt reply does not match its request."),
     }
 }
@@ -192,36 +195,83 @@ fn actual_catalog_local_first_pty_uses_explicit_cli_and_stops_original_owner() -
 
 #[test]
 fn outgoing_on_a_disabled_host_is_unavailable_and_never_pairs() -> Result<()> {
-    use shellfox_protocol::{AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError};
     use shellfox_protocol::Endpoint;
+    use shellfox_protocol::{
+        AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError,
+    };
     let fixture = support::Fixture::new()?;
     let data = fixture.data("outgoing-disabled");
     let local_data = data.clone();
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
     let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
-    let remote = application::NativeApplicationConfig::new(&data, None, Some("owned-outgoing".into()))?
-        .remote_options(supervisor, false)?;
+    let remote =
+        application::NativeApplicationConfig::new(&data, None, Some("owned-outgoing".into()))?
+            .remote_options(supervisor, false)?;
     support::cycle_remote(&fixture, &data, remote, |owner, _| async move {
-        let local = shellfox_service::local::LocalClient::connect(&local_data, &helper, digest).await?;
+        let local =
+            shellfox_service::local::LocalClient::connect(&local_data, &helper, digest).await?;
         let peer = AuthenticatedPeerId::new("n-peer")?;
         let limits = || RequestLimits {
-            deadline: Instant::now() + Duration::from_secs(5), cancel: CancellationToken::new(),
+            deadline: Instant::now() + Duration::from_secs(5),
+            cancel: CancellationToken::new(),
             max_request_bytes: shellfox_protocol::MAX_REQUEST_BYTES,
             max_response_bytes: shellfox_protocol::MAX_RESPONSE_BYTES,
         };
-        for endpoint in [Endpoint::Discover, Endpoint::Pair, Endpoint::Request, Endpoint::Events, Endpoint::Disconnect] {
-            assert_eq!(local.peer_request_with_status(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
+        for endpoint in [
+            Endpoint::Discover,
+            Endpoint::Pair,
+            Endpoint::Request,
+            Endpoint::Events,
+            Endpoint::Disconnect,
+        ] {
+            assert_eq!(
+                local
+                    .peer_request_with_status(&peer, endpoint, b"{}".to_vec(), limits())
+                    .await,
+                Err(TransportError::Unavailable)
+            );
         }
-        let cancelled = limits(); cancelled.cancel.cancel();
-        assert_eq!(local.peer_request_with_status(&peer, Endpoint::Request, b"{}".to_vec(), cancelled).await, Err(TransportError::Cancelled));
-        let expired = RequestLimits { deadline:Instant::now()-Duration::from_millis(1), ..limits() };
-        assert_eq!(local.peer_request_with_status(&peer, Endpoint::Request, b"{}".to_vec(), expired).await, Err(TransportError::Deadline));
-        let state = owner.native(NativeAction::Remote(shellfox_service::remote::RemoteRequest::State)).await?;
-        let NativeResponse::Remote(state) = state else { anyhow::bail!("Remote state absent") };
-        ensure!(!state.enabled && state.attempts.is_empty() && state.pending.is_empty() && state.approvals.is_empty(), "Opaque outgoing operation implicitly changed authority/networking");
+        let cancelled = limits();
+        cancelled.cancel.cancel();
+        assert_eq!(
+            local
+                .peer_request_with_status(&peer, Endpoint::Request, b"{}".to_vec(), cancelled)
+                .await,
+            Err(TransportError::Cancelled)
+        );
+        let expired = RequestLimits {
+            deadline: Instant::now() - Duration::from_millis(1),
+            ..limits()
+        };
+        assert_eq!(
+            local
+                .peer_request_with_status(&peer, Endpoint::Request, b"{}".to_vec(), expired)
+                .await,
+            Err(TransportError::Deadline)
+        );
+        let state = owner
+            .native(NativeAction::Remote(
+                shellfox_service::remote::RemoteRequest::State,
+            ))
+            .await?;
+        let NativeResponse::Remote(state) = state else {
+            anyhow::bail!("Remote state absent")
+        };
+        ensure!(
+            !state.enabled
+                && state.attempts.is_empty()
+                && state.pending.is_empty()
+                && state.approvals.is_empty(),
+            "Opaque outgoing operation implicitly changed authority/networking"
+        );
         local.disconnect().await?;
-        assert_eq!(local.peer_request_with_status(&peer, Endpoint::Discover, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
+        assert_eq!(
+            local
+                .peer_request_with_status(&peer, Endpoint::Discover, b"{}".to_vec(), limits())
+                .await,
+            Err(TransportError::Unavailable)
+        );
         Ok(())
     })?;
     Ok(())

@@ -50,10 +50,7 @@ fn restores_a_primary_display_record_where_it_was() {
         let placement = place(Some(&state), &screens, 0).unwrap();
         assert_eq!(placement.screen, 0);
         assert_eq!(origin(&placement), (120., 80.));
-        assert_eq!(
-            placement.bounds.size,
-            size(px(1000.), px(700.))
-        );
+        assert_eq!(placement.bounds.size, size(px(1000.), px(700.)));
         let display = state.display.as_ref().map(|_| &screens[0]);
         assert_eq!(
             record(placement.bounds, false, display),
@@ -71,7 +68,10 @@ fn restores_relative_to_a_secondary_display() {
     assert_eq!(placement.screen, 1);
     let (x, y) = origin(&placement);
     assert!((x - (-1606.67)).abs() < 0.01 && y == 50.);
-    assert_eq!(record(placement.bounds, false, Some(&screens[1])), Some(state));
+    assert_eq!(
+        record(placement.bounds, false, Some(&screens[1])),
+        Some(state)
+    );
 }
 
 #[test]
@@ -86,7 +86,10 @@ fn a_missing_display_falls_back_to_the_primary_and_stays_on_screen() {
     assert_eq!(origin(&placement), (920., 380.));
     assert!(placement.maximized);
     let offscreen = saved(-5000, -300, None);
-    assert_eq!(origin(&place(Some(&offscreen), &screens, 0).unwrap()), (0., 0.));
+    assert_eq!(
+        origin(&place(Some(&offscreen), &screens, 0).unwrap()),
+        (0., 0.)
+    );
 }
 
 #[test]
@@ -101,7 +104,10 @@ fn shrinks_to_a_smaller_display_but_not_below_the_minimum() {
     assert_eq!(placement.bounds.size, size(px(1280.), px(720.)));
     assert_eq!(origin(&placement), (0., 0.));
     let tiny = vec![screen("tiny", 0., 0., 640., 480.)];
-    assert_eq!(place(Some(&state), &tiny, 0).unwrap().bounds.size, min_size());
+    assert_eq!(
+        place(Some(&state), &tiny, 0).unwrap().bounds.size,
+        min_size()
+    );
 }
 
 #[test]
@@ -115,7 +121,10 @@ fn without_a_record_opens_the_default_size_centered_on_the_primary() {
     );
     assert_eq!(
         origin(&placement),
-        (((1920 - width) as f32 / 2.).round(), ((1080 - height) as f32 / 2.).round())
+        (
+            ((1920 - width) as f32 / 2.).round(),
+            ((1080 - height) as f32 / 2.).round()
+        )
     );
     assert!(!placement.maximized);
     assert_eq!(place(None, &[], 0), None);
@@ -168,7 +177,10 @@ fn a_top_taskbar_keeps_records_in_screen_coordinates() {
         let placement = place(Some(&state), &screens, 0).unwrap();
         let shift = if workspace { 48. } else { 0. };
         assert_eq!(origin(&placement), (300., 200. - shift));
-        assert_eq!(record(placement.bounds, false, Some(&screens[0])), Some(state));
+        assert_eq!(
+            record(placement.bounds, false, Some(&screens[0])),
+            Some(state)
+        );
         // Screen y 10 is under the taskbar, so the window moves just below it.
         let under = saved(300, 10, Some("primary"));
         assert_eq!(

@@ -22,7 +22,10 @@ fn development_builds_report_an_unsupported_installation() {
         stdout.trim(),
         concat!("Installed Shellfox version: ", env!("SHELLFOX_VERSION"))
     );
-    assert!(stderr.contains("github.com/gee666/shellfox/releases"), "{stderr}");
+    assert!(
+        stderr.contains("github.com/gee666/shellfox/releases"),
+        "{stderr}"
+    );
 }
 
 #[test]

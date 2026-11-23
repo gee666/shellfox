@@ -30,7 +30,9 @@ pub struct FrameWakes(Arc<Mutex<HashMap<TabId, watch::Sender<u64>>>>);
 impl FrameWakes {
     pub fn subscribe(&self, tab: TabId) -> watch::Receiver<u64> {
         let mut tabs = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        tabs.entry(tab).or_insert_with(|| watch::channel(0).0).subscribe()
+        tabs.entry(tab)
+            .or_insert_with(|| watch::channel(0).0)
+            .subscribe()
     }
     pub(crate) fn wake(&self, tab: TabId) {
         let tabs = self.0.lock().unwrap_or_else(|e| e.into_inner());
@@ -90,9 +92,10 @@ impl crate::Service {
     }
     /// Called by the launch router's owner with its receipt generation.
     pub(crate) fn publish_launch_receipts(&self, generation: u64) {
-        self.native.watches.launches.send_if_modified(|current| {
-            std::mem::replace(current, generation) != generation
-        });
+        self.native
+            .watches
+            .launches
+            .send_if_modified(|current| std::mem::replace(current, generation) != generation);
     }
     /// The tab activity rows last published. A new value means they changed.
     pub(crate) fn published_tab_activity(&self) -> Arc<[NativeTabActivity]> {
@@ -100,18 +103,21 @@ impl crate::Service {
     }
     #[cfg(test)]
     pub(crate) fn replace_tab_activity(&self, rows: Vec<NativeTabActivity>) {
-        self.native.watches.tab_activity.send_replace(Arc::from(rows));
+        self.native
+            .watches
+            .tab_activity
+            .send_replace(Arc::from(rows));
     }
     pub(crate) fn publish_native_watches(&self) {
         let watches = &self.native.watches;
         let revision = self.host().revision();
-        watches.revision.send_if_modified(|current| {
-            std::mem::replace(current, revision) != revision
-        });
+        watches
+            .revision
+            .send_if_modified(|current| std::mem::replace(current, revision) != revision);
         let automation = self.automation.changes();
-        watches.automation.send_if_modified(|current| {
-            std::mem::replace(current, automation) != automation
-        });
+        watches
+            .automation
+            .send_if_modified(|current| std::mem::replace(current, automation) != automation);
         let power = self.power_report();
         watches.power.send_if_modified(|current| {
             let changed = *current != power;

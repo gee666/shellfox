@@ -7,7 +7,10 @@ fn row(id: u64) -> SemanticNode {
 /// One frame: the root, then a cached pane that either renders `fresh` nodes or is reused.
 fn paint(frame: &SemanticFrame, cache: &SemanticCache, fresh: Option<&[u64]>) -> Vec<SemanticId> {
     let generation = frame.begin_frame();
-    frame.record(SemanticNode::new(SemanticId(1), None, Role::Window, "Shellfox"), false);
+    frame.record(
+        SemanticNode::new(SemanticId(1), None, Role::Window, "Shellfox"),
+        false,
+    );
     let start = frame.recorded();
     if let Some(rows) = fresh {
         cache.rendered();
@@ -17,14 +20,21 @@ fn paint(frame: &SemanticFrame, cache: &SemanticCache, fresh: Option<&[u64]>) ->
     }
     frame.settle_cached(cache, start, false, |_| false);
     let tree = frame.finish_frame(generation).unwrap();
-    [2, 3].into_iter().map(SemanticId).filter(|id| tree.node(*id).is_some()).collect()
+    [2, 3]
+        .into_iter()
+        .map(SemanticId)
+        .filter(|id| tree.node(*id).is_some())
+        .collect()
 }
 
 #[test]
 fn a_reused_cached_pane_republishes_the_nodes_it_last_painted() {
     let frame = SemanticFrame::new(SemanticId(1));
     let cache = SemanticCache::default();
-    assert_eq!(paint(&frame, &cache, Some(&[2, 3])), [SemanticId(2), SemanticId(3)]);
+    assert_eq!(
+        paint(&frame, &cache, Some(&[2, 3])),
+        [SemanticId(2), SemanticId(3)]
+    );
     assert_eq!(paint(&frame, &cache, None), [SemanticId(2), SemanticId(3)]);
     assert_eq!(paint(&frame, &cache, Some(&[])), []);
     assert_eq!(paint(&frame, &cache, None), []);
@@ -36,7 +46,10 @@ fn a_reused_pane_repeats_the_error_its_measured_paint_hit() {
     let cache = SemanticCache::default();
     for fresh in [true, false] {
         let generation = frame.begin_frame();
-        frame.record(SemanticNode::new(SemanticId(1), None, Role::Window, "Shellfox"), false);
+        frame.record(
+            SemanticNode::new(SemanticId(1), None, Role::Window, "Shellfox"),
+            false,
+        );
         let start = frame.recorded();
         if fresh {
             cache.rendered();
@@ -44,6 +57,9 @@ fn a_reused_pane_repeats_the_error_its_measured_paint_hit() {
             frame.reject(SemanticError::Limit);
         }
         frame.settle_cached(&cache, start, false, |_| false);
-        assert!(matches!(frame.finish_frame(generation), Err(SemanticError::Limit)));
+        assert!(matches!(
+            frame.finish_frame(generation),
+            Err(SemanticError::Limit)
+        ));
     }
 }

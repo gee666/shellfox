@@ -306,7 +306,10 @@ fn keyboard_stack_is_not_a_full_state_contract() -> TestResult {
     source.feed(b"\x1b[<u")?;
     target.feed(b"\x1b[<u")?;
     let escape = KeyEvent::press(PhysicalKey::Escape, KeyModifiers::NONE);
-    assert_ne!(source.encode_key_event(&escape)?, target.encode_key_event(&escape)?);
+    assert_ne!(
+        source.encode_key_event(&escape)?,
+        target.encode_key_event(&escape)?
+    );
     Ok(())
 }
 
@@ -353,7 +356,10 @@ fn v1_snapshot_of_large_history_keeps_the_newest_rows_within_budget() -> TestRes
     let snapshot = remote_v1_ansi(&mut source)?;
     assert!(snapshot.len() <= BUDGET, "{} bytes", snapshot.len());
     let text = String::from_utf8_lossy(&snapshot);
-    assert!(text.contains("059000 界"), "history above the screen is kept");
+    assert!(
+        text.contains("059000 界"),
+        "history above the screen is kept"
+    );
     assert!(!text.contains("050000 界"), "the oldest rows are dropped");
     let mut view = Terminal::new(120, 30)?;
     feed(&mut view, &snapshot)?;

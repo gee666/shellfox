@@ -73,7 +73,8 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.dialogs.user_action_pending || self.close.closing || self.dialogs.current.is_some() {
+        if self.dialogs.user_action_pending || self.close.closing || self.dialogs.current.is_some()
+        {
             return;
         }
         if !self.peers.peers.values().any(|peer| peer.remembered) {
@@ -228,7 +229,11 @@ impl Root {
                         return;
                     };
                     let choices = root.session_targets(palette);
-                    if let Some(choice) = menu.active.and_then(|index| choices.get(index)).filter(|choice| choice.enabled) {
+                    if let Some(choice) = menu
+                        .active
+                        .and_then(|index| choices.get(index))
+                        .filter(|choice| choice.enabled)
+                    {
                         root.select_session_target(choice.id.clone(), window, cx);
                         window.prevent_default();
                         cx.stop_propagation();

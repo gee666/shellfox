@@ -5,10 +5,20 @@ use shellfox_host::{SessionId, TabId};
 /// The window's one modal dialog or in-place editor.
 pub enum Dialog {
     Create(Box<super::directory::Draft>),
-    RenameSession { id: SessionId, title: Entity<Field> },
-    SessionEnvironment { id: SessionId, text: Entity<Field> },
+    RenameSession {
+        id: SessionId,
+        title: Entity<Field>,
+    },
+    SessionEnvironment {
+        id: SessionId,
+        text: Entity<Field>,
+    },
     PeerSession(crate::peers::session_dialog::PeerSessionDialog),
-    RenameTab { id: TabId, title: Entity<Field>, _blur: gpui::Subscription },
+    RenameTab {
+        id: TabId,
+        title: Entity<Field>,
+        _blur: gpui::Subscription,
+    },
     DeleteSession(SessionId),
     CloseTab(shellfox_core::TerminalIdentity),
     Quit,
@@ -23,6 +33,10 @@ pub(crate) struct DialogState {
 
 impl DialogState {
     pub(crate) fn new(cx: &mut gpui::App) -> Self {
-        Self { current: None, modal_focus: cx.focus_handle(), user_action_pending: false }
+        Self {
+            current: None,
+            modal_focus: cx.focus_handle(),
+            user_action_pending: false,
+        }
     }
 }

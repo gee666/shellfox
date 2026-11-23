@@ -71,12 +71,10 @@ impl TerminalView {
         let Some(bounds) = self.bounds else {
             return false;
         };
-        let (x, cell_width) = crate::renderer::mouse_axis(
-            f32::from(position.x - bounds.left()), self.cell_width,
-        );
-        let (y, cell_height) = crate::renderer::mouse_axis(
-            f32::from(position.y - bounds.top()), self.line_height,
-        );
+        let (x, cell_width) =
+            crate::renderer::mouse_axis(f32::from(position.x - bounds.left()), self.cell_width);
+        let (y, cell_height) =
+            crate::renderer::mouse_axis(f32::from(position.y - bounds.top()), self.line_height);
         let event = MouseEvent {
             action,
             button,
@@ -90,8 +88,13 @@ impl TerminalView {
             y,
             any_button_pressed: self.held_buttons() != 0,
         };
-        let geometry = MouseGeometry { cell_width, cell_height };
-        let Some(lease) = self.lease else { return self.peer_mouse(event, geometry); };
+        let geometry = MouseGeometry {
+            cell_width,
+            cell_height,
+        };
+        let Some(lease) = self.lease else {
+            return self.peer_mouse(event, geometry);
+        };
         self.submit(
             Command::Mouse {
                 lease,
@@ -118,7 +121,9 @@ impl TerminalView {
         self.link_press = None;
         self.selection_drag.finish();
         let context_click = event.button == gpui::MouseButton::Right
-            || cfg!(target_os = "macos") && event.button == gpui::MouseButton::Left && event.modifiers.control;
+            || cfg!(target_os = "macos")
+                && event.button == gpui::MouseButton::Left
+                && event.modifiers.control;
         if self.link_pointer_down(point, event, context_click) {
             cx.stop_propagation();
             return;
@@ -136,7 +141,12 @@ impl TerminalView {
             );
         } else if cfg!(target_os = "macos") && context_click {
             let index = usize::from(point.y) * usize::from(self.screen.cols) + usize::from(point.x);
-            if !self.screen.cells.get(index).is_some_and(|cell| cell.selected) {
+            if !self
+                .screen
+                .cells
+                .get(index)
+                .is_some_and(|cell| cell.selected)
+            {
                 self.select(Some(Selection::Word(point)), cx);
             }
         } else if event.button == gpui::MouseButton::Left {
@@ -275,16 +285,23 @@ impl TerminalView {
         cx: &mut Context<Self>,
     ) {
         let on_track = self.scrollbar_track_contains(event.position);
-        if self.failed || self.closing || !on_track && self.cell_at(event.position, false).is_none() {
+        if self.failed || self.closing || !on_track && self.cell_at(event.position, false).is_none()
+        {
             return;
         }
         let delta = event.delta.pixel_delta(px(self.line_height));
         let reporting = !on_track && self.reporting(event.modifiers);
-        let sensitivity = if event.modifiers.alt && !reporting { 5. } else { 1. };
-        self.wheel_remainder.x =
-            (self.wheel_remainder.x + sensitivity * f32::from(delta.x) / self.line_height).clamp(-64., 64.);
-        self.wheel_remainder.y =
-            (self.wheel_remainder.y + sensitivity * f32::from(delta.y) / self.line_height).clamp(-64., 64.);
+        let sensitivity = if event.modifiers.alt && !reporting {
+            5.
+        } else {
+            1.
+        };
+        self.wheel_remainder.x = (self.wheel_remainder.x
+            + sensitivity * f32::from(delta.x) / self.line_height)
+            .clamp(-64., 64.);
+        self.wheel_remainder.y = (self.wheel_remainder.y
+            + sensitivity * f32::from(delta.y) / self.line_height)
+            .clamp(-64., 64.);
         let x = self.wheel_remainder.x.trunc() as i32;
         let y = self.wheel_remainder.y.trunc() as i32;
         self.wheel_remainder.x -= x as f32;

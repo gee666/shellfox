@@ -2,7 +2,7 @@ mod cursor;
 mod loading;
 pub(crate) use loading::terminal_loading;
 mod cells;
-pub(crate) use cells::{paint_cells, CellStyle, CellOverlay};
+pub(crate) use cells::{CellOverlay, CellStyle, paint_cells};
 mod sprites;
 mod surface;
 mod theme;
@@ -44,13 +44,21 @@ pub fn choose_font(window: &Window, preferred: &str, font_size: f32) -> Result<(
     Ok((font, width, height))
 }
 
-fn monospace_family<'a>(names: &'a [String], preferred: &str, monospace: Option<&str>) -> Option<&'a str> {
+fn monospace_family<'a>(
+    names: &'a [String],
+    preferred: &str,
+    monospace: Option<&str>,
+) -> Option<&'a str> {
     std::iter::once(preferred)
         .filter(|family| !family.is_empty() && *family != "monospace")
         .chain(["Cascadia Code", "Consolas", "DejaVu Sans Mono"])
         .chain(monospace)
         .chain(["Menlo", "Liberation Mono"])
-        .find_map(|candidate| names.iter().find(|name| name.eq_ignore_ascii_case(candidate)))
+        .find_map(|candidate| {
+            names
+                .iter()
+                .find(|name| name.eq_ignore_ascii_case(candidate))
+        })
         .map(String::as_str)
 }
 
@@ -98,7 +106,9 @@ pub fn grid_size(width: f32, height: f32, cell_width: f32, line_height: f32) -> 
     }
     let cols = (width.floor() / cell_width).floor().clamp(2.0, 500.0) as u16;
     let row_limit = (shellfox_runtime::MAX_SCREEN_CELLS / usize::from(cols)).min(250);
-    let rows = (height.floor() / line_height).floor().clamp(1.0, row_limit as f32) as u16;
+    let rows = (height.floor() / line_height)
+        .floor()
+        .clamp(1.0, row_limit as f32) as u16;
     (cols, rows)
 }
 
@@ -120,21 +130,40 @@ mod tests {
 
     #[test]
     fn monospace_alias_follows_the_explicit_terminal_font_stack() {
-        let mut fonts = ["Liberation Mono", "JetBrainsMono Nerd Font", "DejaVu Sans Mono"].map(String::from).to_vec();
+        let mut fonts = [
+            "Liberation Mono",
+            "JetBrainsMono Nerd Font",
+            "DejaVu Sans Mono",
+        ]
+        .map(String::from)
+        .to_vec();
         let alias = Some("JetBrainsMono Nerd Font");
-        assert_eq!(monospace_family(&fonts, "liberation mono", alias), Some("Liberation Mono"));
-        assert_eq!(monospace_family(&fonts, "monospace", alias), Some("DejaVu Sans Mono"));
+        assert_eq!(
+            monospace_family(&fonts, "liberation mono", alias),
+            Some("Liberation Mono")
+        );
+        assert_eq!(
+            monospace_family(&fonts, "monospace", alias),
+            Some("DejaVu Sans Mono")
+        );
         fonts.pop();
         assert_eq!(monospace_family(&fonts, "monospace", alias), alias);
-        assert_eq!(monospace_family(&fonts, "monospace", Some("Missing")), Some("Liberation Mono"));
+        assert_eq!(
+            monospace_family(&fonts, "monospace", Some("Missing")),
+            Some("Liberation Mono")
+        );
     }
 
     #[test]
     fn cells_are_whole_device_pixels_at_common_scales() {
         // Cascadia Code 14px: advance 8.43, ascent 14.7, descent -3.6.
-        for (scale, width, height) in [(1., 8., 19.), (1.25, 8.8, 18.4), (1.5, 26. / 3., 56. / 3.)] {
+        for (scale, width, height) in [(1., 8., 19.), (1.25, 8.8, 18.4), (1.5, 26. / 3., 56. / 3.)]
+        {
             let (w, h) = cell_metrics(8.43, 14.7, -3.6, scale);
-            assert!((w - width).abs() < 1e-4 && (h - height).abs() < 1e-4, "{scale}: {w}x{h}");
+            assert!(
+                (w - width).abs() < 1e-4 && (h - height).abs() < 1e-4,
+                "{scale}: {w}x{h}"
+            );
             for device in [w * scale, h * scale] {
                 assert!((device - device.round()).abs() < 1e-4, "{scale}: {device}");
             }
@@ -152,7 +181,10 @@ mod tests {
     fn grid_uses_canvas_size_not_window_chrome() {
         assert_eq!(grid_size(800., 456., 10., 19.), (80, 24));
         // 1200px client, 224px sidebar, 420px Files panel, padding + scrollbar gutter.
-        assert_eq!(grid_size(556. - HOST_INSET - HOST_RIGHT_INSET, 714., 8., 19.), (67, 37));
+        assert_eq!(
+            grid_size(556. - HOST_INSET - HOST_RIGHT_INSET, 714., 8., 19.),
+            (67, 37)
+        );
         assert_eq!(grid_size(600., 380., 10., 19.), (60, 20));
         assert_eq!(grid_size(0., 0., 10., 19.), (2, 1));
         assert_eq!(grid_size(f32::NAN, 456., 10., 19.), (2, 1));

@@ -1,8 +1,15 @@
 use super::*;
 
 impl<B: AppHostBackend> AppHost<B> {
-    pub(crate) fn recheck_close(&self, ticket: &CloseTicket, terminal_count: usize) -> Result<CloseDecision> {
-        ensure!(ticket.owner.ptr_eq(&Arc::downgrade(&self.shared.identity)), "Close ticket belongs to another application host.");
+    pub(crate) fn recheck_close(
+        &self,
+        ticket: &CloseTicket,
+        terminal_count: usize,
+    ) -> Result<CloseDecision> {
+        ensure!(
+            ticket.owner.ptr_eq(&Arc::downgrade(&self.shared.identity)),
+            "Close ticket belongs to another application host."
+        );
         self.request_close(ticket.target, terminal_count)
     }
 

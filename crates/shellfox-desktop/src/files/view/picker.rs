@@ -16,7 +16,8 @@ pub(crate) fn open(
         // The normal picker is exercised first. The later cancellation probe
         // pins only its large source file so the race starts in the transfer.
         let cancel_probe = dir.join("cancel-p4.bin");
-        if options.files && !options.directories
+        if options.files
+            && !options.directories
             && std::fs::symlink_metadata(&cancel_probe).is_ok_and(|metadata| metadata.is_file())
         {
             return Task::ready(Ok(Some(cancel_probe)));

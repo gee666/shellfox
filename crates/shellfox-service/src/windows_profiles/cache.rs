@@ -17,7 +17,10 @@ struct Slot {
 
 impl Slot {
     fn notify(&self) {
-        let _guard = self.lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = self
+            .lock
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         self.changed.notify_all();
     }
 }
@@ -56,11 +59,19 @@ impl WslCatalogCache {
         let mut cancelled = std::pin::pin!(cancelled.clone().cancelled_owned());
         let waker = Waker::from(self.0.clone());
         let mut cx = Context::from_waker(&waker);
-        let mut guard = self.0.lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut guard = self
+            .0
+            .lock
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         // Checks run under the lock that `set` and cancellation take to notify,
         // so neither wake-up can slip in between a check and the wait.
         while self.0.value.get().is_none() && cancelled.as_mut().poll(&mut cx).is_pending() {
-            guard = self.0.changed.wait(guard).unwrap_or_else(|poison| poison.into_inner());
+            guard = self
+                .0
+                .changed
+                .wait(guard)
+                .unwrap_or_else(|poison| poison.into_inner());
         }
         drop(guard);
         self.current()
@@ -77,7 +88,11 @@ pub(crate) struct WslCatalogWorker {
 impl WslCatalogWorker {
     /// Call once as the authorized owner starts, not from a profile read.
     /// `wake` drops, waking the owner, when discovery finishes.
-    pub(crate) fn start(&mut self, owner: &CancellationToken, wake: crate::owner::wait::WakeOnExit) {
+    pub(crate) fn start(
+        &mut self,
+        owner: &CancellationToken,
+        wake: crate::owner::wait::WakeOnExit,
+    ) {
         self.start_with(owner, move |worker| {
             let _wake = wake;
             WslProfiles::discover(|| worker.is_cancelled())
@@ -171,15 +186,13 @@ mod tests {
         }
         assert!(!worker.running());
         assert!(worker.cache.wait(&owner).is_none());
-        assert!(
-            worker
-                .cache
-                .ready()
-                .err()
-                .unwrap()
-                .to_string()
-                .contains("No installed")
-        );
+        assert!(worker
+            .cache
+            .ready()
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("No installed"));
         assert!(worker.cache.current().is_none());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
@@ -203,6 +216,8 @@ mod tests {
         thread::sleep(Duration::from_millis(20));
         cache.set(None);
         assert!(waiter.join().unwrap().is_none());
-        assert!(cache.ready().is_err_and(|error| error.to_string().contains("No installed")));
+        assert!(cache
+            .ready()
+            .is_err_and(|error| error.to_string().contains("No installed")));
     }
 }

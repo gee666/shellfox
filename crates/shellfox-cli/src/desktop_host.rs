@@ -50,18 +50,33 @@ fn plan(arguments: &[OsString]) -> Result<Plan> {
     ensure!(count <= 64, "Too many relaunch arguments");
     let relaunch: Vec<_> = arguments.by_ref().take(count).collect();
     ensure!(relaunch.len() == count, "Relaunch arguments missing");
-    Ok(Plan { ui, relaunch, host: arguments.collect() })
+    Ok(Plan {
+        ui,
+        relaunch,
+        host: arguments.collect(),
+    })
 }
 
 fn serve(arguments: &[OsString]) -> Result<()> {
-    let Plan { ui, relaunch, mut host } = plan(arguments)?;
+    let Plan {
+        ui,
+        relaunch,
+        mut host,
+    } = plan(arguments)?;
     host.extend(["host".into(), "serve".into()]);
     let args = crate::args::parse(host)?;
-    ensure!(matches!(args.command, crate::args::Command::Serve), "Unexpected host command");
+    ensure!(
+        matches!(args.command, crate::args::Command::Serve),
+        "Unexpected host command"
+    );
     // The desktop host opens folders and links for its UI, unlike a headless host.
-    let remote = args.application.remote_options(std::env::current_exe()?, true)?;
+    let remote = args
+        .application
+        .remote_options(std::env::current_exe()?, true)?;
     shellfox_service::desktop_launch::set_host_build(env!("SHELLFOX_BUILD_ID"));
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let serving = Serving {
         data: args.data_dir.clone(),
         helper: args.helper.clone(),
@@ -101,7 +116,9 @@ impl Serving {
     /// The same orderly stop as `host stop`: the shells end with the host.
     fn stop(&self) {
         let stopped = self.ask(async |client| {
-            client.execute(shellfox_service::local_api::LocalApiRequest::Stop {}).await?;
+            client
+                .execute(shellfox_service::local_api::LocalApiRequest::Stop {})
+                .await?;
             anyhow::Ok(())
         });
         if let Some(Err(error)) = stopped {
@@ -110,14 +127,21 @@ impl Serving {
     }
     /// None if the host did not answer in time.
     fn ask<T>(&self, work: impl AsyncFnOnce(&LocalClient) -> Result<T>) -> Option<Result<T>> {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .ok()?;
         let asked = async {
             let client = LocalClient::connect(&self.data, &self.helper, self.digest).await?;
             let result = work(&client).await;
             let _ = client.disconnect().await;
             result
         };
-        runtime.block_on(async { tokio::time::timeout(std::time::Duration::from_secs(10), asked).await.ok() })
+        runtime.block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(10), asked)
+                .await
+                .ok()
+        })
     }
 }
 
@@ -140,7 +164,12 @@ fn after_ui(session_ended: bool, routes_launches: impl FnOnce() -> bool) -> Afte
     }
 }
 
-fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving, ready: std::sync::mpsc::Receiver<()>) {
+fn watch_ui(
+    ui: PathBuf,
+    relaunch: Vec<OsString>,
+    serving: Serving,
+    ready: std::sync::mpsc::Receiver<()>,
+) {
     let watch = move || {
         // Decide only once the host serves: a UI that died during startup is
         // relaunched too, instead of leaving an idle host behind.
@@ -156,7 +185,9 @@ fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving, ready: std::
                 Ok(_) => {}
             }
         }
-        match after_ui(shellfox_service::desktop_session::ended(), || serving.routes_launches()) {
+        match after_ui(shellfox_service::desktop_session::ended(), || {
+            serving.routes_launches()
+        }) {
             AfterUi::Stop => return serving.stop(),
             AfterUi::Nothing => return,
             AfterUi::Relaunch => {}
@@ -183,7 +214,10 @@ fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving, ready: std::
             Err(error) => eprintln!("Shellfox UI relaunch failed: {error:#}"),
         }
     };
-    if let Err(error) = std::thread::Builder::new().name("desktop-ui-watch".into()).spawn(watch) {
+    if let Err(error) = std::thread::Builder::new()
+        .name("desktop-ui-watch".into())
+        .spawn(watch)
+    {
         eprintln!("Shellfox UI watch unavailable: {error:#}");
     }
 }
@@ -196,8 +230,20 @@ mod tests {
     }
     #[test]
     fn relaunch_and_host_arguments_are_split_by_count() {
-        let ui = if cfg!(windows) { r"C:\Shellfox\shellfox.exe" } else { "/opt/shellfox/shellfox" };
-        let plan = plan(&strings(&[ui, "2", "--desktop-dir", "/d", "--data-dir", "/h"])).unwrap();
+        let ui = if cfg!(windows) {
+            r"C:\Shellfox\shellfox.exe"
+        } else {
+            "/opt/shellfox/shellfox"
+        };
+        let plan = plan(&strings(&[
+            ui,
+            "2",
+            "--desktop-dir",
+            "/d",
+            "--data-dir",
+            "/h",
+        ]))
+        .unwrap();
         assert_eq!(plan.ui, PathBuf::from(ui));
         assert_eq!(plan.relaunch, strings(&["--desktop-dir", "/d"]));
         assert_eq!(plan.host, strings(&["--data-dir", "/h"]));
@@ -207,7 +253,10 @@ mod tests {
     }
     #[test]
     fn a_lost_ui_is_relaunched_unless_its_session_ended() {
-        assert_eq!(after_ui(true, || panic!("an ended session never relaunches")), AfterUi::Stop);
+        assert_eq!(
+            after_ui(true, || panic!("an ended session never relaunches")),
+            AfterUi::Stop
+        );
         assert_eq!(after_ui(false, || true), AfterUi::Relaunch);
         assert_eq!(after_ui(false, || false), AfterUi::Nothing);
     }

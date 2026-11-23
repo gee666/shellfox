@@ -2,7 +2,7 @@ use super::{
     Pending,
     physical::{MAX_HELD, Physical},
 };
-use shellfox_ghostty_vt::{key::KeyEvent, MouseAction};
+use shellfox_ghostty_vt::{MouseAction, key::KeyEvent};
 use shellfox_runtime::{Command, Request, RequestId, SubmitError};
 use shellfox_service::native::NativeInputContext;
 use std::collections::{HashMap, VecDeque};

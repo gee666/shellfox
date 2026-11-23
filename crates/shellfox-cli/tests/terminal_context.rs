@@ -11,8 +11,8 @@ mod support;
 use anyhow::{bail, ensure, Context, Result};
 use fixture::Fixture;
 use shellfox_service::{
-    local_api::{LocalApiRequest, LocalApiResponse},
     local::LocalClient,
+    local_api::{LocalApiRequest, LocalApiResponse},
 };
 use std::time::{Duration, Instant};
 
@@ -124,9 +124,14 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
 
     // The activity feed reports the shell as open shortly after it starts.
     let deadline = Instant::now() + Duration::from_secs(30);
-    while host.json(&["terminals", "list", &id, "--json"])?
+    while host
+        .json(&["terminals", "list", &id, "--json"])?
         .as_array()
-        .is_none_or(|tabs| !tabs.iter().any(|t| t["id"] == tab.as_str() && t["lifecycle"] == "open"))
+        .is_none_or(|tabs| {
+            !tabs
+                .iter()
+                .any(|t| t["id"] == tab.as_str() && t["lifecycle"] == "open")
+        })
     {
         ensure!(Instant::now() < deadline, "The tab never showed as open.");
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -149,12 +154,22 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
         .and_then(|t| t.iter().find(|t| t["tabId"] == tab.as_str()))
         .with_context(|| format!("no stats for the live tab: {stats}"))?;
     // The shell's own process tree, measured on demand.
-    ensure!(measured["memoryBytes"].as_u64().is_some_and(|m| m > 0), "{measured}");
-    ensure!(measured["elapsedSeconds"].as_f64().is_some_and(|s| s >= 0.0), "{measured}");
+    ensure!(
+        measured["memoryBytes"].as_u64().is_some_and(|m| m > 0),
+        "{measured}"
+    );
+    ensure!(
+        measured["elapsedSeconds"]
+            .as_f64()
+            .is_some_and(|s| s >= 0.0),
+        "{measured}"
+    );
     let processes = measured["processes"].as_array().context("processes")?;
     ensure!(
-        processes.iter().any(|p| p["pid"].as_u64().is_some_and(|pid| pid > 0)
-            && p["parentPid"].as_u64().is_some_and(|pid| pid > 0)),
+        processes
+            .iter()
+            .any(|p| p["pid"].as_u64().is_some_and(|pid| pid > 0)
+                && p["parentPid"].as_u64().is_some_and(|pid| pid > 0)),
         "{measured}"
     );
     let tree = host.plain(&["session", "processes", &id])?;

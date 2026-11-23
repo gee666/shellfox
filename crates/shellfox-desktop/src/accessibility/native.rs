@@ -48,8 +48,14 @@ impl NativeAccessibility {
     /// Present once, only after hidden attachment and Root construction.
     /// Acceptance mode never activates a window or synthesizes focus/input.
     pub(crate) fn system_end_requested(&self) -> bool {
-        #[cfg(windows)] { self.platform.system_end_requested() }
-        #[cfg(not(windows))] { false }
+        #[cfg(windows)]
+        {
+            self.platform.system_end_requested()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
     }
 
     pub fn present_hidden(

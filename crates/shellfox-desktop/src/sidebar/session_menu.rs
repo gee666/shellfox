@@ -1,9 +1,5 @@
 use crate::{
-    peers::source::PeerCycle,
-    dialogs::Dialog,
-    root::Root,
-    theme::Palette,
-    workspace::AfterAction,
+    dialogs::Dialog, peers::source::PeerCycle, root::Root, theme::Palette, workspace::AfterAction,
 };
 use gpui::{
     AnyElement, Context, FocusHandle, KeyDownEvent, Pixels, Point, Window, div, prelude::*, px,
@@ -107,7 +103,8 @@ impl Root {
             return;
         }
         let prior = self
-            .sidebar.session_menu
+            .sidebar
+            .session_menu
             .take()
             .and_then(|menu| menu.prior)
             .or_else(|| window.focused(cx));
@@ -227,7 +224,12 @@ impl Root {
     }
 
     fn run_session_item(&mut self, item: Item, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(target) = self.sidebar.session_menu.as_ref().map(|menu| menu.target.clone()) else {
+        let Some(target) = self
+            .sidebar
+            .session_menu
+            .as_ref()
+            .map(|menu| menu.target.clone())
+        else {
             return;
         };
         let Some(info) = self.menu_session(&target, cx) else {

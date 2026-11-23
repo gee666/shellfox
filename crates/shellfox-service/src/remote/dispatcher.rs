@@ -57,7 +57,9 @@ impl RemoteDispatcher {
     }
     fn needs_facts(&self, service: &Service, request: &shellfox_remote::OwnerRequest) -> bool {
         self.facts.is_some()
-            && super::facts::requires_facts(&request.command, |tab| service.terminals.contains_key(&tab))
+            && super::facts::requires_facts(&request.command, |tab| {
+                service.terminals.contains_key(&tab)
+            })
     }
 }
 impl OwnerDispatcher for RemoteDispatcher {
@@ -79,7 +81,8 @@ impl OwnerDispatcher for RemoteDispatcher {
         // finishes, so later requests that need no facts can answer first, as
         // they could without a close. A full facts queue leaves the rest held.
         while let Some(request) = self.state.next_held(service) {
-            if self.needs_facts(service, &request) && self.facts.as_ref().is_some_and(|f| f.full()) {
+            if self.needs_facts(service, &request) && self.facts.as_ref().is_some_and(|f| f.full())
+            {
                 self.state.unhold(request);
                 break;
             }

@@ -50,21 +50,49 @@ fn delayed_history_activation_does_not_open_a_shell_after_a_new_selection() {
     let mut nav = WindowSelection::new(InitialSelection::Empty);
     assert!(nav.accept_snapshot(&delayed));
     assert!(nav.select_session(&delayed, first));
-    let fence = |nav: &WindowSelection, source| ActivationFence { source, navigation: nav.epoch() };
+    let fence = |nav: &WindowSelection, source| ActivationFence {
+        source,
+        navigation: nav.epoch(),
+    };
     let pending = (first, fence(&nav, 1));
-    assert!(activation_reopens_history(pending, nav.selected().session_id, fence(&nav, 1), &delayed));
-    assert!(!activation_reopens_history(pending, nav.selected().session_id, fence(&nav, 3), &delayed));
+    assert!(activation_reopens_history(
+        pending,
+        nav.selected().session_id,
+        fence(&nav, 1),
+        &delayed
+    ));
+    assert!(!activation_reopens_history(
+        pending,
+        nav.selected().session_id,
+        fence(&nav, 3),
+        &delayed
+    ));
 
     assert!(nav.select_session(&delayed, last.id));
-    assert!(!activation_reopens_history(pending, nav.selected().session_id, fence(&nav, 1), &delayed));
+    assert!(!activation_reopens_history(
+        pending,
+        nav.selected().session_id,
+        fence(&nav, 1),
+        &delayed
+    ));
     // Reading the authoritative catalog is allowed, but its recent selection is not focus.
     assert!(nav.accept_snapshot(&delayed));
     assert_eq!(nav.selected().session_id, Some(last.id));
     assert_eq!(nav.selected().tab_id, Some(last.tabs[0].id));
 
     assert!(nav.select_session(&delayed, first));
-    assert!(!activation_reopens_history(pending, nav.selected().session_id, fence(&nav, 1), &delayed));
-    assert!(activation_reopens_history((first, fence(&nav, 1)), nav.selected().session_id, fence(&nav, 1), &delayed));
+    assert!(!activation_reopens_history(
+        pending,
+        nav.selected().session_id,
+        fence(&nav, 1),
+        &delayed
+    ));
+    assert!(activation_reopens_history(
+        (first, fence(&nav, 1)),
+        nav.selected().session_id,
+        fence(&nav, 1),
+        &delayed
+    ));
 }
 
 #[test]

@@ -12,7 +12,11 @@ pub(super) fn activation_reopens_history(
     current == fence
         && selected == Some(session_id)
         && reply.sessions.iter().any(|session| {
-            session.id == session_id && session.tabs.iter().all(|tab| tab.state == TabState::Archived)
+            session.id == session_id
+                && session
+                    .tabs
+                    .iter()
+                    .all(|tab| tab.state == TabState::Archived)
         })
 }
 #[derive(Clone, Copy)]

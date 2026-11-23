@@ -69,7 +69,15 @@ fn remove_legacy_terminal_homes(directory: &Path) {
 }
 
 const LEGACY_STATE: [&str; 10] = [
-    "home", "config", "data", "cache", "state", "temp", "pi-agent", "pi-sessions", "npm-prefix",
+    "home",
+    "config",
+    "data",
+    "cache",
+    "state",
+    "temp",
+    "pi-agent",
+    "pi-sessions",
+    "npm-prefix",
     "pnpm-home",
 ];
 
@@ -84,8 +92,12 @@ fn prune_legacy_home(path: &Path, depth: usize) -> bool {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let known = match depth {
-            0 | 1 => name.to_str().is_some_and(|name| uuid::Uuid::parse_str(name).is_ok()),
-            2 => name.to_str().is_some_and(|name| LEGACY_STATE.contains(&name)),
+            0 | 1 => name
+                .to_str()
+                .is_some_and(|name| uuid::Uuid::parse_str(name).is_ok()),
+            2 => name
+                .to_str()
+                .is_some_and(|name| LEGACY_STATE.contains(&name)),
             _ => false,
         };
         if known {

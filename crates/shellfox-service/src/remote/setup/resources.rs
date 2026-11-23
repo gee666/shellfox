@@ -141,9 +141,7 @@ impl RemoteHostSetup {
                         return Err(unavailable());
                     }
                     let parent = self.network_parent.as_ref().ok_or_else(unavailable)?;
-                    let child = parent
-                        .private_child(name)
-                        .map_err(|_| unavailable())?;
+                    let child = parent.private_child(name).map_err(|_| unavailable())?;
                     self.network_parent = Some(child);
                 }
                 self.state_attempted = true;

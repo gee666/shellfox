@@ -1,5 +1,5 @@
 //! A v1 view bound to one authenticated tailnet peer through the existing Go helper.
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use shellfox_client::{Client, ClientState, ConnectionStatus};
 use shellfox_protocol::{
     AuthenticatedPeerId, ClientId, Disconnected, Endpoint, GetSnapshot, ManagerSnapshot,
@@ -22,7 +22,10 @@ impl OutboundTransport for Transport {
         limits: RequestLimits,
     ) -> TransportFuture<'a> {
         Box::pin(async move {
-            let response = self.0.outgoing(peer.clone(), endpoint, body, limits).await?;
+            let response = self
+                .0
+                .outgoing(peer.clone(), endpoint, body, limits)
+                .await?;
             if !(200..300).contains(&response.status) {
                 return Err(TransportError::Rejected {
                     status: response.status,
@@ -75,11 +78,16 @@ impl V1Binding {
 
     pub async fn v1_snapshot(&self) -> Result<ManagerSnapshot> {
         let connection = self.state().connection_id;
-        let mut reply = self.v1_reply_with_connection(connection, &GetSnapshot {}).await?;
+        let mut reply = self
+            .v1_reply_with_connection(connection, &GetSnapshot {})
+            .await?;
         // A publication or exit can invalidate an in-flight catalog read.
         // Refresh once, only on the same view. Mutations are never retried.
-        if matches!(&reply, Reply::Failure(error) if error.code == shellfox_protocol::ErrorCode::TargetLost) {
-            reply = self.v1_reply_with_connection(connection, &GetSnapshot {}).await?;
+        if matches!(&reply, Reply::Failure(error) if error.code == shellfox_protocol::ErrorCode::TargetLost)
+        {
+            reply = self
+                .v1_reply_with_connection(connection, &GetSnapshot {})
+                .await?;
         }
         value(reply)
     }
@@ -130,11 +138,7 @@ impl super::HostClient {
     /// Creates an unpaired view. Keep it for subsequent calls to the same peer.
     pub fn peer_v1(&self, peer: AuthenticatedPeerId) -> V1Binding {
         let changes = Arc::new(tokio::sync::watch::channel(0u64).0);
-        let client = Client::new(
-            peer,
-            ClientId::new_v4(),
-            Transport(self.port.clone()),
-        );
+        let client = Client::new(peer, ClientId::new_v4(), Transport(self.port.clone()));
         let wake = changes.clone();
         client.set_state_waker(Some(Arc::new(move || {
             wake.send_modify(|count| *count = count.wrapping_add(1));

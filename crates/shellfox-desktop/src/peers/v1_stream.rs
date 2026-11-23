@@ -1,5 +1,5 @@
 use super::*;
-use crate::{terminal::TerminalView, host_client::peer_v1::V1Binding};
+use crate::{host_client::peer_v1::V1Binding, terminal::TerminalView};
 use shellfox_client::ConnectionStatus;
 use shellfox_protocol::{HostEvent, TerminalEvent};
 use std::{sync::Arc, time::Duration};
@@ -11,7 +11,11 @@ impl Root {
 
     /// The selected peer tab has no view and its last open didn't fail.
     pub(crate) fn peer_attach_due(&self) -> bool {
-        if self.is_local_source() || self.peer_ui.frozen || self.close.closing || self.host.is_none() {
+        if self.is_local_source()
+            || self.peer_ui.frozen
+            || self.close.closing
+            || self.host.is_none()
+        {
             return false;
         }
         let Some((peer, state)) = self.peers.selected_peer() else {
@@ -65,13 +69,7 @@ impl Root {
         let frontend_replies = legacy.is_some();
         let binding = legacy.map_or_else(|| host.shared_peer_v1(peer), Ok);
         let result = binding.and_then(|binding| {
-            let view = TerminalView::open_peer(
-                binding.clone(),
-                tab,
-                frontend_replies,
-                window,
-                cx,
-            )?;
+            let view = TerminalView::open_peer(binding.clone(), tab, frontend_replies, window, cx)?;
             Ok((binding, view))
         });
         match result {
@@ -79,11 +77,22 @@ impl Root {
                 self.start_v1_stream(key.0.clone(), binding, window, cx);
                 view.update(cx, |view, _| view.enable_file_links());
                 let link_key = key.clone();
-                cx.subscribe_in(&view, window, move |root, emitter, event: &crate::terminal::TerminalFileLink, window, cx| {
-                    if root.peer_ui.v1_views.get(&link_key) == Some(emitter) {
-                        root.open_peer_terminal_file_link(&link_key.0, link_key.1, event, window, cx);
-                    }
-                }).detach();
+                cx.subscribe_in(
+                    &view,
+                    window,
+                    move |root, emitter, event: &crate::terminal::TerminalFileLink, window, cx| {
+                        if root.peer_ui.v1_views.get(&link_key) == Some(emitter) {
+                            root.open_peer_terminal_file_link(
+                                &link_key.0,
+                                link_key.1,
+                                event,
+                                window,
+                                cx,
+                            );
+                        }
+                    },
+                )
+                .detach();
                 self.peer_ui.v1_views.insert(key, view);
                 self.apply_terminal_preferences(window, cx);
             }
@@ -118,11 +127,9 @@ impl Root {
                         }
                         let unfrozen = wake.notified();
                         let Ok((frozen, attaching)) = root.update_in(cx, |root, _, cx| {
-                            let attaching = root
-                                .peer_ui
-                                .v1_views
-                                .iter()
-                                .any(|((id, _), view)| id == &peer && view.read(cx).peer_attaching());
+                            let attaching = root.peer_ui.v1_views.iter().any(|((id, _), view)| {
+                                id == &peer && view.read(cx).peer_attaching()
+                            });
                             (root.peer_ui.frozen, attaching)
                         }) else {
                             break;
@@ -153,7 +160,9 @@ impl Root {
                                     continue;
                                 }
                                 // Any Changed event bumps the catalog; the sidebar re-reads it.
-                                let changed = std::mem::replace(&mut catalog, binding.state().catalog) != catalog;
+                                let changed =
+                                    std::mem::replace(&mut catalog, binding.state().catalog)
+                                        != catalog;
                                 if root
                                     .update_in(cx, |root, _, cx| {
                                         root.deliver_v1_events(&peer, connection, poll.events, cx);

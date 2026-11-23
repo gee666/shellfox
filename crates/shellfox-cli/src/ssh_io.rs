@@ -1,7 +1,4 @@
-use super::{
-    session::ConnectionError,
-    terminal::Terminal,
-};
+use super::{session::ConnectionError, terminal::Terminal};
 use crate::keys::{Encoded, Encoder};
 use anyhow::Result;
 use russh::{client, Channel, ChannelMsg, Sig};
@@ -44,7 +41,10 @@ fn redirected_input() -> Result<mpsc::Receiver<io::Result<Vec<u8>>>> {
 struct Mirror(Mutex<Encoder>);
 impl Mirror {
     fn with<T>(&self, f: impl FnOnce(&mut Encoder) -> Result<T>) -> Result<T> {
-        f(&mut *self.0.lock().map_err(|_| anyhow::anyhow!("terminal state lock poisoned"))?)
+        f(&mut *self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("terminal state lock poisoned"))?)
     }
 }
 pub(super) async fn exchange(channel: Channel<client::Msg>, terminal: &Terminal) -> Result<i32> {

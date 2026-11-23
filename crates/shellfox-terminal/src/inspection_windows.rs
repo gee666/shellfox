@@ -248,7 +248,10 @@ fn inaccessible(identity: RawProcessIdentity, is_root: bool) -> RawProcessEviden
 }
 
 /// Parent PID, working set and start time, read through the held query handle only.
-fn measure(handle: HANDLE, identity: RawProcessIdentity) -> (Option<u32>, Option<u64>, Option<u64>) {
+fn measure(
+    handle: HANDLE,
+    identity: RawProcessIdentity,
+) -> (Option<u32>, Option<u64>, Option<u64>) {
     #[repr(C)]
     struct BasicInformation {
         exit_status: i32,
@@ -260,12 +263,24 @@ fn measure(handle: HANDLE, identity: RawProcessIdentity) -> (Option<u32>, Option
     }
     #[link(name = "ntdll")]
     unsafe extern "system" {
-        fn NtQueryInformationProcess(process: HANDLE, class: u32, info: *mut std::ffi::c_void, size: u32, returned: *mut u32) -> i32;
+        fn NtQueryInformationProcess(
+            process: HANDLE,
+            class: u32,
+            info: *mut std::ffi::c_void,
+            size: u32,
+            returned: *mut u32,
+        ) -> i32;
     }
     let mut basic: BasicInformation = unsafe { mem::zeroed() };
     // SAFETY: class 0 (ProcessBasicInformation) fills exactly this struct on a query handle.
     let parent = (unsafe {
-        NtQueryInformationProcess(handle, 0, (&mut basic as *mut BasicInformation).cast(), mem::size_of::<BasicInformation>() as u32, ptr::null_mut())
+        NtQueryInformationProcess(
+            handle,
+            0,
+            (&mut basic as *mut BasicInformation).cast(),
+            mem::size_of::<BasicInformation>() as u32,
+            ptr::null_mut(),
+        )
     } >= 0)
         .then(|| u32::try_from(basic.parent).ok())
         .flatten();
@@ -275,7 +290,10 @@ fn measure(handle: HANDLE, identity: RawProcessIdentity) -> (Option<u32>, Option
     let memory = (unsafe { K32GetProcessMemoryInfo(handle, &mut counters, counters.cb) } != 0)
         .then_some(counters.WorkingSetSize as u64);
     // FILETIME counts 100 ns from 1601; the Unix epoch is 11644473600 s later.
-    let started = identity.birth.checked_sub(116_444_736_000_000_000).map(|t| t / 10_000);
+    let started = identity
+        .birth
+        .checked_sub(116_444_736_000_000_000)
+        .map(|t| t / 10_000);
     (parent, memory, started)
 }
 fn row(
@@ -334,7 +352,10 @@ mod tests {
         let identity = process_identity(handle.as_raw_handle().cast()).unwrap();
         let (parent, memory, started) = measure(handle.as_raw_handle().cast(), identity);
         assert!(parent.is_some_and(|p| p > 0) && memory.is_some_and(|m| m > 0));
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
         assert!(started.is_some_and(|s| s <= now + 1000 && s + 3_600_000 > now));
     }
     #[test]

@@ -182,7 +182,9 @@ impl OwnerActivity {
         }
     }
     pub(crate) fn watched_sessions(&self) -> impl Iterator<Item = shellfox_core::SessionId> + '_ {
-        self.terminals.values().map(|watch| watch.identity.session_id)
+        self.terminals
+            .values()
+            .map(|watch| watch.identity.session_id)
     }
 
     pub fn set_visible_sessions(

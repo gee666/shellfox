@@ -61,7 +61,11 @@ fn windows_user_block() -> Result<Vec<(OsString, OsString)>> {
             &mut token,
         )
     };
-    ensure!(opened != 0, "open the user token: {}", std::io::Error::last_os_error());
+    ensure!(
+        opened != 0,
+        "open the user token: {}",
+        std::io::Error::last_os_error()
+    );
     let mut block = std::ptr::null_mut();
     // SAFETY: `token` is open; bInherit = FALSE ignores this process's variables.
     let created = unsafe { CreateEnvironmentBlock(&mut block, token, 0) };
@@ -128,7 +132,10 @@ fn compose_for(
     let configured = layers.configured.unwrap_or(&empty);
     let host_paths = layers.host_paths.unwrap_or(&empty);
     let marker = layers.marker;
-    let mut env = Env { windows, entries: Vec::new() };
+    let mut env = Env {
+        windows,
+        entries: Vec::new(),
+    };
     for (key, value) in base {
         if !internal(&key) {
             env.set(key, value);
@@ -148,7 +155,10 @@ fn compose_for(
         env.set(key, value.clone());
     }
     if let Some(bin) = layers.cli_bin {
-        let key = env.key(OsStr::new("PATH")).cloned().unwrap_or_else(|| "PATH".into());
+        let key = env
+            .key(OsStr::new("PATH"))
+            .cloned()
+            .unwrap_or_else(|| "PATH".into());
         let mut path = bin.as_os_str().to_owned();
         if let Some(rest) = env.get("PATH") {
             path.push(if windows { ";" } else { ":" });
@@ -198,7 +208,10 @@ fn compose_for(
             .map(str::to_owned)
             .collect();
         entries.extend(transfer.iter().map(|name| flagged(name)));
-        let key = env.key(OsStr::new("WSLENV")).cloned().unwrap_or_else(|| "WSLENV".into());
+        let key = env
+            .key(OsStr::new("WSLENV"))
+            .cloned()
+            .unwrap_or_else(|| "WSLENV".into());
         env.set(key, entries.join(":").into());
     }
     env.entries
@@ -266,10 +279,15 @@ mod tests {
     use super::*;
 
     fn map(entries: &[(&str, &str)]) -> BTreeMap<OsString, OsString> {
-        entries.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect()
+        entries
+            .iter()
+            .map(|(k, v)| ((*k).into(), (*v).into()))
+            .collect()
     }
     fn get<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a str> {
-        env.iter().find(|(k, _)| k == name).map(|(_, v)| v.to_str().unwrap())
+        env.iter()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.to_str().unwrap())
     }
     fn layered(
         windows: bool,
@@ -277,11 +295,18 @@ mod tests {
         configured: &BTreeMap<OsString, OsString>,
         marker: Option<&str>,
     ) -> Vec<(OsString, OsString)> {
-        let layers = Layers { configured: Some(configured), marker, ..Default::default() };
+        let layers = Layers {
+            configured: Some(configured),
+            marker,
+            ..Default::default()
+        };
         compose_for(windows, base, layers)
     }
     fn base(entries: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
-        entries.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect()
+        entries
+            .iter()
+            .map(|(k, v)| ((*k).into(), (*v).into()))
+            .collect()
     }
 
     #[test]
@@ -291,14 +316,24 @@ mod tests {
             base(&[
                 ("Path", r"C:\Windows"),
                 ("USERPROFILE", r"C:\Users\me"),
-                ("PSModulePath", r"C:\Program Files\WindowsPowerShell\Modules"),
+                (
+                    "PSModulePath",
+                    r"C:\Program Files\WindowsPowerShell\Modules",
+                ),
                 ("TERM", "dumb"),
             ]),
-            &map(&[("PATH", r"C:\tools;C:\Windows"), ("NODE_OPTIONS", "--x"), ("term", "vt100")]),
+            &map(&[
+                ("PATH", r"C:\tools;C:\Windows"),
+                ("NODE_OPTIONS", "--x"),
+                ("term", "vt100"),
+            ]),
             None,
         );
         assert_eq!(get(&env, "USERPROFILE"), Some(r"C:\Users\me"));
-        assert_eq!(get(&env, "PSModulePath"), Some(r"C:\Program Files\WindowsPowerShell\Modules"));
+        assert_eq!(
+            get(&env, "PSModulePath"),
+            Some(r"C:\Program Files\WindowsPowerShell\Modules")
+        );
         // Case variants are one Windows variable; the configured spelling wins.
         assert_eq!(get(&env, "PATH"), Some(r"C:\tools;C:\Windows"));
         assert_eq!(get(&env, "Path"), None);
@@ -336,7 +371,10 @@ mod tests {
         );
         assert_eq!(get(&env, "HOME"), Some("/home/me"));
         assert_eq!(get(&env, "DISPLAY"), Some(":0"));
-        assert_eq!(get(&env, MARKER), Some("12345678-1234-4234-8234-123456789abc"));
+        assert_eq!(
+            get(&env, MARKER),
+            Some("12345678-1234-4234-8234-123456789abc")
+        );
         assert_eq!(get(&env, "SHELLFOX_SUPERVISOR_TOKEN"), None);
         assert_eq!(get(&env, "ELECTRON_RUN_AS_NODE"), None);
         // Unix names are case-sensitive and there is no WSLENV.
@@ -347,7 +385,10 @@ mod tests {
     fn wslenv_lists_shellfox_values_once_and_keeps_user_entries() {
         let env = layered(
             true,
-            base(&[("WSLENV", "KEEP/p:shellfox_terminal_marker/w:TERM/l::USERPROFILE/pu")]),
+            base(&[(
+                "WSLENV",
+                "KEEP/p:shellfox_terminal_marker/w:TERM/l::USERPROFILE/pu",
+            )]),
             &map(&[("Custom", "1")]),
             Some("m"),
         );
@@ -372,9 +413,19 @@ mod tests {
             marker,
             host_paths: Some(&host),
         };
-        let env = compose_for(true, base(&[("Path", r"C:Windows"), ("WSLENV", "A")]), layers(Some("m")));
-        assert_eq!(get(&env, "Path"), Some(r"C:UsersmeAppDataLocalShellfoxin;C:Windows"));
-        assert_eq!(get(&env, "SHELLFOX_USER_DATA"), Some(r"C:UsersmeAppDataRoamingShellfox"));
+        let env = compose_for(
+            true,
+            base(&[("Path", r"C:Windows"), ("WSLENV", "A")]),
+            layers(Some("m")),
+        );
+        assert_eq!(
+            get(&env, "Path"),
+            Some(r"C:UsersmeAppDataLocalShellfoxin;C:Windows")
+        );
+        assert_eq!(
+            get(&env, "SHELLFOX_USER_DATA"),
+            Some(r"C:UsersmeAppDataRoamingShellfox")
+        );
         assert_eq!(
             get(&env, "WSLENV"),
             Some("A:TERM:COLORTERM:FORCE_HYPERLINK:PI_HYPERLINKS:Custom:SHELLFOX_TERMINAL_MARKER:SHELLFOX_USER_DATA/p")
@@ -382,7 +433,10 @@ mod tests {
         let unix = compose_for(
             false,
             base(&[("PATH", "/usr/bin"), ("SHELLFOX_USER_DATA", "/stale")]),
-            Layers { cli_bin: Some(Path::new("/home/me/.local/bin")), ..Default::default() },
+            Layers {
+                cli_bin: Some(Path::new("/home/me/.local/bin")),
+                ..Default::default()
+            },
         );
         assert_eq!(get(&unix, "PATH"), Some("/home/me/.local/bin:/usr/bin"));
         assert_eq!(get(&unix, "SHELLFOX_USER_DATA"), None);
@@ -411,19 +465,37 @@ mod tests {
             Layers::default(),
         );
         let names: Vec<_> = env.iter().map(|(k, _)| k.to_str().unwrap()).collect();
-        assert_eq!(names, ["LANG", "TERM", "COLORTERM", "FORCE_HYPERLINK", "PI_HYPERLINKS"]);
+        assert_eq!(
+            names,
+            [
+                "LANG",
+                "TERM",
+                "COLORTERM",
+                "FORCE_HYPERLINK",
+                "PI_HYPERLINKS"
+            ]
+        );
     }
 
     #[cfg(windows)]
     #[test]
     fn host_paths_lose_the_verbatim_prefix_so_wslenv_can_translate_them() {
         let host = map(&[
-            ("SHELLFOX_USER_DATA", r"\\?\C:\Users\me\AppData\Roaming\Shellfox"),
+            (
+                "SHELLFOX_USER_DATA",
+                r"\\?\C:\Users\me\AppData\Roaming\Shellfox",
+            ),
             ("SHARE", r"\\?\UNC\server\share\Shellfox"),
         ]);
-        let layers = Layers { host_paths: Some(&host), ..Default::default() };
+        let layers = Layers {
+            host_paths: Some(&host),
+            ..Default::default()
+        };
         let env = compose_for(true, Vec::new(), layers);
-        assert_eq!(get(&env, "SHELLFOX_USER_DATA"), Some(r"C:\Users\me\AppData\Roaming\Shellfox"));
+        assert_eq!(
+            get(&env, "SHELLFOX_USER_DATA"),
+            Some(r"C:\Users\me\AppData\Roaming\Shellfox")
+        );
         assert_eq!(get(&env, "SHARE"), Some(r"\\server\share\Shellfox"));
     }
 
@@ -441,6 +513,8 @@ mod tests {
         assert!(std::path::Path::new(&profile).is_dir());
         assert!(value("PATH").is_some() && value("SystemRoot").is_some());
         assert!(value("APPDATA").is_some() && value("LOCALAPPDATA").is_some());
-        assert!(block.iter().all(|(k, _)| !k.is_empty() && !k.to_string_lossy().starts_with('=')));
+        assert!(block
+            .iter()
+            .all(|(k, _)| !k.is_empty() && !k.to_string_lossy().starts_with('=')));
     }
 }

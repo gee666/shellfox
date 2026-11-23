@@ -81,20 +81,49 @@ fn navigation_with_modifiers_and_cursor_modes() {
     ];
     for (physical, normal, application, last) in cases {
         assert_eq!(enc(&mut t, &named(physical, NONE)), normal);
-        assert_eq!(enc(&mut t, &named(physical, SHIFT)), format!("\x1b[1;2{last}"));
-        assert_eq!(enc(&mut t, &named(physical, ALT)), format!("\x1b[1;3{last}"));
-        assert_eq!(enc(&mut t, &named(physical, CTRL)), format!("\x1b[1;5{last}"));
-        assert_eq!(enc(&mut t, &named(physical, CTRL | SHIFT)), format!("\x1b[1;6{last}"));
+        assert_eq!(
+            enc(&mut t, &named(physical, SHIFT)),
+            format!("\x1b[1;2{last}")
+        );
+        assert_eq!(
+            enc(&mut t, &named(physical, ALT)),
+            format!("\x1b[1;3{last}")
+        );
+        assert_eq!(
+            enc(&mut t, &named(physical, CTRL)),
+            format!("\x1b[1;5{last}")
+        );
+        assert_eq!(
+            enc(&mut t, &named(physical, CTRL | SHIFT)),
+            format!("\x1b[1;6{last}")
+        );
         t.feed(b"\x1b[?1h").unwrap();
         assert_eq!(enc(&mut t, &named(physical, NONE)), application);
-        assert_eq!(enc(&mut t, &named(physical, CTRL)), format!("\x1b[1;5{last}"));
+        assert_eq!(
+            enc(&mut t, &named(physical, CTRL)),
+            format!("\x1b[1;5{last}")
+        );
         t.feed(b"\x1b[?1l").unwrap();
     }
-    for (physical, code) in [(P::Insert, 2), (P::Delete, 3), (P::PageUp, 5), (P::PageDown, 6)] {
+    for (physical, code) in [
+        (P::Insert, 2),
+        (P::Delete, 3),
+        (P::PageUp, 5),
+        (P::PageDown, 6),
+    ] {
         assert_eq!(enc(&mut t, &named(physical, NONE)), format!("\x1b[{code}~"));
-        assert_eq!(enc(&mut t, &named(physical, SHIFT)), format!("\x1b[{code};2~"));
-        assert_eq!(enc(&mut t, &named(physical, CTRL)), format!("\x1b[{code};5~"));
-        assert_eq!(enc(&mut t, &named(physical, CTRL | ALT)), format!("\x1b[{code};7~"));
+        assert_eq!(
+            enc(&mut t, &named(physical, SHIFT)),
+            format!("\x1b[{code};2~")
+        );
+        assert_eq!(
+            enc(&mut t, &named(physical, CTRL)),
+            format!("\x1b[{code};5~")
+        );
+        assert_eq!(
+            enc(&mut t, &named(physical, CTRL | ALT)),
+            format!("\x1b[{code};7~")
+        );
     }
 }
 
@@ -112,7 +141,16 @@ fn function_keys_with_modifiers() {
         assert_eq!(enc(&mut t, &named(f(n), SHIFT)), modified(2));
         assert_eq!(enc(&mut t, &named(f(n), CTRL)), modified(5));
     }
-    for (n, code) in [(5, 15), (6, 17), (7, 18), (8, 19), (9, 20), (10, 21), (11, 23), (12, 24)] {
+    for (n, code) in [
+        (5, 15),
+        (6, 17),
+        (7, 18),
+        (8, 19),
+        (9, 20),
+        (10, 21),
+        (11, 23),
+        (12, 24),
+    ] {
         assert_eq!(enc(&mut t, &named(f(n), NONE)), format!("\x1b[{code}~"));
         assert_eq!(enc(&mut t, &named(f(n), SHIFT)), format!("\x1b[{code};2~"));
         assert_eq!(enc(&mut t, &named(f(n), ALT)), format!("\x1b[{code};3~"));
@@ -126,7 +164,10 @@ fn keypad_application_mode() {
     assert_eq!(enc(&mut t, &key(P::Numpad5, NONE, "5", Some('5'))), "5");
     // DECKPAM only applies when the app also turns off mode 1035.
     t.feed(b"\x1b=\x1b[?1035l").unwrap();
-    assert_eq!(enc(&mut t, &key(P::Numpad5, NONE, "5", Some('5'))), "\x1bOu");
+    assert_eq!(
+        enc(&mut t, &key(P::Numpad5, NONE, "5", Some('5'))),
+        "\x1bOu"
+    );
     assert_eq!(enc(&mut t, &named(P::NumpadEnter, NONE)), "\x1bOM");
 }
 
@@ -143,7 +184,10 @@ fn kitty_keyboard_protocol_follows_the_application() {
     assert_eq!(enc(&mut t, &KeyEvent::text("日本")), "日本");
     // Report event types (flag 2): releases are sent.
     t.feed(b"\x1b[>3u").unwrap();
-    assert_eq!(enc(&mut t, &named(P::Escape, NONE).release()), "\x1b[27;1:3u");
+    assert_eq!(
+        enc(&mut t, &named(P::Escape, NONE).release()),
+        "\x1b[27;1:3u"
+    );
     // Popping the flags restores legacy encoding.
     t.feed(b"\x1b[<u\x1b[<u").unwrap();
     assert_eq!(enc(&mut t, &named(P::Escape, NONE)), "\x1b");
@@ -181,7 +225,10 @@ fn serde_round_trip_and_invalid_text() {
     let json = serde_json::to_string(&event).unwrap();
     assert_eq!(serde_json::from_str::<KeyEvent>(&json).unwrap(), event);
     assert!(json.contains("\"unshiftedCodepoint\":97"), "{json}");
-    assert!(serde_json::from_str::<KeyEvent>(&json.replace("\"physical\":20", "\"physical\":999")).is_err());
+    assert!(
+        serde_json::from_str::<KeyEvent>(&json.replace("\"physical\":20", "\"physical\":999"))
+            .is_err()
+    );
     assert!(serde_json::from_str::<KeyEvent>(&json.replace(":97", ":0")).is_err());
     let mut t = Terminal::new(80, 24).unwrap();
     assert!(KeyEvent::text("\x1b[A").validate().is_err());

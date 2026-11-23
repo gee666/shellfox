@@ -50,9 +50,9 @@ impl Owner {
             action,
         )?;
         if let Some(focused) = focus {
-            if let Some(bytes) = self
-                .presentations
-                .focus_report(&mut self.terminal, view, focused)?
+            if let Some(bytes) =
+                self.presentations
+                    .focus_report(&mut self.terminal, view, focused)?
             {
                 self.write(&bytes)?;
             }

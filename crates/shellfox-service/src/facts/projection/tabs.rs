@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    activity::{Health, RootState},
     activity::integration::{StartupEvidence, TerminalSourceFacts},
+    activity::{Health, RootState},
 };
 use shellfox_remote::adapter::{ObservationFacts, TabFacts};
 use shellfox_runtime::Phase;
@@ -92,7 +92,10 @@ fn runtime_state(
                 "Startup outcome is pending; phase alone cannot prove launch success or failure.",
             )),
         },
-        StartupEvidence::Failed { sanitized_error, acknowledged } => {
+        StartupEvidence::Failed {
+            sanitized_error,
+            acknowledged,
+        } => {
             if runtime.phase == Phase::Active {
                 return Err(unavailable(
                     "Active phase contradicts actual failed-start evidence.",
@@ -168,12 +171,20 @@ mod acknowledgement_tests {
     #[test]
     fn clearing_a_failed_launch_hides_error_without_claiming_start_or_cleanup() {
         let mut facts = TerminalSourceFacts {
-            identity: shellfox_runtime::Identity { session_id: Default::default(), tab_id: Default::default(), generation: Default::default() },
+            identity: shellfox_runtime::Identity {
+                session_id: Default::default(),
+                tab_id: Default::default(),
+                generation: Default::default(),
+            },
             phase: Phase::Draining,
             source_kind: None,
             automation_exit_code: None,
             startup: StartupEvidence::Failed {
-                sanitized_error: AppError { code: wire::ErrorCode::LaunchFailed, message: "Owned terminal startup failed.".into(), retryable: true },
+                sanitized_error: AppError {
+                    code: wire::ErrorCode::LaunchFailed,
+                    message: "Owned terminal startup failed.".into(),
+                    retryable: true,
+                },
                 acknowledged: false,
             },
             observation: None,
@@ -183,7 +194,9 @@ mod acknowledgement_tests {
         let (phase, _, before) = runtime_state(&facts).unwrap();
         assert!(matches!(phase, wire::TabLifecycle::LaunchUncertain));
         assert!(before.is_some());
-        if let StartupEvidence::Failed { acknowledged, .. } = &mut facts.startup { *acknowledged = true; }
+        if let StartupEvidence::Failed { acknowledged, .. } = &mut facts.startup {
+            *acknowledged = true;
+        }
         let (phase, _, after) = runtime_state(&facts).unwrap();
         assert!(matches!(phase, wire::TabLifecycle::LaunchUncertain));
         assert!(after.is_none());

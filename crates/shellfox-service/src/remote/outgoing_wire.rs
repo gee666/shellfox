@@ -1,7 +1,7 @@
 //! Closed PRIVATE Host IPC DTOs; the peer Manager protocol remains unchanged.
 use super::outgoing::{self, PeerResponse};
-use shellfox_protocol::Endpoint;
 use serde::{Deserialize, Serialize};
+use shellfox_protocol::Endpoint;
 use shellfox_protocol::{AuthenticatedPeerId, RequestLimits, TransportError};
 use std::time::{Duration, Instant};
 pub(crate) const METHOD: &str = "private.peer.v1";
@@ -45,15 +45,7 @@ impl Request {
     pub fn into_parts(
         self,
         cancel: shellfox_protocol::CancellationToken,
-    ) -> Result<
-        (
-            AuthenticatedPeerId,
-            Endpoint,
-            Vec<u8>,
-            RequestLimits,
-        ),
-        TransportError,
-    > {
+    ) -> Result<(AuthenticatedPeerId, Endpoint, Vec<u8>, RequestLimits), TransportError> {
         self.check()?;
         let body = decode(&self.chunks, shellfox_protocol::MAX_REQUEST_BYTES)?;
         let limits = RequestLimits {
@@ -103,10 +95,7 @@ impl Response {
         Ok(response)
     }
 }
-pub(crate) fn check_response(
-    response: &PeerResponse,
-    limit: usize,
-) -> Result<(), TransportError> {
+pub(crate) fn check_response(response: &PeerResponse, limit: usize) -> Result<(), TransportError> {
     if !(200..=599).contains(&response.status) {
         return Err(TransportError::InvalidResponse);
     }

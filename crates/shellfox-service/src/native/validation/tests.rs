@@ -28,11 +28,11 @@ fn admission_rejects_large_or_invalid_input_before_queueing() {
         .validate()
         .is_err());
     assert!(action(NativeCommand::Key(KeyEvent::text("\0")))
-    .validate()
-    .is_err());
+        .validate()
+        .is_err());
     assert!(action(NativeCommand::Key(KeyEvent::text("é🦊")))
-    .validate()
-    .is_ok());
+        .validate()
+        .is_ok());
     assert!(action(NativeCommand::Resize { cols: 0, rows: 24 })
         .validate()
         .is_err());

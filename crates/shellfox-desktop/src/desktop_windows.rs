@@ -12,10 +12,15 @@ use gpui::{App, Bounds, WindowBounds, WindowHandle, WindowOptions, prelude::*, p
 mod backdrop;
 
 pub(crate) const WINDOW_TITLE: &str = concat!("Shellfox v", env!("SHELLFOX_VERSION"));
-pub(crate) const ATTACHED_WINDOW_TITLE: &str = concat!("Shellfox v", env!("SHELLFOX_VERSION"), " · host client");
+pub(crate) const ATTACHED_WINDOW_TITLE: &str =
+    concat!("Shellfox v", env!("SHELLFOX_VERSION"), " · host client");
 
 pub(crate) fn caption(cx: &App) -> &'static str {
-    if crate::app_host::adapter::get(cx).is_some_and(|host| host.is_external()) { ATTACHED_WINDOW_TITLE } else { WINDOW_TITLE }
+    if crate::app_host::adapter::get(cx).is_some_and(|host| host.is_external()) {
+        ATTACHED_WINDOW_TITLE
+    } else {
+        WINDOW_TITLE
+    }
 }
 
 pub(crate) fn bootstrap(options: Options, initial: InitialSelection, trace: bool, cx: &mut App) {
@@ -74,7 +79,8 @@ pub(crate) fn open(
         },
         cx,
     );
-    let (window_options, tracker) = crate::desktop_geometry::WindowHistory::restore(cx,
+    let (window_options, tracker) = crate::desktop_geometry::WindowHistory::restore(
+        cx,
         WindowOptions {
             titlebar: Some(gpui::TitlebarOptions {
                 title: Some(caption.into()),
@@ -123,7 +129,9 @@ pub(crate) fn open(
                     window.remove_window();
                 }
             } else {
-                match shown.update(cx, |root, cx| root.present_hidden(window, &presentation, cx)) {
+                match shown.update(cx, |root, cx| {
+                    root.present_hidden(window, &presentation, cx)
+                }) {
                     Ok(()) => shown.update(cx, |root, cx| root.start_services(window, cx)),
                     Err(error) => {
                         eprintln!("Native window setup failed: {error}");

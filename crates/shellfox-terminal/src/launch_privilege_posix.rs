@@ -24,8 +24,8 @@ pub(crate) fn capture(
         "original POSIX controller exited"
     );
     let current = unsafe { libc::getuid() };
-    let certified = mode == crate::UnixPrivilegeMode::NonElevating
-        && facts.is_non_elevating_account(current);
+    let certified =
+        mode == crate::UnixPrivilegeMode::NonElevating && facts.is_non_elevating_account(current);
     ensure!(
         mode != crate::UnixPrivilegeMode::NonElevating || certified,
         "non-elevating POSIX launch did not establish same-account capability-free no_new_privs"

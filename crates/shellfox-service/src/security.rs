@@ -138,8 +138,13 @@ impl PrivateDirectory {
     }
     pub async fn prepare_owned_layout(&self, verifier: &PermissionVerifier) -> Result<()> {
         self.root.create_child(ENDPOINT_DIRECTORY)?;
-        self.check(&self.root.path().join(ENDPOINT_DIRECTORY), true, false, verifier)
-            .await?;
+        self.check(
+            &self.root.path().join(ENDPOINT_DIRECTORY),
+            true,
+            false,
+            verifier,
+        )
+        .await?;
         self.protect_artifacts(verifier).await
     }
     pub async fn protect_artifacts(&self, verifier: &PermissionVerifier) -> Result<()> {
@@ -156,10 +161,7 @@ impl PrivateDirectory {
             self.check(&entry.path(), directory, !directory, verifier)
                 .await
                 .with_context(|| {
-                    format!(
-                        "Unsafe private data artifact: {}",
-                        name.to_string_lossy()
-                    )
+                    format!("Unsafe private data artifact: {}", name.to_string_lossy())
                 })?;
         }
         Ok(())

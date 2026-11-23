@@ -26,7 +26,10 @@ impl Scratch {
             .as_nanos();
         let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp");
         fs::create_dir_all(&base).unwrap();
-        let dir = base.join(format!("macpty-{:x}-{stamp:x}-{sequence:x}", std::process::id()));
+        let dir = base.join(format!(
+            "macpty-{:x}-{stamp:x}-{sequence:x}",
+            std::process::id()
+        ));
         fs::create_dir(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         Self(dir.canonicalize().unwrap())
@@ -225,7 +228,10 @@ fn rejects_set_id_executable_before_spawn() {
 #[test]
 fn stats_capture_sees_the_shell_and_its_child_in_its_own_session_only() {
     let scratch = Scratch::new();
-    let config = scratch.config(Path::new("/bin/sh"), &["-c", "sleep 30 & printf 'KIDS\n'; wait"]);
+    let config = scratch.config(
+        Path::new("/bin/sh"),
+        &["-c", "sleep 30 & printf 'KIDS\n'; wait"],
+    );
     let mut session = PtySession::spawn(config).unwrap();
     let mut data = Vec::new();
     until(|| {
@@ -243,9 +249,18 @@ fn stats_capture_sees_the_shell_and_its_child_in_its_own_session_only() {
     assert!(evidence.root_alive);
     let root = evidence.processes.iter().find(|p| p.is_root).unwrap();
     assert!(root.memory_bytes.is_some_and(|m| m > 0) && root.started_ms.is_some());
-    assert!(evidence.processes.iter().any(|p| p.parent_pid == Some(root.identity.pid)));
-    assert!(evidence.processes.iter().all(|p| p.identity.pid != outsider.id()));
-    assert!(evidence.processes.iter().all(|p| p.executable.is_none() && p.argv.is_none()));
+    assert!(evidence
+        .processes
+        .iter()
+        .any(|p| p.parent_pid == Some(root.identity.pid)));
+    assert!(evidence
+        .processes
+        .iter()
+        .all(|p| p.identity.pid != outsider.id()));
+    assert!(evidence
+        .processes
+        .iter()
+        .all(|p| p.executable.is_none() && p.argv.is_none()));
     let _ = outsider.kill();
     let _ = outsider.wait();
     session.shutdown().unwrap();

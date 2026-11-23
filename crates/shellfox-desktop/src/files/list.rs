@@ -82,7 +82,8 @@ impl Root {
 
     pub(crate) fn confirm_missing_file_folder(&mut self, cx: &mut Context<Self>) {
         let Some(path) = self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .and_then(|files| files.missing_folder.clone())
         else {

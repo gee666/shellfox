@@ -57,14 +57,23 @@ impl Options {
         while let Some(arg) = args.next() {
             if app_composition::ApplicationArguments::is_flag(&arg) {
                 let value = args.next().context("Application flag requires a value")?;
-                application.push(arg.to_str().context("Application flag must be UTF-8")?, value.clone())?;
+                application.push(
+                    arg.to_str().context("Application flag must be UTF-8")?,
+                    value.clone(),
+                )?;
                 application_args.extend([arg.clone(), value.clone()]);
                 relaunch_args.extend([arg, value]);
                 continue;
             }
             if matches!(
                 arg.to_str(),
-                Some("--helper" | "--helper-sha256" | "--device-config-root" | "--desktop-dir" | "--data-dir")
+                Some(
+                    "--helper"
+                        | "--helper-sha256"
+                        | "--device-config-root"
+                        | "--desktop-dir"
+                        | "--data-dir"
+                )
             ) && let Some(value) = args.peek()
             {
                 relaunch_args.extend([arg.clone(), value.clone()]);
@@ -153,9 +162,7 @@ impl Options {
                             .context("--data-dir requires an absolute directory")?,
                     ))
                 }
-                _ => bail!(
-                    "usage: shellfox [--data-dir PATH] [--fixture|--shell|--smoke]"
-                ),
+                _ => bail!("usage: shellfox [--data-dir PATH] [--fixture|--shell|--smoke]"),
             }
         }
         let root = match data_dir {
@@ -200,9 +207,17 @@ impl Options {
                     helper_sha256,
                 })
             }
-            (None, None) if mode == Mode::Shell && !cfg!(test) && shellfox_service::app_paths::is_packaged() => {
+            (None, None)
+                if mode == Mode::Shell
+                    && !cfg!(test)
+                    && shellfox_service::app_paths::is_packaged() =>
+            {
                 let (helper, helper_sha256) = shellfox_service::app_paths::packaged_helper()?;
-                Some(crate::host_client::HostEndpointConfig { data_dir: root.clone(), helper, helper_sha256 })
+                Some(crate::host_client::HostEndpointConfig {
+                    data_dir: root.clone(),
+                    helper,
+                    helper_sha256,
+                })
             }
             (None, None) => None,
             _ => bail!("--helper and --helper-sha256 must be supplied together"),
@@ -291,7 +306,10 @@ mod tests {
     #[test]
     fn default_uses_the_rust_root_and_overrides_must_be_absolute() {
         let options = Options::parse([]).unwrap();
-        assert_eq!(options.data_dir, shellfox_service::app_paths::default_data_root().unwrap());
+        assert_eq!(
+            options.data_dir,
+            shellfox_service::app_paths::default_data_root().unwrap()
+        );
         assert!(Options::parse(["--data-dir".into(), "relative".into()]).is_err());
         assert!(Options::parse(["--unknown".into()]).is_err());
     }

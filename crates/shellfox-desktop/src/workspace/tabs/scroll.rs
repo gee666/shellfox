@@ -1,7 +1,7 @@
 use super::reorder::{TabDrag, TabStrip};
 use gpui::{Bounds, Div, Pixels, Point, ScrollHandle, Stateful, Window, div, prelude::*, px};
-use shellfox_host::{SessionId, TabId};
 use shellfox_core::TerminalIdentity;
+use shellfox_host::{SessionId, TabId};
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
@@ -52,15 +52,27 @@ impl TabScroll {
     }
 
     pub(super) fn control_focus(&self, key: TabFocus, cx: &gpui::App) -> gpui::FocusHandle {
-        self.focus_handles.borrow_mut().entry(key)
-            .or_insert_with(|| cx.focus_handle().tab_index(0)).clone()
+        self.focus_handles
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(|| cx.focus_handle().tab_index(0))
+            .clone()
     }
 
     pub(super) fn controls(&self) -> Vec<TabFocus> {
-        self.focus_handles.borrow().keys().copied().filter(|key| !matches!(key, TabFocus::Label(_))).collect()
+        self.focus_handles
+            .borrow()
+            .keys()
+            .copied()
+            .filter(|key| !matches!(key, TabFocus::Label(_)))
+            .collect()
     }
 
-    pub(super) fn retain_focus_handles(&self, tabs: &HashSet<TabId>, generations: &HashSet<TerminalIdentity>) {
+    pub(super) fn retain_focus_handles(
+        &self,
+        tabs: &HashSet<TabId>,
+        generations: &HashSet<TerminalIdentity>,
+    ) {
         self.focus_handles.borrow_mut().retain(|key, _| match key {
             TabFocus::Close(identity) => generations.contains(identity),
             TabFocus::Label(tab) => tabs.contains(tab),
@@ -73,9 +85,10 @@ impl TabScroll {
     }
 
     pub(super) fn focused_tab(&self, window: &Window) -> Option<TabId> {
-        self.focus_handles.borrow().iter().find_map(|(key, handle)| {
-            handle.is_focused(window).then(|| key.tab()).flatten()
-        })
+        self.focus_handles
+            .borrow()
+            .iter()
+            .find_map(|(key, handle)| handle.is_focused(window).then(|| key.tab()).flatten())
     }
 
     pub(super) fn item_bounds(&self, index: usize) -> Option<Bounds<Pixels>> {
@@ -103,20 +116,31 @@ impl TabScroll {
                 };
                 let offset = scroll.handle.offset();
                 let previous = scroll.last_viewport.replace(Some(viewport));
-                let tab_edges = |index| scroll.item_bounds(index).map(|tab| {
+                let tab_edges = |index| {
+                    scroll.item_bounds(index).map(|tab| {
                         (
                             f32::from(tab.left() - bounds.left() - offset.x),
                             f32::from(tab.right() - bounds.left() - offset.x),
                         )
-                    });
+                    })
+                };
                 let max_left = f32::from(scroll.handle.max_offset().width);
                 let left = -f32::from(offset.x);
-                let focus_index = scroll.pending_reveal.take()
+                let focus_index = scroll
+                    .pending_reveal
+                    .take()
                     .and_then(|id| tabs.iter().position(|&tab| tab == id));
                 let next_left = if let Some(index) = focus_index {
                     math::reveal_tab(left, tab_edges(index), viewport.width, max_left)
                 } else {
-                    viewport.reveal_left(previous.as_ref(), left, selected.and_then(|(_, index)| tab_edges(index)), max_left).unwrap_or(left)
+                    viewport
+                        .reveal_left(
+                            previous.as_ref(),
+                            left,
+                            selected.and_then(|(_, index)| tab_edges(index)),
+                            max_left,
+                        )
+                        .unwrap_or(left)
                 };
                 let mut x = px(-next_left);
                 if !cx.has_active_drag() {

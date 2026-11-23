@@ -129,12 +129,17 @@ fn run(
 ) -> Result<u32> {
     let mut length = [0; 4];
     stream.read_exact(&mut length)?;
-    ensure!(u32::from_le_bytes(length) == 0, "Unexpected PTY startup payload.");
+    ensure!(
+        u32::from_le_bytes(length) == 0,
+        "Unexpected PTY startup payload."
+    );
     let mut command = Command::new(program);
     command.args(args);
     // An isolated tab gets no account session bus; a user tab keeps it.
     if std::env::var_os(ISOLATED).is_some() {
-        command.env_remove(ISOLATED).env_remove("DBUS_SESSION_BUS_ADDRESS");
+        command
+            .env_remove(ISOLATED)
+            .env_remove("DBUS_SESSION_BUS_ADDRESS");
     }
     ensure!(
         unsafe { libc::signal(libc::SIGTTOU, libc::SIG_IGN) } != libc::SIG_ERR,

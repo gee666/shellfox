@@ -19,34 +19,104 @@ fn private_renderer_rejects_host_stop_and_unscoped_system_commands() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn attached_provider_requires_current_desktop_registration() {
-    use crate::{desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest}, local::PrivateRequest,
-        owner::ServiceOwner, system::{OwnedSystemFixture, SystemInstallPolicy, SystemNativeRequest, SystemNativeResponse, SystemPlatform, SystemScope}};
+    use crate::{
+        desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest},
+        local::PrivateRequest,
+        owner::ServiceOwner,
+        system::{
+            OwnedSystemFixture, SystemInstallPolicy, SystemNativeRequest, SystemNativeResponse,
+            SystemPlatform, SystemScope,
+        },
+    };
     use std::sync::atomic::Ordering;
     let fixture = OwnedSystemFixture::new(SystemPlatform::Windows);
     let data = fixture.root.join("attached-owner");
     std::fs::create_dir(&data).unwrap();
-    let mut owner = ServiceOwner::start(data, fixture.root.join("package/Shellfox.exe"), shellfox_protocol::CancellationToken::new(), ()).await.unwrap();
+    let mut owner = ServiceOwner::start(
+        data,
+        fixture.root.join("package/Shellfox.exe"),
+        shellfox_protocol::CancellationToken::new(),
+        (),
+    )
+    .await
+    .unwrap();
     let renderer = owner.client(uuid::Uuid::new_v4());
-    renderer.install_system_native(fixture.backend(Vec::new(), SystemInstallPolicy { allow_user_install: true, allow_open: false })).await.unwrap();
+    renderer
+        .install_system_native(fixture.backend(
+            Vec::new(),
+            SystemInstallPolicy {
+                allow_user_install: true,
+                allow_open: false,
+            },
+        ))
+        .await
+        .unwrap();
     let renderer_epoch = renderer.open_lifetime(uuid::Uuid::new_v4()).await.unwrap();
-    let route = renderer.private_request_in_epoch(PrivateRequest::DesktopLaunch(DesktopLaunchRequest::Discover {}), renderer_epoch).await.unwrap();
-    let DesktopLaunchReply::Route(route) = serde_json::from_value(route).unwrap() else { panic!("route") };
-    let registered = renderer.private_request_in_epoch(PrivateRequest::DesktopLaunch(DesktopLaunchRequest::RegisterAttached { owner: route.owner }), renderer_epoch).await.unwrap();
-    let DesktopLaunchReply::Registered(token) = serde_json::from_value(registered).unwrap() else { panic!("registration") };
+    let route = renderer
+        .private_request_in_epoch(
+            PrivateRequest::DesktopLaunch(DesktopLaunchRequest::Discover {}),
+            renderer_epoch,
+        )
+        .await
+        .unwrap();
+    let DesktopLaunchReply::Route(route) = serde_json::from_value(route).unwrap() else {
+        panic!("route")
+    };
+    let registered = renderer
+        .private_request_in_epoch(
+            PrivateRequest::DesktopLaunch(DesktopLaunchRequest::RegisterAttached {
+                owner: route.owner,
+            }),
+            renderer_epoch,
+        )
+        .await
+        .unwrap();
+    let DesktopLaunchReply::Registered(token) = serde_json::from_value(registered).unwrap() else {
+        panic!("registration")
+    };
     let window = owner.client(uuid::Uuid::new_v4());
     let epoch = window.open_lifetime(uuid::Uuid::new_v4()).await.unwrap();
-    let invoke = |token| PrivateRequest::DesktopView(Box::new(DesktopRequest::Provider(DesktopProviderRequest::from_native(token,
-        NativeAction::System(SystemNativeRequest::SetCli { scope: SystemScope::User, installed: true })).unwrap())));
+    let invoke = |token| {
+        PrivateRequest::DesktopView(Box::new(DesktopRequest::Provider(
+            DesktopProviderRequest::from_native(
+                token,
+                NativeAction::System(SystemNativeRequest::SetCli {
+                    scope: SystemScope::User,
+                    installed: true,
+                }),
+            )
+            .unwrap(),
+        )))
+    };
     let mut forged = serde_json::to_value(token).unwrap();
     forged["nonce"] = serde_json::json!(uuid::Uuid::new_v4());
-    assert!(window.private_request_in_epoch(invoke(serde_json::from_value(forged).unwrap()), epoch).await.is_err());
+    assert!(window
+        .private_request_in_epoch(invoke(serde_json::from_value(forged).unwrap()), epoch)
+        .await
+        .is_err());
     assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 0);
-    let result = window.private_request_in_epoch(invoke(token), epoch).await.unwrap();
-    let DesktopReply::System(SystemNativeResponse::Cli(state)) = serde_json::from_value(result).unwrap() else { panic!("CLI status") };
+    let result = window
+        .private_request_in_epoch(invoke(token), epoch)
+        .await
+        .unwrap();
+    let DesktopReply::System(SystemNativeResponse::Cli(state)) =
+        serde_json::from_value(result).unwrap()
+    else {
+        panic!("CLI status")
+    };
     assert!(state.installed);
     assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 1);
-    renderer.private_request_in_epoch(PrivateRequest::DesktopLaunch(DesktopLaunchRequest::UnregisterAttached { token }), renderer_epoch).await.unwrap();
-    assert!(window.private_request_in_epoch(invoke(token), epoch).await.is_err());
+    renderer
+        .private_request_in_epoch(
+            PrivateRequest::DesktopLaunch(DesktopLaunchRequest::UnregisterAttached { token }),
+            renderer_epoch,
+        )
+        .await
+        .unwrap();
+    assert!(window
+        .private_request_in_epoch(invoke(token), epoch)
+        .await
+        .is_err());
     assert_eq!(fixture.registry.writes.load(Ordering::SeqCst), 1);
     window.close_lifetime(epoch).await.unwrap();
     renderer.close_lifetime(renderer_epoch).await.unwrap();

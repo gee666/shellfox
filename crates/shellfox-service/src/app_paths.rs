@@ -23,7 +23,9 @@ pub fn default_data_root() -> Result<PathBuf> {
 
 /// Default Tailscale node leaf. Electron's node state is adopted into this leaf.
 pub fn default_remote_state(data: &Path) -> PathBuf {
-    data.join("rust-service-v1").join("go-network").join("node-v1")
+    data.join("rust-service-v1")
+        .join("go-network")
+        .join("node-v1")
 }
 
 fn absolute_env(name: &str) -> Result<PathBuf> {

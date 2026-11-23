@@ -134,7 +134,13 @@ impl super::super::SourceFactsProjector for Counting {
         _: ManagerFactsRequest,
     ) -> ManagerFactsFuture<'_> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(ManagerFactsResult { facts: Default::default(), profiles: None, home: None }) })
+        Box::pin(async {
+            Ok(ManagerFactsResult {
+                facts: Default::default(),
+                profiles: None,
+                home: None,
+            })
+        })
     }
 }
 
@@ -144,9 +150,14 @@ async fn a_facts_request_during_a_close_is_held_then_collects_fresh_facts() {
     let approval_data = crate::tests::scratch();
     let mut owner = approval_owner(approval_data.path()).await;
     let metadata = native_metadata::Fixture::new();
-    let peer = PeerIdentity { id: "n-held-facts".into(), hostname: "offline".into() };
+    let peer = PeerIdentity {
+        id: "n-held-facts".into(),
+        hostname: "offline".into(),
+    };
     let (control, _store) = approve_peer(&owner, &metadata, &peer).await;
-    let actor = control.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let actor = control
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
     let create = |title: &str| shellfox_core::CreateSession {
@@ -155,9 +166,20 @@ async fn a_facts_request_during_a_close_is_held_then_collects_fresh_facts() {
         cwd: scratch.path().to_str().unwrap().into(),
         profile_id: Default::default(),
     };
-    let renamed = service.host().create_session(create("Original")).unwrap().sessions[0].id;
+    let renamed = service
+        .host()
+        .create_session(create("Original"))
+        .unwrap()
+        .sessions[0]
+        .id;
     let closing = service.host().create_session(create("Closing")).unwrap();
-    let closing_tab = closing.sessions.iter().find(|s| s.id != renamed).unwrap().tabs[0].id;
+    let closing_tab = closing
+        .sessions
+        .iter()
+        .find(|s| s.id != renamed)
+        .unwrap()
+        .tabs[0]
+        .id;
     service.pump_activity();
     let (client, receiver) = super::super::remote_channel();
     let provider = Arc::new(Counting::default());
@@ -166,7 +188,9 @@ async fn a_facts_request_during_a_close_is_held_then_collects_fresh_facts() {
         .with_authorized(None, || {
             shellfox_remote::ServiceHost::dispatch(
                 &mut state.bind(&mut service),
-                OwnerCommand::Pair { actor: actor.clone() },
+                OwnerCommand::Pair {
+                    actor: actor.clone(),
+                },
             )
         })
         .unwrap();
@@ -195,8 +219,15 @@ async fn a_facts_request_during_a_close_is_held_then_collects_fresh_facts() {
                     dispatcher.dispatch_one(&mut service);
                     tokio::task::yield_now().await;
                 }
-                assert_eq!(provider.0.load(Ordering::SeqCst), 0, "no facts collected mid-close");
-                assert!(!finished.load(Ordering::SeqCst), "the request waits for the close");
+                assert_eq!(
+                    provider.0.load(Ordering::SeqCst),
+                    0,
+                    "no facts collected mid-close"
+                );
+                assert!(
+                    !finished.load(Ordering::SeqCst),
+                    "the request waits for the close"
+                );
                 // The commit moves the revision that a mid-close collection would be fenced on.
                 service.unpark_close();
                 service.pump_closing();
@@ -212,9 +243,15 @@ async fn a_facts_request_during_a_close_is_held_then_collects_fresh_facts() {
     .unwrap();
     let code = result.as_ref().err().map(|error| error.code);
     assert_ne!(code, Some(ErrorCode::TargetLost), "{result:?}");
-    assert!(provider.0.load(Ordering::SeqCst) >= 1, "facts were collected after the commit");
+    assert!(
+        provider.0.load(Ordering::SeqCst) >= 1,
+        "facts were collected after the commit"
+    );
     let snapshot = service.host().snapshot().unwrap();
-    assert!(snapshot.sessions.iter().all(|s| s.tabs.iter().all(|t| t.id != closing_tab)));
+    assert!(snapshot
+        .sessions
+        .iter()
+        .all(|s| s.tabs.iter().all(|t| t.id != closing_tab)));
     service.shutdown().unwrap();
     drop(dispatcher);
     drop(service);

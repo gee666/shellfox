@@ -27,7 +27,10 @@ impl Root {
         let Some(Dialog::Create(draft)) = &mut self.dialogs.current else {
             return;
         };
-        if draft.busy.is_some() || self.dialogs.user_action_pending || draft.path.read(cx).is_composing() {
+        if draft.busy.is_some()
+            || self.dialogs.user_action_pending
+            || draft.path.read(cx).is_composing()
+        {
             return;
         }
         let input = draft.path.read(cx).edit_focus().is_focused(window);

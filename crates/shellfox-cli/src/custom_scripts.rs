@@ -415,7 +415,10 @@ mod tests {
         let module_path = command
             .get_envs()
             .find(|(key, _)| key.eq_ignore_ascii_case("PSModulePath"));
-        assert_eq!(module_path, Some((std::ffi::OsStr::new("PSModulePath"), None)));
+        assert_eq!(
+            module_path,
+            Some((std::ffi::OsStr::new("PSModulePath"), None))
+        );
     }
     #[cfg(windows)]
     #[test]

@@ -97,7 +97,8 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let shown = self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .is_some_and(|f| f.visible && f.source == self.peers.selected);
         div()
@@ -117,8 +118,18 @@ impl Root {
     }
 
     /// The Files pane as a cached view sized like the panel it renders.
-    pub(crate) fn files_region(&self, palette: Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let Some(files) = self.files.panel.as_ref().filter(|files| files.visible && self.files_source_current()) else {
+    pub(crate) fn files_region(
+        &self,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(files) = self
+            .files
+            .panel
+            .as_ref()
+            .filter(|files| files.visible && self.files_source_current())
+        else {
             return self.files_panel(palette, window, cx);
         };
         self.files.html_preview.place();
@@ -133,7 +144,12 @@ impl Root {
     }
 
     /// Renders inside the cached Files pane, so it settles the HTML preview itself.
-    pub(crate) fn files_pane(&self, palette: Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn files_pane(
+        &self,
+        palette: Palette,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.files.html_preview.begin_render();
         let panel = self.files_panel(palette, window, cx);
         self.files.html_preview.end_render(self.files_covered());
@@ -222,39 +238,46 @@ impl Root {
             .bg(palette.sidebar)
             .border_b_1()
             .border_color(palette.border)
-            .child(Control::Browser.wrap(
-                self, "Toggle file browser", true, Some(&files.browser_focus.toggle),
-                control(
-                    if files.browser {
-                        "collapse-file-browser"
-                    } else {
-                        "expand-file-browser"
-                    },
-                    if files.browser { "up" } else { "down" },
-                    palette,
-                )
-                .track_focus(&files.browser_focus.toggle)
-                .bg(if files.browser {
-                    palette.hover
-                } else {
-                    palette.surface
-                })
-                .border_color(palette.border)
-                .when(files.browser, |style| style.text_color(palette.accent))
-                .tooltip(crate::assets::tooltip(
-                    format!(
-                        "{} file browser ({})",
-                        if files.browser { "Collapse" } else { "Expand" },
-                        if cfg!(target_os = "macos") {
-                            "⌘⇧E"
+            .child(
+                Control::Browser.wrap(
+                    self,
+                    "Toggle file browser",
+                    true,
+                    Some(&files.browser_focus.toggle),
+                    control(
+                        if files.browser {
+                            "collapse-file-browser"
                         } else {
-                            "Ctrl+Shift+E"
+                            "expand-file-browser"
                         },
+                        if files.browser { "up" } else { "down" },
+                        palette,
+                    )
+                    .track_focus(&files.browser_focus.toggle)
+                    .bg(if files.browser {
+                        palette.hover
+                    } else {
+                        palette.surface
+                    })
+                    .border_color(palette.border)
+                    .when(files.browser, |style| style.text_color(palette.accent))
+                    .tooltip(crate::assets::tooltip(
+                        format!(
+                            "{} file browser ({})",
+                            if files.browser { "Collapse" } else { "Expand" },
+                            if cfg!(target_os = "macos") {
+                                "⌘⇧E"
+                            } else {
+                                "Ctrl+Shift+E"
+                            },
+                        ),
+                        palette,
+                    ))
+                    .on_click(
+                        cx.listener(|root, _, window, cx| root.toggle_file_browser(window, cx)),
                     ),
-                    palette,
-                ))
-                .on_click(cx.listener(|root, _, window, cx| root.toggle_file_browser(window, cx))),
-            ))
+                ),
+            )
             .child(div().flex_1())
             .when(files.backend.is_local(), |header| {
                 header.child(
@@ -264,46 +287,61 @@ impl Root {
                 )
             });
         if !narrow || files.maximized {
-            header = header.child(Control::Maximize.wrap(
-                self, if files.maximized { "Restore file" } else { "Maximize file" }, true, None,
-                control(
-                    if files.maximized {
-                        "restore-file"
-                    } else {
-                        "maximize-file"
-                    },
-                    if files.maximized {
-                        "restore"
-                    } else {
-                        "maximize"
-                    },
-                    palette,
-                )
-                .when(files.maximized, |style| {
-                    style.bg(palette.hover).text_color(palette.accent)
-                })
-                .tooltip(crate::assets::tooltip(
+            header = header.child(
+                Control::Maximize.wrap(
+                    self,
                     if files.maximized {
                         "Restore file"
                     } else {
                         "Maximize file"
                     },
-                    palette,
-                ))
-                .on_click(
-                    cx.listener(|root, _, window, cx| root.toggle_file_maximized(window, cx)),
+                    true,
+                    None,
+                    control(
+                        if files.maximized {
+                            "restore-file"
+                        } else {
+                            "maximize-file"
+                        },
+                        if files.maximized {
+                            "restore"
+                        } else {
+                            "maximize"
+                        },
+                        palette,
+                    )
+                    .when(files.maximized, |style| {
+                        style.bg(palette.hover).text_color(palette.accent)
+                    })
+                    .tooltip(crate::assets::tooltip(
+                        if files.maximized {
+                            "Restore file"
+                        } else {
+                            "Maximize file"
+                        },
+                        palette,
+                    ))
+                    .on_click(
+                        cx.listener(|root, _, window, cx| root.toggle_file_maximized(window, cx)),
+                    ),
                 ),
-            ));
+            );
         }
-        header = header.child(Control::Close.wrap(
-            self, "Close file sidebar", true, None,
-            text_button("hide-files", "×", palette)
-                .w(px(24.))
-                .tooltip(crate::assets::tooltip("Close file sidebar", palette))
-                .on_click(
-                    cx.listener(|root, _, _, cx| root.request_file_action(FileAction::Hide, cx)),
+        header =
+            header.child(
+                Control::Close.wrap(
+                    self,
+                    "Close file sidebar",
+                    true,
+                    None,
+                    text_button("hide-files", "×", palette)
+                        .w(px(24.))
+                        .tooltip(crate::assets::tooltip("Close file sidebar", palette))
+                        .on_click(cx.listener(|root, _, _, cx| {
+                            root.request_file_action(FileAction::Hide, cx)
+                        })),
                 ),
-        ));
+            );
         panel = panel.child(header);
         if files.browser {
             panel = panel.child(self.file_browser(palette, window, cx));

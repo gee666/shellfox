@@ -12,8 +12,13 @@ pub struct TerminalTheme {
 
 impl TerminalTheme {
     pub fn from_colors(background: u32, foreground: u32, accent: u32) -> Self {
-        let palette = crate::theme::Palette::new(&format!("#{accent:06x}"), &format!("#{background:06x}"));
-        let alpha = if palette.dark { 102. / 255. } else { 77. / 255. };
+        let palette =
+            crate::theme::Palette::new(&format!("#{accent:06x}"), &format!("#{background:06x}"));
+        let alpha = if palette.dark {
+            102. / 255.
+        } else {
+            77. / 255.
+        };
         let selection = [16, 8, 0].into_iter().fold(0, |color, shift| {
             let bg = ((background >> shift) & 255) as f32;
             let fg = ((accent >> shift) & 255) as f32;

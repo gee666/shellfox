@@ -38,7 +38,10 @@ const JSX_TAG_PUNCTUATION: &str = r#"
 "#;
 const TOKENS: &[Token] = {
     use Token::*;
-    &[Comment, Comment, Comment, String, Property, Keyword, Keyword, Keyword, Number, Number, Property, Property]
+    &[
+        Comment, Comment, Comment, String, Property, Keyword, Keyword, Keyword, Number, Number,
+        Property, Property,
+    ]
 };
 impl Token {
     fn color(self, palette: Palette) -> gpui::Hsla {

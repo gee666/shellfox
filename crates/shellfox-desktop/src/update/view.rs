@@ -106,19 +106,28 @@ impl UpdateUi {
 
 impl Root {
     /// Follows the update notice; the worker publishes each visible change.
-    pub(crate) fn watch_updates(&self, window: &Window, cx: &mut Context<Self>) -> Option<gpui::Task<()>> {
+    pub(crate) fn watch_updates(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Task<()>> {
         let mut changes = cx.try_global::<Updates>()?.0.changes();
-        Some(cx.spawn_in(window, async move |root, cx| loop {
-            let shown = root.update(cx, |root, cx| {
-                if let Some(updates) = cx.try_global::<Updates>() {
-                    let (serial, notice) = updates.0.notice_snapshot();
-                    if root.update_ui.observe_notice(serial, notice, Instant::now()) {
-                        cx.notify();
+        Some(cx.spawn_in(window, async move |root, cx| {
+            loop {
+                let shown = root.update(cx, |root, cx| {
+                    if let Some(updates) = cx.try_global::<Updates>() {
+                        let (serial, notice) = updates.0.notice_snapshot();
+                        if root
+                            .update_ui
+                            .observe_notice(serial, notice, Instant::now())
+                        {
+                            cx.notify();
+                        }
                     }
+                });
+                if shown.is_err() || changes.changed().await.is_err() {
+                    return;
                 }
-            });
-            if shown.is_err() || changes.changed().await.is_err() {
-                return;
             }
         }))
     }

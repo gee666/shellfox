@@ -15,7 +15,7 @@ pub(super) fn controller_id(
     if controllers.len() >= 128 {
         bail!("Service client limit reached.");
     }
-    let value=service.allocate_viewer_id()?;
-    controllers.insert(id,value);
+    let value = service.allocate_viewer_id()?;
+    controllers.insert(id, value);
     Ok(value)
 }

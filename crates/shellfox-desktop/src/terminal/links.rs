@@ -1,8 +1,8 @@
-use super::{link_gesture::FilePress, runtime::Pending, Backend, TerminalView};
+use super::{Backend, TerminalView, link_gesture::FilePress, runtime::Pending};
 use gpui::{ClipboardItem, Context};
 use shellfox_ghostty_vt::{
-    terminal_links::{link_at, parse_file_link, safe_web_url, LinkRange, TerminalFileLink},
     ViewportPoint,
+    terminal_links::{LinkRange, TerminalFileLink, link_at, parse_file_link, safe_web_url},
 };
 use shellfox_runtime::Command;
 
@@ -259,11 +259,13 @@ mod tests {
         ] {
             assert!(safe_web_url(value).is_none(), "{value}");
         }
-        assert!(safe_web_url(&format!(
-            "https://example.com/{}",
-            "x".repeat(shellfox_ghostty_vt::terminal_links::MAX_WEB_LINK_BYTES)
-        ))
-        .is_none());
+        assert!(
+            safe_web_url(&format!(
+                "https://example.com/{}",
+                "x".repeat(shellfox_ghostty_vt::terminal_links::MAX_WEB_LINK_BYTES)
+            ))
+            .is_none()
+        );
     }
 
     #[test]

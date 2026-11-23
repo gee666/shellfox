@@ -1,6 +1,10 @@
 use super::{Control, control, text_button};
 use crate::{
-    files::{Files, Preview, pending::basename, text_preview::{PreviewDocument, image_error, render_image}},
+    files::{
+        Files, Preview,
+        pending::basename,
+        text_preview::{PreviewDocument, image_error, render_image},
+    },
     root::Root,
     theme::Palette,
 };
@@ -43,8 +47,12 @@ impl Root {
                     .items_center()
                     .gap(px(6.))
                     .text_color(palette.status_color(0xf87171))
-                    .child(self.semantic_region("files/document-error", crate::accessibility::Role::Label,
-                        error.clone(), div().child(error.clone())))
+                    .child(self.semantic_region(
+                        "files/document-error",
+                        crate::accessibility::Role::Label,
+                        error.clone(),
+                        div().child(error.clone()),
+                    ))
                     .when(files.opened_path().is_none() && path.is_some(), |style| {
                         style.child(
                             text_button("retry-file", "Retry file", palette)
@@ -60,7 +68,14 @@ impl Root {
         let available_preview =
             preview.filter(|preview| preview.available(&self.files.html_preview, window));
         if let Some(path) = path {
-            document = document.child(file_toolbar(self, files, path, available_preview, palette, cx));
+            document = document.child(file_toolbar(
+                self,
+                files,
+                path,
+                available_preview,
+                palette,
+                cx,
+            ));
         }
         if let Some(editor) = &files.editor {
             if let Some(preview) = available_preview.filter(|preview| preview.showing) {
@@ -153,7 +168,11 @@ impl Root {
     }
 
     pub(super) fn set_file_preview(&mut self, show: bool, cx: &mut Context<Self>) {
-        if let Some(preview) = self.files.panel.as_mut().and_then(|files| files.editor.as_mut())
+        if let Some(preview) = self
+            .files
+            .panel
+            .as_mut()
+            .and_then(|files| files.editor.as_mut())
             .and_then(|editor| editor.text_preview.as_mut())
         {
             preview.showing = show;
@@ -162,7 +181,9 @@ impl Root {
     }
 
     pub(super) fn copy_open_file_path(&mut self, cx: &mut Context<Self>) {
-        if !self.require_files_source(cx) { return; }
+        if !self.require_files_source(cx) {
+            return;
+        }
         if let Some(path) = self.files.panel.as_ref().and_then(Files::opened_path) {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(path.to_owned()));
             self.notify_info(cx, "Path copied");
@@ -208,28 +229,40 @@ fn file_toolbar(
                 .child(label),
         )
         .when(files.opened_path().is_some(), |bar| {
-            bar.child(Control::CopyPath.wrap(root, "Copy file path", true, None,
-                control("copy-file-path", "copy", palette)
-                    .tooltip(crate::assets::tooltip("Copy file path", palette))
-                    .on_click(cx.listener(|root, _, _, cx| root.copy_open_file_path(cx))),
-            ))
+            bar.child(
+                Control::CopyPath.wrap(
+                    root,
+                    "Copy file path",
+                    true,
+                    None,
+                    control("copy-file-path", "copy", palette)
+                        .tooltip(crate::assets::tooltip("Copy file path", palette))
+                        .on_click(cx.listener(|root, _, _, cx| root.copy_open_file_path(cx))),
+                ),
+            )
         })
         .when_some(files.editor.as_ref(), |bar, editor| {
-            bar.child(Control::Save.wrap(root, "Save file", dirty && !files.busy && !editor.reload_required, None,
-                control("save-file", "save", palette)
-                    .tooltip(crate::assets::tooltip(
-                        if saving {
-                            "Saving file…"
-                        } else {
-                            "Save file"
-                        },
-                        palette,
-                    ))
-                    .when(!dirty || saving || editor.reload_required, |button| {
-                        button.opacity(0.4)
-                    })
-                    .on_click(cx.listener(|root, _, _, cx| root.save_file(cx))),
-            ))
+            bar.child(
+                Control::Save.wrap(
+                    root,
+                    "Save file",
+                    dirty && !files.busy && !editor.reload_required,
+                    None,
+                    control("save-file", "save", palette)
+                        .tooltip(crate::assets::tooltip(
+                            if saving {
+                                "Saving file…"
+                            } else {
+                                "Save file"
+                            },
+                            palette,
+                        ))
+                        .when(!dirty || saving || editor.reload_required, |button| {
+                            button.opacity(0.4)
+                        })
+                        .on_click(cx.listener(|root, _, _, cx| root.save_file(cx))),
+                ),
+            )
         })
         .child(
             control("reload-file", "reload", palette)
@@ -238,7 +271,9 @@ fn file_toolbar(
                 .on_click(cx.listener(|root, _, _, cx| root.reload_file(cx))),
         )
         .when(!files.backend.is_local(), |bar| {
-            bar.child(super::transfer_view::inline(root, files, false, palette, cx))
+            bar.child(super::transfer_view::inline(
+                root, files, false, palette, cx,
+            ))
         })
         .when(files.backend.is_local(), |bar| {
             bar.child(
@@ -318,13 +353,23 @@ fn preview_button(
     } else {
         ("file-source", "edit", "Edit source")
     };
-    let kind = if show { Control::Preview } else { Control::Source };
-    kind.wrap(root, label, true, None, control(id, icon, palette)
-        .when(show == showing, |button| {
-            button.bg(palette.hover).text_color(palette.accent)
-        })
-        .tooltip(crate::assets::tooltip(label, palette))
-        .on_click(cx.listener(move |root, _, _, cx| root.set_file_preview(show, cx))))
+    let kind = if show {
+        Control::Preview
+    } else {
+        Control::Source
+    };
+    kind.wrap(
+        root,
+        label,
+        true,
+        None,
+        control(id, icon, palette)
+            .when(show == showing, |button| {
+                button.bg(palette.hover).text_color(palette.accent)
+            })
+            .tooltip(crate::assets::tooltip(label, palette))
+            .on_click(cx.listener(move |root, _, _, cx| root.set_file_preview(show, cx))),
+    )
 }
 
 fn feedback(text: impl Into<gpui::SharedString>, palette: Palette) -> gpui::Div {

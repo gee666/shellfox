@@ -10,8 +10,11 @@ use support::OwnedHost;
 use anyhow::{ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 use shellfox_service::{
+    local::{
+        automation::{AutomationRead, AutomationStart},
+        DesktopReply, DesktopRequest, LocalClient,
+    },
     local_api::{LocalApiRequest as Request, LocalApiResponse as Response},
-    local::{automation::{AutomationRead, AutomationStart}, DesktopReply, DesktopRequest, LocalClient},
     native::{NativePresentation, NativeResponse, NativeViewAttachment},
     power::PowerRequest,
     remote::native::RemoteRequest,
@@ -83,15 +86,25 @@ fn an_idle_attached_client_gets_few_answers() -> Result<()> {
     Ok(())
 }
 
-async fn connect(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 32]) -> Result<LocalClient> {
+async fn connect(
+    host: &mut OwnedHost,
+    data: &Path,
+    helper: &Path,
+    digest: [u8; 32],
+) -> Result<LocalClient> {
     let deadline = Instant::now() + Duration::from_secs(60);
     let endpoint = data.join("rust-service-v1/endpoint.json");
     loop {
-        ensure!(host.0.try_wait()?.is_none(), "CLI host exited before publishing its endpoint.");
+        ensure!(
+            host.0.try_wait()?.is_none(),
+            "CLI host exited before publishing its endpoint."
+        );
         if endpoint.is_file() {
             match LocalClient::connect(data, helper, digest).await {
                 Ok(client) => return Ok(client),
-                Err(error) if Instant::now() >= deadline => return Err(error.context("Host startup deadline.")),
+                Err(error) if Instant::now() >= deadline => {
+                    return Err(error.context("Host startup deadline."))
+                }
                 Err(_) => {}
             }
         }
@@ -113,7 +126,12 @@ fn keep_reading(count: Rc<Cell<usize>>, read: impl Fn() -> Read + 'static) {
     });
 }
 
-async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 32]) -> Result<usize> {
+async fn measure(
+    host: &mut OwnedHost,
+    data: &Path,
+    helper: &Path,
+    digest: [u8; 32],
+) -> Result<usize> {
     let client = Rc::new(connect(host, data, helper, digest).await?);
     let count = Rc::new(Cell::new(0));
     for index in 0..TABS {
@@ -124,7 +142,8 @@ async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
             cwd: data.to_string_lossy().into_owned(),
             profile_id: ProfileId::new(if cfg!(windows) { "cmd" } else { "login-shell" })?,
         };
-        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await? else {
+        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await?
+        else {
             anyhow::bail!("Host did not return the created session.");
         };
         let tab = created
@@ -134,8 +153,12 @@ async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
             .context("Created session is missing.")?
             .tabs[0]
             .id;
-        let DesktopReply::Attached(attachment) =
-            client.request(&DesktopRequest::Attach { tab, takeover: false }).await?
+        let DesktopReply::Attached(attachment) = client
+            .request(&DesktopRequest::Attach {
+                tab,
+                takeover: false,
+            })
+            .await?
         else {
             anyhow::bail!("Host did not attach the tab.");
         };
@@ -152,7 +175,11 @@ async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
                     .await?;
                 if let NativeResponse::Frame(Some(frame)) = reply.into() {
                     client
-                        .request(&DesktopRequest::AcceptFrame { tab, attachment, frame_id: frame.frame_id })
+                        .request(&DesktopRequest::AcceptFrame {
+                            tab,
+                            attachment,
+                            frame_id: frame.frame_id,
+                        })
                         .await?;
                 }
                 Ok(())
@@ -165,7 +192,9 @@ async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
         keep_reading(count.clone(), move || {
             let (client, revision) = (client.clone(), revision.clone());
             Box::pin(async move {
-                let request = DesktopRequest::ChangedSince { revision: revision.get() };
+                let request = DesktopRequest::ChangedSince {
+                    revision: revision.get(),
+                };
                 if let DesktopReply::Changed(Some(event)) = client.request(&request).await? {
                     revision.set(event.revision);
                 }
@@ -177,7 +206,12 @@ async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
         let client = client.clone();
         keep_reading(count.clone(), move || {
             let client = client.clone();
-            Box::pin(async move { client.request(&DesktopRequest::ReadTabActivity).await.map(drop) })
+            Box::pin(async move {
+                client
+                    .request(&DesktopRequest::ReadTabActivity)
+                    .await
+                    .map(drop)
+            })
         });
     }
     {
@@ -212,7 +246,12 @@ async fn measure(host: &mut OwnedHost, data: &Path, helper: &Path, digest: [u8; 
         keep_reading(count.clone(), move || {
             let (client, cursor) = (client.clone(), cursor.clone());
             Box::pin(async move {
-                let output = client.request(&AutomationRead { id: run.id, after: cursor.get() }).await?;
+                let output = client
+                    .request(&AutomationRead {
+                        id: run.id,
+                        after: cursor.get(),
+                    })
+                    .await?;
                 if let Some(last) = output.frames.last() {
                     cursor.set(last.sequence);
                 }

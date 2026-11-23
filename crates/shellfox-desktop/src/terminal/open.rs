@@ -29,8 +29,13 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut App,
     ) -> std::result::Result<Entity<Self>, crate::root::StartupError> {
-        Self::open_inner(Some((client, tab, Access::Control(attachment))), None, window, cx)
-            .map_err(crate::root::StartupError::from)
+        Self::open_inner(
+            Some((client, tab, Access::Control(attachment))),
+            None,
+            window,
+            cx,
+        )
+        .map_err(crate::root::StartupError::from)
     }
     pub fn open_observed(
         client: HostClient,
@@ -59,7 +64,11 @@ impl TerminalView {
 
     fn open_inner(
         attached: Option<(HostClient, TabId, Access)>,
-        peer: Option<(std::sync::Arc<crate::host_client::peer_v1::V1Binding>, TabId, bool)>,
+        peer: Option<(
+            std::sync::Arc<crate::host_client::peer_v1::V1Binding>,
+            TabId,
+            bool,
+        )>,
         window: &mut Window,
         cx: &mut App,
     ) -> Result<Entity<Self>> {
@@ -84,8 +93,18 @@ impl TerminalView {
             } else if let Some((binding, tab, frontend_replies)) = peer {
                 let mut terminal = Terminal::new(80, 24)?;
                 terminal.set_colors(&theme.colors())?;
-                (Backend::Peer(Box::new(super::peer::Peer::new(terminal, binding, tab, frontend_replies)?)),
-                    SharedScreen::Empty, "Connecting…", None, None)
+                (
+                    Backend::Peer(Box::new(super::peer::Peer::new(
+                        terminal,
+                        binding,
+                        tab,
+                        frontend_replies,
+                    )?)),
+                    SharedScreen::Empty,
+                    "Connecting…",
+                    None,
+                    None,
+                )
             } else {
                 let mut terminal = Terminal::new(80, 24)?;
                 terminal.set_colors(&theme.colors())?;
@@ -109,8 +128,10 @@ impl TerminalView {
                 view.sync_presentation_focus(window, cx);
             })
             .detach();
-            cx.on_focus(&focus, window, |view, window, cx| view.sync_presentation_focus(window, cx))
-                .detach();
+            cx.on_focus(&focus, window, |view, window, cx| {
+                view.sync_presentation_focus(window, cx)
+            })
+            .detach();
             cx.observe_window_activation(window, |view, window, cx| {
                 view.sync_presentation_focus(window, cx)
             })
@@ -118,13 +139,15 @@ impl TerminalView {
             if let Backend::Peer(peer) = &backend {
                 // Pump the peer state machine when its connection changes or work is queued.
                 let (mut state, mut kick) = peer.changes();
-                cx.spawn_in(window, async move |view, cx| loop {
-                    if view.update(cx, |view, cx| view.poll_peer(cx)).is_err() {
-                        return;
-                    }
-                    tokio::select! {
-                        changed = state.changed() => if changed.is_err() { return },
-                        changed = kick.changed() => if changed.is_err() { return },
+                cx.spawn_in(window, async move |view, cx| {
+                    loop {
+                        if view.update(cx, |view, cx| view.poll_peer(cx)).is_err() {
+                            return;
+                        }
+                        tokio::select! {
+                            changed = state.changed() => if changed.is_err() { return },
+                            changed = kick.changed() => if changed.is_err() { return },
+                        }
                     }
                 })
                 .detach();

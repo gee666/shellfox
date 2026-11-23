@@ -107,7 +107,11 @@ impl Page {
     }
 
     async fn read(&self, path: &str) -> Option<Arc<Asset>> {
-        let _reading = self.reads.acquire().await.expect("the read budget is never closed");
+        let _reading = self
+            .reads
+            .acquire()
+            .await
+            .expect("the read budget is never closed");
         let result = match self.backend.check_current() {
             Ok(()) => {
                 self.backend
@@ -160,7 +164,9 @@ impl Page {
 
     /// A reference above the document's folder: never read, listed once.
     pub fn outside(&self, path: &str) {
-        self.warn_once(&format!("{path}: Preview asset is outside the HTML directory."));
+        self.warn_once(&format!(
+            "{path}: Preview asset is outside the HTML directory."
+        ));
     }
 
     fn warn_once(&self, warning: &str) {

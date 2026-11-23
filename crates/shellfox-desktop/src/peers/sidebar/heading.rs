@@ -16,7 +16,10 @@ impl Root {
         let (label, detail) = connection_label(state);
         use source::ConnectionAction;
         let action = state.connection_action();
-        let active = matches!(action, Some(ConnectionAction::Cancel(_) | ConnectionAction::Disconnect));
+        let active = matches!(
+            action,
+            Some(ConnectionAction::Cancel(_) | ConnectionAction::Disconnect)
+        );
         let Some(heading_focus) = self
             .peer_ui
             .sidebar_layout
@@ -27,7 +30,10 @@ impl Root {
             return div().into_any_element();
         };
         let count = connected.then(|| {
-            let total = state.snapshot.as_ref().map_or(0, |snapshot| snapshot.sessions.len());
+            let total = state
+                .snapshot
+                .as_ref()
+                .map_or(0, |snapshot| snapshot.sessions.len());
             format!("· {total}")
         });
         let hostname = state.hostname.clone();
@@ -75,8 +81,7 @@ impl Root {
                     .cursor_pointer()
                     .hover(|style| style.bg(palette.hover))
                     .child(
-                        icon_sized(if expanded { "down" } else { "chevron" }, 12.)
-                            .flex_shrink_0(),
+                        icon_sized(if expanded { "down" } else { "chevron" }, 12.).flex_shrink_0(),
                     )
                     .child(
                         div()
@@ -93,8 +98,7 @@ impl Root {
                         if !root.peer_ui.collapsed.remove(&target) {
                             root.peer_ui.collapsed.insert(target.clone());
                         }
-                        if let Err(error) =
-                            root.peers.choose(source::Source::Peer(target.clone()))
+                        if let Err(error) = root.peers.choose(source::Source::Peer(target.clone()))
                         {
                             root.error = Some(error.to_string());
                         }
@@ -128,9 +132,15 @@ impl Root {
                 .when(disabled, |button| button.opacity(0.4))
                 .when_some(action, |button, action| {
                     button.on_click(cx.listener(move |root, _, window, cx| match action {
-                        ConnectionAction::Cancel(id) => root.cancel_peer_pair(toggle.clone(), id, window, cx),
-                        ConnectionAction::Disconnect => root.disconnect_peer(toggle.clone(), window, cx),
-                        ConnectionAction::Connect | ConnectionAction::Retry => root.connect_peer(toggle.clone(), window, cx),
+                        ConnectionAction::Cancel(id) => {
+                            root.cancel_peer_pair(toggle.clone(), id, window, cx)
+                        }
+                        ConnectionAction::Disconnect => {
+                            root.disconnect_peer(toggle.clone(), window, cx)
+                        }
+                        ConnectionAction::Connect | ConnectionAction::Retry => {
+                            root.connect_peer(toggle.clone(), window, cx)
+                        }
                     }))
                 }),
             )

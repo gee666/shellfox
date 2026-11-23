@@ -25,7 +25,8 @@ impl OtherWindows {
                     "Wait for the other Shellfox window to finish closing."
                 );
                 let id = root
-                    .close.window_id
+                    .close
+                    .window_id
                     .context("Wait for the other Shellfox window to open.")?;
                 root.sync_app_guard(cx)?;
                 Ok(Participant {
@@ -101,7 +102,8 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> bool {
         if self
-            .close.window_id
+            .close
+            .window_id
             .is_some_and(|id| !closed.windows.contains(&id))
         {
             return false;

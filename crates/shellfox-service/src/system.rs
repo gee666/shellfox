@@ -47,8 +47,8 @@ mod validation;
 #[cfg(windows)]
 mod windows_registry;
 pub use environment::{NativeSystemEnvironment, SystemEnvironment, SystemPlatform};
-pub use io::{FileRevision, NativeSystemFiles, SystemFile, SystemFiles};
 pub(crate) use io::file_revision;
+pub use io::{FileRevision, NativeSystemFiles, SystemFile, SystemFiles};
 pub use linux_discovery::{
     FileManager, LinuxMenuDiscovery, NativeSystemLinuxDiscovery, SystemLinuxDiscovery,
 };
@@ -61,8 +61,8 @@ pub use registry::{
     SystemRegistry,
 };
 pub use resources::{
-    CliInstallPlan, ConfiguredSystemResources, DesktopLaunch, DesktopLaunchDisposition,
-    ManagedFile, SystemInstallResources, validate_stable_package_root,
+    validate_stable_package_root, CliInstallPlan, ConfiguredSystemResources, DesktopLaunch,
+    DesktopLaunchDisposition, ManagedFile, SystemInstallResources,
 };
 pub use validation::{absolute_path as validate_system_path, web_url as validate_web_url};
 #[cfg(windows)]

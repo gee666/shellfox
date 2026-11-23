@@ -54,7 +54,10 @@ impl SourceFactsPublisher {
         )
     }
     #[cfg(windows)]
-    pub(crate) fn set_wsl_profiles(&mut self, profiles: Option<Arc<crate::windows_profiles::WslProfiles>>) {
+    pub(crate) fn set_wsl_profiles(
+        &mut self,
+        profiles: Option<Arc<crate::windows_profiles::WslProfiles>>,
+    ) {
         self.wsl_profiles = profiles;
     }
 

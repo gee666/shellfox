@@ -163,11 +163,20 @@ mod tests {
         assert!(!env.contains_key("SHELLFOX_TEST_UNTRUSTED_OVERRIDE"));
         assert!(env.keys().all(|key| !runtime_hook(key)));
         assert_eq!(env["TERM"], "xterm-256color");
-        assert_eq!(env["SHELLFOX_TERMINAL_MARKER"], "12345678-1234-4234-8234-123456789abc");
+        assert_eq!(
+            env["SHELLFOX_TERMINAL_MARKER"],
+            "12345678-1234-4234-8234-123456789abc"
+        );
         let profile = env["USERPROFILE"].as_str().unwrap();
         assert!(std::path::Path::new(profile).is_dir());
         // The registry value, not one inherited from whichever shell started the test.
-        let modules = env.get("PSMODULEPATH").and_then(|v| v.as_str()).unwrap_or_default();
-        assert!(!modules.to_ascii_lowercase().contains(r"\powershell\7"), "{modules}");
+        let modules = env
+            .get("PSMODULEPATH")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        assert!(
+            !modules.to_ascii_lowercase().contains(r"\powershell\7"),
+            "{modules}"
+        );
     }
 }

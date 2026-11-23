@@ -7,7 +7,11 @@ fn digest_is_lowercase_hex() {
 
 #[test]
 fn owner_marker_round_trips_and_rejects_garbage() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .join("tmp");
     std::fs::create_dir_all(&root).unwrap();
     let directory = tempfile::tempdir_in(root).unwrap();
     assert_eq!(recorded_owner(directory.path()), None);
@@ -20,29 +24,51 @@ fn owner_marker_round_trips_and_rejects_garbage() {
 
 #[test]
 fn missing_cli_fails_at_once_and_names_the_cli() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .join("tmp");
     std::fs::create_dir_all(&root).unwrap();
     let directory = tempfile::tempdir_in(root).unwrap();
-    let executable = directory.path().join(if cfg!(windows) { "shellfox.exe" } else { "shellfox" });
+    let executable = directory.path().join(if cfg!(windows) {
+        "shellfox.exe"
+    } else {
+        "shellfox"
+    });
     let config = HostEndpointConfig {
         data_dir: directory.path().join("data"),
         helper: directory.path().join("helper"),
         helper_sha256: [0; 32],
     };
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let began = Instant::now();
     let Err(error) = start_and_discover(&runtime, &executable, &[], &[], &config) else {
         panic!("a host started without its CLI");
     };
-    assert!(began.elapsed() < Duration::from_secs(5), "retried a missing CLI for {:?}", began.elapsed());
-    assert!(format!("{error:#}").contains("shellfox-cli"), "unclear error: {error:#}");
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "retried a missing CLI for {:?}",
+        began.elapsed()
+    );
+    assert!(
+        format!("{error:#}").contains("shellfox-cli"),
+        "unclear error: {error:#}"
+    );
     assert!(!config.data_dir.exists());
 }
 
 /// Cleanup asks this from inside its runtime after a failed start.
 #[test]
 fn serving_runs_inside_a_runtime_and_finds_no_host_in_a_missing_dir() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap()
+        .join("tmp");
     std::fs::create_dir_all(&root).unwrap();
     let directory = tempfile::tempdir_in(root).unwrap();
     let config = HostEndpointConfig {
@@ -50,7 +76,10 @@ fn serving_runs_inside_a_runtime_and_finds_no_host_in_a_missing_dir() {
         helper: directory.path().join("helper"),
         helper_sha256: [0; 32],
     };
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     assert!(!runtime.block_on(serving(&config)));
 }
 

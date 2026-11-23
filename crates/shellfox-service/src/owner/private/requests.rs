@@ -7,14 +7,20 @@ pub(super) struct RequestContext {
 }
 impl PrivateOwner {
     fn admit_attached_provider(
-        &self, service: &mut Service, controller: u64, epoch: Option<uuid::Uuid>,
+        &self,
+        service: &mut Service,
+        controller: u64,
+        epoch: Option<uuid::Uuid>,
         provider: crate::local::DesktopProviderRequest,
     ) -> Result<crate::native::NativeAction> {
-        anyhow::ensure!(epoch.is_some() && self.admits_attached_provider(provider.renderer),
-            "Desktop providers require the current registered attached desktop.");
+        anyhow::ensure!(
+            epoch.is_some() && self.admits_attached_provider(provider.renderer),
+            "Desktop providers require the current registered attached desktop."
+        );
         let action = provider.into_native()?;
         match &action {
-            crate::native::NativeAction::System(_) => service.admit_system_native(controller)
+            crate::native::NativeAction::System(_) => service
+                .admit_system_native(controller)
                 .map_err(|error| anyhow::anyhow!(error.message))?,
             crate::native::NativeAction::Ssh(_) => {}
             _ => anyhow::bail!("Unsupported desktop provider request"),
@@ -65,7 +71,10 @@ impl PrivateOwner {
             }
             PrivateRequest::SshRead(request) => {
                 let result = service.assert_accepting().and_then(|()| {
-                    anyhow::ensure!(epoch.is_some(), "An authenticated SSH client lifetime is required.");
+                    anyhow::ensure!(
+                        epoch.is_some(),
+                        "An authenticated SSH client lifetime is required."
+                    );
                     service.read_ssh_settings(request).and_then(encode)
                 });
                 let _ = reply.send(result);
@@ -84,18 +93,34 @@ impl PrivateOwner {
                 };
                 let action = match action {
                     Ok(action) => action,
-                    Err(error) => { let _ = reply.send(Err(error)); return; }
+                    Err(error) => {
+                        let _ = reply.send(Err(error));
+                        return;
+                    }
                 };
                 if let Some(target) = action.close_target() {
                     let admitted = action.validate().and_then(|()| {
-                        anyhow::ensure!(controller != 0, "A native controller identity is required.");
+                        anyhow::ensure!(
+                            controller != 0,
+                            "A native controller identity is required."
+                        );
                         Ok(())
                     });
-                    service.close_request(target, admitted, Box::new(move |result| {
-                        let _ = reply.send(result.and_then(|snapshot| {
-                            crate::local::DesktopReply::try_from(crate::native::NativeResponse::Snapshot(snapshot))
-                        }).and_then(encode));
-                    }));
+                    service.close_request(
+                        target,
+                        admitted,
+                        Box::new(move |result| {
+                            let _ = reply.send(
+                                result
+                                    .and_then(|snapshot| {
+                                        crate::local::DesktopReply::try_from(
+                                            crate::native::NativeResponse::Snapshot(snapshot),
+                                        )
+                                    })
+                                    .and_then(encode),
+                            );
+                        }),
+                    );
                     return;
                 }
                 if matches!(action, crate::native::NativeAction::TabStats) {
@@ -116,10 +141,16 @@ impl PrivateOwner {
             }
             PrivateRequest::LocalApi(request) => {
                 if let Some(target) = request.close_target() {
-                    let admitted = shellfox_protocol::Validate::validate(&request).map_err(anyhow::Error::from);
-                    service.close_request(target, admitted, Box::new(move |result| {
-                        let _ = reply.send(result.map(LocalApiResponse::Snapshot).and_then(encode));
-                    }));
+                    let admitted = shellfox_protocol::Validate::validate(&request)
+                        .map_err(anyhow::Error::from);
+                    service.close_request(
+                        target,
+                        admitted,
+                        Box::new(move |result| {
+                            let _ =
+                                reply.send(result.map(LocalApiResponse::Snapshot).and_then(encode));
+                        }),
+                    );
                     return;
                 }
                 let detach = matches!(request, LocalApiRequest::Detach {});

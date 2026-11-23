@@ -99,10 +99,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if key_probe {
         let probe = root.join("tests/key_public.c");
         if !probe.is_file() {
-            return Err(
-                "SHELLFOX_VT_KEY_PROBE=1 requires tests/key_public.c"
-                    .into(),
-            );
+            return Err("SHELLFOX_VT_KEY_PROBE=1 requires tests/key_public.c".into());
         }
         println!("cargo:rerun-if-changed={}", probe.display());
         cc.file(compiler_path::for_compiler(&probe));
@@ -114,7 +111,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     if os == "macos" && kind == "static" {
         // ld can prefer the sibling dylib when directly linking the sys test
         // binary. Give the verified archive its own linker name.
-        std::fs::copy(lib.join("libghostty-vt.a"), out.join("libshellfox_ghostty_vt_native.a"))?;
+        std::fs::copy(
+            lib.join("libghostty-vt.a"),
+            out.join("libshellfox_ghostty_vt_native.a"),
+        )?;
         println!("cargo:rustc-link-search=native={}", out.display());
         println!("cargo:rustc-link-lib=static=shellfox_ghostty_vt_native");
     } else {

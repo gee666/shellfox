@@ -11,12 +11,11 @@ const MAX_CONNECTIONS: usize = 160;
 mod preparation;
 mod transport_frame;
 use transport_frame::{Frame, LifetimeReply, TRANSPORT_VERSION};
+mod desktop;
 mod launch;
 mod request;
-mod desktop;
 pub use desktop::{DesktopProviderRequest, DesktopReply, DesktopRequest};
 pub(crate) mod ssh_read;
-pub use ssh_read::{open_ssh_directory, read_ssh_profiles, ssh_endpoint_exists, SshRead, SshReadReply};
 use crate::{
     local_api::{LocalApiRequest, LocalApiResponse, METHOD},
     platform,
@@ -24,6 +23,9 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 pub use client::{HostClosed, LocalClient, LocalRequestFailure, OtherBuildRunning};
+pub use ssh_read::{
+    open_ssh_directory, read_ssh_profiles, ssh_endpoint_exists, SshRead, SshReadReply,
+};
 
 pub async fn check_helper_protocol(helper: &std::path::Path, digest: [u8; 32]) -> Result<()> {
     let helper = shellfox_transport::VerifiedHelper::new(helper.to_owned(), digest)?;
@@ -302,8 +304,14 @@ mod tests {
         assert_eq!(super::NAMESPACE, "shellfox.local.endpoint.v1");
         assert_eq!(super::TRANSPORT_VERSION, 1);
         assert_eq!(shellfox_protocol::LOCAL_NAMESPACE, "private.local.v1");
-        assert_eq!(shellfox_protocol::DESKTOP_LAUNCH_NAMESPACE, "private.desktop.launch.v1");
-        assert_eq!(shellfox_protocol::DESKTOP_VIEW_NAMESPACE, "private.desktop.view.v1");
+        assert_eq!(
+            shellfox_protocol::DESKTOP_LAUNCH_NAMESPACE,
+            "private.desktop.launch.v1"
+        );
+        assert_eq!(
+            shellfox_protocol::DESKTOP_VIEW_NAMESPACE,
+            "private.desktop.view.v1"
+        );
         assert_eq!(shellfox_protocol::POWER_NAMESPACE, "private.power.v1");
         assert_eq!(shellfox_protocol::SSH_READ_NAMESPACE, "private.ssh.read.v1");
     }

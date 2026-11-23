@@ -19,4 +19,3 @@ pub trait LocalRequest: Serialize + DeserializeOwned + Validate {
 pub trait LocalTransport: Send + Sync {
     fn send<'a>(&'a self, body: Vec<u8>, limits: RequestLimits) -> TransportFuture<'a>;
 }
-

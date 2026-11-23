@@ -1,7 +1,7 @@
-use super::{link_menu::LinkMenuPress, links::copy_link, TerminalView};
+use super::{TerminalView, link_menu::LinkMenuPress, links::copy_link};
 use gpui::Context;
-use shellfox_ghostty_vt::terminal_links::parse_file_link;
 use shellfox_ghostty_vt::ViewportPoint;
+use shellfox_ghostty_vt::terminal_links::parse_file_link;
 
 pub(super) struct FilePress {
     pub start: gpui::Point<gpui::Pixels>,

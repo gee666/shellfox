@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
+use std::ffi::OsString;
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
-use std::ffi::OsString;
 #[cfg(any(unix, test))]
 use std::process::Command;
 #[cfg(any(windows, target_os = "macos"))]
@@ -29,7 +29,10 @@ pub(crate) fn forward_ssh(args: &[OsString]) -> Result<Option<i32>> {
         return Ok(None);
     }
     let cli = crate::host_process::cli_path()?;
-    eprintln!("Run ssh from a terminal with `shellfox ssh` or \"{}\" ssh.", cli.display());
+    eprintln!(
+        "Run ssh from a terminal with `shellfox ssh` or \"{}\" ssh.",
+        cli.display()
+    );
     Ok(Some(2))
 }
 

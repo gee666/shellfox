@@ -105,7 +105,10 @@ async fn system_end_stops_the_host_despite_open_windows_and_a_pending_close() {
     let fake = Fake::default();
     let host = AppHost::with_backend(fake.clone());
     let window = host.open_window().await.unwrap();
-    let ticket = approved(host.request_close(CloseTarget::Window(window.id), 0).unwrap());
+    let ticket = approved(
+        host.request_close(CloseTarget::Window(window.id), 0)
+            .unwrap(),
+    );
     host.begin_close(&ticket).await.unwrap();
     host.stop_for_system_end().await.unwrap();
     host.stop_for_system_end().await.unwrap();

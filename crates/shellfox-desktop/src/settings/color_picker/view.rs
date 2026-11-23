@@ -3,7 +3,9 @@
 use super::*;
 use gpui::{Hsla, MouseButton, linear_color_stop as stop, linear_gradient};
 
-const HUE_STOPS: [u32; 7] = [0xff0000, 0xffff00, 0x00ff00, 0x00ffff, 0x0000ff, 0xff00ff, 0xff0000];
+const HUE_STOPS: [u32; 7] = [
+    0xff0000, 0xffff00, 0x00ff00, 0x00ffff, 0x0000ff, 0xff00ff, 0xff0000,
+];
 
 impl Picker {
     fn swatch(&self, id: (&'static str, usize), rgb: Rgb, cx: &Context<Self>) -> impl IntoElement {
@@ -27,9 +29,18 @@ impl Picker {
             .flex()
             .items_center()
             .gap(px(GAP))
-            .child(div().w(px(CAPTION)).text_color(self.palette.muted).child(caption))
+            .child(
+                div()
+                    .w(px(CAPTION))
+                    .text_color(self.palette.muted)
+                    .child(caption),
+            )
             .children(fields.iter().map(|index| {
-                let width = if *index == 0 { CHANNEL * 2. + GAP } else { CHANNEL };
+                let width = if *index == 0 {
+                    CHANNEL * 2. + GAP
+                } else {
+                    CHANNEL
+                };
                 div().w(px(width)).child(self.fields[*index].clone())
             }))
     }
@@ -37,7 +48,12 @@ impl Picker {
     fn square(&self, cx: &Context<Self>) -> impl IntoElement {
         let white: Hsla = gpui::white();
         let black: Hsla = gpui::black();
-        let hue = Hsv { saturation: 1., value: 1., ..self.hsv }.rgb();
+        let hue = Hsv {
+            saturation: 1.,
+            value: 1.,
+            ..self.hsv
+        }
+        .rgb();
         let layer = || div().absolute().inset_0();
         div()
             .id("color-square")
@@ -46,8 +62,16 @@ impl Picker {
             .h(px(SQUARE))
             .flex_shrink_0()
             .bg(tint(hue))
-            .child(layer().bg(linear_gradient(90., stop(white, 0.), stop(white.opacity(0.), 1.))))
-            .child(layer().bg(linear_gradient(180., stop(black.opacity(0.), 0.), stop(black, 1.))))
+            .child(layer().bg(linear_gradient(
+                90.,
+                stop(white, 0.),
+                stop(white.opacity(0.), 1.),
+            )))
+            .child(layer().bg(linear_gradient(
+                180.,
+                stop(black.opacity(0.), 0.),
+                stop(black, 1.),
+            )))
             .child(marker(
                 self.hsv.saturation * INNER,
                 (1. - self.hsv.value) * SQUARE,
@@ -66,7 +90,11 @@ impl Picker {
         let mut strip = div().absolute().inset_0().flex();
         for pair in HUE_STOPS.windows(2) {
             let [from, to] = [pair[0], pair[1]].map(|color| Hsla::from(gpui::rgb(color)));
-            strip = strip.child(div().flex_1().h_full().bg(linear_gradient(90., stop(from, 0.), stop(to, 1.))));
+            strip = strip.child(div().flex_1().h_full().bg(linear_gradient(
+                90.,
+                stop(from, 0.),
+                stop(to, 1.),
+            )));
         }
         div()
             .id("color-hue")
@@ -75,7 +103,11 @@ impl Picker {
             .h(px(HUE))
             .flex_shrink_0()
             .child(strip)
-            .child(marker(self.hsv.hue / 360. * INNER, HUE / 2., gpui::size(px(5.), px(HUE + 4.))))
+            .child(marker(
+                self.hsv.hue / 360. * INNER,
+                HUE / 2.,
+                gpui::size(px(5.), px(HUE + 4.)),
+            ))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|picker, event: &gpui::MouseDownEvent, window, cx| {
@@ -185,19 +217,30 @@ impl Render for Picker {
                     cx.stop_propagation();
                 }
             }))
-            .on_mouse_move(cx.listener(|picker, event: &gpui::MouseMoveEvent, window, cx| {
-                if let Some(drag) = picker.drag {
-                    if event.pressed_button == Some(MouseButton::Left) {
-                        picker.drag_to(drag, event.position, window.viewport_size(), cx);
-                    } else {
-                        picker.drag = None;
+            .on_mouse_move(
+                cx.listener(|picker, event: &gpui::MouseMoveEvent, window, cx| {
+                    if let Some(drag) = picker.drag {
+                        if event.pressed_button == Some(MouseButton::Left) {
+                            picker.drag_to(drag, event.position, window.viewport_size(), cx);
+                        } else {
+                            picker.drag = None;
+                        }
                     }
-                }
-            }))
-            .on_mouse_up(MouseButton::Left, cx.listener(|picker, _, _, _| picker.drag = None))
-            .capture_key_down(cx.listener(|picker, event, window, cx| picker.key(event, window, cx)))
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|picker, _, _, _| picker.drag = None),
+            )
+            .capture_key_down(
+                cx.listener(|picker, event, window, cx| picker.key(event, window, cx)),
+            )
             .child(card);
-        gpui::deferred(gpui::anchored().position(point(px(0.), px(0.))).child(layer))
-            .with_priority(60)
+        gpui::deferred(
+            gpui::anchored()
+                .position(point(px(0.), px(0.)))
+                .child(layer),
+        )
+        .with_priority(60)
     }
 }

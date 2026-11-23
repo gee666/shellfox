@@ -220,7 +220,10 @@ fn unchanged_view_does_not_create_a_permanent_idle_repaint_loop() {
         doc.snapshot_view(&view, geometry(), false, start + Duration::from_millis(n))
             .unwrap();
     }
-    assert!(!doc.refresh_delay(start + Duration::from_millis(100)).is_some_and(|delay| delay.is_zero()));
+    assert!(
+        !doc.refresh_delay(start + Duration::from_millis(100))
+            .is_some_and(|delay| delay.is_zero())
+    );
 }
 
 #[test]
@@ -246,7 +249,10 @@ fn coalescing_keeps_a_coherent_old_stamp_and_rejects_at_mapping_until_new_sample
         doc.selection_action_for_view(&range, next.terminal_stamp, &view)
             .is_none()
     );
-    assert!(doc.refresh_delay(start + Duration::from_millis(50)).is_some_and(|delay| delay.is_zero()));
+    assert!(
+        doc.refresh_delay(start + Duration::from_millis(50))
+            .is_some_and(|delay| delay.is_zero())
+    );
     let fresh = doc
         .snapshot_view(&view, geometry(), false, start + Duration::from_millis(50))
         .unwrap();

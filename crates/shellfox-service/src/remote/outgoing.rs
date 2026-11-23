@@ -1,5 +1,7 @@
 //! Opaque outgoing HTTP only. Pairing/selection belong to the shared SDK client.
-use shellfox_protocol::{AuthenticatedPeerId, Endpoint, CancellationToken, RequestLimits, TransportError};
+use shellfox_protocol::{
+    AuthenticatedPeerId, CancellationToken, Endpoint, RequestLimits, TransportError,
+};
 pub use shellfox_transport::HttpResponse as PeerResponse;
 use std::{
     future::Future,

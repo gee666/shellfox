@@ -16,12 +16,14 @@ impl Root {
     pub(crate) fn request_file_action(&mut self, action: FileAction, cx: &mut Context<Self>) {
         let closing_retired_wsl = matches!(action, FileAction::Hide)
             && self
-                .files.panel
+                .files
+                .panel
                 .as_ref()
                 .is_some_and(|f| f.backend.is_wsl() && self.is_local_source());
         if (!closing_retired_wsl && !self.require_files_source(cx))
             || self
-                .files.panel
+                .files
+                .panel
                 .as_ref()
                 .is_some_and(|f| f.pending_file_action.is_some())
         {
@@ -31,7 +33,8 @@ impl Root {
             if !self.link_is_current(*origin) {
                 return;
             }
-            let reuse = self.files_dirty(cx) || self.files.panel.as_ref().is_some_and(super::Files::saving);
+            let reuse =
+                self.files_dirty(cx) || self.files.panel.as_ref().is_some_and(super::Files::saving);
             if reuse && self.reveal_open_file(path, *position, cx) {
                 return;
             }
@@ -86,7 +89,9 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files.panel else { return };
+        let Some(files) = &mut self.files.panel else {
+            return;
+        };
         if !files.busy
             && files.pending_file_action.is_some()
             && files

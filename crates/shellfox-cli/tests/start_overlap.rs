@@ -22,9 +22,14 @@ use std::{
 fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
     let (helper, digest) = dev_helper::helper()?;
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).context("No workspace root.")?;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .context("No workspace root.")?;
     std::fs::create_dir_all(root.join("tmp"))?;
-    let scratch = tempfile::Builder::new().prefix("cli-start-overlap-").tempdir_in(root.join("tmp"))?;
+    let scratch = tempfile::Builder::new()
+        .prefix("cli-start-overlap-")
+        .tempdir_in(root.join("tmp"))?;
     let data = scratch.path().join("data");
     std::fs::create_dir(&data)?;
     let mut host = OwnedHost(
@@ -41,7 +46,9 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
             .stderr(Stdio::inherit())
             .spawn()?,
     );
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let result = runtime.block_on(async {
         let deadline = Instant::now() + Duration::from_secs(60);
         let client = loop {
@@ -58,14 +65,20 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
             cwd: data.to_string_lossy().into_owned(),
             profile_id: ProfileId::new(if cfg!(windows) { "cmd" } else { "login-shell" })?,
         };
-        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await? else {
+        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await?
+        else {
             anyhow::bail!("Host did not return the created session.");
         };
         let tab = created.sessions[0].tabs[0].id;
         let started = Instant::now();
         let (attached, snapshot) = tokio::join!(
             async {
-                let reply = client.execute(Request::Attach { tab, takeover: false }).await;
+                let reply = client
+                    .execute(Request::Attach {
+                        tab,
+                        takeover: false,
+                    })
+                    .await;
                 (reply, started.elapsed())
             },
             async {
@@ -75,10 +88,19 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
                 (reply, started.elapsed())
             },
         );
-        ensure!(matches!(attached.0?, Response::Attachment(_)), "Host did not attach.");
+        ensure!(
+            matches!(attached.0?, Response::Attachment(_)),
+            "Host did not attach."
+        );
         snapshot.0?;
-        eprintln!("attach {:?}, snapshot sent during it {:?}", attached.1, snapshot.1);
-        ensure!(snapshot.1 < attached.1, "the snapshot waited for the shell start");
+        eprintln!(
+            "attach {:?}, snapshot sent during it {:?}",
+            attached.1, snapshot.1
+        );
+        ensure!(
+            snapshot.1 < attached.1,
+            "the snapshot waited for the shell start"
+        );
 
         // A detach sent while the attach waits for its start ends that attach:
         // it must not attach a client that already left.
@@ -88,16 +110,32 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
             cwd: data.to_string_lossy().into_owned(),
             profile_id: ProfileId::new(if cfg!(windows) { "cmd" } else { "login-shell" })?,
         };
-        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await? else {
+        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await?
+        else {
             anyhow::bail!("Host did not return the created session.");
         };
-        let tab = created.sessions.iter().find(|s| s.title == "detached early").context("session")?.tabs[0].id;
-        let (attached, detached) = tokio::join!(client.execute(Request::Attach { tab, takeover: false }), async {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-            client.execute(Request::Detach {}).await
-        });
+        let tab = created
+            .sessions
+            .iter()
+            .find(|s| s.title == "detached early")
+            .context("session")?
+            .tabs[0]
+            .id;
+        let (attached, detached) = tokio::join!(
+            client.execute(Request::Attach {
+                tab,
+                takeover: false
+            }),
+            async {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                client.execute(Request::Detach {}).await
+            }
+        );
         detached?;
-        ensure!(attached.is_err(), "an attach finished for a client that had detached");
+        ensure!(
+            attached.is_err(),
+            "an attach finished for a client that had detached"
+        );
         client.execute(Request::Stop {}).await?;
         anyhow::Ok(())
     });

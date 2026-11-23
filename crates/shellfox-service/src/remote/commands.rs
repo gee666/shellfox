@@ -4,7 +4,11 @@ impl RemoteService<'_> {
     fn snapshot(&self) -> Result<Snapshot, AppError> {
         self.service.host().snapshot().map_err(host_error)
     }
-    pub(super) fn session(&self, snapshot: &Snapshot, id: SessionId) -> Result<wire::SessionDto, AppError> {
+    pub(super) fn session(
+        &self,
+        snapshot: &Snapshot,
+        id: SessionId,
+    ) -> Result<wire::SessionDto, AppError> {
         let session = snapshot
             .sessions
             .iter()
@@ -16,29 +20,79 @@ impl RemoteService<'_> {
             .sessions
             .get(&id)
             .ok_or_else(|| capability_unavailable("session runtime facts"))?;
-        let dto = adapter::session_dto_visible(session, facts, &self.private_tabs(snapshot)).map_err(AppError::from)?;
+        let dto = adapter::session_dto_visible(session, facts, &self.private_tabs(snapshot))
+            .map_err(AppError::from)?;
         adapter::filter_private_tabs(dto, &self.private_tabs(snapshot)).map_err(Into::into)
     }
-    pub(super) fn rename_session_metadata(&self, input: wire::RenameSession) -> Result<serde_json::Value, AppError> {
+    pub(super) fn rename_session_metadata(
+        &self,
+        input: wire::RenameSession,
+    ) -> Result<serde_json::Value, AppError> {
         self.preflight(input.session_id)?;
-        let snapshot = self.service.host().rename_session(input.session_id, &input.title).map_err(host_error)?;
+        let snapshot = self
+            .service
+            .host()
+            .rename_session(input.session_id, &input.title)
+            .map_err(host_error)?;
         checked(self.session(&snapshot, input.session_id)?)
     }
-    pub(super) fn set_session_env_metadata(&self, input: wire::SetSessionEnv) -> Result<serde_json::Value, AppError> {
+    pub(super) fn set_session_env_metadata(
+        &self,
+        input: wire::SetSessionEnv,
+    ) -> Result<serde_json::Value, AppError> {
         self.preflight(input.session_id)?;
-        let snapshot = self.service.host().set_session_env(input.session_id, input.env).map_err(host_error)?;
+        let snapshot = self
+            .service
+            .host()
+            .set_session_env(input.session_id, input.env)
+            .map_err(host_error)?;
         checked(self.session(&snapshot, input.session_id)?)
     }
-    pub(super) fn reorder_session_metadata(&self, input: wire::ReorderTabs) -> Result<serde_json::Value, AppError> {
+    pub(super) fn reorder_session_metadata(
+        &self,
+        input: wire::ReorderTabs,
+    ) -> Result<serde_json::Value, AppError> {
         self.preflight(input.session_id)?;
         let snapshot = self.snapshot()?;
         let private = self.private_tabs(&snapshot);
-        let session = snapshot.sessions.iter().find(|session| session.id == input.session_id).ok_or_else(|| failure(ErrorCode::NotFound, "Session not found."))?;
-        let visible = session.tabs.iter().filter(|tab| !private.contains(&tab.id)).map(|tab| tab.id).collect::<std::collections::HashSet<_>>();
-        if input.tab_ids.len() != visible.len() || input.tab_ids.iter().any(|id| !visible.contains(id)) { return Err(failure(ErrorCode::NotFound, "Authorized tab order does not match this session.")); }
+        let session = snapshot
+            .sessions
+            .iter()
+            .find(|session| session.id == input.session_id)
+            .ok_or_else(|| failure(ErrorCode::NotFound, "Session not found."))?;
+        let visible = session
+            .tabs
+            .iter()
+            .filter(|tab| !private.contains(&tab.id))
+            .map(|tab| tab.id)
+            .collect::<std::collections::HashSet<_>>();
+        if input.tab_ids.len() != visible.len()
+            || input.tab_ids.iter().any(|id| !visible.contains(id))
+        {
+            return Err(failure(
+                ErrorCode::NotFound,
+                "Authorized tab order does not match this session.",
+            ));
+        }
         let mut requested = input.tab_ids.into_iter();
-        let merged = session.tabs.iter().map(|tab| if visible.contains(&tab.id) { requested.next().ok_or_else(|| failure(ErrorCode::Validation, "Authorized tab order is incomplete.")) } else { Ok(tab.id) }).collect::<Result<Vec<_>, AppError>>()?;
-        let snapshot = self.service.host().reorder_tabs(input.session_id, &merged).map_err(host_error)?;
+        let merged = session
+            .tabs
+            .iter()
+            .map(|tab| {
+                if visible.contains(&tab.id) {
+                    requested.next().ok_or_else(|| {
+                        failure(ErrorCode::Validation, "Authorized tab order is incomplete.")
+                    })
+                } else {
+                    Ok(tab.id)
+                }
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
+        let snapshot = self
+            .service
+            .host()
+            .reorder_tabs(input.session_id, &merged)
+            .map_err(host_error)?;
         checked(self.session(&snapshot, input.session_id)?)
     }
     fn preflight(&self, id: SessionId) -> Result<(), AppError> {
@@ -60,27 +114,29 @@ impl RemoteService<'_> {
                 let private = self.private_tabs(&saved);
                 let settings = self.service.host().global_settings().map_err(host_error)?;
                 let mut facts = self.state.facts.clone();
-                facts.explorer.get_or_insert_with(|| wire::ExplorerIntegration {
-                    supported: false, installed: false, folder_item_installed: false,
-                    background_installed: false, reason: Some("Explorer integration is unavailable on this host.".into()),
-                });
+                facts
+                    .explorer
+                    .get_or_insert_with(|| wire::ExplorerIntegration {
+                        supported: false,
+                        installed: false,
+                        folder_item_installed: false,
+                        background_installed: false,
+                        reason: Some("Explorer integration is unavailable on this host.".into()),
+                    });
                 facts.cli.get_or_insert_with(|| wire::CliIntegration {
-                    supported: false, installed: false, command: "shellfox".into(),
+                    supported: false,
+                    installed: false,
+                    command: "shellfox".into(),
                     reason: Some("CLI integration is unavailable on this host.".into()),
                 });
                 let mut snapshot = adapter::manager_snapshot_with_settings_visible(
-                    &saved,
-                    &facts,
-                    &settings,
-                    &private,
+                    &saved, &facts, &settings, &private,
                 )
                 .map_err(AppError::from)?;
                 snapshot.sessions = snapshot
                     .sessions
                     .into_iter()
-                    .map(|session| {
-                        adapter::filter_private_tabs(session, &private)
-                    })
+                    .map(|session| adapter::filter_private_tabs(session, &private))
                     .collect::<Result<_, _>>()
                     .map_err(AppError::from)?;
                 checked(snapshot)
@@ -94,7 +150,8 @@ impl RemoteService<'_> {
                 profiles
                     .profiles
                     .retain(|profile| profile.elevation.is_none());
-                profiles.default_profile_id = super::v1_launch::default_profile(&profiles).map(str::to_owned);
+                profiles.default_profile_id =
+                    super::v1_launch::default_profile(&profiles).map(str::to_owned);
                 checked(profiles)
             }
             GetHomeDirectory(_) => checked(
@@ -222,12 +279,16 @@ impl RemoteService<'_> {
                     return Err(failure(ErrorCode::TargetLost, "Stale terminal generation."));
                 }
                 let target = crate::close::CloseTarget::Tab(input.tab_id);
-                let kind = super::close::Kind::Tab { session: session_id };
+                let kind = super::close::Kind::Tab {
+                    session: session_id,
+                };
                 self.start_close(actor, CloseTab(input), target, kind)
             }
             DeleteSession(input) => {
                 let target = crate::close::CloseTarget::Session(input.session_id);
-                let kind = super::close::Kind::Session { session: input.session_id };
+                let kind = super::close::Kind::Session {
+                    session: input.session_id,
+                };
                 self.start_close(actor, DeleteSession(input), target, kind)
             }
             CreateSession(input) => self.create_session(input),
@@ -241,17 +302,22 @@ impl RemoteService<'_> {
             | DetachTerminal(_)) => self.terminal_operation(actor, command),
             ClearSessionError(input) => {
                 self.preflight(input.session_id)?;
-                let snapshot = self.service.acknowledge_session_error(input.session_id)
-                    .map_err(|_| failure(ErrorCode::NativeUnavailable, "Could not acknowledge the session error."))?;
+                let snapshot = self
+                    .service
+                    .acknowledge_session_error(input.session_id)
+                    .map_err(|_| {
+                        failure(
+                            ErrorCode::NativeUnavailable,
+                            "Could not acknowledge the session error.",
+                        )
+                    })?;
                 checked(self.session(&snapshot, input.session_id)?)
             }
             GetSessionStats(input) => self.statistics(input),
             BeginTerminalUpload(_)
             | WriteTerminalUpload(_)
             | FinishTerminalUpload(_)
-            | CancelTerminalUpload(_) => Err(capability_unavailable(
-                "legacy terminal uploads",
-            )),
+            | CancelTerminalUpload(_) => Err(capability_unavailable("legacy terminal uploads")),
         }
     }
     fn tab_member(&self, session: SessionId, tab: shellfox_core::TabId) -> Result<(), AppError> {

@@ -103,11 +103,13 @@ impl FactsPipeline {
                     .iter()
                     .flat_map(|session| session.tabs.iter())
                     .filter(|tab| {
-                        super::privacy::elevated_profile(tab.profile_id.as_str()) || service.terminals.get(&tab.id).is_some_and(|terminal| {
-                            terminal.runtime.identity().session_id == tab.session_id
-                                && super::v1_privilege::explicitly_elevated(
-                                    &terminal.runtime.launch_privilege_facts())
-                        })
+                        super::privacy::elevated_profile(tab.profile_id.as_str())
+                            || service.terminals.get(&tab.id).is_some_and(|terminal| {
+                                terminal.runtime.identity().session_id == tab.session_id
+                                    && super::v1_privilege::explicitly_elevated(
+                                        &terminal.runtime.launch_privilege_facts(),
+                                    )
+                            })
                     })
                     .map(|tab| tab.id)
                     .collect(),
@@ -132,8 +134,10 @@ impl FactsPipeline {
         // Catalog writes need to be visible to this request, independent of the
         // next activity poll. Genuine changes during projection are still fenced.
         let source = crate::activity::integration::read_source(&service.source_facts_watch());
-        if service.activity.dirty || source.is_none_or(|source| !source.matches_request(&evidence)) {
-            let _ = service.publish_source_facts(evidence.snapshot.clone(), evidence.settings.clone());
+        if service.activity.dirty || source.is_none_or(|source| !source.matches_request(&evidence))
+        {
+            let _ =
+                service.publish_source_facts(evidence.snapshot.clone(), evidence.settings.clone());
         }
         self.pending += 1;
         let capabilities_only = capabilities_only(&request.command);
@@ -242,8 +246,13 @@ fn capabilities_only(command: &OwnerCommand) -> bool {
     };
     use wire::RemoteCommand::*;
     match command {
-        GetTerminalProfiles(_) | GetHomeDirectory(_) | DeleteSession(_)
-        | AttachTerminal(_) | CreateSession(_) | AddTab(_) | ActivateSession(_) => true,
+        GetTerminalProfiles(_)
+        | GetHomeDirectory(_)
+        | DeleteSession(_)
+        | AttachTerminal(_)
+        | CreateSession(_)
+        | AddTab(_)
+        | ActivateSession(_) => true,
         ListFiles(v) => v.session_id.is_some() || v.tab_id.is_some(),
         ReadFile(v) => v.session_id.is_some() || v.tab_id.is_some(),
         WriteFile(v) => v.session_id.is_some() || v.tab_id.is_some(),
@@ -259,7 +268,9 @@ fn identities(service: &Service, snapshot: &shellfox_core::Snapshot) -> Vec<Runt
     let mut identities: Vec<_> = service
         .terminals
         .values()
-        .filter(|terminal| crate::facts::membership::contains(snapshot, terminal.runtime.identity()))
+        .filter(|terminal| {
+            crate::facts::membership::contains(snapshot, terminal.runtime.identity())
+        })
         .map(|terminal| RuntimeFactIdentity {
             identity: terminal.runtime.identity(),
             phase: terminal.runtime.phase(),
@@ -279,7 +290,11 @@ pub(super) fn requires_facts(
     command: &OwnerCommand,
     has_runtime: impl FnOnce(wire::TabId) -> bool,
 ) -> bool {
-    if let OwnerCommand::Execute { command: wire::RemoteCommand::AttachTerminal(input), .. } = command {
+    if let OwnerCommand::Execute {
+        command: wire::RemoteCommand::AttachTerminal(input),
+        ..
+    } = command
+    {
         // Only a cold attach needs to resolve a launch profile. A live attach
         // validates and adopts the runtime on this same owner turn.
         return !has_runtime(input.tab_id);

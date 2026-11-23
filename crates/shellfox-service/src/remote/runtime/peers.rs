@@ -102,15 +102,20 @@ impl Manager {
         if self.jobs.len() >= 48 {
             return;
         }
-        let pending: Vec<_> = self.state.peers.iter().filter_map(|peer| {
-            let connection = self.connections.get(&peer.id)?;
-            (peer.online
-                && peer.connection == RemoteConnection::Reconnecting
-                && peer.last_error.is_some()
-                && connection.established
-                && !connection.cancel.is_cancelled())
+        let pending: Vec<_> = self
+            .state
+            .peers
+            .iter()
+            .filter_map(|peer| {
+                let connection = self.connections.get(&peer.id)?;
+                (peer.online
+                    && peer.connection == RemoteConnection::Reconnecting
+                    && peer.last_error.is_some()
+                    && connection.established
+                    && !connection.cancel.is_cancelled())
                 .then(|| (peer.id.clone(), connection.id))
-        }).collect();
+            })
+            .collect();
         for (peer, attempt) in pending {
             // Renew the control-only pairing and event reader. Never retry a file request.
             let _ = self.connect(&peer, Some(attempt), None);

@@ -1,15 +1,12 @@
 use crate::{
-    dialogs::Dialog,
-    terminal::TerminalView,
     app_host::{AppHost, CloseConfirmation, CloseTicket, WindowId},
+    dialogs::Dialog,
     host_client::HostClient,
+    terminal::TerminalView,
 };
 use gpui::{Context, Entity, FocusHandle, Window};
 use shellfox_host::{SessionId, Snapshot, TabId};
-use std::{
-    collections::HashSet,
-    path::PathBuf,
-};
+use std::{collections::HashSet, path::PathBuf};
 
 mod close;
 mod quit_dialog;
@@ -21,8 +18,8 @@ mod semantics;
 mod startup;
 
 pub(crate) mod layout;
-pub(crate) mod shortcuts;
 pub(crate) mod panes;
+pub(crate) mod shortcuts;
 pub struct StartupError {
     pub message: String,
     pub control_required: bool,
@@ -32,7 +29,11 @@ pub struct StartupError {
 impl From<anyhow::Error> for StartupError {
     fn from(error: anyhow::Error) -> Self {
         let control_required = crate::terminal::control_required(&error);
-        Self { message: format!("{error:#}"), control_required, generation: None }
+        Self {
+            message: format!("{error:#}"),
+            control_required,
+            generation: None,
+        }
     }
 }
 pub struct Root {
@@ -63,11 +64,11 @@ pub struct Root {
     pub(crate) panes: panes::Panes,
 }
 impl Root {
-    pub(crate) fn is_local_source(&self)->bool{
+    pub(crate) fn is_local_source(&self) -> bool {
         self.peers.selected == crate::peers::source::Source::Local
     }
     /// UI publication cancellation, NOT a Manager/file authority epoch.
-    pub(crate) fn source_selection_epoch(&self)->u64{
+    pub(crate) fn source_selection_epoch(&self) -> u64 {
         self.peers.selection_epoch()
     }
     pub(crate) fn accept_snapshot(&mut self, snapshot: Snapshot, cx: &mut Context<Self>) -> bool {
@@ -106,16 +107,23 @@ impl Root {
     }
     pub(crate) fn sync_dialog_edit_state(&self, cx: &mut Context<Self>) {
         match &self.dialogs.current {
-            Some(Dialog::PeerSession(dialog)) => if let Some(field) = dialog.field() {
-                field.update(cx, |field, cx| field.set_read_only(self.dialog_locked(), cx));
-            },
+            Some(Dialog::PeerSession(dialog)) => {
+                if let Some(field) = dialog.field() {
+                    field.update(cx, |field, cx| {
+                        field.set_read_only(self.dialog_locked(), cx)
+                    });
+                }
+            }
             Some(Dialog::Create(draft)) => draft.path.update(cx, |field, cx| {
                 field.set_read_only(self.dialogs.user_action_pending || draft.busy.is_some(), cx)
             }),
-            Some(Dialog::RenameSession { title, .. } | Dialog::RenameTab { title, .. } | Dialog::SessionEnvironment { text: title, .. }) => title
-                .update(cx, |field, cx| {
-                    field.set_read_only(self.dialogs.user_action_pending, cx)
-                }),
+            Some(
+                Dialog::RenameSession { title, .. }
+                | Dialog::RenameTab { title, .. }
+                | Dialog::SessionEnvironment { text: title, .. },
+            ) => title.update(cx, |field, cx| {
+                field.set_read_only(self.dialogs.user_action_pending, cx)
+            }),
             _ => {}
         }
     }
@@ -137,7 +145,10 @@ impl Root {
             self.close.update_restart = false;
             self.update_ui.restart_request = None;
         }
-        if matches!(self.dialogs.current, Some(Dialog::PeerSession(_))) { self.dismiss_peer_session_dialog(window, cx); return; }
+        if matches!(self.dialogs.current, Some(Dialog::PeerSession(_))) {
+            self.dismiss_peer_session_dialog(window, cx);
+            return;
+        }
         let dialog = self.dialogs.current.take();
         if let Some(Dialog::RenameTab { id, .. }) = dialog {
             self.focus_tab_label(id, window, cx);
@@ -148,19 +159,35 @@ impl Root {
     }
     pub(crate) fn selected_tab(&self) -> Option<TabId> {
         let selected_session = self.selected_session()?;
-        let session = self.snapshot.as_ref()?.sessions.iter().find(|item| item.id == selected_session)?;
+        let session = self
+            .snapshot
+            .as_ref()?
+            .sessions
+            .iter()
+            .find(|item| item.id == selected_session)?;
         let selected = self.workspace.navigation.selected().tab_id;
-        let mut visible = session.tabs.iter().filter(|tab| self.local_tab_viewable(tab));
-        visible.clone().find(|tab| Some(tab.id) == selected).or_else(|| visible.next()).map(|tab| tab.id)
+        let mut visible = session
+            .tabs
+            .iter()
+            .filter(|tab| self.local_tab_viewable(tab));
+        visible
+            .clone()
+            .find(|tab| Some(tab.id) == selected)
+            .or_else(|| visible.next())
+            .map(|tab| tab.id)
     }
     pub(crate) fn selected_session(&self) -> Option<SessionId> {
-        if !self.is_local_source(){return None;}
+        if !self.is_local_source() {
+            return None;
+        }
         self.workspace.navigation.selected().session_id
     }
     pub(crate) fn focus_selected(&self, window: &mut Window, cx: &gpui::App) {
         if !self.is_local_source() {
             if let Some(view) = self.peers.selected_peer().and_then(|(peer, state)| {
-                self.peer_ui.v1_views.get(&(peer.clone(), state.selected_tab?))
+                self.peer_ui
+                    .v1_views
+                    .get(&(peer.clone(), state.selected_tab?))
             }) {
                 view.read(cx).focus.focus(window);
             }

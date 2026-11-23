@@ -7,8 +7,12 @@ fn host() -> PathBuf {
 }
 #[test]
 fn defaults_are_planned_original_control_namespace_and_local_factory_without_effects() {
-    assert!(ApplicationArguments::is_flag(std::ffi::OsStr::new("--remote-state-dir")));
-    assert!(!ApplicationArguments::is_flag(std::ffi::OsStr::new("--unknown-application-flag")));
+    assert!(ApplicationArguments::is_flag(std::ffi::OsStr::new(
+        "--remote-state-dir"
+    )));
+    assert!(!ApplicationArguments::is_flag(std::ffi::OsStr::new(
+        "--unknown-application-flag"
+    )));
     let host = host();
     let config = ApplicationArguments::default().finish(&host).unwrap();
     assert_eq!(
@@ -39,19 +43,10 @@ fn explicit_configuration_is_validated_not_inferred_from_recovery_or_installatio
     assert_eq!(config.hostname, "owned-test-host");
     assert!(config.validate_separate(&[&state]).is_err());
     for invalid in ["", "-bad", "bad-", "bad.name", "bad/name"] {
-        assert!(
-            NativeApplicationConfig::new(&host, None, Some(invalid.into()))
-                .is_err()
-        );
+        assert!(NativeApplicationConfig::new(&host, None, Some(invalid.into())).is_err());
     }
-    assert!(
-        NativeApplicationConfig::new(&host, Some(host.clone()), None)
-            .is_err()
-    );
-    assert!(
-        NativeApplicationConfig::new(&host, Some("relative".into()), None)
-            .is_err()
-    );
+    assert!(NativeApplicationConfig::new(&host, Some(host.clone()), None).is_err());
+    assert!(NativeApplicationConfig::new(&host, Some("relative".into()), None).is_err());
 }
 #[test]
 fn development_install_facts_are_unavailable_and_actual_home_query_is_readonly() {
@@ -73,10 +68,9 @@ fn control_server_override_is_typed_loopback_planning_only_and_default_none() {
     let mut args = ApplicationArguments::default();
     args.push("--remote-control-url", "http://127.0.0.1:1".into())
         .unwrap();
-    assert!(
-        args.push("--remote-control-url", "http://127.0.0.1:2".into())
-            .is_err()
-    );
+    assert!(args
+        .push("--remote-control-url", "http://127.0.0.1:2".into())
+        .is_err());
     let configured = args.finish(&host).unwrap();
     let options = configured
         .remote_options(std::env::current_exe().unwrap(), false)
@@ -96,11 +90,9 @@ fn control_server_override_is_typed_loopback_planning_only_and_default_none() {
         "http://127.0.0.1:1/path",
         "http://user@127.0.0.1:1",
     ] {
-        assert!(
-            ApplicationArguments::default()
-                .push("--remote-control-url", value.into())
-                .is_err()
-        );
+        assert!(ApplicationArguments::default()
+            .push("--remote-control-url", value.into())
+            .is_err());
     }
     assert!(!host.exists());
     assert!(!configured.remote_state_dir.exists());
@@ -110,13 +102,20 @@ fn trusted_resource_input_reaches_boot_options_without_materializing_storage() {
     let host = host();
     let resources = ApplicationProviderResources::new(
         Arc::new(UnconfiguredInstallResources),
-        SystemInstallPolicy { allow_user_install: false, allow_open: false },
+        SystemInstallPolicy {
+            allow_user_install: false,
+            allow_open: false,
+        },
     );
-    let configured = ApplicationArguments::default().finish(&host).unwrap()
+    let configured = ApplicationArguments::default()
+        .finish(&host)
+        .unwrap()
         .with_provider_resources(resources);
     assert!(configured.provider_resources.is_some());
     // This is only the explicit supervisor planning fixture, never askpass or package authority.
-    configured.remote_options(std::env::current_exe().unwrap(), false).unwrap();
+    configured
+        .remote_options(std::env::current_exe().unwrap(), false)
+        .unwrap();
     assert!(!host.exists());
     assert!(!host.join("rust-service-v1/ssh").exists());
 }

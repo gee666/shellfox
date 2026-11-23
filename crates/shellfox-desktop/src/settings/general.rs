@@ -25,7 +25,10 @@ fn update_checkbox_glyph(p: Palette, checked: bool, focus: Option<FocusHandle>) 
         .when(checked, |style| {
             style
                 .text_color(p.on_accent())
-                .child(crate::assets::icon_sized("check", UPDATE_CHECKBOX_SIZE - 2.))
+                .child(crate::assets::icon_sized(
+                    "check",
+                    UPDATE_CHECKBOX_SIZE - 2.,
+                ))
         })
         .when_some(focus, |glyph, focus| {
             glyph.child(controls::focus_outline(focus, p.accent, 0., 3.))

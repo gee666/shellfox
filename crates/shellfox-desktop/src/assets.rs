@@ -268,7 +268,10 @@ pub(crate) fn ellipsis(text: impl Into<SharedString>, line_height: f32) -> impl 
     .h(px(line_height))
 }
 
-pub(crate) fn inline_ellipsis(text: impl Into<SharedString>, line_height: f32) -> impl gpui::IntoElement {
+pub(crate) fn inline_ellipsis(
+    text: impl Into<SharedString>,
+    line_height: f32,
+) -> impl gpui::IntoElement {
     use gpui::{div, prelude::*, px};
     let text = text.into();
     // Reserve the label's natural width so adjacent icons follow short labels.
@@ -276,7 +279,12 @@ pub(crate) fn inline_ellipsis(text: impl Into<SharedString>, line_height: f32) -
         .relative()
         .h(px(line_height))
         .child(div().invisible().whitespace_nowrap().child(text.clone()))
-        .child(div().absolute().inset_0().child(ellipsis(text, line_height)))
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .child(ellipsis(text, line_height)),
+        )
 }
 
 #[cfg(test)]

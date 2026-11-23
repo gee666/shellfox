@@ -109,8 +109,14 @@ fn samples_at_most_twenty_times_per_second_without_throttling_layout() {
         assert_eq!(next.runs[0].1.value(), first.runs[0].1.value());
         assert_eq!(next.runs[0].1.bounds().unwrap().x0, 200.);
     }
-    assert!(!doc.refresh_delay(start + Duration::from_millis(49)).is_some_and(|delay| delay.is_zero()));
-    assert!(doc.refresh_delay(start + Duration::from_millis(50)).is_some_and(|delay| delay.is_zero()));
+    assert!(
+        !doc.refresh_delay(start + Duration::from_millis(49))
+            .is_some_and(|delay| delay.is_zero())
+    );
+    assert!(
+        doc.refresh_delay(start + Duration::from_millis(50))
+            .is_some_and(|delay| delay.is_zero())
+    );
     let final_idle_frame = doc
         .snapshot(
             &screen,
@@ -120,7 +126,10 @@ fn samples_at_most_twenty_times_per_second_without_throttling_layout() {
             start + Duration::from_millis(50),
         )
         .unwrap();
-    assert!(!doc.refresh_delay(start + Duration::from_millis(100)).is_some_and(|delay| delay.is_zero()));
+    assert!(
+        !doc.refresh_delay(start + Duration::from_millis(100))
+            .is_some_and(|delay| delay.is_zero())
+    );
     assert!(
         final_idle_frame.runs[0]
             .1

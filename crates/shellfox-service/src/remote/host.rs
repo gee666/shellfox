@@ -1,8 +1,6 @@
 //! Ready facade assembled by the retained, borrowed native preparation owner.
 use super::preferences::store::NativePreferenceStore;
-use shellfox_remote::{
-    ApprovalControl, Backend, BackendHandle, PrivateApprovalStore,
-};
+use shellfox_remote::{ApprovalControl, Backend, BackendHandle, PrivateApprovalStore};
 use shellfox_transport::{
     HelperConfig, IsolatedStateDirectory, LoopbackOrigin, Secret, VerifiedHelper,
 };

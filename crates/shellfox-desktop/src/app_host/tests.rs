@@ -170,7 +170,8 @@ async fn one_restart_confirmation_reserves_and_closes_every_window() {
     let host = AppHost::with_backend(backend.clone());
     let a = host.open_window().await.unwrap();
     let b = host.open_window().await.unwrap();
-    let CloseDecision::Confirm(confirmation) = host.request_close(CloseTarget::Quit, 2).unwrap() else {
+    let CloseDecision::Confirm(confirmation) = host.request_close(CloseTarget::Quit, 2).unwrap()
+    else {
         panic!("restart needs one confirmation for all shells");
     };
     assert_eq!(confirmation.terminal_count, 2);
@@ -181,7 +182,10 @@ async fn one_restart_confirmation_reserves_and_closes_every_window() {
     let closed = host.finish_close(ticket).await.unwrap();
     assert_eq!(closed.windows, [a.id, b.id]);
     assert!(closed.app_stopped);
-    assert_eq!(backend.0.lock().unwrap().calls, ["fork:1", "fork:2", "detach:1", "detach:2", "stop"]);
+    assert_eq!(
+        backend.0.lock().unwrap().calls,
+        ["fork:1", "fork:2", "detach:1", "detach:2", "stop"]
+    );
 }
 mod quit_fault;
 

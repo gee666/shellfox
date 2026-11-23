@@ -107,9 +107,10 @@ impl RemoteView {
 
     pub fn connected(&self, id: &str) -> bool {
         self.state.as_ref().is_some_and(|state| {
-            state.peers.iter().any(|peer| {
-                peer.id == id && peer.connection == api::Connection::Connected
-            })
+            state
+                .peers
+                .iter()
+                .any(|peer| peer.id == id && peer.connection == api::Connection::Connected)
         })
     }
 

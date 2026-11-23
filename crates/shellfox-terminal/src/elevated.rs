@@ -12,13 +12,13 @@ mod launch;
 mod resource;
 #[cfg(any(windows, test, feature = "test-support"))]
 mod session;
+mod startup_stage;
 #[cfg(any(windows, test, feature = "test-support"))]
 mod stdio;
 #[cfg(any(windows, test, feature = "test-support"))]
 mod stdio_workers;
 #[cfg(test)]
 mod tests;
-mod startup_stage;
 mod transport;
 mod wire;
 
@@ -35,8 +35,8 @@ pub use launch::{Launch, PreparedLaunch};
 pub use resource::{TrustedHash, VerifiedHelper};
 #[cfg(any(windows, test, feature = "test-support"))]
 pub use session::{Session, StartError};
+pub use startup_stage::StartupStage;
 #[cfg(any(windows, test, feature = "test-support"))]
 pub use stdio::{reap_retained_launchers, Observation};
-pub use startup_stage::StartupStage;
 pub use transport::{HelperFrame, HelperIo};
 pub use wire::{AdapterError, Birth, ProcessIdentity, MAX_FRAME, MAX_INPUT};

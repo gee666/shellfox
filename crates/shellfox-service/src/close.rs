@@ -55,7 +55,9 @@ impl Service {
     }
     /// Whether `tab` belongs to the close in flight.
     pub(crate) fn tab_closing(&self, tab: TabId) -> bool {
-        self.closing.as_ref().is_some_and(|closing| closing.tabs.contains(&tab))
+        self.closing
+            .as_ref()
+            .is_some_and(|closing| closing.tabs.contains(&tab))
     }
     /// When the close in flight gives up, for the owner's pass timeout.
     pub(crate) fn close_deadline(&self) -> Option<Instant> {
@@ -66,7 +68,12 @@ impl Service {
     pub(crate) fn begin_close(&mut self, target: CloseTarget, done: CloseDone) {
         self.begin_close_gated(target, None, done);
     }
-    fn begin_close_gated(&mut self, target: CloseTarget, gate: Option<CommitGate>, done: CloseDone) {
+    fn begin_close_gated(
+        &mut self,
+        target: CloseTarget,
+        gate: Option<CommitGate>,
+        done: CloseDone,
+    ) {
         if let Err(error) = self.assert_owned() {
             return done(Err(error));
         }
@@ -77,7 +84,12 @@ impl Service {
         // nothing may write metadata between prepare and commit.
         self.metadata_closing = true;
         match self.start_close(target) {
-            Ok(Started { token, tabs, session, terminals }) => {
+            Ok(Started {
+                token,
+                tabs,
+                session,
+                terminals,
+            }) => {
                 // A gated close starts inside its caller's authorization check,
                 // which the gate takes again (that lock isn't reentrant), so the
                 // caller pumps it afterwards. No pump may run under that check.
@@ -141,7 +153,12 @@ impl Service {
             self.host.cancel_close(prepared.token)?;
             return Err(error);
         }
-        Ok(Started { token: prepared.token, tabs, session, terminals: prepared.terminals })
+        Ok(Started {
+            token: prepared.token,
+            tabs,
+            session,
+            terminals: prepared.terminals,
+        })
     }
     /// Advances the close in flight. Runs on every owner pass.
     pub(crate) fn pump_closing(&mut self) {
@@ -154,7 +171,11 @@ impl Service {
                 return;
             }
             Ok(Some(snapshot)) => Ok(snapshot),
-            Err(error) => self.host.cancel_close(closing.token).map_err(Into::into).and(Err(error)),
+            Err(error) => self
+                .host
+                .cancel_close(closing.token)
+                .map_err(Into::into)
+                .and(Err(error)),
         };
         self.metadata_closing = false;
         (closing.done)(result);
@@ -267,9 +288,12 @@ impl Service {
     /// Blocking form of `begin_close`, for callers that have no reply to defer.
     pub(crate) fn close_now(&mut self, target: CloseTarget) -> Result<Snapshot> {
         let (send, receive) = std::sync::mpsc::channel();
-        self.begin_close(target, Box::new(move |result| {
-            let _ = send.send(result);
-        }));
+        self.begin_close(
+            target,
+            Box::new(move |result| {
+                let _ = send.send(result);
+            }),
+        );
         self.wait_until(
             Instant::now() + STOP_DEADLINE + Duration::from_secs(1),
             |service| {
@@ -306,14 +330,24 @@ impl NativeAction {
 impl Service {
     /// Starts the close a request names, with the checks its synchronous
     /// route made first.
-    pub(crate) fn close_request(&mut self, target: CloseTarget, admitted: Result<()>, done: CloseDone) {
+    pub(crate) fn close_request(
+        &mut self,
+        target: CloseTarget,
+        admitted: Result<()>,
+        done: CloseDone,
+    ) {
         if let Err(error) = admitted.and_then(|()| self.assert_accepting()) {
             return done(Err(error));
         }
         self.begin_close(target, done);
     }
     /// `close_request` whose commit runs through `gate`.
-    pub(crate) fn close_request_gated(&mut self, target: CloseTarget, gate: CommitGate, done: CloseDone) {
+    pub(crate) fn close_request_gated(
+        &mut self,
+        target: CloseTarget,
+        gate: CommitGate,
+        done: CloseDone,
+    ) {
         if let Err(error) = self.assert_accepting() {
             return done(Err(error));
         }
@@ -379,7 +413,6 @@ impl Service {
             closing.parked = false;
         }
     }
-
 }
 
 #[cfg(test)]

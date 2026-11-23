@@ -8,7 +8,6 @@ use shellfox_service::native::{NativeAction, NativeResponse};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 mod agents;
 pub mod api;
-mod follow_up;
 mod browser;
 mod catalog_validation;
 mod color_picker;
@@ -22,6 +21,7 @@ mod environment_keys;
 mod environment_rpc;
 mod environment_view;
 mod errors;
+mod follow_up;
 pub use device_colors::DeviceColors;
 mod device_color_actions;
 mod field_semantics;
@@ -41,16 +41,16 @@ pub(crate) mod native_state;
 mod native_tests;
 mod operation_tracker;
 mod operations;
+pub(crate) mod pairing;
 mod profile_keys;
 mod progress;
 mod remote;
 mod remote_actions;
 mod remote_login_view;
 mod remote_page;
-mod remote_peers;
 mod remote_peer_row;
+mod remote_peers;
 mod remote_poll;
-pub(crate) mod pairing;
 mod rule_edits;
 mod rules;
 mod semantic_control;
@@ -268,7 +268,9 @@ impl SettingsPanel {
             field.update(cx, |field, cx| field.apply_palette(palette, cx));
         }
         if let Some(picker) = &self.color_picker {
-            picker.view.update(cx, |picker, cx| picker.set_palette(palette, cx));
+            picker
+                .view
+                .update(cx, |picker, cx| picker.set_palette(palette, cx));
         }
         cx.notify();
     }

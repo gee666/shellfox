@@ -160,7 +160,8 @@ impl Root {
 
     pub(crate) fn focus_files_toggle(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.tabs.scroll.files_pointer_focus.set(false);
-        self.tabs.scroll
+        self.tabs
+            .scroll
             .control_focus(TabFocus::Files, cx)
             .focus(window);
         cx.notify();

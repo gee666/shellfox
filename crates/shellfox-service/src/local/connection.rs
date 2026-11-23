@@ -51,7 +51,15 @@ pub(super) async fn serve_connection(
     mut stream: platform::LocalStream,
     shared: Shared,
 ) -> Result<ConnectionOutcome> {
-    let Shared { secret, client, lost, stop, orderly, slots, polls } = shared;
+    let Shared {
+        secret,
+        client,
+        lost,
+        stop,
+        orderly,
+        slots,
+        polls,
+    } = shared;
     let frame = tokio::time::timeout(Duration::from_secs(30), async {
         let bytes = read_frame(&mut stream, crate::remote::outgoing_wire::MAX_REQUEST * 5).await?;
         stream.verify_peer()?;
@@ -110,15 +118,18 @@ pub(super) async fn serve_connection(
                     bail!("Private envelope/lifetime identity mismatch.");
                 }
                 let outgoing = matches!(&request, PrivateRequest::Peer(_));
-                let asynchronous =
-                    outgoing || matches!(&request, PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_)
+                let asynchronous = outgoing
+                    || matches!(
+                        &request,
+                        PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_)
                         | PrivateRequest::Power(crate::power::PowerRequest::Status {})
                         // Held reads end when their caller goes away.
                         | PrivateRequest::LocalApi(crate::local_api::LocalApiRequest::Poll { .. })
                         | PrivateRequest::DesktopLaunch(
                             crate::desktop_launch::DesktopLaunchRequest::PollAttached { .. }
                                 | crate::desktop_launch::DesktopLaunchRequest::Receipt { .. }
-                        ));
+                        )
+                    );
                 if !outgoing && body.len() > shellfox_protocol::MAX_REQUEST_BYTES {
                     bail!("Ordinary private request exceeds bound");
                 }

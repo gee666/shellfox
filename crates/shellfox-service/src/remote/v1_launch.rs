@@ -9,7 +9,10 @@ pub(super) fn default_profile(profiles: &wire::TerminalProfiles) -> Option<&str>
 
 pub(super) fn ensure_launch_profile(state: &RemoteState, id: &str) -> Result<(), AppError> {
     if super::privacy::elevated_profile(id) {
-        return Err(failure(ErrorCode::AccessDenied, "Elevated launch remains local-only."));
+        return Err(failure(
+            ErrorCode::AccessDenied,
+            "Elevated launch remains local-only.",
+        ));
     }
     let profiles = state
         .profiles
@@ -24,7 +27,10 @@ pub(super) fn ensure_launch_profile(state: &RemoteState, id: &str) -> Result<(),
         .find(|profile| profile.id == id)
         .ok_or_else(|| failure(ErrorCode::NotFound, "Authorized launch profile not found."))?;
     if profile.elevation.is_some() {
-        return Err(failure(ErrorCode::AccessDenied, "Elevated launch remains local-only."));
+        return Err(failure(
+            ErrorCode::AccessDenied,
+            "Elevated launch remains local-only.",
+        ));
     }
     if !profile.available {
         return Err(capability_unavailable("requested native shell launch"));
@@ -106,7 +112,11 @@ impl RemoteService<'_> {
         }
         super::v1_privilege::ensure_normal_launch()?;
         let profile = if cfg!(windows) {
-            let configured = host.snapshot().map_err(host_error)?.preferences.default_profile_id;
+            let configured = host
+                .snapshot()
+                .map_err(host_error)?
+                .preferences
+                .default_profile_id;
             creation_profile::for_windows_folder(self.state, &configured, &input.cwd)?
         } else {
             self.default_v1_profile()?
@@ -148,8 +158,15 @@ impl RemoteService<'_> {
             .iter()
             .find(|s| s.id == input.session_id)
             .ok_or_else(missing)?;
-        if session.tabs.iter().any(crate::automation::replay::is_automation_tab) {
-            return Err(failure(ErrorCode::Unsupported, "Automation views cannot open shell tabs."));
+        if session
+            .tabs
+            .iter()
+            .any(crate::automation::replay::is_automation_tab)
+        {
+            return Err(failure(
+                ErrorCode::Unsupported,
+                "Automation views cannot open shell tabs.",
+            ));
         }
         let profile = match input.profile_id {
             Some(id) => ProfileId::new(id).map_err(host_error)?,
@@ -192,12 +209,11 @@ impl RemoteService<'_> {
             .find(|s| s.id == input.session_id)
             .ok_or_else(missing)?;
         let private = self.private_tabs(&snapshot);
-        if let Some(tab) = session
-            .tabs
-            .iter()
-            .find(|t| t.state != TabState::Archived && !private.contains(&t.id)
-                && !crate::automation::replay::is_automation_tab(t))
-        {
+        if let Some(tab) = session.tabs.iter().find(|t| {
+            t.state != TabState::Archived
+                && !private.contains(&t.id)
+                && !crate::automation::replay::is_automation_tab(t)
+        }) {
             self.start_remote_tab(tab)?;
         }
         self.launched_session(session.id)

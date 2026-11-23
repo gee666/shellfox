@@ -77,7 +77,10 @@ mod tests {
     fn inserted_breaks_take_the_file_style() {
         assert_eq!(LineEnding::CrLf.apply("x\ny\r\nz\r"), "x\r\ny\r\nz\r\n");
         assert_eq!(LineEnding::Lf.apply("x\r\ny\rz\n"), "x\ny\nz\n");
-        assert!(matches!(LineEnding::CrLf.apply("plain"), Cow::Borrowed("plain")));
+        assert!(matches!(
+            LineEnding::CrLf.apply("plain"),
+            Cow::Borrowed("plain")
+        ));
     }
 
     #[test]

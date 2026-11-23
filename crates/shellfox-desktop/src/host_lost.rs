@@ -1,6 +1,10 @@
 //! What the UI does when its host ends without this UI quitting it.
-use crate::{app_host::AppHost, dialogs::dialog_button, host_client::HostEndpointConfig, theme::Palette};
-use gpui::{App, Bounds, Context, Global, Window, WindowBounds, WindowOptions, div, prelude::*, px, size};
+use crate::{
+    app_host::AppHost, dialogs::dialog_button, host_client::HostEndpointConfig, theme::Palette,
+};
+use gpui::{
+    App, Bounds, Context, Global, Window, WindowBounds, WindowOptions, div, prelude::*, px, size,
+};
 use shellfox_service::local::{HostClosed, LocalClient};
 use std::{ffi::OsString, time::Duration};
 
@@ -32,15 +36,27 @@ fn outcome(owned: bool, closed: HostClosed, quitting: bool) -> Outcome {
 pub(crate) fn watch(config: HostEndpointConfig, host: AppHost, cx: &mut App) {
     let (sender, ended) = tokio::sync::oneshot::channel();
     let watched = config.clone();
-    let thread = std::thread::Builder::new().name("shellfox-host-watch".into()).spawn(move || {
-        let closed = tokio::runtime::Builder::new_current_thread().enable_all().build().ok().and_then(|runtime| {
-            runtime.block_on(async {
-                let client = LocalClient::connect(&watched.data_dir, &watched.helper, watched.helper_sha256).await.ok()?;
-                Some(client.closed().await)
-            })
+    let thread = std::thread::Builder::new()
+        .name("shellfox-host-watch".into())
+        .spawn(move || {
+            let closed = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .ok()
+                .and_then(|runtime| {
+                    runtime.block_on(async {
+                        let client = LocalClient::connect(
+                            &watched.data_dir,
+                            &watched.helper,
+                            watched.helper_sha256,
+                        )
+                        .await
+                        .ok()?;
+                        Some(client.closed().await)
+                    })
+                });
+            let _ = sender.send(closed.unwrap_or(HostClosed::Lost));
         });
-        let _ = sender.send(closed.unwrap_or(HostClosed::Lost));
-    });
     if let Err(error) = thread {
         eprintln!("Shellfox host watch unavailable: {error:#}");
         return;
@@ -63,9 +79,21 @@ fn host_ended(closed: HostClosed, config: HostEndpointConfig, host: AppHost, cx:
     match outcome {
         Outcome::Expected => {}
         Outcome::Quit => crate::app_exit::quit(cx),
-        Outcome::OfferRestart => show(Notice { message: "Shellfox host stopped unexpectedly.", restart: true }, cx),
+        Outcome::OfferRestart => show(
+            Notice {
+                message: "Shellfox host stopped unexpectedly.",
+                restart: true,
+            },
+            cx,
+        ),
         Outcome::AwaitHost => {
-            show(Notice { message: "Shellfox host stopped. Reconnecting when it is back.", restart: false }, cx);
+            show(
+                Notice {
+                    message: "Shellfox host stopped. Reconnecting when it is back.",
+                    restart: false,
+                },
+                cx,
+            );
             reconnect_when_back(config, cx);
         }
     }
@@ -79,15 +107,23 @@ fn reconnect_when_back(config: HostEndpointConfig, cx: &mut App) {
             let probe = config.clone();
             let (sender, answered) = tokio::sync::oneshot::channel();
             std::thread::spawn(move || {
-                let answered = tokio::runtime::Builder::new_current_thread().enable_all().build().is_ok_and(|runtime| {
-                    runtime.block_on(async {
-                        let client = LocalClient::connect(&probe.data_dir, &probe.helper, probe.helper_sha256).await;
-                        if let Ok(client) = &client {
-                            let _ = client.disconnect().await;
-                        }
-                        client.is_ok()
-                    })
-                });
+                let answered = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .is_ok_and(|runtime| {
+                        runtime.block_on(async {
+                            let client = LocalClient::connect(
+                                &probe.data_dir,
+                                &probe.helper,
+                                probe.helper_sha256,
+                            )
+                            .await;
+                            if let Ok(client) = &client {
+                                let _ = client.disconnect().await;
+                            }
+                            client.is_ok()
+                        })
+                    });
                 let _ = sender.send(answered);
             });
             if answered.await.unwrap_or(false) {
@@ -101,8 +137,13 @@ fn reconnect_when_back(config: HostEndpointConfig, cx: &mut App) {
 
 /// Starts a new UI process, which attaches to (or starts) a host, and quits this one.
 fn relaunch(cx: &mut App) {
-    let arguments = cx.try_global::<Relaunch>().map(|relaunch| relaunch.0.clone()).unwrap_or_default();
-    match std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(arguments).spawn()) {
+    let arguments = cx
+        .try_global::<Relaunch>()
+        .map(|relaunch| relaunch.0.clone())
+        .unwrap_or_default();
+    match std::env::current_exe()
+        .and_then(|exe| std::process::Command::new(exe).args(arguments).spawn())
+    {
         Ok(_) => crate::app_exit::quit(cx),
         Err(error) => eprintln!("Shellfox restart failed: {error:#}"),
     }
@@ -111,8 +152,15 @@ fn relaunch(cx: &mut App) {
 /// One small window replaces the windows whose views lost their host.
 fn show(notice: Notice, cx: &mut App) {
     let options = WindowOptions {
-        titlebar: Some(gpui::TitlebarOptions { title: Some("Shellfox".into()), ..Default::default() }),
-        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(380.), px(130.)), cx))),
+        titlebar: Some(gpui::TitlebarOptions {
+            title: Some("Shellfox".into()),
+            ..Default::default()
+        }),
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(380.), px(130.)),
+            cx,
+        ))),
         is_resizable: false,
         ..Default::default()
     };
@@ -139,9 +187,14 @@ impl Render for Notice {
             .unwrap_or_else(|| Palette::new("#ec4899", "#111016"));
         let mut buttons = div().flex().justify_end().gap(px(8.));
         if self.restart {
-            buttons = buttons.child(dialog_button("host-restart", "Restart", palette).on_click(|_, _, cx| relaunch(cx)));
+            buttons = buttons.child(
+                dialog_button("host-restart", "Restart", palette).on_click(|_, _, cx| relaunch(cx)),
+            );
         }
-        buttons = buttons.child(dialog_button("host-quit", "Quit", palette).on_click(|_, _, cx| crate::app_exit::quit(cx)));
+        buttons = buttons.child(
+            dialog_button("host-quit", "Quit", palette)
+                .on_click(|_, _, cx| crate::app_exit::quit(cx)),
+        );
         div()
             .size_full()
             .flex()
@@ -164,8 +217,14 @@ mod tests {
         assert_eq!(outcome(true, HostClosed::Lost, true), Outcome::Expected);
         assert_eq!(outcome(false, HostClosed::Lost, true), Outcome::Expected);
         assert_eq!(outcome(true, HostClosed::Stopped, false), Outcome::Quit);
-        assert_eq!(outcome(true, HostClosed::Lost, false), Outcome::OfferRestart);
-        assert_eq!(outcome(false, HostClosed::Stopped, false), Outcome::AwaitHost);
+        assert_eq!(
+            outcome(true, HostClosed::Lost, false),
+            Outcome::OfferRestart
+        );
+        assert_eq!(
+            outcome(false, HostClosed::Stopped, false),
+            Outcome::AwaitHost
+        );
         assert_eq!(outcome(false, HostClosed::Lost, false), Outcome::AwaitHost);
     }
 }

@@ -100,13 +100,24 @@ fn asset_reads_have_their_own_budget_beside_user_transfers() {
             cancel.clone(),
         )
     };
-    let previews: Vec<_> = (0..ASSET_READS_PER_ACTOR).map(|i| asset(i).ok().unwrap()).collect();
+    let previews: Vec<_> = (0..ASSET_READS_PER_ACTOR)
+        .map(|i| asset(i).ok().unwrap())
+        .collect();
     assert_eq!(asset(0).err().unwrap().code, ErrorCode::Validation);
     drop(previews);
-    assert_eq!(session.read_asset(&AssetRequest {
-        path: "page.html".into(),
-        asset_path: "a.png".into(),
-    }, cancel.clone()).unwrap().bytes, b"png");
+    assert_eq!(
+        session
+            .read_asset(
+                &AssetRequest {
+                    path: "page.html".into(),
+                    asset_path: "a.png".into(),
+                },
+                cancel.clone()
+            )
+            .unwrap()
+            .bytes,
+        b"png"
+    );
     drop(downloads);
     assert_eq!(session.registry.lock().unwrap().usage().active, 0);
     drop(session);

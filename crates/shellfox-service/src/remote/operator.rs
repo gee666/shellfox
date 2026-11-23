@@ -71,10 +71,17 @@ impl From<RemoteOperatorState> for RemoteControlState {
             login_url: state.login_url,
             error: state.error,
             peers: state.peers,
-            pending: state.pending.into_iter().map(|peer| shellfox_remote::PendingPeer {
-                peer: shellfox_transport::incoming::PeerIdentity { id: peer.id, hostname: peer.hostname },
-                clients: peer.clients,
-            }).collect(),
+            pending: state
+                .pending
+                .into_iter()
+                .map(|peer| shellfox_remote::PendingPeer {
+                    peer: shellfox_transport::incoming::PeerIdentity {
+                        id: peer.id,
+                        hostname: peer.hostname,
+                    },
+                    clients: peer.clients,
+                })
+                .collect(),
             approvals: state.approvals,
             attempts: state.attempts,
             cleanup_retained: state.cleanup_retained,

@@ -1,6 +1,6 @@
 //! Mock-backend worker regressions.
-use super::*;
 use super::super::{worker::PowerWorker, PowerReport, PowerRequest, MAX_POWER_MESSAGE_BYTES};
+use super::*;
 use shellfox_protocol::{CancellationToken, Validate};
 use std::time::{Duration, Instant};
 

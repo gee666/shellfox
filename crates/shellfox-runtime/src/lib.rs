@@ -292,7 +292,9 @@ impl Runtime {
     }
     /// Read-only owned-process capture for an explicit request such as session
     /// stats. Capture it off the owner thread; None when this terminal has no inspection.
-    pub fn inspection_capability(&self) -> Option<shellfox_terminal::inspection::InspectionCapability> {
+    pub fn inspection_capability(
+        &self,
+    ) -> Option<shellfox_terminal::inspection::InspectionCapability> {
         self.inspection.as_ref()?.capability()
     }
     pub fn poll_inspection(&self, ticket: InspectionTicket) -> InspectionPoll {

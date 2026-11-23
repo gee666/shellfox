@@ -1,18 +1,16 @@
 #![cfg(any(windows, target_os = "macos"))]
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
-mod support;
 #[path = "support/settings.rs"]
 mod settings;
+mod support;
 use support::OwnedHost;
 
 use anyhow::{bail, ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId, TabId};
 use shellfox_service::{
-    local_api::{
-        LocalApiRequest as Request, LocalApiResponse as Response, RecoveryCapability,
-    },
     local::LocalClient,
+    local_api::{LocalApiRequest as Request, LocalApiResponse as Response, RecoveryCapability},
     Attachment, TerminalOutput,
 };
 use std::{
@@ -100,7 +98,13 @@ async fn exercise(
         data,
         helper,
         digest,
-        &["settings", "update", "--input", r#"{"historyPageSize":17}"#, "--json"],
+        &[
+            "settings",
+            "update",
+            "--input",
+            r#"{"historyPageSize":17}"#,
+            "--json",
+        ],
     )?;
     ensure!(
         saved.history_page_size == 17,

@@ -105,9 +105,15 @@ async fn established_peer_recovers_after_outage_without_replaying_requests() {
     let (_scratch, control, network, mut runtime) = ready().await;
     network.allowed.store(true, Ordering::SeqCst);
     connect(&control).await;
-    until(&control, |state| state.peers[0].connection == RemoteConnection::Connected).await;
+    until(&control, |state| {
+        state.peers[0].connection == RemoteConnection::Connected
+    })
+    .await;
     network.peer_outage.store(true, Ordering::SeqCst);
-    until(&control, |state| state.peers[0].connection == RemoteConnection::Reconnecting).await;
+    until(&control, |state| {
+        state.peers[0].connection == RemoteConnection::Reconnecting
+    })
+    .await;
     assert_eq!(network.pairs.load(Ordering::SeqCst), 1);
     network.peer_outage.store(false, Ordering::SeqCst);
     let mut watch = control.subscribe();
@@ -115,7 +121,9 @@ async fn established_peer_recovers_after_outage_without_replaying_requests() {
         while watch.borrow().peers[0].connection != RemoteConnection::Connected {
             watch.changed().await.unwrap();
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     assert_eq!(network.pairs.load(Ordering::SeqCst), 2);
     assert_eq!(network.disconnects.load(Ordering::SeqCst), 0);
     runtime.shutdown().await.unwrap();
@@ -126,9 +134,15 @@ async fn established_peer_stops_recovering_when_approval_is_lost() {
     let (_scratch, control, network, mut runtime) = ready().await;
     network.allowed.store(true, Ordering::SeqCst);
     connect(&control).await;
-    until(&control, |state| state.peers[0].connection == RemoteConnection::Connected).await;
+    until(&control, |state| {
+        state.peers[0].connection == RemoteConnection::Connected
+    })
+    .await;
     network.peer_outage.store(true, Ordering::SeqCst);
-    until(&control, |state| state.peers[0].connection == RemoteConnection::Reconnecting).await;
+    until(&control, |state| {
+        state.peers[0].connection == RemoteConnection::Reconnecting
+    })
+    .await;
     network.allowed.store(false, Ordering::SeqCst);
     network.peer_outage.store(false, Ordering::SeqCst);
     let mut watch = control.subscribe();
@@ -136,12 +150,17 @@ async fn established_peer_stops_recovering_when_approval_is_lost() {
         while watch.borrow().peers[0].connection != RemoteConnection::Rejected {
             watch.changed().await.unwrap();
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     assert!(watch.borrow().peers[0].attempt_id.is_none());
     network.allowed.store(true, Ordering::SeqCst);
     tokio::time::sleep(Duration::from_millis(3300)).await;
     assert_eq!(network.pairs.load(Ordering::SeqCst), 2);
-    assert_eq!(watch.borrow().peers[0].connection, RemoteConnection::Rejected);
+    assert_eq!(
+        watch.borrow().peers[0].connection,
+        RemoteConnection::Rejected
+    );
     runtime.shutdown().await.unwrap();
 }
 

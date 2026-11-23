@@ -46,10 +46,7 @@ impl Preparation {
         anyhow::ensure!(!self.entered, "Native acquisition cannot be replayed");
         self.entered = true;
         private.prepare_root(&mut self.original, true).await?;
-        anyhow::ensure!(
-            !closing.is_cancelled(),
-            "Local host stop requested"
-        );
+        anyhow::ensure!(!closing.is_cancelled(), "Local host stop requested");
         self.bound = Some(private.bound_root()?);
         self.original
             .bind_root_borrowed(self.bound.as_ref().context("Original bound root missing")?)?;

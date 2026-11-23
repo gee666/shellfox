@@ -4,7 +4,8 @@ impl Root {
     pub(super) fn system_end_requested(&self) -> bool {
         crate::system_end::requested()
             || self
-                .semantics.native
+                .semantics
+                .native
                 .as_ref()
                 .is_some_and(|native| native.system_end_requested())
     }

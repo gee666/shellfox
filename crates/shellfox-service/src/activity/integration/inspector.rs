@@ -18,7 +18,11 @@ impl InspectionScope {
     }
 
     fn matches_platform(self, platform: InspectionPlatform) -> bool {
-        matches!((self, platform), (Self::LocalWindows, InspectionPlatform::Windows) | (Self::LocalUnix, InspectionPlatform::Unix))
+        matches!(
+            (self, platform),
+            (Self::LocalWindows, InspectionPlatform::Windows)
+                | (Self::LocalUnix, InspectionPlatform::Unix)
+        )
     }
 }
 pub trait RuntimeSource {

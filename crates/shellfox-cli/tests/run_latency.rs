@@ -24,9 +24,14 @@ const MAX_MEDIAN: Duration = Duration::from_secs(2);
 fn a_short_run_returns_promptly() -> Result<()> {
     let (helper, digest) = dev_helper::helper()?;
     let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).context("No workspace root.")?;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .context("No workspace root.")?;
     std::fs::create_dir_all(root.join("tmp"))?;
-    let scratch = tempfile::Builder::new().prefix("cli-run-latency-").tempdir_in(root.join("tmp"))?;
+    let scratch = tempfile::Builder::new()
+        .prefix("cli-run-latency-")
+        .tempdir_in(root.join("tmp"))?;
     let data = scratch.path().join("data");
     std::fs::create_dir(&data)?;
     let cli = |args: &[&str]| {
@@ -42,9 +47,15 @@ fn a_short_run_returns_promptly() -> Result<()> {
         command
     };
     let mut host = OwnedHost(
-        cli(&["host", "serve"]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn()?,
+        cli(&["host", "serve"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()?,
     );
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let result = (|| {
         runtime.block_on(async {
             let deadline = Instant::now() + Duration::from_secs(60);
@@ -55,19 +66,31 @@ fn a_short_run_returns_promptly() -> Result<()> {
             }
             anyhow::Ok(())
         })?;
-        let program: &[&str] = if cfg!(windows) { &["cmd.exe", "/c", "echo sfrun"] } else { &["/bin/echo", "sfrun"] };
+        let program: &[&str] = if cfg!(windows) {
+            &["cmd.exe", "/c", "echo sfrun"]
+        } else {
+            &["/bin/echo", "sfrun"]
+        };
         let mut times = Vec::new();
         for _ in 0..RUNS {
             let started = Instant::now();
-            let output = cli(&[&["run", "--"][..], program].concat()).stdin(Stdio::null()).output()?;
+            let output = cli(&[&["run", "--"][..], program].concat())
+                .stdin(Stdio::null())
+                .output()?;
             times.push(started.elapsed());
             ensure!(output.status.success(), "run failed: {output:?}");
-            ensure!(String::from_utf8_lossy(&output.stdout).contains("sfrun"), "missing output: {output:?}");
+            ensure!(
+                String::from_utf8_lossy(&output.stdout).contains("sfrun"),
+                "missing output: {output:?}"
+            );
         }
         times.sort();
         let median = times[RUNS / 2];
         eprintln!("shellfox run median {median:?}, all {times:?}");
-        ensure!(median <= MAX_MEDIAN, "shellfox run median {median:?} exceeds {MAX_MEDIAN:?}");
+        ensure!(
+            median <= MAX_MEDIAN,
+            "shellfox run median {median:?} exceeds {MAX_MEDIAN:?}"
+        );
         Ok(())
     })();
     runtime.block_on(async {

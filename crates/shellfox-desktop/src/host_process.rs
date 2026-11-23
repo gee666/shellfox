@@ -51,14 +51,23 @@ impl Route {
     }
     pub async fn get(&self) -> Result<HostRoute> {
         let mut route = self.0.clone();
-        let known = route.wait_for(Option::is_some).await.map_err(|_| anyhow::anyhow!("Host startup ended."))?;
-        known.clone().context("Host route missing")?.map_err(anyhow::Error::msg)
+        let known = route
+            .wait_for(Option::is_some)
+            .await
+            .map_err(|_| anyhow::anyhow!("Host startup ended."))?;
+        known
+            .clone()
+            .context("Host route missing")?
+            .map_err(anyhow::Error::msg)
     }
 }
 
 /// The data directory's host, if one answers now.
 /// None when no host answers. A live host of another build is an error.
-pub(crate) fn find_running(runtime: &tokio::runtime::Runtime, config: &HostEndpointConfig) -> Result<Option<Running>> {
+pub(crate) fn find_running(
+    runtime: &tokio::runtime::Runtime,
+    config: &HostEndpointConfig,
+) -> Result<Option<Running>> {
     match runtime.block_on(discover(config)) {
         Ok((client, route)) => Ok(Some(Running { client, route })),
         Err(error) if error.is::<OtherBuildRunning>() => Err(error),
@@ -75,17 +84,26 @@ pub(crate) fn start_in_background(
     config: HostEndpointConfig,
 ) -> Result<Route> {
     let (sender, route) = watch::channel(None);
-    std::thread::Builder::new().name("shellfox-host-start".into()).spawn(move || {
-        let found = (|| {
-            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-            let executable = std::env::current_exe()?;
-            let (client, info, started) =
-                start_and_discover(&runtime, &executable, &relaunch_args, &application_args, &config)?;
-            let _ = runtime.block_on(client.disconnect());
-            anyhow::Ok(HostRoute { info, started })
-        })();
-        let _ = sender.send(Some(found.map_err(|error| format!("{error:#}"))));
-    })?;
+    std::thread::Builder::new()
+        .name("shellfox-host-start".into())
+        .spawn(move || {
+            let found = (|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                let executable = std::env::current_exe()?;
+                let (client, info, started) = start_and_discover(
+                    &runtime,
+                    &executable,
+                    &relaunch_args,
+                    &application_args,
+                    &config,
+                )?;
+                let _ = runtime.block_on(client.disconnect());
+                anyhow::Ok(HostRoute { info, started })
+            })();
+            let _ = sender.send(Some(found.map_err(|error| format!("{error:#}"))));
+        })?;
     Ok(Route(route))
 }
 
@@ -103,7 +121,10 @@ fn start_and_discover(
         let (started, patience) = match start(executable, relaunch_args, application_args, config) {
             Ok(()) => (true, deadline),
             Err(StartError::Permanent(error)) => return Err(error),
-            Err(StartError::Exited) => (false, (Instant::now() + Duration::from_secs(3)).min(deadline)),
+            Err(StartError::Exited) => (
+                false,
+                (Instant::now() + Duration::from_secs(3)).min(deadline),
+            ),
         };
         loop {
             match runtime.block_on(discover(config)) {
@@ -137,8 +158,11 @@ pub(crate) async fn serving(config: &HostEndpointConfig) -> bool {
 }
 
 async fn discover(config: &HostEndpointConfig) -> Result<(LocalClient, LaunchRouteInfo)> {
-    let client = LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256).await?;
-    let DesktopLaunchReply::Route(route) = client.request(&DesktopLaunchRequest::Discover {}).await? else {
+    let client =
+        LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256).await?;
+    let DesktopLaunchReply::Route(route) =
+        client.request(&DesktopLaunchRequest::Discover {}).await?
+    else {
         bail!("The host returned an invalid desktop discovery response.");
     };
     Ok((client, route))
@@ -160,10 +184,16 @@ fn start(
     config: &HostEndpointConfig,
 ) -> Result<(), StartError> {
     let cli = cli_beside(executable).map_err(StartError::Permanent)?;
-    let mut arguments = vec![LocalBootstrap::DESKTOP_HOST_FLAG.into(), executable.as_os_str().to_owned()];
+    let mut arguments = vec![
+        LocalBootstrap::DESKTOP_HOST_FLAG.into(),
+        executable.as_os_str().to_owned(),
+    ];
     arguments.push(relaunch_args.len().to_string().into());
     arguments.extend(relaunch_args.iter().cloned());
-    arguments.extend(["--data-dir".into(), config.data_dir.clone().into_os_string()]);
+    arguments.extend([
+        "--data-dir".into(),
+        config.data_dir.clone().into_os_string(),
+    ]);
     arguments.extend(["--helper".into(), config.helper.clone().into_os_string()]);
     arguments.extend(["--helper-sha256".into(), hex(&config.helper_sha256).into()]);
     arguments.extend(application_args.iter().cloned());
@@ -181,7 +211,9 @@ fn start(
     if output == LocalBootstrap::DESKTOP_HOST_READY {
         return Ok(());
     }
-    Err(StartError::Permanent(anyhow::anyhow!("The Shellfox host did not start: {output}")))
+    Err(StartError::Permanent(anyhow::anyhow!(
+        "The Shellfox host did not start: {output}"
+    )))
 }
 
 /// Returns the host's first stdout line, or None if it printed nothing.
@@ -190,7 +222,11 @@ fn spawn(command: &mut Command) -> Result<Option<String>> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         // Released hosts outlive this UI and any terminal it was started from.
-        .stderr(if cfg!(debug_assertions) { Stdio::inherit() } else { Stdio::null() });
+        .stderr(if cfg!(debug_assertions) {
+            Stdio::inherit()
+        } else {
+            Stdio::null()
+        });
     let mut child = command.spawn().context("Start the Shellfox host")?;
     let stdout = child.stdout.take().context("Host output missing")?;
     let (sender, receiver) = std::sync::mpsc::channel();
@@ -220,8 +256,14 @@ fn spawn(command: &mut Command) -> Result<Option<String>> {
 /// exit for a crash and relaunch it.
 pub(crate) fn announce_quit() {
     QUITTING.store(true, Ordering::SeqCst);
-    if let Some(started) = STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut() {
-        let _ = started.stdin.write_all(&[LocalBootstrap::DESKTOP_HOST_QUIT]);
+    if let Some(started) = STARTED
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_mut()
+    {
+        let _ = started
+            .stdin
+            .write_all(&[LocalBootstrap::DESKTOP_HOST_QUIT]);
         let _ = started.stdin.flush();
     }
 }
@@ -233,7 +275,10 @@ pub(crate) fn quit_announced() -> bool {
 
 /// Whether this UI started the host process it is attached to.
 pub(crate) fn started_host() -> bool {
-    STARTED.lock().unwrap_or_else(|error| error.into_inner()).is_some()
+    STARTED
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .is_some()
 }
 
 /// Waits for the host this UI started to exit. False if it is still running,
@@ -241,7 +286,11 @@ pub(crate) fn started_host() -> bool {
 pub(crate) fn wait_started_exit(timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
-        let exited = match STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut() {
+        let exited = match STARTED
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_mut()
+        {
             Some(started) => !matches!(started.child.try_wait(), Ok(None)),
             None => return false,
         };
@@ -259,7 +308,10 @@ pub(crate) fn wait_started_exit(timeout: Duration) -> bool {
 fn stop_started(grace: Duration) {
     announce_quit();
     if !wait_started_exit(grace)
-        && let Some(started) = STARTED.lock().unwrap_or_else(|error| error.into_inner()).as_mut()
+        && let Some(started) = STARTED
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_mut()
     {
         let _ = started.child.kill();
         let _ = started.child.wait();
@@ -275,7 +327,11 @@ pub(crate) fn record_owner(desktop_dir: &Path, owner: LaunchOwnerFence) -> Resul
     Ok(())
 }
 pub(crate) fn recorded_owner(desktop_dir: &Path) -> Option<LaunchOwnerFence> {
-    std::fs::read_to_string(desktop_dir.join(OWNER_MARKER)).ok()?.trim().parse().ok()
+    std::fs::read_to_string(desktop_dir.join(OWNER_MARKER))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 /// The build stamp a host from this build reports.
@@ -288,8 +344,14 @@ pub(crate) fn cli_path() -> Result<PathBuf> {
     cli_beside(&std::env::current_exe()?)
 }
 fn cli_beside(executable: &Path) -> Result<PathBuf> {
-    let directory = executable.parent().context("Missing Shellfox executable directory")?;
-    let name = if cfg!(windows) { "shellfox-cli.exe" } else { "shellfox-cli" };
+    let directory = executable
+        .parent()
+        .context("Missing Shellfox executable directory")?;
+    let name = if cfg!(windows) {
+        "shellfox-cli.exe"
+    } else {
+        "shellfox-cli"
+    };
     [directory.join("bin").join(name), directory.join(name)]
         .into_iter()
         .find(|path| path.is_file())

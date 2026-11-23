@@ -17,7 +17,12 @@ fn stroke(spec: &str, key_char: Option<&str>) -> Keystroke {
     stroke
 }
 fn event(os: Os, stroke: &Keystroke, action: KeyAction) -> Option<KeyEvent> {
-    key_event_for(stroke, action, matches!(os, Os::Mac), matches!(os, Os::Windows))
+    key_event_for(
+        stroke,
+        action,
+        matches!(os, Os::Mac),
+        matches!(os, Os::Windows),
+    )
 }
 fn bytes(os: Os, terminal: &mut Terminal, stroke: &Keystroke) -> Option<Vec<u8>> {
     let event = event(os, stroke, KeyAction::Press)?;
@@ -32,17 +37,32 @@ fn sent(os: Os, spec: &str) -> Vec<u8> {
 fn plain_typing_goes_through_the_input_handler_only() {
     for os in ALL {
         let mac = matches!(os, Os::Mac);
-        for (spec, text) in [("a", "a"), ("shift-a", "A"), ("space", " "), ("é", "é"), ("!", "!")] {
-            assert!(event(os, &stroke(spec, Some(text)), KeyAction::Press).is_none(), "{spec}");
+        for (spec, text) in [
+            ("a", "a"),
+            ("shift-a", "A"),
+            ("space", " "),
+            ("é", "é"),
+            ("!", "!"),
+        ] {
+            assert!(
+                event(os, &stroke(spec, Some(text)), KeyAction::Press).is_none(),
+                "{spec}"
+            );
         }
         // Option composes text on Mac; AltGr (Ctrl+Alt) does on Windows.
-        assert_eq!(event(os, &stroke("alt-e", Some("´")), KeyAction::Press).is_none(), mac);
+        assert_eq!(
+            event(os, &stroke("alt-e", Some("´")), KeyAction::Press).is_none(),
+            mac
+        );
         let altgr = event(os, &stroke("ctrl-alt-q", Some("@")), KeyAction::Press);
         assert_eq!(altgr.is_none(), matches!(os, Os::Windows));
     }
     let commit = KeyEvent::text("é日本🦊");
     let mut terminal = Terminal::new(80, 24).unwrap();
-    assert_eq!(terminal.encode_key_event(&commit).unwrap(), "é日本🦊".as_bytes());
+    assert_eq!(
+        terminal.encode_key_event(&commit).unwrap(),
+        "é日本🦊".as_bytes()
+    );
 }
 
 #[test]
@@ -58,7 +78,11 @@ fn control_chords_and_signals() {
         assert_eq!(sent(os, "ctrl-shift-a"), b"\x1b[97;6u");
         // GPUI folds Shift into "_": Ctrl+Shift+- is Ctrl+_ (Emacs undo).
         let mut terminal = Terminal::new(80, 24).unwrap();
-        let underscore = Keystroke { modifiers: Modifiers::control(), key: "_".into(), key_char: None };
+        let underscore = Keystroke {
+            modifiers: Modifiers::control(),
+            key: "_".into(),
+            key_char: None,
+        };
         assert_eq!(bytes(os, &mut terminal, &underscore).unwrap(), b"\x1f");
     }
 }
@@ -68,7 +92,10 @@ fn mac_option_types_its_text_and_is_alt_only_when_it_composes_none() {
     // Option+x on a US layout composes ≈, which the input handler types.
     assert!(event(Os::Mac, &stroke("alt-x", Some("≈")), KeyAction::Press).is_none());
     let mut terminal = Terminal::new(80, 24).unwrap();
-    assert_eq!(bytes(Os::Mac, &mut terminal, &stroke("alt-x", None)).unwrap(), b"\x1bx");
+    assert_eq!(
+        bytes(Os::Mac, &mut terminal, &stroke("alt-x", None)).unwrap(),
+        b"\x1bx"
+    );
 }
 
 #[test]
@@ -128,14 +155,32 @@ fn application_cursor_keypad_and_kitty_modes_come_from_the_terminal() {
     for os in ALL {
         let mut terminal = Terminal::new(80, 24).unwrap();
         terminal.feed(b"\x1b[?1h").unwrap();
-        assert_eq!(bytes(os, &mut terminal, &stroke("up", None)).unwrap(), b"\x1bOA");
-        assert_eq!(bytes(os, &mut terminal, &stroke("ctrl-up", None)).unwrap(), b"\x1b[1;5A");
+        assert_eq!(
+            bytes(os, &mut terminal, &stroke("up", None)).unwrap(),
+            b"\x1bOA"
+        );
+        assert_eq!(
+            bytes(os, &mut terminal, &stroke("ctrl-up", None)).unwrap(),
+            b"\x1b[1;5A"
+        );
         terminal.feed(b"\x1b[?1l\x1b[>1u").unwrap();
-        assert_eq!(bytes(os, &mut terminal, &stroke("escape", None)).unwrap(), b"\x1b[27u");
-        assert_eq!(bytes(os, &mut terminal, &stroke("ctrl-c", None)).unwrap(), b"\x1b[99;5u");
-        assert_eq!(bytes(os, &mut terminal, &stroke("enter", None)).unwrap(), b"\r");
+        assert_eq!(
+            bytes(os, &mut terminal, &stroke("escape", None)).unwrap(),
+            b"\x1b[27u"
+        );
+        assert_eq!(
+            bytes(os, &mut terminal, &stroke("ctrl-c", None)).unwrap(),
+            b"\x1b[99;5u"
+        );
+        assert_eq!(
+            bytes(os, &mut terminal, &stroke("enter", None)).unwrap(),
+            b"\r"
+        );
         terminal.feed(b"\x1b[<u").unwrap();
-        assert_eq!(bytes(os, &mut terminal, &stroke("escape", None)).unwrap(), b"\x1b");
+        assert_eq!(
+            bytes(os, &mut terminal, &stroke("escape", None)).unwrap(),
+            b"\x1b"
+        );
     }
 }
 
@@ -171,11 +216,19 @@ fn terminal_clipboard_chords_match_explicit_and_mac_native_bindings() {
 #[test]
 fn a_shifted_symbol_and_its_base_name_the_same_key() {
     // GPUI folds Shift into "!" on press; the key-up after Shift is let go names "1".
-    let bang = Keystroke { modifiers: Modifiers::control(), key: "!".into(), key_char: None };
+    let bang = Keystroke {
+        modifiers: Modifiers::control(),
+        key: "!".into(),
+        key_char: None,
+    };
     let press = event(Os::Windows, &bang, KeyAction::Press).unwrap();
     assert_eq!(press.physical, PhysicalKey::Digit1);
     assert_eq!(press.unshifted_codepoint, Some('1'));
-    assert!(press.modifiers.contains(KeyModifiers::SHIFT | KeyModifiers::CONTROL));
+    assert!(
+        press
+            .modifiers
+            .contains(KeyModifiers::SHIFT | KeyModifiers::CONTROL)
+    );
     assert_eq!(press.consumed_modifiers, KeyModifiers::SHIFT);
     assert_eq!(key_identity("!"), key_identity("1"));
     let mut held = shellfox_ghostty_vt::key::HeldKeys::default();

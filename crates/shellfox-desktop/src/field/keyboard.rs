@@ -79,7 +79,12 @@ impl Field {
             let (key, document) = navigation_action(key, command, cfg!(target_os = "macos"));
             let target = self.wrapped_navigation(key, document).unwrap_or_else(|| {
                 navigation_target(
-                    &self.text, self.selection.clone(), self.cursor, key, mods.shift, document,
+                    &self.text,
+                    self.selection.clone(),
+                    self.cursor,
+                    key,
+                    mods.shift,
+                    document,
                 )
             });
             self.set_cursor(target, mods.shift);
@@ -113,18 +118,33 @@ impl Field {
     }
 
     /// The macOS Edit menu items, for the focused field.
-    pub(super) fn menu_copy(&mut self, _: &crate::app_menu::Copy, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn menu_copy(
+        &mut self,
+        _: &crate::app_menu::Copy,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.copy(cx);
     }
 
-    pub(super) fn menu_paste(&mut self, _: &crate::app_menu::Paste, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn menu_paste(
+        &mut self,
+        _: &crate::app_menu::Paste,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.marked.is_none() {
             self.paste(cx);
             cx.notify();
         }
     }
 
-    pub(super) fn menu_select_all(&mut self, _: &crate::app_menu::SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn menu_select_all(
+        &mut self,
+        _: &crate::app_menu::SelectAll,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.select_all();
         cx.notify();
     }

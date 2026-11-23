@@ -141,8 +141,11 @@ pub(crate) async fn connect(address: &str, _directory: &Path) -> Result<LocalStr
     let pipe = loop {
         match tokio::net::windows::named_pipe::ClientOptions::new().open(address) {
             Ok(pipe) => break pipe,
-            Err(error) if error.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32)
-                && tokio::time::Instant::now() < deadline => {
+            Err(error)
+                if error.raw_os_error()
+                    == Some(windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32)
+                    && tokio::time::Instant::now() < deadline =>
+            {
                 // The listener marks the next instance available after accepting
                 // the previous connection. No request has been sent yet.
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -280,8 +283,15 @@ pub(crate) async fn connect_verified(
         bail!("Local socket changed while anchoring its private parent.");
     }
     #[cfg(target_os = "macos")]
-    let stream: LocalStream = Box::new(darwin::connect(original, kernel_path.file_name()
-        .ok_or_else(|| anyhow::anyhow!("Socket leaf missing"))?).await?);
+    let stream: LocalStream = Box::new(
+        darwin::connect(
+            original,
+            kernel_path
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("Socket leaf missing"))?,
+        )
+        .await?,
+    );
     #[cfg(not(target_os = "macos"))]
     let stream: LocalStream = Box::new(tokio::net::UnixStream::connect(kernel_path).await?);
     #[cfg(any(target_os = "linux", target_os = "android"))]

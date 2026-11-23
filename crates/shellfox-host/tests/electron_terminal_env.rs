@@ -20,14 +20,27 @@ fn imported_terminal_env_with_path_and_node_options_reaches_the_launch() {
     std::fs::create_dir_all(scratch.0.join("host")).unwrap();
     let snapshot = scratch.0.join("copy.sqlite3");
     let db = Connection::open(&snapshot).unwrap();
-    db.execute_batch(include_str!("fixtures/legacy-v1.sql")).unwrap();
+    db.execute_batch(include_str!("fixtures/legacy-v1.sql"))
+        .unwrap();
     db.pragma_update(None, "user_version", 5).unwrap();
     let env = vec![
-        EnvVar { name: "PATH".into(), value: "/opt/tools/bin:/usr/bin".into() },
-        EnvVar { name: "NODE_OPTIONS".into(), value: "--max-old-space-size=8192".into() },
-        EnvVar { name: "PSModulePath".into(), value: "/opt/modules".into() },
+        EnvVar {
+            name: "PATH".into(),
+            value: "/opt/tools/bin:/usr/bin".into(),
+        },
+        EnvVar {
+            name: "NODE_OPTIONS".into(),
+            value: "--max-old-space-size=8192".into(),
+        },
+        EnvVar {
+            name: "PSModulePath".into(),
+            value: "/opt/modules".into(),
+        },
     ];
-    let settings = Settings { terminal_env: env.clone(), ..Default::default() };
+    let settings = Settings {
+        terminal_env: env.clone(),
+        ..Default::default()
+    };
     db.execute(
         "UPDATE settings SET value=?",
         [serde_json::to_string(&settings).unwrap()],

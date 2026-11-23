@@ -40,7 +40,10 @@ pub fn export() -> ProductVersion {
     let (version, windows) = text.split_once('\n').expect("mapped product version");
     println!("cargo:rustc-env=SHELLFOX_VERSION={version}");
     // The desktop attaches only to a host process of the same build.
-    println!("cargo:rustc-env=SHELLFOX_BUILD_ID={version}+{}", source_commit(&root));
+    println!(
+        "cargo:rustc-env=SHELLFOX_BUILD_ID={version}+{}",
+        source_commit(&root)
+    );
     ProductVersion {
         version: version.to_owned(),
         windows: windows.to_owned(),
@@ -68,6 +71,11 @@ fn source_commit(root: &std::path::Path) -> String {
             println!("cargo:rerun-if-changed={directory}/{leaf}");
         }
     }
-    let dirty = git(&["status", "--porcelain", "--untracked-files=no"]).is_none_or(|status| !status.is_empty());
-    if dirty { format!("{commit}-dirty") } else { commit }
+    let dirty = git(&["status", "--porcelain", "--untracked-files=no"])
+        .is_none_or(|status| !status.is_empty());
+    if dirty {
+        format!("{commit}-dirty")
+    } else {
+        commit
+    }
 }

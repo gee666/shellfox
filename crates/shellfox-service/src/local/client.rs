@@ -92,7 +92,10 @@ async fn foreign_record(bytes: &[u8], private: &PrivateDirectory) -> anyhow::Err
             };
             #[cfg(windows)]
             let connect = platform::connect_verified(&address, &private.path);
-            matches!(tokio::time::timeout(Duration::from_secs(2), connect).await, Ok(Ok(_)))
+            matches!(
+                tokio::time::timeout(Duration::from_secs(2), connect).await,
+                Ok(Ok(_))
+            )
         }
         None => false,
     };
@@ -134,15 +137,14 @@ impl LocalClient {
         let (private, bytes) = PrivateDirectory::read_existing(data, helper, helper_sha256).await?;
         let record = match serde_json::from_slice::<Record>(&bytes) {
             Ok(record)
-                if record.namespace == NAMESPACE && record.transport_version == TRANSPORT_VERSION =>
+                if record.namespace == NAMESPACE
+                    && record.transport_version == TRANSPORT_VERSION =>
             {
                 record
             }
             _ => return Err(foreign_record(&bytes, &private).await),
         };
-        if record.secret.len() != 64
-            || !record.secret.bytes().all(|b| b.is_ascii_hexdigit())
-        {
+        if record.secret.len() != 64 || !record.secret.bytes().all(|b| b.is_ascii_hexdigit()) {
             bail!("Invalid local endpoint record.");
         }
         let client_id = uuid::Uuid::new_v4();

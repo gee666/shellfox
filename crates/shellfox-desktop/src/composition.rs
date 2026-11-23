@@ -1,8 +1,8 @@
 use crate::terminal::TerminalView;
-use shellfox_ghostty_vt::key::{validate_text, KeyEvent, KeyModifiers, PhysicalKey};
 use gpui::{
     Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size,
 };
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey, validate_text};
 use std::ops::Range;
 
 // A terminal has no editable document. Only uncommitted composition is editable.
@@ -116,7 +116,10 @@ fn commit(text: &str) -> Vec<KeyEvent> {
             events.push(enter.release());
             events.insert(events.len() - 1, enter);
         }
-        let line: String = line.chars().filter(|c| validate_text(c.encode_utf8(&mut [0; 4])).is_ok()).collect();
+        let line: String = line
+            .chars()
+            .filter(|c| validate_text(c.encode_utf8(&mut [0; 4])).is_ok())
+            .collect();
         if !line.is_empty() {
             events.push(KeyEvent::text(line));
         }
@@ -130,7 +133,10 @@ mod tests {
     use shellfox_ghostty_vt::Terminal;
 
     fn bytes(terminal: &mut Terminal, text: &str) -> Vec<u8> {
-        commit(text).iter().flat_map(|e| terminal.encode_key_event(e).unwrap()).collect()
+        commit(text)
+            .iter()
+            .flat_map(|e| terminal.encode_key_event(e).unwrap())
+            .collect()
     }
 
     #[test]

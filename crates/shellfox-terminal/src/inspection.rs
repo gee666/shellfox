@@ -68,7 +68,9 @@ pub(crate) use windows::{birth, open_query, process_identity, verify_member};
 pub struct InspectionCapability(std::sync::Arc<windows::OwnedInspection>);
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
-pub struct InspectionCapability(pub(crate) std::sync::Arc<crate::unix::linux::inspection::OwnedInspection>);
+pub struct InspectionCapability(
+    pub(crate) std::sync::Arc<crate::unix::linux::inspection::OwnedInspection>,
+);
 #[cfg(target_os = "macos")]
 #[derive(Clone)]
 pub struct InspectionCapability(pub(crate) std::sync::Arc<crate::unix::darwin_process::Inspection>);

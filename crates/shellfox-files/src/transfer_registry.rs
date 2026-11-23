@@ -114,7 +114,10 @@ impl TransferRegistry {
             (TRANSFERS_PER_ACTOR, TRANSFERS_TOTAL)
         };
         let same = || self.entries.values().filter(|entry| entry.asset() == asset);
-        if same().filter(|entry| entry.actor.owner == actor.owner).count() >= per_actor
+        if same()
+            .filter(|entry| entry.actor.owner == actor.owner)
+            .count()
+            >= per_actor
             || same().count() >= total
             || self.usage().staged_bytes + size > self.staging_limit
         {

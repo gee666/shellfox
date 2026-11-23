@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail, ensure};
-use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
 use shellfox_ghostty_vt::Terminal;
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
 use shellfox_terminal::{PtyConfig, PtyOutput, PtySession};
 use std::{
     path::Path,

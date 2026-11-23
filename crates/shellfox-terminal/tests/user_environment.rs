@@ -29,8 +29,10 @@ fn registry_values() -> Vec<(String, String)> {
         .filter_map(|line| {
             let mut parts = line.trim().splitn(3, "    ");
             let (name, kind, value) = (parts.next()?, parts.next()?, parts.next()?);
-            (kind == "REG_SZ" && !name.eq_ignore_ascii_case("Path") && !name.starts_with("SHELLFOX_"))
-                .then(|| (name.to_owned(), value.to_owned()))
+            (kind == "REG_SZ"
+                && !name.eq_ignore_ascii_case("Path")
+                && !name.starts_with("SHELLFOX_"))
+            .then(|| (name.to_owned(), value.to_owned()))
         })
         .take(4)
         .collect()
@@ -60,14 +62,19 @@ fn powershell_tabs_get_the_user_environment_and_their_profile() {
         config.command = None;
         config.environment = TerminalEnvironment::User;
         config.profile = Some(id);
-        config.env.insert("CONFIGURED_VALUE".into(), "from-settings".into());
+        config
+            .env
+            .insert("CONFIGURED_VALUE".into(), "from-settings".into());
         // Settings may prepend to PATH, as in 0.9.
         let system = std::env::var("SystemRoot").unwrap();
         config.env.insert(
             "Path".into(),
             format!(r"{};{system}\System32;{system}", tools.display()).into(),
         );
-        let names: Vec<String> = registry.iter().map(|(name, _)| format!("'{name}'")).collect();
+        let names: Vec<String> = registry
+            .iter()
+            .map(|(name, _)| format!("'{name}'"))
+            .collect();
         let script = format!(
             "$p = @{{ profile=$env:USERPROFILE; module_path=$env:PSModulePath; path=$env:PATH; \
              configured=$env:CONFIGURED_VALUE; host_only=$env:USER_ENVIRONMENT_TEST_HOST_ONLY; \
@@ -93,19 +100,41 @@ fn powershell_tabs_get_the_user_environment_and_their_profile() {
             std::env::var("USERPROFILE").unwrap().to_ascii_lowercase(),
             "{label}"
         );
-        assert_eq!(probe.host_only, None, "{label}: the test process env leaked");
-        assert_eq!(probe.configured.as_deref(), Some("from-settings"), "{label}");
+        assert_eq!(
+            probe.host_only, None,
+            "{label}: the test process env leaked"
+        );
+        assert_eq!(
+            probe.configured.as_deref(),
+            Some("from-settings"),
+            "{label}"
+        );
         // pwsh adds its own directory in front; the configured PATH follows.
-        assert!(probe.path.contains(&format!("{};", tools.display())), "{label}: {}", probe.path);
+        assert!(
+            probe.path.contains(&format!("{};", tools.display())),
+            "{label}: {}",
+            probe.path
+        );
         for ((name, value), seen) in registry.iter().zip(&probe.registry) {
             assert_eq!(seen.as_deref(), Some(value.as_str()), "{label}: {name}");
         }
-        assert!(probe.psreadline, "{label}: PSReadLine is not loaded: {output}");
+        assert!(
+            probe.psreadline,
+            "{label}: PSReadLine is not loaded: {output}"
+        );
         assert!(!probe.no_profile, "{label}: started with -NoProfile");
         if id == ShellProfileId::WindowsPowerShell {
             let modules = probe.module_path.to_ascii_lowercase();
-            assert!(!modules.contains(r"\powershell\7"), "{label}: {}", probe.module_path);
-            assert!(modules.contains(r"\windowspowershell\modules"), "{label}: {}", probe.module_path);
+            assert!(
+                !modules.contains(r"\powershell\7"),
+                "{label}: {}",
+                probe.module_path
+            );
+            assert!(
+                modules.contains(r"\windowspowershell\modules"),
+                "{label}: {}",
+                probe.module_path
+            );
         }
         eprintln!("{label}: user environment, profile and PSReadLine passed");
     }

@@ -28,7 +28,11 @@ impl SaveSnapshot {
         WriteText {
             path: self.path.clone(),
             revision: self.revision.clone(),
-            text: if self.utf8_bom { format!("\u{feff}{}", self.text) } else { self.text.to_string() },
+            text: if self.utf8_bom {
+                format!("\u{feff}{}", self.text)
+            } else {
+                self.text.to_string()
+            },
         }
     }
     pub fn prepare_completion(

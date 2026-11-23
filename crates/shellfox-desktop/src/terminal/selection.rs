@@ -12,11 +12,21 @@ impl TerminalView {
         if self.failed || self.closing {
             return;
         }
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()).filter(|text| !text.is_empty()) {
+        if let Some(text) = cx
+            .read_from_clipboard()
+            .and_then(|item| item.text())
+            .filter(|text| !text.is_empty())
+        {
             // Each piece fits one input write; the host takes them in order.
             for text in shellfox_ghostty_vt::paste_chunks(&text, PASTE_CHUNK) {
                 if let Some(lease) = self.lease {
-                    if !self.submit(Command::Paste { lease, text: text.to_owned() }, Pending::Applied) {
+                    if !self.submit(
+                        Command::Paste {
+                            lease,
+                            text: text.to_owned(),
+                        },
+                        Pending::Applied,
+                    ) {
                         break;
                     }
                 } else if let Err(error) = self.peer_paste(text) {
@@ -28,15 +38,30 @@ impl TerminalView {
     }
 
     /// The macOS Edit menu items, for the focused terminal.
-    pub(super) fn menu_copy(&mut self, _: &crate::app_menu::Copy, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn menu_copy(
+        &mut self,
+        _: &crate::app_menu::Copy,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.copy_selection(cx);
     }
 
-    pub(super) fn menu_paste(&mut self, _: &crate::app_menu::Paste, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn menu_paste(
+        &mut self,
+        _: &crate::app_menu::Paste,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.paste(cx);
     }
 
-    pub(super) fn menu_select_all(&mut self, _: &crate::app_menu::SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn menu_select_all(
+        &mut self,
+        _: &crate::app_menu::SelectAll,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.select(Some(Selection::All), cx);
     }
 
@@ -46,7 +71,9 @@ impl TerminalView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.link_menu_key(event, window, cx) { return; }
+        if self.link_menu_key(event, window, cx) {
+            return;
+        }
         let bit = input::clipboard_key_bit(&event.keystroke.key);
         match input::clipboard_shortcut(&event.keystroke) {
             Some(ClipboardAction::Copy) => {
@@ -119,23 +146,40 @@ impl TerminalView {
         } else if let Backend::Attached(connection) = &self.backend {
             let view = connection.access.presentation_lease();
             self.submit(
-                Command::Presentation { view, action: shellfox_runtime::PresentationAction::Copy },
+                Command::Presentation {
+                    view,
+                    action: shellfox_runtime::PresentationAction::Copy,
+                },
                 Pending::Copy,
             );
         }
         selected
     }
 
-    pub(super) fn begin_pointer_selection(&mut self, point: ViewportPoint, clicks: usize, mods: gpui::Modifiers, cx: &mut Context<Self>) {
+    pub(super) fn begin_pointer_selection(
+        &mut self,
+        point: ViewportPoint,
+        clicks: usize,
+        mods: gpui::Modifiers,
+        cx: &mut Context<Self>,
+    ) {
         if mods.shift && !self.mouse_tracking {
             let selection = match &self.screen {
                 super::SharedScreen::Native(frame) => frame.selection.zip(Some(frame.top_row)),
-                super::SharedScreen::Peer(frame) => frame.selection.zip(Some(frame.rendered.top_row)),
+                super::SharedScreen::Peer(frame) => {
+                    frame.selection.zip(Some(frame.rendered.top_row))
+                }
                 _ => None,
-            }.and_then(|(previous, top)| {
+            }
+            .and_then(|(previous, top)| {
                 let y = previous.anchor.row.checked_sub(top)?;
-                if y >= u64::from(self.screen.rows) { return None; }
-                let start = ViewportPoint { x: previous.anchor.x, y: y as u16 };
+                if y >= u64::from(self.screen.rows) {
+                    return None;
+                }
+                let start = ViewportPoint {
+                    x: previous.anchor.x,
+                    y: y as u16,
+                };
                 Some((start, previous.rectangle))
             });
             if let Some((start, rectangle)) = selection {
@@ -150,7 +194,8 @@ impl TerminalView {
             3 => self.select(Some(Selection::Line(point)), cx),
             1 => {
                 self.select(None, cx);
-                self.selection_drag.begin(point, mods.alt && !cfg!(target_os = "macos"));
+                self.selection_drag
+                    .begin(point, mods.alt && !cfg!(target_os = "macos"));
                 self.link_press = Some(point);
             }
             _ => {}
@@ -220,7 +265,10 @@ mod tests {
             ("ctrl-pageup", None),
             ("shift-up", None),
         ] {
-            assert_eq!(page_scroll(&gpui::Keystroke::parse(key).unwrap(), 24), expected);
+            assert_eq!(
+                page_scroll(&gpui::Keystroke::parse(key).unwrap(), 24),
+                expected
+            );
         }
     }
 
@@ -254,7 +302,13 @@ mod tests {
     fn column_drag_retains_rectangular_selection_through_release() {
         let mut drag = SelectionDrag::default();
         drag.begin(ViewportPoint { x: 1, y: 1 }, true);
-        assert!(matches!(drag.extend(ViewportPoint { x: 2, y: 3 }), Some(Selection::Range { rectangle: true, .. })));
+        assert!(matches!(
+            drag.extend(ViewportPoint { x: 2, y: 3 }),
+            Some(Selection::Range {
+                rectangle: true,
+                ..
+            })
+        ));
         drag.finish();
         assert!(!drag.active());
     }

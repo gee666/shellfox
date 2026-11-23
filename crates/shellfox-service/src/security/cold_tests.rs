@@ -132,7 +132,11 @@ async fn cold_root_cycle(replaced: bool) {
                 Some(&LocalBootStatus::NoOwnerClean)
             );
             if replaced {
-                assert_eq!(std::fs::read(&endpoint).unwrap(), other, "another run's record is kept");
+                assert_eq!(
+                    std::fs::read(&endpoint).unwrap(),
+                    other,
+                    "another run's record is kept"
+                );
             } else {
                 assert!(!endpoint.exists(), "this run's record is removed");
             }

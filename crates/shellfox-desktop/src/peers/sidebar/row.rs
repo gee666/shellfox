@@ -1,18 +1,32 @@
 use super::*;
-use crate::{accessibility::{SemanticAction, SemanticActionKind}, assets::inline_ellipsis,
-    peers::session_dialog::Editor, sidebar::session_menu::Item};
+use crate::{
+    accessibility::{SemanticAction, SemanticActionKind},
+    assets::inline_ellipsis,
+    peers::session_dialog::Editor,
+    sidebar::session_menu::Item,
+};
 use gpui::{Bounds, KeyDownEvent, Pixels};
 use std::{cell::Cell, rc::Rc};
 
-fn workspace_session_key(peer: &shellfox_protocol::AuthenticatedPeerId, session: SessionId) -> String {
+fn workspace_session_key(
+    peer: &shellfox_protocol::AuthenticatedPeerId,
+    session: SessionId,
+) -> String {
     format!("workspace/peer/{}/session/{session}", peer.as_str())
 }
 
 impl Root {
     pub(crate) fn handle_workspace_navigation(
-        &mut self, action: &SemanticAction, window: &mut Window, cx: &mut Context<Self>,
+        &mut self,
+        action: &SemanticAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
     ) -> bool {
-        if !matches!(action.kind, SemanticActionKind::Click) || self.settings.open || self.dialogs.current.is_some() || self.close.closing {
+        if !matches!(action.kind, SemanticActionKind::Click)
+            || self.settings.open
+            || self.dialogs.current.is_some()
+            || self.close.closing
+        {
             return false;
         }
         let frame = self.semantics.context.frame();
@@ -26,12 +40,25 @@ impl Root {
             return true;
         }
         let target = self.peers.peers.iter().find_map(|(peer, state)| {
-            if !state.remembered || state.phase != source::Phase::Connected || self.peer_ui.collapsed.contains(peer) {
+            if !state.remembered
+                || state.phase != source::Phase::Connected
+                || self.peer_ui.collapsed.contains(peer)
+            {
                 return None;
             }
-            let session = state.snapshot.as_ref()?.sessions.iter()
+            let session = state
+                .snapshot
+                .as_ref()?
+                .sessions
+                .iter()
                 .find(|session| matches(&workspace_session_key(peer, session.id)))?;
-            Some((source::PeerCycle { peer: peer.clone(), generation: state.cycle }, session.id))
+            Some((
+                source::PeerCycle {
+                    peer: peer.clone(),
+                    generation: state.cycle,
+                },
+                session.id,
+            ))
         });
         if let Some((cycle, id)) = target {
             self.activate_peer_session(cycle, id, window, cx);
@@ -133,19 +160,16 @@ impl Root {
                                     },
                                 )),
                         )
-                        .when(
-                            session.pinned_at.is_some(),
-                            |line| {
-                                line.child(
-                                    div()
-                                        .id("peer-session-pin")
-                                        .flex_shrink_0()
-                                        .text_color(palette.muted)
-                                        .tooltip(tooltip("Pinned", palette))
-                                        .child(icon_sized("pin", 11.)),
-                                )
-                            },
-                        ),
+                        .when(session.pinned_at.is_some(), |line| {
+                            line.child(
+                                div()
+                                    .id("peer-session-pin")
+                                    .flex_shrink_0()
+                                    .text_color(palette.muted)
+                                    .tooltip(tooltip("Pinned", palette))
+                                    .child(icon_sized("pin", 11.)),
+                            )
+                        }),
                 )
                 .on_click(
                     cx.listener(move |root, event: &gpui::ClickEvent, window, cx| {

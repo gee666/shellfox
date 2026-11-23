@@ -29,7 +29,11 @@ impl SemanticFrame {
     /// Wraps a cached view (`AnyView::cached`) whose subtree holds semantic nodes.
     /// Bounds are part of GPUI's cache key, so replayed nodes are still where they were painted.
     /// Deferred overlays paint after the view and are not replayed; keep them outside.
-    pub fn cached<E: IntoElement>(&self, cache: &SemanticCache, child: E) -> CachedSemantics<E::Element> {
+    pub fn cached<E: IntoElement>(
+        &self,
+        cache: &SemanticCache,
+        child: E,
+    ) -> CachedSemantics<E::Element> {
         CachedSemantics {
             child: child.into_element(),
             cache: cache.clone(),
@@ -50,7 +54,11 @@ impl SemanticFrame {
         let mut cache = cache.0.borrow_mut();
         if std::mem::take(&mut cache.rendered) {
             cache.nodes = self.recorded_since(start);
-            cache.error = if error_before { None } else { self.collecting_error() };
+            cache.error = if error_before {
+                None
+            } else {
+                self.collecting_error()
+            };
         } else {
             if let Some(error) = cache.error.clone() {
                 self.record_error(error);
@@ -103,7 +111,8 @@ impl<E: Element> Element for CachedSemantics<E> {
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        self.child.prepaint(id, inspector, bounds, state, window, cx)
+        self.child
+            .prepaint(id, inspector, bounds, state, window, cx)
     }
     fn paint(
         &mut self,
@@ -117,7 +126,11 @@ impl<E: Element> Element for CachedSemantics<E> {
     ) {
         let start = self.frame.recorded();
         let error_before = self.frame.collecting_error().is_some();
-        self.child.paint(id, inspector, bounds, state, prepaint, window, cx);
-        self.frame.settle_cached(&self.cache, start, error_before, |handle| handle.is_focused(window));
+        self.child
+            .paint(id, inspector, bounds, state, prepaint, window, cx);
+        self.frame
+            .settle_cached(&self.cache, start, error_before, |handle| {
+                handle.is_focused(window)
+            });
     }
 }

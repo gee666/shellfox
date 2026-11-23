@@ -33,14 +33,10 @@ impl PeerDirectory {
                 session_id: None,
                 tab_id: None,
             };
-            self.api
-                .call(request, |value| value.cwd)
-                .await
+            self.api.call(request, |value| value.cwd).await
         } else {
             let request = wire::ResolveDirectory { path };
-            self.api
-                .call(request, |value| value.cwd)
-                .await
+            self.api.call(request, |value| value.cwd).await
         }
         .map_err(path_error)
     }
@@ -86,21 +82,24 @@ impl Root {
         cx.spawn_in(window, async move |root, cx| {
             let profile = if embedded {
                 api.call(wire::GetTerminalProfiles {}, |value| value)
-                .await
-                .and_then(|catalog| {
-                    let saved = configured.or(catalog.default_profile_id).unwrap_or_default();
-                    let usable = shellfox_service::usable_profiles(&catalog.profiles);
-                    let profile = shellfox_service::effective_default_profile(&saved, usable).map(str::to_owned);
-                    if profile.is_some() {
-                        Ok(if windows { None } else { profile })
-                    } else {
-                        Err(PeerCallError {
-                            message: "No discovered interactive terminal profile is available."
-                                .into(),
-                            code: None,
-                        })
-                    }
-                })
+                    .await
+                    .and_then(|catalog| {
+                        let saved = configured
+                            .or(catalog.default_profile_id)
+                            .unwrap_or_default();
+                        let usable = shellfox_service::usable_profiles(&catalog.profiles);
+                        let profile = shellfox_service::effective_default_profile(&saved, usable)
+                            .map(str::to_owned);
+                        if profile.is_some() {
+                            Ok(if windows { None } else { profile })
+                        } else {
+                            Err(PeerCallError {
+                                message: "No discovered interactive terminal profile is available."
+                                    .into(),
+                                code: None,
+                            })
+                        }
+                    })
             } else {
                 Ok(configured.filter(|_| !windows))
             };
@@ -153,12 +152,34 @@ impl Root {
         };
         cx.spawn_in(window, async move |root, cx| {
             let result = async {
-                let (session, has_tabs) = target.api.call(request,
-                    |session| (session.id, session.tabs.iter().any(|tab| !matches!(tab.lifecycle, wire::TabLifecycle::Closed))),
-                    ).await.map_err(|error| anyhow::anyhow!(error.message))?;
-                let tab_error = if has_tabs { None } else {
-                    let request = wire::AddTab { session_id: session, title: None, cwd: None, profile_id: target.fallback_profile };
-                    target.api.call(request, |_| ()).await.err().map(|error| error.message)
+                let (session, has_tabs) = target
+                    .api
+                    .call(request, |session| {
+                        (
+                            session.id,
+                            session
+                                .tabs
+                                .iter()
+                                .any(|tab| !matches!(tab.lifecycle, wire::TabLifecycle::Closed)),
+                        )
+                    })
+                    .await
+                    .map_err(|error| anyhow::anyhow!(error.message))?;
+                let tab_error = if has_tabs {
+                    None
+                } else {
+                    let request = wire::AddTab {
+                        session_id: session,
+                        title: None,
+                        cwd: None,
+                        profile_id: target.fallback_profile,
+                    };
+                    target
+                        .api
+                        .call(request, |_| ())
+                        .await
+                        .err()
+                        .map(|error| error.message)
                 };
                 let snapshot = target.api.snapshot().await?;
                 anyhow::Ok((session, snapshot, tab_error))
@@ -174,7 +195,9 @@ impl Root {
                     matches!(&root.dialogs.current, Some(Dialog::Create(draft)) if draft.id == id);
                 match result {
                     Ok((session, snapshot, tab_error)) => {
-                        if let Some(error) = tab_error { root.error = Some(error); }
+                        if let Some(error) = tab_error {
+                            root.error = Some(error);
+                        }
                         if let Err(error) = root.peers.catalog(&cycle, snapshot) {
                             root.error = Some(error.to_string());
                         } else if current && same_dialog {

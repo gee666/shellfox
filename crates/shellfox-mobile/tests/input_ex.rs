@@ -89,7 +89,9 @@ fn editor_paste_press_repeat_and_ctrl_space_are_length_delimited_user_input() {
         b"paste"
     );
     for action in ["press", "repeat"] {
-        let json = format!(r#"{{"type":"key","event":{{"physical":78,"action":"{action}","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}}}"#);
+        let json = format!(
+            r#"{{"type":"key","event":{{"physical":78,"action":"{action}","modifiers":0,"consumedModifiers":0,"text":"","unshiftedCodepoint":null,"composing":false}}}}"#
+        );
         assert_eq!(terminal.expect_hint(&json, 1), b"\x1b[A");
     }
     // Control-Space is a real one-byte NUL, not an empty C string or JSON text.

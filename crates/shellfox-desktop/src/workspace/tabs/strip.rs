@@ -4,8 +4,8 @@ use crate::{
     assets::tooltip,
     dialogs::Dialog,
     root::Root,
-    workspace::tabs::activity::status_dot,
     theme::Palette,
+    workspace::tabs::activity::status_dot,
 };
 use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 use shellfox_core::{Session, TabId};
@@ -44,24 +44,29 @@ impl Root {
             }
         };
         let reorder = self.tab_reorder_scope(cx);
-        let mut tabs = self
-            .tabs.scroll
-            .viewport(session.id, selected_index, Rc::clone(&visible), reorder);
+        let mut tabs =
+            self.tabs
+                .scroll
+                .viewport(session.id, selected_index, Rc::clone(&visible), reorder);
         self.tabs.scroll.retain_focus_handles(
             &session
                 .tabs
                 .iter()
                 .map(|tab| tab.id)
                 .collect::<HashSet<_>>(),
-            &visible.iter().filter_map(|&tab| self.tab_close_identity(tab)).collect(),
+            &visible
+                .iter()
+                .filter_map(|&tab| self.tab_close_identity(tab))
+                .collect(),
         );
-        let close_locked =
-            self.dialogs.user_action_pending || matches!(self.dialogs.current, Some(Dialog::RenameTab { .. }));
+        let close_locked = self.dialogs.user_action_pending
+            || matches!(self.dialogs.current, Some(Dialog::RenameTab { .. }));
         for (index, tab) in visible_tabs.iter().copied().enumerate() {
             let id = tab.id;
             let active = selected == Some(id);
             let state = self.tab_agent_state(tab, cx);
-            let administrator = tab.profile_id.as_str() == shellfox_terminal::elevated::ADMINISTRATOR_PROFILE_ID;
+            let administrator =
+                tab.profile_id.as_str() == shellfox_terminal::elevated::ADMINISTRATOR_PROFILE_ID;
             let title = gpui::SharedString::from(self.display_tab_title(tab).to_owned());
             let close_target = self.tab_close_identity(id);
             let (visible_title, title_width) =
@@ -87,7 +92,9 @@ impl Root {
                 .cursor_pointer()
                 .hover(|style| style.bg(palette.row_hover))
                 .track_focus(&focus)
-                .on_mouse_down(gpui::MouseButton::Right, move |_, window, _| context_focus.focus(window))
+                .on_mouse_down(gpui::MouseButton::Right, move |_, window, _| {
+                    context_focus.focus(window)
+                })
                 .on_key_down(cx.listener({
                     let visible = Rc::clone(&visible);
                     move |root, event: &gpui::KeyDownEvent, window, cx| {
@@ -150,7 +157,9 @@ impl Root {
             } else {
                 label.into_any_element()
             };
-            let label = if let Some(Dialog::RenameTab { id: draft, title, .. }) = &self.dialogs.current
+            let label = if let Some(Dialog::RenameTab {
+                id: draft, title, ..
+            }) = &self.dialogs.current
                 && *draft == id
             {
                 self.tab_title_editor(title.clone(), cx)
@@ -205,8 +214,14 @@ impl Root {
                 .child(label)
                 .when_some(close_target, |item, target| {
                     item.child(self.tab_close_button(
-                        CloseButton { target, visible: show_close, locked: close_locked },
-                        &title, palette, cx,
+                        CloseButton {
+                            target,
+                            visible: show_close,
+                            locked: close_locked,
+                        },
+                        &title,
+                        palette,
+                        cx,
                     ))
                 })
                 .when(active, |style| {

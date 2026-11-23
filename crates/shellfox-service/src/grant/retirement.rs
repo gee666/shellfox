@@ -51,7 +51,9 @@ impl Service {
                 None => {
                     let id = self.request_id()?;
                     self.grants.prepare_retirement(ticket, id).map_err(|_| {
-                        anyhow::anyhow!("Grant retirement reservation failed; the host keeps the grant.")
+                        anyhow::anyhow!(
+                            "Grant retirement reservation failed; the host keeps the grant."
+                        )
                     })?;
                     id
                 }

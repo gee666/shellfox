@@ -1,6 +1,6 @@
 use crate::{
-    local_api::{LocalApiRequest as Q, LocalApiResponse as A},
     local::{read_frame, write_frame, LocalClient},
+    local_api::{LocalApiRequest as Q, LocalApiResponse as A},
     security::PrivateDirectory,
 };
 use shellfox_core::{AddTab, CreateSession, ProfileId, SessionId, SettingsPatch};
@@ -125,7 +125,10 @@ async fn private_server_typed_clients_security_and_metadata() {
     })
     .await
     .expect_err("hard-linked store must be rejected");
-    assert!(format!("{error:#}").contains(shellfox_host::STORE_FILENAME), "{error:#}");
+    assert!(
+        format!("{error:#}").contains(shellfox_host::STORE_FILENAME),
+        "{error:#}"
+    );
     assert!(!linked_data.join("rust-service-v1/endpoint.json").exists());
     assert_eq!(
         std::fs::read(original).unwrap(),
@@ -279,7 +282,10 @@ async fn private_server_typed_clients_security_and_metadata() {
                     .is_err());
                 // Fixture-only repair after deliberately removing protection.
                 let verifier = shellfox_transport::PermissionVerifier::new(private.helper.clone());
-                private.check(&endpoint_path, false, true, &verifier).await.unwrap();
+                private
+                    .check(&endpoint_path, false, true, &verifier)
+                    .await
+                    .unwrap();
             }
             let second = LocalClient::connect(data.path(), &helper, digest)
                 .await

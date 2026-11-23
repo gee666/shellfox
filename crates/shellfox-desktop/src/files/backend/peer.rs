@@ -45,7 +45,9 @@ impl PeerDocumentBackend {
         }))
     }
     pub fn ids(&self) -> (Option<wire::SessionId>, Option<wire::TabId>) {
-        self.scope.as_ref().map_or((None, None), |scope| (Some(scope.session), Some(scope.tab)))
+        self.scope
+            .as_ref()
+            .map_or((None, None), |scope| (Some(scope.session), Some(scope.tab)))
     }
 
     pub fn check(&self) -> Result<()> {
@@ -88,10 +90,18 @@ impl PeerDocumentBackend {
             let home = self.home().await?;
             host_home = if let Some(tail) = path.strip_prefix("~/") {
                 let sep = if home.contains('\\') { '\\' } else { '/' };
-                format!("{}{sep}{}", home.trim_end_matches(['/', '\\']), tail.replace('/', &sep.to_string()))
-            } else { home };
+                format!(
+                    "{}{sep}{}",
+                    home.trim_end_matches(['/', '\\']),
+                    tail.replace('/', &sep.to_string())
+                )
+            } else {
+                home
+            };
             &host_home
-        } else { path };
+        } else {
+            path
+        };
         wire::files::path(path).map_err(|_| anyhow!("Invalid peer folder path."))?;
         let list = self
             .execute(&wire::ListFiles {

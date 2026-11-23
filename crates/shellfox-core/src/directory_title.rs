@@ -1,7 +1,8 @@
 /// Preserve the whole path for roots. Else use the final directory name.
 /// The path can come from a host running a different OS than the client.
 pub fn directory_session_title(cwd: &str) -> &str {
-    let drive = matches!(cwd.as_bytes(), [letter, b':', b'/' | b'\\', ..] if letter.is_ascii_alphabetic());
+    let drive =
+        matches!(cwd.as_bytes(), [letter, b':', b'/' | b'\\', ..] if letter.is_ascii_alphabetic());
     let unc = cwd.starts_with(r"\\");
     if drive || unc {
         let tail = cwd.trim_end_matches(['/', '\\']);
@@ -11,7 +12,10 @@ pub fn directory_session_title(cwd: &str) -> &str {
         if drive && tail.len() == 2 || share_root {
             return cwd;
         }
-        return tail.rsplit(['/', '\\']).find(|part| !part.is_empty()).unwrap_or(cwd);
+        return tail
+            .rsplit(['/', '\\'])
+            .find(|part| !part.is_empty())
+            .unwrap_or(cwd);
     }
     cwd.trim_end_matches('/')
         .rsplit('/')

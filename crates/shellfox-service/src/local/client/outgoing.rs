@@ -1,7 +1,7 @@
 use super::*;
 use crate::remote::{outgoing, outgoing_wire, PeerResponse};
-use shellfox_protocol::Endpoint;
 use shellfox_protocol::AuthenticatedPeerId;
+use shellfox_protocol::Endpoint;
 impl LocalClient {
     /// Same originating private Host lifetime, original Go peer/session, bounded
     /// status/body. Never starts networking, pairs, retries, or accepts a URL.

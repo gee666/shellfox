@@ -1,8 +1,8 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{bail, ensure, Context, Result};
 use shellfox_core::WslLaunchAccount;
 use shellfox_files::{
-    CHUNK_BYTES, TransferReply, TransferRequest,
     wsl_files_ipc::{self as wire, Reply, Request},
+    TransferReply, TransferRequest, CHUNK_BYTES,
 };
 use shellfox_terminal::wsl::OsWsl;
 use std::{
@@ -86,19 +86,17 @@ impl Worker {
             })?;
         let _ = thread::Builder::new()
             .name("wsl-files-read".into())
-            .spawn(move || {
-                loop {
-                    match wire::read(&mut output) {
-                        Ok(Some(packet)) => {
-                            if incoming.send(Ok(packet)).is_err() {
-                                break;
-                            }
-                        }
-                        Ok(None) => break,
-                        Err(error) => {
-                            let _ = incoming.send(Err(error.into()));
+            .spawn(move || loop {
+                match wire::read(&mut output) {
+                    Ok(Some(packet)) => {
+                        if incoming.send(Ok(packet)).is_err() {
                             break;
                         }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        let _ = incoming.send(Err(error.into()));
+                        break;
                     }
                 }
             })?;
@@ -166,8 +164,8 @@ impl Drop for Worker {
                     Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
                 };
                 // SAFETY: `child` owns the process handle for the whole wait.
-                let exited =
-                    unsafe { WaitForSingleObject(child.as_raw_handle().cast(), 5_000) } == WAIT_OBJECT_0;
+                let exited = unsafe { WaitForSingleObject(child.as_raw_handle().cast(), 5_000) }
+                    == WAIT_OBJECT_0;
                 if !exited {
                     let _ = child.kill();
                 }

@@ -37,9 +37,9 @@ fn directory_profile<'a>(
             })
             .map(|profile| profile.id.as_str());
     }
-    if let Some(configured) = configured_profile.filter(|profile| {
-        profile.id != "wsl" && !profile.id.starts_with("wsl:")
-    }) {
+    if let Some(configured) =
+        configured_profile.filter(|profile| profile.id != "wsl" && !profile.id.starts_with("wsl:"))
+    {
         return configured.available.then_some(configured.id.as_str());
     }
     ["pwsh", "windows-powershell"]
@@ -59,7 +59,12 @@ fn directory_profile<'a>(
 
 impl Root {
     pub(crate) fn profile_for_directory(&self, cwd: &str) -> Option<&str> {
-        directory_profile(&self.workspace.profiles, &self.default_profile(), cwd, cfg!(windows))
+        directory_profile(
+            &self.workspace.profiles,
+            &self.default_profile(),
+            cwd,
+            cfg!(windows),
+        )
     }
 
     pub(crate) fn submit_directory(
@@ -168,9 +173,7 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(profile_id) =
-            self.profile_for_directory(&cwd)
-        else {
+        let Some(profile_id) = self.profile_for_directory(&cwd) else {
             self.error = Some("No discovered interactive terminal profile is available.".into());
             cx.notify();
             return;
@@ -285,6 +288,9 @@ mod tests {
         );
         profiles[0].available = false;
         assert_eq!(directory_profile(&profiles, "pwsh", r"C:\demo", true), None);
-        assert_eq!(directory_profile(&profiles, "wsl:Debian", r"C:\demo", true), Some("windows-powershell"));
+        assert_eq!(
+            directory_profile(&profiles, "wsl:Debian", r"C:\demo", true),
+            Some("windows-powershell")
+        );
     }
 }

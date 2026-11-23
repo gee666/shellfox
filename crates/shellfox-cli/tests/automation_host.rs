@@ -8,8 +8,8 @@ pub mod support;
 use anyhow::{ensure, Context, Result};
 use lifetime::actual_cli_lifetime;
 use shellfox_service::{
-    local_api::LocalApiRequest,
     local::{automation::*, LocalClient},
+    local_api::LocalApiRequest,
 };
 use std::{
     collections::BTreeMap,

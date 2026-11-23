@@ -192,11 +192,18 @@ pub struct RemoteBootOptions {
 impl RemoteBootOptions {
     /// Rebind facts and native actions to the SAME concrete backend. Planning
     /// does not create SSH storage or scan personal profiles/import sources.
-    pub fn with_native_providers(mut self, providers: crate::native_providers::NativeHostProviders) -> Result<Self> {
+    pub fn with_native_providers(
+        mut self,
+        providers: crate::native_providers::NativeHostProviders,
+    ) -> Result<Self> {
         let projector = crate::activity::integration::NativeSourceFactsProjector::new(
-            self.supervisor.clone(), providers.system_services(), self.system_scope,
+            self.supervisor.clone(),
+            providers.system_services(),
+            self.system_scope,
         )?;
-        let slot = std::sync::Arc::new(crate::remote::SourceFactsProviderSlot::new(std::sync::Arc::new(projector)));
+        let slot = std::sync::Arc::new(crate::remote::SourceFactsProviderSlot::new(
+            std::sync::Arc::new(projector),
+        ));
         self.facts = slot.clone();
         self.install_source = slot.installer();
         self.native_providers = Some(providers);
@@ -211,7 +218,9 @@ impl RemoteBootOptions {
         resources: R,
     ) -> Result<Self> {
         let projector = crate::activity::integration::NativeSourceFactsProjector::new(
-            supervisor.clone(), system, scope,
+            supervisor.clone(),
+            system,
+            scope,
         )?;
         let slot = std::sync::Arc::new(crate::remote::SourceFactsProviderSlot::new(
             std::sync::Arc::new(projector),

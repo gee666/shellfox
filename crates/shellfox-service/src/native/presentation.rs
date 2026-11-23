@@ -105,8 +105,13 @@ impl crate::Service {
                 let identity = frame.identity;
                 self.native.capture(key, frame)?;
                 let mut offered = self.native.offer(key)?;
-                if let Some(offered) = offered.as_mut().filter(|frame| frame.phase == Phase::Active) {
-                    offered.working_directory = self.terminals.get(&tab)
+                if let Some(offered) = offered
+                    .as_mut()
+                    .filter(|frame| frame.phase == Phase::Active)
+                {
+                    offered.working_directory = self
+                        .terminals
+                        .get(&tab)
                         .map(|entry| &entry.runtime)
                         .filter(|runtime| {
                             runtime.identity() == identity

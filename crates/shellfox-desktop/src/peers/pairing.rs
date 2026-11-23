@@ -18,7 +18,10 @@ impl Root {
         self.peer_ui.inventory_generation += 1;
         self.peers.inventory(&state.peers);
         if self.peer_ui.pending_create.as_ref().is_some_and(|id| {
-            self.peers.peers.get(id).is_none_or(source::PeerState::creation_connection_failed)
+            self.peers
+                .peers
+                .get(id)
+                .is_none_or(source::PeerState::creation_connection_failed)
         }) {
             self.peer_ui.pending_create = None;
         }

@@ -12,8 +12,7 @@ pub(crate) enum ConnectionAction {
 impl PeerState {
     pub fn creation_connection_failed(&self) -> bool {
         !self.pending
-            && (self.phase == Phase::Rejected
-                || self.phase == Phase::Disconnected && !self.online)
+            && (self.phase == Phase::Rejected || self.phase == Phase::Disconnected && !self.online)
     }
 
     pub fn connection_action(&self) -> Option<ConnectionAction> {

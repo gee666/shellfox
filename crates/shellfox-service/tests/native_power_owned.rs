@@ -8,7 +8,10 @@ use anyhow::{ensure, Result};
 use shellfox_service::{local::LocalClient, power::PowerStatus};
 
 #[test]
-#[cfg_attr(windows, ignore = "changes Windows lid policy; use an explicitly approved live run")]
+#[cfg_attr(
+    windows,
+    ignore = "changes Windows lid policy; use an explicitly approved live run"
+)]
 fn local_clients_share_power_and_shutdown_releases() -> Result<()> {
     let fixture = support::Fixture::new()?;
     let data = fixture.data("shared-power");

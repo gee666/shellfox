@@ -146,15 +146,32 @@ fn observer_presentation_is_private_and_does_not_require_input_context_or_claim(
 
 #[test]
 fn external_layout_resize_forwards_exact_dimensions_as_presentation_not_pty_control() {
-    let observer = Access::Observer(NativeObserverAttachment { viewer: 19, epoch: 4, generation: Generation::new() });
+    let observer = Access::Observer(NativeObserverAttachment {
+        viewer: 19,
+        epoch: 4,
+        generation: Generation::new(),
+    });
     for access in [access().0, observer] {
-        let action = access.action_with_input(TabId::new(), Command::Presentation {
-            view: access.presentation_lease(),
-            action: shellfox_runtime::PresentationAction::ResizeExternal { cols: 83, rows: 29 },
-        }, None).unwrap();
-        assert!(matches!(action, NativeAction::Presentation {
-            action: NativePresentation::ResizeExternal { cols: 83, rows: 29 }, ..
-        }));
+        let action = access
+            .action_with_input(
+                TabId::new(),
+                Command::Presentation {
+                    view: access.presentation_lease(),
+                    action: shellfox_runtime::PresentationAction::ResizeExternal {
+                        cols: 83,
+                        rows: 29,
+                    },
+                },
+                None,
+            )
+            .unwrap();
+        assert!(matches!(
+            action,
+            NativeAction::Presentation {
+                action: NativePresentation::ResizeExternal { cols: 83, rows: 29 },
+                ..
+            }
+        ));
     }
 }
 

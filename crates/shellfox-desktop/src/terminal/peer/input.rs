@@ -19,7 +19,9 @@ pub(super) struct Pointer {
 
 impl Peer {
     fn queue_keyboard_input(&mut self, bytes: Vec<u8>) -> anyhow::Result<bool> {
-        if bytes.is_empty() { return Ok(false); }
+        if bytes.is_empty() {
+            return Ok(false);
+        }
         self.queue(bytes, true)?;
         // User input follows the active buffer and clears the selection,
         // including keys the shell does not echo.
@@ -31,14 +33,23 @@ impl Peer {
 
 impl TerminalView {
     pub(in crate::terminal) fn peer_key(&mut self, key: KeyEvent) -> anyhow::Result<()> {
-        let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else { return Ok(()); };
-        if !peer.held_keys.admit(&key) { return Ok(()); }
+        let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else {
+            return Ok(());
+        };
+        if !peer.held_keys.admit(&key) {
+            return Ok(());
+        }
         let data = peer.terminal.encode_key_event(&key)?;
-        if peer.queue_keyboard_input(data)? { self.refresh_peer_screen(); }
+        if peer.queue_keyboard_input(data)? {
+            self.refresh_peer_screen();
+        }
         Ok(())
     }
 
-    pub(in crate::terminal) fn peer_key_release(&self, key: physical::KeyIdentity) -> Option<KeyEvent> {
+    pub(in crate::terminal) fn peer_key_release(
+        &self,
+        key: physical::KeyIdentity,
+    ) -> Option<KeyEvent> {
         match &self.backend {
             Backend::Peer(peer) => peer.held_keys.release(key.0, key.1),
             _ => None,
@@ -52,17 +63,28 @@ impl TerminalView {
             None => return,
         };
         for release in releases {
-            let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else { return };
-            let sent = peer.terminal.encode_key_event(&release).map_err(anyhow::Error::from)
+            let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else {
+                return;
+            };
+            let sent = peer
+                .terminal
+                .encode_key_event(&release)
+                .map_err(anyhow::Error::from)
                 .and_then(|data| peer.queue_keyboard_input(data));
-            if let Err(error) = sent { self.reject(error); }
+            if let Err(error) = sent {
+                self.reject(error);
+            }
         }
     }
 
     pub(in crate::terminal) fn peer_paste(&mut self, text: &str) -> anyhow::Result<()> {
-        let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else { return Ok(()); };
+        let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else {
+            return Ok(());
+        };
         let data = peer.terminal.encode_paste(text)?;
-        if peer.queue_keyboard_input(data)? { self.refresh_peer_screen(); }
+        if peer.queue_keyboard_input(data)? {
+            self.refresh_peer_screen();
+        }
         Ok(())
     }
 

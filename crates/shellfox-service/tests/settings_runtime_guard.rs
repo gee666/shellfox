@@ -6,8 +6,8 @@ use shellfox_service::settings_runtime::SettingsRuntimeAdapter;
 use std::{
     path::PathBuf,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
 };
 

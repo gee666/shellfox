@@ -1,8 +1,5 @@
 //! Headless Shellfox host: terminals, metadata, remote access and the local API. No GPUI.
-pub mod facts;
-mod grant;
 pub mod activity;
-mod electron_import;
 pub mod app_composition;
 pub mod app_paths;
 pub mod automation;
@@ -10,16 +7,19 @@ mod close;
 mod creation;
 pub mod desktop_launch;
 pub mod desktop_session;
-pub mod local_api;
+mod electron_import;
+pub mod facts;
+mod grant;
 mod launch;
 pub mod local;
+pub mod local_api;
 pub mod native;
 pub use activity::native::NativeTabActivity;
 pub mod native_providers;
+pub use native::catalog::{effective_default_profile, usable_profiles, NativeLaunchCatalog};
 pub use native::endpoint_report::{
     EndpointArtifactDisposition, EndpointPublicationOutcome, NativeEndpointReport,
 };
-pub use native::catalog::{effective_default_profile, usable_profiles, NativeLaunchCatalog};
 #[cfg(test)]
 use shellfox_test_support::native_metadata as native_metadata_fixture;
 mod owner;
@@ -44,12 +44,12 @@ pub fn dispatch_supervisor_entry() -> anyhow::Result<Option<u32>> {
 #[cfg(test)]
 mod stop_admission_tests;
 pub mod system;
-#[cfg(windows)]
-pub mod wsl_files_worker;
-mod terminals;
 mod tab_stats;
+mod terminals;
 #[cfg(test)]
 mod tests;
+#[cfg(windows)]
+pub mod wsl_files_worker;
 
 use anyhow::{bail, Context, Result};
 use shellfox_core::{Snapshot, TabId, TerminalIdentity};

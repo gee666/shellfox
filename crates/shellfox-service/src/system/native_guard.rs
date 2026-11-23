@@ -53,7 +53,8 @@ impl SystemFiles for GuardedSystemFiles {
         bytes: Option<&[u8]>,
         executable: bool,
     ) -> SystemResult<()> {
-        self.guard.run(|| self.inner.replace(path, expected, bytes, executable))
+        self.guard
+            .run(|| self.inner.replace(path, expected, bytes, executable))
     }
 }
 pub(super) struct GuardedSystemRegistry {
@@ -70,7 +71,8 @@ impl SystemRegistry for GuardedSystemRegistry {
         expected: &RegistryState,
         desired: Option<&RegistryState>,
     ) -> SystemResult<()> {
-        self.guard.run(|| self.inner.compare_replace(slot, expected, desired))
+        self.guard
+            .run(|| self.inner.compare_replace(slot, expected, desired))
     }
 }
 pub(super) struct GuardedSystemResources {

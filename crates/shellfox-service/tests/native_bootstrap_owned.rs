@@ -3,8 +3,8 @@
 mod support;
 use anyhow::{Context, Result};
 use shellfox_service::{
-    local_api::LocalApiRequest,
     local::{LocalBootstrap, LocalClient, OccupiedOwnerError},
+    local_api::LocalApiRequest,
 };
 use std::{
     future::{poll_fn, Future},
@@ -63,10 +63,9 @@ fn real_go_cold_existing_and_occupied_share_one_owner() -> Result<()> {
 fn real_go_host_starts_in_fresh_and_empty_dirs_under_a_permissive_parent() -> Result<()> {
     let fixture = Fixture::new()?;
     let runtime = runtime()?;
-    let verifier = shellfox_transport::PermissionVerifier::new(shellfox_transport::VerifiedHelper::new(
-        fixture.helper.clone(),
-        fixture.digest,
-    )?);
+    let verifier = shellfox_transport::PermissionVerifier::new(
+        shellfox_transport::VerifiedHelper::new(fixture.helper.clone(), fixture.digest)?,
+    );
     let directory = shellfox_transport::PrivatePathKind::Directory;
     let parent = fixture.data("permissive");
     let empty = parent.join("empty");
@@ -77,7 +76,9 @@ fn real_go_host_starts_in_fresh_and_empty_dirs_under_a_permissive_parent() -> Re
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
     }
     anyhow::ensure!(
-        runtime.block_on(verifier.check(&parent, directory)).is_err(),
+        runtime
+            .block_on(verifier.check(&parent, directory))
+            .is_err(),
         "fixture parent is already private"
     );
     for data in [parent.join("fresh"), empty] {

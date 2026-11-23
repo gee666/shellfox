@@ -1,14 +1,15 @@
 use super::{
-    Actor, AppError, ErrorCode, RemoteService, Service, checked, failure, host_error, key,
+    checked, failure, host_error, key, Actor, AppError, ErrorCode, RemoteService, Service,
 };
 use crate::wsl_files_worker::Worker;
 use shellfox_core::{SessionId, TabId, WslLaunchAccount};
 use shellfox_files::{
-    self as files, WslBrowserScope,
+    self as files,
     wsl_files_ipc::{Reply, Request},
+    WslBrowserScope,
 };
 use shellfox_protocol::{self as wire, RemoteCommand, Validate};
-use shellfox_remote::{ViewPermission, assets, file_ops};
+use shellfox_remote::{assets, file_ops, ViewPermission};
 
 mod transfer;
 pub(in crate::remote) use transfer::Transfers;

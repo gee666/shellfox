@@ -32,7 +32,6 @@ struct NoticeKey {
     message: String,
 }
 
-
 #[derive(Default)]
 pub(crate) struct Notifications {
     messages: VecDeque<(u64, String, Tone)>,

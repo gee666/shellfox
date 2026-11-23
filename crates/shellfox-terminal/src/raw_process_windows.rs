@@ -205,10 +205,16 @@ impl RawProcess {
             }
             let deadline = Instant::now() + Duration::from_millis(u64::from(STARTUP_TIMEOUT_MS));
             // A target that exits early breaks the pipe, so this write ends too.
-            let stdin = match receive_writer.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            let stdin = match receive_writer
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            {
                 Ok(result) => result.context("Raw launch frame write failed.")?,
-                Err(mpsc::RecvTimeoutError::Timeout) => anyhow::bail!("Raw target READY timed out."),
-                Err(mpsc::RecvTimeoutError::Disconnected) => anyhow::bail!("Raw launch writer stopped."),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    anyhow::bail!("Raw target READY timed out.")
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    anyhow::bail!("Raw launch writer stopped.")
+                }
             };
             if !gate.wait_ready(inner.child.as_raw_handle().cast(), deadline)? {
                 ensure!(

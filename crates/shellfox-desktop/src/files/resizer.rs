@@ -34,7 +34,8 @@ impl ResizeAxis {
         size.clamp(min.min(max), max)
     }
     fn value(self, root: &Root) -> f32 {
-        root.files.panel
+        root.files
+            .panel
             .as_ref()
             .map_or(self.default_size(), |files| match self {
                 Self::Width => files.width,
@@ -65,7 +66,12 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(drag) = self.files.panel.as_ref().and_then(|files| files.resize.as_ref()) else {
+        let Some(drag) = self
+            .files
+            .panel
+            .as_ref()
+            .and_then(|files| files.resize.as_ref())
+        else {
             return false;
         };
         if event.pressed_button == Some(MouseButton::Left) {

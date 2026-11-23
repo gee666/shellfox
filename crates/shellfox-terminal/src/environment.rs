@@ -1,13 +1,13 @@
 //! Terminal environment modes, executable discovery and path spelling.
 #[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 use anyhow::{ensure, Result};
+use std::path::PathBuf;
 #[cfg(any(windows, target_os = "linux", target_os = "macos", test))]
 use std::{
     collections::BTreeMap,
     ffi::{OsStr, OsString},
     path::Path,
 };
-use std::path::PathBuf;
 
 /// Where a terminal's environment comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -56,7 +56,10 @@ pub(crate) fn installed_path() -> Vec<PathBuf> {
 }
 
 #[cfg(windows)]
-fn pnpm_installation(configured: Option<PathBuf>, local_app_data: Option<PathBuf>) -> Option<PathBuf> {
+fn pnpm_installation(
+    configured: Option<PathBuf>,
+    local_app_data: Option<PathBuf>,
+) -> Option<PathBuf> {
     configured
         .into_iter()
         .chain(local_app_data.map(|data| data.join("pnpm")))
@@ -198,7 +201,10 @@ mod tests {
             std::fs::create_dir(installation).unwrap();
             std::fs::write(installation.join("pi.cmd"), "@exit /b 0\r\n").unwrap();
         }
-        assert_eq!(pnpm_installation(None, Some(root.clone())), Some(default.clone()));
+        assert_eq!(
+            pnpm_installation(None, Some(root.clone())),
+            Some(default.clone())
+        );
         assert_eq!(
             pnpm_installation(Some("relative".into()), Some(root.clone())),
             Some(default)
@@ -211,8 +217,17 @@ mod tests {
 
     #[test]
     fn configured_variables_may_set_any_well_formed_name() {
-        for key in ["Path", "HOME", "PSModulePath", "NODE_OPTIONS", "PI_CODING_AGENT_DIR"] {
-            assert!(validate_extra(&BTreeMap::from([(key.into(), "ok".into())])).is_ok(), "{key}");
+        for key in [
+            "Path",
+            "HOME",
+            "PSModulePath",
+            "NODE_OPTIONS",
+            "PI_CODING_AGENT_DIR",
+        ] {
+            assert!(
+                validate_extra(&BTreeMap::from([(key.into(), "ok".into())])).is_ok(),
+                "{key}"
+            );
         }
         assert!(validate_extra(&BTreeMap::from([("BAD".into(), "a\0b".into())])).is_err());
         assert!(validate_extra(&BTreeMap::from([("A=B".into(), "x".into())])).is_err());

@@ -1,7 +1,11 @@
 use super::*;
 use std::time::Duration;
 
-async fn step(client: &shellfox_service::OwnerClient, action: NativeAction, phase: &str) -> Result<NativeResponse> {
+async fn step(
+    client: &shellfox_service::OwnerClient,
+    action: NativeAction,
+    phase: &str,
+) -> Result<NativeResponse> {
     tokio::time::timeout(Duration::from_secs(20), client.native(action))
         .await
         .map_err(|_| anyhow::anyhow!("{phase} timed out"))?
@@ -14,13 +18,10 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
     let (providers, opener) = inputs::providers(&data);
     let services = providers.system_services();
     let supervisor = inputs::program()?;
-    let remote = app_composition::NativeApplicationConfig::new(
-        &data,
-        None,
-        Some("owned-providers".into()),
-    )?
-    .remote_options(supervisor.path().to_owned(), false)?
-    .with_native_providers(providers)?;
+    let remote =
+        app_composition::NativeApplicationConfig::new(&data, None, Some("owned-providers".into()))?
+            .remote_options(supervisor.path().to_owned(), false)?
+            .with_native_providers(providers)?;
     let ssh_path = data.join("rust-service-v1/ssh");
     ensure!(!ssh_path.exists(), "source planning created SSH namespace");
     let home = data.clone();
@@ -107,11 +108,18 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
         let local = LocalClient::connect(&home, &helper, digest).await?;
         let profiles = local.request(&SshRead::List {}).await?;
         ensure!(!serde_json::to_string(&profiles)?.contains("isolated-cli-fixture"));
-        ensure!(matches!(profiles, SshReadReply::Profiles(rows) if rows.iter().any(|row| row.id == id && row.has_password)));
-        let SshReadReply::Connection(Some(profile)) = local.request(&SshRead::Connection { id }).await? else {
+        ensure!(
+            matches!(profiles, SshReadReply::Profiles(rows) if rows.iter().any(|row| row.id == id && row.has_password))
+        );
+        let SshReadReply::Connection(Some(profile)) =
+            local.request(&SshRead::Connection { id }).await?
+        else {
             anyhow::bail!("CLI could not read its selected connection");
         };
-        ensure!(profile.password.as_ref().is_some_and(|secret| secret.expose() == "isolated-cli-fixture"));
+        ensure!(profile
+            .password
+            .as_ref()
+            .is_some_and(|secret| secret.expose() == "isolated-cli-fixture"));
         let NativeResponse::Ssh(ssh::Response::Profiles(rows)) = step(
             &second,
             NativeAction::Ssh(ssh::Request::Delete { id }),

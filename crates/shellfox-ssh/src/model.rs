@@ -202,7 +202,9 @@ impl StoredProfile {
         Ok(self)
     }
     pub fn validate_connection_options(&self) -> Result<()> {
-        self.connection_options.as_ref().map_or(Ok(()), ConnectionOptions::validate)
+        self.connection_options
+            .as_ref()
+            .map_or(Ok(()), ConnectionOptions::validate)
     }
     pub fn remote_dto(&self) -> RemoteProfileDto {
         RemoteProfileDto {

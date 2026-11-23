@@ -55,8 +55,8 @@ fn hidden_raw_does_not_poison_normal_facts_and_show_adds_exact_external_kind() {
     service.activity.dirty = true;
     service.activity.next_poll_ms = 0;
     service.pump();
-    let source =
-        crate::activity::integration::read_source(&service.activity.watch).expect("published facts");
+    let source = crate::activity::integration::read_source(&service.activity.watch)
+        .expect("published facts");
     assert_eq!(source.snapshot.sessions.len(), 2);
     assert!(source
         .terminals

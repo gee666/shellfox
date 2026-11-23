@@ -155,7 +155,8 @@ fn interactive_powershell(id: ShellProfileId) {
             .filter_map(|path| std::fs::canonicalize(path).ok())
             .collect();
         assert!(modules.contains(&expected_modules), "{}", probe.module_path);
-        let account = std::path::Path::new(&std::env::var("USERPROFILE").unwrap()).join("Documents");
+        let account =
+            std::path::Path::new(&std::env::var("USERPROFILE").unwrap()).join("Documents");
         let account = account.to_string_lossy().to_ascii_lowercase();
         assert!(
             !probe.module_path.to_ascii_lowercase().contains(&account),

@@ -117,7 +117,7 @@ impl Service {
                 && !status.closed
                 && !status.failed
                 && status.source_sequence == proof.final_source_sequence())
-                .then(|| proof.kernel_exit_code());
+            .then(|| proof.kernel_exit_code());
         }
         let (id, relay) = self
             .automation

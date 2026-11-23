@@ -128,8 +128,13 @@ impl NativeFactsDiscovery {
         }
         #[cfg(windows)]
         {
-            if let Some(powershell) = profiles.iter().find(|profile| profile.id == "windows-powershell") {
-                profiles.push(crate::windows_profiles::administrator_profile(powershell, backend));
+            if let Some(powershell) = profiles
+                .iter()
+                .find(|profile| profile.id == "windows-powershell")
+            {
+                profiles.push(crate::windows_profiles::administrator_profile(
+                    powershell, backend,
+                ));
             }
             if let Some(wsl) = wsl {
                 profiles.extend(wsl.wire_profiles(backend));
@@ -153,7 +158,8 @@ impl NativeFactsDiscovery {
             .and_then(|value| value.clone())
             .unwrap_or_else(|| default.to_string());
         let default_profile_id =
-            crate::effective_default_profile(&configured, crate::usable_profiles(&profiles)).map(str::to_owned);
+            crate::effective_default_profile(&configured, crate::usable_profiles(&profiles))
+                .map(str::to_owned);
         let profiles = wire::TerminalProfiles {
             profiles,
             default_profile_id,
@@ -217,7 +223,10 @@ fn shell_id(profile: ShellProfileId) -> wire::ShellId {
         ShellProfileId::WindowsPowerShell => wire::ShellId::WindowsPowershell,
         ShellProfileId::Wsl => wire::ShellId::Wsl,
         ShellProfileId::Bash => wire::ShellId::Bash,
-        ShellProfileId::Cmd | ShellProfileId::LoginShell | ShellProfileId::Sh
-        | ShellProfileId::Zsh | ShellProfileId::Fish => wire::ShellId::LoginShell,
+        ShellProfileId::Cmd
+        | ShellProfileId::LoginShell
+        | ShellProfileId::Sh
+        | ShellProfileId::Zsh
+        | ShellProfileId::Fish => wire::ShellId::LoginShell,
     }
 }

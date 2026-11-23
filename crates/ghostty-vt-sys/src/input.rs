@@ -77,7 +77,16 @@ impl Engine {
         // idempotent, so the size query and copy produce the same encoding.
         encoded_output(|out, cap, len| {
             // SAFETY: both allocations have their specified lengths; C retains neither.
-            unsafe { sf_paste(self.ptr.as_ptr(), data.as_mut_ptr(), data.len(), out, cap, len) }
+            unsafe {
+                sf_paste(
+                    self.ptr.as_ptr(),
+                    data.as_mut_ptr(),
+                    data.len(),
+                    out,
+                    cap,
+                    len,
+                )
+            }
         })
     }
     /// Focus report, or nothing when the application has not enabled mode 1004.

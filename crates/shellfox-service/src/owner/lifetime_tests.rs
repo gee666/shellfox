@@ -18,27 +18,18 @@ async fn lifetime_capacity_and_stale_epoch_are_checked_on_actor_dispatch() {
     let old = uuid::Uuid::new_v4();
     client.open_lifetime(old).await.unwrap();
     client
-        .private_request_in_epoch(
-            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
-            old,
-        )
+        .private_request_in_epoch(PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}), old)
         .await
         .unwrap();
     let new = uuid::Uuid::new_v4();
     client.open_lifetime(new).await.unwrap();
     client.close_lifetime(old).await.unwrap();
     assert!(client
-        .private_request_in_epoch(
-            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
-            old
-        )
+        .private_request_in_epoch(PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}), old)
         .await
         .is_err());
     client
-        .private_request_in_epoch(
-            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
-            new,
-        )
+        .private_request_in_epoch(PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}), new)
         .await
         .unwrap();
     for _ in 1..128 {
@@ -55,10 +46,7 @@ async fn lifetime_capacity_and_stale_epoch_are_checked_on_actor_dispatch() {
         .is_err());
     client.close_all_lifetimes().await.unwrap();
     assert!(client
-        .private_request_in_epoch(
-            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
-            new
-        )
+        .private_request_in_epoch(PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}), new)
         .await
         .is_err());
     let cleanup = owner.client(uuid::Uuid::new_v4());

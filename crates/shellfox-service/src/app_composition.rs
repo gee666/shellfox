@@ -2,8 +2,6 @@
 pub mod providers;
 pub use providers::ApplicationProviderResources;
 mod package_arguments;
-use anyhow::{Context, Result, bail, ensure};
-use shellfox_protocol::{AppError, ErrorCode};
 use crate::{
     local::RemoteBootOptions,
     native_providers::NativeHostProviders,
@@ -13,6 +11,8 @@ use crate::{
         SystemInstallResources, SystemResult, SystemScope,
     },
 };
+use anyhow::{bail, ensure, Context, Result};
+use shellfox_protocol::{AppError, ErrorCode};
 use std::{
     ffi::OsString,
     path::{Component, Path, PathBuf},
@@ -89,11 +89,7 @@ pub struct NativeApplicationConfig {
 }
 impl NativeApplicationConfig {
     /// Planning-only: explicit application namespace, never production/home/cwd discovery.
-    pub fn new(
-        data: &Path,
-        state: Option<PathBuf>,
-        hostname: Option<String>,
-    ) -> Result<Self> {
+    pub fn new(data: &Path, state: Option<PathBuf>, hostname: Option<String>) -> Result<Self> {
         // Canonical native control namespace supplied by the Service composition.
         // This is descriptive only; RemoteHostSetup alone materializes it after its gate.
         let network = data.join("rust-service-v1").join("go-network");
@@ -219,7 +215,10 @@ fn unconfigured_providers(interactive: bool) -> NativeHostProviders {
     // integrations without a validated packaged launch.
     NativeHostProviders::new(Arc::new(NativeSystemBackend::native(
         Arc::new(UnconfiguredInstallResources),
-        SystemInstallPolicy { allow_open: interactive, ..SystemInstallPolicy::default() },
+        SystemInstallPolicy {
+            allow_open: interactive,
+            ..SystemInstallPolicy::default()
+        },
         interactive,
     )))
 }

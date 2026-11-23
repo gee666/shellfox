@@ -2,9 +2,9 @@
 #[cfg(test)]
 mod legacy_scope_tests;
 #[cfg(test)]
-mod v1_loopback_tests;
-#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod v1_loopback_tests;
 #[cfg(test)]
 mod wake_tests;
 use crate::Service;
@@ -21,15 +21,15 @@ mod commands;
 mod creation_profile;
 mod dispatcher;
 mod files;
-#[cfg(windows)]
-mod wsl_files;
 mod privacy;
 mod stats;
 mod v1_delivery;
-mod v1_replay;
 mod v1_launch;
 mod v1_privilege;
+mod v1_replay;
 mod v1_terminal;
+#[cfg(windows)]
+mod wsl_files;
 pub use dispatcher::{remote_channel, RemoteDispatcher, RemoteInbox};
 pub mod facts;
 mod source;
@@ -41,14 +41,12 @@ pub use source::{SourceFactsInstaller, SourceFactsProjector, SourceFactsProvider
 mod host;
 pub use host::RemoteBackend;
 mod setup;
-pub use setup::{
-    RemoteBootResources, RemoteHostSetup, RemoteResources,
-};
+pub use setup::{RemoteBootResources, RemoteHostSetup, RemoteResources};
 pub(crate) mod outgoing;
 pub use outgoing::{PeerFuture, PeerResponse};
-pub(crate) mod outgoing_wire;
 pub(crate) mod operator;
-pub use operator::{RemoteOperatorPending,RemoteOperatorState};
+pub(crate) mod outgoing_wire;
+pub use operator::{RemoteOperatorPending, RemoteOperatorState};
 pub mod native;
 pub mod preferences;
 pub mod runtime;
@@ -122,9 +120,16 @@ impl RemoteState {
         }
     }
     /// The oldest peer attach whose terminal start settled.
-    pub(super) fn next_started(&mut self, service: &mut Service) -> Option<shellfox_remote::OwnerRequest> {
-        self.awaiting_start.retain(|(_, request)| !request.is_cancelled());
-        let index = self.awaiting_start.iter().position(|(tab, _)| service.start_settled(*tab))?;
+    pub(super) fn next_started(
+        &mut self,
+        service: &mut Service,
+    ) -> Option<shellfox_remote::OwnerRequest> {
+        self.awaiting_start
+            .retain(|(_, request)| !request.is_cancelled());
+        let index = self
+            .awaiting_start
+            .iter()
+            .position(|(tab, _)| service.start_settled(*tab))?;
         Some(self.awaiting_start.remove(index).1)
     }
     pub(super) fn dispatch_request(
@@ -145,7 +150,11 @@ impl RemoteState {
         self.finish_close(service);
         if std::mem::take(&mut self.visibility_dirty) {
             service.activity.report_remote_visibility(
-                self.views.values().flat_map(|view| &view.visible).copied().collect(),
+                self.views
+                    .values()
+                    .flat_map(|view| &view.visible)
+                    .copied()
+                    .collect(),
             );
         }
     }
@@ -161,7 +170,9 @@ impl RemoteState {
         // Every metadata commit records `last_change` at the committed revision,
         // so the in-memory revision tells whether Poll would see a change.
         let latest = service.host().revision();
-        self.views.values().filter(move |view| view.has_events(service, latest))
+        self.views
+            .values()
+            .filter(move |view| view.has_events(service, latest))
     }
     pub fn bind<'a>(&'a mut self, service: &'a mut Service) -> RemoteService<'a> {
         RemoteService {
@@ -219,15 +230,26 @@ impl ServiceHost for RemoteService<'_> {
                 if self.state.views.len() >= 32 && !self.state.views.contains_key(&key) {
                     return Err(failure(ErrorCode::Validation, "Remote view limit reached."));
                 }
-                if self.state.views.get(&key).is_some_and(|view| view.epoch >= actor.view_epoch()) {
-                    return Err(failure(ErrorCode::AuthFailed, "A newer view is already paired."));
+                if self
+                    .state
+                    .views
+                    .get(&key)
+                    .is_some_and(|view| view.epoch >= actor.view_epoch())
+                {
+                    return Err(failure(
+                        ErrorCode::AuthFailed,
+                        "A newer view is already paired.",
+                    ));
                 }
                 let revision = self.service.host().snapshot().map_err(host_error)?.revision;
                 if let Some(transfers) = &mut self.state.transfers {
                     transfers.cancel_actor(&key);
                 }
                 let controller = self.service.allocate_viewer_id().map_err(|_| {
-                    failure(ErrorCode::Internal, "Terminal controller could not be allocated.")
+                    failure(
+                        ErrorCode::Internal,
+                        "Terminal controller could not be allocated.",
+                    )
                 })?;
                 if let Some(previous) = self.state.views.insert(
                     key.clone(),
@@ -325,7 +347,10 @@ impl ServiceHost for RemoteService<'_> {
             }
         }
     }
-    fn keep(&mut self, request: shellfox_remote::OwnerRequest) -> Option<shellfox_remote::OwnerRequest> {
+    fn keep(
+        &mut self,
+        request: shellfox_remote::OwnerRequest,
+    ) -> Option<shellfox_remote::OwnerRequest> {
         let request = self.keep_closing(request)?;
         match self.state.starting.take() {
             Some(tab) => {

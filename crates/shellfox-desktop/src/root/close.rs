@@ -1,9 +1,6 @@
 use super::*;
 mod prompt;
-use crate::app_host::{
-    CloseDecision, CloseTarget, ClosedWindows,
-    WindowCloseGuard,
-};
+use crate::app_host::{CloseDecision, CloseTarget, ClosedWindows, WindowCloseGuard};
 use std::time::{Duration, Instant};
 
 fn host_operation_guard(local_pending: bool, peer_pending: bool) -> WindowCloseGuard {
@@ -59,7 +56,8 @@ impl Root {
                     || self.power.blocks_close()
                     || !self.tabs.attaching.is_empty()
                     || self
-                        .settings.panel
+                        .settings
+                        .panel
                         .as_ref()
                         .is_some_and(|panel| panel.read(cx).pending_operations()),
                 self.peer_pending_operations(cx),
@@ -112,7 +110,12 @@ impl Root {
         if frozen {
             self.dialogs.modal_focus.focus(window);
         }
-        if let Some(editor) = self.files.panel.as_ref().and_then(|files| files.editor.as_ref()) {
+        if let Some(editor) = self
+            .files
+            .panel
+            .as_ref()
+            .and_then(|files| files.editor.as_ref())
+        {
             editor
                 .text
                 .update(cx, |field, cx| field.set_read_only(frozen, cx));
@@ -152,8 +155,15 @@ impl Root {
         } else {
             OtherWindows::default()
         };
-        let Some(ticket) = self.close.confirmation.clone().map(|confirmation| confirmation.approve())
-            .or_else(|| self.close.ticket.clone()) else { return; };
+        let Some(ticket) = self
+            .close
+            .confirmation
+            .clone()
+            .map(|confirmation| confirmation.approve())
+            .or_else(|| self.close.ticket.clone())
+        else {
+            return;
+        };
         // The prompt stays locked until the host reserves cleanup. Only then
         // can draining/detaching start, and failures use the cleanup error path.
         let prompted = matches!(self.dialogs.current, Some(Dialog::Quit));
@@ -248,7 +258,13 @@ impl Root {
                         };
                         let _ = root.update_in(cx, |root, window, cx| {
                             root.resume_after_failed_close(false, false, window, cx);
-                            root.quit_admission_failed(error, decision, restart_request, window, cx);
+                            root.quit_admission_failed(
+                                error,
+                                decision,
+                                restart_request,
+                                window,
+                                cx,
+                            );
                         });
                         return;
                     }
@@ -260,9 +276,13 @@ impl Root {
                             window,
                             cx,
                         );
-                        let message = format!("Close failed; resources retained for retry: {error:#}");
-                        if crate::desktop_errors::shutdown(cx) { eprintln!("{message}"); }
-                        else { root.error = Some(message); }
+                        let message =
+                            format!("Close failed; resources retained for retry: {error:#}");
+                        if crate::desktop_errors::shutdown(cx) {
+                            eprintln!("{message}");
+                        } else {
+                            root.error = Some(message);
+                        }
                         cx.notify();
                     });
                 }

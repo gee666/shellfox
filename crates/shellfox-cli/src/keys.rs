@@ -2,7 +2,9 @@
 //! terminal that knows the application's modes: the host's for local attach,
 //! a local [`Encoder`] for ssh and peer attach.
 use crossterm::event::{Event, KeyCode, KeyEvent as Crossterm, KeyEventKind, KeyModifiers};
-use shellfox_ghostty_vt::key::{us_key, HeldKeys, KeyAction, KeyEvent, KeyModifiers as Mods, PhysicalKey as P};
+use shellfox_ghostty_vt::key::{
+    us_key, HeldKeys, KeyAction, KeyEvent, KeyModifiers as Mods, PhysicalKey as P,
+};
 use shellfox_ghostty_vt::Terminal;
 
 #[derive(Debug, PartialEq)]
@@ -40,7 +42,9 @@ impl Keys {
         match key.code {
             // Windows delivers an Alt code (Alt+numpad) only as a release
             // carrying its character.
-            KeyCode::Char(c) if cfg!(windows) && event.action == KeyAction::Release && !c.is_control() => {
+            KeyCode::Char(c)
+                if cfg!(windows) && event.action == KeyAction::Release && !c.is_control() =>
+            {
                 Some(KeyEvent::text(c))
             }
             _ => None,
@@ -74,7 +78,11 @@ impl Encoder {
     }
     fn new(cols: u16, rows: u16, detach: bool) -> anyhow::Result<Self> {
         let terminal = Terminal::new(cols.max(1), rows.max(1))?;
-        Ok(Self { terminal, keys: Keys::default(), detach })
+        Ok(Self {
+            terminal,
+            keys: Keys::default(),
+            detach,
+        })
     }
     pub fn feed(&mut self, bytes: &[u8]) -> anyhow::Result<()> {
         for chunk in bytes.chunks(1 << 20) {
@@ -98,14 +106,19 @@ impl Encoder {
             Input::Key(event) => self.terminal.encode_key_event(&event)?,
             Input::Paste(text) => self.terminal.encode_paste(&text)?,
         };
-        Ok(if bytes.is_empty() { Encoded::Ignore } else { Encoded::Bytes(bytes) })
+        Ok(if bytes.is_empty() {
+            Encoded::Ignore
+        } else {
+            Encoded::Bytes(bytes)
+        })
     }
 }
 
 /// Ctrl+] detaches. Crossterm's Unix parser reports the 0x1d byte as Ctrl+5.
 /// Ctrl+Alt+] is AltGr+] on Windows layouts, which types ].
 fn detach(key: &Crossterm) -> bool {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT);
+    let ctrl =
+        key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT);
     key.code == KeyCode::Char('\u{1d}')
         || ctrl && (key.code == KeyCode::Char(']') || cfg!(unix) && key.code == KeyCode::Char('5'))
 }
@@ -158,11 +171,17 @@ fn character(c: char, modifiers: Mods, action: KeyAction) -> Option<KeyEvent> {
         return None;
     }
     // Windows reports AltGr as Ctrl+Alt with the character it typed.
-    let altgr = cfg!(windows) && modifiers.contains(Mods::CONTROL | Mods::ALT) && !c.is_ascii_alphanumeric();
+    let altgr = cfg!(windows)
+        && modifiers.contains(Mods::CONTROL | Mods::ALT)
+        && !c.is_ascii_alphanumeric();
     if altgr {
-        return Some(KeyEvent { action, ..KeyEvent::text(c) });
+        return Some(KeyEvent {
+            action,
+            ..KeyEvent::text(c)
+        });
     }
-    let (physical, base, shifted) = us_key(c).unwrap_or((P::Unidentified, c.to_lowercase().next().unwrap_or(c), false));
+    let (physical, base, shifted) =
+        us_key(c).unwrap_or((P::Unidentified, c.to_lowercase().next().unwrap_or(c), false));
     Some(KeyEvent {
         physical,
         action,

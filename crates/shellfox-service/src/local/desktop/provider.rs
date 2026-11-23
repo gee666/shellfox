@@ -28,7 +28,10 @@ impl DesktopProviderRequest {
             NativeAction::Ssh(request) => Operation::Ssh(request.into()),
             _ => anyhow::bail!("Not a desktop provider operation"),
         };
-        Ok(Self { renderer, operation })
+        Ok(Self {
+            renderer,
+            operation,
+        })
     }
 
     pub(crate) fn into_native(self) -> anyhow::Result<NativeAction> {
@@ -40,7 +43,12 @@ impl DesktopProviderRequest {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "provider", content = "request", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "provider",
+    content = "request",
+    rename_all = "camelCase",
+    deny_unknown_fields
+)]
 enum Operation {
     System(SystemOperation),
     Ssh(SshOperation),
@@ -58,7 +66,9 @@ impl From<SystemNativeRequest> for SystemOperation {
         match value {
             SystemNativeRequest::Status { scope } => Self::Status { scope },
             SystemNativeRequest::SetCli { scope, installed } => Self::SetCli { scope, installed },
-            SystemNativeRequest::SetExplorer { scope, installed } => Self::SetExplorer { scope, installed },
+            SystemNativeRequest::SetExplorer { scope, installed } => {
+                Self::SetExplorer { scope, installed }
+            }
         }
     }
 }
@@ -67,20 +77,27 @@ impl From<SystemOperation> for SystemNativeRequest {
         match value {
             SystemOperation::Status { scope } => Self::Status { scope },
             SystemOperation::SetCli { scope, installed } => Self::SetCli { scope, installed },
-            SystemOperation::SetExplorer { scope, installed } => Self::SetExplorer { scope, installed },
+            SystemOperation::SetExplorer { scope, installed } => {
+                Self::SetExplorer { scope, installed }
+            }
         }
     }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "action", content = "value", rename_all = "camelCase", rename_all_fields = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "action",
+    content = "value",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 enum SshOperation {
     List,
     Save(SshInput),
     Delete { id: Uuid },
     Import,
     ValidateKey { selected: PathBuf },
-
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -95,28 +112,73 @@ struct SshInput {
     remote_cwd: Option<String>,
 }
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "mode", content = "value", rename_all = "camelCase", deny_unknown_fields)]
-enum SshPassword { Keep, Clear, Set(ssh::Secret) }
+#[serde(
+    tag = "mode",
+    content = "value",
+    rename_all = "camelCase",
+    deny_unknown_fields
+)]
+enum SshPassword {
+    Keep,
+    Clear,
+    Set(ssh::Secret),
+}
 impl From<ssh::Input> for SshInput {
     fn from(input: ssh::Input) -> Self {
-        let ssh::Input { id, name, host, port, user, password, key_file, remote_cwd } = input;
+        let ssh::Input {
+            id,
+            name,
+            host,
+            port,
+            user,
+            password,
+            key_file,
+            remote_cwd,
+        } = input;
         let password = match password {
             ssh::Password::Keep => SshPassword::Keep,
             ssh::Password::Clear => SshPassword::Clear,
             ssh::Password::Set(secret) => SshPassword::Set(secret),
         };
-        Self { id, name, host, port, user, password, key_file, remote_cwd }
+        Self {
+            id,
+            name,
+            host,
+            port,
+            user,
+            password,
+            key_file,
+            remote_cwd,
+        }
     }
 }
 impl From<SshInput> for ssh::Input {
     fn from(input: SshInput) -> Self {
-        let SshInput { id, name, host, port, user, password, key_file, remote_cwd } = input;
+        let SshInput {
+            id,
+            name,
+            host,
+            port,
+            user,
+            password,
+            key_file,
+            remote_cwd,
+        } = input;
         let password = match password {
             SshPassword::Keep => ssh::Password::Keep,
             SshPassword::Clear => ssh::Password::Clear,
             SshPassword::Set(secret) => ssh::Password::Set(secret),
         };
-        Self { id, name, host, port, user, password, key_file, remote_cwd }
+        Self {
+            id,
+            name,
+            host,
+            port,
+            user,
+            password,
+            key_file,
+            remote_cwd,
+        }
     }
 }
 

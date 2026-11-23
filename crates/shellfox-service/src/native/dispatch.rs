@@ -19,21 +19,43 @@ impl crate::Service {
     ) -> Result<NativeResponse> {
         action.validate()?;
         self.assert_owned()?;
-        if self.stopping && !matches!(action, NativeAction::Status | NativeAction::ChangedSince { .. } | NativeAction::Frame { .. } | NativeAction::ObserverFrame { .. } | NativeAction::RecoverObserver { .. } | NativeAction::AcceptFrame { .. } | NativeAction::AcceptObserverFrame { .. }) {
+        if self.stopping
+            && !matches!(
+                action,
+                NativeAction::Status
+                    | NativeAction::ChangedSince { .. }
+                    | NativeAction::Frame { .. }
+                    | NativeAction::ObserverFrame { .. }
+                    | NativeAction::RecoverObserver { .. }
+                    | NativeAction::AcceptFrame { .. }
+                    | NativeAction::AcceptObserverFrame { .. }
+            )
+        {
             self.assert_accepting()?;
         }
         ensure!(controller != 0, "A native controller identity is required.");
         let response = match action {
-            NativeAction::Power(_) => anyhow::bail!("Keep-awake requests require the owned blocking worker route."),
-            NativeAction::TerminalProfiles => anyhow::bail!("Native catalog discovery requires its protected owner worker route."),
-            NativeAction::TabStats => anyhow::bail!("Tab stats are captured on their own worker route."),
+            NativeAction::Power(_) => {
+                anyhow::bail!("Keep-awake requests require the owned blocking worker route.")
+            }
+            NativeAction::TerminalProfiles => {
+                anyhow::bail!("Native catalog discovery requires its protected owner worker route.")
+            }
+            NativeAction::TabStats => {
+                anyhow::bail!("Tab stats are captured on their own worker route.")
+            }
             NativeAction::Status => NativeResponse::Status(NativeStatus {
                 active_terminals: self.active_terminals(),
             }),
-            NativeAction::ReadWindowState => NativeResponse::WindowState(self.host().window_state()?),
-            NativeAction::ReadTabActivity => NativeResponse::TabActivity(self.desktop_tab_activity()),
+            NativeAction::ReadWindowState => {
+                NativeResponse::WindowState(self.host().window_state()?)
+            }
+            NativeAction::ReadTabActivity => {
+                NativeResponse::TabActivity(self.desktop_tab_activity())
+            }
             NativeAction::SetVisibleSessions(report) => {
-                self.activity.report_desktop_visibility(controller, report.session_ids);
+                self.activity
+                    .report_desktop_visibility(controller, report.session_ids);
                 NativeResponse::Applied
             }
             NativeAction::SaveWindowState(state) => {
@@ -49,7 +71,10 @@ impl crate::Service {
                     receipt: self.host().creation_request_receipt(request_id)?,
                 }
             }
-            NativeAction::System(request) => NativeResponse::System(self.handle_system_native(request,controller).map_err(|error|anyhow::anyhow!(error.message))?),
+            NativeAction::System(request) => NativeResponse::System(
+                self.handle_system_native(request, controller)
+                    .map_err(|error| anyhow::anyhow!(error.message))?,
+            ),
             NativeAction::Ssh(request) => NativeResponse::Ssh(self.execute_ssh_settings(request)?),
             NativeAction::Remote(_) => {
                 anyhow::bail!("Remote controls require the owned async manager route.")

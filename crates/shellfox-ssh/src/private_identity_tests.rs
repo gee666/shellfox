@@ -20,7 +20,9 @@ fn fixture() -> Result<(tempfile::TempDir, PrivateDirectory, PathBuf)> {
     );
     #[cfg(windows)]
     let policy = StoragePolicy::with_windows_helper(
-        dev_helper::helper().expect("development Tailscale helper").0,
+        dev_helper::helper()
+            .expect("development Tailscale helper")
+            .0,
     );
     #[cfg(not(windows))]
     let policy = StoragePolicy::default();

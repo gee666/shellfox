@@ -1,13 +1,13 @@
 use crate::{files::DocumentBackend, root::Root, theme::Palette};
 use gpui::{AnyElement, Context, Image, StyledImage, div, img, prelude::*, px};
 use std::{cell::RefCell, sync::Arc};
-mod markdown;
-mod markdown_image;
-mod svg;
 #[cfg(any(windows, target_os = "macos"))]
 pub(crate) mod html;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod html_unsupported;
+mod markdown;
+mod markdown_image;
+mod svg;
 #[cfg(not(any(windows, target_os = "macos")))]
 pub(crate) use html_unsupported as html;
 
@@ -53,7 +53,11 @@ impl TextPreview {
 
     pub fn render(
         &self,
-        PreviewDocument { path, backend, text }: PreviewDocument<'_>,
+        PreviewDocument {
+            path,
+            backend,
+            text,
+        }: PreviewDocument<'_>,
         palette: Palette,
         window: &gpui::Window,
         root: &Root,
@@ -69,7 +73,12 @@ impl TextPreview {
                     Content::Markdown(markdown::Markdown::parse(&text), Default::default())
                 }
                 Kind::Svg => svg::rasterize(&text).map_or(Content::Error, Content::Svg),
-                Kind::Html => Content::Html(html::HtmlPreview::load(backend.clone(), path.to_owned(), text.clone(), cx)),
+                Kind::Html => Content::Html(html::HtmlPreview::load(
+                    backend.clone(),
+                    path.to_owned(),
+                    text.clone(),
+                    cx,
+                )),
             };
             *cache = Some((text, parsed));
         }
@@ -78,7 +87,11 @@ impl TextPreview {
                 .render(path, backend, images, palette, window, cx)
                 .into_any_element(),
             Some(Content::Svg(image)) => render_image(image.clone()),
-            Some(Content::Html(html)) => html.render(&root.files.html_preview, palette, &root.semantics.context.frame()),
+            Some(Content::Html(html)) => html.render(
+                &root.files.html_preview,
+                palette,
+                &root.semantics.context.frame(),
+            ),
             _ => div()
                 .p(px(8.))
                 .text_color(palette.muted)
@@ -96,7 +109,14 @@ pub(crate) struct PreviewDocument<'a> {
 }
 
 pub(crate) fn image_error() -> AnyElement {
-    div().size_full().flex().items_center().justify_center().p(px(8.)).child("Could not display image.").into_any_element()
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(8.))
+        .child("Could not display image.")
+        .into_any_element()
 }
 
 pub(crate) fn render_image(image: Arc<Image>) -> AnyElement {
@@ -113,7 +133,12 @@ pub(crate) fn render_image(image: Arc<Image>) -> AnyElement {
                 .id("file-image")
                 .max_w_full()
                 .max_h_full()
-                .with_fallback(|| div().whitespace_nowrap().child("Could not display image.").into_any_element()),
+                .with_fallback(|| {
+                    div()
+                        .whitespace_nowrap()
+                        .child("Could not display image.")
+                        .into_any_element()
+                }),
         )
         .into_any_element()
 }

@@ -1,10 +1,10 @@
 //! Remote-only mobile bindings. No PTY, host, helper process, filesystem or login.
 mod abi;
 mod client;
+mod composer;
 mod configure;
 mod engine;
 mod frame;
-mod composer;
 mod input;
 mod interaction;
 mod queue;

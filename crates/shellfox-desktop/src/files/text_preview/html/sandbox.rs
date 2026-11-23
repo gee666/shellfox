@@ -93,9 +93,14 @@ pub(super) fn route(request: &http::Request<Vec<u8>>) -> Route {
         return Route::Content;
     }
     // The browser drops fragments and the query is never part of a file path.
-    let Some(path) = uri.strip_prefix(ASSETS).map(|rest| rest.split('?').next().unwrap_or(""))
+    let Some(path) = uri
+        .strip_prefix(ASSETS)
+        .map(|rest| rest.split('?').next().unwrap_or(""))
     else {
-        return match uri.strip_prefix(SHELL).map(|rest| rest.split('?').next().unwrap_or("")) {
+        return match uri
+            .strip_prefix(SHELL)
+            .map(|rest| rest.split('?').next().unwrap_or(""))
+        {
             Some(rest) if !rest.is_empty() && rest != "favicon.ico" => percent_decode_str(rest)
                 .decode_utf8()
                 .ok()
@@ -146,7 +151,10 @@ pub(super) fn asset(mime_type: &str, bytes: Vec<u8>) -> http::Response<Cow<'stat
     headers(mime_type)
         // The sandboxed document has an opaque origin; fonts and module scripts need CORS.
         .header(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
-        .header(http::header::CONTENT_SECURITY_POLICY, "default-src 'none'; sandbox")
+        .header(
+            http::header::CONTENT_SECURITY_POLICY,
+            "default-src 'none'; sandbox",
+        )
         .body(Cow::Owned(bytes))
         .expect("asset response headers")
 }
@@ -240,7 +248,10 @@ mod tests {
             request("GET", "shellfox-preview://document/outside.svg"),
             Route::Outside("../outside.svg".into())
         );
-        assert_eq!(request("GET", "shellfox-preview://document/favicon.ico"), Route::Denied);
+        assert_eq!(
+            request("GET", "shellfox-preview://document/favicon.ico"),
+            Route::Denied
+        );
         assert_eq!(page(&Route::Outside("../x".into()), b"x").status(), 404);
         assert!(page(&Route::Denied, b"x").body().is_empty());
     }

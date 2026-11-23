@@ -98,7 +98,8 @@ impl Root {
             return false;
         }
         let Some(files) = self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .filter(|files| files.visible && files.pending_file_action.is_none())
         else {
@@ -109,13 +110,23 @@ impl Root {
             .into_iter()
             .find(|control| frame.id_for(control.key()).ok() == Some(action.target))
         else {
-            if !files.browser || files.busy { return false; }
+            if !files.browser || files.busy {
+                return false;
+            }
             let location = files.location.read(cx);
-            if location.is_composing() || !location.is_focused(window) { return false; }
-            if let Some(index) = files.completion.state.visible(&location.text).iter().position(|value| {
-                let key = crate::files::completion::completion_key(value);
-                frame.id_for(&key).ok() == Some(action.target)
-            }) {
+            if location.is_composing() || !location.is_focused(window) {
+                return false;
+            }
+            if let Some(index) = files
+                .completion
+                .state
+                .visible(&location.text)
+                .iter()
+                .position(|value| {
+                    let key = crate::files::completion::completion_key(value);
+                    frame.id_for(&key).ok() == Some(action.target)
+                })
+            {
                 self.choose_file_completion(index, window, cx);
                 return true;
             }
@@ -140,7 +151,15 @@ impl Root {
                 self.toggle_file_maximized(window, cx)
             }
             Control::CopyPath if files.opened_path().is_some() => self.copy_open_file_path(cx),
-            Control::Save if !files.busy && files.editor.as_ref().is_some_and(|editor| editor.dirty(cx) && !editor.reload_required) => self.save_file(cx),
+            Control::Save
+                if !files.busy
+                    && files
+                        .editor
+                        .as_ref()
+                        .is_some_and(|editor| editor.dirty(cx) && !editor.reload_required) =>
+            {
+                self.save_file(cx)
+            }
             Control::Source | Control::Preview
                 if files
                     .editor

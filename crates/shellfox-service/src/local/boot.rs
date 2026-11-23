@@ -8,8 +8,8 @@ mod endpoint;
 use endpoint::EndpointPublication;
 mod control_files;
 pub(crate) use control_files::NativeControlChild;
-mod remote_boot;
 mod provider_boot;
+mod remote_boot;
 use control_files::NativeControlFiles;
 use remote_boot::RemoteInitializationFailure;
 #[cfg(test)]
@@ -115,7 +115,9 @@ impl BootGuard {
             &self.private.path,
             ownership.permission_verifier().clone(),
             ownership.lost(),
-        ).await {
+        )
+        .await
+        {
             eprintln!("Electron import did not complete: {error:#}");
         }
         if let Err(error) = ServiceOwner::start_with_root_lifetime(

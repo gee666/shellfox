@@ -223,7 +223,10 @@ impl OfflineControl {
             }
             if tokio::time::timeout_at(end, notified).await.is_err() {
                 self.poll_exit()?;
-                return self.resolved_cached().then_some(()).ok_or(HelperError::Deadline);
+                return self
+                    .resolved_cached()
+                    .then_some(())
+                    .ok_or(HelperError::Deadline);
             }
         }
     }
@@ -276,8 +279,9 @@ mod os {
     }
     /// WNOWAIT leaves the exit for try_wait to reap; ECHILD means it already did.
     pub fn wait(target: Target) {
-        while let Err(rustix::io::Errno::INTR) =
-            waitid(WaitId::Pid(target.0), WaitIdOptions::EXITED | WaitIdOptions::NOWAIT)
-        {}
+        while let Err(rustix::io::Errno::INTR) = waitid(
+            WaitId::Pid(target.0),
+            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+        ) {}
     }
 }

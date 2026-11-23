@@ -71,7 +71,10 @@ pub(super) fn screen(display: &dyn PlatformDisplay) -> Screen {
     let offset: Point<_> = point(logical(work.left - full.left), logical(work.top - full.top));
     screen.work = Bounds::new(
         offset,
-        size(logical(work.right - work.left), logical(work.bottom - work.top)),
+        size(
+            logical(work.right - work.left),
+            logical(work.bottom - work.top),
+        ),
     );
     screen.workspace = offset;
     screen

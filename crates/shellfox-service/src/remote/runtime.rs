@@ -13,16 +13,19 @@ mod actions;
 mod cleanup;
 mod discovery;
 mod events;
+mod health;
 mod lifecycle;
 mod network;
-mod health;
 mod outgoing;
 mod peers;
 pub use network::{
     GoNetworkFactory, NetworkFuture, RemoteControlBackend, RemoteNetwork, RemoteNetworkFactory,
 };
 fn pair_stopped() -> AppError {
-    error(ErrorCode::NativeUnavailable, "Pairing stopped. Cancel the request and connect again.")
+    error(
+        ErrorCode::NativeUnavailable,
+        "Pairing stopped. Cancel the request and connect again.",
+    )
 }
 fn cleanup_retained() -> AppError {
     error(ErrorCode::NativeUnavailable,"CleanupRetained: owned transport helper stop is not confirmed; endpoint and ownership must remain held.")
@@ -62,7 +65,35 @@ impl RemoteRuntime {
                 });
         preferences.validate()?;
         let hostname = preferences.hostname.clone();
-        let initial=RemoteControlState{enabled:false,hostname,status:RemoteNetworkStatus::Disabled,login_url:None,error:None,peers:preferences.peers.iter().map(|peer|RemotePeer{id:peer.id.clone(),hostname:peer.hostname.clone(),addresses:peer.addresses.clone(),online:false,remembered:true,host_confirmed:false,connection:RemoteConnection::Disconnected,last_error:None,attempt_id:None}).collect(),pending:approval.pending,approvals:approval.approvals,attempts:vec![],cleanup_retained:false,incoming_legacy_terminal_attachment:true,terminal_capability_reason:"Approved devices can attach to ordinary host-account terminals.".into()};
+        let initial = RemoteControlState {
+            enabled: false,
+            hostname,
+            status: RemoteNetworkStatus::Disabled,
+            login_url: None,
+            error: None,
+            peers: preferences
+                .peers
+                .iter()
+                .map(|peer| RemotePeer {
+                    id: peer.id.clone(),
+                    hostname: peer.hostname.clone(),
+                    addresses: peer.addresses.clone(),
+                    online: false,
+                    remembered: true,
+                    host_confirmed: false,
+                    connection: RemoteConnection::Disconnected,
+                    last_error: None,
+                    attempt_id: None,
+                })
+                .collect(),
+            pending: approval.pending,
+            approvals: approval.approvals,
+            attempts: vec![],
+            cleanup_retained: false,
+            incoming_legacy_terminal_attachment: true,
+            terminal_capability_reason:
+                "Approved devices can attach to ordinary host-account terminals.".into(),
+        };
         let (sender, receiver) = mpsc::channel(16);
         let (outgoing, outgoing_receiver) = mpsc::channel(16);
         let (state, watch) = watch::channel(initial.clone());
@@ -70,36 +101,39 @@ impl RemoteRuntime {
         let stop = CancellationToken::new();
         let cancel = stop.clone();
         let runtime = tokio::runtime::Handle::try_current().map_err(|_| {
-            error(ErrorCode::NativeUnavailable, "Remote control requires the owned async runtime.")
+            error(
+                ErrorCode::NativeUnavailable,
+                "Remote control requires the owned async runtime.",
+            )
         })?;
         let task = runtime.spawn(async move {
-                let mut actor = Manager {
-                    backend,
-                    directory,
-                    factory,
-                    state: initial,
-                    publish: state,
-                    events,
-                    network: None,
-                    epoch: 0,
-                    cycle: CancellationToken::new(),
-                    stop: cancel.clone(),
-                    lost: lost.clone(),
-                    jobs: tokio::task::JoinSet::new(),
-                    owned_jobs: tokio::task::JoinSet::new(),
-                    orphan: None,
-                    owned_failed: false,
-                    connections: HashMap::new(),
-                    health_busy: false,
-                    preferences,
-                    discovery: HashMap::new(),
-                    probe_busy: false,
-                    outgoing_fences: Vec::new(),
-                };
-                actor
-                    .run(receiver, outgoing_receiver, incoming, cancel, lost)
-                    .await;
-            });
+            let mut actor = Manager {
+                backend,
+                directory,
+                factory,
+                state: initial,
+                publish: state,
+                events,
+                network: None,
+                epoch: 0,
+                cycle: CancellationToken::new(),
+                stop: cancel.clone(),
+                lost: lost.clone(),
+                jobs: tokio::task::JoinSet::new(),
+                owned_jobs: tokio::task::JoinSet::new(),
+                orphan: None,
+                owned_failed: false,
+                connections: HashMap::new(),
+                health_busy: false,
+                preferences,
+                discovery: HashMap::new(),
+                probe_busy: false,
+                outgoing_fences: Vec::new(),
+            };
+            actor
+                .run(receiver, outgoing_receiver, incoming, cancel, lost)
+                .await;
+        });
         Ok((
             RemoteControl {
                 sender,
@@ -222,7 +256,10 @@ impl Manager {
         if self.preferences.enabled {
             // A saved "on" starts the node at startup, as Electron did, also after a reboot.
             let hostname = self.preferences.hostname.clone();
-            let configure = RemoteRequest::Configure { enabled: true, hostname };
+            let configure = RemoteRequest::Configure {
+                enabled: true,
+                hostname,
+            };
             if let Err(error) = Box::pin(self.request(configure)).await {
                 self.state.error = Some(error);
             }

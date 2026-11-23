@@ -23,7 +23,8 @@ impl Files {
                 .update(cx, |field, cx| field.set_read_only(false, cx));
             if let Some(operation) = self.operation.take() {
                 if matches!(operation, super::FileOperation::Open(_)) {
-                    self.document_error = Some("File load was cancelled when switching scopes.".into());
+                    self.document_error =
+                        Some("File load was cancelled when switching scopes.".into());
                 }
                 operation.cancel();
             }
@@ -51,7 +52,11 @@ impl Root {
                 (files, presented)
             });
         }
-        self.files.retained.iter_mut().find(|files| matches(files)).map(|files| (files, false))
+        self.files
+            .retained
+            .iter_mut()
+            .find(|files| matches(files))
+            .map(|files| (files, false))
     }
 
     /// Move only presentation state. Reconnecting separately revalidates the file.
@@ -59,32 +64,37 @@ impl Root {
         let source = self.peers.selected.clone();
         let epoch = self.source_selection_epoch();
         if self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .is_some_and(|files| files.source == source && files.source_epoch == epoch)
         {
             return;
         }
         self.remember_panel(cx);
-        let active = self.files.retained.iter().rposition(|files| {
-            files.source == source && self.active_file_tab(&files.backend)
-        });
-        if let Some(index) = active.or_else(|| self.files.retained.iter().rposition(|files| files.source == source)) {
+        let active = self
+            .files
+            .retained
+            .iter()
+            .rposition(|files| files.source == source && self.active_file_tab(&files.backend));
+        if let Some(index) = active.or_else(|| {
+            self.files
+                .retained
+                .iter()
+                .rposition(|files| files.source == source)
+        }) {
             self.restore_panel(index);
         }
     }
 
-    pub(crate) fn select_file_scope(
-        &mut self,
-        backend: DocumentBackend,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn select_file_scope(&mut self, backend: DocumentBackend, cx: &mut Context<Self>) {
         if self.is_local_source() != backend.is_local() {
             return;
         }
         self.sync_file_source(cx);
         if !self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .is_some_and(|files| files.backend.same_panel_scope(&backend))
         {
@@ -104,7 +114,13 @@ impl Root {
     }
 
     pub(crate) fn follow_wsl_file_tab(&mut self, cx: &mut Context<Self>) {
-        if self.is_local_source() && self.files.panel.as_ref().is_some_and(|files| files.visible && files.backend.is_wsl()) {
+        if self.is_local_source()
+            && self
+                .files
+                .panel
+                .as_ref()
+                .is_some_and(|files| files.visible && files.backend.is_wsl())
+        {
             self.show_selected_file_scope(cx);
         }
     }
@@ -116,20 +132,43 @@ impl Root {
             return;
         };
         self.select_file_scope(backend, cx);
-        if self.files.panel.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
+        if self
+            .files
+            .panel
+            .as_ref()
+            .is_some_and(|files| files.listing.is_none() && !files.busy)
+        {
             self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
         }
     }
 
     pub(crate) fn follow_peer_file_tab(&mut self, cx: &mut Context<Self>) {
         self.sync_file_source(cx);
-        if !self.files.panel.as_ref().is_some_and(|files| files.visible && files.source == self.peers.selected) {
+        if !self
+            .files
+            .panel
+            .as_ref()
+            .is_some_and(|files| files.visible && files.source == self.peers.selected)
+        {
             return;
         }
-        let Ok((backend, preferred)) = self.peer_file_backend() else { return; };
-        if backend.is_wsl() || self.files.panel.as_ref().is_some_and(|files| files.backend.is_wsl()) {
+        let Ok((backend, preferred)) = self.peer_file_backend() else {
+            return;
+        };
+        if backend.is_wsl()
+            || self
+                .files
+                .panel
+                .as_ref()
+                .is_some_and(|files| files.backend.is_wsl())
+        {
             self.select_file_scope(backend, cx);
-            if self.files.panel.as_ref().is_some_and(|files| files.listing.is_none() && !files.busy) {
+            if self
+                .files
+                .panel
+                .as_ref()
+                .is_some_and(|files| files.listing.is_none() && !files.busy)
+            {
                 self.list_files(preferred.unwrap_or_else(|| "~".into()), cx);
             }
         }
@@ -141,14 +180,32 @@ impl Root {
         cx: &mut Context<Self>,
     ) {
         use crate::peers::source::{Source, viewable_tab};
-        let Some(snapshot) = self.peers.peers.get(peer).and_then(|state| state.snapshot.as_ref()) else { return };
+        let Some(snapshot) = self
+            .peers
+            .peers
+            .get(peer)
+            .and_then(|state| state.snapshot.as_ref())
+        else {
+            return;
+        };
         let source = Source::Peer(peer.clone());
         let removable = |files: &Files| {
-            files.source == source && !files.dirty(cx) && !files.busy && files.transfer.is_none()
-                && !files.image_editor.as_ref().is_some_and(ImageEditor::transforming)
+            files.source == source
+                && !files.dirty(cx)
+                && !files.busy
+                && files.transfer.is_none()
+                && !files
+                    .image_editor
+                    .as_ref()
+                    .is_some_and(ImageEditor::transforming)
                 && files.backend.peer_file_scope().is_some_and(|scope| {
-                    !snapshot.sessions.iter().any(|session| session.id == scope.session
-                        && session.tabs.iter().any(|tab| tab.id == scope.tab && viewable_tab(tab)))
+                    !snapshot.sessions.iter().any(|session| {
+                        session.id == scope.session
+                            && session
+                                .tabs
+                                .iter()
+                                .any(|tab| tab.id == scope.tab && viewable_tab(tab))
+                    })
                 })
         };
         self.files.retained.retain(|files| !removable(files));
@@ -161,13 +218,22 @@ impl Root {
     }
 
     pub(crate) fn reveal_dirty_file_on_close(&mut self, cx: &mut Context<Self>) {
-        if !self.files.panel.as_ref().is_some_and(|files| files.dirty(cx)) {
-            let Some(index) = self.files.retained.iter().position(|files| files.dirty(cx)) else { return };
+        if !self
+            .files
+            .panel
+            .as_ref()
+            .is_some_and(|files| files.dirty(cx))
+        {
+            let Some(index) = self.files.retained.iter().position(|files| files.dirty(cx)) else {
+                return;
+            };
             let original = self.files.retained.remove(index);
             self.remember_panel(cx);
             self.files.panel = Some(original);
         }
-        let Some(source) = self.files.panel.as_ref().map(|files| files.source.clone()) else { return };
+        let Some(source) = self.files.panel.as_ref().map(|files| files.source.clone()) else {
+            return;
+        };
         if self.peers.choose(source).is_ok() {
             let epoch = self.source_selection_epoch();
             if let Some(files) = &mut self.files.panel {
@@ -178,20 +244,38 @@ impl Root {
     }
 
     pub(crate) fn wsl_tab_has_draft(&self, tab: shellfox_core::TabId, cx: &App) -> bool {
-        self.files.panel.iter().chain(&self.files.retained).any(|files| {
-            files.backend.wsl_tab() == Some(tab) && (files.dirty(cx) || files.busy)
-        })
+        self.files
+            .panel
+            .iter()
+            .chain(&self.files.retained)
+            .any(|files| files.backend.wsl_tab() == Some(tab) && (files.dirty(cx) || files.busy))
     }
 
-    pub(crate) fn retire_wsl_file_tabs(&mut self, retained: &std::collections::HashSet<shellfox_core::TabId>, cx: &mut Context<Self>) {
-        let retired = |files: &Files| files.backend.wsl_tab().is_some_and(|tab| !retained.contains(&tab));
+    pub(crate) fn retire_wsl_file_tabs(
+        &mut self,
+        retained: &std::collections::HashSet<shellfox_core::TabId>,
+        cx: &mut Context<Self>,
+    ) {
+        let retired = |files: &Files| {
+            files
+                .backend
+                .wsl_tab()
+                .is_some_and(|tab| !retained.contains(&tab))
+        };
         let clean = |files: &Files| retired(files) && !files.dirty(cx);
-        for files in self.files.panel.iter_mut().chain(&mut self.files.retained).filter(|files| retired(files)) {
+        for files in self
+            .files
+            .panel
+            .iter_mut()
+            .chain(&mut self.files.retained)
+            .filter(|files| retired(files))
+        {
             files.backend.retire_wsl_editor();
             if let Some(editor) = &mut files.editor {
                 editor.reload_required = true;
             }
-            files.document_error = Some("The terminal tab closed. The draft has not been saved.".into());
+            files.document_error =
+                Some("The terminal tab closed. The draft has not been saved.".into());
         }
         if self.files.panel.as_ref().is_some_and(clean) {
             self.files.panel.take();
@@ -201,10 +285,16 @@ impl Root {
 
     pub(crate) fn use_host_file_scope(&mut self, cx: &mut Context<Self>) -> bool {
         let backend = if self.is_local_source() {
-            let Some(super::EditorOutcome::Ready(backend)) = cx.try_global::<super::EditorOutcome>() else { return false; };
+            let Some(super::EditorOutcome::Ready(backend)) =
+                cx.try_global::<super::EditorOutcome>()
+            else {
+                return false;
+            };
             DocumentBackend::local(backend)
         } else {
-            let Ok((backend, _)) = self.peer_file_backend_for(false) else { return false; };
+            let Ok((backend, _)) = self.peer_file_backend_for(false) else {
+                return false;
+            };
             backend
         };
         self.select_file_scope(backend, cx);

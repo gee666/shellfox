@@ -10,8 +10,7 @@ pub(super) fn blocked(state: &RemoteState) -> bool {
         || state.attempts.iter().any(|attempt| {
             matches!(
                 attempt.kind,
-                super::api::RemoteAttemptKind::Enable
-                    | super::api::RemoteAttemptKind::Login
+                super::api::RemoteAttemptKind::Enable | super::api::RemoteAttemptKind::Login
             )
         })
 }

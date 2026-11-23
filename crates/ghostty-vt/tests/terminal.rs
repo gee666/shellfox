@@ -93,7 +93,9 @@ fn query_storm_fails_closed_and_stays_poisoned() -> Result<(), Box<dyn std::erro
     assert!(terminal.resize(90, 25).is_err());
     assert_eq!(terminal.drain_replies().unwrap_err(), Error(-6));
     assert_eq!(
-        terminal.encode_key_event(&KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE)).unwrap_err(),
+        terminal
+            .encode_key_event(&KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE))
+            .unwrap_err(),
         Error(-6)
     );
     assert_eq!(terminal.encode_paste("text").unwrap_err(), Error(-6));
@@ -155,9 +157,7 @@ fn query_storm_fails_closed_and_stays_poisoned() -> Result<(), Box<dyn std::erro
         Error(-6)
     );
     assert_eq!(
-        terminal
-            .encode_key_event(&KeyEvent::text("x"))
-            .unwrap_err(),
+        terminal.encode_key_event(&KeyEvent::text("x")).unwrap_err(),
         Error(-6)
     );
     assert_eq!(
@@ -175,7 +175,10 @@ fn invalid_inputs_and_malformed_output_do_not_panic() -> Result<(), Box<dyn std:
     assert!(Terminal::new(u16::MAX, u16::MAX).is_err());
     let mut terminal = Terminal::new(8, 3)?;
     assert!(terminal.encode_key_event(&KeyEvent::text("\0")).is_err());
-    let nul_scalar = KeyEvent { unshifted_codepoint: Some(char::MIN), ..KeyEvent::text("a") };
+    let nul_scalar = KeyEvent {
+        unshifted_codepoint: Some(char::MIN),
+        ..KeyEvent::text("a")
+    };
     assert!(terminal.encode_key_event(&nul_scalar).is_err());
     assert!(terminal.feed(&vec![b'x'; 1024 * 1024 + 1]).is_err());
     terminal.feed(&[0xff, 0xc0, 0x80, 0x1b, b'[', b'm'])?;

@@ -13,11 +13,21 @@ pub(crate) struct PendingStats {
     pub(super) measured: Option<Measured>,
 }
 pub(super) fn is_stats(command: &OwnerCommand) -> bool {
-    matches!(command, OwnerCommand::Execute { command: RemoteCommand::GetSessionStats(_), .. })
+    matches!(
+        command,
+        OwnerCommand::Execute {
+            command: RemoteCommand::GetSessionStats(_),
+            ..
+        }
+    )
 }
 impl RemoteState {
     /// None when the request waits for a capture first.
-    pub(super) fn stats_ready(&mut self, service: &mut Service, request: OwnerRequest) -> Option<OwnerRequest> {
+    pub(super) fn stats_ready(
+        &mut self,
+        service: &mut Service,
+        request: OwnerRequest,
+    ) -> Option<OwnerRequest> {
         if self.stats.measured.is_some() || !is_stats(&request.command) {
             return Some(request);
         }

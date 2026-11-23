@@ -64,7 +64,10 @@ impl Service {
         attachment: &Attachment,
     ) -> Result<RemoteV1Status> {
         self.lease(tab, attachment)?;
-        let terminal = self.terminals.get(&tab).context("Terminal is not running.")?;
+        let terminal = self
+            .terminals
+            .get(&tab)
+            .context("Terminal is not running.")?;
         Ok(RemoteV1Status {
             newest: terminal.output.back().map(|chunk| chunk.sequence),
             replay_lost: terminal.replay_lost,

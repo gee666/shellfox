@@ -141,7 +141,11 @@ pub fn print_error(error: &anyhow::Error) -> i32 {
     let message = known.map_or_else(|| format!("{error:#}"), |error| error.message.clone());
     match mode() {
         Mode::Json => {
-            let error = Failure { code, message: &message, retryable: known.is_some_and(|e| e.retryable) };
+            let error = Failure {
+                code,
+                message: &message,
+                retryable: known.is_some_and(|e| e.retryable),
+            };
             let record = Record::<()>::Error { ok: false, error };
             println!("{}", serde_json::to_string(&record).unwrap_or_default());
         }

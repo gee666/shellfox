@@ -79,7 +79,8 @@ impl Draft {
 impl Root {
     pub(crate) fn toggle_image_editor(&mut self, cx: &mut Context<Self>) {
         let edit = self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .is_some_and(|files| files.image_editor.is_none());
         self.request_file_action(FileAction::ImageEditing(edit), cx);
@@ -183,10 +184,19 @@ impl Root {
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
-                let target = root.files.panel.iter_mut().chain(&mut root.files.retained)
-                    .filter_map(|files| files.image_editor.as_mut().and_then(ImageEditor::ready_mut))
-                    .find(|draft| draft.working && Rc::ptr_eq(&draft.bounds, &draft_id)
-                        && Arc::ptr_eq(&draft.current, &current));
+                let target = root
+                    .files
+                    .panel
+                    .iter_mut()
+                    .chain(&mut root.files.retained)
+                    .filter_map(|files| {
+                        files.image_editor.as_mut().and_then(ImageEditor::ready_mut)
+                    })
+                    .find(|draft| {
+                        draft.working
+                            && Rc::ptr_eq(&draft.bounds, &draft_id)
+                            && Arc::ptr_eq(&draft.current, &current)
+                    });
                 let Some(draft) = target else { return };
                 draft.working = false;
                 match result {
@@ -263,7 +273,9 @@ impl Root {
         cx.spawn(async move |root, cx| {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
-                let Some((files, _)) = root.file_write_recipient(request_id, &backend) else { return };
+                let Some((files, _)) = root.file_write_recipient(request_id, &backend) else {
+                    return;
+                };
                 files.operation = None;
                 files.busy = false;
                 let Some(draft) = files.image_editor.as_mut().and_then(ImageEditor::ready_mut)
@@ -273,11 +285,12 @@ impl Root {
                 match result {
                     Ok(preview) => {
                         let mut prepared = Some(preview);
-                        if let Err(error) = backend.commit_if_current(|| {
-                            std::mem::swap(&mut files.preview, &mut prepared)
-                        }) {
+                        if let Err(error) = backend
+                            .commit_if_current(|| std::mem::swap(&mut files.preview, &mut prepared))
+                        {
                             draft.reload_required = true;
-                            draft.error = Some(format!("Image save outcome unconfirmed: {error:#}"));
+                            draft.error =
+                                Some(format!("Image save outcome unconfirmed: {error:#}"));
                         } else {
                             draft.original.clone_from(&draft.current);
                             draft.baseline_frame.clone_from(&draft.frame);
@@ -286,7 +299,8 @@ impl Root {
                         }
                     }
                     Err(error) => {
-                        draft.reload_required = !error.downcast_ref::<FileError>()
+                        draft.reload_required = !error
+                            .downcast_ref::<FileError>()
                             .is_some_and(|error| error.code == ErrorCode::FileConflict);
                         draft.error = Some(error.to_string());
                     }

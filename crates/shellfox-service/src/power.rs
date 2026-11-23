@@ -1,13 +1,13 @@
 //! Host-owned keep-awake requests. No request is made until explicitly enabled.
 //! Platform calls can block, so run them on the service's blocking worker.
-pub(crate) mod service;
 pub(crate) mod client;
+pub(crate) mod service;
 use std::{error::Error, fmt};
-#[cfg(test)]
-mod tests;
+mod contract;
 #[cfg(test)]
 mod linux_tests;
-mod contract;
+#[cfg(test)]
+mod tests;
 pub use contract::{PowerReport, PowerRequest, MAX_POWER_MESSAGE_BYTES};
 pub(crate) mod worker;
 
@@ -101,7 +101,9 @@ impl SystemPower {
         #[cfg(windows)]
         {
             let journal = platform::prepare(directory);
-            Self { journal: Some(journal) }
+            Self {
+                journal: Some(journal),
+            }
         }
         #[cfg(not(windows))]
         {

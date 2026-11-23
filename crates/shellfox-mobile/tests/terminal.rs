@@ -100,10 +100,7 @@ fn owner_exit_drops_engine_and_invalidates_handle() {
 #[test]
 fn ime_and_control_input_use_ghostty_and_not_literal_escapes() {
     let handle = create();
-    assert_eq!(
-        input(handle, r#"{"type":"editorReset"}"#),
-        (0, vec![])
-    );
+    assert_eq!(input(handle, r#"{"type":"editorReset"}"#), (0, vec![]));
     assert_eq!(
         input(handle, r#"{"type":"editor","committed":"日本"}"#),
         (0, "日本".as_bytes().to_vec())

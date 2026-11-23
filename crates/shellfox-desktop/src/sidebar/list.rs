@@ -55,7 +55,11 @@ impl SidebarList {
         if *entries == next {
             return;
         }
-        let prefix = entries.iter().zip(&next).take_while(|(a, b)| a == b).count();
+        let prefix = entries
+            .iter()
+            .zip(&next)
+            .take_while(|(a, b)| a == b)
+            .count();
         let suffix = entries[prefix..]
             .iter()
             .rev()
@@ -63,7 +67,8 @@ impl SidebarList {
             .take_while(|(a, b)| a == b)
             .count();
         let changed = &next[prefix..next.len() - suffix];
-        self.state.splice_focusable(prefix..entries.len() - suffix, changed.iter().map(focus));
+        self.state
+            .splice_focusable(prefix..entries.len() - suffix, changed.iter().map(focus));
         *entries = next;
     }
 
@@ -72,7 +77,10 @@ impl SidebarList {
     }
 
     fn index(&self, entry: &Entry) -> Option<usize> {
-        self.entries.borrow().iter().position(|current| current == entry)
+        self.entries
+            .borrow()
+            .iter()
+            .position(|current| current == entry)
     }
 
     pub(crate) fn reveal(&self, entry: &Entry) {
@@ -130,14 +138,27 @@ impl SidebarList {
 }
 
 impl Root {
-    pub(super) fn sidebar_list(&self, palette: Palette, window: &Window, cx: &mut Context<Self>) -> gpui::List {
+    pub(super) fn sidebar_list(
+        &self,
+        palette: Palette,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::List {
         let mut entries = Vec::new();
         if self.snapshot.is_some() {
             entries.push(Entry::LocalHeader);
             if self.sidebar.local_expanded {
                 let rows = self.sidebar_rows(cx);
-                let shown = rows.len().min(self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size));
-                entries.extend(rows[..shown].iter().map(|(session, _)| Entry::Local(session.id)));
+                let shown = rows.len().min(
+                    self.sidebar
+                        .session_pages
+                        .saturating_mul(self.sidebar.history_page_size),
+                );
+                entries.extend(
+                    rows[..shown]
+                        .iter()
+                        .map(|(session, _)| Entry::Local(session.id)),
+                );
                 if shown < rows.len() {
                     entries.push(Entry::LocalMore);
                 }
@@ -155,13 +176,19 @@ impl Root {
         list.sync(entries, |entry| self.entry_focus(entry));
         gpui::list(
             list.state.clone(),
-            cx.processor(|root: &mut Root, index, window, cx| root.render_sidebar_entry(index, window, cx)),
+            cx.processor(|root: &mut Root, index, window, cx| {
+                root.render_sidebar_entry(index, window, cx)
+            }),
         )
     }
 
     fn entry_focus(&self, entry: &Entry) -> Option<FocusHandle> {
         match entry {
-            Entry::Local(id) => self.sidebar.row_focus.get(id).map(|focus| focus.row.clone()),
+            Entry::Local(id) => self
+                .sidebar
+                .row_focus
+                .get(id)
+                .map(|focus| focus.row.clone()),
             Entry::Peer(peer, id) => self.peer_row_focus(peer, *id),
             _ => None,
         }
@@ -178,29 +205,36 @@ impl Root {
             return div().into_any_element();
         };
         // List items size to their content; rows span the sidebar.
-        let element = match entry {
-            Entry::LocalHeader => self.local_header(palette, cx),
-            Entry::Local(id) => {
-                let Some(session) = self
-                    .snapshot
-                    .as_ref()
-                    .and_then(|snapshot| snapshot.sessions.iter().find(|session| session.id == id))
-                else {
-                    return div().into_any_element();
-                };
-                let dot = self.session_agent_state(session, cx);
-                self.session_row(session, dot, palette, window, cx)
-            }
-            Entry::LocalMore => self.local_more(palette, cx),
-            Entry::LocalEmpty => empty_sessions(palette).into_any_element(),
-            Entry::PeersGap => div().h(px(4.)).into_any_element(),
-            entry => self.render_peer_entry(&entry, palette, window, cx),
-        };
-        div().w_full().flex().flex_col().child(element).into_any_element()
+        let element =
+            match entry {
+                Entry::LocalHeader => self.local_header(palette, cx),
+                Entry::Local(id) => {
+                    let Some(session) = self.snapshot.as_ref().and_then(|snapshot| {
+                        snapshot.sessions.iter().find(|session| session.id == id)
+                    }) else {
+                        return div().into_any_element();
+                    };
+                    let dot = self.session_agent_state(session, cx);
+                    self.session_row(session, dot, palette, window, cx)
+                }
+                Entry::LocalMore => self.local_more(palette, cx),
+                Entry::LocalEmpty => empty_sessions(palette).into_any_element(),
+                Entry::PeersGap => div().h(px(4.)).into_any_element(),
+                entry => self.render_peer_entry(&entry, palette, window, cx),
+            };
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(element)
+            .into_any_element()
     }
 
     fn local_header(&self, palette: Palette, cx: &Context<Self>) -> AnyElement {
-        let count = self.snapshot.as_ref().map_or(0, |snapshot| snapshot.sessions.len());
+        let count = self
+            .snapshot
+            .as_ref()
+            .map_or(0, |snapshot| snapshot.sessions.len());
         self.workspace_button(
             "workspace/local/sessions",
             "Local sessions",
@@ -218,7 +252,11 @@ impl Root {
                 .cursor_pointer()
                 .hover(|style| style.bg(palette.hover))
                 .child(div().flex_shrink_0().child(icon_sized(
-                    if self.sidebar.local_expanded { "down" } else { "chevron" },
+                    if self.sidebar.local_expanded {
+                        "down"
+                    } else {
+                        "chevron"
+                    },
                     12.,
                 )))
                 .child(
@@ -250,7 +288,9 @@ impl Root {
                     .cursor_pointer()
                     .hover(|style| style.text_color(palette.accent))
                     .child(div().relative().top(px(1.)).child("Show more"))
-                    .on_click(cx.listener(|root, _, window, cx| root.show_more_sessions(window, cx))),
+                    .on_click(
+                        cx.listener(|root, _, window, cx| root.show_more_sessions(window, cx)),
+                    ),
             )
             .into_any_element()
     }
@@ -285,9 +325,11 @@ impl Root {
             return;
         }
         let rows = self.sidebar_rows(cx);
-        let shown = rows
-            .len()
-            .min(self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size));
+        let shown = rows.len().min(
+            self.sidebar
+                .session_pages
+                .saturating_mul(self.sidebar.history_page_size),
+        );
         let Some(index) = rows[..shown]
             .iter()
             .position(|(session, _)| session.id == id)
@@ -349,10 +391,23 @@ mod tests {
     fn sync_splices_only_the_changed_middle() {
         let list = SidebarList::default();
         let [a, b, c, d] = [(); 4].map(|_| SessionId::new());
-        let first = vec![Entry::LocalHeader, Entry::Local(a), Entry::Local(b), Entry::Local(c), Entry::LocalMore];
+        let first = vec![
+            Entry::LocalHeader,
+            Entry::Local(a),
+            Entry::Local(b),
+            Entry::Local(c),
+            Entry::LocalMore,
+        ];
         list.sync(first.clone(), |_| None);
         assert_eq!(list.state.item_count(), 5);
-        let second = vec![Entry::LocalHeader, Entry::Local(a), Entry::Local(d), Entry::Local(c), Entry::Local(b), Entry::LocalMore];
+        let second = vec![
+            Entry::LocalHeader,
+            Entry::Local(a),
+            Entry::Local(d),
+            Entry::Local(c),
+            Entry::Local(b),
+            Entry::LocalMore,
+        ];
         list.sync(second.clone(), |_| None);
         assert_eq!(list.state.item_count(), 6);
         assert_eq!(ids(&list), second);

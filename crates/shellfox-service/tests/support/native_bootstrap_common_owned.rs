@@ -51,12 +51,7 @@ impl Reports {
         let reports = self.0.lock().expect("report lock");
         reports
             .iter()
-            .position(|r| {
-                matches!(
-                    r.status,
-                    LocalBootStatus::Ready
-                )
-            })
+            .position(|r| matches!(r.status, LocalBootStatus::Ready))
             .is_some_and(|ready| {
                 reports
                     .iter()

@@ -2,13 +2,13 @@ use crate::root::Root;
 mod attach;
 mod reply;
 mod selection;
+mod state;
 pub(crate) mod tabs;
 pub(crate) mod visibility;
-mod state;
-pub(crate) use state::{ActivationFence, RecentSelection, WorkspaceState};
 use gpui::{Context, Window};
 use shellfox_host::{AddTab, HostRequest, ProfileId, SessionId, TabId};
 use shellfox_service::native::{NativeAction, NativeResponse};
+pub(crate) use state::{ActivationFence, RecentSelection, WorkspaceState};
 
 #[derive(Clone, Copy)]
 pub(crate) enum AfterAction {
@@ -28,10 +28,15 @@ impl Root {
     }
 
     pub(crate) fn default_profile(&self) -> String {
-        let saved = self.snapshot
-            .as_ref()
-            .map_or("", |snapshot| snapshot.preferences.default_profile_id.as_str());
-        let usable = self.workspace.profiles.iter().filter(|p| p.available && !p.elevation).map(|p| p.id.as_str());
+        let saved = self.snapshot.as_ref().map_or("", |snapshot| {
+            snapshot.preferences.default_profile_id.as_str()
+        });
+        let usable = self
+            .workspace
+            .profiles
+            .iter()
+            .filter(|p| p.available && !p.elevation)
+            .map(|p| p.id.as_str());
         // Before the catalog arrives, keep the saved one unless it needs elevation.
         shellfox_service::effective_default_profile(saved, usable)
             .unwrap_or(match saved {
@@ -52,17 +57,25 @@ impl Root {
             while let Ok(revision) = revisions.next().await {
                 // Settings changes bump the revision too; the page size lives in settings.
                 let page_size = match client
-                    .execute(NativeAction::Settings(shellfox_host::SettingsRequest::Get {}))
+                    .execute(NativeAction::Settings(
+                        shellfox_host::SettingsRequest::Get {},
+                    ))
                     .await
                 {
-                    Ok(NativeResponse::Settings(settings)) => Some(settings.history_page_size as usize),
+                    Ok(NativeResponse::Settings(settings)) => {
+                        Some(settings.history_page_size as usize)
+                    }
                     _ => None,
                 };
                 let current = root.update_in(cx, |root, window, cx| {
                     if page_size.is_some_and(|size| root.apply_history_page_size(size)) {
                         cx.notify();
                     }
-                    if root.snapshot.as_ref().is_none_or(|snapshot| snapshot.revision < revision) {
+                    if root
+                        .snapshot
+                        .as_ref()
+                        .is_none_or(|snapshot| snapshot.revision < revision)
+                    {
                         root.refresh_snapshot(window, cx);
                     }
                     !root.close.closing
@@ -144,7 +157,9 @@ impl Root {
         }
         let before_close = match &action {
             NativeAction::CloseTab { tab }
-            | NativeAction::CloseTerminal(shellfox_core::TerminalIdentity { tab_id: tab, .. }) => self
+            | NativeAction::CloseTerminal(shellfox_core::TerminalIdentity {
+                tab_id: tab, ..
+            }) => self
                 .snapshot
                 .as_ref()
                 .and_then(|snapshot| {
@@ -317,7 +332,9 @@ impl Root {
         );
     }
     pub(crate) fn add_tab(&mut self, id: SessionId, window: &mut Window, cx: &mut Context<Self>) {
-        let profile = self.snapshot.as_ref()
+        let profile = self
+            .snapshot
+            .as_ref()
             .and_then(|snapshot| snapshot.sessions.iter().find(|session| session.id == id))
             .and_then(|session| self.profile_for_directory(&session.cwd))
             .and_then(|profile| ProfileId::new(profile).ok());
@@ -329,7 +346,11 @@ impl Root {
         self.submit_native(
             NativeAction::Metadata(HostRequest::AddTab {
                 session_id: id,
-                input: AddTab { title: None, cwd: None, profile_id },
+                input: AddTab {
+                    title: None,
+                    cwd: None,
+                    profile_id,
+                },
             }),
             AfterAction::NewTab,
             window,

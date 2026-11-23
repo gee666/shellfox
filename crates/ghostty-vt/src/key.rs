@@ -104,9 +104,27 @@ impl Terminal {
 /// (GPUI, crossterm) use this so press and release name the same key.
 pub fn us_key(c: char) -> Option<(PhysicalKey, char, bool)> {
     const SHIFTED: [(char, char); 21] = [
-        ('!', '1'), ('@', '2'), ('#', '3'), ('$', '4'), ('%', '5'), ('^', '6'), ('&', '7'),
-        ('*', '8'), ('(', '9'), (')', '0'), ('~', '`'), ('_', '-'), ('+', '='), ('{', '['),
-        ('}', ']'), ('|', '\\'), (':', ';'), ('"', '\''), ('<', ','), ('>', '.'), ('?', '/'),
+        ('!', '1'),
+        ('@', '2'),
+        ('#', '3'),
+        ('$', '4'),
+        ('%', '5'),
+        ('^', '6'),
+        ('&', '7'),
+        ('*', '8'),
+        ('(', '9'),
+        (')', '0'),
+        ('~', '`'),
+        ('_', '-'),
+        ('+', '='),
+        ('{', '['),
+        ('}', ']'),
+        ('|', '\\'),
+        (':', ';'),
+        ('"', '\''),
+        ('<', ','),
+        ('>', '.'),
+        ('?', '/'),
     ];
     let (base, shifted) = match c {
         'A'..='Z' => (c.to_ascii_lowercase(), true),
@@ -162,7 +180,10 @@ impl HeldKeys {
     /// The release for a held key, found by what a key-up names.
     pub fn release(&self, physical: PhysicalKey, unshifted: Option<char>) -> Option<KeyEvent> {
         let key = (physical, unshifted);
-        self.0.iter().find(|h| h.identity() == Some(key)).map(KeyEvent::release)
+        self.0
+            .iter()
+            .find(|h| h.identity() == Some(key))
+            .map(KeyEvent::release)
     }
     /// Releases for everything held, e.g. on focus loss. Clears the set.
     pub fn release_all(&mut self) -> Vec<KeyEvent> {

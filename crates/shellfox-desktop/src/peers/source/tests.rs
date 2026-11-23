@@ -47,7 +47,10 @@ fn a_retired_settings_attempt_cannot_cancel_a_later_attempt() {
     state.retire(&id).unwrap();
     remote.attempt_id = Some(uuid::Uuid::from_u128(2));
     state.inventory(&[remote]);
-    assert_eq!(state.peers[&id].connection_action(), Some(ConnectionAction::Cancel(uuid::Uuid::from_u128(2))));
+    assert_eq!(
+        state.peers[&id].connection_action(),
+        Some(ConnectionAction::Cancel(uuid::Uuid::from_u128(2)))
+    );
 }
 
 #[test]
@@ -59,7 +62,10 @@ fn workspace_retry_only_cancels_its_displayed_owner_receipt() {
     remote.attempt_id = Some(old);
     let mut state = PeerSources::default();
     state.inventory(&[remote.clone()]);
-    assert_eq!(state.peers[&id].connection_action(), Some(ConnectionAction::Retry));
+    assert_eq!(
+        state.peers[&id].connection_action(),
+        Some(ConnectionAction::Retry)
+    );
 
     let cycle = state.begin(&id).unwrap();
     assert_eq!(state.peers[&id].connection_action(), None);
@@ -71,14 +77,20 @@ fn workspace_retry_only_cancels_its_displayed_owner_receipt() {
 
     state.phase(&cycle, Phase::Disconnected, None);
     state.inventory(&[remote.clone()]);
-    assert_eq!(state.peers[&id].connection_action(), Some(ConnectionAction::Cancel(retry)));
+    assert_eq!(
+        state.peers[&id].connection_action(),
+        Some(ConnectionAction::Cancel(retry))
+    );
     assert!(!state.peers[&id].owner_connected);
 
     // If approval wins the race, the owner returns Connected without an attempt.
     remote.connection = RemoteConnection::Connected;
     remote.attempt_id = None;
     state.inventory(&[remote]);
-    assert_ne!(state.peers[&id].connection_action(), Some(ConnectionAction::Cancel(retry)));
+    assert_ne!(
+        state.peers[&id].connection_action(),
+        Some(ConnectionAction::Cancel(retry))
+    );
     assert!(state.peers[&id].owner_connected);
 }
 
@@ -213,7 +225,8 @@ fn reconnect_keeps_cached_rows_and_selection_but_rejects_actions_on_old_binding(
     state.phase(&old, Phase::Connected, None);
     let mut before = snapshot();
     before.revision = 40;
-    let (session, tab) = before.sessions
+    let (session, tab) = before
+        .sessions
         .first()
         .map(|s| (s.id, s.tabs.first().map(|t| t.id)))
         .unwrap();
@@ -242,7 +255,8 @@ fn explicit_disconnect_restores_only_the_same_viewable_session_and_tab() {
     sources.inventory(&[peer(peer_id.as_str())]);
     let old = sources.begin(&peer_id).unwrap();
     let before = snapshot();
-    let (id, tab) = before.sessions
+    let (id, tab) = before
+        .sessions
         .iter()
         .find_map(|session| {
             session
@@ -289,12 +303,24 @@ fn a_vanished_selected_tab_hands_the_view_to_the_next_live_tab() {
     sources.phase(&cycle, Phase::Connected, None);
     let mut before = snapshot();
     before.revision = 10;
-    let (session, tab) = before.sessions.iter()
-        .find_map(|session| session.tabs.iter().find(|tab| viewable_tab(tab)).map(|tab| (session.id, tab.clone())))
+    let (session, tab) = before
+        .sessions
+        .iter()
+        .find_map(|session| {
+            session
+                .tabs
+                .iter()
+                .find(|tab| viewable_tab(tab))
+                .map(|tab| (session.id, tab.clone()))
+        })
         .unwrap();
     let mut next = tab.clone();
     next.id = TabId::new();
-    for value in before.sessions.iter_mut().filter(|value| value.id == session) {
+    for value in before
+        .sessions
+        .iter_mut()
+        .filter(|value| value.id == session)
+    {
         value.tabs.push(next.clone());
     }
     sources.catalog(&cycle, before.clone()).unwrap();
@@ -306,5 +332,8 @@ fn a_vanished_selected_tab_hands_the_view_to_the_next_live_tab() {
     }
     assert!(sources.catalog(&cycle, after).unwrap());
     let state = &sources.peers[&peer_id];
-    assert_eq!((state.selected_session, state.selected_tab), (Some(session), Some(next.id)));
+    assert_eq!(
+        (state.selected_session, state.selected_tab),
+        (Some(session), Some(next.id))
+    );
 }

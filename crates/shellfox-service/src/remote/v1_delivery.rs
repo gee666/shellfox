@@ -247,8 +247,16 @@ mod tests {
         };
         Delivery::snapshot(lease, shellfox_core::TabId::new(), b"prompt", raw_cut).0
     }
-    fn status(newest: Option<u64>, replay_lost: bool, exited: Option<u64>) -> Option<RemoteV1Status> {
-        Some(RemoteV1Status { newest, replay_lost, exited })
+    fn status(
+        newest: Option<u64>,
+        replay_lost: bool,
+        exited: Option<u64>,
+    ) -> Option<RemoteV1Status> {
+        Some(RemoteV1Status {
+            newest,
+            replay_lost,
+            exited,
+        })
     }
 
     #[test]

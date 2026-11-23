@@ -120,7 +120,10 @@ impl PrivateOwner {
             }
             PrivateTask::InstallSshProfiles { store, reply } => {
                 let result = service.assert_accepting().and_then(|()| {
-                    anyhow::ensure!(service.ssh_profiles.is_none(), "SSH profiles are already installed.");
+                    anyhow::ensure!(
+                        service.ssh_profiles.is_none(),
+                        "SSH profiles are already installed."
+                    );
                     service.ssh_profiles = Some(store);
                     Ok(())
                 });
@@ -195,8 +198,24 @@ impl PrivateOwner {
             } => {
                 let _ = reply.send(self.caller_fence(service, client_id, epoch));
             }
-            PrivateTask::Request { cancel, request, client_id, epoch, reply } => {
-                self.handle_request(service, controllers, request, requests::RequestContext { client_id, epoch, cancel }, reply);
+            PrivateTask::Request {
+                cancel,
+                request,
+                client_id,
+                epoch,
+                reply,
+            } => {
+                self.handle_request(
+                    service,
+                    controllers,
+                    request,
+                    requests::RequestContext {
+                        client_id,
+                        epoch,
+                        cancel,
+                    },
+                    reply,
+                );
             }
             PrivateTask::Submit {
                 owner,
@@ -269,8 +288,14 @@ impl PrivateTask {
     }
     pub(super) fn detaches(&self) -> bool {
         match self {
-            Self::Request { request: PrivateRequest::LocalApi(LocalApiRequest::Detach {}), .. } => true,
-            Self::Request { request: PrivateRequest::DesktopView(view), .. } => {
+            Self::Request {
+                request: PrivateRequest::LocalApi(LocalApiRequest::Detach {}),
+                ..
+            } => true,
+            Self::Request {
+                request: PrivateRequest::DesktopView(view),
+                ..
+            } => {
                 matches!(view.as_ref(), crate::local::DesktopRequest::DetachAll)
             }
             _ => false,
@@ -303,10 +328,17 @@ impl PrivateTask {
     /// stale lifetime epoch, which the request itself then refuses.
     pub(super) fn start_target(&self, owner: &PrivateOwner) -> Option<shellfox_core::TabId> {
         use shellfox_protocol::Validate;
-        let Self::Request { request, client_id, epoch, .. } = self else {
+        let Self::Request {
+            request,
+            client_id,
+            epoch,
+            ..
+        } = self
+        else {
             return None;
         };
-        if epoch.is_some_and(|epoch| owner.lifetimes.get(client_id).map(|l| l.epoch) != Some(epoch)) {
+        if epoch.is_some_and(|epoch| owner.lifetimes.get(client_id).map(|l| l.epoch) != Some(epoch))
+        {
             return None;
         }
         match request {
@@ -314,7 +346,9 @@ impl PrivateTask {
                 request.validate().is_ok().then_some(*tab)
             }
             PrivateRequest::DesktopView(view) => match view.as_ref() {
-                crate::local::DesktopRequest::Attach { tab, .. } => view.validate().is_ok().then_some(*tab),
+                crate::local::DesktopRequest::Attach { tab, .. } => {
+                    view.validate().is_ok().then_some(*tab)
+                }
                 _ => None,
             },
             _ => None,

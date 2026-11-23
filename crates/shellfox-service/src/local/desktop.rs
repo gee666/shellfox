@@ -137,7 +137,9 @@ impl Validate for DesktopRequest {
             Self::Provider(provider) => provider.clone().into_native(),
             request => NativeAction::try_from(request.clone()),
         };
-        action.and_then(|action| action.validate()).map_err(|_| ValidationError)
+        action
+            .and_then(|action| action.validate())
+            .map_err(|_| ValidationError)
     }
 }
 impl LocalRequest for DesktopRequest {
@@ -254,7 +256,10 @@ impl Validate for DesktopReply {
                 states.len() <= 10_000
                     && states.iter().all(|state| {
                         state.error.as_ref().is_none_or(|text| text.len() <= 2048)
-                            && state.process_title.as_deref().is_none_or(|title| shellfox_core::validation::title(title).is_ok())
+                            && state
+                                .process_title
+                                .as_deref()
+                                .is_none_or(|title| shellfox_core::validation::title(title).is_ok())
                     }),
             ),
             Self::Snapshot(snapshot) => crate::local_api::validate_snapshot(snapshot),
@@ -265,7 +270,9 @@ impl Validate for DesktopReply {
             }
             Self::TabStats(stats) => {
                 ensure(stats.len() <= 64)?;
-                stats.iter().try_for_each(shellfox_protocol::Validate::validate)
+                stats
+                    .iter()
+                    .try_for_each(shellfox_protocol::Validate::validate)
             }
             Self::Attached(a) => ensure(a.controller > 0 && a.epoch > 0),
             Self::Observed(a) => ensure(a.viewer > 0 && a.epoch > 0),

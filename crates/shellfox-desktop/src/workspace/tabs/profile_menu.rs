@@ -48,7 +48,8 @@ impl Root {
         };
         let epoch = self.workspace.navigation.epoch();
         let choices: Vec<_> = self
-            .workspace.profiles
+            .workspace
+            .profiles
             .iter()
             .map(|profile| Choice {
                 label: profile.label.clone(),
@@ -107,7 +108,8 @@ impl Root {
         };
         if !choice.available
             || !self
-                .workspace.profiles
+                .workspace
+                .profiles
                 .iter()
                 .any(|profile| profile.id == choice.id && profile.available)
             || self.dialogs.user_action_pending

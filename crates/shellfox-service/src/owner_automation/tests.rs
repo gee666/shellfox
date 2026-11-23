@@ -1,9 +1,9 @@
 #![cfg(windows)]
 mod activity_tests;
+mod attach_tests;
 mod close_tests;
 mod facts_tests;
 mod failure;
-mod attach_tests;
 use super::*;
 use crate::{
     desktop_launch::*,
@@ -195,7 +195,11 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
     let (scratch, mut owned, helper) = service();
     let service = &mut owned.0;
     const MARKER: &str = "TB01_COMPLETED_REPLAY";
-    let spec = input(&helper, scratch.path(), vec!["describe".into(), MARKER.into()]);
+    let spec = input(
+        &helper,
+        scratch.path(),
+        vec!["describe".into(), MARKER.into()],
+    );
     let run = service.start_automation(spec.clone(), 9).unwrap();
     finish(service, run.id);
     let shown = show(service, run.id);
@@ -205,15 +209,27 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
         service.completed_automation_exit_code(&service.terminals[&tab]),
         Some(0)
     );
-    let launch=service.terminals[&tab].runtime.launch_privilege_facts();
-    assert_eq!(launch.purpose,shellfox_runtime::LaunchFactoryPurpose::StandardRawCreateProcess);
-    assert_eq!(launch.basis,shellfox_runtime::LaunchEvidenceBasis::ReviewedSupervisorPrimaryTokenInheritance);
-    assert_eq!(launch.stage,shellfox_runtime::LaunchEvidenceStage::BeforeRawGoConfirmedReady);
+    let launch = service.terminals[&tab].runtime.launch_privilege_facts();
+    assert_eq!(
+        launch.purpose,
+        shellfox_runtime::LaunchFactoryPurpose::StandardRawCreateProcess
+    );
+    assert_eq!(
+        launch.basis,
+        shellfox_runtime::LaunchEvidenceBasis::ReviewedSupervisorPrimaryTokenInheritance
+    );
+    assert_eq!(
+        launch.stage,
+        shellfox_runtime::LaunchEvidenceStage::BeforeRawGoConfirmedReady
+    );
     service.automation.runs.begin_retire(run.id).unwrap();
     service.pump_automation_retirement().unwrap();
     assert!(!service.automation.relays.contains_key(&run.id));
     assert_eq!(service.terminals[&tab].runtime.identity(), identity);
-    assert_eq!(service.terminals[&tab].runtime.launch_privilege_facts(),launch);
+    assert_eq!(
+        service.terminals[&tab].runtime.launch_privilege_facts(),
+        launch
+    );
     assert!(service.terminals[&tab].external_cleanup.is_some());
     assert_eq!(
         service.completed_automation_exit_code(&service.terminals[&tab]),
@@ -221,21 +237,32 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
     );
     assert!(service.automation.runs.retired().is_empty());
     let normal = launch.privilege == shellfox_runtime::LaunchPrivilege::Normal;
-    assert_eq!(service.remote_automation_exit_code(&service.terminals[&tab]), normal.then_some(0));
+    assert_eq!(
+        service.remote_automation_exit_code(&service.terminals[&tab]),
+        normal.then_some(0)
+    );
     use crate::grant::requests::GrantFailure;
     use shellfox_runtime::{AnsiRecoveryCapability, Command, ErrorCode, Response};
     let viewer = service.allocate_viewer_id().unwrap();
     let offer = service.observer_grant(tab, viewer).unwrap();
-    let Response::Recovery(recovery) = service.call(tab, Command::ObserverRecoverStamped {
-        observer: offer.lease(),
-        capability: AnsiRecoveryCapability::FormattedActiveBufferV1,
-    }).unwrap() else {
+    let Response::Recovery(recovery) = service
+        .call(
+            tab,
+            Command::ObserverRecoverStamped {
+                observer: offer.lease(),
+                capability: AnsiRecoveryCapability::FormattedActiveBufferV1,
+            },
+        )
+        .unwrap()
+    else {
         panic!("missing recovery")
     };
     assert!(String::from_utf8_lossy(&recovery.bytes).contains(MARKER));
     for takeover in [false, true] {
         let error = service.attach_manager(tab, 71, takeover).err().unwrap();
-        assert!(matches!(error.downcast_ref::<GrantFailure>(), Some(GrantFailure::Rejected(error)) if error.code == ErrorCode::Unsupported));
+        assert!(
+            matches!(error.downcast_ref::<GrantFailure>(), Some(GrantFailure::Rejected(error)) if error.code == ErrorCode::Unsupported)
+        );
     }
     let ungranted = terminals::Attachment {
         controller: 71,
@@ -246,7 +273,10 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
         service.input(tab, &ungranted, b"not accepted".to_vec()),
         service.resize(tab, &ungranted, 100, 42),
     ] {
-        assert_eq!(result.unwrap_err().to_string(), "Terminal control lease is detached or stale.");
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Terminal control lease is detached or stale."
+        );
     }
     drop(offer);
     assert!(service.start_automation(spec, 9).is_err());

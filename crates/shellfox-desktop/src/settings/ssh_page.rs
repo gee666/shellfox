@@ -210,7 +210,12 @@ impl SettingsPanel {
                     .child("No connections yet."),
             );
         }
-        if let Some(error) = self.ssh.error.as_ref().filter(|_| self.ssh.editor.is_none()) {
+        if let Some(error) = self
+            .ssh
+            .error
+            .as_ref()
+            .filter(|_| self.ssh.editor.is_none())
+        {
             page = page.child(controls::hint(error.clone(), p).text_color(gpui::rgb(0xfc8397)));
         }
         page.child(

@@ -141,14 +141,22 @@ use win32::screen;
 
 #[cfg(not(any(windows, target_os = "macos")))]
 fn screen(display: &dyn gpui::PlatformDisplay) -> Screen {
-    Screen::full(display.uuid().ok().map(|uuid| uuid.to_string()), display.bounds())
+    Screen::full(
+        display.uuid().ok().map(|uuid| uuid.to_string()),
+        display.bounds(),
+    )
 }
 
 fn configure(cx: &App, saved: Option<&WindowState>, options: &mut WindowOptions) {
     let displays = cx.displays();
-    let mut screens: Vec<_> = displays.iter().map(|display| screen(display.as_ref())).collect();
+    let mut screens: Vec<_> = displays
+        .iter()
+        .map(|display| screen(display.as_ref()))
+        .collect();
     let primary = cx.primary_display().and_then(|primary| {
-        displays.iter().position(|display| display.id() == primary.id())
+        displays
+            .iter()
+            .position(|display| display.id() == primary.id())
     });
     let primary = if wayland() {
         // The compositor picks the output and the position, so fit every output.
@@ -195,7 +203,14 @@ fn capture(window: &Window, cx: &App) -> Option<WindowState> {
     };
     if wayland() {
         // Wayland has no global window position; only the size is restored.
-        return record(gpui::Bounds { origin: gpui::Point::default(), ..normal }, maximized, None);
+        return record(
+            gpui::Bounds {
+                origin: gpui::Point::default(),
+                ..normal
+            },
+            maximized,
+            None,
+        );
     }
     let display = window.display(cx).map(|display| screen(display.as_ref()));
     record(normal, maximized, display.as_ref())
@@ -209,7 +224,12 @@ fn appkit_work_area(frame: [f64; 4], visible: [f64; 4]) -> Option<Bounds<gpui::P
     let [vx, vy, vw, vh] = visible;
     let (left, top) = (vx - fx, (fy + fh) - (vy + vh));
     // Half a point of slack for fractional scaling.
-    let inside = left >= -0.5 && top >= -0.5 && vw > 0. && vh > 0. && left + vw <= fw + 0.5 && top + vh <= fh + 0.5;
+    let inside = left >= -0.5
+        && top >= -0.5
+        && vw > 0.
+        && vh > 0.
+        && left + vw <= fw + 0.5
+        && top + vh <= fh + 0.5;
     inside.then(|| {
         Bounds::new(
             gpui::point(gpui::px(left.max(0.) as f32), gpui::px(top.max(0.) as f32)),
@@ -227,17 +247,32 @@ mod tests {
     fn the_menu_bar_and_a_bottom_dock_leave_the_middle() {
         // A 1440x900 display with a 25 pt menu bar and a 70 pt Dock at the bottom.
         let work = appkit_work_area([0., 0., 1440., 900.], [0., 70., 1440., 805.]);
-        assert_eq!(work, Some(Bounds::new(point(px(0.), px(25.)), size(px(1440.), px(805.)))));
+        assert_eq!(
+            work,
+            Some(Bounds::new(
+                point(px(0.), px(25.)),
+                size(px(1440.), px(805.))
+            ))
+        );
     }
 
     #[test]
     fn a_secondary_display_above_the_primary_with_a_left_dock() {
         let work = appkit_work_area([-200., 900., 1920., 1080.], [-120., 900., 1840., 1055.]);
-        assert_eq!(work, Some(Bounds::new(point(px(80.), px(25.)), size(px(1840.), px(1055.)))));
+        assert_eq!(
+            work,
+            Some(Bounds::new(
+                point(px(80.), px(25.)),
+                size(px(1840.), px(1055.))
+            ))
+        );
     }
 
     #[test]
     fn a_visible_frame_outside_its_screen_is_ignored() {
-        assert_eq!(appkit_work_area([0., 0., 1440., 900.], [0., 0., 1600., 900.]), None);
+        assert_eq!(
+            appkit_work_area([0., 0., 1440., 900.], [0., 0., 1600., 900.]),
+            None
+        );
     }
 }

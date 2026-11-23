@@ -1,7 +1,7 @@
 //! Desktop update worker. The GUI never accepts asset URLs or installer commands.
+pub(crate) mod cli;
 mod feed;
 mod platform;
-pub(crate) mod cli;
 
 pub(crate) mod view;
 use anyhow::Result;
@@ -343,9 +343,7 @@ mod tests {
             runtime: None,
         };
         assert!(updater.request_restart().is_none());
-        updater
-            .worker
-            .publish(Some(Notice::Ready), |_| {});
+        updater.worker.publish(Some(Notice::Ready), |_| {});
         let first = updater.request_restart().expect("first confirmation");
         assert!(updater.request_restart().is_none());
         drop(first);

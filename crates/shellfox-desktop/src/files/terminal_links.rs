@@ -1,4 +1,4 @@
-use crate::{terminal::TerminalFileLink, root::Root};
+use crate::{root::Root, terminal::TerminalFileLink};
 use gpui::{AnyWindowHandle, Context, Window};
 use shellfox_core::TabId;
 use shellfox_protocol::AuthenticatedPeerId;
@@ -14,11 +14,20 @@ pub(crate) struct SourcePosition {
 #[derive(Clone, Copy)]
 pub(crate) enum LinkOrigin {
     Local(u64),
-    Peer { tab: TabId, navigation: u64, source: u64 },
+    Peer {
+        tab: TabId,
+        navigation: u64,
+        source: u64,
+    },
 }
 
 impl LinkOrigin {
-    pub(super) fn matches_peer(self, current_source: u64, current_tab: Option<TabId>, current_navigation: Option<u64>) -> bool {
+    pub(super) fn matches_peer(
+        self,
+        current_source: u64,
+        current_tab: Option<TabId>,
+        current_navigation: Option<u64>,
+    ) -> bool {
         matches!(self, Self::Peer { tab, navigation, source }
             if current_source == source && current_tab == Some(tab) && current_navigation == Some(navigation))
     }
@@ -26,12 +35,19 @@ impl LinkOrigin {
 
 impl Root {
     pub(crate) fn link_is_current(&self, origin: LinkOrigin) -> bool {
-        if self.settings.open { return false; }
+        if self.settings.open {
+            return false;
+        }
         match origin {
-            LinkOrigin::Local(epoch) => self.is_local_source() && self.workspace.navigation.epoch() == epoch,
+            LinkOrigin::Local(epoch) => {
+                self.is_local_source() && self.workspace.navigation.epoch() == epoch
+            }
             LinkOrigin::Peer { .. } => self.peers.selected_peer().is_some_and(|(peer, state)| {
-                origin.matches_peer(self.source_selection_epoch(), state.selected_tab,
-                    self.peer_ui.navigation.get(peer).copied())
+                origin.matches_peer(
+                    self.source_selection_epoch(),
+                    state.selected_tab,
+                    self.peer_ui.navigation.get(peer).copied(),
+                )
             }),
         }
     }
@@ -49,7 +65,11 @@ impl Root {
         let Some((backend, stored_directory)) = self.selected_document_backend(cx) else {
             return;
         };
-        let live_directory = self.tabs.views.get(&id).and_then(|view| view.read(cx).working_directory());
+        let live_directory = self
+            .tabs
+            .views
+            .get(&id)
+            .and_then(|view| view.read(cx).working_directory());
         let path = if let Some(scope) = backend.wsl_scope() {
             match scope.guest_from(&target.path, live_directory.as_deref()) {
                 Ok(path) => path,
@@ -82,7 +102,10 @@ impl Root {
         });
         self.navigate_files(
             path,
-            super::list::Navigation::TerminalLink(LinkOrigin::Local(self.workspace.navigation.epoch()), position),
+            super::list::Navigation::TerminalLink(
+                LinkOrigin::Local(self.workspace.navigation.epoch()),
+                position,
+            ),
             cx,
         );
     }
@@ -95,26 +118,58 @@ impl Root {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.peers.selected_peer().is_some_and(|(selected, _)| selected == peer) { return; }
-        let Some(&navigation) = self.peer_ui.navigation.get(peer) else { return; };
-        let origin = LinkOrigin::Peer { tab, navigation, source: self.source_selection_epoch() };
-        if !self.link_is_current(origin) { return; }
-        let Ok((backend, cwd)) = self.peer_file_backend() else { return; };
+        if !self
+            .peers
+            .selected_peer()
+            .is_some_and(|(selected, _)| selected == peer)
+        {
+            return;
+        }
+        let Some(&navigation) = self.peer_ui.navigation.get(peer) else {
+            return;
+        };
+        let origin = LinkOrigin::Peer {
+            tab,
+            navigation,
+            source: self.source_selection_epoch(),
+        };
+        if !self.link_is_current(origin) {
+            return;
+        }
+        let Ok((backend, cwd)) = self.peer_file_backend() else {
+            return;
+        };
         let path = if let Some(scope) = backend.wsl_scope() {
             match scope.guest(&target.path) {
                 Ok(path) => path,
-                Err(error) => { self.error = Some(error.to_string()); cx.notify(); return; }
+                Err(error) => {
+                    self.error = Some(error.to_string());
+                    cx.notify();
+                    return;
+                }
             }
-        } else if target.path.starts_with(['/', '\\']) || target.path.starts_with("~/")
-            || target.path.as_bytes().get(1) == Some(&b':') {
+        } else if target.path.starts_with(['/', '\\'])
+            || target.path.starts_with("~/")
+            || target.path.as_bytes().get(1) == Some(&b':')
+        {
             target.path.clone()
         } else {
-            let Some(cwd) = cwd else { return; };
+            let Some(cwd) = cwd else {
+                return;
+            };
             let sep = if cwd.contains('\\') { '\\' } else { '/' };
             format!("{}{sep}{}", cwd.trim_end_matches(['/', '\\']), target.path)
         };
         self.select_file_scope(backend, cx);
-        let position = target.line.map(|line| SourcePosition { line, column: target.column, window: window.window_handle() });
-        self.navigate_files(path, super::list::Navigation::TerminalLink(origin, position), cx);
+        let position = target.line.map(|line| SourcePosition {
+            line,
+            column: target.column,
+            window: window.window_handle(),
+        });
+        self.navigate_files(
+            path,
+            super::list::Navigation::TerminalLink(origin, position),
+            cx,
+        );
     }
 }

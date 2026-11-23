@@ -14,7 +14,8 @@ impl Root {
             return;
         }
         let Some(path) = self
-            .tabs.views
+            .tabs
+            .views
             .get(&id)
             .and_then(|view| view.read(cx).working_directory())
         else {
@@ -116,7 +117,9 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &self.files.panel else { return };
+        let Some(files) = &self.files.panel else {
+            return;
+        };
         if !files.backend.is_local() {
             self.error = Some(
                 "Enter a folder path on the selected peer; the local OS picker cannot browse it."
@@ -127,12 +130,16 @@ impl Root {
         }
         let epoch = files.source_epoch;
         let backend = files.backend.clone();
-        let prompt = crate::files::view::picker::open(window, cx, gpui::PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Select folder".into()),
-        });
+        let prompt = crate::files::view::picker::open(
+            window,
+            cx,
+            gpui::PathPromptOptions {
+                files: false,
+                directories: true,
+                multiple: false,
+                prompt: Some("Select folder".into()),
+            },
+        );
         cx.spawn_in(window, async move |root, cx| {
             let result = prompt.await;
             let _ = root.update_in(cx, |root, _, cx| {
@@ -254,13 +261,15 @@ impl Root {
         if event.keystroke.key == "s"
             && command
             && !self
-                .files.panel
+                .files
+                .panel
                 .as_ref()
                 .and_then(|files| files.editor.as_ref())
                 .is_some_and(|editor| editor.text.read(cx).is_composing())
         {
             if self
-                .files.panel
+                .files
+                .panel
                 .as_ref()
                 .is_some_and(|files| files.image_editor.is_some())
             {
@@ -280,7 +289,8 @@ impl Root {
     ) {
         let key = event.keystroke.key.as_str();
         if self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .is_some_and(|files| files.location.read(cx).is_composing())
         {
@@ -295,7 +305,9 @@ impl Root {
             cx.stop_propagation();
             return;
         }
-        let Some(files) = &mut self.files.panel else { return };
+        let Some(files) = &mut self.files.panel else {
+            return;
+        };
         match key {
             "escape" if files.missing_folder.is_some() => {
                 files.missing_folder = None;
@@ -310,7 +322,9 @@ impl Root {
     }
 
     pub(crate) fn submit_file_path(&mut self, cx: &mut Context<Self>) {
-        let Some(files) = &self.files.panel else { return };
+        let Some(files) = &self.files.panel else {
+            return;
+        };
         let location = files.location.read(cx);
         if files.busy || files.missing_folder.is_some() || location.is_composing() {
             return;

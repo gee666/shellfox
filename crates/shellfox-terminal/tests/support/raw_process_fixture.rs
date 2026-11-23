@@ -79,7 +79,10 @@ fn main() -> anyhow::Result<()> {
             if let Some(release) = args.get(1) {
                 let deadline = std::time::Instant::now() + Duration::from_secs(15);
                 while !std::path::Path::new(release).is_file() {
-                    anyhow::ensure!(std::time::Instant::now() < deadline, "stdin fixture was not released");
+                    anyhow::ensure!(
+                        std::time::Instant::now() < deadline,
+                        "stdin fixture was not released"
+                    );
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }

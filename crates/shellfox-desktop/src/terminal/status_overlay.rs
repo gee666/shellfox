@@ -1,5 +1,5 @@
 use super::{Backend, TerminalView};
-use gpui::{div, prelude::*, px, rgb, AnyElement, Context, EventEmitter, IntoElement};
+use gpui::{AnyElement, Context, EventEmitter, IntoElement, div, prelude::*, px, rgb};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalRecovery {

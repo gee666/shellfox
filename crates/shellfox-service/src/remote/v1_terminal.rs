@@ -1,8 +1,5 @@
 use super::*;
-use crate::{
-    grant::requests::GrantFailure,
-    terminals::Attachment,
-};
+use crate::{grant::requests::GrantFailure, terminals::Attachment};
 use shellfox_core::{Generation, TabId, TabState};
 use shellfox_runtime::SourceKind;
 
@@ -64,7 +61,12 @@ impl RemoteService<'_> {
         }
         // While the terminal starts the owner serves other requests; this
         // attach runs again, authorized again, once the start settled.
-        let launch_failed = || failure(ErrorCode::NativeUnavailable, "Terminal launch did not complete.");
+        let launch_failed = || {
+            failure(
+                ErrorCode::NativeUnavailable,
+                "Terminal launch did not complete.",
+            )
+        };
         // When full, this one starts as before: blocking, at most 12 s.
         if self.state.awaiting_start.len() < MAX_AWAITING_START
             && self.service.begin_start(tab).map_err(|_| launch_failed())?
@@ -72,7 +74,9 @@ impl RemoteService<'_> {
             self.state.starting = Some(tab);
             return Ok(serde_json::Value::Null);
         }
-        self.service.start_terminal(tab).map_err(|_| launch_failed())?;
+        self.service
+            .start_terminal(tab)
+            .map_err(|_| launch_failed())?;
         let runtime = self.service.terminals.get(&tab).ok_or_else(lost)?;
         if !accessible(runtime) {
             return Err(failure(
@@ -167,7 +171,9 @@ impl RemoteService<'_> {
         if view.replays.contains_key(&tab) {
             return Err(super::v1_replay::read_only());
         }
-        let lease = view.terminals.get(&tab)
+        let lease = view
+            .terminals
+            .get(&tab)
             .map(|d| &d.lease)
             .filter(|lease| lease.generation == generation && lease.epoch == epoch)
             .ok_or_else(lost)?;
@@ -225,7 +231,10 @@ impl RemoteService<'_> {
                 checked(wire::Resized { resized: true })
             }
             RemoteCommand::AcknowledgeTerminal(input) => {
-                if let Some(replay) = self.state.views.get(&key(actor))
+                if let Some(replay) = self
+                    .state
+                    .views
+                    .get(&key(actor))
                     .and_then(|view| view.replays.get(&input.tab_id))
                 {
                     replay.acknowledge(self.service, &input)?;

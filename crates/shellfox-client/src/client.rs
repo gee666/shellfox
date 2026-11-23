@@ -275,7 +275,10 @@ impl<T: OutboundTransport> Client<T> {
         }
         match &result {
             Ok(Reply::Success(response))
-                if response.events.iter().any(|event| matches!(event, HostEvent::Changed { .. })) =>
+                if response
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, HostEvent::Changed { .. })) =>
             {
                 s.state.catalog = s.state.catalog.wrapping_add(1);
             }

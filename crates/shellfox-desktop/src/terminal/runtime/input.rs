@@ -27,7 +27,11 @@ impl TerminalView {
         // Only keys whose press reached the terminal are released there; the
         // key-up of an app shortcut never is.
         let key = crate::input::key_identity(&event.keystroke.key);
-        if let Some(release) = self.outbox.key_release(key).or_else(|| self.peer_key_release(key)) {
+        if let Some(release) = self
+            .outbox
+            .key_release(key)
+            .or_else(|| self.peer_key_release(key))
+        {
             // Modifiers may have been released before this physical key.
             self.send_key(release);
             cx.stop_propagation();
@@ -59,7 +63,10 @@ impl TerminalView {
         let was_dragging_scrollbar = self.end_scrollbar_drag();
         let had_file_press = self.links.file_press.take().is_some();
         let had_menu_press = self.links.menu_press.take().is_some();
-        if !was_dragging_scrollbar && !had_file_press && !had_menu_press && !self.outbox.has_held()
+        if !was_dragging_scrollbar
+            && !had_file_press
+            && !had_menu_press
+            && !self.outbox.has_held()
             && !self.selection_drag.active()
             && self.link_press.is_none()
             && self.clipboard_keys == 0

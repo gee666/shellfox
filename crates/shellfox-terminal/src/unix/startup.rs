@@ -61,11 +61,7 @@ impl Gate {
         args.extend_from_slice(&command.args);
         args
     }
-    pub fn release(
-        &self,
-        pid: u32,
-        before_go: impl FnOnce() -> Result<()>,
-    ) -> Result<UnixStream> {
+    pub fn release(&self, pid: u32, before_go: impl FnOnce() -> Result<()>) -> Result<UnixStream> {
         self.release_payload(pid, &[], before_go)
     }
     pub fn raw_arguments(&self, mode: crate::UnixPrivilegeMode) -> Vec<std::ffi::OsString> {

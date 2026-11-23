@@ -220,7 +220,9 @@ impl LiveActivitySink {
         })
     }
     pub fn quiet_at(&self) -> Option<u64> {
-        self.with_state(|state| state.activity.quiet_at()).ok().flatten()
+        self.with_state(|state| state.activity.quiet_at())
+            .ok()
+            .flatten()
     }
     pub fn stop(&self) -> Result<Option<bool>, ActivityUnavailable> {
         self.with_state(|state| {

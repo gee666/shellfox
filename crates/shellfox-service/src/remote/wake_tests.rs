@@ -1,7 +1,7 @@
 use super::tests::{approval_owner, approve_peer, dispatch};
-use shellfox_remote::RemoteHost;
 use super::*;
 use crate::native_metadata_fixture as native_metadata;
+use shellfox_remote::RemoteHost;
 use shellfox_transport::incoming::PeerIdentity;
 
 #[tokio::test]
@@ -10,17 +10,30 @@ async fn host_revision_wakes_every_view_until_it_polls() {
     let approval_data = crate::tests::scratch();
     let mut owner = approval_owner(approval_data.path()).await;
     let metadata = native_metadata::Fixture::new();
-    let peer = PeerIdentity { id: "n-wake".into(), hostname: "offline".into() };
+    let peer = PeerIdentity {
+        id: "n-wake".into(),
+        hostname: "offline".into(),
+    };
     let (approvals, _store) = approve_peer(&owner, &metadata, &peer).await;
-    let first = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
-    let second = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let first = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
+    let second = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
     let mut state = RemoteState::new(Default::default(), None, None);
     for actor in [&first, &second] {
-        dispatch(&mut service, &mut state, OwnerCommand::Pair { actor: actor.clone() })
-            .await
-            .unwrap();
+        dispatch(
+            &mut service,
+            &mut state,
+            OwnerCommand::Pair {
+                actor: actor.clone(),
+            },
+        )
+        .await
+        .unwrap();
     }
     assert_eq!(state.ready_views(&service).count(), 0);
     service
@@ -33,11 +46,20 @@ async fn host_revision_wakes_every_view_until_it_polls() {
         })
         .unwrap();
     assert_eq!(state.ready_views(&service).count(), 2);
-    let polled = dispatch(&mut service, &mut state, OwnerCommand::Poll { actor: first.clone() })
-        .await
-        .unwrap();
+    let polled = dispatch(
+        &mut service,
+        &mut state,
+        OwnerCommand::Poll {
+            actor: first.clone(),
+        },
+    )
+    .await
+    .unwrap();
     assert_eq!(polled["events"].as_array().unwrap().len(), 1);
-    let ready: Vec<_> = state.ready_views(&service).map(|view| view.controller).collect();
+    let ready: Vec<_> = state
+        .ready_views(&service)
+        .map(|view| view.controller)
+        .collect();
     assert_eq!(ready, [state.views[&key(&second)].controller]);
     service.shutdown().unwrap();
     drop(service);
@@ -50,23 +72,51 @@ async fn tab_activity_changes_reach_each_view_once_as_a_native_change() {
     let approval_data = crate::tests::scratch();
     let mut owner = approval_owner(approval_data.path()).await;
     let metadata = native_metadata::Fixture::new();
-    let peer = PeerIdentity { id: "n-activity".into(), hostname: "offline".into() };
+    let peer = PeerIdentity {
+        id: "n-activity".into(),
+        hostname: "offline".into(),
+    };
     let (approvals, _store) = approve_peer(&owner, &metadata, &peer).await;
-    let actor = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let actor = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
     let mut state = RemoteState::new(Default::default(), None, None);
-    dispatch(&mut service, &mut state, OwnerCommand::Pair { actor: actor.clone() })
-        .await
-        .unwrap();
-    assert_eq!(state.ready_views(&service).count(), 0, "pairing starts at the current activity");
+    dispatch(
+        &mut service,
+        &mut state,
+        OwnerCommand::Pair {
+            actor: actor.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        state.ready_views(&service).count(),
+        0,
+        "pairing starts at the current activity"
+    );
     service.replace_tab_activity(Vec::new());
     assert_eq!(state.ready_views(&service).count(), 1);
-    let polled = dispatch(&mut service, &mut state, OwnerCommand::Poll { actor: actor.clone() })
-        .await
-        .unwrap();
-    assert_eq!(polled["events"], serde_json::json!([{"type":"changed","event":{"revision":0,"reason":"native"}}]));
-    assert_eq!(state.ready_views(&service).count(), 0, "one event per change");
+    let polled = dispatch(
+        &mut service,
+        &mut state,
+        OwnerCommand::Poll {
+            actor: actor.clone(),
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        polled["events"],
+        serde_json::json!([{"type":"changed","event":{"revision":0,"reason":"native"}}])
+    );
+    assert_eq!(
+        state.ready_views(&service).count(),
+        0,
+        "one event per change"
+    );
     service.shutdown().unwrap();
     drop(service);
     owner.shutdown().await.unwrap();
@@ -78,9 +128,14 @@ async fn peer_requests_wait_behind_a_close_in_order_and_polls_do_not() {
     let approval_data = crate::tests::scratch();
     let mut owner = approval_owner(approval_data.path()).await;
     let metadata = native_metadata::Fixture::new();
-    let peer = PeerIdentity { id: "n-held".into(), hostname: "offline".into() };
+    let peer = PeerIdentity {
+        id: "n-held".into(),
+        hostname: "offline".into(),
+    };
     let (approvals, _store) = approve_peer(&owner, &metadata, &peer).await;
-    let actor = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let actor = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
     let mut state = RemoteState::new(Default::default(), None, None);
@@ -95,8 +150,12 @@ async fn peer_requests_wait_behind_a_close_in_order_and_polls_do_not() {
         .unwrap();
     let _outcome = service.park_close(created.sessions[0].tabs[0].id);
     let (sender, mut receiver) = shellfox_remote::owner_channel(4);
-    let pair = sender.request(OwnerCommand::Pair { actor: actor.clone() });
-    let poll = sender.request(OwnerCommand::Poll { actor: actor.clone() });
+    let pair = sender.request(OwnerCommand::Pair {
+        actor: actor.clone(),
+    });
+    let poll = sender.request(OwnerCommand::Poll {
+        actor: actor.clone(),
+    });
     let drive = async {
         let pair = receiver.recv().await.unwrap();
         state.dispatch_request(&mut service, pair);
@@ -124,9 +183,14 @@ async fn a_peer_revoked_during_its_close_commits_nothing() {
     let approval_data = crate::tests::scratch();
     let mut owner = approval_owner(approval_data.path()).await;
     let metadata = native_metadata::Fixture::new();
-    let peer = PeerIdentity { id: "n-revoked".into(), hostname: "offline".into() };
+    let peer = PeerIdentity {
+        id: "n-revoked".into(),
+        hostname: "offline".into(),
+    };
     let (approvals, store) = approve_peer(&owner, &metadata, &peer).await;
-    let actor = approvals.authorize(&peer, wire::ClientId::new_v4(), 1).unwrap();
+    let actor = approvals
+        .authorize(&peer, wire::ClientId::new_v4(), 1)
+        .unwrap();
     let mut service =
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
     let mut state = RemoteState::new(Default::default(), None, None);
@@ -136,21 +200,33 @@ async fn a_peer_revoked_during_its_close_commits_nothing() {
         .create_session(shellfox_core::CreateSession {
             request_id: SessionId::new(),
             title: None,
-            cwd: scratch.path().join("missing-cwd").to_string_lossy().into_owned(),
+            cwd: scratch
+                .path()
+                .join("missing-cwd")
+                .to_string_lossy()
+                .into_owned(),
             profile_id: shellfox_core::ProfileId::new("cmd").unwrap(),
         })
         .unwrap();
     let tab = created.sessions[0].tabs[0].id;
     assert!(service.attach(tab, 1, false).is_err());
     let generation = service.terminals[&tab].runtime.identity().generation;
-    let command = RemoteCommand::CloseTab(wire::CloseTab { tab_id: tab, generation });
+    let command = RemoteCommand::CloseTab(wire::CloseTab {
+        tab_id: tab,
+        generation,
+    });
     let (sender, mut receiver) = shellfox_remote::owner_channel(1);
-    let close = sender.request(OwnerCommand::Execute { actor: actor.clone(), command: command.clone() });
+    let close = sender.request(OwnerCommand::Execute {
+        actor: actor.clone(),
+        command: command.clone(),
+    });
     let drive = async {
         let request = receiver.recv().await.unwrap();
         let mut bound = state.bind(&mut service);
         let target = crate::close::CloseTarget::Tab(tab);
-        let kind = super::close::Kind::Tab { session: created.sessions[0].id };
+        let kind = super::close::Kind::Tab {
+            session: created.sessions[0].id,
+        };
         bound.start_close(&actor, command, target, kind).unwrap();
         assert!(bound.keep_closing(request).is_none());
         approvals.revoke(&store, &peer.id).await.unwrap();
@@ -164,7 +240,11 @@ async fn a_peer_revoked_during_its_close_commits_nothing() {
     };
     let (closed, ()) = tokio::join!(close, drive);
     assert_eq!(closed.unwrap_err().code, ErrorCode::AccessDenied);
-    assert_eq!(service.host().snapshot().unwrap().sessions[0].tabs.len(), 1, "metadata kept");
+    assert_eq!(
+        service.host().snapshot().unwrap().sessions[0].tabs.len(),
+        1,
+        "metadata kept"
+    );
     service.shutdown().unwrap();
     drop(service);
     owner.shutdown().await.unwrap();

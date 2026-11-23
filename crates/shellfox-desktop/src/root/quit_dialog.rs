@@ -1,8 +1,8 @@
 use crate::{
     accessibility::{self, Action, Role, SemanticNode},
     app_host::CloseDecision,
-    dialogs::dialog_button,
     dialogs::Dialog,
+    dialogs::dialog_button,
     root::Root,
     theme::Palette,
 };
@@ -207,7 +207,8 @@ impl Root {
         cx: &Context<Self>,
     ) -> AnyElement {
         let count = self
-            .close.confirmation
+            .close
+            .confirmation
             .as_ref()
             .map_or(0, |confirmation| confirmation.terminal_count);
         let update = self.close.update_restart;

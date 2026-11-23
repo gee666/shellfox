@@ -68,30 +68,40 @@ impl Service {
             return AUTOMATION_POLL;
         }
         let activity = &self.activity;
-        let due = [activity.owner.next_tick_ms(), activity.persistence.next_flush_ms()]
-            .into_iter()
-            .flatten()
-            .fold(activity.next_poll_ms, u64::min);
+        let due = [
+            activity.owner.next_tick_ms(),
+            activity.persistence.next_flush_ms(),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(activity.next_poll_ms, u64::min);
         let mut timeout = activity
             .owner
             .clock()
             .instant_at(due)
-            .map_or(Duration::ZERO, |at| at.saturating_duration_since(Instant::now()));
+            .map_or(Duration::ZERO, |at| {
+                at.saturating_duration_since(Instant::now())
+            });
         if self.automation.has_processes() {
             timeout = timeout.min(AUTOMATION_RECHECK);
         }
         // Runtime events end the wait for a close; its deadline is the fallback.
-        [self.close_deadline(), self.automation.next_deadline(), self.start_deadline()]
-            .into_iter()
-            .flatten()
-            .fold(timeout, |timeout, deadline| {
-                timeout.min(deadline.saturating_duration_since(Instant::now()))
-            })
+        [
+            self.close_deadline(),
+            self.automation.next_deadline(),
+            self.start_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(timeout, |timeout, deadline| {
+            timeout.min(deadline.saturating_duration_since(Instant::now()))
+        })
     }
     /// Sleeps until the next runtime event round, at most `timeout` (and 100 ms).
     pub(crate) fn pause_for_runtime(&self, timeout: Duration) {
         let seen = self.runtime_signal.rounds();
-        self.runtime_signal.wait_past(seen, timeout.min(Duration::from_millis(100)));
+        self.runtime_signal
+            .wait_past(seen, timeout.min(Duration::from_millis(100)));
     }
     /// Notifies the owner from a worker thread when it exits, even by panic.
     pub(crate) fn wake_on_exit(&self) -> WakeOnExit {
@@ -152,7 +162,11 @@ mod tests {
         let data = crate::tests::scratch();
         let mut service =
             Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
-        assert_eq!(service.owner_pass_timeout(), Duration::ZERO, "first poll is due");
+        assert_eq!(
+            service.owner_pass_timeout(),
+            Duration::ZERO,
+            "first poll is due"
+        );
         service.pump();
         let timeout = service.owner_pass_timeout();
         assert!(timeout > Duration::from_millis(400) && timeout <= Duration::from_millis(500));

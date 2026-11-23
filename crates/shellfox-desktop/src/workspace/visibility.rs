@@ -1,4 +1,7 @@
-use crate::{peers::source::{PeerCycle, Phase}, root::Root};
+use crate::{
+    peers::source::{PeerCycle, Phase},
+    root::Root,
+};
 use gpui::{Bounds, Context, Pixels, Window, px};
 use shellfox_core::SessionId;
 use shellfox_protocol::{AuthenticatedPeerId, SetVisibleSessions};
@@ -58,7 +61,8 @@ impl Root {
             }
             if !self.settings.open
                 && !self
-                    .files.panel
+                    .files
+                    .panel
                     .as_ref()
                     .is_some_and(|files| files.visible && files.maximized)
             {
@@ -87,7 +91,8 @@ impl Root {
                         item.id == tab
                             && !matches!(
                                 item.lifecycle,
-                                shellfox_protocol::TabLifecycle::Launching | shellfox_protocol::TabLifecycle::Closed
+                                shellfox_protocol::TabLifecycle::Launching
+                                    | shellfox_protocol::TabLifecycle::Closed
                             )
                     })
                 {
@@ -98,10 +103,15 @@ impl Root {
         if let Some(host) = self.host.clone()
             && let Some(report) = self.sidebar.visibility.local.admit(local)
         {
-            let trace = self.sidebar.visibility.trace.then(|| report.session_ids.clone());
+            let trace = self
+                .sidebar
+                .visibility
+                .trace
+                .then(|| report.session_ids.clone());
             cx.spawn(async move |root, cx| {
                 let result = host.execute(NativeAction::SetVisibleSessions(report)).await;
-                if let (Some(ids), Ok(shellfox_service::native::NativeResponse::Applied)) = (trace, result)
+                if let (Some(ids), Ok(shellfox_service::native::NativeResponse::Applied)) =
+                    (trace, result)
                     && let Ok(json) = serde_json::to_string(&ids)
                 {
                     eprintln!("UI visible local sessions: {json}");
@@ -151,9 +161,7 @@ impl Root {
                 continue;
             };
             cx.spawn(async move |root, cx| {
-                let _ = api
-                    .call(report, |_| ())
-                    .await;
+                let _ = api.call(report, |_| ()).await;
                 let _ = root.update(cx, |root, _| {
                     if let Some((generation, lane)) =
                         root.sidebar.visibility.peers.get_mut(&cycle.peer)

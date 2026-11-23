@@ -56,7 +56,10 @@ fn cutoffs_count_utf8_bytes() {
     assert!(!highlight(Language::Js, &exact).is_empty());
     assert!(highlight(Language::Js, &(exact.clone() + "x")).is_empty());
     let lines = format!("{exact}\n").repeat(MAX_HIGHLIGHT_BYTES / (exact.len() + 1));
-    let document = format!("{lines}//{}", "x".repeat(MAX_HIGHLIGHT_BYTES - lines.len() - 2));
+    let document = format!(
+        "{lines}//{}",
+        "x".repeat(MAX_HIGHLIGHT_BYTES - lines.len() - 2)
+    );
     assert_eq!(document.len(), MAX_HIGHLIGHT_BYTES);
     assert!(!highlight(Language::Js, &document).is_empty());
     assert!(highlight(Language::Js, &(document + "x")).is_empty());

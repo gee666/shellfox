@@ -26,14 +26,12 @@ impl ServerState {
         self.stop.cancel();
     }
     pub fn ensure_running(&self) -> Result<()> {
-        anyhow::ensure!(
-            !self.stop.is_cancelled(),
-            "Local host stop requested"
-        );
+        anyhow::ensure!(!self.stop.is_cancelled(), "Local host stop requested");
         Ok(())
     }
     fn watch(&mut self, lifetime: connection::LifetimeConnection) {
-        self.lifetimes.spawn(lifetime.watch(self.lifetime_cancel.clone(), self.orderly.clone()));
+        self.lifetimes
+            .spawn(lifetime.watch(self.lifetime_cancel.clone(), self.orderly.clone()));
     }
     pub fn adopt(&mut self, outcome: Result<connection::ConnectionOutcome>) {
         if let Ok(connection::ConnectionOutcome::Lifetime(lifetime)) = outcome {
@@ -67,7 +65,10 @@ pub(super) async fn stop_signal() -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        let (mut terminate, mut hangup) = (signal(SignalKind::terminate())?, signal(SignalKind::hangup())?);
+        let (mut terminate, mut hangup) = (
+            signal(SignalKind::terminate())?,
+            signal(SignalKind::hangup())?,
+        );
         tokio::select! {
             result = tokio::signal::ctrl_c() => result,
             _ = terminate.recv() => Ok(()),
@@ -77,8 +78,12 @@ pub(super) async fn stop_signal() -> std::io::Result<()> {
     #[cfg(windows)]
     {
         use tokio::signal::windows;
-        let (mut close, mut logoff, mut shutdown, mut brk) =
-            (windows::ctrl_close()?, windows::ctrl_logoff()?, windows::ctrl_shutdown()?, windows::ctrl_break()?);
+        let (mut close, mut logoff, mut shutdown, mut brk) = (
+            windows::ctrl_close()?,
+            windows::ctrl_logoff()?,
+            windows::ctrl_shutdown()?,
+            windows::ctrl_break()?,
+        );
         tokio::select! {
             result = tokio::signal::ctrl_c() => result,
             _ = close.recv() => Ok(()),

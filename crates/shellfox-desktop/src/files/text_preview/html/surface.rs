@@ -1,6 +1,6 @@
+use super::{assets::Page, sandbox};
 use gpui::{Bounds, Pixels, Window, canvas, prelude::*};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use super::{assets::Page, sandbox};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -245,16 +245,19 @@ fn create(
         .with_new_window_req_handler(|_, _| NewWindowResponse::Deny)
         .with_download_started_handler(|_, _| false)
         .with_permission_handler(|_| PermissionResponse::Deny)
-        .with_asynchronous_custom_protocol(sandbox::SCHEME.to_owned(), move |_, request, responder| {
-            match sandbox::route(&request) {
-                sandbox::Route::Asset(path) => page.serve(path, move |response| responder.respond(response)),
+        .with_asynchronous_custom_protocol(
+            sandbox::SCHEME.to_owned(),
+            move |_, request, responder| match sandbox::route(&request) {
+                sandbox::Route::Asset(path) => {
+                    page.serve(path, move |response| responder.respond(response))
+                }
                 sandbox::Route::Outside(path) => {
                     page.outside(&path);
                     responder.respond(sandbox::not_found())
                 }
                 route => responder.respond(sandbox::page(&route, &page.document)),
-            }
-        });
+            },
+        );
     #[cfg(windows)]
     let builder = {
         use wry::WebViewBuilderExtWindows;

@@ -172,7 +172,8 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
                 } else {
                     &["/bin", "/usr/bin", "/usr/local/bin"][..]
                 };
-                let executable = dirs.iter()
+                let executable = dirs
+                    .iter()
                     .map(|dir| Path::new(dir).join(id.as_str()))
                     .find(|path| unix_executable(path))?;
                 Some(ShellProfile {
@@ -184,10 +185,13 @@ pub fn discover_shell_profiles() -> Result<Vec<ShellProfile>> {
             })
             .collect::<Vec<_>>();
         // Keep the persisted default ID, even when its executable is also listed by name.
-        let executable = account_shell().or_else(|| installed.iter()
-            .find(|profile| cfg!(target_os = "macos") && profile.id == Zsh)
-            .or_else(|| installed.first())
-            .and_then(|profile| profile.executable.clone()));
+        let executable = account_shell().or_else(|| {
+            installed
+                .iter()
+                .find(|profile| cfg!(target_os = "macos") && profile.id == Zsh)
+                .or_else(|| installed.first())
+                .and_then(|profile| profile.executable.clone())
+        });
         let default = ShellProfile {
             id: LoginShell,
             label: "Shell",
@@ -216,7 +220,13 @@ fn account_shell() -> Option<PathBuf> {
     let mut buffer = vec![0 as libc::c_char; 16 * 1024];
     // SAFETY: all pointers are valid for the call; the strings it fills live in `buffer`.
     let status = unsafe {
-        libc::getpwuid_r(libc::getuid(), &mut entry, buffer.as_mut_ptr(), buffer.len(), &mut found)
+        libc::getpwuid_r(
+            libc::getuid(),
+            &mut entry,
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            &mut found,
+        )
     };
     let database = (status == 0 && !found.is_null() && !entry.pw_shell.is_null()).then(|| {
         // SAFETY: getpwuid_r succeeded, so pw_shell is a NUL-terminated string in `buffer`.

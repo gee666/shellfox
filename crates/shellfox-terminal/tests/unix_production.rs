@@ -3,8 +3,7 @@
 mod support;
 use shellfox_terminal::{
     launch_privilege::{self, LaunchEvidenceBasis, LaunchPrivilege},
-    PtyConfig, PtyOutput, PtySession,
-    UnixPrivilegeMode,
+    PtyConfig, PtyOutput, PtySession, UnixPrivilegeMode,
 };
 use support::*;
 #[test]

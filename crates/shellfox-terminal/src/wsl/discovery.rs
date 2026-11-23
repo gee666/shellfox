@@ -58,10 +58,22 @@ impl OsWsl {
     #[cfg(windows)]
     pub fn launch_account(&self, distro: &WslProfileId) -> Result<Vec<u8>, WslError> {
         const PROBE: &str = "import json, os, pwd, sys\nuid = os.geteuid()\nif uid != os.getuid() or os.environ.get('WSL_DISTRO_NAME', '').casefold() != sys.argv[1].casefold(): raise SystemExit(2)\nprint(json.dumps({'uid': uid, 'name': pwd.getpwuid(uid).pw_name}))";
-        super::discovery_process::bounded_command(self.command(&[
-            "--distribution", distro.distro(), "--cd", "/", "--exec",
-            "/usr/bin/python3", "-I", "-S", "-c", PROBE, distro.distro(),
-        ]), 4096)
+        super::discovery_process::bounded_command(
+            self.command(&[
+                "--distribution",
+                distro.distro(),
+                "--cd",
+                "/",
+                "--exec",
+                "/usr/bin/python3",
+                "-I",
+                "-S",
+                "-c",
+                PROBE,
+                distro.distro(),
+            ]),
+            4096,
+        )
     }
     #[cfg(feature = "test-support")]
     pub fn fixture(path: PathBuf) -> Result<Self, WslError> {

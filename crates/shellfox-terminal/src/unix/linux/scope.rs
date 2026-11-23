@@ -190,7 +190,11 @@ mod tests {
         assert_eq!(score(pid), parent.max(TERMINAL_OOM_SCORE_ADJ));
         let directory = std::fs::File::open(format!("/proc/{pid}")).unwrap();
         raise_at(&directory, 100).unwrap();
-        assert_eq!(score(pid), parent.max(TERMINAL_OOM_SCORE_ADJ), "never lowers");
+        assert_eq!(
+            score(pid),
+            parent.max(TERMINAL_OOM_SCORE_ADJ),
+            "never lowers"
+        );
         assert_eq!(score(std::process::id()), parent);
         child.kill().unwrap();
         child.wait().unwrap();

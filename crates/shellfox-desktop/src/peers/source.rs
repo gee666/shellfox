@@ -2,8 +2,8 @@
 use anyhow::{Result, anyhow};
 use shellfox_protocol::{AuthenticatedPeerId, ManagerSnapshot, SessionId, TabDto, TabId, Validate};
 use shellfox_service::remote::native::RemotePeer;
-use uuid::Uuid;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 mod connection;
 pub(crate) use connection::ConnectionAction;
@@ -167,7 +167,11 @@ impl PeerSources {
         }
         true
     }
-    pub fn catalog(&mut self, cycle: &PeerCycle, snapshot: ManagerSnapshot) -> anyhow::Result<bool> {
+    pub fn catalog(
+        &mut self,
+        cycle: &PeerCycle,
+        snapshot: ManagerSnapshot,
+    ) -> anyhow::Result<bool> {
         snapshot.validate()?;
         let Some(state) = self
             .peers
@@ -228,7 +232,9 @@ impl PeerSources {
             .snapshot
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Peer catalog is not available."))?;
-        let selected = snapshot.sessions.iter()
+        let selected = snapshot
+            .sessions
+            .iter()
             .find(|item| item.id == session)
             .ok_or_else(|| anyhow::anyhow!("Peer session is unavailable."))?;
         anyhow::ensure!(
@@ -288,7 +294,8 @@ pub(crate) fn viewable_tab(tab: &TabDto) -> bool {
         return false;
     }
     !matches!(tab.lifecycle, TabLifecycle::Closed)
-        || tab.profile_id.as_ref().and_then(Option::as_deref) == Some(shellfox_service::AUTOMATION_PROFILE_ID)
+        || tab.profile_id.as_ref().and_then(Option::as_deref)
+            == Some(shellfox_service::AUTOMATION_PROFILE_ID)
 }
 #[cfg(test)]
 mod tests;

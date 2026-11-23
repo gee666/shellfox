@@ -173,7 +173,9 @@ impl Root {
             if settled { "Unsettle" } else { "Settle" },
             palette,
         ))
-        .when(self.dialogs.user_action_pending, |button| button.opacity(0.4))
+        .when(self.dialogs.user_action_pending, |button| {
+            button.opacity(0.4)
+        })
         .on_click(cx.listener(move |root, _, window, cx| {
             if !root.dialogs.user_action_pending {
                 root.toggle_session_settled(id, !settled, window, cx);
@@ -271,9 +273,11 @@ impl Root {
             return;
         } else if matches!(key, "home" | "end" | "up" | "down") {
             let rows = self.sidebar_rows(cx);
-            let len = rows
-                .len()
-                .min(self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size));
+            let len = rows.len().min(
+                self.sidebar
+                    .session_pages
+                    .saturating_mul(self.sidebar.history_page_size),
+            );
             let Some(index) = rows.iter().position(|(session, _)| session.id == id) else {
                 return;
             };
@@ -286,7 +290,9 @@ impl Root {
             };
             if let Some((target, _)) = rows.get(next) {
                 self.sidebar.focus_row(target.id, window);
-                self.sidebar.list.reveal(&super::list::Entry::Local(target.id));
+                self.sidebar
+                    .list
+                    .reveal(&super::list::Entry::Local(target.id));
                 cx.notify();
             }
         } else {

@@ -102,8 +102,13 @@ impl Manager {
                 result,
                 activation,
             } if epoch == self.epoch => {
-                let Some(connection) = self.connections.get_mut(&peer)
-                    .filter(|c| c.id == id && !c.cancel.is_cancelled()) else { return };
+                let Some(connection) = self
+                    .connections
+                    .get_mut(&peer)
+                    .filter(|c| c.id == id && !c.cancel.is_cancelled())
+                else {
+                    return;
+                };
                 if let Some(target) = self.state.peers.iter_mut().find(|p| p.id == peer) {
                     let result = result.and_then(|()| {
                         activation.activate(
@@ -122,9 +127,15 @@ impl Manager {
                         }
                         Err(error) => {
                             target.connection = match error.code {
-                                ErrorCode::ApprovalRequired if !connection.established => RemoteConnection::AwaitingApproval,
-                                ErrorCode::AccessDenied | ErrorCode::ApprovalRequired => RemoteConnection::Rejected,
-                                ErrorCode::NativeUnavailable if connection.established => RemoteConnection::Reconnecting,
+                                ErrorCode::ApprovalRequired if !connection.established => {
+                                    RemoteConnection::AwaitingApproval
+                                }
+                                ErrorCode::AccessDenied | ErrorCode::ApprovalRequired => {
+                                    RemoteConnection::Rejected
+                                }
+                                ErrorCode::NativeUnavailable if connection.established => {
+                                    RemoteConnection::Reconnecting
+                                }
                                 _ => RemoteConnection::Disconnected,
                             };
                             if matches!(target.connection, RemoteConnection::Rejected) {
@@ -145,8 +156,12 @@ impl Manager {
                 self.cancel_outgoing_peer(&peer);
                 if let Some(target) = self.state.peers.iter_mut().find(|p| p.id == peer) {
                     target.connection = match error.code {
-                        ErrorCode::AccessDenied | ErrorCode::ApprovalRequired => RemoteConnection::Rejected,
-                        ErrorCode::NativeUnavailable | ErrorCode::TargetLost => RemoteConnection::Reconnecting,
+                        ErrorCode::AccessDenied | ErrorCode::ApprovalRequired => {
+                            RemoteConnection::Rejected
+                        }
+                        ErrorCode::NativeUnavailable | ErrorCode::TargetLost => {
+                            RemoteConnection::Reconnecting
+                        }
                         _ => RemoteConnection::Disconnected,
                     };
                     target.last_error = Some(error);

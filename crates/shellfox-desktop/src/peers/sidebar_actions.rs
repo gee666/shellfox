@@ -30,7 +30,9 @@ impl PeerActivations {
     }
 
     fn finish(&mut self, key: &ActivationKey, current: Option<ActivationFence>) -> bool {
-        self.0.remove(key).is_some_and(|requested| Some(requested) == current)
+        self.0
+            .remove(key)
+            .is_some_and(|requested| Some(requested) == current)
     }
 
     pub(super) fn retire(&mut self, peer: &AuthenticatedPeerId) {
@@ -39,7 +41,11 @@ impl PeerActivations {
 }
 
 impl Root {
-    pub(crate) fn peer_session(&self, cycle: &source::PeerCycle, id: SessionId) -> Option<&wire::SessionDto> {
+    pub(crate) fn peer_session(
+        &self,
+        cycle: &source::PeerCycle,
+        id: SessionId,
+    ) -> Option<&wire::SessionDto> {
         if !self.peers.current(cycle) {
             return None;
         }
@@ -125,9 +131,10 @@ impl Root {
         let Some(session) = self.peer_session(&cycle, id) else {
             return;
         };
-        let has_tabs = session.tabs.iter().any(|tab| {
-            !matches!(tab.lifecycle, wire::TabLifecycle::Closed)
-        });
+        let has_tabs = session
+            .tabs
+            .iter()
+            .any(|tab| !matches!(tab.lifecycle, wire::TabLifecycle::Closed));
         let external = !matches!(session.adapter_id, wire::AdapterId::EmbeddedPty);
         self.hide_settings(cx);
         self.peer_ui.pending_create = None;
@@ -146,20 +153,36 @@ impl Root {
 
     fn peer_activation_fence(&self, (cycle, session): &ActivationKey) -> Option<ActivationFence> {
         let (peer, state) = self.peers.selected_peer()?;
-        (self.peers.current(cycle) && peer == &cycle.peer && state.selected_session == Some(*session))
-            .then(|| ActivationFence {
-                source: self.source_selection_epoch(),
-                navigation: self.peer_ui.navigation.get(peer).copied().unwrap_or_default(),
-            })
+        (self.peers.current(cycle)
+            && peer == &cycle.peer
+            && state.selected_session == Some(*session))
+        .then(|| ActivationFence {
+            source: self.source_selection_epoch(),
+            navigation: self
+                .peer_ui
+                .navigation
+                .get(peer)
+                .copied()
+                .unwrap_or_default(),
+        })
     }
 
-    fn request_peer_activation(&mut self, key: ActivationKey, window: &Window, cx: &mut Context<Self>) {
+    fn request_peer_activation(
+        &mut self,
+        key: ActivationKey,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.close.closing {
             return;
         }
-        let Some(fence) = self.peer_activation_fence(&key) else { return };
+        let Some(fence) = self.peer_activation_fence(&key) else {
+            return;
+        };
         let (cycle, id) = &key;
-        let Ok(api) = self.peer_api(cycle) else { return };
+        let Ok(api) = self.peer_api(cycle) else {
+            return;
+        };
         let session_id = *id;
         if !self.peer_ui.opening.begin(key.clone(), fence) {
             return;
@@ -186,7 +209,8 @@ impl Root {
                 }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
     }
 
     pub(super) fn mutate_peer_session(
@@ -287,8 +311,14 @@ mod activation_tests {
         let row = SessionId::new;
         let a = (cycle.clone(), row());
         let b = (cycle, row());
-        let first = ActivationFence { source: 1, navigation: 1 };
-        let second = ActivationFence { source: 1, navigation: 2 };
+        let first = ActivationFence {
+            source: 1,
+            navigation: 1,
+        };
+        let second = ActivationFence {
+            source: 1,
+            navigation: 2,
+        };
         assert!(opening.begin(a.clone(), first));
         assert!(!opening.begin(a.clone(), first));
         assert!(opening.begin(b.clone(), second));
@@ -296,7 +326,10 @@ mod activation_tests {
         assert!(!opening.finish(&a, None));
 
         assert!(opening.begin(a.clone(), first));
-        let returned = ActivationFence { source: 1, navigation: 3 };
+        let returned = ActivationFence {
+            source: 1,
+            navigation: 3,
+        };
         assert!(!opening.finish(&a, Some(returned)));
         assert!(opening.begin(a.clone(), returned));
         assert!(opening.finish(&a, Some(returned)));

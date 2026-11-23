@@ -35,10 +35,19 @@ impl Root {
             self.connect_catalog(id, window, cx);
         }
         // A stream outlives its connection only while a live view still needs it to recover.
-        let idle: Vec<_> = self.peer_ui.v1_streams.keys()
+        let idle: Vec<_> = self
+            .peer_ui
+            .v1_streams
+            .keys()
             .filter(|peer| {
-                self.peers.peers.get(*peer).is_none_or(|state| state.phase != source::Phase::Connected)
-                    && !self.peer_ui.v1_views.iter()
+                self.peers
+                    .peers
+                    .get(*peer)
+                    .is_none_or(|state| state.phase != source::Phase::Connected)
+                    && !self
+                        .peer_ui
+                        .v1_views
+                        .iter()
                         .any(|((id, _), view)| id == *peer && !view.read(cx).peer_released())
             })
             .cloned()
@@ -64,7 +73,11 @@ impl Root {
                 };
                 let api = self.peer_api(&cycle).ok()?;
                 let catalog = api.binding().state().catalog;
-                let current = CatalogRead::covers(self.peer_ui.catalog_reads.get(peer), cycle.generation, catalog);
+                let current = CatalogRead::covers(
+                    self.peer_ui.catalog_reads.get(peer),
+                    cycle.generation,
+                    catalog,
+                );
                 Some((cycle, api, catalog, current))
             })
             .collect();
@@ -101,7 +114,9 @@ impl Root {
                             root.notify_machine_error(&error.to_string(), cx);
                             // Reconnecting retries on its own schedule.
                             let retry = Instant::now() + Duration::from_secs(1);
-                            root.peer_ui.metadata_polls.insert(cycle.peer.clone(), Some(retry));
+                            root.peer_ui
+                                .metadata_polls
+                                .insert(cycle.peer.clone(), Some(retry));
                             root.notify_at(retry, cx);
                             root.peers.phase(
                                 &cycle,
@@ -126,7 +141,10 @@ pub(super) struct CatalogRead {
 
 impl CatalogRead {
     pub(super) fn new(generation: u64, catalog: u64) -> Self {
-        Self { generation, catalog }
+        Self {
+            generation,
+            catalog,
+        }
     }
 
     /// A connected peer is read once per connection, then again only after a reported change.
@@ -141,10 +159,22 @@ mod tests {
 
     #[test]
     fn an_idle_connected_peer_is_read_once() {
-        assert!(!CatalogRead::covers(None, 3, 0), "the first read after connect");
-        let read = CatalogRead { generation: 3, catalog: 0 };
+        assert!(
+            !CatalogRead::covers(None, 3, 0),
+            "the first read after connect"
+        );
+        let read = CatalogRead {
+            generation: 3,
+            catalog: 0,
+        };
         assert!(CatalogRead::covers(Some(&read), 3, 0), "no change, no read");
-        assert!(!CatalogRead::covers(Some(&read), 3, 1), "a reported change reads again");
-        assert!(!CatalogRead::covers(Some(&read), 4, 0), "a new connection reads again");
+        assert!(
+            !CatalogRead::covers(Some(&read), 3, 1),
+            "a reported change reads again"
+        );
+        assert!(
+            !CatalogRead::covers(Some(&read), 4, 0),
+            "a new connection reads again"
+        );
     }
 }

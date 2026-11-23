@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use shellfox_core::SessionId;
-use shellfox_service::{local_api::LocalApiRequest, local::LocalClient, remote::RemoteRequest};
+use shellfox_service::{local::LocalClient, local_api::LocalApiRequest, remote::RemoteRequest};
 use std::{
     io::{IsTerminal, Write},
     path::{Path, PathBuf},

@@ -47,12 +47,18 @@ impl Shared {
         let mut changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
         while *changes == seen {
             changes = match deadline {
-                None => self.changed.wait(changes).unwrap_or_else(|e| e.into_inner()),
+                None => self
+                    .changed
+                    .wait(changes)
+                    .unwrap_or_else(|e| e.into_inner()),
                 Some(deadline) => {
                     let Some(left) = deadline.checked_duration_since(Instant::now()) else {
                         return;
                     };
-                    self.changed.wait_timeout(changes, left).unwrap_or_else(|e| e.into_inner()).0
+                    self.changed
+                        .wait_timeout(changes, left)
+                        .unwrap_or_else(|e| e.into_inner())
+                        .0
                 }
             };
         }

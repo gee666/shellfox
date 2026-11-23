@@ -2,8 +2,8 @@ use super::*;
 use shellfox_runtime::{Identity, Phase};
 use shellfox_service::{
     NativeTabActivity,
-    activity::{Health, Observation, RootState},
     activity::integration::{StartupEvidence, TerminalSourceFacts},
+    activity::{Health, Observation, RootState},
 };
 
 #[test]

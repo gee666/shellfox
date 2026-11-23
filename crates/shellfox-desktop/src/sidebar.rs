@@ -11,10 +11,10 @@ use std::collections::HashMap;
 mod width;
 pub(crate) use width::{SidebarDrag, clamp_width};
 mod actions;
+pub(crate) mod list;
 mod new_session_menu;
 pub(crate) mod row;
 mod toolbar;
-pub(crate) mod list;
 
 /// Focus for one sidebar row: the title button, the settle button, and the
 /// whole row, which keeps the row rendered while either one has focus.
@@ -176,15 +176,30 @@ impl Root {
         let state = self.sidebar.list.state().clone();
         let scrolling = state.max_offset_for_scrollbar().height > px(0.);
         let weak = cx.weak_entity();
-        let list = div().relative().flex_1().min_h_0().flex()
+        let list = div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .flex()
             .child(list.when(scrolling, |list| list.mr(px(10.))))
-            .when(scrolling, |frame| frame.child(self.sidebar.scrollbar.thin(&state, palette)))
+            .when(scrolling, |frame| {
+                frame.child(self.sidebar.scrollbar.thin(&state, palette))
+            })
             .child(self.sidebar.list.painted_marker())
-            .child(gpui::canvas(|_, _, _| (), move |_, (), window, cx| {
-                if scrolling != (state.max_offset_for_scrollbar().height > px(0.)) {
-                    window.defer(cx, move |_, cx| { let _ = weak.update(cx, |_, cx| cx.notify()); });
-                }
-            }).absolute().inset_0());
+            .child(
+                gpui::canvas(
+                    |_, _, _| (),
+                    move |_, (), window, cx| {
+                        if scrolling != (state.max_offset_for_scrollbar().height > px(0.)) {
+                            window.defer(cx, move |_, cx| {
+                                let _ = weak.update(cx, |_, cx| cx.notify());
+                            });
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            );
         let width = clamp_width(self.sidebar.width, f32::from(window.viewport_size().width));
         let mut sidebar = div()
             .relative()
@@ -237,7 +252,11 @@ impl Root {
         true
     }
 
-    pub(crate) fn toggle_local_group(&mut self, _window: &mut gpui::Window, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_local_group(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.is_local_source() {
             self.select_local_source(_window, cx);
         }
@@ -247,10 +266,16 @@ impl Root {
     }
 
     fn show_more_sessions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let old_end = self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size);
+        let old_end = self
+            .sidebar
+            .session_pages
+            .saturating_mul(self.sidebar.history_page_size);
         self.sidebar.session_pages = self.sidebar.session_pages.saturating_add(1);
         let rows = self.sidebar_rows(cx);
-        let end = self.sidebar.session_pages.saturating_mul(self.sidebar.history_page_size);
+        let end = self
+            .sidebar
+            .session_pages
+            .saturating_mul(self.sidebar.history_page_size);
         if end >= rows.len()
             && old_end < rows.len()
             && self.sidebar.more.is_focused(window)
@@ -263,6 +288,6 @@ impl Root {
     }
 }
 
+pub(crate) mod session_menu;
 #[cfg(test)]
 mod tests;
-pub(crate) mod session_menu;

@@ -24,8 +24,13 @@ impl SettingsPanel {
                 self.custom_colors.as_ref().map(|colors| &colors.background),
             ),
         };
-        let Some(initial) = parse_hex(value) else { return };
-        let presets = presets.iter().filter_map(|color| parse_hex(color)).collect();
+        let Some(initial) = parse_hex(value) else {
+            return;
+        };
+        let presets = presets
+            .iter()
+            .filter_map(|color| parse_hex(color))
+            .collect();
         let saved = saved
             .into_iter()
             .flatten()
@@ -75,10 +80,13 @@ impl SettingsPanel {
 }
 
 pub(in crate::settings) fn remember_anchor(anchor: Anchor) -> impl IntoElement {
-    gpui::canvas(move |bounds, _, _| anchor.set(Some(bounds)), |_, _, _, _| {})
-        .absolute()
-        .left(px(-1.))
-        .right(px(-1.))
-        .top(px(-1.))
-        .bottom(px(-1.))
+    gpui::canvas(
+        move |bounds, _, _| anchor.set(Some(bounds)),
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .left(px(-1.))
+    .right(px(-1.))
+    .top(px(-1.))
+    .bottom(px(-1.))
 }

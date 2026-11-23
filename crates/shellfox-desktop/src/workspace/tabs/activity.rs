@@ -4,10 +4,7 @@ use gpui::{Context, Task, Window};
 mod dot;
 pub(crate) use dot::status_dot;
 use shellfox_core::{Session, Tab, TabId, TabState, TerminalIdentity};
-use shellfox_service::{
-    NativeTabActivity,
-    activity::AgentState,
-};
+use shellfox_service::{NativeTabActivity, activity::AgentState};
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -17,15 +14,29 @@ pub(crate) struct TabActivity {
 }
 
 impl Root {
-    pub(crate) fn watch_tab_activity(&mut self, client: HostClient, window: &Window, cx: &mut Context<Self>) {
+    pub(crate) fn watch_tab_activity(
+        &mut self,
+        client: HostClient,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
         self.tabs.activity.task = Some(cx.spawn_in(window, async move |root, cx| {
             let mut changes = client.tab_activity_changes();
             while let Ok(states) = changes.next().await {
-                let states = states.iter().map(|state| (state.tab, state.clone())).collect();
-                if root.update_in(cx, |root, window, cx| {
-                    root.accept_tab_activity(states, window, cx);
-                    !root.close.closing
-                }).ok() != Some(true) { return; }
+                let states = states
+                    .iter()
+                    .map(|state| (state.tab, state.clone()))
+                    .collect();
+                if root
+                    .update_in(cx, |root, window, cx| {
+                        root.accept_tab_activity(states, window, cx);
+                        !root.close.closing
+                    })
+                    .ok()
+                    != Some(true)
+                {
+                    return;
+                }
             }
             let _ = root.update_in(cx, |root, _, cx| {
                 root.tabs.activity.states.clear();
@@ -34,8 +45,15 @@ impl Root {
         }));
     }
 
-    fn accept_tab_activity(&mut self, states: HashMap<TabId, NativeTabActivity>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.tabs.activity.states == states { return; }
+    fn accept_tab_activity(
+        &mut self,
+        states: HashMap<TabId, NativeTabActivity>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.tabs.activity.states == states {
+            return;
+        }
         let previous = self.selected_tab();
         self.tabs.activity.states = states;
         if previous.is_some() && previous != self.selected_tab() {
@@ -45,12 +63,21 @@ impl Root {
     }
 
     pub(crate) fn local_tab_viewable(&self, tab: &Tab) -> bool {
-        tab_is_viewable(tab.state, tab.profile_id.as_str(), self.tabs.activity.states.get(&tab.id))
+        tab_is_viewable(
+            tab.state,
+            tab.profile_id.as_str(),
+            self.tabs.activity.states.get(&tab.id),
+        )
     }
 
     pub(crate) fn display_tab_title<'a>(&'a self, tab: &'a Tab) -> &'a str {
         if tab.use_process_title
-            && let Some(title) = self.tabs.activity.states.get(&tab.id).and_then(|state| state.process_title.as_deref())
+            && let Some(title) = self
+                .tabs
+                .activity
+                .states
+                .get(&tab.id)
+                .and_then(|state| state.process_title.as_deref())
         {
             return title;
         }
@@ -60,7 +87,8 @@ impl Root {
     pub(crate) fn tab_agent_state(&self, tab: &Tab, cx: &gpui::App) -> AgentState {
         let view_failed = self.tabs.failures.contains_key(&tab.id)
             || self
-                .tabs.views
+                .tabs
+                .views
                 .get(&tab.id)
                 .is_some_and(|view| view.read(cx).is_failed());
         local_dot(self.tabs.activity.states.get(&tab.id), view_failed)
@@ -72,13 +100,15 @@ impl Root {
             AgentState::Running => "Agent idle".into(),
             AgentState::Busy => "Agent working".into(),
             AgentState::Settled => "Settled".into(),
-            AgentState::Error => self.local_tab_error_text(id)
+            AgentState::Error => self
+                .local_tab_error_text(id)
                 .map_or_else(|| "Error".into(), |message| format!("Error: {message}")),
         }
     }
 
     pub(crate) fn tab_has_agents(&self, id: TabId) -> bool {
-        self.tabs.activity
+        self.tabs
+            .activity
             .states
             .get(&id)
             .is_some_and(|state| state.has_agents)
@@ -87,7 +117,8 @@ impl Root {
     pub(crate) fn tab_close_identity(&self, id: TabId) -> Option<TerminalIdentity> {
         self.host.as_ref()?;
         let activity = self
-            .tabs.activity
+            .tabs
+            .activity
             .states
             .get(&id)
             .filter(|activity| !activity.closed)?;
@@ -114,7 +145,10 @@ impl Root {
             if active_agent(host) {
                 return None;
             }
-            self.tabs.failures.get(&id).map(|error| error.message.as_str())
+            self.tabs
+                .failures
+                .get(&id)
+                .map(|error| error.message.as_str())
         })
     }
 
@@ -138,7 +172,8 @@ impl Root {
             .filter(|tab| {
                 tab.state != TabState::Archived
                     && !self
-                        .tabs.activity
+                        .tabs
+                        .activity
                         .states
                         .get(&tab.id)
                         .is_some_and(|state| state.closed)
@@ -157,7 +192,9 @@ impl Root {
 
 fn active_agent(activity: Option<&NativeTabActivity>) -> bool {
     activity.is_some_and(|state| {
-        !state.closed && state.error.is_none() && matches!(state.dot, AgentState::Running | AgentState::Busy)
+        !state.closed
+            && state.error.is_none()
+            && matches!(state.dot, AgentState::Running | AgentState::Busy)
     })
 }
 
@@ -182,8 +219,8 @@ mod tests {
     use super::*;
     use shellfox_runtime::{Identity, Phase};
     use shellfox_service::{
-        activity::{Health, Observation, RootState},
         activity::integration::{StartupEvidence, TerminalSourceFacts},
+        activity::{Health, Observation, RootState},
     };
 
     #[test]
@@ -199,8 +236,16 @@ mod tests {
         };
         assert!(!tab_is_viewable(TabState::Pending, "pwsh", Some(&closed)));
         assert!(tab_is_viewable(TabState::Pending, "pwsh", None));
-        assert!(tab_is_viewable(TabState::Pending, "automation-pipe", Some(&closed)));
-        assert!(!tab_is_viewable(TabState::Archived, "automation-pipe", Some(&closed)));
+        assert!(tab_is_viewable(
+            TabState::Pending,
+            "automation-pipe",
+            Some(&closed)
+        ));
+        assert!(!tab_is_viewable(
+            TabState::Archived,
+            "automation-pipe",
+            Some(&closed)
+        ));
         closed.error = Some("Terminal failed to start.".into());
         assert!(tab_is_viewable(TabState::Pending, "pwsh", Some(&closed)));
         assert!(!tab_is_viewable(TabState::Archived, "pwsh", Some(&closed)));

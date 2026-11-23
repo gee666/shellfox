@@ -85,7 +85,8 @@ impl Root {
             let scrolling = natural_height > max_height;
             // Suggestions outside the card still belong to the picker, not
             // the dismissible modal backdrop behind the deferred list.
-            let viewport = div().id("directory-completions")
+            let viewport = div()
+                .id("directory-completions")
                 .occlude()
                 .absolute()
                 .top(px(38.))
@@ -102,8 +103,12 @@ impl Root {
                     blur_radius: px(10.),
                     spread_radius: px(0.),
                 }]);
-            let mut matches = div().id("directory-completions-scroll").h_full()
-                .overflow_y_scroll().track_scroll(&draft.scroll).p(px(2.))
+            let mut matches = div()
+                .id("directory-completions-scroll")
+                .h_full()
+                .overflow_y_scroll()
+                .track_scroll(&draft.scroll)
+                .p(px(2.))
                 .when(scrolling, |list| list.mr(px(15.)));
             for (index, value) in options.iter().enumerate() {
                 let selected = index == draft.active();

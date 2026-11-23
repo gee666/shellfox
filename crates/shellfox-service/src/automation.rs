@@ -1,8 +1,8 @@
 //! One in-memory owner of local automation processes. No output/argv/env store.
-pub(crate) mod replay;
 mod launch;
 mod lifecycle;
 mod relay;
+pub(crate) mod replay;
 mod start;
 pub use relay::AutomationRelay;
 mod failure;
@@ -121,7 +121,11 @@ impl AutomationRuns {
     /// Whether the owner must poll: a process without a wake, or a failed
     /// spawn still being closed.
     pub(crate) fn needs_polling(&self) -> bool {
-        !self.failed.is_empty() || self.runs.values().any(|run| run.polled && run.process.is_some())
+        !self.failed.is_empty()
+            || self
+                .runs
+                .values()
+                .any(|run| run.polled && run.process.is_some())
     }
     /// When an unread capture is released, for the owner's pass timeout.
     pub(crate) fn next_deadline(&self) -> Option<Instant> {

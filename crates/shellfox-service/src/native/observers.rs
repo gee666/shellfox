@@ -75,9 +75,7 @@ impl crate::Service {
                 self.terminals[&tab].runtime.phase(),
             ),
         );
-        if let Err(error) =
-            self.adopt_observer_grant(offer)
-        {
+        if let Err(error) = self.adopt_observer_grant(offer) {
             self.native.views.remove(&view_key); // Central offer retains retirement; no second Unobserve.
             return Err(error);
         }

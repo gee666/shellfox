@@ -1,11 +1,11 @@
 //! The owner's typed desktop actions and replies. Desktop windows reach them
 //! through the local API (local/desktop.rs). Not a mobile or network wire
 //! protocol, and no GPUI.
-pub(crate) mod catalog;
-pub(crate) mod endpoint_report;
 mod cache;
+pub(crate) mod catalog;
 mod commands;
 mod dispatch;
+pub(crate) mod endpoint_report;
 mod observers;
 mod presentation;
 pub use presentation::{NativePresentation, NativeViewAttachment};
@@ -54,7 +54,9 @@ pub enum NativeAction {
     Power(crate::power::PowerRequest),
     Metadata(HostRequest),
     /// Original Host request record; never derives identity from selection.
-    CreationRequestReceipt { request_id: SessionId },
+    CreationRequestReceipt {
+        request_id: SessionId,
+    },
     Settings(shellfox_host::SettingsRequest),
     Ssh(crate::ssh::Request),
     System(crate::system::SystemNativeRequest),
@@ -77,7 +79,9 @@ pub enum NativeAction {
     ChangedSince {
         revision: u64,
     },
-    ClearSessionError { session: SessionId },
+    ClearSessionError {
+        session: SessionId,
+    },
     CloseTab {
         tab: TabId,
     },
@@ -215,6 +219,8 @@ pub enum NativeResponse {
     Observed(NativeObserverAttachment),
     Frame(Option<NativeFrame>),
     Terminal(Response),
-    Accepted { sequence: u64 },
+    Accepted {
+        sequence: u64,
+    },
     Applied,
 }

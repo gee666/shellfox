@@ -7,7 +7,11 @@ use shellfox_terminal::{PtyConfig, ShellProfileId};
 /// The installed Shellfox CLI launcher's directory, which 0.9 put first on
 /// PATH in every tab.
 fn cli_bin() -> Option<PathBuf> {
-    let var = |name| std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_absolute());
+    let var = |name| {
+        std::env::var_os(name)
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    };
     #[cfg(windows)]
     let launchers = [var("LOCALAPPDATA").map(|dir| dir.join("Shellfox/bin/shellfox.cmd"))];
     #[cfg(target_os = "linux")]
@@ -40,7 +44,9 @@ impl Service {
         config.cli_bin = cli_bin();
         // The CLI in a tab talks to this host, as 0.9 did.
         if let Some(root) = crate::electron_import::electron_root(&self.directory) {
-            config.host_paths.insert("SHELLFOX_USER_DATA".into(), root.into());
+            config
+                .host_paths
+                .insert("SHELLFOX_USER_DATA".into(), root.into());
         }
         let profile = launch.profile_id.as_str();
         #[cfg(windows)]
@@ -51,7 +57,11 @@ impl Service {
                 return Ok(config);
             }
             if profile.starts_with("wsl:") {
-                self.catalog.wsl.cache.ready()?.configure(profile, &mut config)?;
+                self.catalog
+                    .wsl
+                    .cache
+                    .ready()?
+                    .configure(profile, &mut config)?;
                 return Ok(config);
             }
         }
@@ -71,7 +81,11 @@ impl Service {
         }
         // A running tab, or an Administrator one on its secure desktop, is
         // used as it is, as before.
-        if self.terminals.get(&tab).is_some_and(|terminal| terminal.start_deadline.is_none()) {
+        if self
+            .terminals
+            .get(&tab)
+            .is_some_and(|terminal| terminal.start_deadline.is_none())
+        {
             return Ok(());
         }
         // startup_state enforces the start's own 12 s deadline.
@@ -88,7 +102,10 @@ impl Service {
         if !self.terminals.contains_key(&tab) {
             self.start_terminal_policy(tab, false)?;
         }
-        Ok(self.terminals.get(&tab).is_some_and(|terminal| terminal.start_deadline.is_some())
+        Ok(self
+            .terminals
+            .get(&tab)
+            .is_some_and(|terminal| terminal.start_deadline.is_some())
             && !self.start_settled(tab))
     }
     /// True once `tab`'s start succeeded, failed or ran out of time.
@@ -102,7 +119,9 @@ impl Service {
         let pending = self
             .terminals
             .values()
-            .filter(|terminal| terminal.startup.is_none() && terminal.runtime.phase() == Phase::Starting)
+            .filter(|terminal| {
+                terminal.startup.is_none() && terminal.runtime.phase() == Phase::Starting
+            })
             .filter_map(|terminal| terminal.start_deadline);
         next_live(pending, Instant::now())
     }
@@ -110,7 +129,10 @@ impl Service {
     fn startup_state(&mut self, tab: TabId) -> Result<Option<()>> {
         self.assert_owned()?;
         self.drain(tab)?;
-        let terminal = self.terminals.get(&tab).context("Terminal is not running.")?;
+        let terminal = self
+            .terminals
+            .get(&tab)
+            .context("Terminal is not running.")?;
         // Keep the original owner; propagate only its typed startup error,
         // never PTY output or failed-source presentation evidence.
         if let Some(Err(error)) = terminal.startup.as_ref() {
@@ -120,8 +142,13 @@ impl Service {
         }
         match terminal.runtime.phase() {
             Phase::Active => Ok(Some(())),
-            Phase::Closed => bail!("Terminal launch failed; closed owner retained until confirmed cleanup."),
-            _ if terminal.start_deadline.is_some_and(|deadline| Instant::now() >= deadline) => {
+            Phase::Closed => {
+                bail!("Terminal launch failed; closed owner retained until confirmed cleanup.")
+            }
+            _ if terminal
+                .start_deadline
+                .is_some_and(|deadline| Instant::now() >= deadline) =>
+            {
                 bail!("Terminal startup timed out; owner retained for cleanup.")
             }
             _ => Ok(None),
@@ -146,8 +173,14 @@ impl Service {
         if let Some(terminal) = self.terminals.get_mut(&tab) {
             if let Some(account) = terminal.wsl_account.take() {
                 let id = terminal.runtime.identity();
-                let identity = TerminalIdentity { tab_id: tab, generation: id.generation };
-                if let Err(error) = self.host.record_wsl_launch_account(identity, account.clone()) {
+                let identity = TerminalIdentity {
+                    tab_id: tab,
+                    generation: id.generation,
+                };
+                if let Err(error) = self
+                    .host
+                    .record_wsl_launch_account(identity, account.clone())
+                {
                     if let Some(terminal) = self.terminals.get_mut(&tab) {
                         terminal.wsl_account = Some(account);
                     }
@@ -161,11 +194,7 @@ impl Service {
     pub(crate) fn start_administrator_tab(&mut self, tab: TabId) -> Result<()> {
         self.start_terminal_policy(tab, true)
     }
-    fn start_terminal_policy(
-        &mut self,
-        tab: TabId,
-        explicit_admin: bool,
-    ) -> Result<()> {
+    fn start_terminal_policy(&mut self, tab: TabId, explicit_admin: bool) -> Result<()> {
         self.assert_accepting()?;
         if self.terminals.len() >= 64 {
             bail!("At most 64 live terminals are supported by one host.");
@@ -174,7 +203,11 @@ impl Service {
         let administrator = launch.profile_id.as_str() == ADMIN_POWERSHELL_PROFILE;
         #[cfg(windows)]
         let wsl_launch = launch.profile_id.as_str().starts_with("wsl:").then(|| {
-            (launch.profile_id.clone(), launch.wsl_launch.clone(), launch.cwd.clone())
+            (
+                launch.profile_id.clone(),
+                launch.wsl_launch.clone(),
+                launch.cwd.clone(),
+            )
         });
         if administrator && !explicit_admin {
             bail!("Open a new Administrator PowerShell tab to request elevation.");
@@ -193,8 +226,12 @@ impl Service {
         let mut config = self.launch_config(launch)?;
         #[cfg(windows)]
         let wsl_account = match wsl_launch {
-            Some((profile, binding, cwd)) => self.catalog.wsl.cache.ready()?
-                .pin_launch_account(profile.as_str(), binding.as_ref(), &cwd, &mut config)?,
+            Some((profile, binding, cwd)) => self.catalog.wsl.cache.ready()?.pin_launch_account(
+                profile.as_str(),
+                binding.as_ref(),
+                &cwd,
+                &mut config,
+            )?,
             None => None,
         };
         let registration = TerminalIdentity {
@@ -209,9 +246,7 @@ impl Service {
                 return Err(error);
             }
         };
-        let start_ordinary = |config, hooks| {
-            Runtime::start_with_hooks(identity, config, hooks)
-        };
+        let start_ordinary = |config, hooks| Runtime::start_with_hooks(identity, config, hooks);
         #[cfg(windows)]
         let started = match helper {
             Some(helper) => Runtime::start_administrator(identity, config, helper, hooks),
@@ -256,7 +291,11 @@ mod tests {
     fn a_passed_start_deadline_does_not_drive_the_pass_timeout() {
         let now = Instant::now();
         let (past, soon) = (now - Duration::from_secs(1), now + Duration::from_secs(1));
-        assert_eq!(next_live([past].into_iter(), now), None, "a missed waiter must not make the owner spin");
+        assert_eq!(
+            next_live([past].into_iter(), now),
+            None,
+            "a missed waiter must not make the owner spin"
+        );
         assert_eq!(next_live([past, soon].into_iter(), now), Some(soon));
     }
     use shellfox_core::{CreateSession, EnvVar, ProfileId, SessionId};
@@ -277,22 +316,39 @@ mod tests {
             .unwrap();
         let tab = session.selection.tab_id.unwrap();
         let env = vec![
-            EnvVar { name: "PATH".into(), value: "/tools".into() },
-            EnvVar { name: "NODE_OPTIONS".into(), value: "--max-old-space-size=64".into() },
+            EnvVar {
+                name: "PATH".into(),
+                value: "/tools".into(),
+            },
+            EnvVar {
+                name: "NODE_OPTIONS".into(),
+                value: "--max-old-space-size=64".into(),
+            },
         ];
         service.host().set_terminal_env(env).unwrap();
-        let config = service.launch_config(service.host().terminal_launch(tab).unwrap()).unwrap();
+        let config = service
+            .launch_config(service.host().terminal_launch(tab).unwrap())
+            .unwrap();
         assert_eq!(config.environment, TerminalEnvironment::User);
         assert_eq!(config.cwd, data.path());
-        assert_eq!(config.env.get(std::ffi::OsStr::new("PATH")).unwrap(), "/tools");
-        assert_eq!(config.terminal_marker.as_deref(), Some(tab.to_string().as_str()));
+        assert_eq!(
+            config.env.get(std::ffi::OsStr::new("PATH")).unwrap(),
+            "/tools"
+        );
+        assert_eq!(
+            config.terminal_marker.as_deref(),
+            Some(tab.to_string().as_str())
+        );
         assert!(!data.path().join("terminal-home").exists());
         // A custom data directory has no 0.9 root to name.
         assert!(config.host_paths.is_empty());
     }
 
     fn tab_in(service: &Service, profile: &str) -> TabId {
-        let env = vec![EnvVar { name: "NODE_OPTIONS".into(), value: "--require=x".into() }];
+        let env = vec![EnvVar {
+            name: "NODE_OPTIONS".into(),
+            value: "--require=x".into(),
+        }];
         let snapshot = service
             .host()
             .create_session(CreateSession {
@@ -302,7 +358,10 @@ mod tests {
                 profile_id: ProfileId::new(profile).unwrap(),
             })
             .unwrap();
-        service.host().set_session_env(snapshot.sessions[0].id, env).unwrap();
+        service
+            .host()
+            .set_session_env(snapshot.sessions[0].id, env)
+            .unwrap();
         snapshot.selection.tab_id.unwrap()
     }
 
@@ -313,12 +372,19 @@ mod tests {
         std::fs::create_dir_all(&data).unwrap();
         let service = Service::open_owned(&data, &std::env::current_exe().unwrap()).unwrap();
         let tab = tab_in(&service, "cmd");
-        let config = service.launch_config(service.host().terminal_launch(tab).unwrap()).unwrap();
+        let config = service
+            .launch_config(service.host().terminal_launch(tab).unwrap())
+            .unwrap();
         assert_eq!(
-            config.host_paths.get(std::ffi::OsStr::new("SHELLFOX_USER_DATA")).map(PathBuf::from),
+            config
+                .host_paths
+                .get(std::ffi::OsStr::new("SHELLFOX_USER_DATA"))
+                .map(PathBuf::from),
             Some(scratch.path().join("Shellfox"))
         );
-        assert!(config.env.contains_key(std::ffi::OsStr::new("NODE_OPTIONS")));
+        assert!(config
+            .env
+            .contains_key(std::ffi::OsStr::new("NODE_OPTIONS")));
     }
 
     #[cfg(windows)]
@@ -326,9 +392,17 @@ mod tests {
     fn administrator_tabs_carry_no_settings_or_session_variables() {
         let data = crate::tests::scratch();
         let service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
-        service.host().set_terminal_env(vec![EnvVar { name: "PATH".into(), value: "/x".into() }]).unwrap();
+        service
+            .host()
+            .set_terminal_env(vec![EnvVar {
+                name: "PATH".into(),
+                value: "/x".into(),
+            }])
+            .unwrap();
         let tab = tab_in(&service, ADMIN_POWERSHELL_PROFILE);
-        let config = service.launch_config(service.host().terminal_launch(tab).unwrap()).unwrap();
+        let config = service
+            .launch_config(service.host().terminal_launch(tab).unwrap())
+            .unwrap();
         assert!(config.env.is_empty());
     }
 }

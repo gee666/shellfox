@@ -102,10 +102,17 @@ fn project_session(
     header
         .validate()
         .map_err(|_| unavailable("Session metadata is invalid."))?;
-    let replay = session.tabs.iter().filter(|tab| !private.contains(&tab.id)).any(|tab| {
-        source.terminals.iter().any(|terminal| terminal.identity.session_id == session.id
-            && terminal.identity.tab_id == tab.id && terminal.automation_exit_code.is_some())
-    });
+    let replay = session
+        .tabs
+        .iter()
+        .filter(|tab| !private.contains(&tab.id))
+        .any(|tab| {
+            source.terminals.iter().any(|terminal| {
+                terminal.identity.session_id == session.id
+                    && terminal.identity.tab_id == tab.id
+                    && terminal.automation_exit_code.is_some()
+            })
+        });
     let (adapter_id, shell_id) = if replay {
         // The legacy wire format requires these fields. Match Electron's
         // automation DTO without recording a shell that was never started.
@@ -114,7 +121,9 @@ fn project_session(
         let creation = source.creation_facts.get(&session.id).ok_or_else(|| {
             incompatible("V1 requires recorded session creation adapter/shell facts. No settings/first-tab backfill is allowed.")
         })?;
-        creation.validate().map_err(|_| unavailable("Persisted session creation facts are invalid."))?;
+        creation
+            .validate()
+            .map_err(|_| unavailable("Persisted session creation facts are invalid."))?;
         (adapter(creation.adapter_id), shell(creation.shell_id))
     };
     let tab_facts: HashMap<_, _> = session

@@ -1,7 +1,7 @@
 use super::{FileOperation, Files, Preview, image_editor::ImageEditor};
 use crate::{
-    root::Root,
     peers::source::{Phase, Source},
+    root::Root,
 };
 use gpui::Context;
 use shellfox_files::{EditorCancellation, ErrorCode, FileError, ReadResult};
@@ -89,7 +89,9 @@ impl Root {
     }
 
     fn revalidate_peer_files(&mut self, explicit: bool, cx: &mut Context<Self>) {
-        let Some(files) = &self.files.panel else { return };
+        let Some(files) = &self.files.panel else {
+            return;
+        };
         let cached = self.files_source_current();
         let (fresh, preferred) = if cached {
             if !files.check_cached_revision
@@ -116,7 +118,9 @@ impl Root {
             return;
         }
         let epoch = files.source_epoch;
-        let Some(files) = &mut self.files.panel else { return };
+        let Some(files) = &mut self.files.panel else {
+            return;
+        };
         let path = files.opened_revision().map(|file| file.path().to_owned());
         let previous = files.backend.clone();
         files.request += 1;
@@ -139,13 +143,16 @@ impl Root {
             let _ = root.update(cx, |root, cx| {
                 let current = root.source_selection_epoch() == epoch
                     && root
-                        .files.panel
+                        .files
+                        .panel
                         .as_ref()
                         .is_some_and(|files| files.source == root.peers.selected)
                     && !root.close.closing
                     && !root.peer_ui.frozen
                     && root.active_file_tab(&fresh);
-                let Some(files) = &mut root.files.panel else { return };
+                let Some(files) = &mut root.files.panel else {
+                    return;
+                };
                 if files.request != request || !files.backend.same_origin(&previous) {
                     return;
                 }

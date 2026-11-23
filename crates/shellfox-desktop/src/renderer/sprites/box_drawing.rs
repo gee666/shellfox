@@ -134,7 +134,11 @@ struct Axis {
 
 impl Axis {
     fn width(self, style: u8) -> i32 {
-        if style == H { self.light * 2 } else { self.light }
+        if style == H {
+            self.light * 2
+        } else {
+            self.light
+        }
     }
 
     /// Start of a centered single stroke.
@@ -153,11 +157,19 @@ impl Axis {
 /// shares a side with the stroke: 0 for the first double stroke or a single.
 fn low_end(along: Axis, style: u8, perpendicular: [u8; 2], opposite: u8, side: usize) -> i32 {
     let double = perpendicular.contains(&D);
-    let single = perpendicular.iter().copied().filter(|&s| s == L || s == H).max();
+    let single = perpendicular
+        .iter()
+        .copied()
+        .filter(|&s| s == L || s == H)
+        .max();
     let (d, light) = (along.double(), along.light);
     if style == D {
         return if double {
-            if perpendicular[side] != N { d + light } else { d + 3 * light }
+            if perpendicular[side] != N {
+                d + light
+            } else {
+                d + 3 * light
+            }
         } else if let Some(single) = single {
             along.single(single) + along.width(single)
         } else {
@@ -178,11 +190,19 @@ fn low_end(along: Axis, style: u8, perpendicular: [u8; 2], opposite: u8, side: u
 /// Mirror of `low_end` for the arm toward the high end (right or down).
 fn high_start(along: Axis, style: u8, perpendicular: [u8; 2], opposite: u8, side: usize) -> i32 {
     let double = perpendicular.contains(&D);
-    let single = perpendicular.iter().copied().filter(|&s| s == L || s == H).max();
+    let single = perpendicular
+        .iter()
+        .copied()
+        .filter(|&s| s == L || s == H)
+        .max();
     let (d, light) = (along.double(), along.light);
     if style == D {
         return if double {
-            if perpendicular[side] != N { d + 2 * light } else { d }
+            if perpendicular[side] != N {
+                d + 2 * light
+            } else {
+                d
+            }
         } else if let Some(single) = single {
             along.single(single)
         } else {
@@ -204,7 +224,10 @@ fn high_start(along: Axis, style: u8, perpendicular: [u8; 2], opposite: u8, side
 fn strokes(across: Axis, style: u8) -> Vec<(i32, i32)> {
     if style == D {
         let d = across.double();
-        vec![(d, d + across.light), (d + 2 * across.light, d + 3 * across.light)]
+        vec![
+            (d, d + across.light),
+            (d + 2 * across.light, d + 3 * across.light),
+        ]
     } else {
         let s = across.single(style);
         vec![(s, s + across.width(style))]
@@ -213,19 +236,35 @@ fn strokes(across: Axis, style: u8) -> Vec<(i32, i32)> {
 
 pub(super) fn paint(ch: char, p: &mut Painter) {
     let light = p.cell.light();
-    let horizontal = Axis { size: p.cell.w, light };
-    let vertical = Axis { size: p.cell.h, light };
+    let horizontal = Axis {
+        size: p.cell.w,
+        light,
+    };
+    let vertical = Axis {
+        size: p.cell.h,
+        light,
+    };
     let Some([up, right, down, left]) = arms(ch) else {
         return special(ch, p);
     };
     if left != N {
         for (side, (y0, y1)) in strokes(vertical, left).into_iter().enumerate() {
-            p.rect(0, y0, low_end(horizontal, left, [up, down], right, side), y1);
+            p.rect(
+                0,
+                y0,
+                low_end(horizontal, left, [up, down], right, side),
+                y1,
+            );
         }
     }
     if right != N {
         for (side, (y0, y1)) in strokes(vertical, right).into_iter().enumerate() {
-            p.rect(high_start(horizontal, right, [up, down], left, side), y0, horizontal.size, y1);
+            p.rect(
+                high_start(horizontal, right, [up, down], left, side),
+                y0,
+                horizontal.size,
+                y1,
+            );
         }
     }
     if up != N {
@@ -235,7 +274,12 @@ pub(super) fn paint(ch: char, p: &mut Painter) {
     }
     if down != N {
         for (side, (x0, x1)) in strokes(horizontal, down).into_iter().enumerate() {
-            p.rect(x0, high_start(vertical, down, [left, right], up, side), x1, vertical.size);
+            p.rect(
+                x0,
+                high_start(vertical, down, [left, right], up, side),
+                x1,
+                vertical.size,
+            );
         }
     }
 }
@@ -316,7 +360,11 @@ fn rounded(ch: char, p: &mut Painter, horizontal: Axis, vertical: Axis, radius: 
     let rf = r as f32;
     let vertical_end = (cx, if down { cy + rf } else { cy - rf });
     let horizontal_end = (if right { cx + rf } else { cx - rf }, cy);
-    p.path(&[vertical_end, horizontal_end], Some(light as f32), Some((cx, cy)));
+    p.path(
+        &[vertical_end, horizontal_end],
+        Some(light as f32),
+        Some((cx, cy)),
+    );
 }
 
 #[cfg(test)]
@@ -338,7 +386,10 @@ mod tests {
     #[test]
     fn straight_lines_meet_at_the_center_and_cross_singles_fully() {
         // ─: both halves meet at the middle, no gap.
-        assert_eq!(low_end(CELL, L, [N, N], L, 0), high_start(CELL, L, [N, N], L, 0));
+        assert_eq!(
+            low_end(CELL, L, [N, N], L, 0),
+            high_start(CELL, L, [N, N], L, 0)
+        );
         // ┤: the left arm covers the whole vertical stroke.
         assert_eq!(low_end(CELL, L, [L, L], N, 0), CELL.single(L) + 1);
         // ╴: a lone half line reaches just past the center.

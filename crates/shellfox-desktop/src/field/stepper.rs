@@ -24,13 +24,23 @@ impl NumberKind {
 
     fn step(self, value: &str, direction: f64) -> Option<String> {
         let (min, max) = self.range();
-        let current = value.trim().parse::<f64>().ok().filter(|value| value.is_finite());
+        let current = value
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite());
         let next = match current {
             None => min,
-            Some(value) if value < min && direction < 0. || value > max && direction > 0. => return None,
+            Some(value) if value < min && direction < 0. || value > max && direction > 0. => {
+                return None;
+            }
             // Only hours accept fractions; other kinds step to the next whole number.
             Some(value) if !matches!(self, Self::Hours) && value.fract() != 0. => {
-                if direction > 0. { value.ceil() } else { value.floor() }
+                if direction > 0. {
+                    value.ceil()
+                } else {
+                    value.floor()
+                }
             }
             Some(value) => value + direction,
         }
@@ -41,10 +51,20 @@ impl NumberKind {
 
 impl Field {
     pub(super) fn step(&mut self, increase: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.read_only || self.marked.is_some() { return; }
-        let Some(value) = self.number_kind.and_then(|kind| kind.step(&self.text, if increase { 1. } else { -1. })) else { return; };
+        if self.read_only || self.marked.is_some() {
+            return;
+        }
+        let Some(value) = self
+            .number_kind
+            .and_then(|kind| kind.step(&self.text, if increase { 1. } else { -1. }))
+        else {
+            return;
+        };
         self.focus.focus(window);
-        if self.replace(Some(0..self.text.encode_utf16().count()), &value).is_some() {
+        if self
+            .replace(Some(0..self.text.encode_utf16().count()), &value)
+            .is_some()
+        {
             cx.notify();
         }
     }

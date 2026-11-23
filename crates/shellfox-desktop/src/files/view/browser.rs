@@ -91,24 +91,37 @@ impl Root {
                     .child(files.location.clone()),
             )
             .when(files.backend.is_local(), |line| {
-                line.child(Control::Browse.wrap(
-                    self, "Browse folders", !busy, Some(&files.browser_focus.browse),
-                    icon_button("browse-files", "folder", palette, !busy)
-                        .tooltip(crate::assets::tooltip("Browse folders", palette))
-                        .when(!busy, |button| {
-                            button.track_focus(&files.browser_focus.browse).on_click(
-                                cx.listener(|root, _, window, cx| root.browse_files(window, cx)),
-                            )
-                        }),
-                ))
+                line.child(
+                    Control::Browse.wrap(
+                        self,
+                        "Browse folders",
+                        !busy,
+                        Some(&files.browser_focus.browse),
+                        icon_button("browse-files", "folder", palette, !busy)
+                            .tooltip(crate::assets::tooltip("Browse folders", palette))
+                            .when(!busy, |button| {
+                                button.track_focus(&files.browser_focus.browse).on_click(
+                                    cx.listener(|root, _, window, cx| {
+                                        root.browse_files(window, cx)
+                                    }),
+                                )
+                            }),
+                    ),
+                )
             })
-            .child(Control::SubmitPath.wrap(self, "Open path", !busy, None,
-                text_button_enabled("files-go", "Go", palette, !busy)
-                    .tooltip(crate::assets::tooltip("Open path", palette))
-                    .when(!busy, |button| {
-                        button.on_click(cx.listener(|root, _, _, cx| root.submit_file_path(cx)))
-                    }),
-            ))
+            .child(
+                Control::SubmitPath.wrap(
+                    self,
+                    "Open path",
+                    !busy,
+                    None,
+                    text_button_enabled("files-go", "Go", palette, !busy)
+                        .tooltip(crate::assets::tooltip("Open path", palette))
+                        .when(!busy, |button| {
+                            button.on_click(cx.listener(|root, _, _, cx| root.submit_file_path(cx)))
+                        }),
+                ),
+            )
             .child(
                 text_button_enabled("refresh-files", "↻", palette, !busy)
                     .tooltip(crate::assets::tooltip("Refresh files", palette))
@@ -203,7 +216,9 @@ impl Root {
                             && files.missing_folder.is_none()
                             && !match_list.is_empty(),
                         |browser| {
-                            browser.child(completion_list(self, match_list, files, palette, window, cx))
+                            browser.child(completion_list(
+                                self, match_list, files, palette, window, cx,
+                            ))
                         },
                     ),
             )
@@ -219,7 +234,8 @@ impl Root {
 
 fn set_keyboard_focus(root: &mut Root, visible: bool, cx: &mut Context<Root>) {
     if let Some(files) = root
-        .files.panel
+        .files
+        .panel
         .as_mut()
         .filter(|files| files.tree.keyboard_focus != visible)
     {

@@ -43,7 +43,10 @@ impl RemoteService<'_> {
         kind: Kind,
     ) -> Result<serde_json::Value, AppError> {
         if self.state.closing.is_some() {
-            return Err(failure(ErrorCode::NativeUnavailable, "The host is busy closing a tab."));
+            return Err(failure(
+                ErrorCode::NativeUnavailable,
+                "The host is busy closing a tab.",
+            ));
         }
         let (send, outcome) = mpsc::channel();
         let actor = actor.clone();
@@ -64,7 +67,11 @@ impl RemoteService<'_> {
                 let _ = send.send(result);
             }),
         );
-        self.state.closing = Some(Closing { kind, outcome, request: None });
+        self.state.closing = Some(Closing {
+            kind,
+            outcome,
+            request: None,
+        });
         Ok(serde_json::Value::Null)
     }
     /// Keeps the request whose dispatch just started a close.
@@ -80,10 +87,17 @@ impl RemoteService<'_> {
 }
 impl RemoteState {
     /// Holds `request` behind a close in flight. Returns it when it may run now.
-    pub(super) fn hold(&mut self, service: &Service, request: OwnerRequest) -> Option<OwnerRequest> {
+    pub(super) fn hold(
+        &mut self,
+        service: &Service,
+        request: OwnerRequest,
+    ) -> Option<OwnerRequest> {
         // Disconnect only releases this view; it writes no metadata.
         if !service.metadata_busy()
-            || matches!(request.command, OwnerCommand::Poll { .. } | OwnerCommand::Disconnect { .. })
+            || matches!(
+                request.command,
+                OwnerCommand::Poll { .. } | OwnerCommand::Disconnect { .. }
+            )
         {
             return Some(request);
         }
@@ -110,23 +124,33 @@ impl RemoteState {
     }
     /// Answers the peer request of a finished close.
     pub(super) fn finish_close(&mut self, service: &mut Service) {
-        let outcome = match self.closing.as_ref().map(|closing| closing.outcome.try_recv()) {
+        let outcome = match self
+            .closing
+            .as_ref()
+            .map(|closing| closing.outcome.try_recv())
+        {
             None | Some(Err(mpsc::TryRecvError::Empty)) => return,
             Some(Ok(outcome)) => outcome,
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
                 Err(anyhow::anyhow!("The close ended without an outcome."))
             }
         };
-        let Some(Closing { kind, request: Some(request), .. }) = self.closing.take() else {
+        let Some(Closing {
+            kind,
+            request: Some(request),
+            ..
+        }) = self.closing.take()
+        else {
             return;
         };
         // A revoked peer gets its authorization error, not a cleanup failure.
         let outcome = outcome.map_err(|error| error.downcast::<Refused>());
         let response = match (outcome, kind) {
             (Err(Ok(Refused(error))), _) => Err(error),
-            (Ok(snapshot), Kind::Tab { session }) => {
-                self.bind(service).session(&snapshot, session).and_then(checked)
-            }
+            (Ok(snapshot), Kind::Tab { session }) => self
+                .bind(service)
+                .session(&snapshot, session)
+                .and_then(checked),
             (Ok(_), Kind::Session { session }) => {
                 self.facts.sessions.remove(&session);
                 checked(wire::Deleted { deleted: true })

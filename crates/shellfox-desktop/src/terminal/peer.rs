@@ -127,10 +127,16 @@ impl Peer {
         Ok(())
     }
     fn kick(&self) {
-        self.kick.send_modify(|count| *count = count.wrapping_add(1));
+        self.kick
+            .send_modify(|count| *count = count.wrapping_add(1));
     }
     /// Fires on connection state changes and on locally queued work.
-    pub(super) fn changes(&self) -> (tokio::sync::watch::Receiver<u64>, tokio::sync::watch::Receiver<u64>) {
+    pub(super) fn changes(
+        &self,
+    ) -> (
+        tokio::sync::watch::Receiver<u64>,
+        tokio::sync::watch::Receiver<u64>,
+    ) {
         (self.binding.state_changes(), self.kick.subscribe())
     }
 }

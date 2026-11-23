@@ -1,8 +1,4 @@
-use crate::{
-    field::Field,
-    dialogs::Dialog,
-    root::Root,
-};
+use crate::{dialogs::Dialog, field::Field, root::Root};
 use gpui::{Context, Entity, FocusHandle, ScrollHandle, Subscription, Window};
 use shellfox_host::SessionId;
 use std::{path::PathBuf, time::Duration};
@@ -90,7 +86,8 @@ impl Root {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.dialogs.current.is_some() || self.dialogs.user_action_pending || self.close.closing {
+        if self.dialogs.current.is_some() || self.dialogs.user_action_pending || self.close.closing
+        {
             return;
         }
         let path = Field::directory(cx);

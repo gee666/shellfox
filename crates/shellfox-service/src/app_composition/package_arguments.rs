@@ -1,6 +1,6 @@
 //! Optional trusted portable-package selection; validation does not discover resources.
 use super::ApplicationProviderResources;
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{bail, ensure, Context, Result};
 use std::{
     ffi::OsString,
     path::{Component, Path, PathBuf},

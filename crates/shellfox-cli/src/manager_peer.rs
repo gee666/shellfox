@@ -9,10 +9,7 @@ use shellfox_protocol::{
     AuthenticatedPeerId, ClientId, Endpoint, OutboundTransport, Reply, RequestLimits,
     TransportError, TransportFuture,
 };
-use shellfox_service::{
-    local::LocalClient,
-    remote::RemoteRequest,
-};
+use shellfox_service::{local::LocalClient, remote::RemoteRequest};
 
 struct Outgoing<'a>(&'a LocalClient);
 impl OutboundTransport for Outgoing<'_> {

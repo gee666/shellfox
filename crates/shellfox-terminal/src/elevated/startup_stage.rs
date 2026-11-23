@@ -1,5 +1,6 @@
 pub(super) const DENIED: &str = "Windows administrator approval was denied or dismissed.";
-pub(super) const WAIT_CANCELLED: &str = "Administrator PowerShell was cancelled while waiting for Windows approval.";
+pub(super) const WAIT_CANCELLED: &str =
+    "Administrator PowerShell was cancelled while waiting for Windows approval.";
 const STARTED: &str = "Elevated helper started but failed at ";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

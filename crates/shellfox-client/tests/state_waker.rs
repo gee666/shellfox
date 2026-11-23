@@ -93,7 +93,14 @@ fn a_changed_event_moves_the_catalog_counter_and_wakes() {
     block_on(client.pair()).unwrap();
     let wakes = counter(&client);
     block_on(client.poll()).unwrap();
-    assert_eq!((client.state().catalog, wakes.load(Ordering::SeqCst)), (1, 1));
+    assert_eq!(
+        (client.state().catalog, wakes.load(Ordering::SeqCst)),
+        (1, 1)
+    );
     block_on(client.poll()).unwrap();
-    assert_eq!((client.state().catalog, wakes.load(Ordering::SeqCst)), (1, 1), "no change, no wake");
+    assert_eq!(
+        (client.state().catalog, wakes.load(Ordering::SeqCst)),
+        (1, 1),
+        "no change, no wake"
+    );
 }

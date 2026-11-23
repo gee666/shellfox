@@ -39,7 +39,10 @@ impl SettingsPanel {
     /// The effective default, as 0.9 showed it: the saved one only if this host can run it.
     pub(super) fn selected_shell(&self) -> Option<&api::Profile> {
         let saved = self.configured_shell_id().unwrap_or_default();
-        let usable = self.shell_profiles().filter(|p| p.available).map(|p| p.id.as_str());
+        let usable = self
+            .shell_profiles()
+            .filter(|p| p.available)
+            .map(|p| p.id.as_str());
         let id = shellfox_service::effective_default_profile(saved, usable)?;
         self.shell_profiles().find(|profile| profile.id == id)
     }

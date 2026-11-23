@@ -221,7 +221,12 @@ impl SemanticFrame {
     }
 
     pub(super) fn recorded_since(&self, start: usize) -> Vec<SemanticNode> {
-        self.data.borrow().nodes.get(start..).map(<[_]>::to_vec).unwrap_or_default()
+        self.data
+            .borrow()
+            .nodes
+            .get(start..)
+            .map(<[_]>::to_vec)
+            .unwrap_or_default()
     }
 
     /// Fail publication without changing the original UI. Render-time errors survive begin_frame.

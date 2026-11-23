@@ -52,8 +52,12 @@ fn select_folder(parent: isize) -> anyhow::Result<Option<PathBuf>> {
 pub(super) fn choose(window: &Window, cx: &App) -> Task<anyhow::Result<Option<PathBuf>>> {
     use ashpd::{WindowIdentifier, desktop::file_chooser::OpenFileRequest};
     use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
-    let parent = HasWindowHandle::window_handle(window).ok().map(|handle| handle.as_raw());
-    let display = HasDisplayHandle::display_handle(window).ok().map(|handle| handle.as_raw());
+    let parent = HasWindowHandle::window_handle(window)
+        .ok()
+        .map(|handle| handle.as_raw());
+    let display = HasDisplayHandle::display_handle(window)
+        .ok()
+        .map(|handle| handle.as_raw());
     cx.foreground_executor().spawn(async move {
         let owner = match parent {
             Some(parent) => WindowIdentifier::from_raw_handle(&parent, display.as_ref()).await,

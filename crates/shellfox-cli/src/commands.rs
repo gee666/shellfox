@@ -6,8 +6,8 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use shellfox_core::Snapshot;
 use shellfox_service::{
-    local_api::{LocalApiRequest, LocalApiResponse},
     local::{self, LocalClient},
+    local_api::{LocalApiRequest, LocalApiResponse},
 };
 
 /// The host owner stays on this thread, outside block_on, like the desktop host.

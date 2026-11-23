@@ -38,11 +38,11 @@ mod private;
 mod private_client;
 mod start;
 mod wake;
-pub use wake::{OwnerWake, OwnerWakeSlot};
 pub(crate) use cleanup::report_warning;
 use cleanup::StartupFailure;
-pub(crate) use start::StartError;
 pub use native_reply::{LocalApiAccepted, NativeAccepted};
+pub(crate) use start::StartError;
+pub use wake::{OwnerWake, OwnerWakeSlot};
 
 const CAPACITY: usize = 16;
 #[derive(Clone)]
@@ -85,15 +85,20 @@ impl ServiceOwner {
                     let _ = finished.send(cleanup::committed());
                     return;
                 }
-                let mut service =
-                    match Self::open_for_actor(&directory, &supervisor, &lost, lifetime, owner_notifier(&wake)) {
-                        Ok(service) => service,
-                        Err(failure) => {
-                            let _ = ready.send(Err(failure.cause));
-                            let _ = finished.send(failure.shutdown);
-                            return;
-                        }
-                    };
+                let mut service = match Self::open_for_actor(
+                    &directory,
+                    &supervisor,
+                    &lost,
+                    lifetime,
+                    owner_notifier(&wake),
+                ) {
+                    Ok(service) => service,
+                    Err(failure) => {
+                        let _ = ready.send(Err(failure.cause));
+                        let _ = finished.send(failure.shutdown);
+                        return;
+                    }
+                };
                 if lost.is_cancelled() {
                     let _ = ready.send(Err(anyhow::anyhow!(
                         "Native ownership lost during service startup."
@@ -153,7 +158,9 @@ impl ServiceOwner {
                         break;
                     }
                     let settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        starting.iter().position(|(tab, _)| service.start_settled(*tab))
+                        starting
+                            .iter()
+                            .position(|(tab, _)| service.start_settled(*tab))
                     }));
                     let Ok(settled) = settled else {
                         break;
@@ -190,27 +197,31 @@ impl ServiceOwner {
                                 .partition(|(_, waiting): &(_, Task)| waiting.client() == client);
                             starting = kept;
                             for (_, waiting) in ended {
-                                waiting.fail(anyhow::anyhow!("The client detached before its attach finished."));
+                                waiting.fail(anyhow::anyhow!(
+                                    "The client detached before its attach finished."
+                                ));
                             }
                             Ok(task)
                         }
-                        Ok(task) if starting.len() < MAX_DEFERRED => match task.start_target(&private) {
-                            Some(tab) => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                service.begin_start(tab)
-                            })) {
-                                Ok(Ok(true)) => {
-                                    starting.push((tab, task));
-                                    continue;
-                                }
-                                Ok(Ok(false)) => Ok(task),
-                                Ok(Err(error)) => {
-                                    task.fail(error);
-                                    continue;
-                                }
-                                Err(_) => break,
-                            },
-                            None => Ok(task),
-                        },
+                        Ok(task) if starting.len() < MAX_DEFERRED => {
+                            match task.start_target(&private) {
+                                Some(tab) => match std::panic::catch_unwind(
+                                    std::panic::AssertUnwindSafe(|| service.begin_start(tab)),
+                                ) {
+                                    Ok(Ok(true)) => {
+                                        starting.push((tab, task));
+                                        continue;
+                                    }
+                                    Ok(Ok(false)) => Ok(task),
+                                    Ok(Err(error)) => {
+                                        task.fail(error);
+                                        continue;
+                                    }
+                                    Err(_) => break,
+                                },
+                                None => Ok(task),
+                            }
+                        }
                         received => received,
                     };
                     match received {
@@ -247,11 +258,17 @@ impl ServiceOwner {
                                     }
                                 };
                             if let Some(target) = request.close_target() {
-                                let admitted = shellfox_protocol::Validate::validate(&request).map_err(anyhow::Error::from);
+                                let admitted = shellfox_protocol::Validate::validate(&request)
+                                    .map_err(anyhow::Error::from);
                                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    service.close_request(target, admitted, Box::new(move |result| {
-                                        let _ = reply.send(result.map(LocalApiResponse::Snapshot));
-                                    }))
+                                    service.close_request(
+                                        target,
+                                        admitted,
+                                        Box::new(move |result| {
+                                            let _ =
+                                                reply.send(result.map(LocalApiResponse::Snapshot));
+                                        }),
+                                    )
                                 }))
                                 .is_err()
                                 {
@@ -307,11 +324,16 @@ impl ServiceOwner {
                                     }
                                 };
                             if let crate::native::NativeAction::Power(request) = *action {
-                                service.request_power(request, cancel, crate::power::service::PowerReply::Native(reply));
+                                service.request_power(
+                                    request,
+                                    cancel,
+                                    crate::power::service::PowerReply::Native(reply),
+                                );
                                 continue;
                             }
                             if matches!(*action, crate::native::NativeAction::TabStats) {
-                                service.enqueue_tab_stats(crate::tab_stats::StatsReply::Native(reply));
+                                service
+                                    .enqueue_tab_stats(crate::tab_stats::StatsReply::Native(reply));
                                 continue;
                             }
                             if matches!(*action, crate::native::NativeAction::TerminalProfiles) {
@@ -326,13 +348,22 @@ impl ServiceOwner {
                             }
                             if let Some(target) = action.close_target() {
                                 let admitted = action.validate().and_then(|()| {
-                                    anyhow::ensure!(controller != 0, "A native controller identity is required.");
+                                    anyhow::ensure!(
+                                        controller != 0,
+                                        "A native controller identity is required."
+                                    );
                                     Ok(())
                                 });
                                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    service.close_request(target, admitted, Box::new(move |result| {
-                                        let _ = reply.send(result.map(crate::native::NativeResponse::Snapshot));
-                                    }))
+                                    service.close_request(
+                                        target,
+                                        admitted,
+                                        Box::new(move |result| {
+                                            let _ = reply.send(
+                                                result.map(crate::native::NativeResponse::Snapshot),
+                                            );
+                                        }),
+                                    )
                                 }))
                                 .is_err()
                                 {

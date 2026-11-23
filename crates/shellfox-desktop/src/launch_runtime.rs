@@ -85,7 +85,10 @@ pub(crate) fn install(cx: &mut App) {
     let task = cx.spawn(async move |cx| {
         let client = match original_host.chrome_client().await {
             Ok(client) => client,
-            Err(error) => { eprintln!("Desktop launch client unavailable: {error:#}"); return; }
+            Err(error) => {
+                eprintln!("Desktop launch client unavailable: {error:#}");
+                return;
+            }
         };
         let delivery = DeliveryClient(client);
         let registration = match delivery.0.desktop_register().await {
@@ -275,9 +278,14 @@ impl LaunchWindowTransport for Windows {
                             .spawn(async move {
                                 // The executor does not catch panics; an uncaught one would hang this launch.
                                 std::panic::catch_unwind(|| {
-                                    crate::frontend_composition::FrontendDirectories::plan(&options)?.prepare()
+                                    crate::frontend_composition::FrontendDirectories::plan(
+                                        &options,
+                                    )?
+                                    .prepare()
                                 })
-                                .unwrap_or_else(|_| Err(anyhow::anyhow!("New-window frontend preparation panicked")))
+                                .unwrap_or_else(|_| {
+                                    Err(anyhow::anyhow!("New-window frontend preparation panicked"))
+                                })
                                 .map(|()| options)
                             })
                             .await

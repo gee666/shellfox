@@ -181,15 +181,31 @@ impl Service {
     /// Existing private CLI protocol is explicitly Legacy until its DTO carries
     /// captured settlement. Missing native contexts never enter this method.
     pub fn input(&mut self, tab: TabId, attachment: &Attachment, bytes: Vec<u8>) -> Result<()> {
-        self.input_with_context(tab, attachment, bytes, true, shellfox_host::CapturedSettlement::Legacy)
+        self.input_with_context(
+            tab,
+            attachment,
+            bytes,
+            true,
+            shellfox_host::CapturedSettlement::Legacy,
+        )
     }
     /// A CLI key, encoded by Ghostty with the terminal's live keyboard modes.
-    pub fn key(&mut self, tab: TabId, attachment: &Attachment, event: shellfox_ghostty_vt::key::KeyEvent) -> Result<()> {
+    pub fn key(
+        &mut self,
+        tab: TabId,
+        attachment: &Attachment,
+        event: shellfox_ghostty_vt::key::KeyEvent,
+    ) -> Result<()> {
         let lease = self.lease(tab, attachment)?;
         let user_initiated = event.action != shellfox_ghostty_vt::key::KeyAction::Release;
-        let admission = crate::activity::integration::InputAdmission::native(user_initiated, false, shellfox_host::CapturedSettlement::Legacy);
+        let admission = crate::activity::integration::InputAdmission::native(
+            user_initiated,
+            false,
+            shellfox_host::CapturedSettlement::Legacy,
+        );
         let response = self.call_input(tab, Command::Key { lease, event }, admission)?;
-        if !matches!(response, Response::Input(receipt) if matches!(receipt.kind, shellfox_runtime::InputKind::Key { .. })) {
+        if !matches!(response, Response::Input(receipt) if matches!(receipt.kind, shellfox_runtime::InputKind::Key { .. }))
+        {
             bail!("Runtime key acceptance was not confirmed; outcome is uncertain and input was not retried.");
         }
         Ok(())
@@ -197,14 +213,26 @@ impl Service {
     /// A CLI paste, framed per the application's bracketed-paste mode.
     pub fn paste(&mut self, tab: TabId, attachment: &Attachment, text: String) -> Result<()> {
         let lease = self.lease(tab, attachment)?;
-        let admission = crate::activity::integration::InputAdmission::native(!text.is_empty(), false, shellfox_host::CapturedSettlement::Legacy);
+        let admission = crate::activity::integration::InputAdmission::native(
+            !text.is_empty(),
+            false,
+            shellfox_host::CapturedSettlement::Legacy,
+        );
         let response = self.call_input(tab, Command::Paste { lease, text }, admission)?;
-        if !matches!(response, Response::Input(receipt) if matches!(receipt.kind, shellfox_runtime::InputKind::Paste { .. })) {
+        if !matches!(response, Response::Input(receipt) if matches!(receipt.kind, shellfox_runtime::InputKind::Paste { .. }))
+        {
             bail!("Runtime paste acceptance was not confirmed; outcome is uncertain and input was not retried.");
         }
         Ok(())
     }
-    fn input_with_context(&mut self, tab: TabId, attachment: &Attachment, bytes: Vec<u8>, user_initiated: bool, settlement: shellfox_host::CapturedSettlement) -> Result<()> {
+    fn input_with_context(
+        &mut self,
+        tab: TabId,
+        attachment: &Attachment,
+        bytes: Vec<u8>,
+        user_initiated: bool,
+        settlement: shellfox_host::CapturedSettlement,
+    ) -> Result<()> {
         let lease = self.lease(tab, attachment)?;
         let length = u32::try_from(bytes.len())?;
         let admission = crate::activity::integration::InputAdmission::raw(
@@ -238,7 +266,12 @@ impl Service {
         attachment: &Attachment,
     ) -> Result<(Vec<u8>, u64, shellfox_runtime::AnsiRecoveryCapability)> {
         let lease = self.lease(tab, attachment)?;
-        let Response::Ansi { bytes, last_sequence, capability } = self.call(tab, Command::RecoverAnsi { lease })? else {
+        let Response::Ansi {
+            bytes,
+            last_sequence,
+            capability,
+        } = self.call(tab, Command::RecoverAnsi { lease })?
+        else {
             bail!("Unexpected runtime recovery response.");
         };
         self.install_recovery_cut(tab, last_sequence)?;
@@ -246,8 +279,13 @@ impl Service {
     }
     fn install_recovery_cut(&mut self, tab: TabId, last_sequence: u64) -> Result<()> {
         self.drain(tab)?;
-        let terminal = self.terminals.get_mut(&tab).context("Terminal is not running.")?;
-        terminal.output.retain(|chunk| chunk.sequence > last_sequence);
+        let terminal = self
+            .terminals
+            .get_mut(&tab)
+            .context("Terminal is not running.")?;
+        terminal
+            .output
+            .retain(|chunk| chunk.sequence > last_sequence);
         terminal.output_bytes = terminal.output.iter().map(|chunk| chunk.bytes.len()).sum();
         terminal.replay_lost = false;
         terminal.recovery_pending = Some(last_sequence);

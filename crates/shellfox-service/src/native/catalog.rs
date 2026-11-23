@@ -12,7 +12,10 @@ const MAX_JOBS: usize = 4;
 /// The profile a new session or tab launches with when none is asked for: the
 /// saved default when this host can run it, else the first one it can. A saved
 /// default can come from another OS, such as 0.9's pwsh on macOS.
-pub fn effective_default_profile<'a>(saved: &str, usable: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+pub fn effective_default_profile<'a>(
+    saved: &str,
+    usable: impl IntoIterator<Item = &'a str>,
+) -> Option<&'a str> {
     let mut first = None;
     for id in usable {
         if id == saved {
@@ -23,7 +26,9 @@ pub fn effective_default_profile<'a>(saved: &str, usable: impl IntoIterator<Item
     first
 }
 /// Ids of the catalog profiles a launch may use: available and not elevated.
-pub fn usable_profiles(profiles: &[shellfox_protocol::TerminalProfile]) -> impl Iterator<Item = &str> {
+pub fn usable_profiles(
+    profiles: &[shellfox_protocol::TerminalProfile],
+) -> impl Iterator<Item = &str> {
     profiles
         .iter()
         .filter(|p| p.available && p.elevation.is_none())
@@ -55,24 +60,39 @@ enum CatalogReply {
 }
 impl CatalogReply {
     fn is_closed(&self) -> bool {
-        match self { Self::Native(reply) => reply.is_closed(), Self::Desktop(reply) => reply.is_closed() }
+        match self {
+            Self::Native(reply) => reply.is_closed(),
+            Self::Desktop(reply) => reply.is_closed(),
+        }
     }
     fn send(self, result: Result<crate::native::NativeResponse>) {
         match self {
-            Self::Native(reply) => { let _ = reply.send(result); }
+            Self::Native(reply) => {
+                let _ = reply.send(result);
+            }
             Self::Desktop(reply) => {
-                let result = result.and_then(crate::local::DesktopReply::try_from).and_then(|response| Ok(serde_json::to_value(response)?));
+                let result = result
+                    .and_then(crate::local::DesktopReply::try_from)
+                    .and_then(|response| Ok(serde_json::to_value(response)?));
                 let _ = reply.send(result);
             }
         }
     }
 }
 impl Service {
-    pub(crate) fn enqueue_native_catalog(&mut self, controller: u64, reply: oneshot::Sender<Result<crate::native::NativeResponse>>) {
+    pub(crate) fn enqueue_native_catalog(
+        &mut self,
+        controller: u64,
+        reply: oneshot::Sender<Result<crate::native::NativeResponse>>,
+    ) {
         self.enqueue_catalog(controller, CatalogReply::Native(reply));
     }
 
-    pub(crate) fn enqueue_desktop_catalog(&mut self, controller: u64, reply: oneshot::Sender<Result<serde_json::Value>>) {
+    pub(crate) fn enqueue_desktop_catalog(
+        &mut self,
+        controller: u64,
+        reply: oneshot::Sender<Result<serde_json::Value>>,
+    ) {
         self.enqueue_catalog(controller, CatalogReply::Desktop(reply));
     }
 
@@ -130,7 +150,9 @@ impl Service {
     }
     pub(crate) fn pump_native_catalog(&mut self) {
         #[cfg(windows)]
-        if self.catalog.wsl.poll() { self.activity.dirty = true; }
+        if self.catalog.wsl.poll() {
+            self.activity.dirty = true;
+        }
         let jobs = std::mem::take(&mut self.catalog.jobs);
         for mut job in jobs {
             if self.stopping || job.reply.as_ref().is_none_or(|reply| reply.is_closed()) {
@@ -183,7 +205,11 @@ impl Service {
                 let wsl_running = false;
                 Ok((service.catalog.jobs.is_empty() && !wsl_running).then_some(()))
             },
-            || anyhow::anyhow!("Original native catalog discovery worker is still running; owner retained."),
+            || {
+                anyhow::anyhow!(
+                    "Original native catalog discovery worker is still running; owner retained."
+                )
+            },
         )
     }
 }

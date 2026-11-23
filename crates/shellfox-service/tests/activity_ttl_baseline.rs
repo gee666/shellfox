@@ -1,8 +1,8 @@
 use shellfox_core::{Generation, SessionId, Settings, TabId};
 use shellfox_runtime::{Identity, Phase};
 use shellfox_service::{
-    activity::{SessionActivity, SessionAging},
     activity::integration::{ActivityClock, InspectionScope, OwnerActivity},
+    activity::{SessionActivity, SessionAging},
 };
 use std::{
     sync::Arc,

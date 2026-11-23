@@ -72,7 +72,11 @@ impl Root {
         layout.heading.clone()
     }
 
-    pub(crate) fn peer_row_focus(&self, peer: &AuthenticatedPeerId, id: SessionId) -> Option<FocusHandle> {
+    pub(crate) fn peer_row_focus(
+        &self,
+        peer: &AuthenticatedPeerId,
+        id: SessionId,
+    ) -> Option<FocusHandle> {
         let layouts = self.peer_ui.sidebar_layout.borrow();
         Some(layouts.get(peer)?.row_focus.get(&id)?.row.clone())
     }
@@ -205,7 +209,9 @@ impl Root {
             } else {
                 copy.focus(window);
             }
-            self.sidebar.list.reveal(&Entry::Peer(cycle.peer.clone(), target));
+            self.sidebar
+                .list
+                .reveal(&Entry::Peer(cycle.peer.clone(), target));
             return true;
         }
         if key == "tab" && mods.shift {
@@ -214,7 +220,9 @@ impl Root {
         }
         if key == "tab" && layout.has_more {
             layout.more.focus(window);
-            self.sidebar.list.reveal(&Entry::PeerMore(cycle.peer.clone()));
+            self.sidebar
+                .list
+                .reveal(&Entry::PeerMore(cycle.peer.clone()));
             return true;
         }
         if key == "tab" {
@@ -232,7 +240,9 @@ impl Root {
             && layout.generation == cycle.generation
             && layout.ids.contains(&id)
         {
-            self.sidebar.list.reveal(&Entry::Peer(cycle.peer.clone(), id));
+            self.sidebar
+                .list
+                .reveal(&Entry::Peer(cycle.peer.clone(), id));
         }
     }
 }

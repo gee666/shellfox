@@ -1,29 +1,95 @@
 use super::*;
 use shellfox_core::{CreateSession, ProfileId};
 #[test]
-fn legacy_all_elevated_session_metadata_is_authorized_but_private_tab_facts_are_never_required_or_returned() {
-    let data=crate::tests::scratch(); let mut service=Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
-    let request=SessionId::new();
-    service.host().create_session_with_facts(CreateSession { request_id: request, title: Some("session metadata".into()), cwd: data.path().to_string_lossy().into_owned(), profile_id: ProfileId::new("admin-only").unwrap() }, shellfox_host::SessionCreationFacts::new(shellfox_core::SettingsAdapter::EmbeddedPty, shellfox_core::SettingsShell::WindowsPowershell)).unwrap();
-    let mut snapshot=service.host().snapshot().unwrap(); let session=snapshot.sessions[0].id; let tab=snapshot.sessions[0].tabs[0].id;
-    snapshot.sessions[0].tabs[0].created_at=None;
-    let private=std::collections::HashSet::from([tab]);
+fn legacy_all_elevated_session_metadata_is_authorized_but_private_tab_facts_are_never_required_or_returned(
+) {
+    let data = crate::tests::scratch();
+    let mut service = Service::open_owned(data.path(), &std::env::current_exe().unwrap()).unwrap();
+    let request = SessionId::new();
+    service
+        .host()
+        .create_session_with_facts(
+            CreateSession {
+                request_id: request,
+                title: Some("session metadata".into()),
+                cwd: data.path().to_string_lossy().into_owned(),
+                profile_id: ProfileId::new("admin-only").unwrap(),
+            },
+            shellfox_host::SessionCreationFacts::new(
+                shellfox_core::SettingsAdapter::EmbeddedPty,
+                shellfox_core::SettingsShell::WindowsPowershell,
+            ),
+        )
+        .unwrap();
+    let mut snapshot = service.host().snapshot().unwrap();
+    let session = snapshot.sessions[0].id;
+    let tab = snapshot.sessions[0].tabs[0].id;
+    snapshot.sessions[0].tabs[0].created_at = None;
+    let private = std::collections::HashSet::from([tab]);
     let source = crate::activity::integration::SourceFacts {
-        sequence: 1, snapshot, settings: service.host().global_settings().unwrap(), terminals: Vec::new(),
+        sequence: 1,
+        snapshot,
+        settings: service.host().global_settings().unwrap(),
+        terminals: Vec::new(),
         creation_facts: service.host().session_creation_facts().unwrap(),
         #[cfg(windows)]
         wsl_profiles: None,
         cancelled: wire::CancellationToken::new(),
     };
-    let facts=crate::facts::projection::project_session_facts_visible(&source, Some(session), &private).unwrap();
+    let facts =
+        crate::facts::projection::project_session_facts_visible(&source, Some(session), &private)
+            .unwrap();
     assert!(facts[&session].tabs.is_empty());
-    let mut state=RemoteState::new(ManagerFacts { sessions:facts, ..Default::default() }, Some(wire::TerminalProfiles { profiles:vec![wire::TerminalProfile { id:"admin-only".into(), label:"Administrator".into(), environment:wire::ProfileEnvironment::Local, executable:"C:\\Windows\\System32\\cmd.exe".into(), args:Vec::new(), distro:None, available:true, unavailable_reason:None, can_terminate_descendants:Some(true), elevation:Some(wire::Elevation::Administrator) }], default_profile_id:None, lifetime:wire::TerminalLifetime::AppOwned, shell_survival:false }), None);
-    let rename=wire::RenameSession { session_id:session, title:"authorized rename".into() };
-    state.bind(&mut service).authorize_profiles(&RemoteCommand::RenameSession(rename.clone())).unwrap();
-    let response=state.bind(&mut service).rename_session_metadata(rename).unwrap();
-    assert_eq!(response["tabs"],serde_json::json!([])); assert_eq!(response["counts"],serde_json::json!({"running":0,"waiting":0,"unknown":0,"error":0,"closed":0,"agents":0}));
-    assert!(!serde_json::to_string(&response).unwrap().contains(&tab.to_string()));
-    assert!(state.bind(&mut service).authorize_profiles(&RemoteCommand::DeleteSession(wire::DeleteSession { session_id:session })).is_err());
+    let mut state = RemoteState::new(
+        ManagerFacts {
+            sessions: facts,
+            ..Default::default()
+        },
+        Some(wire::TerminalProfiles {
+            profiles: vec![wire::TerminalProfile {
+                id: "admin-only".into(),
+                label: "Administrator".into(),
+                environment: wire::ProfileEnvironment::Local,
+                executable: "C:\\Windows\\System32\\cmd.exe".into(),
+                args: Vec::new(),
+                distro: None,
+                available: true,
+                unavailable_reason: None,
+                can_terminate_descendants: Some(true),
+                elevation: Some(wire::Elevation::Administrator),
+            }],
+            default_profile_id: None,
+            lifetime: wire::TerminalLifetime::AppOwned,
+            shell_survival: false,
+        }),
+        None,
+    );
+    let rename = wire::RenameSession {
+        session_id: session,
+        title: "authorized rename".into(),
+    };
+    state
+        .bind(&mut service)
+        .authorize_profiles(&RemoteCommand::RenameSession(rename.clone()))
+        .unwrap();
+    let response = state
+        .bind(&mut service)
+        .rename_session_metadata(rename)
+        .unwrap();
+    assert_eq!(response["tabs"], serde_json::json!([]));
+    assert_eq!(
+        response["counts"],
+        serde_json::json!({"running":0,"waiting":0,"unknown":0,"error":0,"closed":0,"agents":0})
+    );
+    assert!(!serde_json::to_string(&response)
+        .unwrap()
+        .contains(&tab.to_string()));
+    assert!(state
+        .bind(&mut service)
+        .authorize_profiles(&RemoteCommand::DeleteSession(wire::DeleteSession {
+            session_id: session
+        }))
+        .is_err());
 }
 #[test]
 fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated_raw_birth() {
@@ -70,7 +136,8 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
         wsl_profiles: None,
         cancelled: wire::CancellationToken::new(),
     };
-    let scoped = crate::facts::projection::project_session_facts_for(&source, Some(normal)).unwrap();
+    let scoped =
+        crate::facts::projection::project_session_facts_for(&source, Some(normal)).unwrap();
     let mut state = RemoteState::new(
         ManagerFacts {
             sessions: scoped,
@@ -148,14 +215,38 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
     assert_eq!(stats.sessions[0].id, normal);
     // A finished capture fills the live tab's row; an error becomes every row's reason.
     let tab = stats.tabs[0].tab_id;
-    let measured = wire::TabStat { tab_id: tab, processes: Vec::new(), memory_bytes: Some(42), elapsed_seconds: Some(1.0), reason: None };
+    let measured = wire::TabStat {
+        tab_id: tab,
+        processes: Vec::new(),
+        memory_bytes: Some(42),
+        elapsed_seconds: Some(1.0),
+        reason: None,
+    };
     state.stats.measured = Some(Ok(vec![measured.clone()]));
-    let stats = state.bind(&mut service).statistics(wire::GetSessionStats { session_id: Some(normal) }).unwrap();
+    let stats = state
+        .bind(&mut service)
+        .statistics(wire::GetSessionStats {
+            session_id: Some(normal),
+        })
+        .unwrap();
     assert_eq!(stats["tabs"], serde_json::json!([measured]));
-    assert!(state.stats.measured.is_none(), "a measurement answers one request");
-    state.stats.measured = Some(Err(anyhow::anyhow!("Session stats are busy; retry shortly.")));
-    let stats = state.bind(&mut service).statistics(wire::GetSessionStats { session_id: Some(normal) }).unwrap();
-    assert_eq!(stats["tabs"][0]["reason"], "Session stats are busy; retry shortly.");
+    assert!(
+        state.stats.measured.is_none(),
+        "a measurement answers one request"
+    );
+    state.stats.measured = Some(Err(anyhow::anyhow!(
+        "Session stats are busy; retry shortly."
+    )));
+    let stats = state
+        .bind(&mut service)
+        .statistics(wire::GetSessionStats {
+            session_id: Some(normal),
+        })
+        .unwrap();
+    assert_eq!(
+        stats["tabs"][0]["reason"],
+        "Session stats are busy; retry shortly."
+    );
     let read:RemoteCommand=serde_json::from_value(serde_json::json!({"method":"readFile","payload":{"sessionId":normal,"path":data.path().join("owned.txt").to_string_lossy()}})).unwrap();
     state.bind(&mut service).authorize_profiles(&read).unwrap();
     assert!(
@@ -169,10 +260,15 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
         ),
         "the strict projection still reports an unsupported row"
     );
-    let catalog = crate::facts::projection::project_legacy_catalog(&source, None, &Default::default()).unwrap();
+    let catalog =
+        crate::facts::projection::project_legacy_catalog(&source, None, &Default::default())
+            .unwrap();
     state.facts.sessions = catalog.sessions;
     state.facts.omitted_sessions = catalog.omitted_sessions;
-    let stats = state.bind(&mut service).statistics(wire::GetSessionStats { session_id: None }).unwrap();
+    let stats = state
+        .bind(&mut service)
+        .statistics(wire::GetSessionStats { session_id: None })
+        .unwrap();
     let stats: wire::SessionStats = serde_json::from_value(stats).unwrap();
     stats.validate().unwrap();
     assert_eq!(stats.sessions.len(), 1);

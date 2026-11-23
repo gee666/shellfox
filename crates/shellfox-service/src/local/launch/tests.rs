@@ -118,12 +118,10 @@ fn owner_without_desktop_never_submits_or_starts_anything() {
             }
         },
     ));
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("no desktop is registered")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("no desktop is registered"));
 }
 
 #[test]

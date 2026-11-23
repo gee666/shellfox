@@ -271,7 +271,9 @@ impl StartupGate {
         let handles = [self.ready.as_raw_handle().cast(), process];
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         // INFINITE is u32::MAX, so cap one below it.
-        let millis = u32::try_from(left.as_millis()).unwrap_or(u32::MAX - 1).min(u32::MAX - 1);
+        let millis = u32::try_from(left.as_millis())
+            .unwrap_or(u32::MAX - 1)
+            .min(u32::MAX - 1);
         match unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, millis) } {
             WAIT_OBJECT_0 => Ok(true),
             result if result == WAIT_OBJECT_0 + 1 || result == WAIT_TIMEOUT => Ok(false),

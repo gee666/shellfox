@@ -41,37 +41,30 @@ fn missing_pair_duplicate_or_non_external_digest_syntax_is_refused() {
     let mut args = PackageArguments::default();
     args.push("--package-manifest-sha256", "a".repeat(64).into())
         .unwrap();
-    assert!(
-        args.push("--package-manifest-sha256", "b".repeat(64).into())
-            .is_err()
-    );
+    assert!(args
+        .push("--package-manifest-sha256", "b".repeat(64).into())
+        .is_err());
     assert!(args.finish(&data).is_err());
     for value in ["".into(), "a".repeat(63), "a".repeat(65), "g".repeat(64)] {
-        assert!(
-            PackageArguments::default()
-                .push("--package-manifest-sha256", value.into())
-                .is_err()
-        );
+        assert!(PackageArguments::default()
+            .push("--package-manifest-sha256", value.into())
+            .is_err());
     }
 }
 #[test]
 fn paths_cannot_be_relative_traversing_or_overlap_mutable_host_data() {
-    assert!(
-        PackageArguments::default()
-            .push("--package-manifest", "package-manifest.json".into())
-            .is_err()
-    );
+    assert!(PackageArguments::default()
+        .push("--package-manifest", "package-manifest.json".into())
+        .is_err());
     let (path, _) = paths();
     let root = path.parent().unwrap();
-    assert!(
-        PackageArguments::default()
-            .push(
-                "--package-manifest",
-                root.join("../escape/package-manifest.json")
-                    .into_os_string()
-            )
-            .is_err()
-    );
+    assert!(PackageArguments::default()
+        .push(
+            "--package-manifest",
+            root.join("../escape/package-manifest.json")
+                .into_os_string()
+        )
+        .is_err());
     for candidate in [
         root.join("package-manifest.json"),
         root.join("../escape/package-manifest.json"),

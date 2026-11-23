@@ -9,12 +9,12 @@ mod history;
 mod horizontal;
 mod keyboard;
 mod line_ending;
-mod replacement;
 mod native;
 mod paint;
+mod picker;
+mod replacement;
 mod semantics;
 mod snapshot;
-mod picker;
 mod stepper;
 mod syntax;
 pub(crate) use stepper::NumberKind;
@@ -304,8 +304,6 @@ impl Field {
     fn utf16_range(&self, range: Range<usize>) -> Option<Range<usize>> {
         Some(self.snapshot.utf16_for_byte(range.start)?..self.snapshot.utf16_for_byte(range.end)?)
     }
-
-
 }
 
 impl Render for Field {

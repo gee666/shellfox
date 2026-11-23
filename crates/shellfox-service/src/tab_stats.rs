@@ -28,7 +28,9 @@ impl StatsReply {
             }
             Self::Desktop(reply) => {
                 let value = result.and_then(|stats| {
-                    Ok(serde_json::to_value(crate::local::DesktopReply::TabStats(stats))?)
+                    Ok(serde_json::to_value(crate::local::DesktopReply::TabStats(
+                        stats,
+                    ))?)
                 });
                 let _ = reply.send(value);
             }
@@ -53,7 +55,9 @@ impl Service {
         }
         if CAPTURES.fetch_add(1, Ordering::AcqRel) >= MAX_CAPTURES {
             CAPTURES.fetch_sub(1, Ordering::AcqRel);
-            return reply.send(Err(anyhow::anyhow!("Session stats are busy; retry shortly.")));
+            return reply.send(Err(anyhow::anyhow!(
+                "Session stats are busy; retry shortly."
+            )));
         }
         let slot = Slot;
         let tabs: Vec<_> = self
@@ -97,9 +101,16 @@ fn unavailable(tab: shellfox_core::TabId, reason: &str) -> TabStat {
         reason: Some(reason.into()),
     }
 }
-fn measure(tab: shellfox_core::TabId, capability: Option<InspectionCapability>, now: u64) -> TabStat {
+fn measure(
+    tab: shellfox_core::TabId,
+    capability: Option<InspectionCapability>,
+    now: u64,
+) -> TabStat {
     let Some(capability) = capability else {
-        return unavailable(tab, "Process measurements are unavailable for this terminal.");
+        return unavailable(
+            tab,
+            "Process measurements are unavailable for this terminal.",
+        );
     };
     match capability.capture() {
         Ok(evidence) => stats(tab, evidence, now),
@@ -131,8 +142,12 @@ pub(crate) fn stats(tab: shellfox_core::TabId, evidence: RawOwnedEvidence, now: 
         })
         .collect();
     let root = evidence.processes.iter().find(|p| p.is_root);
-    let memory = processes.iter().map(|p| p.memory_bytes).sum::<Option<u64>>();
-    let reason = (!evidence.complete).then(|| "Some owned processes could not be measured.".to_owned());
+    let memory = processes
+        .iter()
+        .map(|p| p.memory_bytes)
+        .sum::<Option<u64>>();
+    let reason =
+        (!evidence.complete).then(|| "Some owned processes could not be measured.".to_owned());
     TabStat {
         tab_id: tab,
         memory_bytes: memory.filter(|_| !processes.is_empty()),
@@ -170,11 +185,28 @@ mod tests {
             complete: true,
             processes,
         };
-        let stat = stats(tab, evidence(vec![row(7, 1, true, Some(10)), row(8, 7, false, Some(5))]), 61_000);
-        assert_eq!((stat.memory_bytes, stat.elapsed_seconds), (Some(15), Some(60.0)));
-        assert_eq!((stat.processes[1].parent_pid, stat.processes[1].name.as_str()), (7, "p8"));
+        let stat = stats(
+            tab,
+            evidence(vec![row(7, 1, true, Some(10)), row(8, 7, false, Some(5))]),
+            61_000,
+        );
+        assert_eq!(
+            (stat.memory_bytes, stat.elapsed_seconds),
+            (Some(15), Some(60.0))
+        );
+        assert_eq!(
+            (
+                stat.processes[1].parent_pid,
+                stat.processes[1].name.as_str()
+            ),
+            (7, "p8")
+        );
         // One unmeasured process leaves the total unknown, not too small.
-        let partial = stats(tab, evidence(vec![row(7, 1, true, Some(10)), row(8, 7, false, None)]), 61_000);
+        let partial = stats(
+            tab,
+            evidence(vec![row(7, 1, true, Some(10)), row(8, 7, false, None)]),
+            61_000,
+        );
         assert_eq!(partial.memory_bytes, None);
     }
 }

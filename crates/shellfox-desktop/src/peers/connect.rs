@@ -131,7 +131,10 @@ impl Root {
                                 peer.clone(),
                                 Some(std::time::Instant::now() + std::time::Duration::from_secs(2)),
                             );
-                            root.notify_at(std::time::Instant::now() + std::time::Duration::from_secs(2), cx);
+                            root.notify_at(
+                                std::time::Instant::now() + std::time::Duration::from_secs(2),
+                                cx,
+                            );
                         }
                         if phase != source::Phase::AwaitingApproval
                             && root.peer_ui.pending_create.as_ref() == Some(&peer)

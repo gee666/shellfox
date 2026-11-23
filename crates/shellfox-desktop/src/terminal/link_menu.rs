@@ -1,7 +1,7 @@
 use super::TerminalView;
 use crate::theme::Palette;
 use gpui::{
-    div, prelude::*, px, AnyElement, ClipboardItem, Context, MouseButton, Pixels, Point, Window,
+    AnyElement, ClipboardItem, Context, MouseButton, Pixels, Point, Window, div, prelude::*, px,
 };
 
 const LABELS: [&str; 2] = ["Open link", "Copy link address"];

@@ -80,7 +80,12 @@ pub(crate) struct Locked<'a> {
     waker: &'a StateWaker,
 }
 fn key(s: &Session) -> (ConnectionStatus, Permission, u64, u64) {
-    (s.state.status, s.state.permission, s.state.connection_id, s.state.catalog)
+    (
+        s.state.status,
+        s.state.permission,
+        s.state.connection_id,
+        s.state.catalog,
+    )
 }
 pub(crate) fn lock<'a>(session: &'a Mutex<Session>, waker: &'a StateWaker) -> Locked<'a> {
     let guard = session.lock().expect("client state");

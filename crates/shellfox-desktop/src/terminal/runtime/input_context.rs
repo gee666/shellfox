@@ -1,5 +1,5 @@
 use super::super::TerminalView;
-use shellfox_ghostty_vt::{key::KeyAction, MouseAction};
+use shellfox_ghostty_vt::{MouseAction, key::KeyAction};
 use shellfox_runtime::Command;
 use shellfox_service::native::NativeInputContext;
 
@@ -22,7 +22,10 @@ fn input_hint(command: &Command) -> bool {
     }
 }
 impl TerminalView {
-    pub(in crate::terminal) fn frozen_input(&self, command: &Command) -> Option<NativeInputContext> {
+    pub(in crate::terminal) fn frozen_input(
+        &self,
+        command: &Command,
+    ) -> Option<NativeInputContext> {
         self.captured_settlement
             .clone()
             .map(|captured_settlement| NativeInputContext {

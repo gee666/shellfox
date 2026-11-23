@@ -248,7 +248,10 @@ impl GrantCustody {
     }
     /// The recipient's cancel token and a token cancelled once the entry is
     /// removed, so a watcher can wake the owner to retire an abandoned grant.
-    pub fn cancel_watch(&self, ticket: GrantTicket) -> Option<(CancellationToken, CancellationToken)> {
+    pub fn cancel_watch(
+        &self,
+        ticket: GrantTicket,
+    ) -> Option<(CancellationToken, CancellationToken)> {
         self.entries
             .iter()
             .find(|entry| entry.ticket == ticket)

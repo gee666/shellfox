@@ -1,4 +1,4 @@
-use gpui::{div, prelude::*, px, Animation, AnimationExt, AnyElement, Hsla, IntoElement};
+use gpui::{Animation, AnimationExt, AnyElement, Hsla, IntoElement, div, prelude::*, px};
 use std::time::Duration;
 
 pub(crate) fn terminal_loading(accent: Hsla) -> AnyElement {

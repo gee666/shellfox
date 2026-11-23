@@ -8,8 +8,8 @@ use support::OwnedHost;
 use anyhow::{bail, ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId, TabId};
 use shellfox_service::{
-    local_api::{LocalApiRequest as Request, LocalApiResponse as Response},
     local::{HostClosed, LocalBootstrap, LocalClient},
+    local_api::{LocalApiRequest as Request, LocalApiResponse as Response},
     Attachment, TerminalOutput,
 };
 use std::{
@@ -26,11 +26,25 @@ fn fake_ui(marker: &Path) -> (PathBuf, Vec<OsString>) {
         let system = std::env::var_os("SystemRoot").expect("SystemRoot");
         let shell = PathBuf::from(system).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
         // The host appends --owned-host; the trailing comment swallows it.
-        let script = format!("Set-Content -LiteralPath '{}' -Value relaunched; #", marker.display());
-        (shell, vec!["-NoProfile".into(), "-NonInteractive".into(), "-Command".into(), script.into()])
+        let script = format!(
+            "Set-Content -LiteralPath '{}' -Value relaunched; #",
+            marker.display()
+        );
+        (
+            shell,
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                script.into(),
+            ],
+        )
     } else {
         let script = format!("echo relaunched > '{}'", marker.display());
-        ("/bin/sh".into(), vec!["-c".into(), script.into(), "sh".into()])
+        (
+            "/bin/sh".into(),
+            vec!["-c".into(), script.into(), "sh".into()],
+        )
     }
 }
 
@@ -47,9 +61,14 @@ impl Fixture {
     fn start() -> Result<Self> {
         let (helper, digest) = dev_helper::helper()?;
         let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).context("no workspace")?;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .context("no workspace")?;
         std::fs::create_dir_all(root.join("tmp"))?;
-        let scratch = tempfile::Builder::new().prefix("cli-desktop-host-").tempdir_in(root.join("tmp"))?;
+        let scratch = tempfile::Builder::new()
+            .prefix("cli-desktop-host-")
+            .tempdir_in(root.join("tmp"))?;
         let data = scratch.path().join("data");
         std::fs::create_dir(&data)?;
         let marker = scratch.path().join("relaunched.txt");
@@ -73,9 +92,20 @@ impl Fixture {
         );
         let mut ready = String::new();
         BufReader::new(host.0.stdout.take().context("stdout")?).read_line(&mut ready)?;
-        ensure!(ready.trim_end() == LocalBootstrap::DESKTOP_HOST_READY, "host did not start: {ready}");
+        ensure!(
+            ready.trim_end() == LocalBootstrap::DESKTOP_HOST_READY,
+            "host did not start: {ready}"
+        );
         let ui_pipe = host.0.stdin.take();
-        Ok(Self { scratch, data, helper, digest, marker, host, ui_pipe })
+        Ok(Self {
+            scratch,
+            data,
+            helper,
+            digest,
+            marker,
+            host,
+            ui_pipe,
+        })
     }
     async fn client(&self) -> Result<LocalClient> {
         LocalClient::connect(&self.data, &self.helper, self.digest).await
@@ -98,7 +128,9 @@ impl Fixture {
 
 #[test]
 fn shells_survive_a_ui_crash_and_the_kill_of_another_shell() -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let mut fixture = Fixture::start()?;
     let result = runtime.block_on(async {
         let client = fixture.client().await?;
@@ -113,7 +145,10 @@ fn shells_survive_a_ui_crash_and_the_kill_of_another_shell() -> Result<()> {
         drop(fixture.ui_pipe.take());
         let deadline = Instant::now() + Duration::from_secs(30);
         while !fixture.marker.is_file() {
-            ensure!(Instant::now() < deadline, "The host did not relaunch its UI.");
+            ensure!(
+                Instant::now() < deadline,
+                "The host did not relaunch its UI."
+            );
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         survivor.echo(&client).await?;
@@ -124,7 +159,9 @@ fn shells_survive_a_ui_crash_and_the_kill_of_another_shell() -> Result<()> {
 
 #[test]
 fn a_ui_that_quits_is_not_relaunched() -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let mut fixture = Fixture::start()?;
     let result = runtime.block_on(async {
         let mut pipe = fixture.ui_pipe.take().context("stdin")?;
@@ -134,7 +171,10 @@ fn a_ui_that_quits_is_not_relaunched() -> Result<()> {
         ensure!(!fixture.marker.exists(), "A quitting UI was relaunched.");
         let watcher = fixture.client().await?;
         stop(&fixture.client().await?).await?;
-        ensure!(watcher.closed().await == HostClosed::Stopped, "An orderly stop looked like a crash.");
+        ensure!(
+            watcher.closed().await == HostClosed::Stopped,
+            "An orderly stop looked like a crash."
+        );
         Ok(())
     });
     fixture.finish(&runtime, result)
@@ -142,7 +182,9 @@ fn a_ui_that_quits_is_not_relaunched() -> Result<()> {
 
 #[test]
 fn a_killed_host_is_told_apart_from_a_stopped_one() -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     let mut fixture = Fixture::start()?;
     let closed = runtime.block_on(async {
         let watcher = fixture.client().await?;
@@ -150,7 +192,10 @@ fn a_killed_host_is_told_apart_from_a_stopped_one() -> Result<()> {
         anyhow::Ok(watcher.closed().await)
     })?;
     fixture.host.0.wait()?;
-    ensure!(closed == HostClosed::Lost, "A killed host looked like an orderly stop.");
+    ensure!(
+        closed == HostClosed::Lost,
+        "A killed host looked like an orderly stop."
+    );
     Ok(())
 }
 
@@ -180,11 +225,24 @@ struct Terminal {
 }
 impl Terminal {
     async fn attach(client: &LocalClient, tab: TabId) -> Result<Self> {
-        let Response::Attachment(attachment) = client.execute(Request::Attach { tab, takeover: false }).await? else {
+        let Response::Attachment(attachment) = client
+            .execute(Request::Attach {
+                tab,
+                takeover: false,
+            })
+            .await?
+        else {
             bail!("Invalid attachment response.")
         };
-        let mut terminal = Self { tab, attachment, sequence: 0 };
-        let recover = Request::Recover { tab, attachment: terminal.attachment.clone() };
+        let mut terminal = Self {
+            tab,
+            attachment,
+            sequence: 0,
+        };
+        let recover = Request::Recover {
+            tab,
+            attachment: terminal.attachment.clone(),
+        };
         let Response::Recovery { last_sequence, .. } = client.execute(recover).await? else {
             bail!("Invalid recovery response.")
         };
@@ -192,33 +250,67 @@ impl Terminal {
         Ok(terminal)
     }
     async fn acknowledge(&mut self, client: &LocalClient, sequence: u64) -> Result<()> {
-        let ack = Request::Acknowledge { tab: self.tab, attachment: self.attachment.clone(), sequence };
-        ensure!(matches!(client.execute(ack).await?, Response::Done {}), "Invalid ack response.");
+        let ack = Request::Acknowledge {
+            tab: self.tab,
+            attachment: self.attachment.clone(),
+            sequence,
+        };
+        ensure!(
+            matches!(client.execute(ack).await?, Response::Done {}),
+            "Invalid ack response."
+        );
         self.sequence = sequence;
         Ok(())
     }
     /// Types `command` and returns the output between `start` and `end`.
-    async fn run(&mut self, client: &LocalClient, command: &str, start: &str, end: &str) -> Result<String> {
+    async fn run(
+        &mut self,
+        client: &LocalClient,
+        command: &str,
+        start: &str,
+        end: &str,
+    ) -> Result<String> {
         let bytes = format!("{command}\r").into_bytes();
-        let input = Request::Input { tab: self.tab, attachment: self.attachment.clone(), bytes };
-        ensure!(matches!(client.execute(input).await?, Response::Done {}), "Invalid input response.");
+        let input = Request::Input {
+            tab: self.tab,
+            attachment: self.attachment.clone(),
+            bytes,
+        };
+        ensure!(
+            matches!(client.execute(input).await?, Response::Done {}),
+            "Invalid input response."
+        );
         let deadline = Instant::now() + Duration::from_secs(30);
         let mut text = String::new();
         loop {
-            let poll = Request::Poll { tab: self.tab, attachment: self.attachment.clone() };
-            let Response::Output(chunks) = client.execute(poll).await? else { bail!("Invalid poll response.") };
+            let poll = Request::Poll {
+                tab: self.tab,
+                attachment: self.attachment.clone(),
+            };
+            let Response::Output(chunks) = client.execute(poll).await? else {
+                bail!("Invalid poll response.")
+            };
             let mut last = self.sequence;
-            for chunk in chunks.iter().filter(|chunk: &&TerminalOutput| chunk.sequence > self.sequence) {
+            for chunk in chunks
+                .iter()
+                .filter(|chunk: &&TerminalOutput| chunk.sequence > self.sequence)
+            {
                 text.push_str(&String::from_utf8_lossy(&chunk.bytes));
                 last = chunk.sequence;
             }
             if last > self.sequence {
                 self.acknowledge(client, last).await?;
             }
-            if let Some((value, _)) = text.split_once(start).and_then(|(_, after)| after.split_once(end)) {
+            if let Some((value, _)) = text
+                .split_once(start)
+                .and_then(|(_, after)| after.split_once(end))
+            {
                 return Ok(value.to_owned());
             }
-            ensure!(Instant::now() < deadline, "No {start}..{end} output in: {text:?}");
+            ensure!(
+                Instant::now() < deadline,
+                "No {start}..{end} output in: {text:?}"
+            );
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
@@ -233,17 +325,28 @@ impl Terminal {
         Ok(pid.trim().parse()?)
     }
     async fn echo(&mut self, client: &LocalClient) -> Result<()> {
-        let command = if cfg!(windows) { "echo ALIVE^=MARK^=END" } else { "printf 'ALIVE%s\\n' '=MARK=END'" };
+        let command = if cfg!(windows) {
+            "echo ALIVE^=MARK^=END"
+        } else {
+            "printf 'ALIVE%s\\n' '=MARK=END'"
+        };
         // zsh expands an unquoted =word as a command path, so the value is quoted.
-        self.run(client, command, "ALIVE=MARK", "=END").await.map(drop)
+        self.run(client, command, "ALIVE=MARK", "=END")
+            .await
+            .map(drop)
     }
 }
 
 fn kill(pid: u32) -> Result<()> {
     let status = if cfg!(windows) {
-        Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).stdout(Stdio::null()).status()?
+        Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .stdout(Stdio::null())
+            .status()?
     } else {
-        Command::new("kill").args(["-KILL", &pid.to_string()]).status()?
+        Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status()?
     };
     ensure!(status.success(), "Could not kill shell {pid}.");
     Ok(())

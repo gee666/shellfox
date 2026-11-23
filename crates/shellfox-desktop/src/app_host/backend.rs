@@ -34,16 +34,29 @@ async fn with_local<T: Send + 'static>(
 ) -> Result<T> {
     let config = config.clone();
     let (reply, result) = tokio::sync::oneshot::channel();
-    std::thread::Builder::new().name("shellfox-host-control".into()).spawn(move || {
-        let outcome = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(Into::into).and_then(|runtime| {
-            runtime.block_on(async {
-                let client = shellfox_service::local::LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256).await?;
-                work(&client).await
-            })
-        });
-        let _ = reply.send(outcome);
-    })?;
-    result.await.map_err(|_| anyhow::anyhow!("Host control thread ended."))?
+    std::thread::Builder::new()
+        .name("shellfox-host-control".into())
+        .spawn(move || {
+            let outcome = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(Into::into)
+                .and_then(|runtime| {
+                    runtime.block_on(async {
+                        let client = shellfox_service::local::LocalClient::connect(
+                            &config.data_dir,
+                            &config.helper,
+                            config.helper_sha256,
+                        )
+                        .await?;
+                        work(&client).await
+                    })
+                });
+            let _ = reply.send(outcome);
+        })?;
+    result
+        .await
+        .map_err(|_| anyhow::anyhow!("Host control thread ended."))?
 }
 impl AttachedBackend {
     pub(super) fn owned(&self) -> bool {
@@ -60,8 +73,13 @@ impl AppHostBackend for AttachedBackend {
             }
             self.route.get().await?;
             with_local(&self.config, async |client| {
-                match client.request(&shellfox_service::local::DesktopRequest::Status).await? {
-                    shellfox_service::local::DesktopReply::Status(status) => Ok(status.active_terminals),
+                match client
+                    .request(&shellfox_service::local::DesktopRequest::Status)
+                    .await?
+                {
+                    shellfox_service::local::DesktopReply::Status(status) => {
+                        Ok(status.active_terminals)
+                    }
                     _ => anyhow::bail!("Host returned an invalid status response."),
                 }
             })
@@ -71,7 +89,9 @@ impl AppHostBackend for AttachedBackend {
     fn fork_window(&self) -> HostFuture<'_, HostClient> {
         Box::pin(async {
             let owner = self.route.get().await?.info.owner;
-            Ok(HostClient::attached(self.runtime.connect(self.config.clone(), owner).await?))
+            Ok(HostClient::attached(
+                self.runtime.connect(self.config.clone(), owner).await?,
+            ))
         })
     }
     fn detach_window<'a>(&'a self, client: &'a HostClient) -> HostFuture<'a, ()> {
@@ -87,7 +107,9 @@ impl AppHostBackend for AttachedBackend {
                 return Ok(());
             }
             let stopped = with_local(&self.config, async |client| {
-                client.execute(shellfox_service::local_api::LocalApiRequest::Stop {}).await?;
+                client
+                    .execute(shellfox_service::local_api::LocalApiRequest::Stop {})
+                    .await?;
                 crate::host_process::announce_quit();
                 // Stop replies once admitted, before the host has closed its shells.
                 client.closed().await;
@@ -98,7 +120,9 @@ impl AppHostBackend for AttachedBackend {
             // The host's exit, not its last reply, proves its shells are closed.
             let (reply, exited) = tokio::sync::oneshot::channel();
             std::thread::spawn(move || {
-                let _ = reply.send(crate::host_process::wait_started_exit(Duration::from_secs(60)));
+                let _ = reply.send(crate::host_process::wait_started_exit(Duration::from_secs(
+                    60,
+                )));
             });
             if exited.await.unwrap_or(false) {
                 return Ok(());
@@ -107,7 +131,12 @@ impl AppHostBackend for AttachedBackend {
                 Ok(()) if !crate::host_process::started_host() => Ok(()),
                 Ok(()) => anyhow::bail!("The Shellfox host did not exit after Stop."),
                 // A host this UI did not start and that no longer answers has ended.
-                Err(error) if crate::host_process::started_host() || crate::host_process::serving(&self.config).await => Err(error),
+                Err(error)
+                    if crate::host_process::started_host()
+                        || crate::host_process::serving(&self.config).await =>
+                {
+                    Err(error)
+                }
                 Err(_) => Ok(()),
             }
         })

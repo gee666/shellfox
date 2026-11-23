@@ -32,8 +32,6 @@ enum Backend {
     Attached(runtime::native::Connection),
 }
 
-
-
 pub struct TerminalView {
     backend: Backend,
     pub focus: FocusHandle,
@@ -75,15 +73,18 @@ pub struct TerminalView {
 
 impl TerminalView {
     pub(crate) fn working_directory(&self) -> Option<String> {
-        let Backend::Attached(connection) = &self.backend else { return None; };
+        let Backend::Attached(connection) = &self.backend else {
+            return None;
+        };
         if self.failed || self.closing || self.detached {
             return None;
         }
         let observer = connection.access.lease().is_none();
         let frame = connection.client.latest(connection.tab, observer).ok()??;
-        (frame.phase == Phase::Active && frame.presentation.view == connection.access.presentation_lease())
-            .then_some(frame.working_directory)?
-            .map(|path| path.to_string())
+        (frame.phase == Phase::Active
+            && frame.presentation.view == connection.access.presentation_lease())
+        .then_some(frame.working_directory)?
+        .map(|path| path.to_string())
     }
 
     fn reject(&mut self, error: impl std::fmt::Display) {
@@ -192,15 +193,25 @@ impl TerminalView {
             }
             Backend::Peer(peer) => {
                 match action {
-                    shellfox_runtime::PresentationAction::Scroll { delta } => peer.terminal.view_scroll(&mut peer.presentation, delta)?,
-                    shellfox_runtime::PresentationAction::Selection { selection } => peer.terminal.view_select(&mut peer.presentation, selection)?,
+                    shellfox_runtime::PresentationAction::Scroll { delta } => {
+                        peer.terminal.view_scroll(&mut peer.presentation, delta)?
+                    }
+                    shellfox_runtime::PresentationAction::Selection { selection } => peer
+                        .terminal
+                        .view_select(&mut peer.presentation, selection)?,
                     _ => anyhow::bail!("Unsupported terminal presentation action"),
                 }
                 self.refresh_peer_screen();
             }
             Backend::Attached(connection) => {
                 let view = connection.access.presentation_lease();
-                anyhow::ensure!(self.submit(Command::Presentation { view, action }, runtime::Pending::Applied), "terminal presentation queue is full");
+                anyhow::ensure!(
+                    self.submit(
+                        Command::Presentation { view, action },
+                        runtime::Pending::Applied
+                    ),
+                    "terminal presentation queue is full"
+                );
             }
         }
         Ok(())
@@ -222,7 +233,10 @@ impl TerminalView {
             }
             Backend::Attached(_) => {
                 let lease = self.lease.context("This terminal view is read-only")?;
-                anyhow::ensure!(self.submit(command(lease), runtime::Pending::Applied), "terminal command queue is full");
+                anyhow::ensure!(
+                    self.submit(command(lease), runtime::Pending::Applied),
+                    "terminal command queue is full"
+                );
             }
         }
         Ok(())
@@ -245,7 +259,9 @@ impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.presentation_focus(window) != self.presentation_focused {
             // The link menu changes focus state without a focus event.
-            cx.defer_in(window, |view, window, cx| view.sync_presentation_focus(window, cx));
+            cx.defer_in(window, |view, window, cx| {
+                view.sync_presentation_focus(window, cx)
+            });
         }
         let mut terminal = div()
             .id("terminal")
@@ -259,12 +275,21 @@ impl Render for TerminalView {
             .bg(rgb(self.theme.background))
             .text_color(rgb(self.theme.foreground))
             .track_focus(&self.focus)
-            .when_some(self.link_hover_for_draw().map(|link| link.target.clone()), |surface, target| {
-                surface.cursor_pointer().when(self.focus.is_focused(window) && !self.link_menu_open(), |surface| {
-                    let palette = crate::theme::Palette::new(&format!("#{:06x}", self.theme.accent), &format!("#{:06x}", self.theme.background));
-                    surface.tooltip(crate::assets::tooltip(target, palette))
-                })
-            })
+            .when_some(
+                self.link_hover_for_draw().map(|link| link.target.clone()),
+                |surface, target| {
+                    surface.cursor_pointer().when(
+                        self.focus.is_focused(window) && !self.link_menu_open(),
+                        |surface| {
+                            let palette = crate::theme::Palette::new(
+                                &format!("#{:06x}", self.theme.accent),
+                                &format!("#{:06x}", self.theme.background),
+                            );
+                            surface.tooltip(crate::assets::tooltip(target, palette))
+                        },
+                    )
+                },
+            )
             .on_hover(cx.listener(|view, hovered, _, cx| {
                 view.scrollbar.hovered = *hovered;
                 cx.notify();
@@ -301,7 +326,8 @@ impl Render for TerminalView {
             .children(peer_overlay)
             .children(self.render_status_overlay(cx))
             .when(
-                !self.control_blocked && (self.failed || self.notice.is_some() || !self.preedit.is_empty()),
+                !self.control_blocked
+                    && (self.failed || self.notice.is_some() || !self.preedit.is_empty()),
                 |terminal| {
                     let error = if self.failed {
                         Some(self.status.clone())

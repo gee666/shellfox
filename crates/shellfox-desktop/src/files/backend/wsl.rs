@@ -6,11 +6,11 @@ use shellfox_files::{
     ReadResult, WriteResult, WriteText, WslBrowserScope,
     wsl_files_ipc::{Reply, Request},
 };
+use shellfox_service::wsl_files_worker::Worker;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
-use shellfox_service::wsl_files_worker::Worker;
 
 pub(crate) struct WslBackend {
     pub(super) scope: WslBrowserScope,

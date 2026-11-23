@@ -55,7 +55,8 @@ impl TerminalView {
     ) -> Result<()> {
         ensure!(!self.failed && !self.closing, "terminal has stopped");
         ensure!(theme.valid(), "theme colors must be 24-bit RGB");
-        let (font, cell_width, line_height) = renderer::choose_font(window, preferred_font, font_size)?;
+        let (font, cell_width, line_height) =
+            renderer::choose_font(window, preferred_font, font_size)?;
         let colors = theme.colors();
         // Observer fonts/themes are local. Only a controller changes parser colors.
         if !matches!(self.backend, Backend::Attached(_)) || self.lease.is_some() {

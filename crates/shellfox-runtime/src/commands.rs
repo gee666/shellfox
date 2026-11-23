@@ -144,8 +144,7 @@ impl Owner {
                         has_committed_text: !event.composing && !event.text.is_empty(),
                     },
                 )?;
-                if event.action != shellfox_ghostty_vt::key::KeyAction::Release
-                    && !bytes.is_empty()
+                if event.action != shellfox_ghostty_vt::key::KeyAction::Release && !bytes.is_empty()
                 {
                     self.follow_accepted_input(lease);
                 }

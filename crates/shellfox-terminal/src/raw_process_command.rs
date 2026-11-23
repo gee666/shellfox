@@ -88,7 +88,9 @@ impl RawCommand {
             // Like pwsh does for its own children: a PowerShell 7 module path
             // from the caller hides Windows PowerShell's modules, PSReadLine
             // included. Unset, Windows PowerShell builds its own default.
-            command.env.retain(|key, _| !key.eq_ignore_ascii_case("PSModulePath"));
+            command
+                .env
+                .retain(|key, _| !key.eq_ignore_ascii_case("PSModulePath"));
         }
         #[cfg(windows)]
         ensure!(
@@ -261,7 +263,10 @@ mod tests {
             args: vec![],
             cwd: system.to_str().unwrap().into(),
             env: BTreeMap::from([
-                ("psmodulepath".into(), r"C:\Program Files\PowerShell\7\Modules".into()),
+                (
+                    "psmodulepath".into(),
+                    r"C:\Program Files\PowerShell\7\Modules".into(),
+                ),
                 ("KEEP".into(), "1".into()),
             ]),
         };

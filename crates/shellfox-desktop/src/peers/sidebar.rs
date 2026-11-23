@@ -1,10 +1,10 @@
 use super::*;
+use crate::sidebar::list::Entry;
 use crate::{
     assets::{ellipsis, icon_button, icon_sized, inline_ellipsis, tooltip},
     sidebar::row::{shorten_home, status_label},
     workspace::tabs::activity::status_dot,
 };
-use crate::sidebar::list::Entry;
 mod heading;
 mod row;
 use shellfox_protocol::{SessionDto, Status, TabId, TabLifecycle, TabStatus};
@@ -23,14 +23,8 @@ pub(super) fn error_text(session: &SessionDto, closed: bool) -> Option<&str> {
             session
                 .tabs
                 .iter()
-                .filter(|tab| {
-                    closed || !matches!(tab.lifecycle, TabLifecycle::Closed)
-                })
-                .find_map(|tab| {
-                    tab.error
-                        .as_ref()
-                        .map(|error| error.message.as_str())
-                })
+                .filter(|tab| closed || !matches!(tab.lifecycle, TabLifecycle::Closed))
+                .find_map(|tab| tab.error.as_ref().map(|error| error.message.as_str()))
         })
 }
 
@@ -125,7 +119,12 @@ impl Root {
                     .sessions
                     .iter()
                     .map(|session| {
-                        (session, dot(session, |tab| self.peer_tab_busy(peer, tab).unwrap_or(false)))
+                        (
+                            session,
+                            dot(session, |tab| {
+                                self.peer_tab_busy(peer, tab).unwrap_or(false)
+                            }),
+                        )
                     })
                     .collect()
             })
@@ -145,7 +144,12 @@ impl Root {
     }
 
     /// Appends one section per remembered peer: heading, shown rows, "Show more".
-    pub(crate) fn peer_entries(&self, entries: &mut Vec<Entry>, window: &Window, cx: &mut gpui::App) {
+    pub(crate) fn peer_entries(
+        &self,
+        entries: &mut Vec<Entry>,
+        window: &Window,
+        cx: &mut gpui::App,
+    ) {
         let mut peers: Vec<_> = self
             .peers
             .peers
@@ -159,7 +163,8 @@ impl Root {
             let rows = self.peer_rows(peer, state);
             let pages = self.peer_ui.pages.get(peer).copied().unwrap_or(1);
             let shown = if expanded {
-                rows.len().min(pages.saturating_mul(self.sidebar.history_page_size))
+                rows.len()
+                    .min(pages.saturating_mul(self.sidebar.history_page_size))
             } else {
                 0
             };
@@ -168,7 +173,10 @@ impl Root {
                 peer: peer.clone(),
                 generation: state.cycle,
             };
-            let ids: Vec<_> = rows[..shown].iter().map(|(session, _)| session.id).collect();
+            let ids: Vec<_> = rows[..shown]
+                .iter()
+                .map(|(session, _)| session.id)
+                .collect();
             entries.push(Entry::PeerHeader(peer.clone()));
             if expanded && rows.is_empty() {
                 entries.push(Entry::PeerEmpty(peer.clone()));

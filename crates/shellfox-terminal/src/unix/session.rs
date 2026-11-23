@@ -53,13 +53,38 @@ impl std::fmt::Debug for PtySession {
     }
 }
 impl PtySession {
-    pub fn inspection_capability(&self) -> std::result::Result<crate::inspection::InspectionCapability, crate::inspection::InspectionFailure> {
+    pub fn inspection_capability(
+        &self,
+    ) -> std::result::Result<
+        crate::inspection::InspectionCapability,
+        crate::inspection::InspectionFailure,
+    > {
         use crate::inspection::{InspectionCapability, InspectionFailure::Unavailable};
-        let state = self.inner.as_ref().filter(|state| state.ready && !state.stopping).ok_or(Unavailable)?;
-        let pid = state.child.as_ref().and_then(|child| child.process_id()).ok_or(Unavailable)?;
-        let group = state.group.as_ref().ok_or(Unavailable)?.inspection_directory().map_err(|_| Unavailable)?;
-        let supervisor = state.pidfd.as_ref().ok_or(Unavailable)?.try_clone().map_err(|_| Unavailable)?;
-        Ok(InspectionCapability(std::sync::Arc::new(super::linux::inspection::OwnedInspection::new(group, supervisor, pid))))
+        let state = self
+            .inner
+            .as_ref()
+            .filter(|state| state.ready && !state.stopping)
+            .ok_or(Unavailable)?;
+        let pid = state
+            .child
+            .as_ref()
+            .and_then(|child| child.process_id())
+            .ok_or(Unavailable)?;
+        let group = state
+            .group
+            .as_ref()
+            .ok_or(Unavailable)?
+            .inspection_directory()
+            .map_err(|_| Unavailable)?;
+        let supervisor = state
+            .pidfd
+            .as_ref()
+            .ok_or(Unavailable)?
+            .try_clone()
+            .map_err(|_| Unavailable)?;
+        Ok(InspectionCapability(std::sync::Arc::new(
+            super::linux::inspection::OwnedInspection::new(group, supervisor, pid),
+        )))
     }
 
     pub fn spawn(config: PtyConfig) -> std::result::Result<Self, SpawnError> {
@@ -105,9 +130,14 @@ impl PtySession {
         argv.insert(1, "--expand-environment=no".into());
         let mut builder = config.builder(&argv)?;
         if config.command.is_none()
-            && std::path::Path::new(&command.program).file_name().is_some_and(|name| name == "bash")
+            && std::path::Path::new(&command.program)
+                .file_name()
+                .is_some_and(|name| name == "bash")
         {
-            builder.env("PROMPT_COMMAND", prompt_command(builder.get_env("PROMPT_COMMAND")));
+            builder.env(
+                "PROMPT_COMMAND",
+                prompt_command(builder.get_env("PROMPT_COMMAND")),
+            );
         }
         // systemd-run needs the user bus. A user tab keeps it; the supervisor
         // drops it again for an isolated one.
@@ -316,5 +346,8 @@ fn the_cwd_hook_keeps_an_inherited_prompt_command() {
     let hook = include_str!("../bash-prompt.sh").trim_end();
     assert_eq!(prompt_command(None), hook);
     assert_eq!(prompt_command(Some("".as_ref())), hook);
-    assert_eq!(prompt_command(Some("history -a".as_ref())), format!("{hook}\nhistory -a").as_str());
+    assert_eq!(
+        prompt_command(Some("history -a".as_ref())),
+        format!("{hook}\nhistory -a").as_str()
+    );
 }

@@ -18,8 +18,8 @@ pub(crate) mod tree;
 pub(crate) use preview::Preview;
 pub(crate) mod image_editor;
 mod layout_prefs;
-mod retained;
 mod resume;
+mod retained;
 pub(crate) mod scrollbar;
 pub(crate) mod text_preview;
 pub(crate) mod transfer;
@@ -59,7 +59,11 @@ pub(crate) struct FilesArea {
 
 impl FilesArea {
     pub(crate) fn new(run_dir: &std::path::Path) -> Self {
-        Self { panel: None, retained: Vec::new(), html_preview: text_preview::html::Surface::new(run_dir) }
+        Self {
+            panel: None,
+            retained: Vec::new(),
+            html_preview: text_preview::html::Surface::new(run_dir),
+        }
     }
 }
 
@@ -149,13 +153,14 @@ impl Root {
         let panels = self.files.panel.iter().chain(self.files.retained.iter());
         close_guard(
             panels.clone().any(|files| files.dirty(cx)),
-            panels
-                .into_iter()
-                .any(|files| {
-                    (files.busy && !matches!(files.operation, Some(FileOperation::Revalidate(_))))
-                        || files.transfer.is_some()
-                        || files.image_editor.as_ref().is_some_and(image_editor::ImageEditor::transforming)
-                }),
+            panels.into_iter().any(|files| {
+                (files.busy && !matches!(files.operation, Some(FileOperation::Revalidate(_))))
+                    || files.transfer.is_some()
+                    || files
+                        .image_editor
+                        .as_ref()
+                        .is_some_and(image_editor::ImageEditor::transforming)
+            }),
         )
     }
     pub(crate) fn files_source_current(&self) -> bool {
@@ -166,18 +171,26 @@ impl Root {
                 f.backend.is_local(),
                 self.is_local_source(),
             ) && f.source == self.peers.selected
-                && (f.backend.is_local() || self.peers.selected_peer().is_some_and(|(_, state)| {
-                    state.phase == crate::peers::source::Phase::Connected
-                }))
-                && self.active_file_tab(&f.backend) && f.backend.check_current().is_ok()
+                && (f.backend.is_local()
+                    || self.peers.selected_peer().is_some_and(|(_, state)| {
+                        state.phase == crate::peers::source::Phase::Connected
+                    }))
+                && self.active_file_tab(&f.backend)
+                && f.backend.check_current().is_ok()
         })
     }
     fn active_file_tab(&self, backend: &DocumentBackend) -> bool {
-        backend.wsl_tab().is_none_or(|tab| self.selected_tab() == Some(tab))
+        backend
+            .wsl_tab()
+            .is_none_or(|tab| self.selected_tab() == Some(tab))
             && backend.peer_file_scope().is_none_or(|scope| {
                 self.peers.selected_peer().is_some_and(|(_, state)| {
-                    state.selected_session.is_some_and(|id| id.to_string() == scope.session.to_string())
-                        && state.selected_tab.is_some_and(|id| id.to_string() == scope.tab.to_string())
+                    state
+                        .selected_session
+                        .is_some_and(|id| id.to_string() == scope.session.to_string())
+                        && state
+                            .selected_tab
+                            .is_some_and(|id| id.to_string() == scope.tab.to_string())
                 })
             })
     }
@@ -188,7 +201,8 @@ impl Root {
             backend.is_local(),
             self.is_local_source(),
         ) && self
-            .files.panel
+            .files
+            .panel
             .as_ref()
             .is_some_and(|f| f.source_epoch == epoch && f.backend.same_origin(backend))
             && self.active_file_tab(backend)
@@ -208,9 +222,12 @@ impl Root {
     }
     pub(crate) fn toggle_files(&mut self, cx: &mut Context<Self>) {
         self.sync_file_source(cx);
-        if self.files.panel.as_ref().is_some_and(|files| {
-            !files.visible && !self.active_file_tab(&files.backend)
-        }) {
+        if self
+            .files
+            .panel
+            .as_ref()
+            .is_some_and(|files| !files.visible && !self.active_file_tab(&files.backend))
+        {
             self.show_selected_file_scope(cx);
             return;
         }
@@ -327,10 +344,13 @@ impl Root {
         self.toggle_files(cx);
     }
     pub(crate) fn files_dirty(&self, cx: &gpui::App) -> bool {
-        self.files.panel.as_ref().is_some_and(|files| files.dirty(cx))
+        self.files
+            .panel
+            .as_ref()
+            .is_some_and(|files| files.dirty(cx))
     }
 }
+pub(crate) mod navigation;
 #[cfg(test)]
 mod tests;
 pub(crate) mod view;
-pub(crate) mod navigation;

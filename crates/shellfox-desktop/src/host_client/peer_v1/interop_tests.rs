@@ -1,4 +1,4 @@
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result, ensure};
 use shellfox_client::{Client, EventDisposition, ViewCursor};
 use shellfox_protocol::*;
 

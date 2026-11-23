@@ -1,6 +1,6 @@
+mod pairing;
 mod retained;
 mod saved;
-mod pairing;
 use super::*;
 use shellfox_transport::{LoopbackOrigin, Secret, VerifiedHelper};
 use std::path::Path;
@@ -44,7 +44,12 @@ impl RemoteControlBackend for FakeBackend {
         })
     }
     fn approve_full_account<'a>(&'a self, _: &'a str) -> NetworkFuture<'a, ()> {
-        Box::pin(async { Err(error(ErrorCode::Unsupported,"This network fixture has no persisted approval provider.")) })
+        Box::pin(async {
+            Err(error(
+                ErrorCode::Unsupported,
+                "This network fixture has no persisted approval provider.",
+            ))
+        })
     }
     fn revoke<'a>(&'a self, _: &'a str) -> NetworkFuture<'a, ()> {
         self.revokes.fetch_add(1, Ordering::SeqCst);
@@ -247,13 +252,20 @@ async fn boot_does_not_start_or_login_and_cancel_only_affects_exact_attempt() {
     // A routine status request can briefly own the same admission slot.
     tokio::time::timeout(Duration::from_secs(3), async {
         loop {
-            match control.request(RemoteRequest::Login { auth_key: None }).await {
+            match control
+                .request(RemoteRequest::Login { auth_key: None })
+                .await
+            {
                 Ok(_) => break,
-                Err(error) if error.code == ErrorCode::Validation => tokio::time::sleep(Duration::from_millis(10)).await,
+                Err(error) if error.code == ErrorCode::Validation => {
+                    tokio::time::sleep(Duration::from_millis(10)).await
+                }
                 Err(error) => panic!("Unexpected login error: {error:?}"),
             }
         }
-    }).await.expect("Login admission did not become available");
+    })
+    .await
+    .expect("Login admission did not become available");
     let login = until(&control, |s| s.login_url.is_some()).await;
     let id = login
         .attempts

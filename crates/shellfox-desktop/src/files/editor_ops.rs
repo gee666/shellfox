@@ -75,7 +75,8 @@ fn focus_source(field: &gpui::Entity<Field>, position: SourcePosition, cx: &mut 
 
 impl Root {
     pub(crate) fn request_open_file(&mut self, path: String, cx: &mut Context<Self>) {
-        if self.files_dirty(cx) && self.files.panel.as_ref().and_then(|f| f.opened_path()) == Some(&path)
+        if self.files_dirty(cx)
+            && self.files.panel.as_ref().and_then(|f| f.opened_path()) == Some(&path)
         {
             return;
         }
@@ -88,7 +89,12 @@ impl Root {
         position: SourcePosition,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(editor) = self.files.panel.as_mut().and_then(|files| files.editor.as_mut()) else {
+        let Some(editor) = self
+            .files
+            .panel
+            .as_mut()
+            .and_then(|files| files.editor.as_mut())
+        else {
             return false;
         };
         if editor.file.path != path {
@@ -119,7 +125,9 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files.panel else { return };
+        let Some(files) = &mut self.files.panel else {
+            return;
+        };
         if files.busy {
             return;
         }
@@ -147,7 +155,9 @@ impl Root {
             let result = task.await;
             let _ = root.update(cx, |root, cx| {
                 let current = root.files_result_current(epoch, &backend);
-                let Some(files) = &mut root.files.panel else { return };
+                let Some(files) = &mut root.files.panel else {
+                    return;
+                };
                 if files.request != request || !files.backend.same_origin(&backend) {
                     return;
                 }
@@ -170,7 +180,9 @@ impl Root {
                         revision,
                     }) => {
                         let utf8_bom = text.starts_with('\u{feff}');
-                        if utf8_bom { text.remove(0); }
+                        if utf8_bom {
+                            text.remove(0);
+                        }
                         let text = Field::asset_editor(&path, text, cx);
                         if let Some(position) = position {
                             text.update(cx, |field, _| {
@@ -222,7 +234,9 @@ impl Root {
         if !self.require_files_source(cx) {
             return;
         }
-        let Some(files) = &mut self.files.panel else { return };
+        let Some(files) = &mut self.files.panel else {
+            return;
+        };
         if files.busy {
             return;
         }

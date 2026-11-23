@@ -1,6 +1,6 @@
 use crate::{
-    activity::{AgentState, TabFacts, TabLifecycle, tab_agent_state, tab_status},
-    activity::integration::{StartupEvidence, TerminalSourceFacts, read_source},
+    activity::integration::{read_source, StartupEvidence, TerminalSourceFacts},
+    activity::{tab_agent_state, tab_status, AgentState, TabFacts, TabLifecycle},
 };
 use shellfox_core::{Generation, TabId};
 use shellfox_runtime::{Phase, SourceKind};
@@ -69,7 +69,10 @@ impl From<&TerminalSourceFacts> for NativeTabActivity {
     }
 }
 impl crate::Service {
-    fn local_administrator_startup_error(&self, identity: shellfox_runtime::Identity) -> Option<String> {
+    fn local_administrator_startup_error(
+        &self,
+        identity: shellfox_runtime::Identity,
+    ) -> Option<String> {
         let terminal = self.terminals.get(&identity.tab_id)?;
         if terminal.runtime.identity() != identity {
             return None;
@@ -100,7 +103,9 @@ impl crate::Service {
                         // The public facts keep generic startup errors. Local desktop
                         // diagnostics can display the launcher's fixed error codes.
                         if activity.error.is_some() {
-                            if let Some(detail) = self.local_administrator_startup_error(terminal.identity) {
+                            if let Some(detail) =
+                                self.local_administrator_startup_error(terminal.identity)
+                            {
                                 activity.error = Some(detail);
                             }
                         }

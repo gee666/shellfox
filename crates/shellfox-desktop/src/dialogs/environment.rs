@@ -1,7 +1,7 @@
 use crate::{
+    dialogs::Dialog,
     dialogs::dialog_button,
     field::{Field, FieldOptions},
-    dialogs::Dialog,
     root::Root,
     settings::environment_data,
     theme::Palette,

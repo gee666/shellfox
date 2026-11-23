@@ -29,7 +29,10 @@ const MAX_WAITING_PER_CLIENT: usize = 136;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 enum Kind {
-    Frame { tab: TabId, observer: bool },
+    Frame {
+        tab: TabId,
+        observer: bool,
+    },
     Activity,
     Power,
     Remote,
@@ -48,7 +51,10 @@ enum Kind {
 /// What this client was last answered, as a receiver whose seen version
 /// marks that answer.
 enum Seen {
-    Frame { changes: watch::Receiver<u64>, focused: bool },
+    Frame {
+        changes: watch::Receiver<u64>,
+        focused: bool,
+    },
     Activity(watch::Receiver<Arc<[NativeTabActivity]>>),
     Power(watch::Receiver<PowerReport>),
     /// None, or a closed sender, when this host runs without remote access:
@@ -63,7 +69,9 @@ impl Seen {
             Self::Frame { changes, .. } => changes.has_changed(),
             Self::Activity(changes) => changes.has_changed(),
             Self::Power(changes) => changes.has_changed(),
-            Self::Remote(changes) => Ok(changes.as_ref().is_some_and(|changes| changes.has_changed().unwrap_or(false))),
+            Self::Remote(changes) => Ok(changes
+                .as_ref()
+                .is_some_and(|changes| changes.has_changed().unwrap_or(false))),
             Self::Counter(changes) => changes.has_changed(),
         }
         .unwrap_or(true)
@@ -211,9 +219,15 @@ impl LongPolls {
     fn wait_slot(&self, client: uuid::Uuid) -> anyhow::Result<Waiting> {
         let mut waiting = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
         let count = waiting.entry(client).or_default();
-        anyhow::ensure!(*count < MAX_WAITING_PER_CLIENT, "Too many reads are already waiting.");
+        anyhow::ensure!(
+            *count < MAX_WAITING_PER_CLIENT,
+            "Too many reads are already waiting."
+        );
         *count += 1;
-        Ok(Waiting { client, waiting: self.waiting.clone() })
+        Ok(Waiting {
+            client,
+            waiting: self.waiting.clone(),
+        })
     }
 
     async fn hold_revision(&self, seen: u64, stop: &CancellationToken) {
@@ -298,7 +312,9 @@ impl LongPolls {
             Kind::Automation(_) => reply.get("frames"),
             _ => reply.get("value"),
         };
-        let empty = frames.and_then(serde_json::Value::as_array).is_some_and(Vec::is_empty);
+        let empty = frames
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(Vec::is_empty);
         if !empty {
             self.lock().remove(&(client, read.0));
         }
@@ -313,7 +329,8 @@ impl LongPolls {
         match view.as_ref() {
             DesktopRequest::Detach { tab, .. } | DesktopRequest::Unobserve { tab, .. } => {
                 held.retain(|(id, kind), _| {
-                    *id != client || !matches!(kind, Kind::Frame { tab: held_tab, .. } if held_tab == tab)
+                    *id != client
+                        || !matches!(kind, Kind::Frame { tab: held_tab, .. } if held_tab == tab)
                 });
             }
             DesktopRequest::DetachAll => held.retain(|(id, _), _| *id != client),
@@ -321,7 +338,12 @@ impl LongPolls {
         }
     }
 
-    fn store(&self, held: &mut HashMap<(uuid::Uuid, Kind), Seen>, key: (uuid::Uuid, Kind), seen: Seen) {
+    fn store(
+        &self,
+        held: &mut HashMap<(uuid::Uuid, Kind), Seen>,
+        key: (uuid::Uuid, Kind),
+        seen: Seen,
+    ) {
         if held.len() >= MAX_HELD {
             held.clear();
         }
@@ -361,7 +383,10 @@ mod tests {
             launches: launches.1,
             automation: watch::channel(0).1,
         };
-        (LongPolls::new(watches, None), (revision, power.0, activity.0, launches.0))
+        (
+            LongPolls::new(watches, None),
+            (revision, power.0, activity.0, launches.0),
+        )
     }
     #[tokio::test]
     async fn an_automation_read_is_held_only_after_an_empty_answer() {
@@ -370,19 +395,33 @@ mod tests {
         polls.watches.automation = changes;
         let (client, stop) = (uuid::Uuid::new_v4(), CancellationToken::new());
         let id = uuid::Uuid::new_v4();
-        let read = || PrivateRequest::AutomationRead(shellfox_protocol::automation::AutomationRead { id, after: 0 });
+        let read = || {
+            PrivateRequest::AutomationRead(shellfox_protocol::automation::AutomationRead {
+                id,
+                after: 0,
+            })
+        };
         let answered = |polls: &LongPolls, frames: serde_json::Value| {
             let output = LongPolls::output_read(&read()).unwrap();
             polls.answered_output(client, output, &serde_json::json!({ "frames": frames }));
         };
-        assert!(returns_soon(polls.hold(client, &read(), &stop)).await, "first read at once");
+        assert!(
+            returns_soon(polls.hold(client, &read(), &stop)).await,
+            "first read at once"
+        );
         answered(&polls, serde_json::json!([{}]));
-        assert!(returns_soon(polls.hold(client, &read(), &stop)).await, "after output, at once");
+        assert!(
+            returns_soon(polls.hold(client, &read(), &stop)).await,
+            "after output, at once"
+        );
         answered(&polls, serde_json::json!([]));
         let request = read();
         let held = polls.hold(client, &request, &stop);
         tokio::pin!(held);
-        assert!(!returns_soon(&mut held).await, "after an empty answer, held");
+        assert!(
+            !returns_soon(&mut held).await,
+            "after an empty answer, held"
+        );
         automation.send_replace(1);
         assert!(returns_soon(held).await, "new output releases it");
     }
@@ -420,7 +459,9 @@ mod tests {
     async fn changed_since_waits_for_a_newer_revision() {
         let (polls, (revision, _power, _activity, _launches)) = polls();
         let (client, stop) = (uuid::Uuid::new_v4(), CancellationToken::new());
-        let request = |revision| PrivateRequest::DesktopView(Box::new(DesktopRequest::ChangedSince { revision }));
+        let request = |revision| {
+            PrivateRequest::DesktopView(Box::new(DesktopRequest::ChangedSince { revision }))
+        };
         assert!(returns_soon(polls.hold(client, &request(2), &stop)).await);
         let current = request(3);
         let held = polls.hold(client, &current, &stop);
@@ -438,11 +479,13 @@ mod tests {
         let frame = |tab| {
             PrivateRequest::DesktopView(Box::new(DesktopRequest::Presentation {
                 tab,
-                attachment: NativeViewAttachment::Observer(crate::native::NativeObserverAttachment {
-                    viewer: 1,
-                    epoch: 1,
-                    generation: shellfox_core::Generation::new(),
-                }),
+                attachment: NativeViewAttachment::Observer(
+                    crate::native::NativeObserverAttachment {
+                        viewer: 1,
+                        epoch: 1,
+                        generation: shellfox_core::Generation::new(),
+                    },
+                ),
                 action: NativePresentation::Frame { focused: true },
             }))
         };

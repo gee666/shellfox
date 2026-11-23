@@ -1,4 +1,4 @@
-use crate::{Service, terminals::OwnedTerminal};
+use crate::{terminals::OwnedTerminal, Service};
 use shellfox_runtime::{
     LaunchEvidenceBasis as Basis, LaunchEvidenceStage, LaunchFactoryPurpose as Purpose,
     LaunchPrivilege, LaunchPrivilegeFacts, SourceKind,

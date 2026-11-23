@@ -40,11 +40,22 @@ pub(crate) fn host_build() -> u64 {
 #[serde(tag = "operation", rename_all = "camelCase", deny_unknown_fields)]
 pub enum DesktopLaunchRequest {
     Discover {},
-    RegisterAttached { owner: LaunchOwnerFence },
-    PollAttached { token: DesktopClientToken },
-    ClaimAttached { delivery: DesktopLaunchDelivery },
-    CompleteAttached { delivery: DesktopLaunchDelivery, handling: LaunchHandling },
-    UnregisterAttached { token: DesktopClientToken },
+    RegisterAttached {
+        owner: LaunchOwnerFence,
+    },
+    PollAttached {
+        token: DesktopClientToken,
+    },
+    ClaimAttached {
+        delivery: DesktopLaunchDelivery,
+    },
+    CompleteAttached {
+        delivery: DesktopLaunchDelivery,
+        handling: LaunchHandling,
+    },
+    UnregisterAttached {
+        token: DesktopClientToken,
+    },
     Submit {
         owner: LaunchOwnerFence,
         intent: DesktopLaunchIntent,
@@ -72,8 +83,14 @@ pub enum DesktopLaunchReply {
 }
 impl DesktopLaunchRequest {
     pub(crate) fn is_attached_renderer(&self) -> bool {
-        matches!(self, Self::RegisterAttached { .. } | Self::PollAttached { .. } | Self::ClaimAttached { .. }
-            | Self::CompleteAttached { .. } | Self::UnregisterAttached { .. })
+        matches!(
+            self,
+            Self::RegisterAttached { .. }
+                | Self::PollAttached { .. }
+                | Self::ClaimAttached { .. }
+                | Self::CompleteAttached { .. }
+                | Self::UnregisterAttached { .. }
+        )
     }
 }
 impl DesktopClientToken {
@@ -85,9 +102,15 @@ impl Validate for DesktopLaunchRequest {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             Self::Discover {} => Ok(()),
-            Self::RegisterAttached { owner } => shellfox_protocol::validation::ensure(!owner.0.is_nil()),
-            Self::PollAttached { token } | Self::UnregisterAttached { token } => token.validate_wire(),
-            Self::ClaimAttached { delivery } | Self::CompleteAttached { delivery, .. } => delivery.validate().map_err(|_| ValidationError),
+            Self::RegisterAttached { owner } => {
+                shellfox_protocol::validation::ensure(!owner.0.is_nil())
+            }
+            Self::PollAttached { token } | Self::UnregisterAttached { token } => {
+                token.validate_wire()
+            }
+            Self::ClaimAttached { delivery } | Self::CompleteAttached { delivery, .. } => {
+                delivery.validate().map_err(|_| ValidationError)
+            }
             Self::Submit { owner, intent, .. } => {
                 if owner.0.is_nil() {
                     return Err(ValidationError);

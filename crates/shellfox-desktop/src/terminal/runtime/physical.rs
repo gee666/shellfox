@@ -46,11 +46,16 @@ impl Physical {
             .fold(0, |mask, button| mask | button_bit(button))
     }
     pub fn key_release(&self, key: KeyIdentity) -> Option<KeyEvent> {
-        let held = self.keys.iter().find(|(_, event)| identity(event) == Some(key))?;
+        let held = self
+            .keys
+            .iter()
+            .find(|(_, event)| identity(event) == Some(key))?;
         Some(held.1.release())
     }
     fn key_held(&self, event: &KeyEvent) -> bool {
-        self.keys.iter().any(|(_, key)| identity(key) == identity(event))
+        self.keys
+            .iter()
+            .any(|(_, key)| identity(key) == identity(event))
     }
     pub fn change(&self, command: &Command) -> i8 {
         match command {
@@ -91,7 +96,8 @@ impl Physical {
     pub fn accept(&mut self, command: &mut Command) {
         match command {
             Command::Key { lease, event } if identity(event).is_some() => {
-                self.keys.retain(|(_, key)| identity(key) != identity(event));
+                self.keys
+                    .retain(|(_, key)| identity(key) != identity(event));
                 if event.action != KeyAction::Release {
                     self.keys.push((*lease, event.clone()));
                 }

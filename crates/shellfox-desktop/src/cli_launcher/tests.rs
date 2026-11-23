@@ -185,7 +185,10 @@ fn wsl_folders_reach_windows_as_wsl_paths() {
             WSL_FOLDER.split("  windows_path()").next().unwrap()
         ))
         .env("WSLENV", "KEEP/p:shellfox_terminal_marker/w")
-        .env("SHELLFOX_TERMINAL_MARKER", "12345678-1234-4234-8234-123456789abc")
+        .env(
+            "SHELLFOX_TERMINAL_MARKER",
+            "12345678-1234-4234-8234-123456789abc",
+        )
         .env("NO_COLOR", "")
         .output()
         .unwrap();

@@ -2,7 +2,10 @@ use super::*;
 
 #[test]
 fn machine_notices_keep_only_the_first_line_and_at_most_200_utf16_units() {
-    assert_eq!(machine_notice_line("Cannot refresh this peer.\r\nTransport details"), "Cannot refresh this peer.");
+    assert_eq!(
+        machine_notice_line("Cannot refresh this peer.\r\nTransport details"),
+        "Cannot refresh this peer."
+    );
     let multibyte = format!("{}🦊two", "x".repeat(199));
     assert_eq!(machine_notice_line(&multibyte), "x".repeat(199));
     assert_eq!(machine_notice_line(&"x".repeat(205)).len(), 200);

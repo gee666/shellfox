@@ -1,5 +1,5 @@
 use super::*;
-use gpui::{div, prelude::*, px, rgb, AnyElement};
+use gpui::{AnyElement, div, prelude::*, px, rgb};
 
 impl TerminalView {
     pub(in crate::terminal) fn peer_overlay(&self, cx: &mut Context<Self>) -> Option<AnyElement> {

@@ -110,15 +110,30 @@ impl SettingsPanel {
         let mut clients = controls::section(p)
             .relative()
             .track_focus(&self.access_focus)
-            .child(gpui::canvas(move |section, window, cx| {
-                let viewport = scroll.bounds();
-                if viewport.size.height <= px(0.) || !pending.replace(false) { return; }
-                let delta = section.center().y - viewport.center().y;
-                let offset = scroll.offset();
-                scroll.set_offset(gpui::point(offset.x, (offset.y - delta).clamp(-scroll.max_offset().height, px(0.))));
-                let focus = focus.clone();
-                window.defer(cx, move |window, _| { focus.focus(window); window.refresh(); });
-            }, |_, _, _, _| {}).absolute().inset_0())
+            .child(
+                gpui::canvas(
+                    move |section, window, cx| {
+                        let viewport = scroll.bounds();
+                        if viewport.size.height <= px(0.) || !pending.replace(false) {
+                            return;
+                        }
+                        let delta = section.center().y - viewport.center().y;
+                        let offset = scroll.offset();
+                        scroll.set_offset(gpui::point(
+                            offset.x,
+                            (offset.y - delta).clamp(-scroll.max_offset().height, px(0.)),
+                        ));
+                        let focus = focus.clone();
+                        window.defer(cx, move |window, _| {
+                            focus.focus(window);
+                            window.refresh();
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
             .child(
                 div()
                     .flex()
@@ -259,5 +274,4 @@ impl SettingsPanel {
             )
             .into_any_element()
     }
-
 }

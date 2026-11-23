@@ -2,8 +2,8 @@ use super::input::Input;
 use super::*;
 use crate::{
     raw_process::RawStream,
-    UnixPrivilegeMode,
     unix::{cgroup::Cgroup, startup::Gate},
+    UnixPrivilegeMode,
 };
 use anyhow::ensure;
 use std::{

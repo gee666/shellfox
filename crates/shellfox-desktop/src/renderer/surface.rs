@@ -109,8 +109,21 @@ pub fn surface(view: Entity<TerminalView>, focus: FocusHandle) -> impl IntoEleme
                     for row in start.y..=end.y {
                         let left = if row == start.y { start.x } else { 0 };
                         let right = if row == end.y { end.x + 1 } else { screen.cols };
-                        let origin = bounds.origin + point(px(f32::from(left) * cell_width), px(f32::from(row + 1) * line_height - 1.));
-                        window.paint_quad(fill(Bounds::new(origin, size(px(f32::from(right.saturating_sub(left)) * cell_width), px(1.))), rgb(theme.foreground)));
+                        let origin = bounds.origin
+                            + point(
+                                px(f32::from(left) * cell_width),
+                                px(f32::from(row + 1) * line_height - 1.),
+                            );
+                        window.paint_quad(fill(
+                            Bounds::new(
+                                origin,
+                                size(
+                                    px(f32::from(right.saturating_sub(left)) * cell_width),
+                                    px(1.),
+                                ),
+                            ),
+                            rgb(theme.foreground),
+                        ));
                     }
                 }
             });
