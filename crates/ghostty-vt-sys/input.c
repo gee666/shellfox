@@ -52,6 +52,7 @@ static int mode_enabled(SfVt *vt, GhosttyMode id, uint8_t *out) {
 int sf_paste(SfVt *vt, uint8_t *text, size_t text_len,
              uint8_t *out, size_t cap, size_t *len) {
     if (!vt || !len || (text_len && !text) || (cap && !out)) return GHOSTTY_INVALID_VALUE;
+    *len = 0;
     if (vt->callback_error) return vt->callback_error;
     uint8_t bracketed = 0;
     int r = mode_enabled(vt, GHOSTTY_MODE_BRACKETED_PASTE, &bracketed);

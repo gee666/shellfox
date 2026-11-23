@@ -8,10 +8,10 @@
 //! to the first changed character and then the new text. The platform clears
 //! its editor after Enter or any key event and then sends a reset.
 //!
-//! A key or paste that reaches the terminal before that reset moves the
-//! terminal's cursor away from the editor's text. Until the reset, appended
-//! text still goes through, but nothing is erased: the old text may no
-//! longer be where backspaces would reach.
+//! A key or paste that reaches the terminal while the editor still holds
+//! sent text moves the terminal's cursor away from that text. Until the
+//! reset, new text still goes through, but nothing is erased: the old text
+//! may no longer be where backspaces would reach.
 use shellfox_ghostty_vt::key::{validate_text, KeyEvent, KeyModifiers, PhysicalKey};
 
 #[derive(Default)]
@@ -23,8 +23,12 @@ pub(crate) struct Composer {
 impl Composer {
     /// The keyboard's committed text changed to `committed`.
     pub(crate) fn update(&mut self, committed: &str) -> Vec<KeyEvent> {
+        // Compare what the terminal received, not characters it never got.
+        let committed: String = committed.chars().filter(|&c| typed(c)).collect();
+        let committed = committed.as_str();
         if self.detached {
             let mut events = Vec::new();
+            // Only appends are safe; the platform's reset follows shortly.
             if let Some(appended) = committed.strip_prefix(self.sent.as_str()) {
                 text(&mut events, appended);
                 self.sent = committed.to_owned();
@@ -53,7 +57,8 @@ impl Composer {
     }
     /// A key or paste went to the terminal outside the editor.
     pub(crate) fn detach(&mut self) {
-        self.detached = true;
+        // With nothing sent from the editor, nothing can be erased wrongly.
+        self.detached = !self.sent.is_empty();
     }
     /// The platform cleared its editor.
     pub(crate) fn reset(&mut self) {
@@ -66,8 +71,7 @@ fn press(events: &mut Vec<KeyEvent>, event: KeyEvent) {
     events.extend([event, release]);
 }
 
-/// Text with line breaks and tabs as their keys. Other controls are dropped:
-/// a keyboard cannot type them as text.
+/// Text with line breaks and tabs as their keys.
 fn text(events: &mut Vec<KeyEvent>, text: &str) {
     let mut run = String::new();
     let mut chars = text.chars().peekable();
@@ -80,7 +84,6 @@ fn text(events: &mut Vec<KeyEvent>, text: &str) {
                 Some(PhysicalKey::Enter)
             }
             '\t' => Some(PhysicalKey::Tab),
-            c if validate_text(c.encode_utf8(&mut [0; 4])).is_err() => continue,
             c => {
                 run.push(c);
                 None
@@ -92,6 +95,11 @@ fn text(events: &mut Vec<KeyEvent>, text: &str) {
         }
     }
     flush(events, &mut run);
+}
+
+/// Characters a keyboard can type: line breaks, tabs and valid key text.
+fn typed(c: char) -> bool {
+    matches!(c, '\r' | '\n' | '\t') || validate_text(c.encode_utf8(&mut [0; 4])).is_ok()
 }
 
 fn flush(events: &mut Vec<KeyEvent>, run: &mut String) {

@@ -41,6 +41,7 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
     let mut last_sequence = recover(client, tab, &attachment, &mut queries).await?;
     let client = &*client;
     let mut events = EventStream::new();
+    let mut keys = keys::Keys::default();
     // The host holds each output read until the terminal has something new,
     // so keys and output are awaited together instead of polled.
     let poll = || {
@@ -65,11 +66,12 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
                 // The host's terminal encodes keys and pastes with the modes the
                 // application set, even ones recovery could not replay locally.
                 let attachment = attachment.clone();
-                let request = match keys::from_event(event) {
+                let request = match keys.input(event) {
                     Input::Detach => return Ok(()),
                     Input::Key(event) => ExperimentRequest::Key { tab, attachment, event },
                     Input::Paste(text) => {
-                        for text in paste_chunks(&text) {
+                        // Pastes above the host's 64 KiB input bound go in pieces.
+                        for text in shellfox_ghostty_vt::paste_chunks(&text, PASTE_CHUNK) {
                             let attachment = attachment.clone();
                             let paste = ExperimentRequest::Paste { tab, attachment, text: text.to_owned() };
                             done(client.execute(paste).await?)?;
@@ -118,23 +120,6 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
         }
     }
     // Dropping the client releases the attachment. Never send CloseTab or Stop.
-}
-
-/// Pastes above the host's 64 KiB input bound go in UTF-8-safe pieces.
-fn paste_chunks(text: &str) -> impl Iterator<Item = &str> {
-    let mut rest = text;
-    std::iter::from_fn(move || {
-        if rest.is_empty() {
-            return None;
-        }
-        let mut end = rest.len().min(PASTE_CHUNK);
-        while !rest.is_char_boundary(end) {
-            end -= 1;
-        }
-        let (chunk, tail) = rest.split_at(end);
-        rest = tail;
-        Some(chunk)
-    })
 }
 
 async fn resize(

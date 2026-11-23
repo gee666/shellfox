@@ -5,16 +5,24 @@ use shellfox_ghostty_vt::key::KeyAction;
 use shellfox_ghostty_vt::{Selection, ViewportPoint};
 use shellfox_runtime::Command;
 
+const PASTE_CHUNK: usize = shellfox_runtime::MAX_INPUT_PAYLOAD_BYTES - 1024;
+
 impl TerminalView {
     fn paste(&mut self, cx: &mut Context<Self>) {
         if self.failed || self.closing {
             return;
         }
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()).filter(|text| !text.is_empty()) {
-            if let Some(lease) = self.lease {
-                self.submit(Command::Paste { lease, text }, Pending::Applied);
-            } else if let Err(error) = self.peer_paste(&text) {
-                self.reject(error);
+            // Each piece fits one input write; the host takes them in order.
+            for text in shellfox_ghostty_vt::paste_chunks(&text, PASTE_CHUNK) {
+                if let Some(lease) = self.lease {
+                    if !self.submit(Command::Paste { lease, text: text.to_owned() }, Pending::Applied) {
+                        break;
+                    }
+                } else if let Err(error) = self.peer_paste(text) {
+                    self.reject(error);
+                    break;
+                }
             }
         }
     }

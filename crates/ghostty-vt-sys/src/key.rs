@@ -15,22 +15,10 @@ pub enum KeyAction {
     Press = 1,
     Repeat = 2,
 }
-impl TryFrom<u32> for KeyAction {
-    type Error = InvalidKey;
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Release),
-            1 => Ok(Self::Press),
-            2 => Ok(Self::Repeat),
-            _ => Err(InvalidKey::Action(value)),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InvalidKey {
     PhysicalKey(u32),
-    Action(u32),
     ModifierBits(u32),
     Scalar(u32),
     TextCodepoint(char),
@@ -49,7 +37,6 @@ impl std::fmt::Display for InvalidKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             Self::PhysicalKey(v) => write!(f, "unknown physical key {v}"),
-            Self::Action(v) => write!(f, "unknown key action {v}"),
             Self::ModifierBits(v) => write!(f, "unknown modifier bits in {v:#x}"),
             Self::Scalar(v) => write!(f, "unrepresentable unshifted scalar U+{v:04X}"),
             Self::TextCodepoint(c) => {

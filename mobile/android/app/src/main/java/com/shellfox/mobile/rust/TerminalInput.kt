@@ -10,10 +10,22 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
   var stickyModifiers = 0
   private var accent = 0
   private val pressed = mutableMapOf<Int, JSONObject>()
+  private val typedKeys = mutableSetOf<Int>()
 
   fun editor(committed: String) = send(JSONObject().put("type", "editor").put("committed", committed))
   fun editorReset() = send(JSONObject().put("type", "editorReset"))
-  fun paste(text: String) = send(JSONObject().put("type", "paste").put("text", text))
+  /** Pastes go in pieces that each fit one input write. */
+  fun paste(text: String) {
+    var start = 0
+    while (start < text.length) {
+      var end = minOf(text.length, start + PASTE_CHUNK)
+      if (end < text.length && Character.isHighSurrogate(text[end - 1])) end--
+      send(JSONObject().put("type", "paste").put("text", text.substring(start, end)))
+      start = end
+    }
+  }
+  /** Input built elsewhere (the key bar), sent in order with the keyboard's. */
+  fun forward(json: JSONObject) = send(json)
 
   /** Press and release, as from the key bar or an IME editor action. */
   fun tap(physical: Int, modifiers: Int = stickyModifiers, text: String = "", unshifted: Int? = null) {
@@ -23,6 +35,10 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
 
   /** A soft-keyboard character typed while a key-bar modifier is held. */
   fun chord(codepoint: Int) {
+    when (codepoint) {
+      10, 13 -> return tap(ENTER)
+      9 -> return tap(TAB)
+    }
     val base = Character.toLowerCase(codepoint)
     tap(usPosition(base), stickyModifiers, String(Character.toChars(codepoint)), base.takeIf(::printable))
   }
@@ -30,13 +46,14 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
   fun reset(releaseHeld: Boolean = true) {
     if (releaseHeld) pressed.values.forEach { send(release(it)) }
     pressed.clear()
+    typedKeys.clear()
     accent = 0
   }
 
   /** A hardware (or IME-synthesized) key. False lets Android handle it. */
   fun hardware(event: KeyEvent, preedit: (String) -> Unit): Boolean {
     if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return false
-    val physical = physical(event.keyCode) ?: return false
+    val physical = physical(event.keyCode) ?: return typedOnly(event)
     if (event.action == KeyEvent.ACTION_UP) {
       // Only keys whose press reached the terminal are released there.
       pressed.remove(event.keyCode)?.let { send(release(it)) }
@@ -72,6 +89,16 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
     return true
   }
 
+  /** A key with no Ghostty identity that still types a character (KEYCODE_AT, _POUND...). */
+  private fun typedOnly(event: KeyEvent): Boolean {
+    if (event.action == KeyEvent.ACTION_UP) return typedKeys.remove(event.keyCode)
+    val unicode = event.getUnicodeChar(event.metaState and KeyEvent.META_CTRL_MASK.inv())
+    if (!printable(unicode)) return false
+    typedKeys.add(event.keyCode)
+    tap(0, stickyModifiers, String(Character.toChars(unicode)))
+    return true
+  }
+
   companion object {
     const val SHIFT = 1
     const val CTRL = 2
@@ -80,6 +107,8 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
     const val ENTER = 58
     const val BACKSPACE = 53
     const val TAB = 64
+    // UTF-16 units; at most 3 UTF-8 bytes each, well under the 64 KiB write.
+    private const val PASTE_CHUNK = 16 * 1024
 
     fun key(physical: Int, action: String, modifiers: Int, text: String = "", unshifted: Int? = null,
       consumed: Int = 0): JSONObject =

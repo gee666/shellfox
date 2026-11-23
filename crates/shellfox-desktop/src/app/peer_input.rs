@@ -32,7 +32,7 @@ impl Peer {
 impl TerminalView {
     pub(in crate::app) fn peer_key(&mut self, key: KeyEvent) -> anyhow::Result<()> {
         let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else { return Ok(()); };
-        if !physical::admit_key(&mut peer.held_keys, &key) { return Ok(()); }
+        if !peer.held_keys.admit(&key) { return Ok(()); }
         let data = peer.terminal.encode_key_event(&key)?;
         if peer.queue_keyboard_input(data)? { self.refresh_peer_screen(); }
         Ok(())
@@ -40,21 +40,23 @@ impl TerminalView {
 
     pub(in crate::app) fn peer_key_release(&self, key: physical::KeyIdentity) -> Option<KeyEvent> {
         match &self.backend {
-            Backend::Peer(peer) => physical::held_release(&peer.held_keys, key),
+            Backend::Peer(peer) => peer.held_keys.release(key.0, key.1),
             _ => None,
         }
     }
 
     /// Focus loss: the key-ups will go elsewhere, so release held keys now.
     pub(in crate::app) fn release_peer_keys(&mut self) {
-        let releases: Vec<_> = match &self.backend {
-            Backend::Peer(peer) => peer.held_keys.iter().map(KeyEvent::release).collect(),
-            _ => return,
+        let releases = match self.peer_mut() {
+            Some(peer) => peer.held_keys.release_all(),
+            None => return,
         };
         for release in releases {
-            if let Err(error) = self.peer_key(release) { self.reject(error); }
+            let Some(peer) = self.peer_mut().filter(|peer| peer.can_write()) else { return };
+            let sent = peer.terminal.encode_key_event(&release).map_err(anyhow::Error::from)
+                .and_then(|data| peer.queue_keyboard_input(data));
+            if let Err(error) = sent { self.reject(error); }
         }
-        if let Some(peer) = self.peer_mut() { peer.held_keys.clear(); }
     }
 
     pub(in crate::app) fn peer_paste(&mut self, text: &str) -> anyhow::Result<()> {

@@ -187,3 +187,14 @@ fn serde_round_trip_and_invalid_text() {
     assert!(KeyEvent::text("\x1b[A").validate().is_err());
     assert!(t.encode_key_event(&KeyEvent::text("\x1b[A")).is_err());
 }
+
+#[test]
+fn us_key_names_the_key_its_base_and_shift() {
+    use shellfox_ghostty_vt::key::us_key;
+    assert_eq!(us_key('a'), Some((P::KeyA, 'a', false)));
+    assert_eq!(us_key('A'), Some((P::KeyA, 'a', true)));
+    assert_eq!(us_key('!'), Some((P::Digit1, '1', true)));
+    assert_eq!(us_key('|'), Some((P::Backslash, '\\', true)));
+    assert_eq!(us_key(' '), Some((P::Space, ' ', false)));
+    assert_eq!(us_key('é'), None);
+}

@@ -131,7 +131,11 @@
 - (void)cancelInput { [_input cancelComposition]; }
 // Key-bar keys and pastes reach the terminal outside the keyboard editor.
 - (void)typedInput:(NSNotification *)note {
-  if ([note.object isEqual:_terminalHandle]) [_input finishAndClear];
+  if (![note.object isEqual:_terminalHandle]) return;
+  // In order: the word being composed reaches the terminal before the key.
+  [_input finishAndClear];
+  [self send:note.userInfo[@"event"]];
+  ((NSMutableDictionary *)note.userInfo)[@"handled"] = @YES;
 }
 - (void)background { [self detach]; }
 - (void)foreground { if (self.window) [self bind]; }

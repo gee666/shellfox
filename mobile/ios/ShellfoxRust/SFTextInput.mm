@@ -3,12 +3,13 @@
 // A leading zero-width space lets Backspace on an empty editor reach
 // deleteBackward, which then deletes terminal text.
 static NSString *const Sentinel = @"\u200B";
-static const NSUInteger Backspace = 53;
+static const NSUInteger Backspace = 53, Enter = 58, Tab = 64;
 
 @implementation SFTextInput {
   BOOL _resetting;
   NSString *_reported;
   NSMutableDictionary<NSNumber *, NSDictionary *> *_physical;
+  NSMutableDictionary<NSNumber *, NSTimer *> *_repeats;
 }
 - (instancetype)initWithFrame:(CGRect)frame textContainer:(NSTextContainer *)container {
   if ((self = [super initWithFrame:frame textContainer:container])) {
@@ -33,6 +34,7 @@ static const NSUInteger Backspace = 53;
     self.accessibilityLabel = @"Terminal keyboard";
     _reported = @"";
     _physical = [NSMutableDictionary new];
+    _repeats = [NSMutableDictionary new];
   }
   return self;
 }
@@ -66,13 +68,18 @@ static const NSUInteger Backspace = 53;
       committed = [full stringByReplacingCharactersInRange:NSMakeRange(start, end - start) withString:@""];
     }
   }
-  if ([full lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 60000) { [self finishAndClear]; return; }
+  // Each edit is sent whole; an editor past one write's worth starts over.
+  if ([full lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 60000) { [self clearEditor]; return; }
   NSString *typed = [full hasPrefix:_reported] ? [full substringFromIndex:_reported.length] : nil;
   if (self.stickyModifiers && typed.length) {
     // A held key-bar modifier applies to the characters just typed.
     NSUInteger modifiers = self.stickyModifiers;
     [typed enumerateSubstringsInRange:NSMakeRange(0, typed.length) options:NSStringEnumerationByComposedCharacterSequences
       usingBlock:^(NSString *c, NSRange, NSRange, BOOL *) {
+        if ([c rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound) {
+          [self tap:Enter modifiers:modifiers text:@"" unshifted:nil]; return;
+        }
+        if ([c isEqualToString:@"\t"]) { [self tap:Tab modifiers:modifiers text:@"" unshifted:nil]; return; }
         NSString *base = c.lowercaseString;
         unichar first = [base characterAtIndex:0];
         id unshifted = base.length == 1 ? @(first) : nil;
@@ -83,8 +90,29 @@ static const NSUInteger Backspace = 53;
   }
   if (![committed isEqualToString:_reported]) [self send:@{@"type":@"editor", @"committed":committed}];
   _reported = committed;
-  // A line break ends the line; the next one starts empty.
-  if ([committed rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound) [self clearEditor];
+  // Return and Tab change the line; the next text starts in an empty editor.
+  if ([committed rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound ||
+      [committed containsString:@"\t"]) [self clearEditor];
+}
+- (void)insertText:(NSString *)text {
+  // A keyboard's clipboard paste of a long text is a paste, not typing.
+  if (text.length > 1024) {
+    [self finishAndClear];
+    for (NSDictionary *paste in SFPasteEvents(text)) [self send:paste];
+    return;
+  }
+  [super insertText:text];
+  [self textViewDidChange:self];
+}
+// UIKit tells the delegate only about some edits (none while the view is not
+// first responder). Reporting after each keyboard call is idempotent.
+- (void)replaceRange:(UITextRange *)range withText:(NSString *)text {
+  [super replaceRange:range withText:text];
+  [self textViewDidChange:self];
+}
+- (void)setMarkedText:(NSString *)markedText selectedRange:(NSRange)selectedRange {
+  [super setMarkedText:markedText selectedRange:selectedRange];
+  [self textViewDidChange:self];
 }
 - (void)unmarkText {
   [super unmarkText];
@@ -101,13 +129,34 @@ static const NSUInteger Backspace = 53;
     [self tap:Backspace modifiers:0 text:@"" unshifted:nil];
   } else {
     [super deleteBackward];
+    [self textViewDidChange:self];
   }
 }
 - (void)cancelComposition {
   // Discard marked text on detach/background, never commit into a different tab.
   [self clearEditor];
+  for (NSTimer *timer in _repeats.allValues) [timer invalidate];
+  [_repeats removeAllObjects];
   for (NSDictionary *pressed in _physical.allValues) [self send:SFReleasedKey(pressed)];
   [_physical removeAllObjects];
+}
+// UIKit reports a held hardware key once; repeat it like the system does.
+- (void)repeatKey:(NSNumber *)code {
+  NSDictionary *pressed = _physical[code];
+  if (!pressed) return;
+  NSMutableDictionary *event = [pressed[@"event"] mutableCopy];
+  event[@"action"] = @"repeat";
+  NSDictionary *repeat = @{@"type":@"key", @"event":event};
+  __weak SFTextInput *weakSelf = self;
+  _repeats[code] = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:NO block:^(NSTimer *) {
+    SFTextInput *input = weakSelf;
+    if (!input || !input->_physical[code]) return;
+    input->_repeats[code] = [NSTimer scheduledTimerWithTimeInterval:1.0 / 30 repeats:YES block:^(NSTimer *timer) {
+      SFTextInput *held = weakSelf;
+      if (!held || !held->_physical[code]) { [timer invalidate]; return; }
+      [held send:repeat];
+    }];
+  }];
 }
 - (void)textViewDidEndEditing:(UITextView *)textView { [self cancelComposition]; }
 - (void)paste:(id)sender { [self finishAndClear]; if (self.requestPaste) self.requestPaste(); }
@@ -140,6 +189,8 @@ static const NSUInteger Backspace = 53;
     }
     _physical[@(key.keyCode)] = encoded;
     [self send:encoded];
+    // Modifier keys (HID 224-231) do not repeat.
+    if (key.keyCode < 224 || key.keyCode > 231) [self repeatKey:@(key.keyCode)];
   }
   if (ordinary.count) [super pressesBegan:ordinary withEvent:event];
 }
@@ -148,6 +199,8 @@ static const NSUInteger Backspace = 53;
   for (UIPress *press in presses) {
     NSDictionary *pressed = press.key ? _physical[@(press.key.keyCode)] : nil;
     if (pressed) {
+      [_repeats[@(press.key.keyCode)] invalidate];
+      [_repeats removeObjectForKey:@(press.key.keyCode)];
       [_physical removeObjectForKey:@(press.key.keyCode)];
       [self send:SFReleasedKey(pressed)];
     } else [ordinary addObject:press];

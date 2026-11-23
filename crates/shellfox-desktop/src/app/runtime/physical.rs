@@ -25,8 +25,7 @@ pub(crate) fn button_bit(button: MouseButton) -> u8 {
 /// Physical key plus base character; committed text has neither and is never held.
 pub(crate) type KeyIdentity = (PhysicalKey, Option<char>);
 fn identity(event: &KeyEvent) -> Option<KeyIdentity> {
-    (event.physical != PhysicalKey::Unidentified || event.unshifted_codepoint.is_some())
-        .then_some((event.physical, event.unshifted_codepoint))
+    event.identity()
 }
 
 /// A repeat or release whose press never reached the terminal, e.g. the
@@ -34,28 +33,6 @@ fn identity(event: &KeyEvent) -> Option<KeyIdentity> {
 /// apps that report releases.
 fn orphan(held: bool, event: &KeyEvent) -> bool {
     !held && event.action != KeyAction::Press && identity(event).is_some()
-}
-
-/// Held keys of a terminal without a lease-tracked outbox (the peer viewer).
-/// Returns whether `event` may be sent and records it if so.
-pub(in crate::app) fn admit_key(held: &mut Vec<KeyEvent>, event: &KeyEvent) -> bool {
-    let Some(key) = identity(event) else {
-        return true;
-    };
-    let was_held = held.iter().any(|h| identity(h) == Some(key));
-    if orphan(was_held, event) {
-        return false;
-    }
-    held.retain(|h| identity(h) != Some(key));
-    if event.action != KeyAction::Release && held.len() < MAX_HELD {
-        held.push(event.clone());
-    }
-    true
-}
-
-/// The release for a held key, by the identity a key-up names.
-pub(in crate::app) fn held_release(held: &[KeyEvent], key: KeyIdentity) -> Option<KeyEvent> {
-    held.iter().find(|h| identity(h) == Some(key)).map(KeyEvent::release)
 }
 
 impl Physical {

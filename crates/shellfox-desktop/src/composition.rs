@@ -1,5 +1,5 @@
 use crate::app::TerminalView;
-use shellfox_ghostty_vt::key::KeyEvent;
+use shellfox_ghostty_vt::key::{validate_text, KeyEvent, KeyModifiers, PhysicalKey};
 use gpui::{
     Bounds, Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window, point, px, size,
 };
@@ -57,7 +57,7 @@ impl EntityInputHandler for TerminalView {
         if range.as_ref().is_some_and(|range| range.start > range.end) {
             return;
         }
-        if let Some(event) = commit(text) {
+        for event in commit(text) {
             self.send_key(event);
         }
         cx.notify();
@@ -106,10 +106,22 @@ impl EntityInputHandler for TerminalView {
 }
 
 /// A native commit (IME, dead key, emoji picker, dictation) is terminal text,
-/// sent exactly once. Marked text never is. Controls arrive as key events.
-fn commit(text: &str) -> Option<KeyEvent> {
-    (!text.is_empty() && shellfox_ghostty_vt::key::validate_text(text).is_ok())
-        .then(|| KeyEvent::text(text))
+/// sent exactly once; line breaks become Enter. Marked text never is sent.
+/// Other controls cannot be typed and are dropped.
+fn commit(text: &str) -> Vec<KeyEvent> {
+    let mut events = Vec::new();
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            let enter = KeyEvent::press(PhysicalKey::Enter, KeyModifiers::NONE);
+            events.push(enter.release());
+            events.insert(events.len() - 1, enter);
+        }
+        let line: String = line.chars().filter(|c| validate_text(c.encode_utf8(&mut [0; 4])).is_ok()).collect();
+        if !line.is_empty() {
+            events.push(KeyEvent::text(line));
+        }
+    }
+    events
 }
 
 #[cfg(test)]
@@ -117,18 +129,26 @@ mod tests {
     use super::commit;
     use shellfox_ghostty_vt::Terminal;
 
+    fn bytes(terminal: &mut Terminal, text: &str) -> Vec<u8> {
+        commit(text).iter().flat_map(|e| terminal.encode_key_event(e).unwrap()).collect()
+    }
+
     #[test]
     fn ime_dead_key_and_emoji_commits_are_text_in_every_keyboard_mode() {
         for mode in [&b""[..], b"\x1b[>1u", b"\x1b[>31u"] {
             let mut terminal = Terminal::new(80, 24).unwrap();
             terminal.feed(mode).unwrap();
             for text in ["日本語", "한국어", "é", "ñ", "🦊👍🏽", "a\u{301}"] {
-                let event = commit(text).unwrap();
-                assert_eq!(terminal.encode_key_event(&event).unwrap(), text.as_bytes(), "{text}");
+                assert_eq!(bytes(&mut terminal, text), text.as_bytes(), "{text}");
             }
         }
-        assert!(commit("").is_none());
-        assert!(commit("\x1b[A").is_none());
-        assert!(commit("a\nb").is_none());
+    }
+
+    #[test]
+    fn dictated_line_breaks_are_enter_and_controls_are_dropped() {
+        let mut terminal = Terminal::new(80, 24).unwrap();
+        assert!(commit("").is_empty());
+        assert_eq!(bytes(&mut terminal, "\x1b[A"), b"[A");
+        assert_eq!(bytes(&mut terminal, "ls\npwd"), b"ls\rpwd");
     }
 }

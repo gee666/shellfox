@@ -17,7 +17,8 @@ describe('key bar keys', () => {
     expect(event(keyInput('c', ctrl))).toMatchObject({ physical: 22, text: 'c', unshiftedCodepoint: 99, modifiers: 2 });
     expect(event(keyInput('a', { ...emptyModifiers, shift: true }))).toMatchObject({ text: 'A', consumedModifiers: 1, modifiers: 1 });
     expect(event(keyInput('a', { ...emptyModifiers, capsLock: true }))).toMatchObject({ text: 'A', modifiers: 16 });
-    expect(event(keyInput('|', emptyModifiers))).toMatchObject({ physical: 2, text: '|', unshiftedCodepoint: 92 });
+    expect(event(keyInput('|', emptyModifiers))).toMatchObject({ physical: 2, text: '|', unshiftedCodepoint: 92, modifiers: 1, consumedModifiers: 1 });
+    expect(event(keyInput('|', ctrl))).toMatchObject({ physical: 2, modifiers: 3, consumedModifiers: 1 });
     expect(event(keyInput('2', { ...emptyModifiers, shift: true }))).toMatchObject({ physical: 8, text: '@' });
     expect(event(keyInput('/', emptyModifiers))).toMatchObject({ physical: 50, text: '/' });
     expect(event(keyInput(' ', ctrl))).toMatchObject({ physical: 63, text: ' ', unshiftedCodepoint: 32 });

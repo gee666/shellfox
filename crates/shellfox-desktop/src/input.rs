@@ -1,5 +1,5 @@
 use gpui::Keystroke;
-use shellfox_ghostty_vt::key::{KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::key::{us_key, validate_text, KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 
 #[cfg(test)]
 #[path = "input_tests.rs"]
@@ -35,31 +35,10 @@ pub fn physical_key(key: &str) -> PhysicalKey {
             }
             let mut chars = value.chars();
             match (chars.next(), chars.next()) {
-                (Some(c), None) => character_key(c),
+                (Some(c), None) => us_key(c).map_or(P::Unidentified, |(key, _, _)| key),
                 _ => P::Unidentified,
             }
         }
-    }
-}
-
-fn character_key(c: char) -> PhysicalKey {
-    use PhysicalKey as P;
-    let offset = |base: char| u32::from(c) - u32::from(base);
-    match c {
-        'a'..='z' => P::try_from(P::KeyA.code() + offset('a')).unwrap_or(P::Unidentified),
-        '0'..='9' => P::try_from(P::Digit0.code() + offset('0')).unwrap_or(P::Unidentified),
-        '`' => P::Backquote,
-        '-' => P::Minus,
-        '=' => P::Equal,
-        '[' => P::BracketLeft,
-        ']' => P::BracketRight,
-        '\\' => P::Backslash,
-        ';' => P::Semicolon,
-        '\'' => P::Quote,
-        ',' => P::Comma,
-        '.' => P::Period,
-        '/' => P::Slash,
-        _ => P::Unidentified,
     }
 }
 
@@ -137,34 +116,36 @@ fn key_event_for(stroke: &Keystroke, action: KeyAction, mac: bool, windows: bool
         return None;
     }
     let (physical, base) = key_identity(&stroke.key);
-    let m = stroke.modifiers;
-    let mut modifiers = KeyModifiers::NONE;
-    modifiers.set(KeyModifiers::SHIFT, m.shift);
-    modifiers.set(KeyModifiers::CONTROL, m.control);
-    modifiers.set(KeyModifiers::ALT, m.alt);
-    modifiers.set(KeyModifiers::SUPER, m.platform);
     if physical == PhysicalKey::Unidentified && base.is_none() {
         return None;
     }
+    let m = stroke.modifiers;
+    let character = single_char(&stroke.key);
+    // GPUI folds Shift into shifted symbols ("!" without Shift); Shift is back.
+    let folded_shift = character.and_then(us_key).is_some_and(|(_, b, s)| s && Some(b) != character);
+    let mut modifiers = KeyModifiers::NONE;
+    modifiers.set(KeyModifiers::SHIFT, m.shift || folded_shift);
+    modifiers.set(KeyModifiers::CONTROL, m.control);
+    modifiers.set(KeyModifiers::ALT, m.alt);
+    modifiers.set(KeyModifiers::SUPER, m.platform);
     // Layout text without Ctrl. GPUI omits key_char under Ctrl, so rebuild
-    // it from the base character; Shift only changes letters here because
-    // GPUI already folds Shift into shifted symbols.
+    // it from the key name, uppercasing letters under Shift.
     let text = match action {
         KeyAction::Release => String::new(),
         _ => stroke
             .key_char
             .clone()
-            .filter(|text| shellfox_ghostty_vt::key::validate_text(text).is_ok())
+            .filter(|text| validate_text(text).is_ok())
             .or_else(|| {
-                base.map(|c| match m.shift {
-                    true => c.to_uppercase().collect(),
-                    false => c.to_string(),
-                })
+                let c = if stroke.key == "space" { ' ' } else { character? };
+                Some(if m.shift { c.to_uppercase().collect() } else { c.to_string() })
             })
             .unwrap_or_default(),
     };
     let consumed_modifiers = match base {
-        Some(c) if m.shift && text.chars().ne(c.to_lowercase()) => KeyModifiers::SHIFT,
+        Some(b) if modifiers.contains(KeyModifiers::SHIFT) && !text.is_empty() && text.chars().ne([b]) => {
+            KeyModifiers::SHIFT
+        }
         _ => KeyModifiers::NONE,
     };
     Some(KeyEvent {
@@ -173,20 +154,28 @@ fn key_event_for(stroke: &Keystroke, action: KeyAction, mac: bool, windows: bool
         modifiers,
         consumed_modifiers,
         text,
-        unshifted_codepoint: base.map(|c| c.to_lowercase().next().unwrap_or(c)),
+        unshifted_codepoint: base,
         composing: false,
     })
 }
 
-/// Ghostty's key and the key's base character. GPUI names printable keys by
-/// their character, so this survives modifier changes between press and release.
+fn single_char(key: &str) -> Option<char> {
+    let mut chars = key.chars();
+    chars.next().filter(|_| chars.next().is_none())
+}
+
+/// Ghostty's key and the key's unshifted character. GPUI names printable
+/// keys by their character, and a shifted symbol names the same key as its
+/// base, so press and release match even when Shift is let go first.
 pub fn key_identity(key: &str) -> (PhysicalKey, Option<char>) {
-    let base = match key {
-        "space" => Some(' '),
-        key => {
-            let mut chars = key.chars();
-            chars.next().filter(|_| chars.next().is_none())
-        }
-    };
-    (physical_key(key), base)
+    if key == "space" {
+        return (PhysicalKey::Space, Some(' '));
+    }
+    match single_char(key) {
+        Some(c) => match us_key(c) {
+            Some((physical, base, _)) => (physical, Some(base)),
+            None => (PhysicalKey::Unidentified, Some(c.to_lowercase().next().unwrap_or(c))),
+        },
+        None => (physical_key(key), None),
+    }
 }

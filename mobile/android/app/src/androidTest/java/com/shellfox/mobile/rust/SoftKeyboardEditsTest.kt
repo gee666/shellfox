@@ -152,4 +152,36 @@ class SoftKeyboardEditsTest {
     call { commitText("ls", 1) }
     assertEquals("\u0003ls", String(bytes, Charsets.UTF_8))
   }
+  @Test fun typingAfterKeysWithAnEmptyEditorIsNeverDropped() {
+    call { commitText("hi", 1) }
+    call { performEditorAction(0) }
+    call { deleteSurroundingText(1, 0) }
+    call { commitText("abc", 1) }
+    call { deleteSurroundingText(1, 0) }
+    call { commitText("x", 1) }
+    assertEquals("abx", line.toString())
+  }
+  @Test fun aKeyBarKeyWaitsForTheWordBeingComposed() {
+    call { commitText("cd ", 1) }
+    call { setComposingText("Doc", 1) }
+    // What the view does for a key-bar key: finish the word, then send the key.
+    call { finishAndClear(); input.forward(TerminalInput.key(TerminalInput.ENTER, "press", 0)) }
+    assertEquals(listOf("cd Doc"), submitted)
+  }
+  @Test fun cancellingAReopenedWordKeepsIt() {
+    call { commitText("git stauts", 1) }
+    call { setComposingRegion(4, 10) }
+    call { cancelComposition() }
+    assertEquals("git stauts", line.toString())
+    call { setComposingText("fresh", 1) }
+    call { cancelComposition() }
+    assertEquals("git stauts", line.toString())
+  }
+  @Test fun aLongKeyboardPasteIsAPasteAndTypingContinues() {
+    val long = "x".repeat(5000)
+    call { commitText(long, 1) }
+    assertEquals(long, line.toString())
+    call { commitText("y", 1) }
+    assertEquals(long + "y", line.toString())
+  }
 }

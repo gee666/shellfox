@@ -98,3 +98,81 @@ impl Terminal {
         self.engine.encode_key(&event.borrowed()).map_err(Error)
     }
 }
+
+/// The US-layout key that types `c`, its unshifted character, and whether
+/// Shift is needed. Frontends that report characters rather than scan codes
+/// (GPUI, crossterm) use this so press and release name the same key.
+pub fn us_key(c: char) -> Option<(PhysicalKey, char, bool)> {
+    const SHIFTED: [(char, char); 21] = [
+        ('!', '1'), ('@', '2'), ('#', '3'), ('$', '4'), ('%', '5'), ('^', '6'), ('&', '7'),
+        ('*', '8'), ('(', '9'), (')', '0'), ('~', '`'), ('_', '-'), ('+', '='), ('{', '['),
+        ('}', ']'), ('|', '\\'), (':', ';'), ('"', '\''), ('<', ','), ('>', '.'), ('?', '/'),
+    ];
+    let (base, shifted) = match c {
+        'A'..='Z' => (c.to_ascii_lowercase(), true),
+        c => SHIFTED
+            .iter()
+            .find(|(s, _)| *s == c)
+            .map_or((c, false), |&(_, b)| (b, true)),
+    };
+    let offset = |from: char| u32::from(base) - u32::from(from);
+    let physical = match base {
+        'a'..='z' => PhysicalKey::try_from(PhysicalKey::KeyA.code() + offset('a')).ok()?,
+        '0'..='9' => PhysicalKey::try_from(PhysicalKey::Digit0.code() + offset('0')).ok()?,
+        ' ' => PhysicalKey::Space,
+        '`' => PhysicalKey::Backquote,
+        '-' => PhysicalKey::Minus,
+        '=' => PhysicalKey::Equal,
+        '[' => PhysicalKey::BracketLeft,
+        ']' => PhysicalKey::BracketRight,
+        '\\' => PhysicalKey::Backslash,
+        ';' => PhysicalKey::Semicolon,
+        '\'' => PhysicalKey::Quote,
+        ',' => PhysicalKey::Comma,
+        '.' => PhysicalKey::Period,
+        '/' => PhysicalKey::Slash,
+        _ => return None,
+    };
+    Some((physical, base, shifted))
+}
+
+/// Keys whose press reached a terminal. Repeats and releases of keys whose
+/// press never did (an app shortcut, the key that launched a CLI) are dropped.
+#[derive(Default)]
+pub struct HeldKeys(Vec<KeyEvent>);
+impl HeldKeys {
+    /// Holds at most this many keys; more presses still go through.
+    pub const MAX: usize = 64;
+    /// Whether `event` may go to the terminal. Records presses and releases.
+    /// Committed text has no key identity and always goes.
+    pub fn admit(&mut self, event: &KeyEvent) -> bool {
+        let Some(key) = event.identity() else {
+            return true;
+        };
+        let held = self.0.iter().any(|h| h.identity() == Some(key));
+        if !held && event.action != KeyAction::Press {
+            return false;
+        }
+        self.0.retain(|h| h.identity() != Some(key));
+        if event.action != KeyAction::Release && self.0.len() < Self::MAX {
+            self.0.push(event.clone());
+        }
+        true
+    }
+    /// The release for a held key, found by what a key-up names.
+    pub fn release(&self, physical: PhysicalKey, unshifted: Option<char>) -> Option<KeyEvent> {
+        let key = (physical, unshifted);
+        self.0.iter().find(|h| h.identity() == Some(key)).map(KeyEvent::release)
+    }
+    /// Releases for everything held, e.g. on focus loss. Clears the set.
+    pub fn release_all(&mut self) -> Vec<KeyEvent> {
+        self.0.drain(..).map(|h| h.release()).collect()
+    }
+}
+impl KeyEvent {
+    /// The physical key and base character, or none for committed text.
+    pub fn identity(&self) -> Option<(PhysicalKey, Option<char>)> {
+        (self.physical != PhysicalKey::Unidentified || self.unshifted_codepoint.is_some())
+            .then_some((self.physical, self.unshifted_codepoint))
+    }
+}

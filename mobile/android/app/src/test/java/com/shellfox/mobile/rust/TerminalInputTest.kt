@@ -107,6 +107,27 @@ class TerminalInputTest {
     assertFalse(ime.deleteSurroundingText(1, 0))
     assertTrue(editors().isEmpty())
   }
+  @Test fun stickyModifierWithReturnIsEnterNotText() {
+    val ime = connection()
+    input.stickyModifiers = TerminalInput.CTRL
+    ime.commitText("\n", 1)
+    val key = keys().first()
+    assertEquals(TerminalInput.ENTER, key.getInt("physical"))
+    assertEquals("", key.getString("text"))
+  }
+  @Test fun keysWithoutAGhosttyIdentityStillTypeTheirCharacter() {
+    assertTrue(input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_AT)) {})
+    assertEquals("@", keys().first().getString("text"))
+    assertTrue(input.hardware(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_AT)) {})
+    assertFalse(input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_UP)) {})
+  }
+  @Test fun longPastesGoInWriteSizedPieces() {
+    input.paste("a".repeat(40_000))
+    val pieces = events.filter { it.getString("type") == "paste" }.map { it.getString("text") }
+    assertTrue(pieces.size > 1)
+    assertTrue(pieces.all { it.length <= 16 * 1024 })
+    assertEquals(40_000, pieces.sumOf { it.length })
+  }
   @Test fun untrustedOsc8LinksAllowOnlyExplicitHttpSchemes() {
     assertNotNull(TerminalTouch.safeLink("https://example.invalid/a"))
     for (link in listOf("javascript:alert(1)", "file:///tmp/data", "intent://a", "https://user:secret@example.invalid", "https://a\n.invalid"))

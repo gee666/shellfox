@@ -104,13 +104,15 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
   id input = [NSJSONSerialization JSONObjectWithData:bytes options:0 error:nil];
   if (![input isKindOfClass:NSDictionary.class]) { reject(@"RUST_INVALID", @"Invalid input event.", nil); return; }
   dispatch_async(dispatch_get_main_queue(), ^{
-    [NSNotificationCenter.defaultCenter postNotificationName:SFTerminalTypedInputNotification object:identifier];
+    NSMutableDictionary *info = [@{@"event":input, @"handled":@NO} mutableCopy];
+    [NSNotificationCenter.defaultCenter postNotificationName:SFTerminalTypedInputNotification object:identifier userInfo:info];
+    if ([info[@"handled"] boolValue]) { resolve(nil); return; }
+    [self submit:^id(SfmStatus *status) {
+      if (![self ownsTerminal:identifier]) { *status = SFM_STALE; return nil; }
+      *status = [[SFOwner shared] input:identifier event:input];
+      return nil;
+    } resolve:resolve reject:reject];
   });
-  [self submit:^id(SfmStatus *status) {
-    if (![self ownsTerminal:identifier]) { *status = SFM_STALE; return nil; }
-    *status = [[SFOwner shared] input:identifier event:input];
-    return nil;
-  } resolve:resolve reject:reject];
 }
 - (void)configureTerminal:(NSString *)identifier json:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   NSData *bytes = [json dataUsingEncoding:NSUTF8StringEncoding];

@@ -226,16 +226,17 @@ fn app_shortcut_repeats_and_key_ups_never_reach_the_terminal() {
     assert!(queue.key_release(crate::input::key_identity("b")).is_none());
     assert!(Transport::new().finish(&mut queue).is_empty());
 
-    let mut held = Vec::new();
+    // The peer viewer has no outbox; it uses Ghostty's held-key set.
+    let mut held = shellfox_ghostty_vt::key::HeldKeys::default();
     let press = crate::input::key_event(&stroke, KeyAction::Press).unwrap();
     let repeat = crate::input::key_event(&stroke, KeyAction::Repeat).unwrap();
-    assert!(!crate::app::runtime::physical::admit_key(&mut held, &repeat));
-    assert!(!crate::app::runtime::physical::admit_key(&mut held, &press.release()));
-    assert!(crate::app::runtime::physical::admit_key(&mut held, &press));
-    assert!(crate::app::runtime::physical::admit_key(&mut held, &repeat));
-    let release = crate::app::runtime::physical::held_release(&held, crate::input::key_identity("b"));
-    assert!(crate::app::runtime::physical::admit_key(&mut held, &release.unwrap()));
-    assert!(held.is_empty());
+    assert!(!held.admit(&repeat));
+    assert!(!held.admit(&press.release()));
+    assert!(held.admit(&press));
+    assert!(held.admit(&repeat));
+    let (physical, base) = crate::input::key_identity("b");
+    assert!(held.admit(&held.release(physical, base).unwrap()));
+    assert!(held.release_all().is_empty());
     // Committed text has no key behind it and is always sent.
-    assert!(crate::app::runtime::physical::admit_key(&mut held, &KeyEvent::text("b")));
+    assert!(held.admit(&KeyEvent::text("b")));
 }

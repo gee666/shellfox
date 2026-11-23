@@ -23,6 +23,7 @@ internal class TerminalInputConnection(
   private var monitorCursor = false
   private var anchor = floatArrayOf(0f, 0f, 0f, 0f)
   private var lastAnchor = ""
+  private var recomposed = false
   override fun getEditable(): Editable = editor
 
   private inline fun edit(action: () -> Boolean): Boolean {
@@ -34,9 +35,16 @@ internal class TerminalInputConnection(
   override fun setComposingText(text: CharSequence?, newCursorPosition: Int) = edit {
     super.setComposingText(text, newCursorPosition)
   }
-  override fun setComposingRegion(start: Int, end: Int) = edit { super.setComposingRegion(start, end) }
-  override fun commitText(text: CharSequence?, newCursorPosition: Int) = edit {
-    TerminalInput.validUnicode(text?.toString().orEmpty()) && super.commitText(text, newCursorPosition)
+  // The keyboard reopens committed text (a suggestion, a correction).
+  override fun setComposingRegion(start: Int, end: Int) = edit {
+    super.setComposingRegion(start, end).also { recomposed = start != end }
+  }
+  override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+    val value = text?.toString().orEmpty()
+    if (!writable() || !TerminalInput.validUnicode(value)) return false
+    // A keyboard's clipboard paste of a long text is a paste, not typing.
+    if (value.length > LONG_COMMIT) { finishAndClear(); input.paste(value); return true }
+    return edit { super.commitText(text, newCursorPosition) }
   }
   override fun finishComposingText(): Boolean {
     if (!writable()) { clear(); return true }
@@ -87,7 +95,8 @@ internal class TerminalInputConnection(
     report()
     clear()
   }
-  fun cancelComposition() = clear()
+  /** Drops a fresh preedit, but keeps a reopened word: the terminal already lost it. */
+  fun cancelComposition() = if (recomposed) finishAndClear() else clear()
   override fun closeConnection() { monitorCursor = false; clear(); super.closeConnection() }
 
   private fun report() {
@@ -104,12 +113,16 @@ internal class TerminalInputConnection(
       clear()
       return
     }
+    if (!composing) recomposed = false
     if (committed != reported) input.editor(committed)
     reported = committed
     preedit(marked)
-    // Line breaks end the line; start the next one empty.
-    if (committed.contains('\n')) clear()
-    else if (editor.length > 4096) finishAndClear()
+    // Enter and Tab change the line; start the next text in an empty editor.
+    if (committed.contains('\n') || committed.contains('\t')) clear()
+    else if (editor.length > MAX_EDITOR) {
+      if (marked.isNotEmpty()) input.editor(editor.toString())
+      clear()
+    }
     if (monitorCursor) publishCursor()
   }
   private fun clear() {
@@ -117,6 +130,7 @@ internal class TerminalInputConnection(
     editor.clear()
     Selection.setSelection(editor, 0)
     reported = ""
+    recomposed = false
     preedit("")
     input.editorReset()
     // The keyboard reads its context again from the now empty editor.
@@ -151,5 +165,9 @@ internal class TerminalInputConnection(
     if (composingStart >= 0) builder.setComposingText(composingStart, editor.subSequence(composingStart, getComposingSpanEnd(editor)))
     (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
       ?.updateCursorAnchorInfo(view, builder.build())
+  }
+  private companion object {
+    const val LONG_COMMIT = 1024
+    const val MAX_EDITOR = 4096
   }
 }

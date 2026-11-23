@@ -92,10 +92,11 @@ impl Session {
         }
     }
     /// A key event (Gboard Backspace on an empty editor, the key bar).
+    /// As the platforms do it: clear the editor and reset, then send the key.
     fn key(&mut self, physical: PhysicalKey) {
-        self.composer.detach();
         self.editor.clear();
         self.composer.reset();
+        self.composer.detach();
         let event = KeyEvent::press(physical, KeyModifiers::NONE);
         let release = event.release();
         self.send(vec![event, release]);
@@ -303,4 +304,30 @@ fn a_key_before_the_editor_reset_never_duplicates_or_erases() {
     s.composer.reset();
     s.ime(|e| e.commit_text("y"));
     assert_eq!(s.line(), "echo fooxy");
+}
+
+#[test]
+fn typing_after_a_key_with_an_empty_editor_is_never_dropped() {
+    let mut s = Session::new();
+    s.ime(|e| e.commit_text("echo hi"));
+    s.key(PhysicalKey::Backspace);
+    assert_eq!(s.line(), "echo h");
+    // A second key with the editor already empty sends no new reset.
+    s.composer.detach();
+    s.ime(|e| e.commit_text("abc"));
+    s.ime(|e| e.delete_surrounding_text(1, 0));
+    s.ime(|e| e.commit_text("x"));
+    assert_eq!(s.line(), "echo habx");
+}
+
+
+#[test]
+fn characters_the_terminal_never_got_are_not_erased_later() {
+    let mut s = Session::new();
+    // U+F8FF (Apple logo) is not valid key text and is never sent.
+    s.ime(|e| e.commit_text("ab\u{f8ff}"));
+    assert_eq!(s.line(), "ab");
+    s.ime(|e| e.delete_surrounding_text(1, 0));
+    s.ime(|e| e.delete_surrounding_text(1, 0));
+    assert_eq!(s.line(), "a");
 }

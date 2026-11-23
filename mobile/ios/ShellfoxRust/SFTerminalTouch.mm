@@ -191,10 +191,10 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
   // Only an explicit paste reads the OS clipboard. OSC output never reaches it.
   NSString *text = UIPasteboard.generalPasteboard.string;
   if (!text.length || binding != _binding || !self.window) return;
-  if ([text lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 60000) {
+  if (text.length > (1u << 20)) {
     if (self.failed) self.failed(SFM_INVALID); return;
   }
-  [self send:@{@"type":@"paste", @"text":text}];
+  for (NSDictionary *paste in SFPasteEvents(text)) [self send:paste];
 }
 - (void)fileLinkAt:(CGPoint)point {
   auto frame = _frame;

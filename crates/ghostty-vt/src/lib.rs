@@ -44,6 +44,26 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Splits a paste at UTF-8 and CRLF boundaries into pieces of at most
+/// `max` bytes, so each fits one input write. Each piece is pasted in turn.
+pub fn paste_chunks(text: &str, max: usize) -> impl Iterator<Item = &str> {
+    let mut rest = text;
+    std::iter::from_fn(move || {
+        if rest.is_empty() {
+            return None;
+        }
+        let mut end = rest.len().min(max.max(4));
+        while !rest.is_char_boundary(end)
+            || end < rest.len() && rest[..end].ends_with('\r') && rest[end..].starts_with('\n')
+        {
+            end -= 1;
+        }
+        let (chunk, tail) = rest.split_at(end);
+        rest = tail;
+        Some(chunk)
+    })
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Rgb {

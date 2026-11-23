@@ -1,7 +1,7 @@
 use crate::{owner::Owner, *};
 
 pub(crate) fn engine(error: shellfox_ghostty_vt::Error) -> RuntimeError {
-    if error.0 == -2 || error.0 == -7 {
+    if error.0 == -2 {
         RuntimeError::validation(error.to_string())
     } else {
         RuntimeError::unavailable(error)

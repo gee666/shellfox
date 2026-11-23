@@ -20,6 +20,7 @@ import com.facebook.react.uimanager.UIManagerHelper
 import com.facebook.react.uimanager.events.Event
 import org.json.JSONObject
 
+private const val MAX_PASTE = 1 shl 20 // UTF-16 units, sent in write-sized pieces
 internal class ShellfoxRustTerminalView(context: Context) : View(context) {
   private val renderer = TerminalRenderer(resources.displayMetrics.density)
   private var terminalHandle = ""
@@ -63,7 +64,7 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
         if (inputReset === originalReset) { inputRefresh.invalidate(); refreshInputContext() }
       } }
     }
-    override fun typedInput() { post { if (sink === this) connection?.finishAndClear() } }
+    override fun typedInput(json: JSONObject) { post { if (sink === this) { connection?.finishAndClear(); input.forward(json) } } }
     override fun userInput() { post { if (sink === this) emit("topInput", Arguments.createMap().apply {
       putString("terminalHandle", handle)
     }) } }
@@ -199,8 +200,9 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
     }).also { connection = it }
   }
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-    if (!acceptsInput || TerminalInput.physical(keyCode) == null) return super.onKeyDown(keyCode, event)
-    connection?.finishAndClear()
+    if (!acceptsInput) return super.onKeyDown(keyCode, event)
+    // A key for the terminal ends the keyboard's current word; system keys do not.
+    if (TerminalInput.physical(keyCode) != null || event.unicodeChar != 0) connection?.finishAndClear()
     return input.hardware(event, ::showPreedit) || super.onKeyDown(keyCode, event)
   }
   override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean =
@@ -294,7 +296,7 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
   }
   fun paste(text: String) {
     if (!acceptsInput) return
-    if (!TerminalInput.validUnicode(text) || text.toByteArray().size > 60_000) reportError(2) else {
+    if (!TerminalInput.validUnicode(text) || text.length > MAX_PASTE) reportError(2) else {
       connection?.finishAndClear()
       input.paste(text)
     }

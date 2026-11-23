@@ -90,15 +90,15 @@ fn modifiers(bits: u8) -> Result<Modifiers> {
 }
 fn encode_error(error: shellfox_ghostty_vt::Error) -> Status {
     match error.0 {
-        -2 | -7 => Status::Invalid,
+        -2 => Status::Invalid,
         _ => Status::Engine,
     }
 }
 pub(crate) fn encode(terminal: &mut Terminal, composer: &mut Composer, input: Input) -> Result<Vec<u8>> {
     match input {
         Input::Editor { committed } => {
-            // A keyboard types line breaks and tabs, never other controls.
-            let typed = |c: char| matches!(c, '\n' | '\r' | '\t') || !c.is_control();
+            // A keyboard types line breaks and tabs, never other C0 controls or DEL.
+            let typed = |c: char| matches!(c, '\n' | '\r' | '\t') || (c >= ' ' && c != '\u{7f}');
             if !committed.chars().all(typed) {
                 return Err(Status::Invalid);
             }

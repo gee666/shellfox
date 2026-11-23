@@ -76,3 +76,17 @@ NSNumber *SFUSPosition(unichar c) {
     @"'":@48, @";":@49, @"/":@50, @" ":@63};
   return named[[NSString stringWithCharacters:&c length:1]] ?: @0;
 }
+
+NSArray<NSDictionary *> *SFPasteEvents(NSString *text) {
+  // UTF-16 units, at most 3 UTF-8 bytes each: each piece fits one input write.
+  const NSUInteger chunk = 16 * 1024;
+  NSMutableArray *events = [NSMutableArray new];
+  for (NSUInteger start = 0; start < text.length;) {
+    NSUInteger end = MIN(text.length, start + chunk);
+    if (end < text.length) end = [text rangeOfComposedCharacterSequenceAtIndex:end].location;
+    if (end <= start) end = NSMaxRange([text rangeOfComposedCharacterSequenceAtIndex:start]);
+    [events addObject:@{@"type":@"paste", @"text":[text substringWithRange:NSMakeRange(start, end - start)]}];
+    start = end;
+  }
+  return events;
+}

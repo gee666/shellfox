@@ -25,7 +25,7 @@ export function keyInput(key: TerminalKey, modifiers: TerminalModifiers): Termin
   terminalKeySchema.parse(key);
   const bits = modifierBits(modifiers);
   const press = (physical: number, text = '', unshifted: number | null = null, consumed = 0): TerminalInput => ({
-    type: 'key', event: { physical, action: 'press', modifiers: bits | (modifiers.capsLock ? CAPS : 0),
+    type: 'key', event: { physical, action: 'press', modifiers: bits | consumed | (modifiers.capsLock ? CAPS : 0),
       consumedModifiers: consumed, text, unshiftedCodepoint: unshifted, composing: false },
   });
   const special = named[key];
@@ -40,7 +40,8 @@ export function keyInput(key: TerminalKey, modifiers: TerminalModifiers): Termin
   if (!position) throw new Error(`No key for ${key}.`);
   const [plain, shifted, physical] = position;
   const text = modifiers.shift || (key === shifted && key !== plain) ? shifted : plain;
-  return press(physical, text, plain.charCodeAt(0), modifiers.shift && text !== plain ? SHIFT : 0);
+  // A shifted symbol is its key with Shift, so Ctrl+| is not read as Ctrl+\.
+  return press(physical, text, plain.charCodeAt(0), text !== plain ? SHIFT : 0);
 }
 
 /** The release for a key press: same key and modifiers, no text. */

@@ -1,7 +1,10 @@
 #pragma once
 #import <UIKit/UIKit.h>
 
-/// Posted on the main thread with the terminal handle as object.
+/// A key-bar key or paste for the terminal handle in `object`. Posted on the
+/// main thread with userInfo @"event" and a mutable @"handled" flag: the view
+/// showing that terminal finishes the keyboard's word, sends the event and
+/// sets the flag.
 static NSString *const SFTerminalTypedInputNotification = @"SFTerminalTypedInput";
 #import "SFOwner.h"
 #import "SFTextInput.h"

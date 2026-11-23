@@ -167,3 +167,19 @@ fn terminal_clipboard_chords_match_explicit_and_mac_native_bindings() {
         }
     }
 }
+
+#[test]
+fn a_shifted_symbol_and_its_base_name_the_same_key() {
+    // GPUI folds Shift into "!" on press; the key-up after Shift is let go names "1".
+    let bang = Keystroke { modifiers: Modifiers::control(), key: "!".into(), key_char: None };
+    let press = event(Os::Windows, &bang, KeyAction::Press).unwrap();
+    assert_eq!(press.physical, PhysicalKey::Digit1);
+    assert_eq!(press.unshifted_codepoint, Some('1'));
+    assert!(press.modifiers.contains(KeyModifiers::SHIFT | KeyModifiers::CONTROL));
+    assert_eq!(press.consumed_modifiers, KeyModifiers::SHIFT);
+    assert_eq!(key_identity("!"), key_identity("1"));
+    let mut held = shellfox_ghostty_vt::key::HeldKeys::default();
+    assert!(held.admit(&press));
+    let (physical, base) = key_identity("1");
+    assert!(held.release(physical, base).is_some());
+}

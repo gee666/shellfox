@@ -109,6 +109,7 @@ async fn forward_input(
         write.eof().await?;
         return Ok(());
     }
+    let mut keys = crate::keys::Keys::default();
     loop {
         match terminal.next_event().await? {
             Event::Resize(cols, rows) => {
@@ -121,7 +122,7 @@ async fn forward_input(
             }
             // SSH has no local detach key: Ctrl+] reaches the remote shell.
             Event::Key(key) => {
-                let Some(event) = crate::keys::key_event(key) else { continue };
+                let Some(event) = keys.key(key) else { continue };
                 let bytes = mirror.with(|t| t.encode_key_event(&event))?;
                 if !bytes.is_empty() {
                     write.data_bytes(bytes).await?

@@ -21,8 +21,8 @@ internal object TerminalCoordinator {
 
   interface TerminalSink {
     fun resetInput(epoch: Long)
-    /** Key-bar keys and pastes went to the terminal outside the keyboard's editor. */
-    fun typedInput()
+    /** A key-bar key or paste: the view finishes the keyboard's word first, then sends it. */
+    fun typedInput(json: JSONObject)
     fun userInput()
     fun appearance(appearance: TerminalAppearance)
     fun frame(frame: TerminalFrame)
@@ -198,7 +198,7 @@ internal object TerminalCoordinator {
     if (entry.recovering) throw NativeInputBusy()
     flushAccepted(id, entry)
     val event = JSONObject(json)
-    entry.view?.typedInput()
+    entry.view?.let { it.typedInput(event); return }
     if (admitInput(id,entry,event)) entry.view?.userInput()
     entry.dirty = true
   }

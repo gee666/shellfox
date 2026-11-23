@@ -146,6 +146,8 @@ pub(crate) fn reset(id: u64, cols: u16, rows: u16) -> Result<()> {
             terminal.set_colors(colors).map_err(|_| Status::Engine)?;
         }
         owned.terminal = terminal;
+        // The keyboard editor described the old screen.
+        owned.composer.reset();
         *q = Queue::default();
         Ok(())
     })

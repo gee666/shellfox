@@ -19,3 +19,5 @@ NSDictionary *SFHardwareKey(UIKey *key, NSString *action);
 NSDictionary *SFKey(NSNumber *physical, NSString *action, NSUInteger modifiers, NSString *text, id unshifted);
 NSDictionary *SFReleasedKey(NSDictionary *pressed);
 NSNumber *SFUSPosition(unichar c);
+/// A paste as input events that each fit one write.
+NSArray<NSDictionary *> *SFPasteEvents(NSString *text);
