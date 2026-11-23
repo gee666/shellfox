@@ -41,16 +41,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.22.1
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.3'
           cache: false
+      # The runtime recovery tests compare against @xterm/headless.
+      - name: Node test dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Rust pin
         run: rustup show
       - name: GPUI build dependencies
         run: |
           bash .github/scripts/setup-ubuntu-apt.sh
-          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev
+          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev acl
       # The prepared libghostty-vt depends only on the pinned Zig and Ghostty inputs.
       # Saved right after preparation, so a later failing step doesn't lose it.
       - name: Cached Ghostty
