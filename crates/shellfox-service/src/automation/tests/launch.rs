@@ -118,8 +118,10 @@ impl AutomationViewer for Viewer {
         Ok(())
     }
 }
+// The receipt carries the Windows primary token.
+#[cfg(windows)]
 #[test]
-#[ignore = "Explicit owned raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
+#[ignore = "Explicit owned Windows raw fixture. Set SHELLFOX_RAW_TEST_HELPER and run --ignored."]
 fn receipt_survives_natural_cleanup_and_published_parser_retirement_without_new_handles() {
     let mut run = Launched::new(true);
     run.finish();

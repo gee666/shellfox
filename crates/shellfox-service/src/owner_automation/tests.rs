@@ -209,18 +209,22 @@ fn published_retirement_transfers_proof_keeps_late_observer_and_blocks_id_reuse(
         Some(0)
     );
     let launch = service.terminals[&tab].runtime.launch_privilege_facts();
-    assert_eq!(
-        launch.purpose,
-        shellfox_runtime::LaunchFactoryPurpose::StandardRawCreateProcess
-    );
-    assert_eq!(
-        launch.basis,
-        shellfox_runtime::LaunchEvidenceBasis::ReviewedSupervisorPrimaryTokenInheritance
-    );
-    assert_eq!(
-        launch.stage,
-        shellfox_runtime::LaunchEvidenceStage::BeforeRawGoConfirmedReady
-    );
+    // Windows records the supervisor's primary token as the launch evidence.
+    #[cfg(windows)]
+    {
+        assert_eq!(
+            launch.purpose,
+            shellfox_runtime::LaunchFactoryPurpose::StandardRawCreateProcess
+        );
+        assert_eq!(
+            launch.basis,
+            shellfox_runtime::LaunchEvidenceBasis::ReviewedSupervisorPrimaryTokenInheritance
+        );
+        assert_eq!(
+            launch.stage,
+            shellfox_runtime::LaunchEvidenceStage::BeforeRawGoConfirmedReady
+        );
+    }
     service.automation.runs.begin_retire(run.id).unwrap();
     service.pump_automation_retirement().unwrap();
     assert!(!service.automation.relays.contains_key(&run.id));

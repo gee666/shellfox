@@ -56,7 +56,13 @@ fn retained_file_rejects_same_byte_replacement_after_successive_saves() {
         ErrorCode::FileConflict
     );
     assert_eq!(fs::read(&path).unwrap(), b"second save\n");
-    assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 3);
+    // The refused write leaves no stage behind.
+    let mut names: Vec<_> = fs::read_dir(&scratch.0)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["file.txt", "replaced.txt"]);
 }
 
 #[test]

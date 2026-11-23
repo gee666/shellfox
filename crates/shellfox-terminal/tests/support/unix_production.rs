@@ -25,6 +25,12 @@ impl Fixture {
             root: root.canonicalize().unwrap(),
         }
     }
+    /// A short socket path beside the fixture, unique per fixture: tests in one
+    /// process run in parallel and share its PID.
+    pub fn socket(&self, kind: &str) -> PathBuf {
+        let name = self.root.file_name().unwrap().to_str().unwrap();
+        self.root.with_file_name(format!("{kind}-{name}.sock"))
+    }
     pub fn config(&self, program: &Path, args: &[&str]) -> PtyConfig {
         let mut config = PtyConfig::isolated(&self.root);
         config.supervisor = Some(helper());
@@ -117,11 +123,7 @@ fn exited(pidfd: &File) -> bool {
 }
 pub fn controller_signal(signal: i32) {
     let fixture = Fixture::new();
-    let socket = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tmp")
-        .canonicalize()
-        .unwrap()
-        .join(format!("signal-leaf-{}.sock", std::process::id()));
+    let socket = fixture.socket("signal-leaf");
     let exit = fixture.root.join("must-not-exit");
     let args = [
         "--fixture-root",
@@ -148,11 +150,7 @@ pub fn descendant(shutdown: bool, double_fork: bool, crash_controller: bool, cha
     let fixture = Fixture::new();
     // Keep the filesystem socket short; the production startup uses an abstract
     // capability socket and does not depend on project path lengths.
-    let socket = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tmp")
-        .canonicalize()
-        .unwrap()
-        .join(format!("leaf-{}.sock", std::process::id()));
+    let socket = fixture.socket("leaf");
     let exit = fixture.root.join("exit");
     let args = [
         if crash_controller {
