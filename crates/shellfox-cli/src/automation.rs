@@ -5,7 +5,6 @@ use std::{
     future::Future,
     io::{Read, Write},
     pin::Pin,
-    time::Duration,
 };
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;

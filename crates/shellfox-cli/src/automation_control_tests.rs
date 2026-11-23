@@ -5,7 +5,7 @@ use std::{
     collections::BTreeMap,
     path::PathBuf,
     process::{Command, Stdio},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 #[test]
