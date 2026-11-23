@@ -42,6 +42,8 @@ jobs:
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo git ca-certificates curl xz-utils zstd
+          # The checkout belongs to the runner user, not root. Go's VCS stamping runs git on it.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4

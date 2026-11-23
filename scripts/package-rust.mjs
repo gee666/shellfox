@@ -85,6 +85,11 @@ async function windows(app, artifacts, testId) {
   // Squirrel derives Desktop/Start Menu links from ProductName, not just the NuGet ID.
   const exe = path.join(app, 'Shellfox.exe');
   const vendor = path.resolve(path.dirname(forgeRequire.resolve('electron-winstaller')), '../vendor');
+  // electron-winstaller's install script picks the host 7-Zip; CI installs with --ignore-scripts.
+  for (const ext of ['exe', 'dll']) {
+    const selected = path.join(vendor, `7z.${ext}`);
+    if (!existsSync(selected)) copyFileSync(path.join(vendor, `7z-${process.arch}.${ext}`), selected);
+  }
   run(path.join(vendor, 'rcedit.exe'), [exe, '--set-version-string', 'SquirrelAwareVersion', '1',
     ...(testId ? ['--set-version-string', 'ProductName', testId, '--set-version-string', 'FileDescription', testId] : [])]);
   if (!readFileSync(exe).includes(Buffer.from('SquirrelAwareVersion\0', 'utf16le'))) throw new Error('Shellfox.exe is not SquirrelAware');
