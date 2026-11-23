@@ -266,6 +266,7 @@ async fn session(
 #[path = "manager_terminals.rs"]
 mod terminals;
 use terminals::terminals;
+#[cfg(test)]
 pub(crate) use terminals::write_peer;
 #[path = "manager_remote_api.rs"]
 mod remote_api;
