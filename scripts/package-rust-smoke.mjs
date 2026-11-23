@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileHash, readJson, root, run, scratchRoot } from './rust-package-common.mjs';
@@ -96,8 +98,56 @@ try {
   assert.equal(run(desktop, ['--version']).trim(), `Shellfox ${version}`);
   assert.equal(run(cli, ['--version']).trim(), version);
   assert.match(run(desktop, ['--data-dir', path.join(work, 'data'), '--smoke'], { cwd: work, env, timeout: 60_000 }), /PASS: owned PTY/);
+  console.log(await desktopLaunchSmoke(desktop, cli, helper, work, env));
   if (process.platform === 'darwin') console.log(await ownHostSmoke(cli, helper, work, fileHash(helper), env));
   console.log('Packaged desktop and CLI version, native terminal I/O, resize and shutdown passed.');
 } finally {
   rmSync(work, { recursive: true, force: true });
+}
+
+/** The installed desktop starts its host process, its window attaches and
+ * applies a launch, and it quits when that host stops. */
+async function desktopLaunchSmoke(desktop, cli, helper, work, env) {
+  let launcher = [desktop];
+  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    const xvfb = ['/usr/bin/xvfb-run', '/usr/local/bin/xvfb-run'].find(existsSync);
+    if (!xvfb) return 'desktop launch: skipped, no display and no xvfb-run';
+    launcher = [xvfb, '-a', desktop];
+  }
+  const data = path.join(work, 'launch host data');
+  const flags = ['--data-dir', data, '--helper', helper, '--helper-sha256', fileHash(helper)];
+  const project = path.join(work, 'launch project');
+  mkdirSync(project);
+  const ui = spawn(launcher[0], [...launcher.slice(1), ...flags, 'new', project], {
+    cwd: work, env: { ...process.env, ...env }, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let diagnostics = '';
+  ui.stderr.on('data', bytes => { diagnostics = (diagnostics + bytes.toString()).slice(-16000); });
+  const exited = new Promise(resolve => ui.once('exit', (code, signal) => resolve({ code, signal })));
+  const sessions = () => {
+    try { return JSON.parse(run(cli, [...flags, 'session', 'list', '--json'], { cwd: work, env, timeout: 15_000 })).value; }
+    catch { return null; }
+  };
+  const stopHost = () => { try { run(cli, [...flags, 'host', 'stop', '--yes'], { cwd: work, env, timeout: 15_000 }); } catch { /* Not running. */ } };
+  try {
+    const deadline = Date.now() + 60_000;
+    // Only an attached window applies the launch, so the session proves it.
+    while (!(sessions()?.length > 0)) {
+      if (ui.exitCode !== null || ui.signalCode !== null) {
+        if (launcher.length > 1) return `desktop launch: skipped, GPUI did not start under xvfb-run:\n${diagnostics}`;
+        throw new Error(`Desktop exited before its window attached:\n${diagnostics}`);
+      }
+      assert.ok(Date.now() < deadline, `Desktop window did not attach:\n${diagnostics}`);
+      await delay(250);
+    }
+    await delay(2_000);
+    assert.ok(ui.exitCode === null && ui.signalCode === null, `Desktop exited after attaching:\n${diagnostics}`);
+    stopHost();
+    const result = await Promise.race([exited, delay(30_000).then(() => null)]);
+    assert.ok(result, 'Desktop kept running after its host stopped');
+    return 'desktop launch: host process, attached window, launch applied, quit with host';
+  } finally {
+    stopHost();
+    if (ui.exitCode === null && ui.signalCode === null) ui.kill();
+  }
 }
