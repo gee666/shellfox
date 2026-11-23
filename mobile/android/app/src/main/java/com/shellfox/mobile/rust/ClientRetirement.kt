@@ -14,7 +14,7 @@ internal class ClientCloseGate {
     if (closed) return true
     if (!pollDrained || !ownerDrained || !disconnectSucceeded || attempted) return false
     attempted = true
-    nativeClose() // Failure retains custody. Never retry an uncertain close.
+    nativeClose() // On failure the handle stays owned here. Never retry an uncertain close.
     closed = true
     return true
   }

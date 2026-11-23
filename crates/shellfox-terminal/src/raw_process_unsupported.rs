@@ -2,9 +2,9 @@ use super::{RawCommand, RawOutput, WriteReceipt};
 use anyhow::Result;
 use std::path::Path;
 
-/// No process can exist before native raw-pipe lifecycle acceptance. The Unix
-/// PTY supervisor already has pidfd/subreaper or authenticated control proofs,
-/// but its foreground-TTY startup must not be repurposed as a raw-pipe fallback.
+/// Raw-pipe processes need their own lifecycle supervisor, which this platform
+/// doesn't have yet. The Unix PTY supervisor's foreground-TTY startup is not a
+/// substitute.
 #[derive(Debug)]
 pub enum RawProcess {}
 #[derive(Debug)]
@@ -27,7 +27,7 @@ impl RawProcess {
     ) -> std::result::Result<Self, RawSpawnError> {
         command.resolved().map_err(RawSpawnError)?;
         Err(RawSpawnError(anyhow::anyhow!(
-            "Native raw-process ownership has not passed platform acceptance."
+            "Automation processes are not supported on this platform yet."
         )))
     }
     pub fn spawn_with_launch_binding(

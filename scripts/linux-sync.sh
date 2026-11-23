@@ -3,7 +3,7 @@ set -euo pipefail
 cd -- "$(dirname -- "$0")/.."
 host=${LINUX_SSH_HOST:-omarchy-red}
 slot=${LINUX_SYNC_SLOT:-}
-[[ -z $slot || $slot =~ ^lane-[a-z0-9-]+$ ]] || { echo 'LINUX_SYNC_SLOT must be a lane name' >&2; exit 1; }
+[[ -z $slot || $slot =~ ^[a-z0-9-]+$ ]] || { echo 'LINUX_SYNC_SLOT must be lowercase letters, digits and dashes' >&2; exit 1; }
 ssh_options=(-o BatchMode=yes -o ConnectTimeout=10)
 if [[ -n ${LINUX_SSH_CONFIG:-} ]]; then ssh_options+=(-F "$LINUX_SSH_CONFIG"); fi
 

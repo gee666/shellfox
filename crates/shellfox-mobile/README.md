@@ -5,12 +5,10 @@ There is no local host, PTY, helper process, loopback HTTP server, credential
 store or login operation in this crate. The existing embedded mobile Go
 `Request(peerID,path,body)` implementation supplies authenticated tailnet routing.
 
-The WebView remains the default application terminal during transition. The
-mobile client factory and TerminalView now include an explicit Rust-native path,
-using the same session, file and settings presentation. Selecting it requires the
-module ABI, Fabric component and acceptance on both Android and iOS. A missing
-capability reports an error instead of falling back silently. A Windows Rust test
-or an Android compile is not the acceptance gate.
+Android and iOS use this native client and the Ghostty Fabric terminal, with the
+same session, file and settings screens. The client factory checks the module ABI
+and Fabric component first. A missing capability reports an error; there is no
+fallback terminal.
 
 ## Native ownership
 
@@ -137,9 +135,6 @@ pnpm exec vitest run mobile/src/rust-client/adapter.test.ts mobile/src/rust-clie
 node --test crates/shellfox-mobile/build-mobile.test.mjs
 ```
 
-Native acceptance must cover actual device/simulator drawing, wide cells,
-selection/copy, user-approved hyperlinks, software IME composition, hardware keys,
-mouse mode, resize, reconnect/reset, stale input leases, output pressure and
-lifecycle cleanup on both platforms. A recipe, codegen success and Windows ABI
-tests do not establish those results. Keep the existing WebView until both native
-clients have passed the agreed acceptance checks.
+These tests don't cover drawing, wide cells, selection and copy, hyperlinks, IME
+composition, hardware keys, mouse mode, resize, reconnect, output pressure or
+lifecycle cleanup. Check those on a device or simulator for both platforms.

@@ -160,7 +160,7 @@ async function macos(app, artifacts, sign) {
 
 export async function packageRust({ output = path.join(scratchRoot, 'rust-installers'), testId } = {}) {
   const target = nativeTarget();
-  if (testId && (target !== 'x86_64-pc-windows-msvc' || !/^ShellfoxLaneI[a-zA-Z0-9]+$/.test(testId))) throw new Error('Use an isolated Squirrel test identity such as ShellfoxLaneI123');
+  if (testId && (target !== 'x86_64-pc-windows-msvc' || !/^ShellfoxTest[a-zA-Z0-9]+$/.test(testId))) throw new Error('Use an isolated Squirrel test identity such as ShellfoxTest123');
   output = path.resolve(output);
   if (existsSync(output)) throw new Error(`Choose an unused installer output directory: ${output}`);
   const work = mkdtempSync(path.join(scratchRoot, 'pr-'));

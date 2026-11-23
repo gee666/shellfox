@@ -1,4 +1,4 @@
-name: Rust portable platform acceptance
+name: Rust portable platforms
 
 # Deliberately manual. This workflow never publishes, installs or signs an app.
 on:
@@ -49,7 +49,7 @@ jobs:
         with:
           node-version: 24.22.1
           architecture: ${{ matrix.arch }}
-      - name: Packaging rules, no native acceptance claim
+      - name: Packaging rules
         run: node --test scripts/rust-package.test.mjs scripts/rust-package-resource.test.mjs scripts/rust-package-wsl-files.test.mjs
       - name: Native runner and Rust pin
         if: inputs.build_native_packages

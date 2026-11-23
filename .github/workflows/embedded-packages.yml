@@ -128,7 +128,7 @@ jobs:
         run: dbus-run-session -- xvfb-run -a bash -c 'pnpm test:packaged && pnpm test:packaged:startup'
         timeout-minutes: 5
       # Windows/Linux unsigned; macOS ad-hoc preview signing includes native
-      # resources. No Developer ID/notarization, installation acceptance or release.
+      # resources. No Developer ID, notarization or release.
       - uses: actions/upload-artifact@v4
         with:
           name: shellfox-desktop-${{ matrix.platform }}-${{ matrix.arch }}-preview

@@ -1,4 +1,4 @@
-//! Real native-fixture PTY adapter. Test-support only until platform acceptance.
+//! Real native-fixture PTY adapter, used by tests only.
 //! Environment/profile selection stays in the host. This adapter accepts its
 //! validated builder, replaces only the executable and reserved ownership keys.
 mod owner;

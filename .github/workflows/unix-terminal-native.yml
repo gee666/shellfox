@@ -1,4 +1,4 @@
-name: Unix terminal ownership acceptance
+name: Unix terminal ownership
 
 on:
   workflow_dispatch:
@@ -36,7 +36,7 @@ jobs:
       - name: Verify native runner architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
-        run: node -e 'if (process.arch !== process.env.EXPECTED_ARCH) throw new Error("Runner architecture does not match native acceptance target")'
+        run: node -e 'if (process.arch !== process.env.EXPECTED_ARCH) throw new Error("Runner architecture does not match the target")'
       - name: Install pinned Rust
         run: rustup show
       - name: Build retained Darwin supervisor
@@ -46,9 +46,9 @@ jobs:
           node -e 'const p=require("node:path"); require("node:fs").appendFileSync(process.env.GITHUB_ENV, "SHELLFOX_DARWIN_SUPERVISOR="+p.resolve("tmp/terminal-native/darwin-"+process.arch+"/shellfox-terminal-supervisor")+"\n")'
       - name: Contract tests and native fixture build
         run: cargo test --locked -p shellfox-terminal --features test-support --lib --test unix_native --no-fail-fast
-      - name: Retained C control-flow model, not native acceptance
+      - name: Retained C control-flow model
         run: node scripts/darwin-supervisor-model-test.mjs
-      - name: Native PTY ownership acceptance
+      - name: Native PTY ownership
         run: cargo test --locked -p shellfox-terminal --features test-support --test unix_native -- --ignored --test-threads=1
       - name: Scoped Clippy
         run: cargo clippy --locked -p shellfox-terminal --features test-support --all-targets -- -D warnings

@@ -15,9 +15,9 @@ const build = path.join(scratchRoot, 'ios-fixture-derived');
 const products = path.join(build, 'Build/Products');
 const evidence = path.join(scratchRoot, 'ios-native-v1-results');
 const result = path.join(evidence, 'native-v1.xcresult');
-const lane = path.join(scratchRoot, 'lane-apple-ios');
-const data = path.join(lane, 'host');
-const project = path.join(lane, 'project');
+const work = path.join(scratchRoot, 'apple-ios');
+const data = path.join(work, 'host');
+const project = path.join(work, 'project');
 const fixture = path.join(project, 'fixture.txt');
 const sharedEnv = {
   TS_NO_LOGS_NO_SUPPORT: 'true', TS_DEBUG_ALWAYS_USE_DERP: 'true',
@@ -69,13 +69,13 @@ if (process.platform !== 'darwin' || process.env.GITHUB_ACTIONS !== 'true') {
   throw new Error('The native v1 UI fixture requires an owned macOS GitHub Actions runner.');
 }
 const cargoTarget = process.env.CARGO_TARGET_DIR;
-assert.equal(cargoTarget, path.join(lane, 'target'));
+assert.equal(cargoTarget, path.join(work, 'target'));
 const cli = path.join(cargoTarget, 'debug/shellfox-cli');
 const helper = path.join(scratchRoot, 'dev-helper/shellfox-tailscale');
 const flags = ['--data-dir', data, '--helper', helper, '--helper-sha256', fileHash(helper),
   '--remote-control-url', controlURL, '--remote-hostname', 'shellfox-ios-ci'];
 const local = async (...args) => JSON.parse((await execute(cli, [...flags, ...args], {
-  cwd: root, env: { ...process.env, ...sharedEnv, TMPDIR: lane }, timeout: 30_000, maxBuffer: 2 * 1024 * 1024,
+  cwd: root, env: { ...process.env, ...sharedEnv, TMPDIR: work }, timeout: 30_000, maxBuffer: 2 * 1024 * 1024,
 })).stdout);
 // User commands follow the 0.9 CLI grammar: JSON only with --json, as {ok, value}.
 const records = async (...args) => {
@@ -107,7 +107,7 @@ let control, host, tests;
 let booted = false;
 let failure;
 try {
-  control = child(path.join(lane, 'testcontrol'), [port]);
+  control = child(path.join(work, 'testcontrol'), [port]);
   await until('loopback Tailscale control plane HTTP readiness', 30_000, async () => {
     live(control, 'Control plane');
     try {
@@ -217,7 +217,7 @@ try {
   try {
     if (host && !host.finished) {
       try {
-        await execute(cli, [...flags, 'host', 'stop', '--yes'], { cwd: root, env: { ...process.env, ...sharedEnv, TMPDIR: lane }, timeout: 30_000 });
+        await execute(cli, [...flags, 'host', 'stop', '--yes'], { cwd: root, env: { ...process.env, ...sharedEnv, TMPDIR: work }, timeout: 30_000 });
         await until('graceful host exit', 10_000, () => host.finished);
         assert.equal(host.status, 0, host.output);
       } finally {

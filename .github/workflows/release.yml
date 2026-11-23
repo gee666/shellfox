@@ -148,7 +148,7 @@ jobs:
     # (scripts/package-rust-glibc.mjs checks it). Empty means the runner itself.
     container: ${{ matrix.container }}
     env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-i/target
+      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/release/target
       MACOSX_DEPLOYMENT_TARGET: '13.0'
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     defaults:

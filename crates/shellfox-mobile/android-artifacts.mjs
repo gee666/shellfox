@@ -131,7 +131,7 @@ export function finishAndroidOutput(run) {
 export function selectedAndroidOutput(project) {
   const outputRoot = defaultAndroidOutputRoot(project);
   const current = join(outputRoot, 'current.json');
-  if (!existsSync(current)) throw new Error('No complete Rust Android build output. Run build-mobile.mjs build-android in an authorized build slot, or set shellfoxRustAndroidDir explicitly.');
+  if (!existsSync(current)) throw new Error('No complete Rust Android build output. Run node crates/shellfox-mobile/build-mobile.mjs build-android first, or pass -PshellfoxRustAndroidDir=<dir>.');
   const selector = readManifest(current);
   if (selector.format !== 'shellfox-android-rust-current-v1' || !/^build-[0-9a-f-]{36}$/.test(selector.directory)
     || selector.directory !== `build-${selector.buildId}` || !digest(selector.manifestSha256)) throw new Error('Unknown or invalid default Android output selector.');

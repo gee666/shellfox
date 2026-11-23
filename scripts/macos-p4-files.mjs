@@ -18,25 +18,25 @@ const { values: args } = parseArgs({ options: {
 for (const key of ['rust', 'cli', 'helper', 'electron', 'electron-project', 'artifacts', 'probe', 'testcontrol', 'electron-remote-helper']) {
   assert.ok(args[key], `Missing --${key}`);
 }
-const lane = await realpath(path.join(scratchRoot, 'lane-apple/p4'));
-assert.equal(await realpath(args.artifacts), lane);
-assert.equal(await realpath(args.probe), path.join(lane, 'window-probe'));
-assert.equal(await realpath(path.join(lane, 'preflight.png')), path.join(lane, 'preflight.png'));
+const work = await realpath(path.join(scratchRoot, 'apple/p4'));
+assert.equal(await realpath(args.artifacts), work);
+assert.equal(await realpath(args.probe), path.join(work, 'window-probe'));
+assert.equal(await realpath(path.join(work, 'preflight.png')), path.join(work, 'preflight.png'));
 run(args.probe, ['verify-display'], { timeout: 12_000 });
 const [rust, cli, helper, electron, testcontrol, remoteHelper] = await Promise.all(
   [args.rust, args.cli, args.helper, args.electron, args.testcontrol, args['electron-remote-helper']].map(file => realpath(file)));
-assert.equal(rust, path.join(scratchRoot, 'lane-apple/target/debug/shellfox'));
-assert.equal(cli, path.join(scratchRoot, 'lane-apple/target/debug/shellfox-cli'));
-assert.equal(testcontrol, path.join(lane, 'testcontrol'));
-assert.equal(remoteHelper, path.join(lane, 'electron-test-remote-helper'));
+assert.equal(rust, path.join(scratchRoot, 'apple/target/debug/shellfox'));
+assert.equal(cli, path.join(scratchRoot, 'apple/target/debug/shellfox-cli'));
+assert.equal(testcontrol, path.join(work, 'testcontrol'));
+assert.equal(remoteHelper, path.join(work, 'electron-test-remote-helper'));
 assert.equal(helper, path.join(scratchRoot, 'dev-helper/shellfox-tailscale'));
 assert.equal(electron, path.join(scratchRoot, 'build-test/main/index.cjs'));
 const electronProject = await realpath(args['electron-project']);
-assert.equal(electronProject, path.join(scratchRoot, 'lane-apple/p4-electron'));
+assert.equal(electronProject, path.join(scratchRoot, 'apple/p4-electron'));
 const electronHelper = path.join(electronProject, 'tmp/tailscale', `darwin-${process.arch}`, 'shellfox-tailscale');
 assert.equal(await realpath(electronHelper), electronHelper);
 const electronBinary = await realpath(path.join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'));
-const dir = await mkdtemp(path.join(lane, 'files-'));
+const dir = await mkdtemp(path.join(work, 'files-'));
 console.log(`P4 macOS evidence: ${dir}`);
 
 function window(pid, executable, flag, data, action, ...values) {

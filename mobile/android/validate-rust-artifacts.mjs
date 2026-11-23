@@ -7,7 +7,7 @@ import { parseArgs } from 'node:util';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const targets = Object.fromEntries(Object.entries(androidTargets).map(([abi, value]) => [abi, value.target]));
-const help = 'Run build-mobile.mjs build-android in an authorized build slot, or select matching outputs with -PshellfoxRustAndroidDir=<directory>. Never relabel old archives.';
+const help = 'Run node crates/shellfox-mobile/build-mobile.mjs build-android first, or pass -PshellfoxRustAndroidDir=<dir>.';
 function requireValue(condition, message) { if (!condition) throw new Error(`${message}. ${help}`); }
 function regular(file) {
   let stat;

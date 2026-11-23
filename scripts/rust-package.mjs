@@ -92,12 +92,11 @@ export async function packageRust(kind) {
     writeLaunchers(directory, kind);
     copyFileSync(path.join(root, 'LICENSE'), path.join(directory, 'LICENSE'));
     writeFileSync(path.join(directory, 'README.txt'),
-      `Experimental Shellfox Rust ${kind} package. Not a release or installer.\n` +
-      'Pass --data-dir with an absolute NEW experiment-only directory. Never select installed Shellfox data.\n' +
-      'CLI global flags --data-dir ABS --helper ABS --helper-sha256 TRUSTED_MANIFEST_DIGEST must precede the command.\n' +
-      'Use the packaged resources/tailscale/shellfox-tailscale executable and its file digest from the trusted package-manifest.json.\n' +
-      'No environment-based resource or user-data selection is promised. See package-manifest.json and dependency-licenses.json.\n' +
-      'Packaged resources do not prove Rust runtime adapter parity. Update, signing, startup registration and full platform acceptance remain separate gates.\n');
+      `Shellfox ${kind} portable build for testing. Not an installer.\n` +
+      'Give it its own absolute --data-dir. Never point it at an installed Shellfox data directory.\n' +
+      'Global flags go before the command: --data-dir ABS --helper ABS --helper-sha256 HEX.\n' +
+      '--helper is resources/tailscale/shellfox-tailscale; --helper-sha256 is that file\'s sha256 in package-manifest.json.\n' +
+      'Licenses are listed in dependency-licenses.json.\n');
     assertLockUnchanged();
     const { manifest } = writeManifest(directory, {
       kind, version, target, platform: process.platform, arch: process.arch,

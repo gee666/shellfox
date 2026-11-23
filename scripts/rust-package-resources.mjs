@@ -49,7 +49,7 @@ export async function stageResources({ directory, work, kind, nugetSnapshot = nu
   const helper = buildHelperWithAnchor(process.platform, process.arch, { directory: tailscale, probe: probeTailscale });
   if (process.platform === 'darwin') signDarwin?.(helper.executable);
   const helperSha256 = signDarwin ? fileHash(helper.executable) : helper.sha256;
-  records.push({ name: 'embedded-tailscale', path: `resources/tailscale/${executableName('shellfox-tailscale')}`, use: 'retained helper; Rust adapter acceptance required' });
+  records.push({ name: 'embedded-tailscale', path: `resources/tailscale/${executableName('shellfox-tailscale')}`, use: 'embedded Tailscale node' });
 
   const notices = path.join(directory, 'notices', 'ghostty-vt');
   cpSync(path.join(root, 'crates/ghostty-vt-sys/build-support/notices'), notices, { recursive: true });
@@ -89,7 +89,7 @@ export async function stageResources({ directory, work, kind, nugetSnapshot = nu
         path.join(root, 'src/main/terminal/native', helper.sourceFile), '-lproc', '-o', file]);
       chmodSync(file, 0o755);
       signDarwin?.(file);
-      records.push({ name: helper.basename, path: `resources/terminal-native/${helper.basename}`, use: 'retained native helper; Darwin runtime acceptance required' });
+      records.push({ name: helper.basename, path: `resources/terminal-native/${helper.basename}`, use: 'macOS process helper' });
     }
   }
   return { records, buildEnv, helperSha256 };

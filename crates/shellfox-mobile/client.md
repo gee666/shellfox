@@ -259,7 +259,6 @@ payloads, cancellation/deadlines, close racing dispatch, bounded admission and
 output queues, lease-controlled input/resize, ACK-after-consume, failed ACK retry,
 reconnect fencing, input FIFO/release ordering, settlement admission freezing and
 attach races, upload cursor fencing and host-grid
-recovery with split CSI and native UTF-8 chunks. These are host-side Rust tests,
-not Android/iOS device or packaging acceptance. Native platform owners must still
-verify linkage, their actual Go executor, rendering, IME, suspend/resume and
-owner-thread lifecycle on devices.
+recovery with split CSI and native UTF-8 chunks. These are host-side Rust tests.
+Linkage, the Go executor, rendering, IME, suspend/resume and the owner-thread
+lifecycle still need checks on devices.

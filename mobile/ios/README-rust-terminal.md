@@ -6,7 +6,7 @@ This implementation adds a Fabric terminal and TurboModule to the existing RN 0.
 
 `ShellfoxRust/ShellfoxRustTerminalComponentView.mm` implements the generated `ShellfoxRustTerminalComponentDescriptor`, props, view protocol and event emitter. `ShellfoxRust/ShellfoxRustClient.mm` implements `NativeShellfoxRustClientSpec` and returns `NativeShellfoxRustClientSpecJSI`. One Objective-C implementation satisfies the entire generated protocol. Owner lifetime registration is lazy, since the installed provider generator creates a prototype before RN creates the actual module instance from that class.
 
-Carter owns `mobile/package.json` and the shared specs. Their codegen library is `ShellfoxRustSpecs`, with these mappings:
+The codegen library for `mobile/package.json` and the shared specs is `ShellfoxRustSpecs`, with these mappings:
 
 - `ios.componentProvider.ShellfoxRustTerminal = ShellfoxRustTerminalComponentView`
 - `ios.modulesProvider.NativeShellfoxRustClient = ShellfoxRustClient`
@@ -94,7 +94,7 @@ The standalone header contract can also be syntax-checked from an x64 MSVC devel
 
 ## Native v1 simulator smoke
 
-`Apple platform acceptance` on `experiment/ghostty-rust` builds a separate simulator bundle with the regular app code. The runner launches it with `--shellfox-control-url` against a loopback Tailscale test control plane and a Rust CLI host. The test approves the simulator through the host CLI and checks shell input, output and PTY size before and after iPad rotation. It stops and restarts the real host network listener, proves the attached session reconnects to the same shell, then backgrounds and foregrounds the app. It also checks that a file edit made in the app changed the host file on disk. The run uploads the XCTest result and screenshots in `ios-simulator-results`. It exercises the default terminal without using a real tailnet or signing identity.
+The Apple platforms workflow builds a separate simulator bundle with the regular app code. The runner launches it with `--shellfox-control-url` against a loopback Tailscale test control plane and a Rust CLI host. The test approves the simulator through the host CLI and checks shell input, output and PTY size before and after iPad rotation. It stops and restarts the real host network listener, proves the attached session reconnects to the same shell, then backgrounds and foregrounds the app. It also checks that a file edit made in the app changed the host file on disk. The run uploads the XCTest result and screenshots in `ios-simulator-results`. It exercises the default terminal without using a real tailnet or signing identity.
 
 ## Verification status
 

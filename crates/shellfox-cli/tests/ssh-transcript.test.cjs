@@ -19,7 +19,7 @@ const root = path.resolve(__dirname, '../../..');
 const loopback = path.join(root, 'crates/shellfox-service/tests/ssh-loopback.cjs');
 const password = 'test-fixture-password';
 const passphrase = 'test-fixture-passphrase';
-const env = { ...process.env, NO_COLOR: '1', SHELLFOX_LANE_M_FIXTURE: '1' };
+const env = { ...process.env, NO_COLOR: '1' };
 
 function protect(file, kind) {
   if (windows) execFileSync(helper, ['--private-permissions', file, kind, 'protect'], { timeout: 8000 });

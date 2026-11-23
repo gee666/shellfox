@@ -53,7 +53,7 @@ test('installed RN providers resolve the actual native classes', () => {
   assert.match(source, /@implementation ShellfoxRustTerminalComponentView/);
   assert.match(source, /@implementation ShellfoxRustClient/);
 });
-test('native C calls exist in the actual Carter and client headers', () => {
+test('native C calls exist in the terminal and client headers', () => {
   const headers = read('crates/shellfox-mobile/include/shellfox_mobile.h') + read('crates/shellfox-mobile/include/shellfox_mobile_client.h');
   const declarations = new Set([...headers.matchAll(/\b(sfm_\w+)\s*\(/g)].map(m => m[1]));
   for (const call of source.matchAll(/\b(sfm_\w+)\b/g)) assert.ok(declarations.has(call[1]), call[1]);

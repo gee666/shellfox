@@ -1,4 +1,4 @@
-name: Apple platform acceptance
+name: Apple platforms
 
 # Apple CI runs on the experiment branch. No job publishes a release.
 on:
@@ -37,7 +37,7 @@ jobs:
           - { runner: macos-latest, arch: arm64 }
           - { runner: macos-15-intel, arch: x64 }
     env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple/target
+      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/apple/target
       CARGO_BUILD_JOBS: '4'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
@@ -119,7 +119,7 @@ jobs:
           - { runner: macos-latest, arch: arm64 }
           - { runner: macos-15-intel, arch: x64 }
     env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple/target
+      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/apple/target
       CARGO_BUILD_JOBS: '4'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
@@ -132,9 +132,9 @@ jobs:
           fetch-depth: 0 # The Electron ownership helper predates the Rust owner protocol.
       - name: Require a logged-in Aqua session for P4
         run: |
-          mkdir -p tmp/lane-apple/p4
-          xcrun swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.2" scripts/macos-p4-window.swift scripts/macos-p4-ax.swift scripts/macos-p4-display.swift -o tmp/lane-apple/p4/window-probe
-          tmp/lane-apple/p4/window-probe preflight tmp/lane-apple/p4/preflight.png
+          mkdir -p tmp/apple/p4
+          xcrun swiftc -parse-as-library -target "$(uname -m)-apple-macosx14.2" scripts/macos-p4-window.swift scripts/macos-p4-ax.swift scripts/macos-p4-display.swift -o tmp/apple/p4/window-probe
+          tmp/apple/p4/window-probe preflight tmp/apple/p4/preflight.png
         timeout-minutes: 5
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -165,11 +165,11 @@ jobs:
           cargo build --locked -p shellfox-desktop --features shellfox-desktop/test-macos-p4 --bin shellfox -p shellfox-cli --bin shellfox-cli
           node scripts/tailscale.mjs build
           pnpm build:test
-          p4="$PWD/tmp/lane-apple/p4"
+          p4="$PWD/tmp/apple/p4"
           mkdir -p "$p4/go-work"
           (cd native/tailscale && CGO_ENABLED=0 GOTMPDIR="$p4/go-work" go build -mod=readonly -o "$p4/testcontrol" ./cmd/testcontrol)
           CGO_ENABLED=0 GOTMPDIR="$p4/go-work" go build -trimpath -o "$p4/electron-test-remote-helper" ./tests/fixtures/remote-helper/main.go
-          legacy="$PWD/tmp/lane-apple/p4-electron"
+          legacy="$PWD/tmp/apple/p4-electron"
           mkdir -p "$legacy/src" "$legacy/tmp/tailscale/darwin-${{ matrix.arch }}" "$legacy/go-work"
           git archive "$P4_ELECTRON_HELPER_REV" native/tailscale | tar -x -C "$legacy/src"
           (cd "$legacy/src/native/tailscale" && CGO_ENABLED=0 GOTMPDIR="$legacy/go-work" go build -mod=readonly \
@@ -178,13 +178,13 @@ jobs:
       - name: Compare local Files, native preview and peer transfers in both apps
         run: |
           node --test scripts/macos-p4-dialog.test.mjs scripts/confirmed-network-outage.test.mjs
-          p4="$PWD/tmp/lane-apple/p4"
+          p4="$PWD/tmp/apple/p4"
           node scripts/macos-p4-files.mjs \
             --rust "$CARGO_TARGET_DIR/debug/shellfox" \
             --cli "$CARGO_TARGET_DIR/debug/shellfox-cli" \
             --helper "$PWD/tmp/dev-helper/shellfox-tailscale" \
             --electron "$PWD/tmp/build-test/main/index.cjs" \
-            --electron-project "$PWD/tmp/lane-apple/p4-electron" \
+            --electron-project "$PWD/tmp/apple/p4-electron" \
             --electron-remote-helper "$p4/electron-test-remote-helper" \
             --testcontrol "$p4/testcontrol" \
             --artifacts "$p4" \
@@ -195,10 +195,10 @@ jobs:
         with:
           name: macos-p4-files-${{ matrix.arch }}
           path: |
-            tmp/lane-apple/p4/preflight.png
-            tmp/lane-apple/p4/files-*/**/*.png
-            tmp/lane-apple/p4/files-*/**/*.json
-            tmp/lane-apple/p4/files-*/**/*.log
+            tmp/apple/p4/preflight.png
+            tmp/apple/p4/files-*/**/*.png
+            tmp/apple/p4/files-*/**/*.json
+            tmp/apple/p4/files-*/**/*.log
           if-no-files-found: warn
       - name: Remove Cargo build directory
         if: always()
@@ -211,7 +211,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 120
     env:
-      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/lane-apple-ios/target
+      CARGO_TARGET_DIR: ${{ github.workspace }}/tmp/apple-ios/target
       CARGO_BUILD_JOBS: '4'
       CARGO_PROFILE_DEV_DEBUG: '0'
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
@@ -321,10 +321,10 @@ jobs:
         id: ui-host
         if: ${{ !cancelled() && steps.pods.outcome == 'success' }}
         run: |
-          mkdir -p tmp/lane-apple-ios
+          mkdir -p tmp/apple-ios
           node scripts/rust-package-prereqs.mjs
           node scripts/tailscale.mjs build
-          (cd native/tailscale && go build -mod=readonly -o ../../tmp/lane-apple-ios/testcontrol ./cmd/testcontrol)
+          (cd native/tailscale && go build -mod=readonly -o ../../tmp/apple-ios/testcontrol ./cmd/testcontrol)
         timeout-minutes: 25
       - name: Build the Rust headless CLI
         id: ui-cli

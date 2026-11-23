@@ -205,9 +205,9 @@ fn resolve(command: &RawCommand) -> Result<PathBuf> {
 }
 #[cfg(not(any(windows, target_os = "linux")))]
 fn resolve(_command: &RawCommand) -> Result<PathBuf> {
-    // Do not add std::Child/killpg here. Unix raw launch needs the existing
-    // pidfd/subreaper or authenticated native supervisor plus native acceptance.
-    anyhow::bail!("Native raw-process ownership has not passed platform acceptance.")
+    // Do not add std::Child/killpg here. Unix raw launch needs the pidfd/subreaper
+    // or authenticated native supervisor, which this platform doesn't have yet.
+    anyhow::bail!("Automation processes are not supported on this platform yet.")
 }
 #[cfg(windows)]
 fn windows_command_units(command: &RawCommand) -> usize {

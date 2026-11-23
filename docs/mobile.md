@@ -81,7 +81,7 @@ open ShellfoxMobile.xcworkspace
 
 Run on an unsigned simulator, or configure development signing for an owned device. The local pod links the generated `Mobile.xcframework`; the same React Native screens and host protocol run on both platforms. iOS does not request a device-wide VPN entitlement or promise background terminal connectivity. On return to the foreground, it reconnects to the host-owned shells. APK installation is Android-only.
 
-The Xcode project version matches the root package version. iOS build and simulator checks run in Apple platform acceptance, not the GitHub release workflow. Physical-device acceptance is separate.
+The Xcode project version matches the root package version. iOS build and simulator checks run in the Apple platforms workflow, not the release workflow. Physical devices are tested separately.
 
 ## Emulator and E2E
 
