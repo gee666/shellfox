@@ -81,21 +81,21 @@ impl OwnerClient {
             .await
             .context("Private lifetime release reply lost.")?
     }
+    /// Cleanup is never refused for a full queue: it waits for room instead.
     async fn submit_private_cleanup(&self, task: PrivateTask) -> Result<()> {
-        let mut task = Task::Private(Box::new(task));
-        loop {
-            match self.sender.try_send(task) {
-                Ok(()) => break,
-                Err(TrySendError::Full(returned)) => {
-                    task = returned;
-                    tokio::time::sleep(Duration::from_millis(2)).await;
-                }
-                Err(TrySendError::Disconnected(_)) => {
-                    bail!("Owner stopped before lifetime release admission.")
-                }
+        let task = Task::Private(Box::new(task));
+        let task = match self.sender.try_send(task) {
+            Err(TrySendError::Full(task)) => task,
+            Ok(()) => return Ok(()),
+            Err(TrySendError::Disconnected(_)) => {
+                bail!("Owner stopped before lifetime release admission.")
             }
+        };
+        let sender = self.sender.clone();
+        match tokio::task::spawn_blocking(move || sender.send(task).is_ok()).await {
+            Ok(true) => Ok(()),
+            _ => bail!("Owner stopped before lifetime release admission."),
         }
-        Ok(())
     }
     #[cfg(test)]
     pub(crate) async fn private_request(
