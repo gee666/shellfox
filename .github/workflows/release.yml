@@ -191,6 +191,8 @@ jobs:
         run: |
           pnpm install --frozen-lockfile --ignore-scripts
           node scripts/dotnet-sdk.mjs provision
+          # Git Bash's /usr/bin/link shadows MSVC's link.exe on PATH.
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$(dirname "$(command -v cl.exe)")/link.exe")" >> "$GITHUB_ENV"
       - name: Prepare pinned Ghostty
         run: node scripts/rust-package-prereqs.mjs
         timeout-minutes: 35

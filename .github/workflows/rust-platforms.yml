@@ -73,6 +73,11 @@ jobs:
         if: inputs.build_native_packages && matrix.platform == 'win32'
         with:
           arch: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
+      - name: MSVC linker ahead of Git Bash's link
+        if: inputs.build_native_packages && matrix.platform == 'win32'
+        run: |
+          target='${{ matrix.target }}'
+          echo "CARGO_TARGET_$(echo "$target" | tr 'a-z-' 'A-Z_')_LINKER=$(cygpath -w "$(dirname "$(command -v cl.exe)")/link.exe")" >> "$GITHUB_ENV"
       - name: Linux GPUI compile and link prerequisites
         if: inputs.build_native_packages && matrix.platform == 'linux'
         run: |
