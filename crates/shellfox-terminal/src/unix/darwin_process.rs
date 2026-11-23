@@ -13,6 +13,9 @@ const PROC_UID_ONLY: u32 = 4;
 pub(crate) const PROC_FLAG_PSUGID: u32 = 0x2000;
 const MAX_PIDS: usize = 65_536;
 
+mod inspection;
+pub(crate) use inspection::Inspection;
+
 #[link(name = "proc")]
 extern "C" {}
 
@@ -135,6 +138,16 @@ impl Leader {
 /// create more process groups in the same session for job control; reparented
 /// members count too. An independent setsid escapes; this is not containment.
 fn session_members(sid: Pid, uid: libc::uid_t) -> Vec<(Pid, libc::proc_bsdinfo)> {
+    session_pids(sid, uid)
+        .into_iter()
+        .filter(|pid| *pid != sid)
+        .filter_map(|pid| Some((pid, process_info(pid, false).filter(|m| own(m, uid))?)))
+        .collect()
+}
+
+/// PIDs in session `sid`, the leader included: its children plus every
+/// process of `uid`. Callers still check each one's owner.
+fn session_pids(sid: Pid, uid: libc::uid_t) -> Vec<Pid> {
     let mut pids = list_pids(|buf, size| {
         // The convenience API returns PID count; proc_listpids returns bytes.
         unsafe { libc::proc_listchildpids(sid, buf, size) }
@@ -143,12 +156,11 @@ fn session_members(sid: Pid, uid: libc::uid_t) -> Vec<(Pid, libc::proc_bsdinfo)>
     pids.extend(list_pids(|buf, size| unsafe {
         libc::proc_listpids(PROC_UID_ONLY, uid, buf, size)
     }));
+    pids.push(sid);
     pids.sort_unstable();
     pids.dedup();
-    pids.into_iter()
-        .filter(|pid| *pid > 1 && *pid != sid && unsafe { libc::getsid(*pid) } == sid)
-        .filter_map(|pid| Some((pid, process_info(pid, false).filter(|m| own(m, uid))?)))
-        .collect()
+    pids.retain(|pid| *pid > 1 && unsafe { libc::getsid(*pid) } == sid);
+    pids
 }
 
 /// PIDs of the live members other than the leader.
@@ -228,145 +240,9 @@ pub(crate) fn signal(target: Pid, signal: libc::c_int) -> io::Result<()> {
     }
 }
 
-/// Read-only evidence for `session stats`: the tab's own session, run by this
-/// user, found the same way cleanup finds it. Nothing here signals.
-pub(crate) struct Inspection {
-    sid: Pid,
-    uid: libc::uid_t,
-    birth: u64,
-}
 fn birth(info: &libc::proc_bsdinfo) -> u64 {
     info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
 }
 fn own(info: &libc::proc_bsdinfo, uid: libc::uid_t) -> bool {
     [info.pbi_ruid, info.pbi_uid, info.pbi_svuid] == [uid; 3]
-}
-fn resident(pid: Pid) -> Option<u64> {
-    let mut task: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
-    let size = size_of::<libc::proc_taskinfo>() as libc::c_int;
-    // SAFETY: proc_pidinfo fills at most `size` bytes of this owned struct.
-    let bytes = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDTASKINFO,
-            0,
-            std::ptr::addr_of_mut!(task).cast(),
-            size,
-        )
-    };
-    (bytes == size).then_some(task.pti_resident_size)
-}
-fn name(info: &libc::proc_bsdinfo) -> std::ffi::OsString {
-    use std::os::unix::ffi::OsStringExt;
-    let raw = if info.pbi_name[0] != 0 {
-        &info.pbi_name[..]
-    } else {
-        &info.pbi_comm[..]
-    };
-    let bytes: Vec<u8> = raw
-        .iter()
-        .take_while(|c| **c != 0)
-        .map(|c| *c as u8)
-        .collect();
-    std::ffi::OsString::from_vec(bytes)
-}
-impl Leader {
-    /// The capability is bound to this leader's birth, so a reused PID never matches.
-    pub(super) fn inspection(&self) -> Option<Inspection> {
-        let info = process_info(self.sid, false).filter(|info| own(info, self.uid))?;
-        Some(Inspection {
-            sid: self.sid,
-            uid: self.uid,
-            birth: birth(&info),
-        })
-    }
-}
-impl Inspection {
-    pub(crate) fn capture(
-        &self,
-    ) -> std::result::Result<
-        crate::inspection::RawOwnedEvidence,
-        crate::inspection::InspectionFailure,
-    > {
-        use crate::inspection::{
-            InspectionFailure as Error, InspectionPlatform, RawOwnedEvidence, RawProcessEvidence,
-            RawProcessIdentity, MAX_INSPECTION_PROCESSES,
-        };
-        let root = RawProcessIdentity {
-            pid: self.sid as u32,
-            birth: self.birth,
-        };
-        let alive = process_info(self.sid, false)
-            .is_some_and(|info| birth(&info) == self.birth && own(&info, self.uid))
-            && unsafe { libc::getsid(self.sid) } == self.sid;
-        if !alive {
-            return Ok(RawOwnedEvidence {
-                platform: InspectionPlatform::Unix,
-                root,
-                root_alive: false,
-                complete: true,
-                processes: Vec::new(),
-            });
-        }
-        let mut pids = list_pids(|buf, size| {
-            unsafe { libc::proc_listchildpids(self.sid, buf, size) }
-                .saturating_mul(size_of::<Pid>() as libc::c_int)
-        });
-        pids.extend(list_pids(|buf, size| unsafe {
-            libc::proc_listpids(PROC_UID_ONLY, self.uid, buf, size)
-        }));
-        pids.push(self.sid);
-        pids.sort_unstable();
-        pids.dedup();
-        let mut complete = true;
-        let mut processes = Vec::new();
-        for pid in pids {
-            if pid <= 1 || unsafe { libc::getsid(pid) } != self.sid {
-                continue;
-            }
-            let Some(info) = process_info(pid, false).filter(|info| own(info, self.uid)) else {
-                continue;
-            };
-            let memory = resident(pid);
-            // The same process, session and owner after the reads.
-            let same = process_info(pid, false)
-                .is_some_and(|again| birth(&again) == birth(&info) && own(&again, self.uid))
-                && unsafe { libc::getsid(pid) } == self.sid;
-            if !same {
-                complete = false;
-                continue;
-            }
-            if processes.len() >= MAX_INSPECTION_PROCESSES {
-                complete = false;
-                break;
-            }
-            let identity = RawProcessIdentity {
-                pid: pid as u32,
-                birth: birth(&info),
-            };
-            processes.push(RawProcessEvidence {
-                identity,
-                is_root: identity == root,
-                // Darwin activity matching is not wired; no paths or argv are read.
-                accessible: false,
-                executable: None,
-                process_name: Some(name(&info)),
-                argv: None,
-                parent_pid: Some(info.pbi_ppid),
-                memory_bytes: memory,
-                started_ms: Some(info.pbi_start_tvsec * 1000 + info.pbi_start_tvusec / 1000),
-            });
-        }
-        let root_alive = processes.iter().any(|p| p.is_root);
-        if !root_alive {
-            return Err(Error::Unavailable);
-        }
-        Ok(RawOwnedEvidence {
-            platform: InspectionPlatform::Unix,
-            root,
-            root_alive,
-            complete,
-            processes,
-        })
-    }
 }

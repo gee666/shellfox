@@ -287,11 +287,61 @@ fn stats_capture_sees_the_shell_and_its_child_in_its_own_session_only() {
         .processes
         .iter()
         .all(|p| p.identity.pid != outsider.id()));
-    assert!(evidence
-        .processes
-        .iter()
-        .all(|p| p.executable.is_none() && p.argv.is_none()));
+    assert!(root.accessible && root.executable.as_deref() == Some("/bin/sh".as_ref()));
     let _ = outsider.kill();
     let _ = outsider.wait();
+    session.shutdown().unwrap();
+}
+
+/// Activity matching needs the path and argv of an agent in the tab. A member
+/// that runs as another user (setuid su waiting for a password) is not read.
+#[test]
+fn stats_capture_reads_an_agent_but_not_another_users_process() {
+    let scratch = Scratch::new();
+    let agent = scratch.0.join("claude");
+    fs::copy("/bin/sleep", &agent).unwrap();
+    let script = format!(
+        "'{}' 30 & /usr/bin/su root -c true & printf 'SU=%s\\n' $!; wait",
+        agent.display()
+    );
+    let mut session =
+        PtySession::spawn(scratch.config(Path::new("/bin/sh"), &["-c", &script])).unwrap();
+    let mut data = Vec::new();
+    let mut su = None;
+    until(|| {
+        drain(&session, &mut data);
+        su = String::from_utf8_lossy(&data)
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("SU=")?.parse::<u32>().ok());
+        su.is_some()
+    });
+    let su = su.unwrap();
+    // Wait until su has exec'd and runs as root.
+    until(|| {
+        let output = Command::new("/bin/ps")
+            .args(["-o", "uid=", "-p", &su.to_string()])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).trim() == "0"
+    });
+    let capability = session.inspection_capability().unwrap();
+    let agent_argv = [agent.clone().into_os_string(), "30".into()];
+    let mut evidence = capability.capture().unwrap();
+    until(|| {
+        evidence = capability.capture().unwrap();
+        evidence
+            .processes
+            .iter()
+            .any(|p| p.argv.as_deref() == Some(&agent_argv[..]))
+    });
+    let row = evidence
+        .processes
+        .iter()
+        .find(|p| p.argv.as_deref() == Some(&agent_argv[..]))
+        .unwrap();
+    assert!(row.accessible && !row.is_root);
+    assert_eq!(row.executable.as_deref(), Some(agent.as_os_str()));
+    assert_eq!(row.process_name.as_deref(), Some("claude".as_ref()));
+    assert!(evidence.processes.iter().all(|p| p.identity.pid != su));
     session.shutdown().unwrap();
 }
