@@ -306,23 +306,11 @@ impl Listener {
         Self::bind(directory)
     }
 }
-#[cfg(unix)]
-impl Listener {
-    pub fn bind(directory: &Path) -> Result<Self> {
-        use rustix::fs::{open, Mode, OFlags};
-        let original = std::fs::File::from(open(
-            directory,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )?);
-        Self::bind_verified(directory, original)
-    }
-}
 #[cfg(windows)]
 pub(crate) async fn connect_verified(address: &str, directory: &Path) -> Result<LocalStream> {
     connect(address, directory).await
 }
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 pub(crate) async fn connect(address: &str, directory: &Path) -> Result<LocalStream> {
     use rustix::fs::{open, Mode, OFlags};
     let original = std::fs::File::from(open(

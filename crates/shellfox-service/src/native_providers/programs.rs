@@ -1,6 +1,6 @@
 //! Explicit producer-pinned programs. These inputs are native bootstrap authority,
 //! not wire data, package discovery or a runtime-generated trust anchor.
-use anyhow::{ensure, Result};
+use anyhow::Result;
 use shellfox_transport::VerifiedHelper;
 use std::{
     path::{Path, PathBuf},
@@ -28,12 +28,12 @@ impl PinnedWindows {
         use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
         let revision = crate::system::file_revision(&self.original)
             .map_err(|error| anyhow::anyhow!(error.message))?;
-        ensure!(
+        anyhow::ensure!(
             revision == self.revision,
             "Original pinned program lease changed."
         );
         let metadata = std::fs::symlink_metadata(path)?;
-        ensure!(
+        anyhow::ensure!(
             !metadata.file_type().is_symlink() && metadata.file_attributes() & 0x400 == 0,
             "Pinned program alias rejected."
         );
@@ -42,7 +42,7 @@ impl PinnedWindows {
         let current = options.open(path)?;
         let current = crate::system::file_revision(&current)
             .map_err(|error| anyhow::anyhow!(error.message))?;
-        ensure!(
+        anyhow::ensure!(
             current == self.revision,
             "Configured program path no longer names its original lease."
         );

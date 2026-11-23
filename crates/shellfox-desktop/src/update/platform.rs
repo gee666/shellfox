@@ -169,8 +169,9 @@ impl Platform {
         asset: &super::feed::Asset,
     ) -> Result<Prepared> {
         let sha256 = asset.sha256.clone();
+        // Assigned by the Mac arm; every other arm on macOS bails.
         #[cfg(target_os = "macos")]
-        let mut stage = None;
+        let stage;
         let script = match self {
             #[cfg(windows)]
             Self::Squirrel { .. } => {
