@@ -23,6 +23,12 @@ describe('key bar keys', () => {
     expect(event(keyInput('/', emptyModifiers))).toMatchObject({ physical: 50, text: '/' });
     expect(event(keyInput(' ', ctrl))).toMatchObject({ physical: 63, text: ' ', unshiftedCodepoint: 32 });
   });
+  it('keeps only the modifiers 0.9 used on Enter and Tab', () => {
+    const all = { ...emptyModifiers, ctrl: true, alt: true, shift: true };
+    expect(event(keyInput('Enter', { ...emptyModifiers, ctrl: true }))).toMatchObject({ physical: 58, modifiers: 0 });
+    expect(event(keyInput('Enter', all))).toMatchObject({ modifiers: 4 });
+    expect(event(keyInput('Tab', all))).toMatchObject({ physical: 64, modifiers: 1 });
+  });
   it('releases the same key without text', () => {
     const press = keyInput('c', { ...emptyModifiers, ctrl: true });
     expect(event(keyRelease(press))).toEqual({ ...event(press), action: 'release', text: '' });

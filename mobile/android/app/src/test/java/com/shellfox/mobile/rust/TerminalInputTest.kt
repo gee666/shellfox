@@ -114,6 +114,8 @@ class TerminalInputTest {
     val key = keys().first()
     assertEquals(TerminalInput.ENTER, key.getInt("physical"))
     assertEquals("", key.getString("text"))
+    // As in 0.9, sticky Ctrl+Return is plain Return.
+    assertEquals(0, key.getInt("modifiers"))
   }
   @Test fun keysWithoutAGhosttyIdentityStillTypeTheirCharacter() {
     assertTrue(input.hardware(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_AT)) {})

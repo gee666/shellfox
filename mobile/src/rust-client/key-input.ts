@@ -20,10 +20,16 @@ export function modifierBits(modifiers: TerminalModifiers): number {
     | Number(modifiers.alt) * ALT | Number(modifiers.meta) * SUPER;
 }
 
+/** Modifiers kept on Enter and Tab from the key bar. As in 0.9, Ctrl+Enter
+ * is Enter, Alt+Enter is ESC Enter and Shift+Tab is back-tab. */
+export function stickyMask(key: string): number {
+  return key === 'Enter' ? ALT : key === 'Tab' ? SHIFT : 0x3ff;
+}
+
 /** One key-bar key as the key press Ghostty encodes. */
 export function keyInput(key: TerminalKey, modifiers: TerminalModifiers): TerminalInput {
   terminalKeySchema.parse(key);
-  const bits = modifierBits(modifiers);
+  const bits = modifierBits(modifiers) & stickyMask(key);
   const press = (physical: number, text = '', unshifted: number | null = null, consumed = 0): TerminalInput => ({
     type: 'key', event: { physical, action: 'press', modifiers: bits | consumed | (modifiers.capsLock ? CAPS : 0),
       consumedModifiers: consumed, text, unshiftedCodepoint: unshifted, composing: false },

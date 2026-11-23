@@ -139,12 +139,10 @@ static void Replace(SFTextInput *input, NSUInteger start, NSUInteger length, NSS
     input.stickyModifiers = 2;
     [input insertText:@"\n"];
     input.stickyModifiers = 0;
-    // Ctrl+Enter, not text: Ghostty encodes it (CSI 27;5;13~ here).
+    // As in 0.9, sticky Ctrl+Return submits the line.
     XCTAssertEqualObjects(keys.firstObject[@"physical"], @58);
-    XCTAssertEqualObjects(keys.firstObject[@"modifiers"], @2);
-    XCTAssertEqualObjects(keys.firstObject[@"text"], @"");
-    XCTAssertTrue([line hasPrefix:@"ls\x1b["]);
-    [line setString:@""];
+    XCTAssertEqualObjects(keys.firstObject[@"modifiers"], @0);
+    XCTAssertEqualObjects(submitted, @[@"ls"]);
     [input insertText:@"cd \t"];
     XCTAssertEqualObjects(line, @"cd \t");
     // After Tab the editor starts over: Backspace reaches the terminal.

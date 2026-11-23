@@ -79,9 +79,10 @@ static const NSUInteger Backspace = 53, Enter = 58, Tab = 64;
     [typed enumerateSubstringsInRange:NSMakeRange(0, typed.length) options:NSStringEnumerationByComposedCharacterSequences
       usingBlock:^(NSString *c, NSRange, NSRange, BOOL *) {
         if ([c rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound) {
-          [self tap:Enter modifiers:modifiers text:@"" unshifted:nil]; return;
+          // As in 0.9: Ctrl+Return is Return, Alt+Return is ESC Return.
+          [self tap:Enter modifiers:modifiers & 4 text:@"" unshifted:nil]; return;
         }
-        if ([c isEqualToString:@"\t"]) { [self tap:Tab modifiers:modifiers text:@"" unshifted:nil]; return; }
+        if ([c isEqualToString:@"\t"]) { [self tap:Tab modifiers:modifiers & 1 text:@"" unshifted:nil]; return; }
         NSString *base = c.lowercaseString;
         unichar first = [base characterAtIndex:0];
         id unshifted = base.length == 1 ? @(first) : nil;

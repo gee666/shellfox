@@ -36,8 +36,9 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
   /** A soft-keyboard character typed while a key-bar modifier is held. */
   fun chord(codepoint: Int) {
     when (codepoint) {
-      10, 13 -> return tap(ENTER)
-      9 -> return tap(TAB)
+      // As in 0.9: Ctrl+Enter is Enter, Alt+Enter is ESC Enter, Shift+Tab is back-tab.
+      10, 13 -> return tap(ENTER, stickyModifiers and ALT)
+      9 -> return tap(TAB, stickyModifiers and SHIFT)
     }
     val base = Character.toLowerCase(codepoint)
     tap(usPosition(base), stickyModifiers, String(Character.toChars(codepoint)), base.takeIf(::printable))
