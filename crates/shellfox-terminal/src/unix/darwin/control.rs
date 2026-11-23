@@ -40,11 +40,9 @@ impl Control {
                 Instant::now() < deadline,
                 "supervisor response deadline exceeded; owner retained"
             );
-            stream.set_read_timeout(Some(
-                deadline
-                    .saturating_duration_since(Instant::now())
-                    .max(Duration::from_millis(1)),
-            ))?;
+            // macOS rejects setsockopt with EINVAL once the helper has closed its
+            // end, so the remaining deadline is enforced with poll instead.
+            wait_readable(&stream, deadline.saturating_duration_since(Instant::now()))?;
             let mut chunk = [0u8; 512];
             let count = stream.read(&mut chunk)?;
             if count == 0 {
@@ -100,6 +98,30 @@ impl Control {
             std::thread::sleep(Duration::from_millis(5));
         }
     }
+}
+
+fn wait_readable(stream: &UnixStream, timeout: Duration) -> Result<()> {
+    let mut poll = libc::pollfd {
+        fd: stream.as_raw_fd(),
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let millis = timeout.as_millis().clamp(1, i32::MAX as u128) as i32;
+    // SAFETY: poll points to one initialized event.
+    let ready = unsafe { libc::poll(&mut poll, 1, millis) };
+    if ready < 0 {
+        let error = std::io::Error::last_os_error();
+        // The blocking read keeps the request timeout set at connect.
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            return Ok(());
+        }
+        return Err(error.into());
+    }
+    ensure!(
+        ready > 0,
+        "supervisor response deadline exceeded; owner retained"
+    );
+    Ok(())
 }
 
 fn connect(path: &std::path::Path, timeout: Duration) -> Result<UnixStream> {
