@@ -223,7 +223,7 @@ pub(super) fn adopt_node(
                 NODE_STATE.as_ref(),
                 NODE_STATE_LIMIT as usize,
             ) {
-                Ok(read) if read.bytes == current => Some(read.version),
+                Ok(read) if read.bytes == *current => Some(read.version),
                 _ => return Ok(Node::RustHasState),
             }
         }

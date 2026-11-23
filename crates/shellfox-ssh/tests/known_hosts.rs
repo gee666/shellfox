@@ -154,3 +154,44 @@ fn malformed_trust_fails_closed_without_prompt_or_write() {
         assert_eq!(fs::read_to_string(&file).unwrap(), text);
     }
 }
+
+#[test]
+fn electron_host_keys_are_added_without_replacing_saved_ones() {
+    let fixture = Fixture::new();
+    let known = KnownHosts::new(fixture.directory.clone());
+    let saved = public_key();
+    known
+        .verify("saved", 22, &saved, |_, _, _| {
+            Ok(TrustDecision::TrustAndSave)
+        })
+        .unwrap();
+    let electron_key = public_key();
+    let info = shellfox_ssh::host_key_info(&electron_key).unwrap();
+    // src/main/ssh/known-hosts.ts writes JSON.stringify([host.toLowerCase(), port]) keys.
+    let document = serde_json::json!({"version":1,"hosts":{
+        "[\"vm.example\",2222]": {"type": info.key_type, "fingerprint": info.fingerprint},
+        "[\"saved\",22]": {"type": info.key_type, "fingerprint": info.fingerprint},
+        "[\"bad host\",22]": {"type": info.key_type, "fingerprint": info.fingerprint}
+    }});
+    assert_eq!(
+        known
+            .import_electron(document.to_string().as_bytes())
+            .unwrap(),
+        1
+    );
+    assert!(matches!(
+        known.inspect("vm.example", 2222, &electron_key).unwrap(),
+        TrustStatus::Known(_)
+    ));
+    assert!(matches!(
+        known.inspect("saved", 22, &saved).unwrap(),
+        TrustStatus::Known(_)
+    ));
+    assert_eq!(
+        known
+            .import_electron(document.to_string().as_bytes())
+            .unwrap(),
+        0
+    );
+    assert_eq!(known.import_electron(b"{}"), Err(Error::Corrupt));
+}

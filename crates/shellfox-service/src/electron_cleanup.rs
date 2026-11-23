@@ -78,10 +78,21 @@ pub(super) fn remove_caches(root: &Dir) {
     }
 }
 
-/// Returns whether every listed entry is gone.
-pub(super) fn remove_electron_data(root: &Dir) -> bool {
+/// Allowlisted entries that exist now. Only these are removed later.
+pub(super) fn present(root: &Dir) -> Vec<String> {
+    CACHES
+        .iter()
+        .chain(ELECTRON_DATA)
+        .filter(|name| root.symlink_metadata(name).is_ok())
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
+/// Removes the allowlisted entries recorded in `present`. Returns whether all are gone.
+pub(super) fn remove_electron_data(root: &Dir, present: &[String]) -> bool {
     let mut complete = true;
-    for name in CACHES.iter().chain(ELECTRON_DATA) {
+    let recorded = |name: &&&str| present.iter().any(|entry| entry == **name);
+    for name in CACHES.iter().chain(ELECTRON_DATA).filter(recorded) {
         if let Err(error) = remove(root, Path::new(name)) {
             eprintln!("Electron data {name} was not removed: {error}");
             complete = false;

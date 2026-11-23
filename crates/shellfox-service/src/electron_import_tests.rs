@@ -98,7 +98,10 @@ impl Fixture {
         crate::app_paths::default_remote_state(&self.data)
     }
     pub fn age_import(&self) {
-        fs::write(self.control.join(MARKER_V2), br#"{"importedAtMs":1}"#).unwrap();
+        let path = self.control.join(MARKER_V2);
+        let mut marker: Imported = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        marker.imported_at_ms = 1;
+        fs::write(path, serde_json::to_vec(&marker).unwrap()).unwrap();
     }
 }
 
@@ -266,6 +269,7 @@ fn a_rust_store_in_use_keeps_its_own_state() {
     let first = fixture.run(true).unwrap().unwrap();
     assert!(!first.settings && !first.remote_preferences);
     assert_eq!(first.sessions, 0);
+    assert_eq!(first.node, Some(remote::Node::Adopted));
     // Give the Rust node an identity of its own, then run the v2 pass again.
     let leaf_state = fixture.leaf().join("tailscaled.state");
     let rust_node = br#"{"_machinekey":"cnVzdA=="}"#;
@@ -305,6 +309,13 @@ fn a_running_electron_defers_the_import_and_the_cleanup() {
     assert!(!fixture.leaf().exists());
     lock.unlock().unwrap();
     assert!(fixture.run(true).unwrap().is_some());
+    // The host keeps Electron out while it runs.
+    let second = fs::File::open(fixture.electron.join(".host-lock/host.lock")).unwrap();
+    assert!(matches!(
+        second.try_lock(),
+        Err(fs::TryLockError::WouldBlock)
+    ));
+    drop(retention::take_held(&fixture.electron));
     fixture.age_import();
     lock.lock().unwrap();
     assert!(fixture.run(true).is_err());
@@ -369,4 +380,80 @@ fn caches_go_after_the_import_and_electron_data_after_the_retention() {
     assert!(fixture.leaf().join("tailscaled.state").is_file());
     let host = Host::open(&fixture.data).unwrap();
     assert_eq!(host.snapshot().unwrap().sessions.len(), 1);
+}
+
+#[test]
+fn a_parent_without_electron_data_is_never_touched() {
+    let fixture = Fixture::new();
+    for dir in ["Cache", "Network", "tailscale"] {
+        fs::create_dir_all(fixture.electron.join(dir)).unwrap();
+    }
+    fs::write(fixture.electron.join("Preferences"), b"someone else's").unwrap();
+    assert!(fixture.run(true).unwrap().is_none());
+    fixture.age_import();
+    assert!(fixture.run(true).unwrap().is_none());
+    for kept in ["Cache", "Network", "tailscale", "Preferences"] {
+        assert!(fixture.electron.join(kept).exists(), "{kept}");
+    }
+    assert!(fixture.control.join(CLEANUP_MARKER).is_file());
+    assert!(!fixture.leaf().exists());
+}
+
+#[test]
+fn electron_used_again_after_the_import_keeps_its_data() {
+    let fixture = Fixture::new();
+    fixture.database(&settings());
+    fixture.remote();
+    fixture.run(true).unwrap().unwrap();
+    // A rollback: Electron ran again and re-saved its preferences.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fs::write(
+        fixture.electron.join(remote::REMOTE),
+        br#"{"version":1,"enabled":false,"hostname":"x","approvals":[],"peers":[]}"#,
+    )
+    .unwrap();
+    fixture.age_import();
+    assert!(fixture.run(true).unwrap().is_none());
+    for kept in [
+        files::DATABASE,
+        remote::REMOTE,
+        "tailscale/tailscaled.state",
+    ] {
+        assert!(fixture.electron.join(kept).exists(), "{kept}");
+    }
+    assert!(fixture.control.join(CLEANUP_MARKER).is_file());
+}
+
+#[test]
+fn an_unenrolled_rust_node_takes_electrons_identity() {
+    let fixture = Fixture::new();
+    fixture.database(&settings());
+    fixture.remote();
+    fixture.run(true).unwrap().unwrap();
+    // The helper writes `{}` before enrollment.
+    fs::write(fixture.leaf().join("tailscaled.state"), b"{}").unwrap();
+    fs::remove_file(fixture.control.join(MARKER_V2)).unwrap();
+    assert_eq!(
+        fixture.run(true).unwrap().unwrap().node,
+        Some(remote::Node::Adopted)
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.leaf().join("tailscaled.state")).unwrap(),
+        NODE
+    );
+}
+
+#[test]
+fn a_clock_that_was_ahead_restarts_the_retention() {
+    let fixture = Fixture::new();
+    fixture.database(&settings());
+    fixture.run(true).unwrap().unwrap();
+    let path = fixture.control.join(MARKER_V2);
+    let mut marker: Imported = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    marker.imported_at_ms = u64::MAX / 2;
+    fs::write(&path, serde_json::to_vec(&marker).unwrap()).unwrap();
+    assert!(fixture.run(true).unwrap().is_none());
+    let fixed: Imported = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert!(fixed.imported_at_ms <= now_ms());
+    assert!(fixture.electron.join(files::DATABASE).exists());
 }

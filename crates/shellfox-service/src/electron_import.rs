@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use cap_std::{ambient_authority, fs::Dir};
 use serde::Serialize;
 use shellfox_host::Host;
-use shellfox_ssh::{PrivateDirectory, ProfileStore, StoragePolicy};
+use shellfox_ssh::{KnownHosts, PrivateDirectory, ProfileStore, StoragePolicy};
 use shellfox_transport::PermissionVerifier;
 use std::{
     io::Write,
@@ -16,7 +16,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tempfile::NamedTempFile;
-use zeroize::Zeroizing;
 
 #[path = "electron_cleanup.rs"]
 mod cleanup;
@@ -24,6 +23,11 @@ mod cleanup;
 mod files;
 #[path = "electron_import_remote.rs"]
 mod remote;
+#[path = "electron_retention.rs"]
+mod retention;
+use retention::{
+    cleanup, fingerprint, finish_without_electron, imported, remove_stale_snapshots, Imported,
+};
 
 /// Settings, SSH profiles and approvals.
 const MARKER: &str = "electron-import-v1.json";
@@ -32,6 +36,7 @@ const WINDOW_MARKER: &str = "electron-window-import-v1.json";
 const MARKER_V2: &str = "electron-import-v2.json";
 const CLEANUP_MARKER: &str = "electron-cleanup-v1.json";
 const SSH: &str = "ssh-profiles.json";
+const KNOWN_HOSTS: &str = "ssh-known-hosts.json";
 const RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// Runs for every host whose data dir is `<root>/rust-v1/host`, importing from
@@ -98,6 +103,7 @@ struct Report {
     window_bounds: bool,
     sessions: usize,
     ssh_profiles: usize,
+    ssh_host_keys: usize,
     approved: usize,
     // The live approval store represents revocation by absence. Keep the
     // rejected records here for reporting, never as live authority.
@@ -111,12 +117,6 @@ struct Revoked {
     peer_id: Option<String>,
     reason: &'static str,
 }
-#[derive(Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ImportedAt {
-    imported_at_ms: u64,
-}
-
 type NodeAccess<'a> = Option<(&'a PermissionVerifier, &'a tokio::runtime::Handle)>;
 
 fn run(
@@ -127,34 +127,53 @@ fn run(
     node: NodeAccess<'_>,
     check: impl Fn() -> Result<()>,
 ) -> Result<Option<Report>> {
+    let root = source;
     let marked = |name: &str| control.join(name).symlink_metadata().is_ok();
     let (migrated, migrated_window) = (marked(MARKER), marked(WINDOW_MARKER));
-    let imported_at = imported_at(control);
-    let cleaned = marked(CLEANUP_MARKER);
-    let pending = !migrated || !migrated_window || imported_at.is_none();
-    let expired =
-        imported_at.is_some_and(|at| now_ms() >= at.saturating_add(RETENTION.as_millis() as u64));
-    if !pending && (cleaned || !expired) {
+    let imported = imported(control, &check)?;
+    let pending = !migrated || !migrated_window || imported.is_none();
+    let expired = imported.as_ref().is_some_and(|marker| {
+        now_ms()
+            >= marker
+                .imported_at_ms
+                .saturating_add(RETENTION.as_millis() as u64)
+    });
+    if !pending && (marked(CLEANUP_MARKER) || !expired) {
         return Ok(None);
     }
+    remove_stale_snapshots(control);
     let parent = Dir::open_ambient_dir(
         source.parent().context("Electron parent missing")?,
         ambient_authority(),
     )?;
-    let name = source.file_name().context("Electron data name missing")?;
-    // The Rust data dir lives inside this root, so it always exists.
-    let source = files::open_dir(&parent, name.to_str().context("Electron root name")?)?
-        .context("Electron root missing")?;
-    let lock = files::electron_lock(&source)?;
-    if !pending {
-        if cleanup::remove_electron_data(&source) {
-            drop(lock);
-            if cleanup::remove_lock_directory(&source) {
-                write_marker(control, CLEANUP_MARKER, &true, &check)?;
-            }
+    let name = source.file_name().and_then(|name| name.to_str());
+    let source = match files::open_dir(&parent, name.context("Electron root name")?) {
+        Ok(source) => source.context("Electron root missing")?,
+        Err(error) => {
+            // A linked root is not taken over; Electron keeps using it.
+            eprintln!("Electron import skipped: the data root is not a plain directory ({error}).");
+            finish_without_electron(control, &check)?;
+            return Ok(None);
         }
+    };
+    if !pending {
+        let marker = imported.context("Import marker missing")?;
+        return cleanup(&source, root, control, &marker, &check).map(|()| None);
+    }
+    let evidence = files::exists(&source, files::DATABASE)?
+        || files::exists(&source, remote::REMOTE)?
+        || files::exists(&source, ".host-lock")?;
+    if !evidence {
+        finish_without_electron(control, &check)?;
         return Ok(None);
     }
+    let lock = files::electron_lock(&source)?;
+    let marker = Imported {
+        imported_at_ms: now_ms(),
+        electron: true,
+        present: cleanup::present(&source),
+        fingerprint: fingerprint(&source)?,
+    };
     let report = import(
         &source,
         data,
@@ -162,12 +181,17 @@ fn run(
         policy,
         node,
         &check,
-        [migrated, migrated_window, imported_at.is_some()],
+        [migrated, migrated_window, imported.is_some()],
+        &marker,
     )?;
     cleanup::remove_caches(&source);
+    if let Some(lock) = lock {
+        retention::hold(root, lock);
+    }
     Ok(Some(report))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn import(
     source: &Dir,
     data: &Path,
@@ -176,8 +200,10 @@ fn import(
     node: NodeAccess<'_>,
     check: &impl Fn() -> Result<()>,
     [migrated, migrated_window, migrated_v2]: [bool; 3],
+    marker: &Imported,
 ) -> Result<Report> {
     let mut report = Report::default();
+    // A changing database is retried on the next launch, before any marker.
     let database = files::database_snapshot(source, control)
         .context("Could not snapshot Electron settings")?;
     let database = database
@@ -190,10 +216,14 @@ fn import(
         }
         write_marker(control, WINDOW_MARKER, &report.window_bounds, check)?;
     }
+    // Invalid documents are skipped for good; I/O errors retry on the next launch.
     let remote = files::read(source, remote::REMOTE, 4 * 1024 * 1024)
         .context("Could not read Electron remote.json")?
-        .map(|bytes| remote::RemoteFile::parse(&bytes))
-        .transpose()?;
+        .and_then(|bytes| {
+            remote::RemoteFile::parse(&bytes)
+                .inspect_err(|error| eprintln!("Electron import skipped remote.json: {error:#}"))
+                .ok()
+        });
     if let Some(snapshot) = database.as_ref().filter(|_| !migrated || !migrated_v2) {
         check()?;
         let host = Host::open(data)?;
@@ -204,29 +234,36 @@ fn import(
             Ok(imported) => {
                 (report.settings, report.sessions) = (imported.settings, imported.sessions)
             }
-            Err(error) => {
+            Err(error) if error.code == shellfox_core::ErrorCode::Validation => {
                 // A session the Rust model rejects must not cost the settings.
                 eprintln!("Electron sessions were not imported: {}", error.message);
                 if !migrated {
                     report.settings = host.import_electron_settings(snapshot)?;
                 }
             }
+            Err(error) => return Err(error.into()),
         }
     }
     if !migrated {
-        let ssh = Zeroizing::new(
-            files::read(source, SSH, 16 * 1024 * 1024)
-                .context("Could not read Electron SSH profiles")?,
-        );
+        let ssh = files::read(source, SSH, 16 * 1024 * 1024)
+            .context("Could not read Electron SSH profiles")?;
+        let known = files::read(source, KNOWN_HOSTS, 4 * 1024 * 1024)
+            .context("Could not read Electron SSH host keys")?;
         check()?;
-        if let Some(bytes) = ssh.as_deref() {
-            let profiles = ProfileStore::new(Arc::new(PrivateDirectory::open(
-                control.join("ssh"),
-                policy,
-            )?));
-            report.ssh_profiles = profiles
-                .import_electron(bytes)
-                .context("Could not import Electron SSH profiles")?;
+        if ssh.is_some() || known.is_some() {
+            let directory = Arc::new(PrivateDirectory::open(control.join("ssh"), policy)?);
+            if let Some(bytes) = ssh.as_deref() {
+                match ProfileStore::new(directory.clone()).import_electron(bytes) {
+                    Ok(count) => report.ssh_profiles = count,
+                    Err(error) => eprintln!("Electron SSH profiles were not imported: {error}"),
+                }
+            }
+            if let Some(bytes) = known.as_deref() {
+                match KnownHosts::new(directory).import_electron(bytes) {
+                    Ok(count) => report.ssh_host_keys = count,
+                    Err(error) => eprintln!("Electron SSH host keys were not imported: {error}"),
+                }
+            }
         }
         check()?;
         if let Some(file) = &remote {
@@ -237,9 +274,8 @@ fn import(
     if !migrated_v2 {
         let control_dir = Dir::open_ambient_dir(control, ambient_authority())?;
         check()?;
-        if let Some(file) = &remote {
-            report.remote_preferences = remote::import_preferences(&control_dir, file)?;
-        }
+        // The node goes first: preferences that turn remote access on must not
+        // start a fresh node before Electron's identity is in place.
         if let Some((verifier, runtime)) = node {
             report.node = Some(remote::adopt_node(
                 source,
@@ -250,14 +286,10 @@ fn import(
                 check,
             )?);
         }
-        write_marker(
-            control,
-            MARKER_V2,
-            &ImportedAt {
-                imported_at_ms: now_ms(),
-            },
-            check,
-        )?;
+        if let Some(file) = &remote {
+            report.remote_preferences = remote::import_preferences(&control_dir, file)?;
+        }
+        write_marker(control, MARKER_V2, marker, check)?;
     }
     Ok(report)
 }
@@ -267,15 +299,6 @@ fn v1_copied_settings(control: &Path) -> bool {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
         .is_some_and(|report| report["settings"] == true)
-}
-
-fn imported_at(control: &Path) -> Option<u64> {
-    let bytes = std::fs::read(control.join(MARKER_V2)).ok()?;
-    // An unreadable marker counts as imported but never expires.
-    Some(
-        serde_json::from_slice::<ImportedAt>(&bytes)
-            .map_or(u64::MAX, |marker| marker.imported_at_ms),
-    )
 }
 
 fn now_ms() -> u64 {

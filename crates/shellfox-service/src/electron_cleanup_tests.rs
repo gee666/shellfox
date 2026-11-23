@@ -43,7 +43,7 @@ fn removal_unlinks_planted_links_without_following_them() {
 
     // A linked root entry is unlinked, never entered, by the later removal too.
     if link(&outside.join("dir"), &root.join("tailscale")) {
-        assert!(remove_electron_data(&dir));
+        assert!(remove_electron_data(&dir, &present(&dir)));
         assert!(root.join("tailscale").symlink_metadata().is_err());
         assert!(outside.join("dir/inner.txt").is_file());
     }

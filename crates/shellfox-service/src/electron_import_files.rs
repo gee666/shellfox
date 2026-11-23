@@ -40,7 +40,7 @@ pub(super) fn open(dir: &Dir, name: &str) -> Result<Option<File>> {
     Ok(Some(file))
 }
 
-pub(super) fn read(dir: &Dir, name: &str, limit: u64) -> Result<Option<Vec<u8>>> {
+pub(super) fn read(dir: &Dir, name: &str, limit: u64) -> Result<Option<Zeroizing<Vec<u8>>>> {
     let Some(file) = open(dir, name)? else {
         return Ok(None);
     };
@@ -50,7 +50,7 @@ pub(super) fn read(dir: &Dir, name: &str, limit: u64) -> Result<Option<Vec<u8>>>
         bytes.len() as u64 <= limit,
         "Electron data file is too large"
     );
-    Ok(Some(std::mem::take(&mut *bytes)))
+    Ok(Some(bytes))
 }
 
 pub(super) fn exists(dir: &Dir, name: impl AsRef<Path>) -> Result<bool> {
@@ -141,4 +141,19 @@ pub(super) fn publish_private(
         bail!("Could not write {name}: {}", error.message);
     }
     Ok(())
+}
+
+/// Size and modification time of `name`, without following links.
+pub(super) fn stamp_of(dir: &Dir, name: &str) -> Result<Option<(u64, u128)>> {
+    match dir.symlink_metadata(name) {
+        Ok(info) => {
+            let modified = info.modified()?.into_std();
+            let ms = modified
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |time| time.as_millis());
+            Ok(Some((info.len(), ms)))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }

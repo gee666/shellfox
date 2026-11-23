@@ -111,6 +111,34 @@ impl KnownHosts {
             None => Ok(false),
         }
     }
+    /// Adds the host keys Electron trusted (same document format) that this
+    /// store doesn't know yet. Saved keys are never replaced; invalid rows are skipped.
+    pub fn import_electron(&self, bytes: &[u8]) -> Result<usize> {
+        if bytes.len() > MAX_BYTES {
+            return Err(Error::Limit);
+        }
+        let incoming: Document = serde_json::from_slice(bytes).map_err(|_| Error::Corrupt)?;
+        if incoming.version != 1 {
+            return Err(Error::Corrupt);
+        }
+        let _lock = self.directory.lock(LOCK)?;
+        let mut latest = self.load()?;
+        let before = latest.hosts.len();
+        for (id, info) in incoming.hosts {
+            let valid = serde_json::from_str::<(String, u16)>(&id)
+                .is_ok_and(|(host, port)| Self::id(&host, port).as_ref() == Ok(&id))
+                && valid_info(&info);
+            if valid && latest.hosts.len() < MAX_HOSTS {
+                latest.hosts.entry(id).or_insert(info);
+            }
+        }
+        let added = latest.hosts.len() - before;
+        if added != 0 {
+            let bytes = serde_json::to_vec_pretty(&latest).map_err(|_| Error::Storage)?;
+            self.directory.atomic_write(FILE, &bytes, MAX_BYTES)?;
+        }
+        Ok(added)
+    }
     pub fn inspect(&self, host: &str, port: u16, key: &[u8]) -> Result<TrustStatus> {
         let id = Self::id(host, port)?;
         let info = host_key_info(key)?;
