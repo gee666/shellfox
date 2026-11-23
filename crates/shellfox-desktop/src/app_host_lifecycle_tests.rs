@@ -1,30 +1,25 @@
 use super::*;
 
 #[tokio::test(flavor = "current_thread")]
-async fn zero_windows_with_retained_startup_is_not_stopped_until_confirmed_close() {
+async fn a_host_that_ended_on_its_own_needs_no_stop_and_admits_no_window() {
     let fake = Fake::default();
-    {
-        let mut state = fake.0.lock().unwrap();
-        state.fail_fork = true;
-        state.boot = Some(HostEndpointStartupOutcome::RetainedCleanup);
-    }
     let host = AppHost::with_backend(fake.clone());
-    assert!(!host.is_stopped().unwrap());
-    assert!(host.open_window().await.is_err());
-    assert_eq!(host.window_count().unwrap(), 0);
-    let ticket = approved(host.request_close(CloseTarget::Quit, 0).unwrap());
-    assert!(host.finish_close(ticket).await.is_err());
-    assert!(host.cleanup_retained().unwrap());
-    assert!(!host.is_stopped().unwrap());
-
-    fake.0.lock().unwrap().boot = Some(HostEndpointStartupOutcome::NoOwnerClean);
-    // Source cleanup proof alone does not complete the app's close lifecycle.
-    assert!(!host.is_stopped().unwrap());
-    let ticket = approved(host.request_close(CloseTarget::Quit, 0).unwrap());
-    assert!(host.finish_close(ticket).await.unwrap().app_stopped);
+    host.open_window().await.unwrap();
+    host.host_ended();
     assert!(host.is_stopped().unwrap());
-    assert_eq!(host.window_count().unwrap(), 0);
-    assert_eq!(fake.0.lock().unwrap().calls, ["retained", "clean-proof"]);
+    assert!(host.stopped_after_operations().await.unwrap());
+    assert!(host.open_window().await.is_err());
+    assert_eq!(fake.0.lock().unwrap().calls, ["fork:1"]);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cleanup_stops_an_idle_host_once() {
+    let fake = Fake::default();
+    let host = AppHost::with_backend(fake.clone());
+    host.cleanup().await.unwrap();
+    host.cleanup().await.unwrap();
+    assert!(host.is_stopped().unwrap());
+    assert_eq!(fake.0.lock().unwrap().calls, ["stop"]);
 }
 
 #[tokio::test(flavor = "current_thread")]

@@ -13,7 +13,6 @@ use std::{
 
 #[path = "root_close.rs"]
 mod close;
-pub(crate) use close::log_shutdown_report;
 #[path = "quit_dialog.rs"]
 mod quit_dialog;
 pub(crate) use quit_dialog::QuitFocus;

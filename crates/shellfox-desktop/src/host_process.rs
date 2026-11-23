@@ -58,6 +58,24 @@ pub(crate) fn connect_or_start(
     }
 }
 
+/// Whether a host still answers on this data directory, asked a few times.
+pub(crate) fn serving(config: &HostEndpointConfig) -> bool {
+    let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+        return true;
+    };
+    (0..3).any(|attempt| {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        runtime.block_on(async {
+            let (client, _) = discover(config).await.ok()?;
+            let _ = client.disconnect().await;
+            Some(())
+        })
+        .is_some()
+    })
+}
+
 async fn discover(config: &HostEndpointConfig) -> Result<(LocalClient, LaunchRouteInfo)> {
     let client = LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256).await?;
     let DesktopLaunchReply::Route(route) = client.request(&DesktopLaunchRequest::Discover {}).await? else {

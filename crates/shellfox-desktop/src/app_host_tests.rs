@@ -1,12 +1,6 @@
 use super::*;
 #[path = "app_host_lifecycle_tests.rs"]
 mod lifecycle_tests;
-#[path = "app_host_prestart_cleanup_tests.rs"]
-mod prestart_cleanup;
-#[path = "app_host_shutdown_tests.rs"]
-mod shutdown_tests;
-#[path = "app_host_startup_tests.rs"]
-mod startup_tests;
 use std::{
     future::Future,
     pin::pin,
@@ -21,46 +15,24 @@ struct FakeState {
     fail_stop: bool,
     wait_stop: bool,
     stop_admitted: bool,
-    boot: Option<HostEndpointStartupOutcome>,
     fail_fork: bool,
     owned_terminals: usize,
-    shutdown_outcome: Option<ShutdownOutcome>,
 }
 #[derive(Clone, Default)]
 struct Fake(Arc<Mutex<FakeState>>);
 impl AppHostBackend for Fake {
     type Client = usize;
-    fn startup_outcome(&self) -> HostFuture<'_, HostEndpointStartupOutcome> {
-        Box::pin(async {
-            Ok(self
-                .0
-                .lock()
-                .unwrap()
-                .boot
-                .unwrap_or(HostEndpointStartupOutcome::Ready))
-        })
-    }
     fn owned_terminal_count(&self) -> HostFuture<'_, usize> {
         Box::pin(async {
             let mut state = self.0.lock().unwrap();
-            match state.boot.unwrap_or(HostEndpointStartupOutcome::Ready) {
-                HostEndpointStartupOutcome::NoOwnerClean => Ok(0),
-                HostEndpointStartupOutcome::RetainedCleanup => anyhow::bail!("Unknown owner count"),
-                HostEndpointStartupOutcome::Ready
-                | HostEndpointStartupOutcome::ReadyLocalOnly { .. } => {
-                    state.calls.push("status".into());
-                    Ok(state.owned_terminals)
-                }
-            }
+            state.calls.push("status".into());
+            Ok(state.owned_terminals)
         })
     }
     fn fork_window(&self) -> HostFuture<'_, usize> {
         Box::pin(async {
             let mut state = self.0.lock().unwrap();
-            ensure!(
-                !state.fail_fork,
-                "NoOwnerClean: untrusted error text is NOT proof"
-            );
+            ensure!(!state.fail_fork, "controlled fork failure");
             state.next += 1;
             let client = state.next;
             state.calls.push(format!("fork:{client}"));
@@ -75,22 +47,10 @@ impl AppHostBackend for Fake {
             Ok(())
         })
     }
-    fn stop(&self) -> HostFuture<'_, Option<ShutdownOutcome>> {
+    fn stop(&self) -> HostFuture<'_, ()> {
         Box::pin(async {
             let wait = {
                 let mut state = self.0.lock().unwrap();
-                match state.boot.unwrap_or(HostEndpointStartupOutcome::Ready) {
-                    HostEndpointStartupOutcome::NoOwnerClean => {
-                        state.calls.push("clean-proof".into());
-                        return Ok(state.shutdown_outcome.clone());
-                    }
-                    HostEndpointStartupOutcome::RetainedCleanup => {
-                        state.calls.push("retained".into());
-                        anyhow::bail!("Unconfirmed bootstrap cleanup");
-                    }
-                    HostEndpointStartupOutcome::Ready
-                    | HostEndpointStartupOutcome::ReadyLocalOnly { .. } => {}
-                }
                 if !state.stop_admitted {
                     state.calls.push("stop".into());
                     ensure!(!state.fail_stop, "controlled cleanup failure");
@@ -101,7 +61,7 @@ impl AppHostBackend for Fake {
             if wait {
                 std::future::pending::<()>().await
             }
-            Ok(self.0.lock().unwrap().shutdown_outcome.clone())
+            Ok(())
         })
     }
 }
@@ -117,27 +77,6 @@ fn poll_pending(future: std::pin::Pin<&mut impl Future>) {
         future.poll(&mut TaskContext::from_waker(Waker::noop())),
         Poll::Pending
     ));
-}
-#[tokio::test(flavor = "current_thread")]
-async fn local_only_preserves_reason_and_requires_actual_stop_for_local_windows() {
-    let fake = Fake::default();
-    let remote_unavailable =
-        shellfox_service::remote::RemoteUnavailableReason::NativeApprovalStoragePending;
-    fake.0.lock().unwrap().boot =
-        Some(HostEndpointStartupOutcome::ReadyLocalOnly { remote_unavailable });
-    fake.0.lock().unwrap().owned_terminals = 2;
-    let host = AppHost::with_backend(fake.clone());
-    assert_eq!(
-        host.startup_outcome().await.unwrap(),
-        HostEndpointStartupOutcome::ReadyLocalOnly { remote_unavailable }
-    );
-    let _window = host.open_window().await.unwrap();
-    assert_eq!(host.owned_terminal_count().await.unwrap(), 2);
-    let ticket = approved(host.request_close(CloseTarget::Quit, 2).unwrap());
-    assert!(host.finish_close(ticket).await.unwrap().app_stopped);
-    let calls = &fake.0.lock().unwrap().calls;
-    assert!(calls.iter().any(|call| call == "stop"));
-    assert!(!calls.iter().any(|call| call == "clean-proof"));
 }
 #[tokio::test(flavor = "current_thread")]
 async fn two_windows_share_backend_but_fork_distinct_clients_and_close_only_own_intents() {
@@ -284,7 +223,6 @@ async fn cancelled_wait_does_not_release_application_before_actual_stop_completi
     fake.0.lock().unwrap().wait_stop = false;
     host.finish_close(ticket).await.unwrap();
     // Both the accepted Stop and completed detaches survive a cancelled wait.
-    // Real HostEndpoint tests additionally cover its reply/completion channels.
     assert_eq!(fake.0.lock().unwrap().calls, ["fork:1", "detach:1", "stop"]);
 }
 #[tokio::test(flavor = "current_thread")]

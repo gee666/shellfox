@@ -1,5 +1,5 @@
-//! Application-owned endpoint and bounded window clients. Keep a clone in a GPUI
-//! Global, not just in Roots. Dropping a window never requests host shutdown.
+//! The application's host connection and bounded window clients. Keep a clone
+//! in a GPUI Global, not just in Roots. Dropping a window never stops the host.
 #[path = "app_host_gpui.rs"]
 pub mod adapter;
 #[path = "app_host_backend.rs"]
@@ -8,18 +8,13 @@ mod backend;
 mod close;
 #[path = "app_host_policy.rs"]
 mod policy;
-#[path = "app_host_prestart.rs"]
-mod prestart;
-pub use prestart::AppHostPrestart;
 #[cfg(test)]
 #[path = "app_host_tests.rs"]
 mod tests;
 
-pub use crate::host_client::HostEndpointStartupOutcome;
 use anyhow::{Context, Result, ensure};
-pub use backend::{AppHostBackend, EndpointBackend, HostFuture};
+pub use backend::{AppHostBackend, AttachedBackend, HostFuture};
 pub use policy::*;
-pub use shellfox_service::{ActivityShutdownState, ShutdownOutcome};
 use std::{
     collections::{BTreeMap, HashSet},
     sync::{Arc, Mutex, MutexGuard},
@@ -48,7 +43,6 @@ struct State<C> {
     pending: Option<PendingClose>,
     cleanup_retained: bool,
     stopped: bool,
-    shutdown_outcome: Option<ShutdownOutcome>,
 }
 struct Shared<B: AppHostBackend> {
     backend: B,
@@ -56,7 +50,7 @@ struct Shared<B: AppHostBackend> {
     state: Mutex<State<B::Client>>,
     operation: tokio::sync::Mutex<()>,
 }
-pub struct AppHost<B: AppHostBackend = EndpointBackend> {
+pub struct AppHost<B: AppHostBackend = AttachedBackend> {
     shared: Arc<Shared<B>>,
 }
 impl<B: AppHostBackend> Clone for AppHost<B> {
@@ -73,33 +67,15 @@ impl AppHost {
         owned: bool,
     ) -> Result<Self> {
         let runtime = crate::host_client::attached::AttachedRuntime::new()?;
-        Ok(Self::with_backend(EndpointBackend::Attached { config, owner, runtime, owned }))
-    }
-
-    pub(crate) fn is_attached(&self) -> bool {
-        matches!(self.shared.backend, EndpointBackend::Attached { .. })
+        Ok(Self::with_backend(AttachedBackend { config, owner, runtime, owned }))
     }
     /// Attached to a host this desktop did not start, such as `host run`.
     pub(crate) fn is_external(&self) -> bool {
-        matches!(self.shared.backend, EndpointBackend::Attached { owned: false, .. })
+        !self.shared.backend.owned
     }
 
     pub(crate) async fn chrome_client(&self) -> Result<crate::host_client::HostClient> {
         self.shared.backend.fork_window().await
-    }
-
-    /// Install exactly once through app_host_gpui::install. The service's private
-    /// directory lock also excludes a second owner in another process.
-    pub fn start(config: crate::host_client::HostEndpointConfig) -> Result<Self> {
-        Ok(Self::with_backend(EndpointBackend::start(config)?))
-    }
-    pub fn start_with_dispatcher<D: shellfox_service::OwnerDispatcher + 'static>(
-        config: crate::host_client::HostEndpointConfig,
-        dispatcher: D,
-    ) -> Result<Self> {
-        Ok(Self::with_backend(EndpointBackend::start_with_dispatcher(
-            config, dispatcher,
-        )?))
     }
 }
 impl<B: AppHostBackend> AppHost<B> {
@@ -115,7 +91,6 @@ impl<B: AppHostBackend> AppHost<B> {
                     pending: None,
                     cleanup_retained: false,
                     stopped: false,
-                    shutdown_outcome: None,
                 }),
                 operation: tokio::sync::Mutex::new(()),
             }),
@@ -130,22 +105,12 @@ impl<B: AppHostBackend> AppHost<B> {
             .lock()
             .map_err(|_| anyhow::anyhow!("App host registry poisoned; ownership retained."))
     }
-    /// A failed ready wait says nothing about resource ownership. Root may
-    /// observe this proof after startup failure, then run the usual close policy.
-    /// NoOwnerClean still exits through finish_close/backend.stop; Ready requires
-    /// actual Stop, and RetainedCleanup never authorizes dropping the Global.
-    pub async fn startup_outcome(&self) -> Result<HostEndpointStartupOutcome> {
-        self.shared.backend.startup_outcome().await
-    }
-    /// Observe the SAME endpoint after any in-flight close/cleanup completes.
-    /// This does not start Stop or infer cleanup from an admission error.
-    pub async fn startup_outcome_after_operations(&self) -> Result<HostEndpointStartupOutcome> {
+    /// Whether the host is stopped once any in-flight close has finished.
+    pub async fn stopped_after_operations(&self) -> Result<bool> {
         let _operation = self.shared.operation.lock().await;
-        self.shared.backend.startup_outcome().await
+        self.is_stopped()
     }
     /// Use this actual owner count for request_close, never persisted tab count.
-    /// Unknown/retained startup fails closed; only NoOwnerClean can prove zero
-    /// without querying the service's typed NativeAction::Status response.
     pub async fn owned_terminal_count(&self) -> Result<usize> {
         self.shared.backend.owned_terminal_count().await
     }
@@ -215,16 +180,29 @@ impl<B: AppHostBackend> AppHost<B> {
             state.revision += 1;
         }
     }
-    /// Report retained after successful final shutdown, independent of resource
-    /// cleanup proof. None is not Committed; Dirty does not mean live resources.
-    /// Artifact preservation/durability is separate from runtime shutdown.
-    pub async fn endpoint_report(
-        &self,
-    ) -> Result<Option<Arc<shellfox_service::NativeEndpointReport>>> {
-        self.shared.backend.endpoint_report().await
-    }
-    pub fn shutdown_outcome(&self) -> Result<Option<ShutdownOutcome>> {
-        Ok(self.state()?.shutdown_outcome.clone())
+    /// Stops an idle desktop-started host when the UI ends without a confirmed
+    /// close, such as after a graphics failure. Windows must already be gone.
+    pub async fn cleanup(&self) -> Result<()> {
+        let _operation = self.shared.operation.lock().await;
+        {
+            let mut state = self.state()?;
+            ensure!(
+                state.windows.is_empty() && state.pending.is_none(),
+                "Cleanup cannot remove registered or pending windows"
+            );
+            if state.stopped {
+                return Ok(());
+            }
+            // Also fences a cancelled wait; a later call resumes the same Stop.
+            state.cleanup_retained = true;
+            state.revision += 1;
+        }
+        self.shared.backend.stop().await?;
+        let mut state = self.state()?;
+        state.stopped = true;
+        state.cleanup_retained = false;
+        state.revision += 1;
+        Ok(())
     }
     /// Check again on the UI thread before native construction after an async
     /// open. An app quit may have closed this registration while UI work waited.

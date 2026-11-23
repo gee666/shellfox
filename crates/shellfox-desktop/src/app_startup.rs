@@ -92,80 +92,25 @@ impl Prestarted {
                 .build()
             {
                 Ok(runtime) => runtime.block_on(async {
-                    if self.host.is_attached() && self.host.owned_terminal_count().await? > 0 {
-                        return Ok(None);
+                    match self.host.owned_terminal_count().await {
+                        Ok(0) => self.host.cleanup().await,
+                        Ok(_) => Ok(()),
+                        Err(_) if !crate::host_process::serving(&self.config) => Ok(()),
+                        Err(error) => Err(error),
                     }
-                    self.host.cleanup_prestarted().await
                 }),
                 Err(error) => Err(error.into()),
             };
             match result {
-                Ok(outcome) => {
-                    if !self.host.is_attached() { crate::root::log_shutdown_report(&mut std::io::stderr().lock(), Ok(outcome)); }
-                    return;
-                }
+                Ok(()) => return,
                 Err(error) => {
                     if Instant::now() >= next_diagnostic {
-                        eprintln!(
-                            "Prestarted host cleanup is unconfirmed; retaining the exact owner and retrying: {error:#}"
-                        );
+                        eprintln!("Host cleanup is unconfirmed; retrying: {error:#}");
                         next_diagnostic = Instant::now() + Duration::from_secs(30);
                     }
                     std::thread::sleep(Duration::from_millis(250));
                 }
             }
         }
-    }
-}
-
-#[cfg(test)]
-#[path = "app_startup_owned_tests.rs"]
-mod owned_tests;
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::app_host::AppHostPrestart;
-    #[tokio::test(flavor = "current_thread")]
-    async fn remote_composition_failure_retains_same_endpoint_without_materializing_node_state() {
-        let path = std::env::current_dir().unwrap().join("tmp").join(format!(
-            "app-remote-failure-{}",
-            shellfox_core::SessionId::new()
-        ));
-        std::fs::create_dir_all(&path).unwrap();
-        let application = crate::options::app_composition::NativeApplicationConfig::new(
-            &path,
-            None,
-            Some("owned-app-failure".into()),
-            crate::options::app_composition::SourceFactory::Local,
-        )
-        .unwrap();
-        let state = application.remote_state_dir.clone();
-        let remote = application
-            .remote_options(std::env::current_exe().unwrap(), false)
-            .unwrap();
-        let config = HostEndpointConfig {
-            data_dir: path.clone(),
-            helper: path.join("missing-helper.exe"),
-            helper_sha256: [0; 32],
-        };
-        let AppHostPrestart::Failed { host, error } =
-            AppHost::prestart_remote(config, remote).await.unwrap()
-        else {
-            panic!("exact retained remote startup failure required")
-        };
-        assert!(
-            error
-                .downcast_ref::<shellfox_service::local::OccupiedOwnerError>()
-                .is_none()
-        );
-        let same = host.clone();
-        assert!(same.same_owner(&host));
-        host.cleanup_prestarted().await.unwrap();
-        assert!(same.is_stopped().unwrap());
-        assert!(
-            !state.exists(),
-            "Optional node state must not be caller-created before native admission"
-        );
-        std::fs::remove_dir_all(path).unwrap();
     }
 }

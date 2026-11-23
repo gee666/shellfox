@@ -2,42 +2,10 @@ use super::*;
 #[path = "root_close_prompt.rs"]
 mod prompt;
 use crate::app_host::{
-    ActivityShutdownState, CloseDecision, CloseTarget, ClosedWindows, ShutdownOutcome,
+    CloseDecision, CloseTarget, ClosedWindows,
     WindowCloseGuard,
 };
 use std::time::{Duration, Instant};
-
-// Persistence and presentation warnings do not undo confirmed resource cleanup.
-pub(crate) fn log_shutdown_report(
-    output: &mut impl std::io::Write,
-    outcome: anyhow::Result<Option<ShutdownOutcome>>,
-) {
-    let message = match outcome {
-        Ok(Some(outcome)) => {
-            let message = match outcome.activity {
-                ActivityShutdownState::Committed => "Final host close: session activity updates committed.".to_owned(),
-                ActivityShutdownState::DirtyAfterOwnershipLoss { pending_sessions } => format!("Final host close: resources closed; {pending_sessions} session activity updates were not committed after ownership loss."),
-            };
-            let _ = writeln!(output, "{message}");
-            if let shellfox_service::PresentationShutdownState::FailedSources(warnings) = &outcome.presentation {
-                log_presentation_failures(output, warnings.failures().len());
-            }
-            // NoKnownFailure is not proof of final-view completeness.
-            return;
-        }
-        Ok(None) => "Final host close: activity and presentation status are unknown; no shutdown report was available.".to_owned(),
-        Err(error) => format!("Final host close: shutdown report could not be read; activity and presentation status are unknown: {error:#}"),
-    };
-    // A broken log sink cannot undo cleanup or turn an unknown report into a commit.
-    let _ = writeln!(output, "{message}");
-}
-fn log_presentation_failures(output: &mut impl std::io::Write, count: usize) {
-    // Opaque failed-source evidence stays with AppHost's typed report. Only count it here.
-    let _ = writeln!(
-        output,
-        "Warning: host resources are confirmed closed; final presentation failed for {count} source(s). Opaque failure evidence remains retained."
-    );
-}
 
 fn host_operation_guard(local_pending: bool, peer_pending: bool) -> WindowCloseGuard {
     if local_pending || peer_pending {
@@ -242,9 +210,6 @@ impl Root {
                             updater.confirm_close(restart);
                         }
                     });
-                    if closed.app_stopped && !host.is_attached() {
-                        log_shutdown_report(&mut std::io::stderr().lock(), host.shutdown_outcome());
-                    }
                 }
                 Err(error) => {
                     let retained = host.cleanup_retained().unwrap_or(true);

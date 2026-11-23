@@ -1,5 +1,4 @@
 use super::*;
-use std::io::Write as _;
 
 impl<B: AppHostBackend> AppHost<B> {
     pub(crate) fn recheck_close(&self, ticket: &CloseTicket, terminal_count: usize) -> Result<CloseDecision> {
@@ -102,12 +101,7 @@ impl<B: AppHostBackend> AppHost<B> {
         result
     }
     async fn complete_pending(&self) -> Result<ClosedWindows> {
-        // Only this source proof permits bypassing dead clients. A ready error,
-        // empty registry or finished bootstrap thread is never enough.
         loop {
-            if self.startup_outcome().await? == HostEndpointStartupOutcome::NoOwnerClean {
-                break;
-            }
             let next = {
                 let state = self.state()?;
                 let pending = state.pending.as_ref().context("Missing close operation.")?;
@@ -120,14 +114,7 @@ impl<B: AppHostBackend> AppHost<B> {
             let Some((id, client)) = next else { break };
             // DetachAll is per UUID and idempotent. Cancellation can only repeat
             // this release, never input, takeover, PTY close or a new controller.
-            if let Err(error) = self.shared.backend.detach_window(&client).await {
-                // The actor may have completed explicit cleanup while a release
-                // was in flight. Do not trap a window on its now-dead client.
-                if self.startup_outcome().await? != HostEndpointStartupOutcome::NoOwnerClean {
-                    return Err(error);
-                }
-                break;
-            }
+            self.shared.backend.detach_window(&client).await?;
             self.state()?
                 .pending
                 .as_mut()
@@ -141,41 +128,15 @@ impl<B: AppHostBackend> AppHost<B> {
             .as_ref()
             .context("Missing close operation.")?
             .stop_host;
-        let shutdown_outcome = if stop_host {
-            self.shared.backend.stop().await?
-        } else {
-            None
-        };
+        if stop_host {
+            self.shared.backend.stop().await?;
+        }
         let mut state = self.state()?;
         let pending = state.pending.take().context("Missing close operation.")?;
         for id in &pending.windows {
             state.windows.remove(id);
         }
         if stop_host {
-            // Retain the typed report before publishing stopped. Dirty activity
-            // is a persistence warning, not failed resource cleanup or a commit.
-            state.shutdown_outcome = shutdown_outcome;
-            if let Some(outcome) = &state.shutdown_outcome {
-                if let ActivityShutdownState::DirtyAfterOwnershipLoss { pending_sessions } =
-                    &outcome.activity
-                {
-                    // Logging failure never discards the whole retained report.
-                    let _ = writeln!(
-                        std::io::stderr().lock(),
-                        "Warning: host resources are confirmed closed; {pending_sessions} session activity updates were not committed after ownership loss."
-                    );
-                }
-                if let shellfox_service::PresentationShutdownState::FailedSources(warnings) =
-                    &outcome.presentation
-                {
-                    let count = warnings.failures().len();
-                    let _ = writeln!(
-                        std::io::stderr().lock(),
-                        "Warning: host resources are confirmed closed; {count} source presentations failed. Opaque source evidence remains retained; final view completeness is not claimed."
-                    );
-                }
-                // NoKnownFailure is not a positive final-view completeness proof.
-            }
             state.stopped = true;
             state.cleanup_retained = false;
         }
