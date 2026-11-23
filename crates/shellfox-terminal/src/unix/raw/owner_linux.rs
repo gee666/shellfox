@@ -143,6 +143,7 @@ impl Owner {
     pub fn remove(&mut self, _child: &mut Child) -> Result<()> {
         self.group.remove()
     }
+    #[cfg(feature = "test-support")]
     pub fn signal_controller(&self, _child: &Child, signal: i32) -> Result<()> {
         self.signal(signal)
     }

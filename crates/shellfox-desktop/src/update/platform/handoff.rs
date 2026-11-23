@@ -1,5 +1,7 @@
 use super::Platform;
-use anyhow::{Context, Result, ensure};
+#[cfg(any(windows, target_os = "macos"))]
+use anyhow::Context;
+use anyhow::{Result, ensure};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
