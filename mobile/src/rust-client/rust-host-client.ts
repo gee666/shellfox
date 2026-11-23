@@ -14,6 +14,8 @@ import { NativeTerminalDriver, registerNativeTerminal, type NativeExecute } from
 interface Run {
   abort: AbortController; pump?: OperationPump; suspended: boolean;
   restart: boolean; pairing: boolean; resume?: () => void; retry?: AbortController;
+  /** Stops waiting for the outstanding long-poll; reconnect fences it natively. */
+  interrupt?: () => void;
 }
 const allowedMethod = z.enum(rustRemoteMethods);
 
@@ -65,6 +67,7 @@ export class RustHostClient extends RemoteOperations implements HostClient {
     if (this.run) {
       if (!this.run.suspended) return;
       this.run.suspended = false; this.run.resume?.(); this.run.retry?.abort();
+      if (this.run.restart) this.run.interrupt?.();
       return;
     }
     const run: Run = { abort: new AbortController(), suspended: false, restart: false, pairing: false }; this.run = run;
@@ -197,7 +200,12 @@ export class RustHostClient extends RemoteOperations implements HostClient {
           }
           if (!this.active(run)) break;
           if (run.suspended || run.restart) continue;
-          const event = await pump.invoke(() => remote.poll());
+          // A resume must not wait up to the host's 20 s long-poll before reconnecting.
+          const polled = pump.invoke(() => remote.poll());
+          polled.catch(() => undefined);
+          const event = await Promise.race([polled, new Promise<null>(resolve => { run.interrupt = () => resolve(null); })]);
+          run.interrupt = undefined;
+          if (!event) continue;
           const reply = coarsePollSchema.parse(event.result);
           if (!reply.ok) throw new RemoteClientError(reply.error);
           if (!this.active(run)) break;

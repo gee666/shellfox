@@ -275,6 +275,16 @@ describe('Rust host client in existing mobile presentation', () => {
     expect(native.operation.mock.calls.some(([, json]) => json.includes('takeTerminalControl'))).toBe(false);
   });
 
+  it('reconnects on resume without waiting for the outstanding long-poll', async () => {
+    const { native, client } = setup(); client.connect(); await tick();
+    expect(native.poll).toHaveBeenCalledOnce(); // the host holds it for up to 20 s
+    client.suspend(); await tick(); client.connect(); await tick();
+    expect(native.reconnect).toHaveBeenCalledOnce();
+    expect(client.getState().status).toBe('connected');
+    native.event(native.polls[0], { ok: false, error: { code: 'TARGET_LOST', message: 'fenced', retryable: true } }, 3, true);
+    await tick(); expect(client.getState().status).toBe('connected');
+  });
+
   it('ignores an old request completion after explicit stop and a new native client', async () => {
     const { native, client } = setup(); native.connect.mockResolvedValueOnce('900');
     client.connect(); await tick(); client.stop(); await tick(); client.connect(); await tick();
