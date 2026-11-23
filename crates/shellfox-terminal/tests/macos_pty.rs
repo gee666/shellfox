@@ -173,6 +173,36 @@ fn explicit_close_and_leader_exit_clean_up_original_and_double_forked_groups() {
     }
 }
 
+/// Darwin keeps an exiting process in its tty close until unread output
+/// drains, so closing a tab nobody reads must still finish, every time.
+#[test]
+fn close_with_unread_output_finishes_every_time() {
+    let scratch = Scratch::new();
+    for round in 0..50 {
+        let config = scratch.config(
+            Path::new("/bin/sh"),
+            &["-c", "printf 'READY\\n'; exec /usr/bin/yes"],
+        );
+        let mut session = PtySession::spawn(config).unwrap();
+        let mut data = Vec::new();
+        until(|| {
+            drain(&session, &mut data);
+            data.windows(5).any(|bytes| bytes == b"READY")
+        });
+        // Stop reading: the output queue fills, then the tty buffer.
+        std::thread::sleep(Duration::from_millis(150));
+        let started = Instant::now();
+        session
+            .shutdown()
+            .unwrap_or_else(|error| panic!("round {round}: {error:#}"));
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "round {round}: close took {:?}",
+            started.elapsed()
+        );
+    }
+}
+
 #[test]
 fn double_fork_fixture() {
     let Some(path) = std::env::var_os(READY_SOCKET) else {
