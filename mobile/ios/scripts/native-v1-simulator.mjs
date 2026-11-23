@@ -77,6 +77,12 @@ const flags = ['--data-dir', data, '--helper', helper, '--helper-sha256', fileHa
 const local = async (...args) => JSON.parse((await execute(cli, [...flags, ...args], {
   cwd: root, env: { ...process.env, ...sharedEnv, TMPDIR: lane }, timeout: 30_000, maxBuffer: 2 * 1024 * 1024,
 })).stdout);
+// User commands follow the 0.9 CLI grammar: JSON only with --json, as {ok, value}.
+const records = async (...args) => {
+  const reply = await local(...args, '--json');
+  assert.equal(reply.ok, true, JSON.stringify(reply));
+  return reply.value;
+};
 
 mkdirSync(evidence, { recursive: true });
 mkdirSync(data, { recursive: true, mode: 0o700 });
@@ -116,14 +122,14 @@ try {
     live(host, 'Rust host');
     return existsSync(endpoint);
   });
-  assert.deepEqual(await local('session', 'list'), []);
+  assert.deepEqual(await records('session', 'list'), []);
   console.log('Creating the fixture session and starting its PTY through a local tty');
-  await local('session', 'create', '--cwd', project, '--profile', 'login-shell', '--title', 'iOS native CI');
-  const [session] = await local('session', 'list');
-  const [tab] = await local('tab', 'list', session.id);
+  await records('session', 'create', project, '--title', 'iOS native CI');
+  const [session] = await records('session', 'list');
+  const [tab] = await records('terminals', 'list', session.id);
   // Session creation records metadata only. A local attach starts the shell,
   // verifies echo, and detaches without leaving a controller behind.
-  command('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'attach', tab.id],
+  command('python3', [path.join(root, 'scripts/rust-package-pty-smoke.py'), cli, ...flags, 'terminals', 'attach', tab.id],
     { timeout: 60_000, stdio: 'inherit' });
   console.log(`Booting ${simulator.name} (${simulator.udid})`);
   if (simulator.state !== 'Booted') sim('boot', simulator.udid);
@@ -211,7 +217,7 @@ try {
   try {
     if (host && !host.finished) {
       try {
-        await local('host', 'stop');
+        await execute(cli, [...flags, 'host', 'stop', '--yes'], { cwd: root, env: { ...process.env, ...sharedEnv, TMPDIR: lane }, timeout: 30_000 });
         await until('graceful host exit', 10_000, () => host.finished);
         assert.equal(host.status, 0, host.output);
       } finally {
