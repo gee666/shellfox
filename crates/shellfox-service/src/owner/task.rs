@@ -1,13 +1,13 @@
-use super::{private, ExperimentRequest, ExperimentResponse};
+use super::{private, LocalApiRequest, LocalApiResponse};
 use anyhow::Result;
 use tokio::sync::oneshot;
 
 pub(super) enum Task {
     Execute {
         cancel: shellfox_protocol::CancellationToken,
-        request: ExperimentRequest,
+        request: LocalApiRequest,
         client_id: uuid::Uuid,
-        reply: oneshot::Sender<Result<ExperimentResponse>>,
+        reply: oneshot::Sender<Result<LocalApiResponse>>,
     },
     Private(Box<private::PrivateTask>),
     Native {

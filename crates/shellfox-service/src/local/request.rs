@@ -4,9 +4,9 @@ use crate::desktop_launch::DesktopLaunchRequest;
 use shellfox_protocol::{automation::*, LocalRequest};
 
 pub(crate) enum PrivateRequest {
-    OutgoingV2(crate::remote::outgoing_wire::Request),
+    Peer(crate::remote::outgoing_wire::Request),
     RemoteOperator(crate::remote::RemoteRequest),
-    Experiment(ExperimentRequest),
+    LocalApi(LocalApiRequest),
     DesktopView(Box<super::DesktopRequest>),
     SshRead(super::SshRead),
     Power(crate::power::PowerRequest),
@@ -28,10 +28,10 @@ impl PrivateRequest {
             bail!("A non-nil private client ID is required.");
         }
         let request = match header.method.as_str() {
-            METHOD => Self::Experiment(payload::<ExperimentRequest>(bytes)?),
+            METHOD => Self::LocalApi(payload::<LocalApiRequest>(bytes)?),
             super::DesktopRequest::METHOD => Self::DesktopView(Box::new(payload(bytes)?)),
             super::SshRead::METHOD => Self::SshRead(payload(bytes)?),
-            crate::remote::outgoing_wire::METHOD => Self::OutgoingV2(payload(bytes)?),
+            crate::remote::outgoing_wire::METHOD => Self::Peer(payload(bytes)?),
             crate::remote::operator::METHOD => Self::RemoteOperator(payload(bytes)?),
             crate::power::PowerRequest::METHOD => Self::Power(payload(bytes)?),
             AutomationStart::METHOD => Self::AutomationStart(Box::new(payload(bytes)?)),
@@ -46,7 +46,7 @@ impl PrivateRequest {
         Ok((header.client_id, request))
     }
     pub(crate) fn requested_stop(&self) -> bool {
-        matches!(self, Self::Experiment(ExperimentRequest::Stop {}))
+        matches!(self, Self::LocalApi(LocalApiRequest::Stop {}))
     }
 }
 fn payload<T: serde::de::DeserializeOwned + Validate>(bytes: &[u8]) -> Result<T> {
@@ -68,7 +68,7 @@ mod tests {
         for method in [
             "automation.unknown",
             "automation",
-            "experimental.other.v1",
+            "private.other.v1",
             "getSnapshot",
             "desktop.register",
         ] {
@@ -76,7 +76,7 @@ mod tests {
         }
         assert!(matches!(
             PrivateRequest::decode(envelope(METHOD, r#"{"operation":"snapshot"}"#).as_bytes()),
-            Ok((_, PrivateRequest::Experiment(_)))
+            Ok((_, PrivateRequest::LocalApi(_)))
         ));
         assert!(matches!(
             PrivateRequest::decode(envelope(AutomationList::METHOD, "{}").as_bytes()),

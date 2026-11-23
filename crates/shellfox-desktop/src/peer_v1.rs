@@ -6,7 +6,6 @@ use shellfox_protocol::{
     OutboundTransport, PairResponse, PollResponse, Reply, Request, RequestLimits, TransportError,
     TransportFuture,
 };
-use shellfox_service::remote::OutgoingV2Endpoint;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -24,13 +23,6 @@ impl OutboundTransport for Transport {
         limits: RequestLimits,
     ) -> TransportFuture<'a> {
         Box::pin(async move {
-            let endpoint = match endpoint {
-                Endpoint::Discover => OutgoingV2Endpoint::DiscoverV1,
-                Endpoint::Pair => OutgoingV2Endpoint::PairV1,
-                Endpoint::Request => OutgoingV2Endpoint::RequestV1,
-                Endpoint::Events => OutgoingV2Endpoint::EventsV1,
-                Endpoint::Disconnect => OutgoingV2Endpoint::DisconnectV1,
-            };
             let response = self.0.outgoing(peer.clone(), endpoint, body, limits).await?;
             if !(200..300).contains(&response.status) {
                 return Err(TransportError::Rejected {

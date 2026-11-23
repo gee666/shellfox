@@ -7,7 +7,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use shellfox_core::SessionId;
-use shellfox_service::{experiment::ExperimentRequest, local::LocalClient, remote::RemoteRequest};
+use shellfox_service::{local_api::LocalApiRequest, local::LocalClient, remote::RemoteRequest};
 use std::{
     io::{IsTerminal, Write},
     path::{Path, PathBuf},
@@ -46,10 +46,9 @@ pub fn run(
     };
     let legacy_host = |runtime: &tokio::runtime::Runtime| {
         legacy
-            .then(|| user_data.as_deref())
+            .then_some(user_data.as_deref())
             .flatten()
-            .map(|root| runtime.block_on(LegacyHost::connect(root)))
-            .flatten()
+            .and_then(|root| runtime.block_on(LegacyHost::connect(root)))
     };
     let runtime = || {
         tokio::runtime::Builder::new_current_thread()
@@ -115,7 +114,7 @@ pub fn run(
             confirm(json, yes, "Stop the host and all its terminals")?;
             let (runtime, target) = (runtime()?, target()?);
             if let Ok(client) = runtime.block_on(target.connect()) {
-                runtime.block_on(client.execute(ExperimentRequest::Stop {}))?;
+                runtime.block_on(client.execute(LocalApiRequest::Stop {}))?;
             } else {
                 let legacy = legacy_host(&runtime).ok_or_else(unavailable)?;
                 runtime.block_on(legacy.stop())?;
@@ -311,7 +310,7 @@ fn host_run(
         watch.spawn(move || {
             let stop = async {
                 let client = target.connect().await?;
-                client.execute(ExperimentRequest::Stop {}).await
+                client.execute(LocalApiRequest::Stop {}).await
             };
             let stopped = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

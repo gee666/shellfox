@@ -1,16 +1,17 @@
 use super::*;
-use crate::remote::{outgoing, outgoing_wire, OutgoingV2Endpoint, OutgoingV2Response};
+use crate::remote::{outgoing, outgoing_wire, PeerResponse};
+use shellfox_protocol::Endpoint;
 use shellfox_protocol::AuthenticatedPeerId;
 impl LocalClient {
     /// Same originating private Host lifetime, original Go peer/session, bounded
     /// status/body. Never starts networking, pairs, retries, or accepts a URL.
-    pub async fn outgoing_v2_with_status(
+    pub async fn peer_request_with_status(
         &self,
         peer: &AuthenticatedPeerId,
-        endpoint: OutgoingV2Endpoint,
+        endpoint: Endpoint,
         body: Vec<u8>,
         limits: RequestLimits,
-    ) -> std::result::Result<OutgoingV2Response, TransportError> {
+    ) -> std::result::Result<PeerResponse, TransportError> {
         let limits = outgoing::validate(&body, limits)?;
         if self
             .lifetime

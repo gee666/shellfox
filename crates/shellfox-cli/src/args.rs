@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use shellfox_core::{
     validation, AddTab, CreateSession, ProfileId, SessionId, SettingsPatch, TabId,
 };
-use shellfox_service::experiment::{ExperimentRequest, SettingsRequest};
+use shellfox_service::local_api::{LocalApiRequest, SettingsRequest};
 use std::{collections::HashMap, ffi::OsString, path::PathBuf};
 
 #[derive(Debug)]
@@ -21,7 +21,7 @@ pub enum Command {
     Network(crate::remote_args::NetworkCommand),
     Sessions,
     Tabs(Option<SessionId>),
-    Request(ExperimentRequest),
+    Request(LocalApiRequest),
     Attach { tab: TabId, takeover: bool },
     DesktopLaunch(shellfox_service::desktop_launch::DesktopLaunchIntent),
     Automation(crate::automation_args::AutomationCommand),
@@ -176,7 +176,7 @@ fn parse_command(words: &[String]) -> Result<Command> {
                 active: false,
             }));
         }
-        ["host", "stop"] => ExperimentRequest::Stop {},
+        ["host", "stop"] => LocalApiRequest::Stop {},
         ["session", "list"] => return Ok(Command::Sessions),
         ["tab", "list"] => return Ok(Command::Tabs(None)),
         ["tab", "list", id] => return Ok(Command::Tabs(Some(id.parse()?))),
@@ -184,7 +184,7 @@ fn parse_command(words: &[String]) -> Result<Command> {
             let mut options = Options::parse(options, &["--cwd", "--profile", "--title"])?;
             let cwd = options.required("--cwd")?;
             validation::cwd(&cwd)?;
-            ExperimentRequest::CreateSession {
+            LocalApiRequest::CreateSession {
                 input: CreateSession {
                     request_id: SessionId::new(),
                     title: options.title()?,
@@ -200,7 +200,7 @@ fn parse_command(words: &[String]) -> Result<Command> {
             if let Some(cwd) = &cwd {
                 validation::cwd(cwd)?;
             }
-            ExperimentRequest::AddTab {
+            LocalApiRequest::AddTab {
                 id,
                 input: AddTab {
                     title: options.title()?,
@@ -211,21 +211,21 @@ fn parse_command(words: &[String]) -> Result<Command> {
         }
         ["session", "rename", id, title] => {
             validation::title(title)?;
-            ExperimentRequest::RenameSession {
+            LocalApiRequest::RenameSession {
                 id: id.parse()?,
                 title: (*title).into(),
             }
         }
-        ["session", "close", id] => ExperimentRequest::DeleteSession { id: id.parse()? },
+        ["session", "close", id] => LocalApiRequest::DeleteSession { id: id.parse()? },
         ["tab", "rename", id, title] => {
             validation::title(title)?;
-            ExperimentRequest::RenameTab {
+            LocalApiRequest::RenameTab {
                 id: id.parse()?,
                 title: (*title).into(),
             }
         }
-        ["tab", "close", id] => ExperimentRequest::CloseTab { id: id.parse()? },
-        ["settings", "get"] => ExperimentRequest::Settings {
+        ["tab", "close", id] => LocalApiRequest::CloseTab { id: id.parse()? },
+        ["settings", "get"] => LocalApiRequest::Settings {
             request: SettingsRequest::Get {},
         },
         ["settings", "set", json] => {
@@ -241,7 +241,7 @@ fn parse_command(words: &[String]) -> Result<Command> {
                 serde_json::from_value(value).context("Invalid settings patch JSON.")?;
             let request = SettingsRequest::Save(Box::new(patch));
             shellfox_service::native::NativeAction::Settings(request.clone()).validate()?;
-            ExperimentRequest::Settings { request }
+            LocalApiRequest::Settings { request }
         }
         ["attach", id] => {
             return Ok(Command::Attach {

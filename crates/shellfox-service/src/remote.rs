@@ -44,7 +44,7 @@ pub use setup::{
     RemoteBootResources, RemoteHostSetup, RemoteResources,
 };
 pub(crate) mod outgoing;
-pub use outgoing::{OutgoingV2Endpoint, OutgoingV2Future, OutgoingV2Response};
+pub use outgoing::{PeerFuture, PeerResponse};
 pub(crate) mod outgoing_wire;
 pub(crate) mod operator;
 pub use operator::{RemoteOperatorPending,RemoteOperatorState};

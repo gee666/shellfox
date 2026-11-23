@@ -88,7 +88,7 @@ impl Manager {
                 _=fence.cancel.cancelled()=>Err(TransportError::Unavailable),
                 _=cancel.cancelled()=>Err(TransportError::Cancelled),
                 _=tokio::time::sleep_until(deadline.into())=>Err(TransportError::Deadline),
-                result=network.request_v2_with_status(&peer, endpoint, body, limits)=>result,
+                result=network.peer_request_with_status(&peer, endpoint, body, limits)=>result,
             };
             let result = result.and_then(|response| {
                 crate::remote::outgoing_wire::check_response(&response, maximum)?;

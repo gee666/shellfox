@@ -52,7 +52,7 @@ fn stop_host(user_data: &Path, host: &crate::node_run::Target) {
     let stop = async {
         if let Ok(client) = host.connect().await {
             client
-                .execute(shellfox_service::experiment::ExperimentRequest::Stop {})
+                .execute(shellfox_service::local_api::LocalApiRequest::Stop {})
                 .await?;
         } else if let Some(legacy) = crate::legacy_host::LegacyHost::connect(user_data).await {
             legacy.stop().await?;

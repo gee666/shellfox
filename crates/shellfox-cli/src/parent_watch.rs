@@ -138,7 +138,7 @@ mod platform {
         };
         // SAFETY: plain Win32 call; a null result is handled.
         let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
-        (!handle.is_null()).then(|| super::Watch(Link(handle)))
+        (!handle.is_null()).then_some(super::Watch(Link(handle)))
     }
     pub fn wait(link: Link) -> bool {
         // SAFETY: the handle is owned by `link` and closed exactly once.

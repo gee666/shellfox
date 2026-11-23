@@ -123,7 +123,7 @@ async fn cold_root_cycle(replaced: bool) {
                 shellfox_files::private::write(&dir, name, other, Some(&ours.version)).unwrap();
             }
             client
-                .execute(crate::experiment::ExperimentRequest::Stop {})
+                .execute(crate::local_api::LocalApiRequest::Stop {})
                 .await
                 .unwrap();
             server.await.unwrap().unwrap();

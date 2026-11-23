@@ -29,7 +29,7 @@ impl<T: LocalTransport> LocalClient<T> {
         request.validate()?;
         const METHODS: &[&str] = &[
             LOCAL_NAMESPACE,
-            "experimental.power.v1",
+            POWER_NAMESPACE,
             DESKTOP_LAUNCH_NAMESPACE,
             DESKTOP_VIEW_NAMESPACE,
             SSH_READ_NAMESPACE,

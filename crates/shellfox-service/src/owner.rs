@@ -2,7 +2,7 @@
 //! remain runnable while a PTY startup or confirmed cleanup is waiting.
 pub(crate) mod wait;
 use crate::{
-    experiment::{ExperimentRequest, ExperimentResponse},
+    local_api::{LocalApiRequest, LocalApiResponse},
     OwnerDispatcher, Service,
 };
 use anyhow::{bail, Context, Result};
@@ -39,7 +39,7 @@ pub use wake::{OwnerWake, OwnerWakeSlot};
 pub(crate) use cleanup::report_warning;
 use cleanup::StartupFailure;
 pub(crate) use start::StartError;
-pub use native_reply::{ExperimentAccepted, NativeAccepted};
+pub use native_reply::{LocalApiAccepted, NativeAccepted};
 
 const CAPACITY: usize = 16;
 #[derive(Clone)]
@@ -177,7 +177,7 @@ impl ServiceOwner {
                                         continue;
                                     }
                                 };
-                            let detach = matches!(request, ExperimentRequest::Detach {});
+                            let detach = matches!(request, LocalApiRequest::Detach {});
                             // Complete metadata mutations; only unresolved ownership
                             // offers follow recipient cancellation into exact cleanup.
                             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

@@ -128,7 +128,7 @@ fn stale_host(runtime: &tokio::runtime::Runtime, options: &Options, running: &cr
         Stale::Refuse => Err(OtherVersionRunning.into()),
         Stale::Replace => {
             runtime.block_on(async {
-                running.client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
+                running.client.execute(shellfox_service::local_api::LocalApiRequest::Stop {}).await?;
                 tokio::time::timeout(Duration::from_secs(30), running.client.closed())
                     .await
                     .context("The previous Shellfox host did not stop")?;

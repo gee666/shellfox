@@ -10,7 +10,7 @@ use crossterm::{
 use futures_util::StreamExt;
 use shellfox_core::TabId;
 use shellfox_service::{
-    experiment::{ExperimentRequest, ExperimentResponse, RecoveryCapability},
+    local_api::{LocalApiRequest, LocalApiResponse, RecoveryCapability},
     local::LocalClient,
     Attachment, TerminalOutput,
 };
@@ -29,10 +29,10 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
     );
     let _terminal = TerminalGuard::enter()?;
     let attachment = match client
-        .execute(ExperimentRequest::Attach { tab, takeover })
+        .execute(LocalApiRequest::Attach { tab, takeover })
         .await?
     {
-        ExperimentResponse::Attachment(attachment) => attachment,
+        LocalApiResponse::Attachment(attachment) => attachment,
         _ => bail!("Unexpected service attach response."),
     };
     let (cols, rows) = terminal::size()?;
@@ -45,7 +45,7 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
     // The host holds each output read until the terminal has something new,
     // so keys and output are awaited together instead of polled.
     let poll = || {
-        client.execute(ExperimentRequest::Poll {
+        client.execute(LocalApiRequest::Poll {
             tab,
             attachment: attachment.clone(),
         })
@@ -68,12 +68,12 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
                 let attachment = attachment.clone();
                 let request = match keys.input(event) {
                     Input::Detach => return Ok(()),
-                    Input::Key(event) => ExperimentRequest::Key { tab, attachment, event },
+                    Input::Key(event) => LocalApiRequest::Key { tab, attachment, event },
                     Input::Paste(text) => {
                         // Pastes above the host's 64 KiB input bound go in pieces.
                         for text in shellfox_ghostty_vt::paste_chunks(&text, PASTE_CHUNK) {
                             let attachment = attachment.clone();
-                            let paste = ExperimentRequest::Paste { tab, attachment, text: text.to_owned() };
+                            let paste = LocalApiRequest::Paste { tab, attachment, text: text.to_owned() };
                             done(client.execute(paste).await?)?;
                         }
                         continue;
@@ -87,12 +87,12 @@ pub async fn run(client: &mut LocalClient, tab: TabId, takeover: bool) -> Result
         };
         output = None;
         let mut chunks = match reply {
-            ExperimentResponse::Output(chunks) => chunks,
-            ExperimentResponse::RecoveryRequired {} => {
+            LocalApiResponse::Output(chunks) => chunks,
+            LocalApiResponse::RecoveryRequired {} => {
                 last_sequence = recover(client, tab, &attachment, &mut queries).await?;
                 continue;
             }
-            ExperimentResponse::TerminalExited {
+            LocalApiResponse::TerminalExited {
                 last_sequence: final_sequence,
             } => {
                 if final_sequence != last_sequence {
@@ -134,7 +134,7 @@ async fn resize(
     }
     done(
         client
-            .execute(ExperimentRequest::Resize {
+            .execute(LocalApiRequest::Resize {
                 tab,
                 attachment: attachment.clone(),
                 cols,
@@ -151,13 +151,13 @@ async fn recover(
     queries: &mut QueryFilter,
 ) -> Result<u64> {
     match client
-        .execute(ExperimentRequest::Recover {
+        .execute(LocalApiRequest::Recover {
             tab,
             attachment: attachment.clone(),
         })
         .await?
     {
-        ExperimentResponse::Recovery {
+        LocalApiResponse::Recovery {
             bytes,
             last_sequence,
             capability: RecoveryCapability::VisibleScreen,
@@ -182,7 +182,7 @@ async fn acknowledge(
 ) -> Result<()> {
     done(
         client
-            .execute(ExperimentRequest::Acknowledge {
+            .execute(LocalApiRequest::Acknowledge {
                 tab,
                 attachment: attachment.clone(),
                 sequence,
@@ -191,9 +191,9 @@ async fn acknowledge(
     )
 }
 
-fn done(response: ExperimentResponse) -> Result<()> {
+fn done(response: LocalApiResponse) -> Result<()> {
     match response {
-        ExperimentResponse::Done {} => Ok(()),
+        LocalApiResponse::Done {} => Ok(()),
         _ => bail!("Unexpected service terminal command response."),
     }
 }

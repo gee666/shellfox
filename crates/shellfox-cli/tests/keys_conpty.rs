@@ -11,7 +11,7 @@ use shellfox_core::{CreateSession, ProfileId, SessionId, TabId};
 use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers as M, PhysicalKey as P};
 use shellfox_ghostty_vt::Terminal;
 use shellfox_service::{
-    experiment::{ExperimentRequest as Request, ExperimentResponse as Response},
+    local_api::{LocalApiRequest as Request, LocalApiResponse as Response},
     local::LocalClient,
     Attachment,
 };

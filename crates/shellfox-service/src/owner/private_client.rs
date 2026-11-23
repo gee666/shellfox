@@ -105,7 +105,7 @@ impl OwnerClient {
         request: PrivateRequest,
         epoch: Option<uuid::Uuid>,
     ) -> Result<serde_json::Value> {
-        if let PrivateRequest::OutgoingV2(request) = request {
+        if let PrivateRequest::Peer(request) = request {
             return self
                 .private_outgoing(
                     request,

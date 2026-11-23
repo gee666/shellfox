@@ -257,7 +257,7 @@ impl Validate for DesktopReply {
                             && state.process_title.as_deref().is_none_or(|title| shellfox_core::validation::title(title).is_ok())
                     }),
             ),
-            Self::Snapshot(snapshot) => crate::experiment::validate_snapshot(snapshot),
+            Self::Snapshot(snapshot) => crate::local_api::validate_snapshot(snapshot),
             Self::Settings(settings) => settings.validate().map_err(|_| ValidationError),
             Self::TerminalProfiles(catalog) => {
                 catalog.probe.validate()?;

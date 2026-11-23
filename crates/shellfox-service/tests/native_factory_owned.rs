@@ -27,19 +27,13 @@ async fn creation_receipt(
 
 #[test]
 fn actual_catalog_local_first_pty_uses_explicit_cli_and_stops_original_owner() -> Result<()> {
-    first_pty(application::SourceFactory::Local)
-}
-fn first_pty(factory: application::SourceFactory) -> Result<()> {
     let fixture = support::Fixture::new()?;
-    let data = fixture.data(match factory {
-        application::SourceFactory::Local => "actual-local-factory",
-    });
+    let data = fixture.data("actual-local-factory");
     let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
     let config = application::NativeApplicationConfig::new(
         &data,
         None,
         Some("actual-owned-factory".into()),
-        factory,
     )?;
     let remote = config.remote_options(supervisor, false)?;
     let cwd = data.to_string_lossy().into_owned();
@@ -199,14 +193,14 @@ fn first_pty(factory: application::SourceFactory) -> Result<()> {
 #[test]
 fn outgoing_on_a_disabled_host_is_unavailable_and_never_pairs() -> Result<()> {
     use shellfox_protocol::{AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError};
-    use shellfox_service::remote::OutgoingV2Endpoint;
+    use shellfox_protocol::Endpoint;
     let fixture = support::Fixture::new()?;
     let data = fixture.data("outgoing-disabled");
     let local_data = data.clone();
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
     let supervisor = PathBuf::from(env!("CARGO_BIN_EXE_shellfox-test-supervisor"));
-    let remote = application::NativeApplicationConfig::new(&data, None, Some("owned-outgoing".into()), application::SourceFactory::Local)?
+    let remote = application::NativeApplicationConfig::new(&data, None, Some("owned-outgoing".into()))?
         .remote_options(supervisor, false)?;
     support::cycle_remote(&fixture, &data, remote, |owner, _| async move {
         let local = shellfox_service::local::LocalClient::connect(&local_data, &helper, digest).await?;
@@ -216,18 +210,18 @@ fn outgoing_on_a_disabled_host_is_unavailable_and_never_pairs() -> Result<()> {
             max_request_bytes: shellfox_protocol::MAX_REQUEST_BYTES,
             max_response_bytes: shellfox_protocol::MAX_RESPONSE_BYTES,
         };
-        for endpoint in [OutgoingV2Endpoint::DiscoverV1, OutgoingV2Endpoint::PairV1, OutgoingV2Endpoint::RequestV1, OutgoingV2Endpoint::EventsV1, OutgoingV2Endpoint::DisconnectV1] {
-            assert_eq!(local.outgoing_v2_with_status(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
+        for endpoint in [Endpoint::Discover, Endpoint::Pair, Endpoint::Request, Endpoint::Events, Endpoint::Disconnect] {
+            assert_eq!(local.peer_request_with_status(&peer, endpoint, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
         }
         let cancelled = limits(); cancelled.cancel.cancel();
-        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), cancelled).await, Err(TransportError::Cancelled));
+        assert_eq!(local.peer_request_with_status(&peer, Endpoint::Request, b"{}".to_vec(), cancelled).await, Err(TransportError::Cancelled));
         let expired = RequestLimits { deadline:Instant::now()-Duration::from_millis(1), ..limits() };
-        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::RequestV1, b"{}".to_vec(), expired).await, Err(TransportError::Deadline));
+        assert_eq!(local.peer_request_with_status(&peer, Endpoint::Request, b"{}".to_vec(), expired).await, Err(TransportError::Deadline));
         let state = owner.native(NativeAction::Remote(shellfox_service::remote::RemoteRequest::State)).await?;
         let NativeResponse::Remote(state) = state else { anyhow::bail!("Remote state absent") };
         ensure!(!state.enabled && state.attempts.is_empty() && state.pending.is_empty() && state.approvals.is_empty(), "Opaque outgoing operation implicitly changed authority/networking");
         local.disconnect().await?;
-        assert_eq!(local.outgoing_v2_with_status(&peer, OutgoingV2Endpoint::DiscoverV1, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
+        assert_eq!(local.peer_request_with_status(&peer, Endpoint::Discover, b"{}".to_vec(), limits()).await, Err(TransportError::Unavailable));
         Ok(())
     })?;
     Ok(())

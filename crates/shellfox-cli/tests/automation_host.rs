@@ -8,7 +8,7 @@ pub mod support;
 use anyhow::{ensure, Context, Result};
 use lifetime::actual_cli_lifetime;
 use shellfox_service::{
-    experiment::ExperimentRequest,
+    local_api::LocalApiRequest,
     local::{automation::*, LocalClient},
 };
 use std::{
@@ -193,7 +193,7 @@ fn same_client_deferred_stdin_and_consumption_acked_output_have_no_head_of_line_
     });
     let stopped = runtime.block_on(async {
         let client = LocalClient::connect(&data, &helper, digest).await?;
-        client.execute(ExperimentRequest::Stop {}).await?;
+        client.execute(LocalApiRequest::Stop {}).await?;
         Ok::<_, anyhow::Error>(())
     });
     let exit = host.wait(Duration::from_secs(20));

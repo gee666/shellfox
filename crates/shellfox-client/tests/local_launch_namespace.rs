@@ -48,7 +48,7 @@ impl LocalTransport for Transport {
 }
 #[test]
 fn exact_private_launch_namespace_is_accepted_without_remote_pairing_or_extra_fields() {
-    assert_eq!(DESKTOP_LAUNCH_NAMESPACE, "experimental.desktop.launch.v1");
+    assert_eq!(DESKTOP_LAUNCH_NAMESPACE, "private.desktop.launch.v1");
     let transport = Transport::default();
     let id = ClientId::new_v4();
     let client = LocalClient::new(id, transport.clone());
@@ -60,7 +60,7 @@ fn exact_private_launch_namespace_is_accepted_without_remote_pairing_or_extra_fi
     assert_eq!(calls.len(), 1);
     assert_eq!(
         calls[0].0,
-        json!({"clientId":id,"method":"experimental.desktop.launch.v1","payload":{"operation":"discover"}})
+        json!({"clientId":id,"method":"private.desktop.launch.v1","payload":{"operation":"discover"}})
     );
     assert_eq!(calls[0].1.max_request_bytes, MAX_REQUEST_BYTES);
     assert_eq!(calls[0].1.max_response_bytes, MAX_RESPONSE_BYTES);
@@ -75,16 +75,16 @@ impl<const N: u8> Validate for Unknown<N> {
 impl<const N: u8> LocalRequest for Unknown<N> {
     type Response = Configured;
     const METHOD: &'static str = match N {
-        0 => "experimental.desktop.launch",
-        1 => "experimental.desktop.launch.v2",
-        2 => "experimental.desktop.launch.v1.extra",
-        3 => "experimental.desktop.register.v1",
-        4 => "experimental.desktop.launch.v1.register",
-        5 => "experimental.desktop.launch.v1.claim",
-        6 => "experimental.desktop.launch.v1.ack",
-        7 => "experimental.other.v1",
-        8 => "experimental.",
-        _ => "experimental.desktop.launch.V1",
+        0 => "private.desktop.launch",
+        1 => "private.desktop.launch.v2",
+        2 => "private.desktop.launch.v1.extra",
+        3 => "private.desktop.register.v1",
+        4 => "private.desktop.launch.v1.register",
+        5 => "private.desktop.launch.v1.claim",
+        6 => "private.desktop.launch.v1.ack",
+        7 => "private.other.v1",
+        8 => "private.",
+        _ => "private.desktop.launch.V1",
     };
 }
 fn reject<const N: u8>(client: &LocalClient<Transport>) {
@@ -94,7 +94,7 @@ fn reject<const N: u8>(client: &LocalClient<Transport>) {
     ));
 }
 #[test]
-fn neither_experimental_prefixes_nor_native_trust_methods_are_added() {
+fn neither_private_prefixes_nor_native_trust_methods_are_added() {
     let transport = Transport::default();
     let client = LocalClient::new(ClientId::new_v4(), transport.clone());
     reject::<0>(&client);

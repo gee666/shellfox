@@ -58,7 +58,7 @@ impl PrivateOwner {
                     "Remote operator requires its original asynchronous route"
                 )));
             }
-            PrivateRequest::OutgoingV2(_) => {
+            PrivateRequest::Peer(_) => {
                 let _ = reply.send(Err(anyhow::anyhow!(
                     "Outgoing requires the original asynchronous lifetime route"
                 )));
@@ -102,8 +102,8 @@ impl PrivateOwner {
                     .and_then(encode);
                 let _ = reply.send(result);
             }
-            PrivateRequest::Experiment(request) => {
-                let detach = matches!(request, ExperimentRequest::Detach {});
+            PrivateRequest::LocalApi(request) => {
+                let detach = matches!(request, LocalApiRequest::Detach {});
                 let result = service
                     .with_grant_recipient(cancel, |service| service.execute(request, controller))
                     .and_then(encode);

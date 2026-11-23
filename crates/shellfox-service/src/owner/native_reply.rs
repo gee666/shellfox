@@ -9,13 +9,13 @@ use tokio::sync::oneshot;
 
 /// Legacy accepted wait keeps its canonical recipient token even when the
 /// caller drops the receiver after owner admission.
-pub struct ExperimentAccepted {
-    receiver: oneshot::Receiver<Result<super::ExperimentResponse>>,
+pub struct LocalApiAccepted {
+    receiver: oneshot::Receiver<Result<super::LocalApiResponse>>,
     _recipient: crate::grant::requests::RecipientCancellation,
 }
-impl ExperimentAccepted {
+impl LocalApiAccepted {
     pub(super) fn new(
-        receiver: oneshot::Receiver<Result<super::ExperimentResponse>>,
+        receiver: oneshot::Receiver<Result<super::LocalApiResponse>>,
         recipient: crate::grant::requests::RecipientCancellation,
     ) -> Self {
         Self {
@@ -24,8 +24,8 @@ impl ExperimentAccepted {
         }
     }
 }
-impl Future for ExperimentAccepted {
-    type Output = std::result::Result<Result<super::ExperimentResponse>, oneshot::error::RecvError>;
+impl Future for LocalApiAccepted {
+    type Output = std::result::Result<Result<super::LocalApiResponse>, oneshot::error::RecvError>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.get_mut().receiver).poll(cx)
     }

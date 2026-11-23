@@ -6,7 +6,7 @@ mod dev_helper;
 
 use shellfox_service::{
     desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest},
-    experiment::ExperimentRequest,
+    local_api::LocalApiRequest,
     local::LocalClient,
 };
 use std::{
@@ -48,7 +48,7 @@ impl Drop for Host<'_> {
         runtime.block_on(async {
             let stop = async {
                 let client = LocalClient::connect(self.data, self.helper, self.digest).await.ok()?;
-                client.execute(ExperimentRequest::Stop {}).await.ok()
+                client.execute(LocalApiRequest::Stop {}).await.ok()
             };
             let _ = tokio::time::timeout(Duration::from_secs(10), stop).await;
         });

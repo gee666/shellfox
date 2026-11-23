@@ -9,7 +9,7 @@ fn remote_dispatch_is_typed_and_rejects_privileged_or_unknown_methods() {
         "stopHost",
         "openExternal",
         "getKeepAwake",
-        "experimental.rust.v1",
+        "private.local.v1",
         "arbitrary",
     ] {
         let json = json!({"method":method,"payload":{}});

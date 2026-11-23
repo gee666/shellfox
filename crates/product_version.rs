@@ -1,10 +1,11 @@
 /// Release version from package.json, checked and mapped by
 /// scripts/release-version.mjs so every package format agrees.
+// Only the desktop's Windows resource script reads the fields.
+#[allow(dead_code)]
 pub struct ProductVersion {
     /// SemVer, such as 0.10.0 or 0.10.0-beta.1.
     pub version: String,
     /// Windows VERSIONINFO fields: major,minor,patch,build.
-    #[allow(dead_code)]
     pub windows: String,
 }
 

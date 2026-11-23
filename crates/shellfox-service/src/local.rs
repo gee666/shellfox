@@ -1,4 +1,4 @@
-//! Authenticated experimental protocol over a private OS endpoint, never TCP.
+//! Authenticated local API over a private OS endpoint, never TCP.
 mod boot;
 pub(crate) use boot::NativeControlChild;
 mod client;
@@ -18,7 +18,7 @@ pub use desktop::{DesktopProviderRequest, DesktopReply, DesktopRequest};
 pub(crate) mod ssh_read;
 pub use ssh_read::{open_ssh_directory, read_ssh_profiles, ssh_endpoint_exists, SshRead, SshReadReply};
 use crate::{
-    experiment::{ExperimentRequest, ExperimentResponse, METHOD},
+    local_api::{LocalApiRequest, LocalApiResponse, METHOD},
     platform,
     security::PrivateDirectory,
 };
@@ -55,12 +55,12 @@ struct Record {
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Envelope<T = ExperimentRequest> {
+struct Envelope<T = LocalApiRequest> {
     client_id: uuid::Uuid,
     method: String,
     payload: T,
 }
-const NAMESPACE: &str = "shellfox.experimental.rust.v1";
+const NAMESPACE: &str = "shellfox.local.endpoint.v1";
 
 mod api;
 pub use api::{
@@ -228,6 +228,15 @@ async fn run_started(
         watches = client.native_watches() => watches?,
     };
     let polls = std::sync::Arc::new(long_poll::LongPolls::new(watches, client.remote_state()));
+    let shared = connection::Shared {
+        secret: record.secret.clone(),
+        client: client.clone(),
+        lost: lost.clone(),
+        stop: server.stop.clone(),
+        orderly: server.orderly.clone(),
+        slots: server.lifetime_slots.clone(),
+        polls: polls.clone(),
+    };
     while server.ensure_running().is_ok() {
         anyhow::ensure!(
             ownership.is_alive(),
@@ -247,10 +256,7 @@ async fn run_started(
             },
             accepted = listener.accept(), if server.tasks.len() < MAX_CONNECTIONS => {
                 let stream = accepted?;
-                server.tasks.spawn(connection::serve_connection(
-                    stream, record.secret.clone(), client.clone(), lost.clone(),
-                    server.stop.clone(), server.orderly.clone(), server.lifetime_slots.clone(), polls.clone(),
-                ));
+                server.tasks.spawn(connection::serve_connection(stream, shared.clone()));
             },
             _ = server.stop.cancelled() => {}
             _ = lost.cancelled() => {}

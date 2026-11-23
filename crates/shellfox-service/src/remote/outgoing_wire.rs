@@ -1,9 +1,10 @@
 //! Closed PRIVATE Host IPC DTOs; the peer Manager protocol remains unchanged.
-use super::outgoing::{self, OutgoingV2Endpoint, OutgoingV2Response};
+use super::outgoing::{self, PeerResponse};
+use shellfox_protocol::Endpoint;
 use serde::{Deserialize, Serialize};
 use shellfox_protocol::{AuthenticatedPeerId, RequestLimits, TransportError};
 use std::time::{Duration, Instant};
-pub(crate) const METHOD: &str = "experimental.peer-http-v2.v1";
+pub(crate) const METHOD: &str = "private.peer.v1";
 pub(crate) const MAX_REQUEST: usize = 2 * shellfox_protocol::MAX_REQUEST_BYTES;
 pub(crate) const MAX_RESPONSE: usize = 2 * shellfox_protocol::MAX_RESPONSE_BYTES;
 
@@ -11,7 +12,7 @@ pub(crate) const MAX_RESPONSE: usize = 2 * shellfox_protocol::MAX_RESPONSE_BYTES
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct Request {
     pub peer: AuthenticatedPeerId,
-    pub endpoint: OutgoingV2Endpoint,
+    pub endpoint: Endpoint,
     chunks: Vec<String>,
     timeout_millis: u32,
     max_response_bytes: usize,
@@ -19,7 +20,7 @@ pub(crate) struct Request {
 impl Request {
     pub fn new(
         peer: &AuthenticatedPeerId,
-        endpoint: OutgoingV2Endpoint,
+        endpoint: Endpoint,
         body: Vec<u8>,
         limits: &RequestLimits,
     ) -> Result<Self, TransportError> {
@@ -47,7 +48,7 @@ impl Request {
     ) -> Result<
         (
             AuthenticatedPeerId,
-            OutgoingV2Endpoint,
+            Endpoint,
             Vec<u8>,
             RequestLimits,
         ),
@@ -86,15 +87,15 @@ pub(crate) struct Response {
     chunks: Vec<String>,
 }
 impl Response {
-    pub fn from_http(response: OutgoingV2Response, limit: usize) -> Result<Self, TransportError> {
+    pub fn from_http(response: PeerResponse, limit: usize) -> Result<Self, TransportError> {
         check_response(&response, limit)?;
         Ok(Self {
             status: response.status,
             chunks: encode(&response.body)?,
         })
     }
-    pub fn into_http(self, limit: usize) -> Result<OutgoingV2Response, TransportError> {
-        let response = OutgoingV2Response {
+    pub fn into_http(self, limit: usize) -> Result<PeerResponse, TransportError> {
+        let response = PeerResponse {
             status: self.status,
             body: decode(&self.chunks, limit)?,
         };
@@ -103,7 +104,7 @@ impl Response {
     }
 }
 pub(crate) fn check_response(
-    response: &OutgoingV2Response,
+    response: &PeerResponse,
     limit: usize,
 ) -> Result<(), TransportError> {
     if !(200..=599).contains(&response.status) {

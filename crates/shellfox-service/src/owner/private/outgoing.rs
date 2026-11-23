@@ -1,5 +1,6 @@
 use super::*;
-use crate::remote::{outgoing, outgoing_wire, OutgoingV2Endpoint, OutgoingV2Response};
+use crate::remote::{outgoing, outgoing_wire, PeerResponse};
+use shellfox_protocol::Endpoint;
 use shellfox_protocol::{AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError};
 impl PrivateOwner {
     pub(super) fn cancel_outgoing_fences(&self) {
@@ -29,14 +30,14 @@ impl Drop for PrivateOwner {
     }
 }
 impl OwnerClient {
-    pub(crate) async fn outgoing_v2_with_status(
+    pub(crate) async fn peer_request_with_status(
         &self,
         peer: &AuthenticatedPeerId,
-        endpoint: OutgoingV2Endpoint,
+        endpoint: Endpoint,
         body: Vec<u8>,
         limits: RequestLimits,
         epoch: uuid::Uuid,
-    ) -> std::result::Result<OutgoingV2Response, TransportError> {
+    ) -> std::result::Result<PeerResponse, TransportError> {
         let limits = outgoing::validate(&body, limits)?;
         let remote = self.remote.as_ref().ok_or(TransportError::Unavailable)?;
         let (reply, response) = oneshot::channel();
@@ -55,7 +56,7 @@ impl OwnerClient {
         tokio::select! {
             biased;
             _=original.cancelled()=>Err(TransportError::Unavailable),
-            result=remote.outgoing_v2(peer,endpoint,body,limits)=>result,
+            result=remote.peer_request(peer,endpoint,body,limits)=>result,
         }
     }
     pub(crate) async fn private_outgoing(
@@ -68,7 +69,7 @@ impl OwnerClient {
             .map_err(|_| anyhow::anyhow!("Invalid private outgoing request"))?;
         let maximum = limits.max_response_bytes;
         let result = self
-            .outgoing_v2_with_status(&peer, endpoint, body, limits, epoch)
+            .peer_request_with_status(&peer, endpoint, body, limits, epoch)
             .await;
         let reply: outgoing_wire::Reply = result
             .and_then(|r| outgoing_wire::Response::from_http(r, maximum))

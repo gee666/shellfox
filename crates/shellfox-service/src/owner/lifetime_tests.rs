@@ -19,7 +19,7 @@ async fn lifetime_capacity_and_stale_epoch_are_checked_on_actor_dispatch() {
     client.open_lifetime(old).await.unwrap();
     client
         .private_request_in_epoch(
-            PrivateRequest::Experiment(ExperimentRequest::Snapshot {}),
+            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
             old,
         )
         .await
@@ -29,14 +29,14 @@ async fn lifetime_capacity_and_stale_epoch_are_checked_on_actor_dispatch() {
     client.close_lifetime(old).await.unwrap();
     assert!(client
         .private_request_in_epoch(
-            PrivateRequest::Experiment(ExperimentRequest::Snapshot {}),
+            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
             old
         )
         .await
         .is_err());
     client
         .private_request_in_epoch(
-            PrivateRequest::Experiment(ExperimentRequest::Snapshot {}),
+            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
             new,
         )
         .await
@@ -56,7 +56,7 @@ async fn lifetime_capacity_and_stale_epoch_are_checked_on_actor_dispatch() {
     client.close_all_lifetimes().await.unwrap();
     assert!(client
         .private_request_in_epoch(
-            PrivateRequest::Experiment(ExperimentRequest::Snapshot {}),
+            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
             new
         )
         .await
@@ -66,7 +66,7 @@ async fn lifetime_capacity_and_stale_epoch_are_checked_on_actor_dispatch() {
     cleanup.open_lifetime(cleanup_epoch).await.unwrap();
     cleanup
         .private_request_in_epoch(
-            PrivateRequest::Experiment(ExperimentRequest::Stop {}),
+            PrivateRequest::LocalApi(LocalApiRequest::Stop {}),
             cleanup_epoch,
         )
         .await
@@ -76,7 +76,7 @@ async fn lifetime_capacity_and_stale_epoch_are_checked_on_actor_dispatch() {
     retry.open_lifetime(retry_epoch).await.unwrap();
     retry
         .private_request_in_epoch(
-            PrivateRequest::Experiment(ExperimentRequest::Snapshot {}),
+            PrivateRequest::LocalApi(LocalApiRequest::Snapshot {}),
             retry_epoch,
         )
         .await

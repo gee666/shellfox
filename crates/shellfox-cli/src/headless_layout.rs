@@ -130,7 +130,7 @@ fn realpath(path: &Path) -> std::io::Result<PathBuf> {
 // ASCII case folding matches Node's samePath here: both sides are exact realpath output.
 fn same(a: &Path, b: &Path) -> bool {
     if cfg!(windows) {
-        a.as_os_str().to_ascii_lowercase() == b.as_os_str().to_ascii_lowercase()
+        a.as_os_str().eq_ignore_ascii_case(b.as_os_str())
     } else {
         a == b
     }

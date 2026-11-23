@@ -9,7 +9,7 @@ use shellfox_service::{
     },
     local::{DesktopProviderRequest, DesktopRequest, LocalClient},
     native::{NativeAction, NativeResponse},
-    remote::{OutgoingV2Endpoint, OutgoingV2Response},
+    remote::PeerResponse,
 };
 use std::sync::{Arc, Mutex};
 
@@ -172,15 +172,15 @@ impl AttachedLocal {
     pub(crate) async fn outgoing(
         &self,
         peer: AuthenticatedPeerId,
-        endpoint: OutgoingV2Endpoint,
+        endpoint: shellfox_protocol::Endpoint,
         body: Vec<u8>,
         limits: RequestLimits,
-    ) -> Result<OutgoingV2Response, TransportError> {
+    ) -> Result<PeerResponse, TransportError> {
         let local = self.local.clone();
         self.reactor
             .spawn(async move {
                 local
-                    .outgoing_v2_with_status(&peer, endpoint, body, limits)
+                    .peer_request_with_status(&peer, endpoint, body, limits)
                     .await
             })
             .await

@@ -3,15 +3,14 @@ mod tests;
 use super::*;
 pub type NetworkFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, AppError>> + Send + 'a>>;
 pub trait RemoteNetwork: OutboundTransport {
-    /// Status-preserving transport is explicit; never manufacture a status from
-    /// a legacy send error. Old injected adapters deny until implemented.
-    fn request_v2_with_status<'a>(
+    /// A peer HTTP request that keeps the response status. Test networks deny it.
+    fn peer_request_with_status<'a>(
         &'a self,
         _peer: &'a wire::AuthenticatedPeerId,
-        _endpoint: crate::remote::OutgoingV2Endpoint,
+        _endpoint: shellfox_protocol::Endpoint,
         _body: Vec<u8>,
         _limits: wire::RequestLimits,
-    ) -> crate::remote::OutgoingV2Future<'a> {
+    ) -> crate::remote::PeerFuture<'a> {
         Box::pin(async { Err(wire::TransportError::Unavailable) })
     }
     fn status(&self) -> NetworkFuture<'_, NetworkStatus>;
@@ -117,16 +116,16 @@ impl OutboundTransport for GoNetwork {
     }
 }
 impl RemoteNetwork for GoNetwork {
-    fn request_v2_with_status<'a>(
+    fn peer_request_with_status<'a>(
         &'a self,
         peer: &'a wire::AuthenticatedPeerId,
-        endpoint: crate::remote::OutgoingV2Endpoint,
+        endpoint: shellfox_protocol::Endpoint,
         body: Vec<u8>,
         limits: wire::RequestLimits,
-    ) -> crate::remote::OutgoingV2Future<'a> {
+    ) -> crate::remote::PeerFuture<'a> {
         Box::pin(
             self.0
-                .request_with_status(peer, endpoint.wire(), body, limits),
+                .request_with_status(peer, endpoint, body, limits),
         )
     }
     fn status(&self) -> NetworkFuture<'_, NetworkStatus> {

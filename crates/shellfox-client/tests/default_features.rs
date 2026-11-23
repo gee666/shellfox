@@ -5,8 +5,8 @@ use shellfox_client::protocol::{RemoteCommand, REMOTE_METHODS};
 fn default_remote_client_allowlist_still_excludes_every_local_automation_method() {
     assert_eq!(REMOTE_METHODS.len(), 43);
     for method in [
-        "experimental.rust.v1",
-        "experimental.desktop.launch.v1",
+        "private.local.v1",
+        "private.desktop.launch.v1",
         "automation.start",
         "automation.list",
         "automation.read",

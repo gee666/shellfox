@@ -166,7 +166,7 @@ impl<const N: u8> LocalRequest for Unknown<N> {
         6 => "getSnapshot",
         7 => "saveSettings",
         8 => "host.stop",
-        _ => "experimental.rust.v2",
+        _ => "private.local.v2",
     };
 }
 fn rejected<const N: u8>(client: &LocalClient<AutomationTransport>) {

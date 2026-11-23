@@ -1,4 +1,4 @@
-//! Experimental headless host. No GPUI, display, or production store defaults.
+//! Headless Shellfox host: terminals, metadata, remote access and the local API. No GPUI.
 pub mod facts;
 mod grant;
 pub mod activity;
@@ -10,7 +10,7 @@ pub mod automation;
 mod creation;
 pub mod desktop_launch;
 pub mod desktop_session;
-pub mod experiment;
+pub mod local_api;
 mod launch;
 pub mod local;
 pub mod native;
@@ -63,7 +63,7 @@ use std::{
 
 pub use activity::hooks::{ActivityShutdownState, ShutdownFailure, ShutdownOutcome};
 pub use native::NativeAdmissionError;
-pub use owner::{ExperimentAccepted, NativeAccepted, OwnerClient, OwnerWake, OwnerWakeSlot};
+pub use owner::{LocalApiAccepted, NativeAccepted, OwnerClient, OwnerWake, OwnerWakeSlot};
 pub use owner_automation::{
     AutomationViewFailure, PresentationShutdownState, PresentationWarnings, AUTOMATION_PROFILE_ID,
     AUTOMATION_READONLY_PROFILE,

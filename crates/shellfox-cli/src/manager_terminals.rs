@@ -132,12 +132,12 @@ fn uncertain() -> anyhow::Error {
 /// One write, never retried. Joining is free; taking control needs --take.
 async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) -> Result<Value> {
     generation(&Host::Local(Local(local.0)), tab).await?;
-    let attach = |takeover| local.0.execute(ExperimentRequest::Attach { tab, takeover });
+    let attach = |takeover| local.0.execute(LocalApiRequest::Attach { tab, takeover });
     let attachment = match attach(false).await {
-        Ok(ExperimentResponse::Attachment(attachment)) => attachment,
+        Ok(LocalApiResponse::Attachment(attachment)) => attachment,
         // Another client holds it. Take over only while the same shell still runs.
         Err(_) if take && local.live(tab).await?.is_some() => match attach(true).await? {
-            ExperimentResponse::Attachment(attachment) => attachment,
+            LocalApiResponse::Attachment(attachment) => attachment,
             _ => return Err(control_required()),
         },
         Err(_) if local.live(tab).await?.is_none() => {
@@ -149,16 +149,16 @@ async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) ->
         }
         _ => return Err(control_required()),
     };
-    let input = ExperimentRequest::Input {
+    let input = LocalApiRequest::Input {
         tab,
         attachment,
         bytes: data.into_bytes(),
     };
     let written = local.0.execute(input).await;
     // Give control back at once; the shell keeps running.
-    let _ = local.0.execute(ExperimentRequest::Detach {}).await;
+    let _ = local.0.execute(LocalApiRequest::Detach {}).await;
     match written {
-        Ok(ExperimentResponse::Done {}) => Ok(json!({ "written": true })),
+        Ok(LocalApiResponse::Done {}) => Ok(json!({ "written": true })),
         _ => Err(uncertain()),
     }
 }

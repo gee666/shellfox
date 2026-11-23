@@ -9,26 +9,26 @@ use std::{
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Experiment {
+struct LocalApi {
     operation: String,
 }
-impl Validate for Experiment {
+impl Validate for LocalApi {
     fn validate(&self) -> Result<(), ValidationError> {
         validation::ensure(self.operation == "snapshot")
     }
 }
-impl LocalRequest for Experiment {
+impl LocalRequest for LocalApi {
     type Response = Disconnected;
     const METHOD: &'static str = LOCAL_NAMESPACE;
 }
 #[derive(serde::Serialize, serde::Deserialize)]
-struct NotExperiment {}
-impl Validate for NotExperiment {
+struct NotLocalApi {}
+impl Validate for NotLocalApi {
     fn validate(&self) -> Result<(), ValidationError> {
         Ok(())
     }
 }
-impl LocalRequest for NotExperiment {
+impl LocalRequest for NotLocalApi {
     type Response = Disconnected;
     const METHOD: &'static str = "saveSettings";
 }
@@ -51,11 +51,11 @@ impl LocalTransport for LocalFake {
     }
 }
 #[test]
-fn local_experiment_uses_typed_namespace_without_remote_peer_or_fake_pair() {
+fn local_api_uses_typed_namespace_without_remote_peer_or_fake_pair() {
     let fake = LocalFake::default();
     let id = ClientId::new_v4();
     let client = LocalClient::new(id, fake.clone());
-    let reply = block_on(client.execute(&Experiment {
+    let reply = block_on(client.execute(&LocalApi {
         operation: "snapshot".into(),
     }))
     .unwrap();
@@ -68,7 +68,7 @@ fn local_experiment_uses_typed_namespace_without_remote_peer_or_fake_pair() {
     let json: serde_json::Value = serde_json::from_slice(&calls[0].0).unwrap();
     assert_eq!(
         json,
-        serde_json::json!({"clientId":id,"method":"experimental.rust.v1","payload":{"operation":"snapshot"}})
+        serde_json::json!({"clientId":id,"method":"private.local.v1","payload":{"operation":"snapshot"}})
     );
     assert_eq!(calls[0].1.max_request_bytes, MAX_REQUEST_BYTES);
     assert_eq!(calls[0].1.max_response_bytes, MAX_RESPONSE_BYTES);
@@ -78,7 +78,7 @@ fn unsealed_local_request_cannot_select_manager_or_remote_namespace() {
     let fake = LocalFake::default();
     let client = LocalClient::new(ClientId::new_v4(), fake.clone());
     assert!(matches!(
-        block_on(client.execute(&NotExperiment {})),
+        block_on(client.execute(&NotLocalApi {})),
         Err(ClientError::Validation(_))
     ));
     assert!(fake.calls.lock().unwrap().is_empty());
@@ -90,7 +90,7 @@ fn dropping_local_future_cancels_native_frame() {
         ..LocalFake::default()
     };
     let client = LocalClient::new(ClientId::new_v4(), fake.clone());
-    let input = Experiment {
+    let input = LocalApi {
         operation: "snapshot".into(),
     };
     let mut future = Box::pin(client.execute(&input));
@@ -111,7 +111,7 @@ fn explicit_local_cancellation_does_not_send_or_retry() {
     let client = LocalClient::new(ClientId::new_v4(), fake.clone());
     let cancel = CancellationToken::new();
     cancel.cancel();
-    let input = Experiment {
+    let input = LocalApi {
         operation: "snapshot".into(),
     };
     assert!(matches!(

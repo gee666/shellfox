@@ -9,8 +9,8 @@ use support::OwnedHost;
 use anyhow::{bail, ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId, TabId};
 use shellfox_service::{
-    experiment::{
-        ExperimentRequest as Request, ExperimentResponse as Response, RecoveryCapability,
+    local_api::{
+        LocalApiRequest as Request, LocalApiResponse as Response, RecoveryCapability,
     },
     local::LocalClient,
     Attachment, TerminalOutput,

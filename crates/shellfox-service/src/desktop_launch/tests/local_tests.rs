@@ -80,7 +80,7 @@ fn native_registration_claim_ack_and_arbitrary_payloads_are_not_private_commands
         "complete",
         "stop",
         "settings",
-        "experimental.anything",
+        "private.anything",
     ] {
         let raw = serde_json::json!({"operation": operation});
         assert!(serde_json::from_value::<DesktopLaunchRequest>(raw).is_err());

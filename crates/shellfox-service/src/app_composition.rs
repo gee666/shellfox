@@ -23,7 +23,6 @@ use std::{
 pub struct ApplicationArguments {
     state: Option<PathBuf>,
     hostname: Option<String>,
-    factory: Option<SourceFactory>,
     control_server: Option<ControlServerOrigin>,
     package: package_arguments::PackageArguments,
 }
@@ -34,7 +33,6 @@ impl ApplicationArguments {
             Some(
                 "--remote-state-dir"
                     | "--remote-hostname"
-                    | "--source-factory"
                     | "--remote-control-url"
                     | "--package-manifest"
                     | "--package-manifest-sha256"
@@ -68,23 +66,12 @@ impl ApplicationArguments {
                     .map_err(|error| anyhow::anyhow!(error))?,
                 );
             }
-            "--source-factory" => {
-                ensure!(self.factory.is_none(), "Duplicate --source-factory");
-                self.factory = Some(SourceFactory::parse(
-                    value.to_str().context("Source factory must be UTF-8")?,
-                )?);
-            }
             _ => bail!("Unknown application composition flag"),
         }
         Ok(())
     }
     pub fn finish(self, data: &Path) -> Result<NativeApplicationConfig> {
-        let mut config = NativeApplicationConfig::new(
-            data,
-            self.state,
-            self.hostname,
-            self.factory.unwrap_or_default(),
-        )?;
+        let mut config = NativeApplicationConfig::new(data, self.state, self.hostname)?;
         config.control_server = self.control_server;
         if let Some(package) = self.package.finish(data)? {
             config = config.with_provider_resources(package.resources()?);
@@ -93,25 +80,10 @@ impl ApplicationArguments {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SourceFactory {
-    #[default]
-    Local,
-}
-impl SourceFactory {
-    pub fn parse(value: &str) -> Result<Self> {
-        match value {
-            "local" => Ok(Self::Local),
-            _ => bail!("--source-factory must be local"),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct NativeApplicationConfig {
     pub remote_state_dir: PathBuf,
     pub hostname: String,
-    pub source_factory: SourceFactory,
     pub control_server: Option<ControlServerOrigin>,
     provider_resources: Option<ApplicationProviderResources>,
 }
@@ -121,7 +93,6 @@ impl NativeApplicationConfig {
         data: &Path,
         state: Option<PathBuf>,
         hostname: Option<String>,
-        source_factory: SourceFactory,
     ) -> Result<Self> {
         // Canonical native control namespace supplied by the Service composition.
         // This is descriptive only; RemoteHostSetup alone materializes it after its gate.
@@ -164,7 +135,6 @@ impl NativeApplicationConfig {
         Ok(Self {
             remote_state_dir: state,
             hostname,
-            source_factory,
             control_server: None,
             provider_resources: None,
         })

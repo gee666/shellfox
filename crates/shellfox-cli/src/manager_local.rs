@@ -7,7 +7,7 @@ use shellfox_core::{SessionId, Snapshot, TabId};
 use shellfox_host::HostRequest;
 use shellfox_protocol::RemoteCommand as R;
 use shellfox_service::{
-    experiment::{ExperimentRequest, ExperimentResponse, SettingsRequest},
+    local_api::{LocalApiRequest, LocalApiResponse, SettingsRequest},
     local::{DesktopReply, DesktopRequest, LocalClient},
     NativeTabActivity,
 };
@@ -23,11 +23,11 @@ fn unexpected() -> anyhow::Error {
 
 impl Local<'_> {
     pub async fn snapshot(&self) -> Result<Snapshot> {
-        self.experiment(ExperimentRequest::Snapshot {}).await
+        self.local_api(LocalApiRequest::Snapshot {}).await
     }
-    async fn experiment(&self, request: ExperimentRequest) -> Result<Snapshot> {
+    async fn local_api(&self, request: LocalApiRequest) -> Result<Snapshot> {
         match self.0.execute(request).await? {
-            ExperimentResponse::Snapshot(snapshot) => Ok(snapshot),
+            LocalApiResponse::Snapshot(snapshot) => Ok(snapshot),
             _ => Err(unexpected()),
         }
     }
@@ -52,10 +52,10 @@ impl Local<'_> {
     async fn settings(&self, request: SettingsRequest) -> Result<Value> {
         match self
             .0
-            .execute(ExperimentRequest::Settings { request })
+            .execute(LocalApiRequest::Settings { request })
             .await?
         {
-            ExperimentResponse::Settings(settings) => Ok(serde_json::to_value(settings)?),
+            LocalApiResponse::Settings(settings) => Ok(serde_json::to_value(settings)?),
             _ => Err(unexpected()),
         }
     }
@@ -189,7 +189,7 @@ impl Local<'_> {
                     profile_id,
                 };
                 let after = self
-                    .experiment(ExperimentRequest::CreateSession { input: request })
+                    .local_api(LocalApiRequest::CreateSession { input: request })
                     .await?;
                 let created = after
                     .sessions
@@ -213,7 +213,7 @@ impl Local<'_> {
                     profile_id,
                 };
                 let after = self
-                    .experiment(ExperimentRequest::AddTab {
+                    .local_api(LocalApiRequest::AddTab {
                         id: input.session_id,
                         input: tab,
                     })
@@ -230,7 +230,7 @@ impl Local<'_> {
             }
             R::RenameSession(input) => {
                 let after = self
-                    .experiment(ExperimentRequest::RenameSession {
+                    .local_api(LocalApiRequest::RenameSession {
                         id: input.session_id,
                         title: input.title,
                     })
@@ -301,7 +301,7 @@ impl Local<'_> {
                 self.after(input.session_id, after).await
             }
             R::DeleteSession(input) => {
-                self.experiment(ExperimentRequest::DeleteSession {
+                self.local_api(LocalApiRequest::DeleteSession {
                     id: input.session_id,
                 })
                 .await?;
@@ -328,7 +328,7 @@ impl Local<'_> {
                     .map(|s| s.id)
                     .ok_or_else(|| not_found("Tab not found."))?;
                 let after = self
-                    .experiment(ExperimentRequest::CloseTab { id: input.tab_id })
+                    .local_api(LocalApiRequest::CloseTab { id: input.tab_id })
                     .await;
                 self.after(session, after).await
             }

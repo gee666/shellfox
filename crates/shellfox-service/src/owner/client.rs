@@ -108,7 +108,7 @@ impl OwnerClient {
     pub(crate) fn client_id(&self) -> uuid::Uuid {
         self.client_id
     }
-    pub fn try_execute(&self, request: ExperimentRequest) -> Result<super::ExperimentAccepted> {
+    pub fn try_execute(&self, request: LocalApiRequest) -> Result<super::LocalApiAccepted> {
         use shellfox_protocol::Validate;
         request.validate()?;
         let (reply, response) = oneshot::channel();
@@ -123,9 +123,9 @@ impl OwnerClient {
             Err(TrySendError::Full(_)) => bail!("Service owner queue is full."),
             Err(TrySendError::Disconnected(_)) => bail!("Service owner stopped."),
         }
-        Ok(super::ExperimentAccepted::new(response, recipient))
+        Ok(super::LocalApiAccepted::new(response, recipient))
     }
-    pub async fn execute(&self, request: ExperimentRequest) -> Result<ExperimentResponse> {
+    pub async fn execute(&self, request: LocalApiRequest) -> Result<LocalApiResponse> {
         self.try_execute(request)?
             .await
             .context("Service owner stopped before replying.")?

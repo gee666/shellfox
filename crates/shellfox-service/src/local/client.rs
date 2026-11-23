@@ -109,7 +109,7 @@ impl LocalClient {
             || record.secret.len() != 64
             || !record.secret.bytes().all(|b| b.is_ascii_hexdigit())
         {
-            bail!("Invalid experimental endpoint record.");
+            bail!("Invalid local endpoint record.");
         }
         let client_id = uuid::Uuid::new_v4();
         #[cfg(unix)]
@@ -178,11 +178,11 @@ impl LocalClient {
             .into()),
         }
     }
-    pub async fn execute(&self, request: ExperimentRequest) -> Result<ExperimentResponse> {
+    pub async fn execute(&self, request: LocalApiRequest) -> Result<LocalApiResponse> {
         self.request(&request).await
     }
     pub async fn disconnect(&self) -> Result<()> {
-        let result = self.execute(ExperimentRequest::Detach {}).await.map(|_| ());
+        let result = self.execute(LocalApiRequest::Detach {}).await.map(|_| ());
         self.lifetime
             .lock()
             .unwrap_or_else(|error| error.into_inner())

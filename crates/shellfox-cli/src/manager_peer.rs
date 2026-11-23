@@ -11,7 +11,7 @@ use shellfox_protocol::{
 };
 use shellfox_service::{
     local::LocalClient,
-    remote::{OutgoingV2Endpoint, RemoteRequest},
+    remote::RemoteRequest,
 };
 
 struct Outgoing<'a>(&'a LocalClient);
@@ -24,16 +24,9 @@ impl OutboundTransport for Outgoing<'_> {
         limits: RequestLimits,
     ) -> TransportFuture<'a> {
         Box::pin(async move {
-            let endpoint = match endpoint {
-                Endpoint::Discover => OutgoingV2Endpoint::DiscoverV1,
-                Endpoint::Pair => OutgoingV2Endpoint::PairV1,
-                Endpoint::Request => OutgoingV2Endpoint::RequestV1,
-                Endpoint::Events => OutgoingV2Endpoint::EventsV1,
-                Endpoint::Disconnect => OutgoingV2Endpoint::DisconnectV1,
-            };
             let response = self
                 .0
-                .outgoing_v2_with_status(peer, endpoint, body, limits)
+                .peer_request_with_status(peer, endpoint, body, limits)
                 .await?;
             if !(200..300).contains(&response.status) {
                 return Err(TransportError::Rejected {

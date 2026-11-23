@@ -1,6 +1,6 @@
 use crate::{
     activity_integration::read_source,
-    experiment::{ExperimentRequest, ExperimentResponse},
+    local_api::{LocalApiRequest, LocalApiResponse},
 };
 
 #[tokio::test(flavor = "current_thread")]
@@ -20,8 +20,8 @@ async fn facts_getter_returns_the_same_actual_owner_channel_and_invalidates_on_s
     let second = client.source_facts_watch().await.unwrap();
     assert!(watch.same_channel(&second));
     let facts = read_source(&watch).expect("owner published actual source");
-    let ExperimentResponse::Snapshot(snapshot) = client
-        .execute(ExperimentRequest::Snapshot {})
+    let LocalApiResponse::Snapshot(snapshot) = client
+        .execute(LocalApiRequest::Snapshot {})
         .await
         .unwrap()
     else {

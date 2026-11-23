@@ -14,7 +14,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use shellfox_core::{SessionId, TabId};
 use shellfox_service::{
-    experiment::{ExperimentRequest, ExperimentResponse},
+    local_api::{LocalApiRequest, LocalApiResponse},
     local::LocalClient,
 };
 

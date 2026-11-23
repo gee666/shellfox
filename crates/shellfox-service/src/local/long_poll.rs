@@ -239,7 +239,7 @@ impl LongPolls {
             PrivateRequest::DesktopLaunch(DesktopLaunchRequest::Receipt { request_id, .. }) => {
                 Some((Kind::Launch(*request_id), false))
             }
-            PrivateRequest::Experiment(crate::experiment::ExperimentRequest::Poll { tab, .. }) => {
+            PrivateRequest::LocalApi(crate::local_api::LocalApiRequest::Poll { tab, .. }) => {
                 Some((Kind::Output(*tab), false))
             }
             PrivateRequest::DesktopLaunch(DesktopLaunchRequest::PollAttached { .. }) => {
@@ -274,7 +274,7 @@ impl LongPolls {
     /// The tab of a CLI output read, which `answered_output` needs after the reply.
     pub fn output_tab(request: &PrivateRequest) -> Option<TabId> {
         match request {
-            PrivateRequest::Experiment(crate::experiment::ExperimentRequest::Poll { tab, .. }) => Some(*tab),
+            PrivateRequest::LocalApi(crate::local_api::LocalApiRequest::Poll { tab, .. }) => Some(*tab),
             _ => None,
         }
     }

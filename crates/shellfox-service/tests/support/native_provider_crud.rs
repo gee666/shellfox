@@ -18,7 +18,6 @@ fn original_boot_installs_system_and_ssh_owned_store_before_ready() -> Result<()
         &data,
         None,
         Some("owned-providers".into()),
-        app_composition::SourceFactory::Local,
     )?
     .remote_options(supervisor.path().to_owned(), false)?
     .with_native_providers(providers)?;

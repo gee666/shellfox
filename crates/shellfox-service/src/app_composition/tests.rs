@@ -21,7 +21,6 @@ fn defaults_are_planned_original_control_namespace_and_local_factory_without_eff
         panic!("read-only plan expected")
     };
     assert_eq!(config.hostname, hostname);
-    assert_eq!(config.source_factory, SourceFactory::Local);
     assert!(!host.exists());
     assert!(!config.remote_state_dir.exists());
 }
@@ -34,24 +33,23 @@ fn explicit_configuration_is_validated_not_inferred_from_recovery_or_installatio
         .unwrap();
     args.push("--remote-hostname", "owned-test-host".into())
         .unwrap();
-    args.push("--source-factory", "local".into()).unwrap();
-    assert!(args.push("--source-factory", "local".into()).is_err());
+    assert!(args.push("--remote-hostname", "again".into()).is_err());
     let config = args.finish(&host).unwrap();
     assert_eq!(config.remote_state_dir, state);
     assert_eq!(config.hostname, "owned-test-host");
     assert!(config.validate_separate(&[&state]).is_err());
     for invalid in ["", "-bad", "bad-", "bad.name", "bad/name"] {
         assert!(
-            NativeApplicationConfig::new(&host, None, Some(invalid.into()), SourceFactory::Local)
+            NativeApplicationConfig::new(&host, None, Some(invalid.into()))
                 .is_err()
         );
     }
     assert!(
-        NativeApplicationConfig::new(&host, Some(host.clone()), None, SourceFactory::Local)
+        NativeApplicationConfig::new(&host, Some(host.clone()), None)
             .is_err()
     );
     assert!(
-        NativeApplicationConfig::new(&host, Some("relative".into()), None, SourceFactory::Local)
+        NativeApplicationConfig::new(&host, Some("relative".into()), None)
             .is_err()
     );
 }
@@ -121,10 +119,4 @@ fn trusted_resource_input_reaches_boot_options_without_materializing_storage() {
     configured.remote_options(std::env::current_exe().unwrap(), false).unwrap();
     assert!(!host.exists());
     assert!(!host.join("rust-service-v1/ssh").exists());
-}
-#[test]
-fn native0_selection_is_explicit_and_not_a_fallback() {
-    assert!(SourceFactory::parse("unknown").is_err());
-    assert_eq!(SourceFactory::parse("local").unwrap(), SourceFactory::Local);
-    assert!(SourceFactory::parse("native0").is_err());
 }

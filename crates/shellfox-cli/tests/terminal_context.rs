@@ -11,7 +11,7 @@ mod support;
 use anyhow::{bail, ensure, Context, Result};
 use fixture::Fixture;
 use shellfox_service::{
-    experiment::{ExperimentRequest, ExperimentResponse},
+    local_api::{LocalApiRequest, LocalApiResponse},
     local::LocalClient,
 };
 use std::time::{Duration, Instant};
@@ -60,13 +60,13 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
     // Attaching starts the shell; this client then holds its control.
     let client = LocalClient::connect(&host.data, helper, digest).await?;
     let attachment = match client
-        .execute(ExperimentRequest::Attach {
+        .execute(LocalApiRequest::Attach {
             tab: tab.parse()?,
             takeover: false,
         })
         .await?
     {
-        ExperimentResponse::Attachment(attachment) => attachment,
+        LocalApiResponse::Attachment(attachment) => attachment,
         _ => bail!("Unexpected attach response."),
     };
     let mut line: Vec<String> = vec![quote(env!("CARGO_BIN_EXE_shellfox-cli"))];
@@ -89,7 +89,7 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
         )
     };
     client
-        .execute(ExperimentRequest::Input {
+        .execute(LocalApiRequest::Input {
             tab: tab.parse()?,
             attachment: attachment.clone(),
             bytes: command.into_bytes(),
@@ -108,7 +108,7 @@ async fn run(host: &Fixture, helper: &std::path::Path, digest: [u8; 32]) -> Resu
         );
         // Keep the terminal's output drained while the shell runs.
         let _ = client
-            .execute(ExperimentRequest::Poll {
+            .execute(LocalApiRequest::Poll {
                 tab: tab.parse()?,
                 attachment: attachment.clone(),
             })

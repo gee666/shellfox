@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    experiment::{ExperimentRequest, ExperimentResponse},
+    local_api::{LocalApiRequest, LocalApiResponse},
     Service,
 };
 use shellfox_core::{CreateSession, ProfileId, SessionId};
@@ -13,9 +13,9 @@ fn fixture() -> (tempfile::TempDir, Service) {
 #[test]
 fn actual_app_creation_projects_without_invented_runtime() {
     let (data, mut service) = fixture();
-    let ExperimentResponse::Snapshot(snapshot) = service
+    let LocalApiResponse::Snapshot(snapshot) = service
         .execute(
-            ExperimentRequest::CreateSession {
+            LocalApiRequest::CreateSession {
                 input: CreateSession {
                     request_id: SessionId::new(),
                     title: None,

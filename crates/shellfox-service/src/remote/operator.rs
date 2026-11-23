@@ -2,7 +2,7 @@
 use super::{RemoteControlState, RemoteRequest};
 use shellfox_protocol::{AppError, AuthenticatedPeerId, Validate, ValidationError};
 use std::{collections::HashSet, net::IpAddr};
-pub(crate) const METHOD: &str = "experimental.remote-control.v1";
+pub(crate) const METHOD: &str = "private.remote-control.v1";
 /// Display metadata only; this is not an authenticated incoming identity.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

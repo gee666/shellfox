@@ -69,7 +69,7 @@ impl Service {
     ) -> Result<()> {
         self.assert_accepting()?;
         if self.terminals.len() >= 64 {
-            bail!("At most 64 live terminals are supported by this experimental host.");
+            bail!("At most 64 live terminals are supported by one host.");
         }
         let launch = self.host.terminal_launch(tab)?;
         let administrator = launch.profile_id.as_str() == ADMIN_POWERSHELL_PROFILE;

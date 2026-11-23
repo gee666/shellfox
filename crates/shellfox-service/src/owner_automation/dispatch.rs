@@ -56,9 +56,9 @@ impl Service {
                         .and_then(|()| self.show_automation(input, launches))
                         .and_then(encode),
                     PrivateRequest::Power(_)
-                    | PrivateRequest::OutgoingV2(_)
+                    | PrivateRequest::Peer(_)
                     | PrivateRequest::RemoteOperator(_)
-                    | PrivateRequest::Experiment(_)
+                    | PrivateRequest::LocalApi(_)
                     | PrivateRequest::DesktopView(_)
                     | PrivateRequest::SshRead(_)
                     | PrivateRequest::DesktopLaunch(_)

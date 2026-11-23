@@ -153,7 +153,7 @@ fn actual_fast_natural_status_and_injected_interrupt_preserve_correlated_outcome
     let stopped = runtime.block_on(async {
         let client = LocalClient::connect(&data, &helper, digest).await?;
         client
-            .execute(shellfox_service::experiment::ExperimentRequest::Stop {})
+            .execute(shellfox_service::local_api::LocalApiRequest::Stop {})
             .await?;
         Ok::<_, anyhow::Error>(())
     });

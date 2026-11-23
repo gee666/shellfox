@@ -49,7 +49,7 @@ impl PrivateDirectory {
                             | "keep-awake-lid.txt"
                     )
                 ) {
-                    bail!("Data directory contains non-experiment files; no permissions were changed.");
+                    bail!("Data directory contains files Shellfox did not create; no permissions were changed.");
                 }
                 reject_links(
                     &entry.path(),
@@ -158,7 +158,7 @@ impl PrivateDirectory {
                 .await
                 .with_context(|| {
                     format!(
-                        "Unsafe private experiment artifact: {}",
+                        "Unsafe private data artifact: {}",
                         name.to_string_lossy()
                     )
                 })?;

@@ -1,5 +1,5 @@
 use crate::{
-    experiment::{ExperimentRequest as Q, ExperimentResponse as A},
+    local_api::{LocalApiRequest as Q, LocalApiResponse as A},
     local::{read_frame, write_frame, LocalClient},
     security::PrivateDirectory,
 };

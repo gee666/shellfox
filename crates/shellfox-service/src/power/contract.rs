@@ -17,7 +17,7 @@ impl Validate for PowerRequest {
 }
 impl LocalRequest for PowerRequest {
     type Response = PowerReport;
-    const METHOD: &'static str = "experimental.power.v1";
+    const METHOD: &'static str = shellfox_protocol::POWER_NAMESPACE;
 }
 
 /// Confirmed state, never an optimistic toggle. Check `pending` and `error`

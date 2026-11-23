@@ -3,7 +3,7 @@
 mod support;
 use anyhow::{Context, Result};
 use shellfox_service::{
-    experiment::ExperimentRequest,
+    local_api::LocalApiRequest,
     local::{LocalBootstrap, LocalClient, OccupiedOwnerError},
 };
 use std::{
@@ -24,7 +24,7 @@ fn real_go_cold_existing_and_occupied_share_one_owner() -> Result<()> {
     let helper = fixture.helper.clone();
     let digest = fixture.digest;
     cycle(&fixture, &data, move |client, _stop| async move {
-        client.execute(ExperimentRequest::Snapshot {}).await?;
+        client.execute(LocalApiRequest::Snapshot {}).await?;
         let mut occupied = LocalBootstrap::plan(&path, &helper, digest)?;
         let reports = Reports::default();
         let ready = Arc::new(AtomicBool::new(false));
@@ -48,11 +48,11 @@ fn real_go_cold_existing_and_occupied_share_one_owner() -> Result<()> {
             !ready.load(Ordering::Acquire),
             "contender activated another Host"
         );
-        client.execute(ExperimentRequest::Snapshot {}).await?;
+        client.execute(LocalApiRequest::Snapshot {}).await?;
         Ok(())
     })?;
     cycle(&fixture, &data, |client, _| async move {
-        client.execute(ExperimentRequest::Snapshot {}).await?;
+        client.execute(LocalApiRequest::Snapshot {}).await?;
         Ok(())
     })?;
     Ok(())
@@ -82,7 +82,7 @@ fn real_go_host_starts_in_fresh_and_empty_dirs_under_a_permissive_parent() -> Re
     );
     for data in [parent.join("fresh"), empty] {
         cycle(&fixture, &data, |client, _| async move {
-            client.execute(ExperimentRequest::Snapshot {}).await?;
+            client.execute(LocalApiRequest::Snapshot {}).await?;
             Ok(())
         })?;
         runtime
@@ -117,7 +117,7 @@ fn real_go_failed_actor_start_cleans_original_controller() -> Result<()> {
     let fixture = Fixture::new()?;
     let data = fixture.data("failed-host");
     cycle(&fixture, &data, |client, _| async move {
-        client.execute(ExperimentRequest::Snapshot {}).await?;
+        client.execute(LocalApiRequest::Snapshot {}).await?;
         Ok(())
     })?;
     std::fs::write(
@@ -266,14 +266,14 @@ fn real_go_direct_stop_ignores_missing_endpoint_and_drains_connected_lifetime() 
     let digest = fixture.digest;
     cycle(&fixture, &data, move |client, stop| async move {
         let external = LocalClient::connect(&path, &helper, digest).await?;
-        external.execute(ExperimentRequest::Snapshot {}).await?;
+        external.execute(LocalApiRequest::Snapshot {}).await?;
         let endpoint = path.join("rust-service-v1/endpoint.json");
         std::fs::rename(
             &endpoint,
             path.join("rust-service-v1/owned-hidden-endpoint.json"),
         )
         .context("owned endpoint-discovery fault injection")?;
-        client.execute(ExperimentRequest::Snapshot {}).await?;
+        client.execute(LocalApiRequest::Snapshot {}).await?;
         stop.request();
         // Keep the real authenticated external lifetime alive across Stop.
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;

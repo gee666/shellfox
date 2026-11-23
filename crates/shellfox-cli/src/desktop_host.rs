@@ -101,7 +101,7 @@ impl Serving {
     /// The same orderly stop as `host stop`: the shells end with the host.
     fn stop(&self) {
         let stopped = self.ask(async |client| {
-            client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
+            client.execute(shellfox_service::local_api::LocalApiRequest::Stop {}).await?;
             anyhow::Ok(())
         });
         if let Some(Err(error)) = stopped {

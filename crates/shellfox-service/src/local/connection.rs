@@ -36,16 +36,22 @@ impl LifetimeConnection {
         }
     }
 }
+/// What every accepted connection shares with the server loop.
+#[derive(Clone)]
+pub(super) struct Shared {
+    pub secret: String,
+    pub client: OwnerClient,
+    pub lost: CancellationToken,
+    pub stop: CancellationToken,
+    pub orderly: CancellationToken,
+    pub slots: Arc<Semaphore>,
+    pub polls: Arc<super::long_poll::LongPolls>,
+}
 pub(super) async fn serve_connection(
     mut stream: platform::LocalStream,
-    secret: String,
-    client: OwnerClient,
-    lost: CancellationToken,
-    stop: CancellationToken,
-    orderly: CancellationToken,
-    slots: Arc<Semaphore>,
-    polls: Arc<super::long_poll::LongPolls>,
+    shared: Shared,
 ) -> Result<ConnectionOutcome> {
+    let Shared { secret, client, lost, stop, orderly, slots, polls } = shared;
     let frame = tokio::time::timeout(Duration::from_secs(30), async {
         let bytes = read_frame(&mut stream, crate::remote::outgoing_wire::MAX_REQUEST * 5).await?;
         stream.verify_peer()?;
@@ -103,12 +109,12 @@ pub(super) async fn serve_connection(
                 if inner != client_id {
                     bail!("Private envelope/lifetime identity mismatch.");
                 }
-                let outgoing = matches!(&request, PrivateRequest::OutgoingV2(_));
+                let outgoing = matches!(&request, PrivateRequest::Peer(_));
                 let asynchronous =
                     outgoing || matches!(&request, PrivateRequest::RemoteOperator(_) | PrivateRequest::DesktopView(_)
                         | PrivateRequest::Power(crate::power::PowerRequest::Status {})
                         // Held reads end when their caller goes away.
-                        | PrivateRequest::Experiment(crate::experiment::ExperimentRequest::Poll { .. })
+                        | PrivateRequest::LocalApi(crate::local_api::LocalApiRequest::Poll { .. })
                         | PrivateRequest::DesktopLaunch(
                             crate::desktop_launch::DesktopLaunchRequest::PollAttached { .. }
                                 | crate::desktop_launch::DesktopLaunchRequest::Receipt { .. }

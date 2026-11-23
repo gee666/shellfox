@@ -70,10 +70,10 @@ fn real_native_dispatch_requires_owner_admission_not_a_nonzero_or_pty_identity()
             73
         )
         .is_err());
-    // Ordinary private/experiment metadata and non-System native work may use
+    // Ordinary private metadata and non-System native work may use
     // the same numeric controller but cannot mint System authority.
     service
-        .execute(crate::experiment::ExperimentRequest::Snapshot {}, 73)
+        .execute(crate::local_api::LocalApiRequest::Snapshot {}, 73)
         .unwrap();
     service.execute_native(NativeAction::Status, 73).unwrap();
     assert_eq!(

@@ -1,11 +1,11 @@
-//! Private local experiment contract. Not the mobile ManagerSnapshot protocol.
+//! The private local API used by the desktop and CLI. Not the mobile ManagerSnapshot protocol.
 use crate::{Attachment, Service, TerminalOutput};
 use serde::{Deserialize, Serialize};
 use shellfox_core::{AddTab, CreateSession, SessionId, Settings, Snapshot, TabId};
 pub use shellfox_host::SettingsRequest;
 use shellfox_protocol::{validation::ensure, Validate, ValidationError};
 
-pub const METHOD: &str = "experimental.rust.v1";
+pub const METHOD: &str = "private.local.v1";
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RecoveryCapability {
@@ -13,7 +13,7 @@ pub enum RecoveryCapability {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "camelCase", deny_unknown_fields)]
-pub enum ExperimentRequest {
+pub enum LocalApiRequest {
     Snapshot {},
     CreateSession {
         input: CreateSession,
@@ -88,7 +88,7 @@ pub enum ExperimentRequest {
     rename_all = "camelCase",
     deny_unknown_fields
 )]
-pub enum ExperimentResponse {
+pub enum LocalApiResponse {
     Snapshot(Snapshot),
     Settings(Settings),
     Attachment(Attachment),
@@ -104,9 +104,9 @@ pub enum ExperimentResponse {
     },
     Done {},
 }
-impl Validate for ExperimentRequest {
+impl Validate for LocalApiRequest {
     fn validate(&self) -> Result<(), ValidationError> {
-        use ExperimentRequest::*;
+        use LocalApiRequest::*;
         let core = |result: shellfox_core::Result<()>| result.map_err(|_| ValidationError);
         match self {
             CreateSession { input } => {
@@ -169,7 +169,7 @@ impl Validate for ExperimentRequest {
 fn validate_attachment(attachment: &Attachment) -> Result<(), ValidationError> {
     ensure(attachment.controller > 0 && attachment.epoch > 0)
 }
-impl Validate for ExperimentResponse {
+impl Validate for LocalApiResponse {
     fn validate(&self) -> Result<(), ValidationError> {
         match self {
             Self::Snapshot(snapshot) => validate_snapshot(snapshot)?,
@@ -199,42 +199,42 @@ pub(crate) fn validate_snapshot(snapshot: &Snapshot) -> Result<(), ValidationErr
     Ok(())
 }
 
-impl shellfox_protocol::LocalRequest for ExperimentRequest {
-    type Response = ExperimentResponse;
+impl shellfox_protocol::LocalRequest for LocalApiRequest {
+    type Response = LocalApiResponse;
     const METHOD: &'static str = METHOD;
 }
 
 impl Service {
     pub fn execute(
         &mut self,
-        request: ExperimentRequest,
+        request: LocalApiRequest,
         controller: u64,
-    ) -> anyhow::Result<ExperimentResponse> {
-        use ExperimentRequest::*;
+    ) -> anyhow::Result<LocalApiResponse> {
+        use LocalApiRequest::*;
         self.assert_owned()?;
         request.validate()?;
         if self.stopping && !matches!(request, Snapshot {} | Poll { .. } | Acknowledge { .. } | Recover { .. } | Detach {} | Stop {}) {
             self.assert_accepting()?;
         }
         let response = match request {
-            Snapshot {} => ExperimentResponse::Snapshot(self.host().snapshot()?),
+            Snapshot {} => LocalApiResponse::Snapshot(self.host().snapshot()?),
             CreateSession { input } => {
-                ExperimentResponse::Snapshot(self.create_application_session(input)?)
+                LocalApiResponse::Snapshot(self.create_application_session(input)?)
             }
             RenameSession { id, title } => {
-                ExperimentResponse::Snapshot(self.host().rename_session(id, &title)?)
+                LocalApiResponse::Snapshot(self.host().rename_session(id, &title)?)
             }
-            DeleteSession { id } => ExperimentResponse::Snapshot(self.delete_session(id)?),
-            AddTab { id, input } => ExperimentResponse::Snapshot(self.host().add_tab(id, input)?),
+            DeleteSession { id } => LocalApiResponse::Snapshot(self.delete_session(id)?),
+            AddTab { id, input } => LocalApiResponse::Snapshot(self.host().add_tab(id, input)?),
             RenameTab { id, title } => {
-                ExperimentResponse::Snapshot(self.host().rename_tab(id, &title)?)
+                LocalApiResponse::Snapshot(self.host().rename_tab(id, &title)?)
             }
-            CloseTab { id } => ExperimentResponse::Snapshot(self.close_tab(id)?),
+            CloseTab { id } => LocalApiResponse::Snapshot(self.close_tab(id)?),
             Settings { request } => {
-                ExperimentResponse::Settings(self.host().settings_request(request)?)
+                LocalApiResponse::Settings(self.host().settings_request(request)?)
             }
             Attach { tab, takeover } => {
-                ExperimentResponse::Attachment(self.attach(tab, controller, takeover)?)
+                LocalApiResponse::Attachment(self.attach(tab, controller, takeover)?)
             }
             Input {
                 tab,
@@ -243,7 +243,7 @@ impl Service {
             } => {
                 owner(&attachment, controller)?;
                 self.input(tab, &attachment, bytes)?;
-                ExperimentResponse::Done {}
+                LocalApiResponse::Done {}
             }
             Key {
                 tab,
@@ -252,7 +252,7 @@ impl Service {
             } => {
                 owner(&attachment, controller)?;
                 self.key(tab, &attachment, event)?;
-                ExperimentResponse::Done {}
+                LocalApiResponse::Done {}
             }
             Paste {
                 tab,
@@ -261,7 +261,7 @@ impl Service {
             } => {
                 owner(&attachment, controller)?;
                 self.paste(tab, &attachment, text)?;
-                ExperimentResponse::Done {}
+                LocalApiResponse::Done {}
             }
             Resize {
                 tab,
@@ -271,7 +271,7 @@ impl Service {
             } => {
                 owner(&attachment, controller)?;
                 self.resize(tab, &attachment, cols, rows)?;
-                ExperimentResponse::Done {}
+                LocalApiResponse::Done {}
             }
             Acknowledge {
                 tab,
@@ -280,7 +280,7 @@ impl Service {
             } => {
                 owner(&attachment, controller)?;
                 self.acknowledge(tab, &attachment, sequence)?;
-                ExperimentResponse::Done {}
+                LocalApiResponse::Done {}
             }
             Recover { tab, attachment } => {
                 owner(&attachment, controller)?;
@@ -288,7 +288,7 @@ impl Service {
                 if capability != shellfox_runtime::AnsiRecoveryCapability::VisibleScreen {
                     anyhow::bail!("Unnegotiated terminal recovery capability.");
                 }
-                ExperimentResponse::Recovery {
+                LocalApiResponse::Recovery {
                     bytes,
                     last_sequence,
                     capability: RecoveryCapability::VisibleScreen,
@@ -298,20 +298,20 @@ impl Service {
                 owner(&attachment, controller)?;
                 let output = self.poll(tab, &attachment)?;
                 match self.poll_status(tab)? {
-                    (true, _) => ExperimentResponse::RecoveryRequired {},
+                    (true, _) => LocalApiResponse::RecoveryRequired {},
                     (false, Some(last_sequence)) => {
-                        ExperimentResponse::TerminalExited { last_sequence }
+                        LocalApiResponse::TerminalExited { last_sequence }
                     }
-                    _ => ExperimentResponse::Output(output),
+                    _ => LocalApiResponse::Output(output),
                 }
             }
             Detach {} => {
                 self.detach_controller(controller);
-                ExperimentResponse::Done {}
+                LocalApiResponse::Done {}
             }
             Stop {} => {
                 self.shutdown()?;
-                ExperimentResponse::Done {}
+                LocalApiResponse::Done {}
             }
         };
         response.validate()?;

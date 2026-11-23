@@ -114,10 +114,10 @@ impl ObserverGrantOffer {
 impl Service {
     pub(crate) fn execute_for_recipient(
         &mut self,
-        request: crate::experiment::ExperimentRequest,
+        request: crate::local_api::LocalApiRequest,
         controller: u64,
         cancel: CancellationToken,
-    ) -> Result<crate::experiment::ExperimentResponse> {
+    ) -> Result<crate::local_api::LocalApiResponse> {
         self.with_grant_recipient(cancel, |service| service.execute(request, controller))
     }
     pub(crate) fn with_grant_recipient<T>(

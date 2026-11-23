@@ -135,7 +135,7 @@ fn create_pipe(
 pub(crate) async fn connect(address: &str, _directory: &Path) -> Result<LocalStream> {
     let suffix = address.strip_prefix(r"\\.\pipe\shellfox-rust-v1-");
     if !suffix.is_some_and(|value| uuid::Uuid::parse_str(value).is_ok()) {
-        bail!("Invalid experimental named-pipe endpoint.");
+        bail!("Invalid named-pipe endpoint.");
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(250);
     let pipe = loop {

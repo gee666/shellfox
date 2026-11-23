@@ -1,4 +1,4 @@
-use crate::{experiment::ExperimentRequest, native::NativeAction, tests::scratch, Service};
+use crate::{local_api::LocalApiRequest, native::NativeAction, tests::scratch, Service};
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 
 #[test]
@@ -17,12 +17,12 @@ fn stop_fences_queued_resource_mutations_before_cleanup_and_never_reopens() {
     let session = snapshot.sessions[0].id;
     let tab = snapshot.sessions[0].tabs[0].id;
     let before = service.host().snapshot().unwrap();
-    service.execute(ExperimentRequest::Stop {}, 1).unwrap();
+    service.execute(LocalApiRequest::Stop {}, 1).unwrap();
     assert!(service.stopping);
     assert!(service.start_terminal(tab).is_err());
     assert!(service
         .execute(
-            ExperimentRequest::Attach {
+            LocalApiRequest::Attach {
                 tab,
                 takeover: false
             },
@@ -40,7 +40,7 @@ fn stop_fences_queued_resource_mutations_before_cleanup_and_never_reopens() {
         .is_err());
     assert!(service
         .execute(
-            ExperimentRequest::RenameSession {
+            LocalApiRequest::RenameSession {
                 id: session,
                 title: "must not commit".into()
             },
@@ -50,7 +50,7 @@ fn stop_fences_queued_resource_mutations_before_cleanup_and_never_reopens() {
     assert_eq!(service.active_terminals(), 0);
     assert_eq!(service.host().snapshot().unwrap(), before);
     // Cleanup and final reads remain possible; retry never resets admission.
-    service.execute(ExperimentRequest::Snapshot {}, 1).unwrap();
+    service.execute(LocalApiRequest::Snapshot {}, 1).unwrap();
     service.shutdown().unwrap();
     assert!(service.stopping);
 }

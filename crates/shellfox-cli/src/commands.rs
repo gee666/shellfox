@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use shellfox_core::Snapshot;
 use shellfox_service::{
-    experiment::{ExperimentRequest, ExperimentResponse},
+    local_api::{LocalApiRequest, LocalApiResponse},
     local::{self, LocalClient},
 };
 
@@ -32,7 +32,7 @@ pub async fn run(args: Args) -> Result<i32> {
         attach::require_terminal()?;
     }
     let mut client = LocalClient::connect(&args.data_dir, &args.helper, args.helper_sha256).await?;
-    let stop = matches!(&args.command, Command::Request(ExperimentRequest::Stop {}));
+    let stop = matches!(&args.command, Command::Request(LocalApiRequest::Stop {}));
     let result = match args.command {
         Command::Automation(command) => crate::automation::run(&client, command).await,
         command => run_connected(&mut client, command).await.map(|()| 0),
@@ -45,10 +45,7 @@ pub async fn run(args: Args) -> Result<i32> {
 }
 
 fn requires_terminal(command: &Command) -> bool {
-    match command {
-        Command::Attach { .. } => true,
-        _ => false,
-    }
+    matches!(command, Command::Attach { .. })
 }
 
 async fn run_connected(client: &mut LocalClient, command: Command) -> Result<()> {
@@ -105,14 +102,14 @@ async fn run_connected(client: &mut LocalClient, command: Command) -> Result<()>
             print_json(&tabs)
         }
         Command::Request(request) => {
-            let settings = matches!(&request, ExperimentRequest::Settings { .. });
-            let stop = matches!(&request, ExperimentRequest::Stop {});
+            let settings = matches!(&request, LocalApiRequest::Settings { .. });
+            let stop = matches!(&request, LocalApiRequest::Stop {});
             match client.execute(request).await? {
-                ExperimentResponse::Done {} if stop => {
+                LocalApiResponse::Done {} if stop => {
                     print_json(&serde_json::json!({ "stopped": true }))
                 }
-                ExperimentResponse::Settings(value) if settings => print_json(&value),
-                ExperimentResponse::Snapshot(value) if !settings && !stop => print_json(&value),
+                LocalApiResponse::Settings(value) if settings => print_json(&value),
+                LocalApiResponse::Snapshot(value) if !settings && !stop => print_json(&value),
                 _ => bail!("Unexpected service response to metadata command."),
             }
         }
@@ -121,8 +118,8 @@ async fn run_connected(client: &mut LocalClient, command: Command) -> Result<()>
 }
 
 async fn snapshot(client: &mut LocalClient) -> Result<Snapshot> {
-    match client.execute(ExperimentRequest::Snapshot {}).await? {
-        ExperimentResponse::Snapshot(snapshot) => Ok(snapshot),
+    match client.execute(LocalApiRequest::Snapshot {}).await? {
+        LocalApiResponse::Snapshot(snapshot) => Ok(snapshot),
         _ => bail!("Unexpected service snapshot response."),
     }
 }

@@ -1,5 +1,5 @@
 mod facts;
-use crate::{experiment::ExperimentRequest as Q, tests::scratch};
+use crate::{local_api::LocalApiRequest as Q, tests::scratch};
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 use std::time::Duration;
 

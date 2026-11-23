@@ -87,7 +87,7 @@ impl AppHostBackend for AttachedBackend {
                 return Ok(());
             }
             let stopped = with_local(&self.config, async |client| {
-                client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
+                client.execute(shellfox_service::local_api::LocalApiRequest::Stop {}).await?;
                 crate::host_process::announce_quit();
                 // Stop replies once admitted, before the host has closed its shells.
                 client.closed().await;

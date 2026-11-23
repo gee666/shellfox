@@ -92,7 +92,7 @@ fn host_and_list_commands() {
     ));
     assert!(matches!(
         parse_command_args(&["host", "stop"]).unwrap().command,
-        Command::Request(ExperimentRequest::Stop {})
+        Command::Request(LocalApiRequest::Stop {})
     ));
     assert!(matches!(
         parse_command_args(&["session", "list"]).unwrap().command,
@@ -110,7 +110,7 @@ fn host_and_list_commands() {
 
 #[test]
 fn session_create_uses_core_input_and_fresh_request_id() {
-    let Command::Request(ExperimentRequest::CreateSession { input }) = parse_command_args(&[
+    let Command::Request(LocalApiRequest::CreateSession { input }) = parse_command_args(&[
         "session",
         "create",
         "--cwd",
@@ -129,7 +129,7 @@ fn session_create_uses_core_input_and_fresh_request_id() {
     assert_eq!(input.title.as_deref(), Some("Build"));
     assert_eq!(input.profile_id.as_str(), "cmd");
     let opaque = "wsl:unavailable fixture";
-    let Command::Request(ExperimentRequest::CreateSession { input: other }) =
+    let Command::Request(LocalApiRequest::CreateSession { input: other }) =
         parse_command_args(&["session", "create", "--cwd", "/work", "--profile", opaque])
             .unwrap()
             .command
@@ -143,7 +143,7 @@ fn session_create_uses_core_input_and_fresh_request_id() {
 
 #[test]
 fn tab_create_can_inherit_cwd_but_profile_is_explicit() {
-    let Command::Request(ExperimentRequest::AddTab { id, input }) =
+    let Command::Request(LocalApiRequest::AddTab { id, input }) =
         parse_command_args(&["tab", "create", ID, "--profile", "pwsh"])
             .unwrap()
             .command
@@ -154,7 +154,7 @@ fn tab_create_can_inherit_cwd_but_profile_is_explicit() {
     assert!(input.cwd.is_none());
     assert!(input.title.is_none());
     assert_eq!(input.profile_id.as_str(), "pwsh");
-    let Command::Request(ExperimentRequest::AddTab { input, .. }) = parse_command_args(&[
+    let Command::Request(LocalApiRequest::AddTab { input, .. }) = parse_command_args(&[
         "tab",
         "create",
         ID,
@@ -178,19 +178,19 @@ fn tab_create_can_inherit_cwd_but_profile_is_explicit() {
 fn rename_and_close_map_to_typed_ids() {
     assert!(
         matches!(parse_command_args(&["session", "rename", ID, "New"]).unwrap().command,
-        Command::Request(ExperimentRequest::RenameSession { id, title }) if id.to_string() == ID && title == "New")
+        Command::Request(LocalApiRequest::RenameSession { id, title }) if id.to_string() == ID && title == "New")
     );
     assert!(
         matches!(parse_command_args(&["session", "close", ID]).unwrap().command,
-        Command::Request(ExperimentRequest::DeleteSession { id }) if id.to_string() == ID)
+        Command::Request(LocalApiRequest::DeleteSession { id }) if id.to_string() == ID)
     );
     assert!(
         matches!(parse_command_args(&["tab", "rename", ID, "New"]).unwrap().command,
-        Command::Request(ExperimentRequest::RenameTab { id, title }) if id.to_string() == ID && title == "New")
+        Command::Request(LocalApiRequest::RenameTab { id, title }) if id.to_string() == ID && title == "New")
     );
     assert!(
         matches!(parse_command_args(&["tab", "close", ID]).unwrap().command,
-        Command::Request(ExperimentRequest::CloseTab { id }) if id.to_string() == ID)
+        Command::Request(LocalApiRequest::CloseTab { id }) if id.to_string() == ID)
     );
 }
 
@@ -198,11 +198,11 @@ fn rename_and_close_map_to_typed_ids() {
 fn settings_patch_is_typed_and_validated() {
     assert!(matches!(
         parse_command_args(&["settings", "get"]).unwrap().command,
-        Command::Request(ExperimentRequest::Settings {
+        Command::Request(LocalApiRequest::Settings {
             request: SettingsRequest::Get {}
         })
     ));
-    let Command::Request(ExperimentRequest::Settings {
+    let Command::Request(LocalApiRequest::Settings {
         request: SettingsRequest::Save(patch),
     }) = parse_command_args(&[
         "settings",

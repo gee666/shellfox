@@ -1,6 +1,6 @@
 //! Opaque outgoing HTTP only. Pairing/selection belong to the shared SDK client.
-use shellfox_protocol::{AuthenticatedPeerId, CancellationToken, RequestLimits, TransportError};
-pub use shellfox_transport::HttpResponse as OutgoingV2Response;
+use shellfox_protocol::{AuthenticatedPeerId, Endpoint, CancellationToken, RequestLimits, TransportError};
+pub use shellfox_transport::HttpResponse as PeerResponse;
 use std::{
     future::Future,
     pin::Pin,
@@ -8,35 +8,14 @@ use std::{
 };
 use tokio::sync::oneshot;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum OutgoingV2Endpoint {
-    DiscoverV1,
-    PairV1,
-    RequestV1,
-    EventsV1,
-    DisconnectV1,
-}
-impl OutgoingV2Endpoint {
-    pub(crate) fn wire(self) -> shellfox_protocol::Endpoint {
-        use shellfox_protocol::Endpoint;
-        match self {
-            Self::DiscoverV1 => Endpoint::Discover,
-            Self::PairV1 => Endpoint::Pair,
-            Self::RequestV1 => Endpoint::Request,
-            Self::EventsV1 => Endpoint::Events,
-            Self::DisconnectV1 => Endpoint::Disconnect,
-        }
-    }
-}
-pub type OutgoingV2Future<'a> =
-    Pin<Box<dyn Future<Output = Result<OutgoingV2Response, TransportError>> + Send + 'a>>;
+pub type PeerFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<PeerResponse, TransportError>> + Send + 'a>>;
 pub(crate) struct OutgoingEnvelope {
     pub peer: AuthenticatedPeerId,
-    pub endpoint: OutgoingV2Endpoint,
+    pub endpoint: Endpoint,
     pub body: Vec<u8>,
     pub limits: RequestLimits,
-    pub reply: oneshot::Sender<Result<OutgoingV2Response, TransportError>>,
+    pub reply: oneshot::Sender<Result<PeerResponse, TransportError>>,
 }
 pub(crate) fn validate(
     body: &[u8],
@@ -71,13 +50,13 @@ impl super::native::RemoteControl {
         tokio::time::sleep_until(deadline.into())
     }
 
-    pub(crate) async fn outgoing_v2(
+    pub(crate) async fn peer_request(
         &self,
         peer: &AuthenticatedPeerId,
-        endpoint: OutgoingV2Endpoint,
+        endpoint: Endpoint,
         body: Vec<u8>,
         limits: RequestLimits,
-    ) -> Result<OutgoingV2Response, TransportError> {
+    ) -> Result<PeerResponse, TransportError> {
         let limits = validate(&body, limits)?;
         let cancel = limits.cancel.clone();
         let deadline = limits.deadline;

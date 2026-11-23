@@ -10,7 +10,7 @@ use support::OwnedHost;
 use anyhow::{ensure, Context, Result};
 use shellfox_core::{CreateSession, ProfileId, SessionId};
 use shellfox_service::{
-    experiment::{ExperimentRequest as Request, ExperimentResponse as Response},
+    local_api::{LocalApiRequest as Request, LocalApiResponse as Response},
     local::{DesktopReply, DesktopRequest, LocalClient},
     native::{NativePresentation, NativeResponse, NativeViewAttachment},
     power::PowerRequest,
