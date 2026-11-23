@@ -134,39 +134,11 @@ pub(super) fn publish_private(
     dir: &Dir,
     name: &str,
     bytes: &[u8],
-    expected: Option<&shellfox_files::PrivateVersion>,
+    expected: Option<&shellfox_files::private::PrivateVersion>,
 ) -> Result<()> {
-    use shellfox_files::PrivatePublishOutcome;
     let parent = dir.try_clone()?.into_std_file();
-    let stage = format!(".{name}-{}.new", uuid::Uuid::new_v4().simple());
-    let mut attempt = match shellfox_files::prepare_private_publication_at(
-        &parent,
-        OsStr::new(name),
-        OsStr::new(&stage),
-        expected,
-    ) {
-        Ok(attempt) => attempt,
-        Err(failure) => {
-            let (error, attempt) = failure.into_parts();
-            if let Some(mut attempt) = attempt {
-                let _ = attempt.cleanup();
-            }
-            bail!("Could not stage {name}: {}", error.message);
-        }
-    };
-    if let Err(error) = attempt.write_all(bytes) {
-        let _ = attempt.cleanup();
+    if let Err(error) = shellfox_files::private::write(&parent, OsStr::new(name), bytes, expected) {
         bail!("Could not write {name}: {}", error.message);
     }
-    match attempt.publish() {
-        PrivatePublishOutcome::Published(_) => {
-            // Close our descriptor and keep the published file.
-            attempt.preserve_stale();
-            Ok(())
-        }
-        _ => {
-            let _ = attempt.cleanup();
-            bail!("Could not publish {name}")
-        }
-    }
+    Ok(())
 }

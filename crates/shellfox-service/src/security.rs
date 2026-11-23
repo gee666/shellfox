@@ -132,21 +132,12 @@ impl PrivateDirectory {
     pub fn bound_root(&self) -> Result<BoundOwnershipRoot> {
         self.root.bound_root()
     }
-    pub fn bind_native_parent(
-        &self,
-        issuer: &std::sync::Arc<shellfox_files::FileService>,
-        fence: std::sync::Arc<dyn shellfox_files::NativeCommitFence>,
-    ) -> Result<shellfox_files::NativeChildIssuer> {
-        self.root.bind_native_parent(issuer, fence)
-    }
+    /// Scope over the endpoint directory, bound to the handle held since preparation.
     pub fn bind_native_control(
         &self,
-        issuer: &std::sync::Arc<shellfox_files::FileService>,
-        parent: &shellfox_files::NativeChildIssuer,
         fence: std::sync::Arc<dyn shellfox_files::NativeCommitFence>,
     ) -> Result<std::sync::Arc<shellfox_files::FileService>> {
-        self.root
-            .bind_native_control(issuer, parent, fence, ENDPOINT_DIRECTORY)
+        self.root.bind_native_control(fence, ENDPOINT_DIRECTORY)
     }
     pub async fn prepare_owned_layout(&self, verifier: &PermissionVerifier) -> Result<()> {
         for name in [ENDPOINT_DIRECTORY, "terminal-home"] {
@@ -226,11 +217,18 @@ impl PrivateDirectory {
                 .await
         }
         .await;
-        // Do not return a client success or ordinary failure while a tracked
-        // permission child lacks original wait confirmation.
+        // Never return while a permission helper child may still be running. If it cannot
+        // be confirmed closed within about 30 s, exit instead of waiting forever.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             match preparation.shutdown_confirmed().await {
                 Ok(_proof) => break,
+                Err(error) if std::time::Instant::now() >= deadline => {
+                    eprintln!(
+                        "permission helper could not be confirmed closed: {error:#}; exiting"
+                    );
+                    std::process::exit(1);
+                }
                 Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
             }
         }

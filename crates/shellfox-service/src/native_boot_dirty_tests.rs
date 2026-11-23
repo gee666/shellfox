@@ -93,12 +93,10 @@ async fn guard_clean_resources_preserve_actor_dirty_warning_after_go_cleanup() {
         .cleanup()
         .await
         .expect("same original scope confirms cleanup");
-    #[cfg(windows)]
     assert!(!data.path().join("rust-service-v1/endpoint.json").exists());
-    #[cfg(unix)]
     assert_eq!(
         guard.endpoint_report().artifact_disposition(),
-        crate::EndpointArtifactDisposition::Preserved
+        crate::EndpointArtifactDisposition::Deleted
     );
     let verified = VerifiedHelper::new(path, digest).unwrap();
     let mut again = HostOwnership::acquire(&verified, &directory)

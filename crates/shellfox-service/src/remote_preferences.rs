@@ -66,6 +66,6 @@ impl RemoteBackend {
         preferences: RemotePreferences,
     ) -> Result<(), AppError> {
         // Visible publication only; this is not a durable approval commit.
-        self.preferences.write(preferences).map(|_durability| ())
+        self.preferences.write(preferences)
     }
 }

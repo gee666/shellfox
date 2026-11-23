@@ -294,7 +294,7 @@ async fn native_preference_leaf_roundtrip_does_not_initialize_journal_or_uploads
         hostname: "saved-offline".into(),
         peers: Vec::new(),
     };
-    let _actual_durability = store.write(value).unwrap();
+    store.write(value).unwrap();
     assert_eq!(store.read().unwrap().unwrap().hostname, "saved-offline");
     let saved =
         std::fs::read_to_string(metadata.control_path().join("remote-settings-v1.json")).unwrap();
@@ -306,7 +306,6 @@ async fn native_preference_leaf_roundtrip_does_not_initialize_journal_or_uploads
         .join("file-transfer-journal")
         .exists());
     assert!(!metadata.control_path().join("terminal-uploads").exists());
-    store.preserve_retained().unwrap();
 }
 #[tokio::test]
 async fn preference_read_checks_current_ownership_not_only_native_mutation_fence() {
@@ -330,5 +329,4 @@ async fn preference_read_checks_current_ownership_not_only_native_mutation_fence
         std::fs::read(metadata.control_path().join("remote-settings-v1.json")).unwrap(),
         before
     );
-    store.preserve_retained().unwrap();
 }

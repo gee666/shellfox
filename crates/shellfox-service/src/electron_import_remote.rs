@@ -15,7 +15,7 @@ const PREFERENCES: &str = "remote-settings-v1.json";
 const NETWORK: &str = "go-network";
 const NODE_STATE: &str = "tailscaled.state";
 // Real node states are a few KiB; this is the private-publication ceiling.
-const NODE_STATE_LIMIT: u64 = shellfox_files::PRIVATE_METADATA_MAX_BYTES as u64;
+const NODE_STATE_LIMIT: u64 = shellfox_files::private::MAX_BYTES as u64;
 
 #[derive(Deserialize)]
 pub(super) struct RemoteFile {
@@ -195,8 +195,8 @@ pub(super) fn adopt_node(
         Some(network) => network,
         None => {
             let parent = control.try_clone()?.into_std_file();
-            shellfox_files::create_private_directory_at(&parent, NETWORK.as_ref())
-                .map_err(|failure| anyhow::anyhow!("Could not create {NETWORK}: {failure:?}"))?;
+            shellfox_files::private::create_dir(&parent, NETWORK.as_ref())
+                .map_err(|error| anyhow::anyhow!("Could not create {NETWORK}: {error}"))?;
             open_dir(control, NETWORK)?.context("Network directory vanished")?
         }
     };
@@ -218,7 +218,7 @@ pub(super) fn adopt_node(
         Ok(Some(current)) if !has_identity(&current) && is_object(&current) => {
             // The helper writes `{}` before enrollment. Replace only that exact version.
             let parent = leaf.try_clone()?.into_std_file();
-            match shellfox_files::bounded_private_read_at(
+            match shellfox_files::private::read(
                 &parent,
                 NODE_STATE.as_ref(),
                 NODE_STATE_LIMIT as usize,

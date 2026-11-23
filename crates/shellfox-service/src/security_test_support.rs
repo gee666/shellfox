@@ -35,7 +35,7 @@ impl PrivateDirectory {
         }
         .await;
         if result.is_err() {
-            private.creation_owner().preserve_stale()?;
+            private.creation_owner().release();
         }
         loop {
             match preparation.shutdown_confirmed().await {

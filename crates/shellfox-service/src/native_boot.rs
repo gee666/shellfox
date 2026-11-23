@@ -215,12 +215,6 @@ impl BootGuard {
                 .is_some_and(|record| record.address == listener.address()),
             "Endpoint address differs from retained listener"
         );
-        if self.endpoint.report().durability()
-            == Some(shellfox_files::PrivateDurability::Unconfirmed)
-        {
-            use std::io::Write as _;
-            let _ = writeln!(std::io::stderr().lock(), "Warning: ephemeral endpoint is visible and verified; directory durability is unconfirmed.");
-        }
         Ok(())
     }
     /// Samples actual owner health at handoff only. Consumers must preserve
@@ -281,9 +275,8 @@ impl BootGuard {
             #[cfg(unix)]
             self.endpoint.preserve_socket(address);
         }
-        // Explicit persistent/stale filesystem disposition is not proof of
-        // native child exit. Original parent/ID evidence remains retained.
-        self.private.creation_owner().preserve_stale()?;
+        // Unpin created directories; the directories themselves stay.
+        self.private.creation_owner().release();
         // SAME pre-effect scope, independent of acquisition phase or facade moves.
         let _proof = self.preparation.cleanup().await?;
         Ok(())

@@ -159,7 +159,7 @@ impl HostRoot {
         );
         for (a, b) in self.anchors.iter().zip(&current.anchors) {
             if let Some(created) = &a.created {
-                created.verify_binding()?;
+                created.verify()?;
             }
             ensure!(
                 same(&a.identity, &a.handle.dir_metadata()?) && same(&a.identity, &b.identity),
@@ -208,7 +208,7 @@ impl HostRoot {
         };
         let parent = parent.handle.try_clone()?.into_std_file();
         let original = root.handle.try_clone()?.into_std_file();
-        shellfox_files::repair_app_directory_at(
+        shellfox_files::private::repair_app_dir(
             &parent,
             self.path
                 .file_name()
@@ -238,28 +238,19 @@ impl HostRoot {
         }
         self.revalidate()
     }
-    pub fn bind_native_parent(
-        &self,
-        issuer: &Arc<shellfox_files::FileService>,
-        fence: Arc<dyn shellfox_files::NativeCommitFence>,
-    ) -> Result<shellfox_files::NativeChildIssuer> {
-        private::bind_parent(self, issuer, fence)
-    }
     pub fn bind_native_control(
         &self,
-        issuer: &Arc<shellfox_files::FileService>,
-        parent: &shellfox_files::NativeChildIssuer,
         fence: Arc<dyn shellfox_files::NativeCommitFence>,
         name: &str,
     ) -> Result<Arc<shellfox_files::FileService>> {
-        private::bind_control(self, issuer, parent, fence, name)
+        private::bind_control(self, fence, name)
     }
     pub fn read_private_child_leaf(
         &self,
         child_name: &str,
         leaf: &std::ffi::OsStr,
         max: usize,
-    ) -> Result<shellfox_files::PrivateRead> {
+    ) -> Result<shellfox_files::private::PrivateRead> {
         self.revalidate()?;
         let mut children = self
             .children
@@ -278,12 +269,8 @@ impl HostRoot {
                 .handle
                 .try_clone()?
                 .into_std_file();
-            let record = shellfox_files::open_existing_private_at(
-                &parent,
-                std::ffi::OsStr::new(child_name),
-                shellfox_files::PrivateKind::Directory,
-                shellfox_files::PrivateAccess::ReadOnly,
-            )?;
+            let record =
+                shellfox_files::private::open_dir(&parent, std::ffi::OsStr::new(child_name))?;
             children.push(private::Child {
                 name: child_name.to_owned(),
                 record: private::DirectoryRecord::Existing(record),
@@ -293,9 +280,9 @@ impl HostRoot {
             .iter()
             .find(|child| child.name == child_name)
             .context("Missing original child")?;
-        child.record.verify_binding()?;
-        let read = shellfox_files::bounded_private_read_at(&child.record.clone_file()?, leaf, max)?;
-        child.record.verify_binding()?;
+        child.record.verify()?;
+        let read = shellfox_files::private::read(&child.record.clone_file()?, leaf, max)?;
+        child.record.verify()?;
         self.revalidate()?;
         Ok(read)
     }
@@ -310,9 +297,9 @@ impl HostRoot {
             .iter()
             .find(|child| child.name == name)
             .context("Original private child missing")?;
-        child.record.verify_binding()?;
+        child.record.verify()?;
         let file = child.record.clone_file()?;
-        child.record.verify_binding()?;
+        child.record.verify()?;
         self.revalidate()?;
         Ok(file)
     }
@@ -328,7 +315,7 @@ impl HostRoot {
             .lock()
             .map_err(|_| anyhow::anyhow!("Private child retention poisoned"))?;
         if let Some(child) = children.iter().find(|child| child.name == name) {
-            child.record.verify_binding()?;
+            child.record.verify()?;
             return self.revalidate();
         }
         ensure!(
