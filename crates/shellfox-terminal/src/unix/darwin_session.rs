@@ -41,6 +41,11 @@ impl std::fmt::Debug for PtySession {
 }
 
 impl PtySession {
+    /// Read-only session-member evidence for stats; None once stopping.
+    pub(crate) fn darwin_inspection(&self) -> Option<super::darwin_process::Inspection> {
+        self.inner.as_ref().filter(|state| !state.stopping)?.leader.inspection()
+    }
+
     pub fn spawn(config: PtyConfig) -> std::result::Result<Self, SpawnError> {
         Self::spawn_inner(config, None)
     }

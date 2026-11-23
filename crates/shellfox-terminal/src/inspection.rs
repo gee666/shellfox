@@ -69,7 +69,10 @@ pub struct InspectionCapability(std::sync::Arc<windows::OwnedInspection>);
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
 pub struct InspectionCapability(pub(crate) std::sync::Arc<crate::unix::linux::inspection::OwnedInspection>);
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+pub struct InspectionCapability(pub(crate) std::sync::Arc<crate::unix::darwin_process::Inspection>);
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 #[derive(Clone)]
 pub struct InspectionCapability {
     _private: (),
@@ -85,11 +88,11 @@ impl InspectionCapability {
     /// Blocking read-only collection. Run on a bounded inspection worker, never
     /// on the terminal parser/PTY polling or service typing path.
     pub fn capture(&self) -> Result<RawOwnedEvidence, InspectionFailure> {
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         {
             self.0.capture()
         }
-        #[cfg(not(any(windows, target_os = "linux")))]
+        #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
         {
             Err(InspectionFailure::Unsupported)
         }
@@ -116,7 +119,13 @@ impl crate::PtySession {
                 .and_then(|inner| inner.inspection.clone())
                 .ok_or(InspectionFailure::Unavailable)
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        {
+            self.darwin_inspection()
+                .map(|inspection| InspectionCapability(std::sync::Arc::new(inspection)))
+                .ok_or(InspectionFailure::Unavailable)
+        }
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             Err(InspectionFailure::Unsupported)
         }

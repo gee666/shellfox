@@ -7,7 +7,7 @@ mod cgroup;
 #[cfg(target_os = "macos")]
 mod darwin_io;
 #[cfg(target_os = "macos")]
-mod darwin_process;
+pub(crate) mod darwin_process;
 #[cfg(target_os = "macos")]
 pub(crate) mod darwin_session;
 #[cfg(any(target_os = "linux", target_os = "macos"))]

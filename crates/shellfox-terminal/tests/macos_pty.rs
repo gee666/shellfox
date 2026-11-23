@@ -221,3 +221,32 @@ fn rejects_set_id_executable_before_spawn() {
     assert!(error.to_string().contains("setuid/setgid"));
     assert!(error.take_session().is_none());
 }
+
+#[test]
+fn stats_capture_sees_the_shell_and_its_child_in_its_own_session_only() {
+    let scratch = Scratch::new();
+    let config = scratch.config(Path::new("/bin/sh"), &["-c", "sleep 30 & printf 'KIDS\n'; wait"]);
+    let mut session = PtySession::spawn(config).unwrap();
+    let mut data = Vec::new();
+    until(|| {
+        drain(&session, &mut data);
+        String::from_utf8_lossy(&data).contains("KIDS")
+    });
+    // An unrelated process of this user, outside the session, is never reported.
+    let mut outsider = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+    let capability = session.inspection_capability().unwrap();
+    let mut evidence = capability.capture().unwrap();
+    until(|| {
+        evidence = capability.capture().unwrap();
+        evidence.processes.len() >= 2
+    });
+    assert!(evidence.root_alive);
+    let root = evidence.processes.iter().find(|p| p.is_root).unwrap();
+    assert!(root.memory_bytes.is_some_and(|m| m > 0) && root.started_ms.is_some());
+    assert!(evidence.processes.iter().any(|p| p.parent_pid == Some(root.identity.pid)));
+    assert!(evidence.processes.iter().all(|p| p.identity.pid != outsider.id()));
+    assert!(evidence.processes.iter().all(|p| p.executable.is_none() && p.argv.is_none()));
+    let _ = outsider.kill();
+    let _ = outsider.wait();
+    session.shutdown().unwrap();
+}
