@@ -22,10 +22,10 @@ pub trait AppHostBackend: Send + Sync + 'static {
 pub struct AttachedBackend {
     pub(super) config: HostEndpointConfig,
     pub(super) runtime: crate::host_client::attached::AttachedRuntime,
-    pub(super) owner: shellfox_service::desktop_launch::LaunchOwnerFence,
+    pub(super) route: crate::host_process::Route,
     /// A desktop-started host: Quit confirms and stops it with its shells.
     /// Otherwise (`host run`) closing the desktop only detaches.
-    pub(super) owned: bool,
+    pub(super) owned: std::sync::atomic::AtomicBool,
 }
 /// One local request on a reactor of its own; GPUI futures have no Tokio reactor.
 async fn with_local<T: Send + 'static>(
@@ -45,14 +45,20 @@ async fn with_local<T: Send + 'static>(
     })?;
     result.await.map_err(|_| anyhow::anyhow!("Host control thread ended."))?
 }
+impl AttachedBackend {
+    pub(super) fn owned(&self) -> bool {
+        self.owned.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
 impl AppHostBackend for AttachedBackend {
     type Client = HostClient;
     fn owned_terminal_count(&self) -> HostFuture<'_, usize> {
         Box::pin(async {
             // A desktop attached to `host run` owns no shell.
-            if !self.owned {
+            if !self.owned() {
                 return Ok(0);
             }
+            self.route.get().await?;
             with_local(&self.config, async |client| {
                 match client.request(&shellfox_service::local::DesktopRequest::Status).await? {
                     shellfox_service::local::DesktopReply::Status(status) => Ok(status.active_terminals),
@@ -63,14 +69,17 @@ impl AppHostBackend for AttachedBackend {
         })
     }
     fn fork_window(&self) -> HostFuture<'_, HostClient> {
-        Box::pin(async { Ok(HostClient::attached(self.runtime.connect(self.config.clone(), self.owner).await?)) })
+        Box::pin(async {
+            let owner = self.route.get().await?.info.owner;
+            Ok(HostClient::attached(self.runtime.connect(self.config.clone(), owner).await?))
+        })
     }
     fn detach_window<'a>(&'a self, client: &'a HostClient) -> HostFuture<'a, ()> {
         Box::pin(client.close_window_client())
     }
     fn stop(&self) -> HostFuture<'_, ()> {
         Box::pin(async {
-            if !self.owned {
+            if !self.owned() || self.route.get().await.is_err() {
                 return Ok(());
             }
             crate::host_process::announce_quit();

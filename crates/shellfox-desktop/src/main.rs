@@ -145,11 +145,6 @@ fn main() -> Result<()> {
         trace_ui_init(trace, "frontend.prepare begin");
         frontend.prepare()?;
         trace_ui_init(trace, "frontend.prepare returned");
-        if let Some(fence) = owner.as_ref().and_then(|owner| owner.owned_by)
-            && let Err(error) = host_process::record_owner(&options.desktop_dir, fence)
-        {
-            eprintln!("Shellfox host ownership not recorded: {error:#}");
-        }
         trace_ui_init(trace, "device.prepare begin");
         let device_colors = device_prefs::prepare(&options, &mut frontend)?;
         trace_ui_init(trace, "device.prepare returned");
@@ -164,16 +159,7 @@ fn main() -> Result<()> {
                 }
             },
         );
-        let chrome = owner.as_ref().filter(|_| !options.ui_acceptance).and_then(|owner| {
-            let result = (|| -> Result<_> {
-                let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-                runtime.block_on(async {
-                    Ok(startup_chrome::StartupChrome::read(owner.host.chrome_client().await?).await)
-                })
-            })();
-            result.inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}")).ok()
-        });
-        run_graphics(options, owner.as_ref(), device_colors, editors, trace, updater.clone(), chrome)
+        run_graphics(options, owner.as_ref(), device_colors, editors, trace, updater.clone())
     }));
     let preserved = frontend.preserve();
     if let Some(owner) = &owner {
@@ -234,7 +220,6 @@ fn run_graphics(
     editors: editor_composition::EditorOutcome,
     trace: bool,
     updater: Option<std::sync::Arc<update::Updater>>,
-    chrome: Option<startup_chrome::StartupChrome>,
 ) -> Result<()> {
     let retained = owner.map(|owner| (owner.config.clone(), owner.host.clone()));
     let errors = app_startup::InitErrors(std::rc::Rc::new(std::cell::RefCell::new(None)));
@@ -252,12 +237,27 @@ fn run_graphics(
             layout_shortcuts::bind_keys(cx);
             #[cfg(target_os = "macos")]
             app_menu::install(cx);
-            if let Some(chrome) = chrome { chrome.install(cx); }
             if let Some(updater) = updater {
                 cx.set_global(update_view::Updates(updater));
             }
             trace_ui_init(trace, "prestarted adapter install begin");
             if let Some((config, host)) = retained {
+                trace_ui_init(trace, "host wait begin");
+                match app_startup::ready(&host, &config, &options) {
+                    Ok(app_startup::Ready::Attach(chrome)) => {
+                        if let Some(chrome) = chrome { chrome.install(cx); }
+                    }
+                    Ok(app_startup::Ready::Forwarded) => {
+                        cx.quit();
+                        return;
+                    }
+                    Err(error) => {
+                        app_startup::record_init_failure(error, cx);
+                        cx.quit();
+                        return;
+                    }
+                }
+                trace_ui_init(trace, "host wait returned");
                 if let Err(error) = app_host::adapter::install_prestarted(cx, config.clone(), &host) {
                     app_startup::record_init_failure(error, cx);
                     cx.quit();

@@ -6,7 +6,10 @@ use crate::{
     options::{Mode, Options},
 };
 use anyhow::{Context, Result};
-use shellfox_service::desktop_launch::{LaunchOwnerFence, LaunchRequestKind};
+use shellfox_service::{
+    desktop_launch::{LaunchRequestKind, LaunchRouteInfo},
+    local::LocalClient,
+};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -32,9 +35,6 @@ pub(crate) enum Startup {
 pub(crate) struct Prestarted {
     pub config: HostEndpointConfig,
     pub host: AppHost,
-    /// The desktop-started host this UI stops on Quit, recorded once the
-    /// desktop directory exists.
-    pub owned_by: Option<LaunchOwnerFence>,
 }
 
 pub(crate) fn prepare(options: &Options) -> Result<Startup> {
@@ -57,25 +57,72 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
         &config.helper,
         config.helper_sha256,
     ))?;
-    let connected = crate::host_process::connect_or_start(&runtime, &options.relaunch_args, &options.application_args, &config)?;
-    let route = connected.route;
+    let Some(running) = crate::host_process::find_running(&runtime, &config) else {
+        // The host boots while the UI initializes; windows wait for it.
+        let route = crate::host_process::start_in_background(
+            options.relaunch_args.clone(),
+            options.application_args.clone(),
+            config.clone(),
+        )?;
+        let host = AppHost::attached(config.clone(), route, true)?;
+        return Ok(Startup::Graphical(Some(Prestarted { config, host })));
+    };
+    let route = running.route;
     if route.desktop_registered {
         // Another window process owns the UI: hand this launch to it.
-        runtime
-            .block_on(connected.client.launch_existing_pinned(options.launch.clone(), LaunchRequestKind::Fresh, route.owner))
-            .context("The running Shellfox did not accept this launch")?;
+        handoff(&runtime, &running.client, options, route)?;
         return Ok(Startup::Forwarded);
     }
-    let _ = runtime.block_on(connected.client.disconnect());
-    let owned = connected.started
-        || options.owned_host
-        || crate::host_process::recorded_owner(&options.desktop_dir) == Some(route.owner);
-    let host = AppHost::attached(config.clone(), route.owner, owned)?;
-    Ok(Startup::Graphical(Some(Prestarted {
-        config,
-        host,
-        owned_by: owned.then_some(route.owner),
-    })))
+    let _ = runtime.block_on(running.client.disconnect());
+    let owned = options.owned_host || recorded(options, route);
+    let route = crate::host_process::Route::known(crate::host_process::HostRoute { info: route, started: false });
+    let host = AppHost::attached(config.clone(), route, owned)?;
+    Ok(Startup::Graphical(Some(Prestarted { config, host })))
+}
+
+fn recorded(options: &Options, route: LaunchRouteInfo) -> bool {
+    crate::host_process::recorded_owner(&options.desktop_dir) == Some(route.owner)
+}
+
+fn handoff(runtime: &tokio::runtime::Runtime, client: &LocalClient, options: &Options, route: LaunchRouteInfo) -> Result<()> {
+    runtime
+        .block_on(client.launch_existing_pinned(options.launch.clone(), LaunchRequestKind::Fresh, route.owner))
+        .context("The running Shellfox did not accept this launch")?;
+    Ok(())
+}
+
+pub(crate) enum Ready {
+    Attach(Option<crate::startup_chrome::StartupChrome>),
+    /// A concurrent launch's UI owns the host it started.
+    Forwarded,
+}
+/// Waits for the host before any window opens, then reads the window chrome.
+/// Records a desktop-started host so a reattached UI stops it on Quit.
+pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Options) -> Result<Ready> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let route = runtime.block_on(host.route())?;
+    if !route.started {
+        if route.info.desktop_registered {
+            let client = runtime.block_on(LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256))?;
+            handoff(&runtime, &client, options, route.info)?;
+            let _ = runtime.block_on(client.disconnect());
+            host.host_ended();
+            return Ok(Ready::Forwarded);
+        }
+        host.set_owned(options.owned_host || recorded(options, route.info));
+    }
+    if !host.is_external()
+        && let Err(error) = crate::host_process::record_owner(&options.desktop_dir, route.info.owner)
+    {
+        eprintln!("Shellfox host ownership not recorded: {error:#}");
+    }
+    if options.ui_acceptance {
+        return Ok(Ready::Attach(None));
+    }
+    let chrome = runtime.block_on(async {
+        anyhow::Ok(crate::startup_chrome::StartupChrome::read(host.chrome_client().await?).await)
+    });
+    Ok(Ready::Attach(chrome.inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}")).ok()))
 }
 impl Prestarted {
     /// Called outside Application.run, including after installation/GPU failure.

@@ -18,42 +18,85 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use tokio::sync::watch;
 
 /// Write end of the started host's stdin, kept open for this process's life.
 static STARTED: Mutex<Option<ChildStdin>> = Mutex::new(None);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 const OWNER_MARKER: &str = "desktop-host-owner";
 
-pub(crate) struct Connected {
+pub(crate) struct Running {
     pub client: LocalClient,
     pub route: LaunchRouteInfo,
+}
+
+/// The host as the startup thread found it once it answered.
+#[derive(Clone, Copy)]
+pub(crate) struct HostRoute {
+    pub info: LaunchRouteInfo,
     /// This UI started the host, so its Quit stops it.
     pub started: bool,
 }
+/// Becomes known once the host answers. Windows wait on it before attaching.
+#[derive(Clone)]
+pub(crate) struct Route(watch::Receiver<Option<Result<HostRoute, String>>>);
+impl Route {
+    pub fn known(route: HostRoute) -> Self {
+        Self(watch::channel(Some(Ok(route))).1)
+    }
+    pub async fn get(&self) -> Result<HostRoute> {
+        let mut route = self.0.clone();
+        let known = route.wait_for(Option::is_some).await.map_err(|_| anyhow::anyhow!("Host startup ended."))?;
+        known.clone().context("Host route missing")?.map_err(anyhow::Error::msg)
+    }
+}
 
-/// Attach to the data directory's host, starting one if none answers. A host
-/// started by a concurrent launch wins the directory lock; ours then exits.
-pub(crate) fn connect_or_start(
+/// The data directory's host, if one answers now.
+pub(crate) fn find_running(runtime: &tokio::runtime::Runtime, config: &HostEndpointConfig) -> Option<Running> {
+    runtime.block_on(discover(config)).ok().map(|(client, route)| Running { client, route })
+}
+
+/// Starts a host on its own thread, so the UI can initialize meanwhile. A host
+/// started by a concurrent launch wins the directory lock; ours then exits and
+/// the route names the winner.
+pub(crate) fn start_in_background(
+    relaunch_args: Vec<OsString>,
+    application_args: Vec<OsString>,
+    config: HostEndpointConfig,
+) -> Result<Route> {
+    let (sender, route) = watch::channel(None);
+    std::thread::Builder::new().name("shellfox-host-start".into()).spawn(move || {
+        let found = (|| {
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+            let (client, info, started) = start_and_discover(&runtime, &relaunch_args, &application_args, &config)?;
+            let _ = runtime.block_on(client.disconnect());
+            anyhow::Ok(HostRoute { info, started })
+        })();
+        let _ = sender.send(Some(found.map_err(|error| format!("{error:#}"))));
+    })?;
+    Ok(Route(route))
+}
+
+fn start_and_discover(
     runtime: &tokio::runtime::Runtime,
     relaunch_args: &[OsString],
     application_args: &[OsString],
     config: &HostEndpointConfig,
-) -> Result<Connected> {
+) -> Result<(LocalClient, LaunchRouteInfo, bool)> {
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut started = false;
     loop {
-        let attempt = runtime.block_on(discover(config));
-        let error = match attempt {
-            Ok((client, route)) => return Ok(Connected { client, route, started }),
-            Err(error) => error,
-        };
-        if started || Instant::now() >= deadline {
-            return Err(error.context("The Shellfox host did not answer"));
-        }
         match start(relaunch_args, application_args, config) {
             Ok(()) => started = true,
             Err(error) if Instant::now() >= deadline => return Err(error),
             Err(_) => std::thread::sleep(Duration::from_millis(100)),
+        }
+        match runtime.block_on(discover(config)) {
+            Ok((client, route)) => return Ok((client, route, started)),
+            Err(error) if started || Instant::now() >= deadline => {
+                return Err(error.context("The Shellfox host did not answer"));
+            }
+            Err(_) => {}
         }
     }
 }

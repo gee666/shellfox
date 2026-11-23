@@ -63,15 +63,23 @@ impl<B: AppHostBackend> Clone for AppHost<B> {
 impl AppHost {
     pub(crate) fn attached(
         config: crate::host_client::HostEndpointConfig,
-        owner: shellfox_service::desktop_launch::LaunchOwnerFence,
+        route: crate::host_process::Route,
         owned: bool,
     ) -> Result<Self> {
         let runtime = crate::host_client::attached::AttachedRuntime::new()?;
-        Ok(Self::with_backend(AttachedBackend { config, owner, runtime, owned }))
+        let owned = owned.into();
+        Ok(Self::with_backend(AttachedBackend { config, route, runtime, owned }))
     }
     /// Attached to a host this desktop did not start, such as `host run`.
     pub(crate) fn is_external(&self) -> bool {
-        !self.shared.backend.owned
+        !self.shared.backend.owned()
+    }
+    /// Settled once a host started in the background answers.
+    pub(crate) fn set_owned(&self, owned: bool) {
+        self.shared.backend.owned.store(owned, std::sync::atomic::Ordering::SeqCst);
+    }
+    pub(crate) async fn route(&self) -> Result<crate::host_process::HostRoute> {
+        self.shared.backend.route.get().await
     }
 
     pub(crate) async fn chrome_client(&self) -> Result<crate::host_client::HostClient> {
