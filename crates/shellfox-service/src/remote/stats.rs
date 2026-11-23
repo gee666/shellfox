@@ -7,7 +7,7 @@ type Measured = anyhow::Result<Vec<wire::TabStat>>;
 /// Peer `getSessionStats` requests waiting for the tab-stats worker. Each one
 /// is dispatched again, authorized as usual, once its measurements arrive.
 #[derive(Default)]
-pub(super) struct PendingStats {
+pub(crate) struct PendingStats {
     waiting: Vec<(OwnerRequest, oneshot::Receiver<Measured>)>,
     /// Set only while a finished request is being dispatched.
     pub(super) measured: Option<Measured>,
