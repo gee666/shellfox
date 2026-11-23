@@ -24,7 +24,8 @@ pub struct PtySession {
 }
 
 struct State {
-    master: Box<dyn MasterPty + Send>,
+    /// Dropped during shutdown once the I/O threads have closed their copies.
+    master: Option<Box<dyn MasterPty + Send>>,
     leader: Leader,
     writer: InputWriter,
     output: OutputReader,
@@ -113,7 +114,7 @@ impl PtySession {
             }
         };
         let mut state = State {
-            master: pair.master,
+            master: Some(pair.master),
             leader: Leader::new(child, queue),
             writer,
             output,
@@ -174,7 +175,11 @@ impl PtySession {
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
         let state = self.inner.as_ref().context("PTY closed")?;
         ensure!(!state.stopping, "PTY resize disabled");
-        state.master.resize(size(cols, rows)?)
+        state
+            .master
+            .as_ref()
+            .context("PTY closed")?
+            .resize(size(cols, rows)?)
     }
 
     pub fn try_wait(&mut self) -> Result<Option<ExitStatus>> {
@@ -237,6 +242,12 @@ impl State {
             );
             if exited && writer && output {
                 break;
+            }
+            // An exiting process waits in its tty close until unread output
+            // drains, and SIGKILL can't interrupt that. The reader has stopped,
+            // so close the terminal: the last master fd disconnects the slave.
+            if writer && output {
+                self.master = None;
             }
             ensure!(
                 Instant::now() < deadline,
