@@ -2,6 +2,17 @@ name: Unix terminal ownership
 
 on:
   workflow_dispatch:
+  push:
+    branches: [experiment/ghostty-rust]
+    paths:
+      - 'crates/shellfox-terminal/**'
+      - 'src/main/terminal/native/darwin-terminal-supervisor.c'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'rust-toolchain.toml'
+      - 'scripts/darwin-supervisor-model-test.mjs'
+      - 'src/main/terminal/native/tests/darwin-supervisor-model.c'
+      - '.github/workflows/unix-terminal-native.yml'
   pull_request:
     paths:
       - 'crates/shellfox-terminal/**'
