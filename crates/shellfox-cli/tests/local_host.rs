@@ -2,6 +2,8 @@
 #[path = "../../test_dev_helper.rs"]
 mod dev_helper;
 mod support;
+#[path = "support/settings.rs"]
+mod settings;
 use support::OwnedHost;
 
 use anyhow::{bail, ensure, Context, Result};
@@ -93,7 +95,7 @@ async fn exercise(
         }
     };
     let cli = Path::new(env!("CARGO_BIN_EXE_shellfox-cli"));
-    let saved = support::settings(
+    let saved = settings::settings(
         cli,
         data,
         helper,
@@ -104,7 +106,7 @@ async fn exercise(
         saved.history_page_size == 17,
         "CLI did not save full global settings."
     );
-    let loaded = support::settings(cli, data, helper, digest, &["settings", "read", "--json"])?;
+    let loaded = settings::settings(cli, data, helper, digest, &["settings", "read", "--json"])?;
     ensure!(
         loaded == saved,
         "CLI settings read did not return the committed global settings."
