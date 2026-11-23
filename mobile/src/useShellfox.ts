@@ -4,7 +4,7 @@ import { isAttachmentPickerOpen } from './attachment-picker-lifecycle';
 import { v4 as uuid } from 'uuid';
 import type { ManagerSnapshot } from '../../src/shared/contracts';
 import type { HostClient, ClientState } from './client/host-client';
-import { createNativeV1Client } from './rust-client/create-v1-client';
+import { createNativeClient } from './rust-client/create-client';
 import { RemoteClientError } from './client/protocol';
 import { isConnectionFailure } from './connection-status';
 import { NetworkRecovery } from './network-recovery';
@@ -119,7 +119,7 @@ export function useShellfox(controlURL?: string) {
   const ensureClient = useCallback((peer: NetworkPeer) => {
     const found = clients.current.get(peer.id); if (found) return found.client;
     const options = { createClientId: uuid };
-    const client = createNativeV1Client(peer.id, options);
+    const client = createNativeClient(peer.id, options);
     const unsubState = client.subscribeState(state => {
       if (!alive.current) return;
       const denied = state.status === 'rejected' || state.status === 'awaiting-approval';

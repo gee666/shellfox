@@ -44,11 +44,11 @@ internal class ClientPollLane(
     call.done(id, null)
   }
   /**
-   * V1 reconnect and disconnect fence the whole native generation, so its
+   * Reconnect and disconnect fence the whole native generation, so its
    * outstanding poll and operations can't deliver anything any more. Don't wait
    * for them: their late completions no longer match and are ignored.
    */
-  fun prepareV1Fence() {
+  fun prepareFence() {
     operation = null
     mutations.clear()
     uncertain = null

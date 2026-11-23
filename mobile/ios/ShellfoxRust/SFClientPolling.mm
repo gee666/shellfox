@@ -24,11 +24,11 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   if (!client || client.closing) { done(nil, SFM_STALE); return; }
   // Reconnect fences the whole generation in Rust, so it never waits for the
   // outstanding poll or operations. Unbind is local, so a failed poll can't hold it.
-  BOOL reconnect = admission == SFClientAdmissionV1Reconnect;
-  if (reconnect || (client.pollFailure != SFM_OK && admission == SFClientAdmissionV1RetireView)) {
+  BOOL reconnect = admission == SFClientAdmissionReconnect;
+  if (reconnect || (client.pollFailure != SFM_OK && admission == SFClientAdmissionRetireView)) {
     SfmStatus status = SFM_OK;
     id value = RunWork(client, work, &status);
-    if (status == SFM_OK && reconnect) [self fenceV1Generation:client keeping:value];
+    if (status == SFM_OK && reconnect) [self fenceGeneration:client keeping:value];
     done(value, status);
     return;
   }
@@ -52,7 +52,7 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
     call.done(value, status);
   }
 }
-- (void)fenceV1Generation:(SFClientRecord *)client keeping:(id)operation {
+- (void)fenceGeneration:(SFClientRecord *)client keeping:(id)operation {
   // Late completions of the fenced poll and operations no longer match anything.
   client.pollOperation = nil;
   client.pollFailure = SFM_OK;

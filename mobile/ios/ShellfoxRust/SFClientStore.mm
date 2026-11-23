@@ -109,7 +109,7 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   uint64_t operation = 0;
   SfmStatus status = sfm_client_disconnect(client.handle, &operation);
   if (status == SFM_OK) {
-    [self fenceV1Generation:client keeping:nil];
+    [self fenceGeneration:client keeping:nil];
     client.disconnectOperation = SFDecimal(operation);
   }
   else if (status != SFM_BUSY) { client.disconnectFinished = YES; client.closeStatus = status; }

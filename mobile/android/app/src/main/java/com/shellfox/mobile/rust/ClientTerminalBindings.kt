@@ -66,10 +66,10 @@ internal object ClientTerminalBindings {
     client.filter.expect(operation)
     return operation
   }
-  fun afterPoll(module: Any, id: String, action: () -> String?, fenceV1: Boolean = false,
+  fun afterPoll(module: Any, id: String, action: () -> String?, fence: Boolean = false,
     done: (String?, Exception?) -> Unit) {
     val original = get(module, id)
-    if (fenceV1) original.poll.prepareV1Fence()
+    if (fence) original.poll.prepareFence()
     original.poll.submit({ check(get(module, id) === original); action() }, done)
     kick(original)
   }
@@ -77,7 +77,7 @@ internal object ClientTerminalBindings {
     val client = get(module, id)
     val change = { if (tab == null) unbind(module, id, terminal) else bind(module, id, tab, terminal); null }
     if (tab == null || !client.poll.failedPoll) {
-      // V1 bind only reserves a local parser.
+      // Binding only reserves a local parser.
       // An old parser can be released even after the carrier drops its poll.
       val error = try { change(); null } catch (cause: Exception) { cause }
       done(null, error)
@@ -163,7 +163,7 @@ internal object ClientTerminalBindings {
       return
     }
     client.closing = Closing(android.os.SystemClock.elapsedRealtime() + 3000, mutableListOf<(String?) -> Unit>().apply { if (done != null) add(done) })
-    client.poll.prepareV1Fence()
+    client.poll.prepareFence()
     client.poll.retire()
     if (client.failed) client.failed = false
     schedule(id, client, 0)

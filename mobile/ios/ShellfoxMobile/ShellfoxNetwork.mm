@@ -137,13 +137,6 @@ RCT_REMAP_METHOD(login,
   } resolve:resolve reject:reject];
 }
 
-RCT_REMAP_METHOD(peers,
-                 peersResolver:(RCTPromiseResolveBlock)resolve
-                 rejecter:(RCTPromiseRejectBlock)reject) {
-  [self submitDiscovery:^id(NSError **error) { return MobilePeers(error); }
-       resolve:resolve reject:reject];
-}
-
 RCT_REMAP_METHOD(hosts,
                  hostsResolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {

@@ -78,7 +78,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
       if (actual == SFM_OK) resolve(NSNull.null);
       else reject(@"RUST_CLOSE", @"Native terminal close failed.", nil);
     };
-    if (bound) [[SFClientStore shared] whenDrained:bound admission:SFClientAdmissionV1RetireView work:work done:done];
+    if (bound) [[SFClientStore shared] whenDrained:bound admission:SFClientAdmissionRetireView work:work done:done];
     else { SfmStatus actual = SFM_OK; id value = work(&actual); done(value, actual); }
     return nil;
   } resolve:^(id ignored) {} reject:reject];
@@ -183,7 +183,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 }
 - (void)start:(NSString *)identifier function:(SfmStatus (*)(SfmClientHandle, uint64_t *))function
       resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  SFClientAdmission admission = function == sfm_client_reconnect ? SFClientAdmissionV1Reconnect : SFClientAdmissionOrdinary;
+  SFClientAdmission admission = function == sfm_client_reconnect ? SFClientAdmissionReconnect : SFClientAdmissionOrdinary;
   [self afterPoll:identifier admission:admission work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
@@ -239,7 +239,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
 }
 - (void)unbindTerminal:(NSString *)identifier terminalHandle:(NSString *)terminalId
                resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self afterPoll:identifier admission:SFClientAdmissionV1RetireView work:^id(SfmStatus *status) {
+  [self afterPoll:identifier admission:SFClientAdmissionRetireView work:^id(SfmStatus *status) {
     if (![self ownedClient:identifier] || ![self ownsTerminal:terminalId]) { *status = SFM_STALE; return nil; }
     *status = [[SFClientStore shared] unbind:identifier terminal:terminalId];
     return nil;

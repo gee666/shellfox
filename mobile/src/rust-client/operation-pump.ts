@@ -9,7 +9,7 @@ export interface NativeClientEvents {
   onClientEvent(handler: (clientHandle: string) => void): { remove(): void };
 }
 
-/** V1 adapter. Its strict DTOs and default behavior remain unchanged. */
+/** Reads the native client's coarse operation results. */
 export class OperationPump extends CoarseOperations<NativeOperation> {
   constructor(readonly remote: RustRemoteClient, events: NativeClientEvents,
     observe: (event: NativeOperation) => void, failed: (error: Error) => void,

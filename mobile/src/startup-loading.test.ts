@@ -18,9 +18,9 @@ vi.mock('react-native', () => ({
 vi.mock('./network', () => ({
   nativeNetwork: { start: native.start }, networkStatus: native.status, discoverHosts: native.hosts,
 }));
-vi.mock('./rust-client/create-v1-client', async () => {
+vi.mock('./rust-client/create-client', async () => {
   const { RemoteClient } = await import('./client/client');
-  return { createNativeV1Client: (peerId: string, options: import('./client/host-client').RemoteClientOptions) =>
+  return { createNativeClient: (peerId: string, options: import('./client/host-client').RemoteClientOptions) =>
     new RemoteClient(peerId, { request: native.request }, options) };
 });
 vi.mock('./preferences', () => ({

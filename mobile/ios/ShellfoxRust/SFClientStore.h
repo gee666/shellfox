@@ -7,8 +7,8 @@ typedef id (^SFClientDeferredWork)(SfmStatus *status);
 typedef void (^SFClientDeferredDone)(id value, SfmStatus status);
 typedef NS_ENUM(NSUInteger, SFClientAdmission) {
   SFClientAdmissionOrdinary,
-  SFClientAdmissionV1RetireView,
-  SFClientAdmissionV1Reconnect,
+  SFClientAdmissionRetireView,
+  SFClientAdmissionReconnect,
 };
 @class SFClientDeferredCall;
 @interface SFClientRecord : NSObject
@@ -62,7 +62,7 @@ typedef NS_ENUM(NSUInteger, SFClientAdmission) {
               work:(SFClientDeferredWork)work done:(SFClientDeferredDone)done;
 - (void)drainClient:(SFClientRecord *)client;
 - (void)retirePending:(SFClientRecord *)client;
-- (void)fenceV1Generation:(SFClientRecord *)client keeping:(id)operation;
+- (void)fenceGeneration:(SFClientRecord *)client keeping:(id)operation;
 - (void)completed:(NSDictionary *)event client:(SFClientRecord *)client;
 - (BOOL)shouldForward:(id)event client:(SFClientRecord *)client;
 @end

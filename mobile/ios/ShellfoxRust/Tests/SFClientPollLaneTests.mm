@@ -47,7 +47,7 @@
   store.fixture = [SFClientRecord new];
   store.fixture.polling = YES;
   store.fixture.pollOperation = @"19";
-  [store whenDrained:@"1" admission:SFClientAdmissionV1Reconnect work:^id(SfmStatus *status) {
+  [store whenDrained:@"1" admission:SFClientAdmissionReconnect work:^id(SfmStatus *status) {
     return @"20";
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
   XCTAssertNil(store.fixture.pollOperation);
@@ -55,28 +55,28 @@
   [store completed:@{@"operationId": @"19", @"status": @(SFM_CLIENT_CANCELLED)} client:store.fixture];
   XCTAssertEqual(store.fixture.pollFailure, SFM_OK);
 }
-- (void)testFailedV1PollAllowsOnlyLocalRetirementAndAcceptedReconnectFence {
+- (void)testFailedPollAllowsOnlyLocalRetirementAndAcceptedReconnectFence {
   SFPollFixtureStore *store = [self storeWithFailedPoll];
   [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     XCTFail(@"Ordinary work entered an uncertain poll lane"); return nil;
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
 
   __block BOOL retired = NO;
-  [store whenDrained:@"1" admission:SFClientAdmissionV1RetireView work:^id(SfmStatus *status) {
+  [store whenDrained:@"1" admission:SFClientAdmissionRetireView work:^id(SfmStatus *status) {
     retired = YES; return nil;
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
   XCTAssertTrue(retired);
   XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
   XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
 
-  [store whenDrained:@"1" admission:SFClientAdmissionV1Reconnect work:^id(SfmStatus *status) {
+  [store whenDrained:@"1" admission:SFClientAdmissionReconnect work:^id(SfmStatus *status) {
     *status = SFM_BUSY; return nil;
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_BUSY); }];
   XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
   XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
 
   NSUInteger oldEpoch = store.fixture.authorityEpoch;
-  [store whenDrained:@"1" admission:SFClientAdmissionV1Reconnect work:^id(SfmStatus *status) {
+  [store whenDrained:@"1" admission:SFClientAdmissionReconnect work:^id(SfmStatus *status) {
     return @"20";
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
   XCTAssertNil(store.fixture.pollOperation);

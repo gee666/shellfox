@@ -46,7 +46,7 @@ class ClientPollLaneTest {
   }
   @Test fun reconnectDoesNotWaitForTheFencedLongPoll() {
     val f = Fixture(); f.tick(); var reconnected = false
-    f.lane.prepareV1Fence()
+    f.lane.prepareFence()
     f.lane.submit({ reconnected = true; "reconnect" }) { _, error -> assertNull(error) }
     f.tick(); assertTrue(reconnected); assertTrue(f.lane.operation == null)
     f.lane.complete("poll-1", 3, false) // the fenced poll's late result
@@ -62,10 +62,10 @@ class ClientPollLaneTest {
     assertFalse(admitted); assertTrue(failed); assertFalse(f.lane.drained)
     assertEquals("poll-1", f.lane.operation); assertEquals(1, f.starts)
   }
-  @Test fun v1GenerationFenceCanReconnectAfterAFailedPoll() {
+  @Test fun generationFenceCanReconnectAfterAFailedPoll() {
     val f = Fixture(); f.tick()
     f.lane.complete("poll-1", 5, false)
-    f.lane.prepareV1Fence()
+    f.lane.prepareFence()
     f.lane.submit({ "reconnect" }) { id, error -> assertNull(error); assertEquals("reconnect", id) }
     f.tick(); assertEquals(1, f.starts)
     f.lane.complete("reconnect", 0, true)

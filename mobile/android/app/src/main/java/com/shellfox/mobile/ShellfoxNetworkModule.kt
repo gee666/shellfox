@@ -100,9 +100,6 @@ class ShellfoxNetworkModule(context: ReactApplicationContext) : ReactContextBase
   }
 
   @ReactMethod
-  fun peers(promise: Promise) = submit(discovery, promise) { Mobile.peers() }
-
-  @ReactMethod
   fun hosts(promise: Promise) = submit(discovery, promise) { Mobile.hosts() }
 
   @ReactMethod

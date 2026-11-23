@@ -1,6 +1,6 @@
 # Rust-backed mobile presentation
 
-`useShellfox` uses the native V1 client on Android and iOS. `TerminalView`
+`useShellfox` uses the native Rust client on Android and iOS. `TerminalView`
 renders the Ghostty Fabric view on both platforms. The same screens handle
 sessions, files, settings and approval. Embedded Go owns authenticated tailnet
 transport. The factory checks the Rust module ABI, required methods and Fabric
@@ -37,13 +37,11 @@ perform bounded graceful disconnect before local destruction. Resume creates a
 fresh client identity; native generation fences and owner-thread reset prevent
 old callbacks from feeding or ACKing new recovery.
 
-## Recovery acceptance
+## Recovery
 
-The current native client can use the existing host's bounded ANSI transition
-contract. A host that cannot supply its negotiated terminal restore format must
-return UNSUPPORTED. The UI shows that failure and does not switch engines or
-invent restoration. Full-state recovery and native platform parity remain
-acceptance requirements, not claims established by source integration.
+The native client restores a terminal from the host's bounded ANSI snapshot. A
+host that cannot supply its restore format returns UNSUPPORTED; the UI shows
+that failure and does not invent a restoration.
 
 Run device checks for drawing, IME, selection, file links, resize and reconnect.
 JavaScript and C ABI fixtures do not exercise those platform interactions.

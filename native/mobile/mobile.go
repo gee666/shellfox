@@ -153,23 +153,6 @@ func Status() (string, error) {
 	return marshal(n.health.Status(ctx))
 }
 
-// Peers returns only untagged nodes owned by the signed-in user.
-func Peers() (string, error) {
-	n, err := current()
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(n.ctx, 5*time.Second)
-	defer cancel()
-	st, err := n.client.Status(ctx)
-	if err != nil {
-		return "", errors.New("Cannot read network peers")
-	}
-	return marshal(struct {
-		Peers []peer `json:"peers"`
-	}{ownPeers(st)})
-}
-
 // Stop cancels active requests and closes the node, retaining its identity.
 func Stop() error {
 	singleton.Lock()

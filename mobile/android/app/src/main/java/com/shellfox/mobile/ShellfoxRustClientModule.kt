@@ -49,7 +49,7 @@ class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfo
   override fun connect(clientHandle: String, promise: Promise) = run(promise) {
     ClientTerminalBindings.start(this, clientHandle, 0)
   }
-  override fun reconnect(clientHandle: String, promise: Promise) = afterPoll(clientHandle, promise, allowV1Fence = true) {
+  override fun reconnect(clientHandle: String, promise: Promise) = afterPoll(clientHandle, promise, allowFence = true) {
     ClientTerminalBindings.start(this, clientHandle, 1)
   }
   override fun poll(clientHandle: String, promise: Promise) = run(promise) {
@@ -83,12 +83,12 @@ class ShellfoxRustClientModule(context: ReactApplicationContext) : NativeShellfo
     if (stopped) promise.reject("RUST_STOPPED", "Native client is unavailable.")
     return stopped
   }
-  private fun afterPoll(client: String, promise: Promise, allowV1Fence: Boolean = false,
+  private fun afterPoll(client: String, promise: Promise, allowFence: Boolean = false,
     action: () -> String?) = admit(promise) { done ->
     ClientTerminalBindings.afterPoll(this, client, {
       if (stopped) throw NativeCallException(3)
       action()
-    }, allowV1Fence, done)
+    }, allowFence, done)
   }
   private fun admit(promise: Promise, enqueue: ((String?, Exception?) -> Unit) -> Unit) {
     if (unavailable(promise)) return

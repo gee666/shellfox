@@ -137,9 +137,6 @@ func TestStoppedAPIAndInvalidStart(t *testing.T) {
 	if status, err := Status(); err != nil || status != `{"status":"disabled","loginUrl":null,"error":null}` {
 		t.Fatalf("%s %v", status, err)
 	}
-	if _, err := Peers(); err == nil {
-		t.Fatal("stopped peers succeeded")
-	}
 	if err := Login(""); err == nil {
 		t.Fatal("stopped login succeeded")
 	}
