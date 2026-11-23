@@ -168,6 +168,11 @@ mod tests {
             ("shift-b", &ToggleFiles),
             ("shift-e", &ToggleFolders),
         ];
+        // Electron binds nothing to a lone Alt or Alt+Enter; both reach the terminal.
+        for stroke in ["alt", "alt-enter", "enter"] {
+            let stroke = Keystroke::parse(stroke).unwrap();
+            assert!(bindings().iter().all(|binding| binding.match_keystrokes(std::slice::from_ref(&stroke)).is_none()));
+        }
         for (binding, (chord, action)) in bindings().iter().zip(expected) {
             let stroke = Keystroke::parse(&format!("{primary}-{chord}")).unwrap();
             assert_eq!(binding.match_keystrokes(&[stroke]), Some(false), "{chord}");
