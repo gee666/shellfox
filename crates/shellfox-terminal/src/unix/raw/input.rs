@@ -48,8 +48,7 @@ impl Input {
                         Err(mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     };
-                    let result = write_all(&mut writer, &request.bytes, &stopping)
-                        .map_err(StdinFailure::from_io);
+                    let result = write_all(&mut writer, &request.bytes, &stopping, &failed);
                     if request.eof || result.is_err() {
                         let terminal = result
                             .as_ref()
@@ -123,19 +122,32 @@ impl Input {
         Ok(true)
     }
 }
-fn write_all(writer: &mut ChildStdin, bytes: &[u8], stopping: &AtomicBool) -> std::io::Result<()> {
+fn write_all(
+    writer: &mut ChildStdin,
+    bytes: &[u8],
+    stopping: &AtomicBool,
+    failure: &Mutex<Option<StdinFailure>>,
+) -> Result<(), StdinFailure> {
     let mut position = 0;
     loop {
         if stopping.load(Ordering::Acquire) {
-            // A partially delivered write remains an OS cancellation error, not
-            // a successful zero-byte receipt or an inferred BrokenPipe.
-            return Err(std::io::Error::from_raw_os_error(libc::ECANCELED));
+            // Nothing delivered: report why input ended (usually the guest
+            // exited). A partial write stays an OS cancellation error, not a
+            // successful receipt or an inferred BrokenPipe.
+            if position == 0 {
+                if let Some(ended) = failure.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+                    return Err(ended);
+                }
+            }
+            return Err(StdinFailure::from_io(std::io::Error::from_raw_os_error(
+                libc::ECANCELED,
+            )));
         }
         if position == bytes.len() {
             return Ok(());
         }
         match writer.write(&bytes[position..]) {
-            Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+            Ok(0) => return Err(StdinFailure::from_io(std::io::ErrorKind::WriteZero.into())),
             Ok(count) => position += count,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => (),
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -148,11 +160,37 @@ fn write_all(writer: &mut ChildStdin, bytes: &[u8], stopping: &AtomicBool) -> st
                 if result < 0 {
                     let error = std::io::Error::last_os_error();
                     if error.kind() != std::io::ErrorKind::Interrupted {
-                        return Err(error);
+                        return Err(StdinFailure::from_io(error));
                     }
                 }
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(StdinFailure::from_io(error)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raw_process::AutomationStdinClosed;
+    use std::process::{Command, Stdio};
+
+    #[test]
+    fn input_queued_behind_a_guest_exit_reports_closed_not_cancelled() {
+        let mut child = Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut writer = child.stdin.take().unwrap();
+        let stopping = AtomicBool::new(true);
+        let failure = Mutex::new(Some(StdinFailure::known_closed()));
+        let error = write_all(&mut writer, b"late", &stopping, &failure)
+            .err()
+            .unwrap()
+            .into_error();
+        assert!(error.is::<AutomationStdinClosed>());
+        drop(writer);
+        child.wait().unwrap();
     }
 }
