@@ -20,7 +20,7 @@ pub(crate) struct TabActivity {
 impl Root {
     pub(crate) fn watch_tab_activity(&mut self, client: HostClient, window: &Window, cx: &mut Context<Self>) {
         self.tab_activity.task = Some(cx.spawn_in(window, async move |root, cx| {
-            let mut changes = client.tab_activity_changes(cx.background_executor().clone()).await;
+            let mut changes = client.tab_activity_changes();
             while let Ok(states) = changes.next().await {
                 let states = states.iter().map(|state| (state.tab, state.clone())).collect();
                 if root.update_in(cx, |root, window, cx| {

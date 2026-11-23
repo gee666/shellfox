@@ -67,7 +67,7 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> gpui::Task<()> {
         cx.spawn_in(window, async move |root, cx| {
-            let mut revisions = client.revisions(cx.background_executor().clone()).await;
+            let mut revisions = client.revisions();
             while let Ok(revision) = revisions.next().await {
                 // Settings changes bump the revision too; the page size lives in settings.
                 let page_size = match client

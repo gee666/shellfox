@@ -82,7 +82,7 @@ impl Root {
         cx: &mut Context<Self>,
     ) -> gpui::Task<()> {
         cx.spawn_in(window, async move |root, cx| {
-            let mut changes = client.power_changes(cx.background_executor().clone()).await;
+            let mut changes = client.power_changes();
             while let Ok(report) = changes.next().await {
                 let current = root.update(cx, |root, cx| {
                     if root.power.accept(report) {

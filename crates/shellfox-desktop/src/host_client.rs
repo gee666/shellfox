@@ -58,7 +58,7 @@ pub struct HostClient {
     frame_admission: Arc<AtomicUsize>,
     frame_slots: Arc<tokio::sync::Semaphore>,
     frames: Arc<Mutex<frames::Frames>>,
-    feeds: Arc<tokio::sync::OnceCell<changes::Feeds>>,
+    feeds: Arc<std::sync::OnceLock<changes::Feeds>>,
 }
 struct Admission(Arc<AtomicUsize>);
 impl Admission {
@@ -178,6 +178,10 @@ impl HostClient {
         let response = match &self.port {
             HostPort::Native(client) => client.execute(action).await?,
             HostPort::Attached(client) => match action {
+                // The process feed holds the only state read, so the host can hold it.
+                NativeAction::Remote(shellfox_service::remote::native::RemoteRequest::State) => {
+                    NativeResponse::Remote(self.attached_feeds(client).remote_state().await?)
+                }
                 NativeAction::Remote(request) => NativeResponse::Remote(client.remote(request).await?),
                 action @ (NativeAction::System(_) | NativeAction::Ssh(_)) => client.provider_request(action).await?,
                 action => NativeResponse::from(client.request(shellfox_service::local::DesktopRequest::try_from(action)?).await?),
