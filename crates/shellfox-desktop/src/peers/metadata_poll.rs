@@ -112,7 +112,12 @@ impl Root {
                         }
                         Err(error) => {
                             root.notify_machine_error(&error.to_string(), cx);
-                            root.peer_read_failed(&cycle, cx);
+                            root.peers.phase(
+                                &cycle,
+                                source::Phase::Reconnecting,
+                                Some(connection_view::CONNECTION_FAILURE.into()),
+                            );
+                            root.retry_peer_read(&cycle, cx);
                         }
                     }
                     cx.notify();
@@ -124,18 +129,13 @@ impl Root {
 }
 
 impl Root {
-    /// A connected peer's read failed: show Reconnecting, which retries on its own schedule.
-    pub(super) fn peer_read_failed(&mut self, cycle: &source::PeerCycle, cx: &mut Context<Self>) {
+    /// Reconnecting retries a failed peer read on its own schedule.
+    pub(super) fn retry_peer_read(&mut self, cycle: &source::PeerCycle, cx: &mut Context<Self>) {
         let retry = Instant::now() + Duration::from_secs(1);
         self.peer_ui
             .metadata_polls
             .insert(cycle.peer.clone(), Some(retry));
         self.notify_at(retry, cx);
-        self.peers.phase(
-            cycle,
-            source::Phase::Reconnecting,
-            Some(connection_view::CONNECTION_FAILURE.into()),
-        );
         cx.notify();
     }
 }

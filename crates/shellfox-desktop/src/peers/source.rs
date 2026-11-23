@@ -167,6 +167,20 @@ impl PeerSources {
         }
         true
     }
+    /// A connected peer's stream failed. The catalog is read only on change,
+    /// so this is where an outage shows. Returns the cycle to retry.
+    pub fn stream_failed(&mut self, peer: &AuthenticatedPeerId, error: &str) -> Option<PeerCycle> {
+        let state = self
+            .peers
+            .get(peer)
+            .filter(|state| state.phase == Phase::Connected)?;
+        let cycle = PeerCycle {
+            peer: peer.clone(),
+            generation: state.cycle,
+        };
+        self.phase(&cycle, Phase::Reconnecting, Some(error.into()));
+        Some(cycle)
+    }
     pub fn catalog(
         &mut self,
         cycle: &PeerCycle,

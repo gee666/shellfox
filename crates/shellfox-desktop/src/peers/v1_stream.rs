@@ -180,18 +180,11 @@ impl Root {
                         let state = binding.state();
                         if root
                             .update_in(cx, |root, _, cx| {
-                                // The catalog is read only on change, so this is
-                                // where a connected peer's outage shows.
-                                let cycle = root.peers.peers.get(&peer).and_then(|state| {
-                                    (state.phase == source::Phase::Connected).then(|| {
-                                        source::PeerCycle {
-                                            peer: peer.clone(),
-                                            generation: state.cycle,
-                                        }
-                                    })
-                                });
-                                if let Some(cycle) = cycle {
-                                    root.peer_read_failed(&cycle, cx);
+                                if let Some(cycle) = root
+                                    .peers
+                                    .stream_failed(&peer, connection_view::CONNECTION_FAILURE)
+                                {
+                                    root.retry_peer_read(&cycle, cx);
                                 }
                                 let count = root.peer_ui.v1_activity.len();
                                 root.peer_ui.v1_activity.retain(|(id, _), _| id != &peer);

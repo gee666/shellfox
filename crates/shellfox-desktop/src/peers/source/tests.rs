@@ -337,3 +337,23 @@ fn a_vanished_selected_tab_hands_the_view_to_the_next_live_tab() {
         (Some(session), Some(next.id))
     );
 }
+
+#[test]
+fn a_failed_stream_of_a_connected_peer_shows_reconnecting_without_a_catalog_read() {
+    let id = AuthenticatedPeerId::new("n-outage").unwrap();
+    let mut sources = PeerSources::default();
+    sources.inventory(&[peer(id.as_str())]);
+    let cycle = sources.begin(&id).unwrap();
+    sources.phase(&cycle, Phase::Connected, None);
+    sources.catalog(&cycle, snapshot()).unwrap();
+    assert_eq!(sources.stream_failed(&id, "lost"), Some(cycle.clone()));
+    let state = &sources.peers[&id];
+    assert_eq!(state.phase, Phase::Reconnecting);
+    assert_eq!(state.error.as_deref(), Some("lost"));
+    assert!(
+        state.snapshot.is_some(),
+        "the last catalog stays for the reconnect"
+    );
+    // Only the first failure schedules a retry; Reconnecting owns the rest.
+    assert_eq!(sources.stream_failed(&id, "lost"), None);
+}
