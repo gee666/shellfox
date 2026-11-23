@@ -32,9 +32,10 @@ describe('key bar state', () => {
     expect(specialTap('special', false)).toBe('closed');
     expect(specialTap('special', true)).toBe('special');
     expect(specialTap('system', true)).toBe('special');
-    expect(closesForIme('special', true)).toBe(true);
-    expect(closesForIme('special', false)).toBe(false);
-    expect(closesForIme('system', true)).toBe(false);
+    expect(closesForIme('special', false, true)).toBe(true);
+    expect(closesForIme('special', true, true)).toBe(false); // still closing after a Fn tap
+    expect(closesForIme('special', true, false)).toBe(false);
+    expect(closesForIme('system', false, true)).toBe(false);
   });
 
   it('treats only an accepted terminal-surface focus as a keyboard request', () => {

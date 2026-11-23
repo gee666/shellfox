@@ -31,7 +31,8 @@ export function surfaceFocused(result: FocusResult): boolean {
   return result.source === 'surface' && result.focusRequest === 'accepted';
 }
 
-/** The IME appearing closes the Fn row, as in 0.9.15. */
-export function closesForIme(mode: KeyboardMode, imeVisible: boolean): boolean {
-  return imeVisible && mode === 'special';
+/** The IME appearing closes the Fn row, as in 0.9.15. Only the appearance
+ * counts: an IME that is still closing after a Fn tap must not undo it. */
+export function closesForIme(mode: KeyboardMode, wasVisible: boolean, imeVisible: boolean): boolean {
+  return imeVisible && !wasVisible && mode === 'special';
 }

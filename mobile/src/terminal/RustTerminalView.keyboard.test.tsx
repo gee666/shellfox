@@ -254,6 +254,11 @@ describe('key bar toggles follow what is on screen (0.9.15 rules)',()=>{
     keyboard();focused(false);expect(pressed('Keyboard')).toBe(true);
     f.visibility(false);expect(pressed('Keyboard')).toBe(false);
   });
+  it('keeps the Fn row when Fn is tapped while the IME is still closing',async()=>{
+    const f=await fixture();keyboard();f.visibility(true);special();focused(false);
+    f.refresh();expect(pressed('Special keys')).toBe(false); // IME still on screen
+    f.visibility(false);expect(pressed('Special keys')).toBe(true);expect(pressed('Keyboard')).toBe(false);
+  });
   it('treats a tap on the terminal as a keyboard request so the toggle can hide it',async()=>{
     const f=await fixture();special();surfaceTap();focused(true);
     f.visibility(true);expect(pressed('Keyboard')).toBe(true);expect(pressed('Special keys')).toBe(false);

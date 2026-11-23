@@ -117,8 +117,11 @@ export function RustTerminalView({ driver, tabId, uploadApi, readOnly = false, f
   const inputEnabled = !readOnly && nativeReady && state === 'attached' && session?.getIdentity() != null;
   const { keyboardActive, specialActive, specialRow: specialKeyboard } = keyBarState(keyboardMode, keyboardVisible);
   // The IME appearing (tap, hardware toggle or another app) closes the Fn row.
+  const imeWasVisible = useRef(keyboardVisible);
   useEffect(() => {
-    if (closesForIme(keyboardMode, keyboardVisible)) clearKeyboardMode(false, 'ime_shown');
+    const appeared = closesForIme(keyboardMode, imeWasVisible.current, keyboardVisible);
+    imeWasVisible.current = keyboardVisible;
+    if (appeared) clearKeyboardMode(false, 'ime_shown');
   }, [keyboardMode, keyboardVisible, clearKeyboardMode]);
   // Requesting focus again needs the native view to see focused go false, then true.
   const [reopen, setReopen] = useState(false);
