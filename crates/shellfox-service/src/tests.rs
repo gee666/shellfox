@@ -311,10 +311,7 @@ async fn private_server_typed_clients_security_and_metadata() {
                 .unwrap()
                 .unwrap()
                 .unwrap();
-            #[cfg(windows)]
-            assert!(!endpoint.exists());
-            #[cfg(unix)]
-            assert!(endpoint.is_file(), "Preserved artifact is not a live owner");
+            assert!(!endpoint.exists(), "this run's endpoint record is removed");
             // The kernel ownership lock was released, not a stale PID marker.
             let verified = shellfox_transport::VerifiedHelper::new(helper.clone(), digest).unwrap();
             let owner = shellfox_transport::HostOwnership::acquire(

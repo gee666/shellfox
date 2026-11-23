@@ -59,7 +59,15 @@ async fn foreign_or_production_root_is_rejected_before_permission_children_or_la
     );
 }
 #[tokio::test(flavor = "current_thread")]
-async fn native_worker_creates_new_root_ready_and_confirms_cleanup_without_frontend_mkdir() {
+async fn native_worker_creates_new_root_ready_and_removes_its_endpoint_at_cleanup() {
+    cold_root_cycle(false).await;
+}
+#[tokio::test(flavor = "current_thread")]
+async fn an_endpoint_another_run_replaced_is_kept_at_cleanup() {
+    cold_root_cycle(true).await;
+}
+/// `replaced`: another run publishes over this run's endpoint.json before Stop.
+async fn cold_root_cycle(replaced: bool) {
     let data = scratch();
     let (helper, digest) = helper();
     let verifier = PermissionVerifier::new(VerifiedHelper::new(helper.clone(), digest).unwrap());
@@ -101,6 +109,19 @@ async fn native_worker_creates_new_root_ready_and_confirms_cleanup_without_front
             let client = crate::local::LocalClient::connect(&root, &helper, digest)
                 .await
                 .unwrap();
+            let endpoint = root.join("rust-service-v1/endpoint.json");
+            let other = br#"{"other":"run"}"#;
+            if replaced {
+                let dir = cap_std::fs::Dir::open_ambient_dir(
+                    root.join("rust-service-v1"),
+                    cap_std::ambient_authority(),
+                )
+                .unwrap()
+                .into_std_file();
+                let name = std::ffi::OsStr::new("endpoint.json");
+                let ours = shellfox_files::private::read(&dir, name, 4096).unwrap();
+                shellfox_files::private::write(&dir, name, other, Some(&ours.version)).unwrap();
+            }
             client
                 .execute(crate::experiment::ExperimentRequest::Stop {})
                 .await
@@ -110,13 +131,11 @@ async fn native_worker_creates_new_root_ready_and_confirms_cleanup_without_front
                 stages.lock().unwrap().last(),
                 Some(&LocalBootStatus::NoOwnerClean)
             );
-            #[cfg(windows)]
-            assert!(!root.join("rust-service-v1/endpoint.json").exists());
-            #[cfg(unix)]
-            assert!(
-                root.join("rust-service-v1/endpoint.json").is_file(),
-                "No cross-process Unix deletion fence: preserve the owned artifact"
-            );
+            if replaced {
+                assert_eq!(std::fs::read(&endpoint).unwrap(), other, "another run's record is kept");
+            } else {
+                assert!(!endpoint.exists(), "this run's record is removed");
+            }
         })
         .await;
 }
