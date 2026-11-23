@@ -329,5 +329,4 @@ pub(super) fn retry(error: anyhow::Error) -> Result<NativeAction> {
 }
 
 #[cfg(test)]
-#[path = "native_tests.rs"]
 mod tests;

@@ -8,14 +8,11 @@ use std::{ffi::OsStr, fs, path::{Path, PathBuf}};
 #[cfg(unix)]
 use std::{process::{Command, Stdio}, time::{Duration, Instant}};
 use tempfile::TempDir;
-#[path = "handoff.rs"]
 mod handoff;
 pub(super) use handoff::Prepared;
-#[path = "instances.rs"]
 mod instances;
 
 #[cfg(any(target_os = "macos", test))]
-#[path = "zip.rs"]
 mod zip;
 
 #[derive(Clone)]

@@ -345,5 +345,4 @@ pub(super) fn line_runs(
 }
 
 #[cfg(test)]
-#[path = "syntax_tests.rs"]
 mod tests;

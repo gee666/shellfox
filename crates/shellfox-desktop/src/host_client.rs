@@ -1,22 +1,14 @@
 //! A window's client of the host process, over its local API. UI code awaits
 //! these futures; only the host opens SQLite or runs shells.
-#[path = "host_client_attached.rs"]
 pub(crate) mod attached;
-#[path = "host_client_catalog.rs"]
 mod catalog;
-#[path = "host_client_changes.rs"]
 mod changes;
-#[path = "peer_v1.rs"]
 pub mod peer_v1;
-#[path = "peer_client.rs"] pub mod peer;
-#[path = "host_client_frames.rs"]
+pub mod peer;
 mod frames;
-#[path = "host_client_presentation.rs"]
 mod presentation;
-#[path = "host_client_launch.rs"]
 mod launch;
 #[cfg(test)]
-#[path = "host_client_tests.rs"]
 mod tests;
 
 use anyhow::{Result, ensure};

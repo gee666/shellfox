@@ -1,9 +1,6 @@
 use crate::root::Root;
-#[path = "workspace_attach.rs"]
 mod attach;
-#[path = "workspace_reply.rs"]
 mod reply;
-#[path = "workspace_selection.rs"]
 mod selection;
 use gpui::{Context, Window};
 use shellfox_host::{AddTab, HostRequest, ProfileId, SessionId, TabId};

@@ -7,7 +7,6 @@ use crate::{
 };
 use gpui::{AnyElement, Context, Entity, Window, div, prelude::*, px};
 use shellfox_core::SessionId;
-#[path = "environment_resize.rs"]
 pub(crate) mod resize;
 
 impl Root {

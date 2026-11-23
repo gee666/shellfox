@@ -199,5 +199,4 @@ async fn save(
 }
 
 #[cfg(test)]
-#[path = "feed_tests.rs"]
 mod tests;

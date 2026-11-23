@@ -22,7 +22,6 @@ use shellfox_service::{
 use std::time::{Duration, Instant};
 
 const RETRY: Duration = Duration::from_millis(50);
-#[path = "launch_unregister.rs"]
 mod unregister;
 
 struct LaunchGlobal {

@@ -2,7 +2,6 @@
 //! `Options::parse` keeps them apart from the host root; `FileService::private_root`
 //! refuses links, junctions and name aliases while creating them.
 #[cfg(test)]
-#[path = "frontend_composition_tests.rs"]
 mod tests;
 use crate::{frontend_retention::PreservedFrontendOwner, options::Options};
 use anyhow::{Context, Result, ensure};

@@ -2,17 +2,11 @@ use super::*;
 use accesskit::{ActionData, ActionHandler, ActionRequest, ActivationHandler, Rect, TreeId};
 use std::time::{Duration, Instant};
 
-#[path = "deferred_tests.rs"]
 mod deferred_tests;
-#[path = "frame_tests.rs"]
 mod frame_tests;
-#[path = "terminal_selection_tests.rs"]
 mod terminal_selection_tests;
-#[path = "terminal_stamp_tests.rs"]
 mod terminal_stamp_tests;
-#[path = "terminal_tests.rs"]
 mod terminal_tests;
-#[path = "terminal_view_tests.rs"]
 mod terminal_view_tests;
 
 fn button(id: u64) -> (SemanticId, Node) {

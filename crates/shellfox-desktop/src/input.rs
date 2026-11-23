@@ -2,7 +2,6 @@ use gpui::Keystroke;
 use shellfox_ghostty_vt::key::{us_key, validate_text, KeyAction, KeyEvent, KeyModifiers, PhysicalKey};
 
 #[cfg(test)]
-#[path = "input_tests.rs"]
 mod tests;
 
 /// GPUI key name to Ghostty's key. GPUI reports layout keys, not scan codes,

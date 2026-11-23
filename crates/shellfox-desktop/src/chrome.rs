@@ -1,26 +1,17 @@
 use crate::{root::Root, theme::Palette};
 use gpui::{Context, Div, Render, Window, div, prelude::*, px};
 
-#[path = "notifications.rs"]
 mod notifications;
 pub(crate) use notifications::Notifications;
 
 #[cfg(target_os = "linux")]
-#[path = "linux_chrome.rs"]
 mod linux_chrome;
-#[path = "tab_close.rs"]
 mod tab_close;
-#[path = "tab_reorder.rs"]
 mod tab_reorder;
-#[path = "tab_scroll.rs"]
 mod tab_scroll;
-#[path = "tab_focus.rs"]
 mod tab_focus;
-#[path = "tab_menu.rs"]
 mod tab_menu;
-#[path = "terminal_chrome.rs"]
 mod terminal_chrome;
-#[path = "terminal_tabs.rs"]
 mod terminal_tabs;
 pub(crate) use tab_menu::TabMenu;
 pub(crate) use tab_scroll::TabScroll;

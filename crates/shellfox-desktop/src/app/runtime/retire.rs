@@ -4,7 +4,6 @@ use shellfox_runtime::Request;
 use shellfox_runtime::SubmitError;
 use std::collections::HashMap;
 #[cfg(test)]
-#[path = "retire_tests.rs"]
 mod tests;
 
 /// Bounded intents transferred when a view disappears. Presses already queued

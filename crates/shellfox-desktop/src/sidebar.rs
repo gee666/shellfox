@@ -8,18 +8,12 @@ use shellfox_core::{Session, SessionId, Snapshot};
 use shellfox_service::activity::AgentState;
 use std::collections::HashMap;
 
-#[path = "sidebar_width.rs"]
 mod width;
 pub(crate) use width::{SidebarDrag, clamp_width};
-#[path = "sidebar_actions.rs"]
 mod actions;
-#[path = "new_session_menu.rs"]
 mod new_session_menu;
-#[path = "sidebar_row.rs"]
 pub(crate) mod row;
-#[path = "sidebar_toolbar.rs"]
 mod toolbar;
-#[path = "sidebar_list.rs"]
 pub(crate) mod list;
 
 /// Focus for one sidebar row: the title button, the settle button, and the
@@ -250,5 +244,4 @@ impl Root {
 }
 
 #[cfg(test)]
-#[path = "sidebar_tests.rs"]
 mod tests;

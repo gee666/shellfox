@@ -98,5 +98,4 @@ impl TerminalView {
     }
 }
 #[cfg(test)]
-#[path = "semantic_selection_tests.rs"]
 mod tests;

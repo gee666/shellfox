@@ -6,15 +6,11 @@ use super::{
     text::{base_font, shape},
 };
 use gpui::{Context, ElementInputHandler, IntoElement, canvas, point, prelude::*, px};
-#[path = "paint_container.rs"]
 mod container;
 
-#[path = "paint_layout.rs"]
 mod layout;
 use layout::alignment;
-#[path = "paint_document.rs"]
 mod document;
-#[path = "placeholder.rs"]
 mod placeholder;
 
 pub(super) fn render(
@@ -313,5 +309,4 @@ fn default_slice(range: std::ops::Range<usize>) -> super::horizontal::Slice {
 }
 
 #[cfg(test)]
-#[path = "paint_tests.rs"]
 mod tests;

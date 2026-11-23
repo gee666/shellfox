@@ -325,5 +325,4 @@ fn explorer(keys: &ExplorerKeys, exe: &Path, remove: bool) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "squirrel_tests.rs"]
 mod tests;

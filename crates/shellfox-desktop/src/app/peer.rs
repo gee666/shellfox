@@ -9,15 +9,10 @@ use shellfox_protocol::{
 };
 use std::{collections::VecDeque, rc::Rc, sync::Arc};
 
-#[path = "peer_drive.rs"]
 mod drive;
-#[path = "peer_input.rs"]
 mod input;
-#[path = "peer_output.rs"]
 mod output;
-#[path = "peer_overlay.rs"]
 mod overlay;
-#[path = "peer_requests.rs"]
 mod requests;
 use requests::{Applied, Operation};
 

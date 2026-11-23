@@ -8,18 +8,12 @@ use crate::{
     theme::Palette,
 };
 use gpui::{AnyElement, Context, Div, Stateful, Window, div, prelude::*, px};
-#[path = "files_browser.rs"]
 mod browser;
-#[path = "files_controls.rs"]
 mod controls;
 use controls::Control;
-#[path = "files_confirm_view.rs"]
 pub(crate) mod confirmation;
-#[path = "files_document.rs"]
 mod document;
-#[path = "files_picker.rs"]
 pub(super) mod picker;
-#[path = "files_transfer_view.rs"]
 mod transfer_view;
 
 fn control(

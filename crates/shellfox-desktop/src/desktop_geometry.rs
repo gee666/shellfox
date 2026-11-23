@@ -7,7 +7,6 @@ use gpui::{App, Bounds, Context, Global, Task, Window, WindowBounds, WindowOptio
 use shellfox_service::native::{NativeAction, NativeResponse};
 
 #[cfg(windows)]
-#[path = "desktop_geometry_windows.rs"]
 mod platform;
 
 pub(crate) struct WindowHistory {

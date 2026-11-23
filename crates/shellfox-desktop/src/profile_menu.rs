@@ -1,5 +1,4 @@
 use crate::{assets::tooltip, root::Root, theme::Palette, workspace::AfterAction};
-#[path = "profile_menu_semantics.rs"]
 mod semantics;
 use gpui::{
     AnyElement, Context, FocusHandle, Pixels, Point, TextStyle, Window, div, prelude::*, px,

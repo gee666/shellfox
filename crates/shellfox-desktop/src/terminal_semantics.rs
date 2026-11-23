@@ -235,5 +235,4 @@ impl TerminalView {
 }
 
 #[cfg(test)]
-#[path = "terminal_semantics_tests.rs"]
 mod tests;

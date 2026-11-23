@@ -104,10 +104,8 @@ fn stops_host(
 }
 
 #[cfg(target_os = "macos")]
-#[path = "system_end_macos.rs"]
 mod macos;
 #[cfg(unix)]
-#[path = "system_end_signals.rs"]
 mod signals;
 
 /// Windows windows see WM_ENDSESSION themselves.

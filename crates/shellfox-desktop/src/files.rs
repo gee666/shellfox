@@ -2,44 +2,26 @@ use crate::{editor_composition::EditorOutcome, field::Field, root::Root};
 use gpui::{Context, Entity};
 use shellfox_files::FileList;
 use std::sync::Arc;
-#[path = "document_backend.rs"]
 mod backend;
 pub(crate) use backend::{DocumentBackend, PeerFileScope};
-#[path = "files_completion.rs"]
 pub(crate) mod completion;
-#[path = "files_editor.rs"]
 mod editor_ops;
-#[path = "files_editor_state.rs"]
 mod editor_state;
 pub(crate) use editor_state::FileOperation;
-#[path = "files_list.rs"]
 pub(crate) mod list;
-#[path = "files_pending.rs"]
 pub(crate) mod pending;
-#[path = "files_preview.rs"]
 mod preview;
-#[path = "files_resizer.rs"]
 pub(crate) mod resizer;
-#[path = "files_backend.rs"]
 mod selection_backend;
-#[path = "files_terminal_links.rs"]
 pub(crate) mod terminal_links;
-#[path = "files_tree.rs"]
 pub(crate) mod tree;
 pub(crate) use preview::Preview;
-#[path = "files_image_editor.rs"]
 pub(crate) mod image_editor;
-#[path = "files_layout_prefs.rs"]
 mod layout_prefs;
-#[path = "files_retained.rs"]
 mod retained;
-#[path = "files_resume.rs"]
 mod resume;
-#[path = "files_scrollbar.rs"]
 pub(crate) mod scrollbar;
-#[path = "files_text_preview.rs"]
 pub(crate) mod text_preview;
-#[path = "files_transfer.rs"]
 pub(crate) mod transfer;
 fn files_unavailable(outcome: Option<&EditorOutcome>) -> &str {
     match outcome {
@@ -335,5 +317,4 @@ impl Root {
     }
 }
 #[cfg(test)]
-#[path = "files_tests.rs"]
 mod tests;

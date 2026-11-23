@@ -6,117 +6,63 @@ use gpui::{
 use shellfox_core::{Settings, SettingsPatch};
 use shellfox_service::native::{NativeAction, NativeResponse};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
-#[path = "settings_agents.rs"]
 mod agents;
-#[path = "settings_api.rs"]
 pub mod api;
-#[path = "settings_aux.rs"]
-mod aux;
-#[path = "settings_browser.rs"]
+mod follow_up;
 mod browser;
-#[path = "settings_catalog.rs"]
 mod catalog_validation;
-#[path = "settings_color_picker.rs"]
 mod color_picker;
-#[path = "settings_colors.rs"]
 mod colors;
-#[path = "settings_compat.rs"]
 mod compat;
-#[path = "settings_controller.rs"]
 mod controller;
-#[path = "settings_controls.rs"]
 mod controls;
-#[path = "settings_device_colors.rs"]
 mod device_colors;
-#[path = "settings_environment.rs"]
 pub(crate) mod environment_data;
-#[path = "settings_environment_keys.rs"]
 mod environment_keys;
-#[path = "settings_environment_rpc.rs"]
 mod environment_rpc;
-#[path = "settings_environment_view.rs"]
 mod environment_view;
-#[path = "settings_error.rs"]
 mod errors;
 pub use device_colors::DeviceColors;
-#[path = "settings_device_color_actions.rs"]
 mod device_color_actions;
-#[path = "settings_field_semantics.rs"]
 mod field_semantics;
-#[path = "settings_forms.rs"]
 mod forms;
-#[path = "settings_general.rs"]
 mod general;
-#[path = "settings_key_picker.rs"]
 mod key_picker;
-#[path = "settings_keyboard.rs"]
 mod keyboard;
-#[path = "settings_layout.rs"]
 mod layout;
-#[path = "settings_login.rs"]
 mod login;
-#[path = "settings_native_gateway.rs"]
 mod native_gateway;
-#[path = "settings_native.rs"]
 pub(crate) mod native_services;
-#[path = "settings_native_ssh.rs"]
 mod native_ssh;
 #[cfg(test)]
-#[path = "settings_native_ssh_tests.rs"]
 mod native_ssh_tests;
-#[path = "settings_native_state.rs"]
 pub(crate) mod native_state;
 #[cfg(test)]
-#[path = "settings_native_tests.rs"]
 mod native_tests;
-#[path = "settings_operation_tracker.rs"]
 mod operation_tracker;
-#[path = "settings_operations.rs"]
 mod operations;
-#[path = "settings_profiles.rs"]
 mod profile_keys;
-#[path = "settings_progress.rs"]
 mod progress;
-#[path = "settings_remote.rs"]
 mod remote;
-#[path = "settings_remote_actions.rs"]
 mod remote_actions;
-#[path = "settings_remote_login_view.rs"]
 mod remote_login_view;
-#[path = "settings_remote_page.rs"]
 mod remote_page;
-#[path = "settings_remote_peers.rs"]
 mod remote_peers;
-#[path = "settings_remote_peer_row.rs"]
 mod remote_peer_row;
-#[path = "settings_remote_poll.rs"]
 mod remote_poll;
-#[path = "settings_pairing.rs"]
 pub(crate) mod pairing;
-#[path = "settings_rule_edits.rs"]
 mod rule_edits;
-#[path = "settings_rules.rs"]
 mod rules;
-#[path = "settings_semantic_control.rs"]
 mod semantic_control;
-#[path = "settings_semantic_element.rs"]
 mod semantic_element;
-#[path = "settings_semantic_enabled.rs"]
 mod semantic_enabled;
 #[cfg(test)]
-#[path = "settings_semantic_tests.rs"]
 mod semantic_tests;
-#[path = "settings_semantics.rs"]
 mod semantics;
-#[path = "settings_ssh.rs"]
 mod ssh;
-#[path = "settings_ssh_form.rs"]
 mod ssh_form;
-#[path = "settings_ssh_page.rs"]
 mod ssh_page;
-#[path = "settings_state.rs"]
 mod state;
-#[path = "settings_terminals.rs"]
 mod terminals;
 pub use api::SettingsServices;
 use forms::{Forms, Input};

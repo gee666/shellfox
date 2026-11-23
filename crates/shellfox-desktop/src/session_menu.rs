@@ -9,9 +9,7 @@ use gpui::{
 use shellfox_core::{Session, SessionId};
 use shellfox_service::native::NativeAction;
 
-#[path = "session_delete.rs"]
 mod delete;
-#[path = "session_menu_keys.rs"]
 mod keys;
 
 #[derive(Clone)]

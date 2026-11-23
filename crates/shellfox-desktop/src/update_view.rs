@@ -12,7 +12,6 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-#[path = "update_progress.rs"]
 mod progress;
 
 pub(crate) struct Updates(pub Arc<Updater>);

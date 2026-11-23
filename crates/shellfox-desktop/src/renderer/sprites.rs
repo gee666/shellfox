@@ -3,7 +3,6 @@
 //! to device pixels so neighbouring cells join exactly.
 use gpui::{Bounds, Hsla, PathBuilder, Pixels, Window, fill, point, px, size};
 
-#[path = "sprites_box.rs"]
 mod box_drawing;
 
 /// One cell in device pixels: origin plus integer width and height.

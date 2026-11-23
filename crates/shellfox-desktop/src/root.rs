@@ -11,24 +11,17 @@ use std::{
     path::PathBuf,
 };
 
-#[path = "root_close.rs"]
 mod close;
-#[path = "quit_dialog.rs"]
 mod quit_dialog;
 pub(crate) use quit_dialog::QuitFocus;
-#[path = "root_catalog.rs"]
 mod catalog;
-#[path = "root_launch.rs"]
 mod launch;
-#[path = "root_power.rs"]
 pub(crate) mod power;
-#[path = "root_semantics.rs"]
 mod semantics;
-#[path = "root_startup.rs"]
 mod startup;
-#[path="root_peer_close.rs"]mod peer_close;
-#[path = "peer_source.rs"] pub(crate) mod source;
-#[path = "root_peer.rs"] pub(crate) mod peer;
+mod peer_close;
+pub(crate) mod source;
+pub(crate) mod peer;
 
 pub struct StartupError {
     pub message: String,

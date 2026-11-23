@@ -1,9 +1,7 @@
 use anyhow::{Context, Result, bail};
 pub(crate) use shellfox_service::app_composition;
-#[path = "options_launch.rs"]
 mod launch;
 #[cfg(test)]
-#[path = "options_launch_tests.rs"]
 mod launch_tests;
 use std::{ffi::OsString, path::PathBuf, time::SystemTime};
 

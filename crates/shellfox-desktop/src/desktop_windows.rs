@@ -9,7 +9,6 @@ use anyhow::Result;
 use gpui::{App, Bounds, WindowBounds, WindowHandle, WindowOptions, prelude::*, px, size};
 
 #[cfg(windows)]
-#[path = "window_backdrop.rs"]
 mod backdrop;
 
 pub(crate) const WINDOW_TITLE: &str = concat!("Shellfox v", env!("SHELLFOX_VERSION"));

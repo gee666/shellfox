@@ -2,19 +2,21 @@ use super::{SemanticAction, SemanticError, SemanticTree, bridge::Bridge};
 use gpui::{AnyWindowHandle, Window};
 use std::{marker::PhantomData, rc::Rc, sync::atomic::Ordering};
 
-#[path = "window_presentation.rs"]
 mod presentation;
 pub use presentation::{HiddenWindowPresentation, WindowPresentation};
 
 #[cfg(target_os = "windows")]
-#[path = "windows.rs"]
-mod platform;
+mod windows_provider;
+#[cfg(target_os = "windows")]
+use windows_provider as platform;
 #[cfg(target_os = "macos")]
-#[path = "macos.rs"]
-mod platform;
+mod macos_provider;
+#[cfg(target_os = "macos")]
+use macos_provider as platform;
 #[cfg(target_os = "linux")]
-#[path = "linux.rs"]
-mod platform;
+mod linux_provider;
+#[cfg(target_os = "linux")]
+use linux_provider as platform;
 
 /// Own exactly one adapter per newly created GPUI window. Never accept a numeric PID/handle.
 /// The OS callbacks own no GPUI objects. Dropping this object closes their action queue first.

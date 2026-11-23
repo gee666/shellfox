@@ -90,5 +90,4 @@ pub(crate) fn get(cx: &App) -> Result<Arc<DeviceColors>> {
 }
 
 #[cfg(test)]
-#[path = "device_prefs_tests.rs"]
 mod tests;

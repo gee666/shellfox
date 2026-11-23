@@ -46,5 +46,4 @@ pub(crate) fn prepare(frontend: &mut FrontendDirectories) -> EditorOutcome {
     }
 }
 #[cfg(test)]
-#[path = "editor_composition_tests.rs"]
 mod tests;

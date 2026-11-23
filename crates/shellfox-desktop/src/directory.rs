@@ -6,15 +6,10 @@ use gpui::{Context, Entity, FocusHandle, ScrollHandle, Subscription, Window};
 use shellfox_host::SessionId;
 use std::{path::PathBuf, time::Duration};
 
-#[path = "directory_completion.rs"]
 pub(crate) mod completion;
-#[path = "directory_keys.rs"]
 mod keys;
-#[path = "directory_paths.rs"]
 mod paths;
-#[path = "directory_peer.rs"]
 mod peer;
-#[path = "directory_submit.rs"]
 mod submit;
 
 pub(crate) fn validate_session_folder(cwd: &str) -> Result<PathBuf, String> {

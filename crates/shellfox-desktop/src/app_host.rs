@@ -1,15 +1,10 @@
 //! The application's host connection and bounded window clients. Keep a clone
 //! in a GPUI Global, not just in Roots. Dropping a window never stops the host.
-#[path = "app_host_gpui.rs"]
 pub mod adapter;
-#[path = "app_host_backend.rs"]
 mod backend;
-#[path = "app_host_close.rs"]
 mod close;
-#[path = "app_host_policy.rs"]
 mod policy;
 #[cfg(test)]
-#[path = "app_host_tests.rs"]
 mod tests;
 
 use anyhow::{Context, Result, ensure};

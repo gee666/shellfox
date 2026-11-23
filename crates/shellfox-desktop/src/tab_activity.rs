@@ -1,7 +1,6 @@
 use crate::{host_client::HostClient, root::Root};
 use gpui::{Context, Task, Window};
 
-#[path = "tab_activity_dot.rs"]
 mod dot;
 pub(crate) use dot::status_dot;
 use shellfox_core::{Session, Tab, TabId, TabState, TerminalIdentity};

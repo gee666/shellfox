@@ -3,9 +3,7 @@ use accesskit::{Action, Live, Node, NodeId, Rect, Role, TextDirection, TextSelec
 use shellfox_ghostty_vt::Screen;
 use std::time::{Duration, Instant};
 
-#[path = "terminal_sample.rs"]
 mod sample;
-#[path = "terminal_view.rs"]
 mod view;
 pub use view::TerminalViewStamp;
 

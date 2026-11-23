@@ -9,14 +9,6 @@ license = "MIT"
 name = "shellfox"
 path = "src/main.rs"
 
-[[test]]
-name = "host-client"
-path = "src/host_client_test_root.rs"
-
-[[test]]
-name = "accessibility"
-path = "src/accessibility_test_root.rs"
-
 [features]
 test-macos-p4 = []
 

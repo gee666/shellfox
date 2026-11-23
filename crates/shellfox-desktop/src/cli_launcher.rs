@@ -353,5 +353,4 @@ pub(crate) fn install_mac() -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "cli_launcher_tests.rs"]
 mod tests;

@@ -1,9 +1,7 @@
 //! Window-local navigation. Snapshot.selection is persisted recent history,
 //! not a broadcast instruction to move every window's keyboard destination.
-#[path = "window_manager_state.rs"]
 pub mod state;
 #[cfg(test)]
-#[path = "window_manager_tests.rs"]
 mod tests;
 
 use shellfox_core::{Selection, Session, SessionId, Snapshot, TabId, TabState};

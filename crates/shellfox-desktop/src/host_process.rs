@@ -300,9 +300,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-#[path = "host_process_platform.rs"]
 mod platform;
 
 #[cfg(test)]
-#[path = "host_process_tests.rs"]
 mod tests;

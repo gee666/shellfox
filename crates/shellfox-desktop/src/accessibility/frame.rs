@@ -1,5 +1,4 @@
 use super::{SemanticError, SemanticTree};
-#[path = "frame_support.rs"]
 mod support;
 use accesskit::{Node, NodeId, Role};
 use gpui::{AnyWindowHandle, FocusHandle, Window};

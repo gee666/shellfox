@@ -1,11 +1,8 @@
 //! External launch adapter. Existing Options/main/Root compose these helpers;
 //! no helper starts a process, edits integration settings or constructs a Host.
-#[path = "app_launch_coordinator.rs"]
 mod coordinator;
-#[path = "app_launch_path.rs"]
 pub mod path;
 #[cfg(test)]
-#[path = "app_launch_tests.rs"]
 mod tests;
 pub use coordinator::*;
 use shellfox_core::SessionId;
