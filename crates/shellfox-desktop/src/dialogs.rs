@@ -9,6 +9,13 @@ use gpui::{AnyElement, Context, Window, div, prelude::*, px};
 use shellfox_host::{HostRequest, SessionId, TabId};
 use shellfox_service::native::NativeAction;
 
+/// The request Enter and blur commit for a tab title being edited in place.
+fn tab_rename(session_id: SessionId, tab_id: TabId, text: &str) -> Result<HostRequest, &'static str> {
+    shellfox_core::validation::title(text)
+        .map_err(|_| "Use a nonblank title of at most 200 characters, without control characters.")?;
+    Ok(HostRequest::RenameTab { session_id, tab_id, title: text.trim().to_owned() })
+}
+
 pub(crate) fn dialog_button(
     id: &'static str,
     label: &'static str,
@@ -280,16 +287,13 @@ impl Root {
                 }) else {
                     return;
                 };
-                let text = &title.read(cx).text;
-                if shellfox_core::validation::title(text).is_err() {
-                    self.notify_error(None, Some("VALIDATION".into()), "Use a nonblank title of at most 200 characters, without control characters.", cx);
-                    return;
+                match tab_rename(session.id, *id, &title.read(cx).text) {
+                    Ok(request) => NativeAction::Metadata(request),
+                    Err(message) => {
+                        self.notify_error(None, Some("VALIDATION".into()), message, cx);
+                        return;
+                    }
                 }
-                NativeAction::Metadata(HostRequest::RenameTab {
-                    session_id: session.id,
-                    tab_id: *id,
-                    title: text.trim().to_owned(),
-                })
             }
             Dialog::SessionEnvironment { id, text } => {
                 let (env, issues) = crate::settings::environment_data::parse(&text.read(cx).text, cfg!(windows));
@@ -307,5 +311,24 @@ impl Root {
         };
         if sidebar { self.submit_sidebar_action(action, AfterAction::Dialog, window, cx); }
         else { self.submit_native(action, AfterAction::Dialog, window, cx); }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committing_a_tab_title_sends_the_trimmed_name_and_rejects_blank_or_control_text() {
+        let (session, tab) = (SessionId::new(), TabId::new());
+        match tab_rename(session, tab, "  build logs ") {
+            Ok(HostRequest::RenameTab { session_id, tab_id, title }) => {
+                assert_eq!((session_id, tab_id, title.as_str()), (session, tab, "build logs"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        for bad in ["", "   ", "a\u{7}b", &"x".repeat(201)] {
+            assert!(tab_rename(session, tab, bad).is_err(), "{bad:?}");
+        }
     }
 }
