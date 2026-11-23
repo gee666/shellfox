@@ -212,6 +212,27 @@ impl<B: AppHostBackend> AppHost<B> {
         state.revision += 1;
         Ok(())
     }
+    /// The OS is ending this UI (see system_end.rs): stop the host with its
+    /// shells, as an approved Quit would, without the windows that can no
+    /// longer close themselves.
+    pub async fn stop_for_system_end(&self) -> Result<()> {
+        {
+            let mut state = self.state()?;
+            if state.stopped {
+                return Ok(());
+            }
+            state.windows.clear();
+            state.pending = None;
+            state.cleanup_retained = true;
+            state.revision += 1;
+        }
+        self.shared.backend.stop().await?;
+        let mut state = self.state()?;
+        state.stopped = true;
+        state.cleanup_retained = false;
+        state.revision += 1;
+        Ok(())
+    }
     /// Check again on the UI thread before native construction after an async
     /// open. An app quit may have closed this registration while UI work waited.
     pub fn is_window_available(&self, id: WindowId) -> Result<bool> {

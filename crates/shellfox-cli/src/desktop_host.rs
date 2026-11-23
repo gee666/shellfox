@@ -6,8 +6,9 @@
 //! stdout carries one line: the readiness marker or the startup error. stdin is
 //! a pipe from the UI that started this host. The UI writes the quit byte before
 //! it stops the host; EOF without it means the UI died, and the host starts it
-//! again once with the N relaunch arguments, unless this host is stopping.
-//! Later UIs attach on their own.
+//! again once with the N relaunch arguments, unless this host is stopping. If
+//! the login session ended (logout, display gone) it stops instead, as a
+//! logout ended 0.9.x and its shells. Later UIs attach on their own.
 use anyhow::{ensure, Context, Result};
 use shellfox_service::{
     desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest},
@@ -91,18 +92,51 @@ struct Serving {
 impl Serving {
     /// A stopping host no longer routes desktop launches.
     fn routes_launches(&self) -> bool {
-        let discover = async {
+        self.ask(async |client| {
+            let reply = client.request(&DesktopLaunchRequest::Discover {}).await?;
+            anyhow::Ok(matches!(reply, DesktopLaunchReply::Route(_)))
+        })
+        .is_some_and(|routed| routed.unwrap_or(false))
+    }
+    /// The same orderly stop as `host stop`: the shells end with the host.
+    fn stop(&self) {
+        let stopped = self.ask(async |client| {
+            client.execute(shellfox_service::experiment::ExperimentRequest::Stop {}).await?;
+            anyhow::Ok(())
+        });
+        if let Some(Err(error)) = stopped {
+            eprintln!("Shellfox host stop after session end failed: {error:#}");
+        }
+    }
+    /// None if the host did not answer in time.
+    fn ask<T>(&self, work: impl AsyncFnOnce(&LocalClient) -> Result<T>) -> Option<Result<T>> {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        let asked = async {
             let client = LocalClient::connect(&self.data, &self.helper, self.digest).await?;
-            let reply = client.request(&DesktopLaunchRequest::Discover {}).await;
+            let result = work(&client).await;
             let _ = client.disconnect().await;
-            anyhow::Ok(matches!(reply?, DesktopLaunchReply::Route(_)))
+            result
         };
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
-            return false;
-        };
-        runtime
-            .block_on(async { tokio::time::timeout(std::time::Duration::from_secs(10), discover).await })
-            .is_ok_and(|routed| routed.unwrap_or(false))
+        runtime.block_on(async { tokio::time::timeout(std::time::Duration::from_secs(10), asked).await.ok() })
+    }
+}
+
+/// What the host does once its UI ended without the quit byte.
+#[derive(Debug, PartialEq, Eq)]
+enum AfterUi {
+    /// Logout or display loss: stop as 0.9.x did, shells included.
+    Stop,
+    Relaunch,
+    /// The host is stopping anyway.
+    Nothing,
+}
+fn after_ui(session_ended: bool, routes_launches: impl FnOnce() -> bool) -> AfterUi {
+    if session_ended {
+        AfterUi::Stop
+    } else if routes_launches() {
+        AfterUi::Relaunch
+    } else {
+        AfterUi::Nothing
     }
 }
 
@@ -122,8 +156,10 @@ fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving, ready: std::
                 Ok(_) => {}
             }
         }
-        if !serving.routes_launches() {
-            return;
+        match after_ui(shellfox_service::desktop_session::ended(), || serving.routes_launches()) {
+            AfterUi::Stop => return serving.stop(),
+            AfterUi::Nothing => return,
+            AfterUi::Relaunch => {}
         }
         let mut command = Command::new(&ui);
         command
@@ -138,7 +174,12 @@ fn watch_ui(ui: PathBuf, relaunch: Vec<OsString>, serving: Serving, ready: std::
             .env_remove("XDG_ACTIVATION_TOKEN");
         match command.spawn() {
             // Reap it; a second crash is not relaunched.
-            Ok(mut child) => drop(child.wait()),
+            Ok(mut child) => {
+                let _ = child.wait();
+                if shellfox_service::desktop_session::ended() {
+                    serving.stop();
+                }
+            }
             Err(error) => eprintln!("Shellfox UI relaunch failed: {error:#}"),
         }
     };
@@ -163,5 +204,11 @@ mod tests {
         assert!(super::plan(&strings(&[ui, "3", "--desktop-dir", "/d"])).is_err());
         assert!(super::plan(&strings(&["relative", "0"])).is_err());
         assert!(super::plan(&strings(&[ui])).is_err());
+    }
+    #[test]
+    fn a_lost_ui_is_relaunched_unless_its_session_ended() {
+        assert_eq!(after_ui(true, || panic!("an ended session never relaunches")), AfterUi::Stop);
+        assert_eq!(after_ui(false, || true), AfterUi::Relaunch);
+        assert_eq!(after_ui(false, || false), AfterUi::Nothing);
     }
 }

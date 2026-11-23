@@ -2,9 +2,11 @@ use super::*;
 
 impl Root {
     pub(super) fn system_end_requested(&self) -> bool {
-        self.native_accessibility
-            .as_ref()
-            .is_some_and(|native| native.system_end_requested())
+        crate::system_end::requested()
+            || self
+                .native_accessibility
+                .as_ref()
+                .is_some_and(|native| native.system_end_requested())
     }
 
     pub fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {

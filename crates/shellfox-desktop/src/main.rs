@@ -46,6 +46,7 @@ mod macos_window;
 mod settings;
 mod sidebar;
 mod smoke;
+mod system_end;
 #[cfg(windows)]
 mod squirrel;
 #[cfg(test)]
@@ -163,6 +164,10 @@ fn main() -> Result<()> {
     }));
     let preserved = frontend.preserve();
     if let Some(owner) = &owner {
+        // A panic skipped GPUI's quit hook.
+        if graphics.is_err() {
+            system_end::finish(&owner.host, false);
+        }
         owner.cleanup_until_confirmed();
     }
     if matches!(graphics, Ok(Ok(()))) && let Some(updater) = &updater
@@ -264,6 +269,7 @@ fn run_graphics(
                     return;
                 }
                 cx.set_global(host_lost::Relaunch(options.relaunch_args.clone()));
+                system_end::watch(host.clone(), cx);
                 host_lost::watch(config, host, cx);
             }
             trace_ui_init(trace, "prestarted adapter install returned");

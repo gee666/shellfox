@@ -8,6 +8,7 @@ pub mod app_paths;
 pub mod automation;
 mod creation;
 pub mod desktop_launch;
+pub mod desktop_session;
 pub mod experiment;
 mod facts_capture;
 mod facts_membership;

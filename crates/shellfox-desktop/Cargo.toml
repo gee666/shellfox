@@ -64,7 +64,7 @@ sha2 = "0.10"
 tempfile = "3"
 reqwest = { package = "zed-reqwest", version = "=0.12.15-zed", default-features = false, features = ["rustls-tls-native-roots"] }
 shellfox-service = { path = "../shellfox-service" }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros", "signal"] }
 shellfox-runtime = { path = "../shellfox-runtime" }
 shellfox-files = { path = "../shellfox-files" }
 shellfox-ghostty-vt = { path = "../ghostty-vt" }
@@ -89,8 +89,8 @@ accesskit_macos = "=0.27.2"
 flate2 = "1"
 block2 = "=0.6.2"
 objc2 = "=0.6.5"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSString", "NSURL"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "block2", "objc2-core-foundation"] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = ["NSArray", "NSNotification", "NSOperation", "NSString", "NSURL", "block2"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSView", "NSWindow", "NSWorkspace", "block2", "objc2-core-foundation"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit_unix = "=0.24.1"
