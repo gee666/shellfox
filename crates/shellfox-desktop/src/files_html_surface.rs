@@ -227,6 +227,10 @@ fn create(
         .with_asynchronous_custom_protocol(sandbox::SCHEME.to_owned(), move |_, request, responder| {
             match sandbox::route(&request) {
                 sandbox::Route::Asset(path) => page.serve(path, move |response| responder.respond(response)),
+                sandbox::Route::Outside(path) => {
+                    page.outside(&path);
+                    responder.respond(sandbox::not_found())
+                }
                 route => responder.respond(sandbox::page(&route, &page.document)),
             }
         });

@@ -72,6 +72,9 @@ pub(super) enum Route {
     Content,
     /// A document-relative path. The document backend enforces the allowed root.
     Asset(String),
+    /// A document reference that resolved above its folder, such as ../x.svg.
+    /// Never served; listed as unavailable, as 0.9 did.
+    Outside(String),
     Denied,
 }
 
@@ -89,7 +92,14 @@ pub(super) fn route(request: &http::Request<Vec<u8>>) -> Route {
     // The browser drops fragments and the query is never part of a file path.
     let Some(path) = uri.strip_prefix(ASSETS).map(|rest| rest.split('?').next().unwrap_or(""))
     else {
-        return Route::Denied;
+        return match uri.strip_prefix(SHELL).map(|rest| rest.split('?').next().unwrap_or("")) {
+            Some(rest) if !rest.is_empty() && rest != "favicon.ico" => percent_decode_str(rest)
+                .decode_utf8()
+                .ok()
+                .filter(|path| !path.contains('\0'))
+                .map_or(Route::Denied, |path| Route::Outside(format!("../{path}"))),
+            _ => Route::Denied,
+        };
     };
     asset_path(path).map_or(Route::Denied, Route::Asset)
 }
@@ -121,7 +131,7 @@ pub(super) fn page(route: &Route, document: &[u8]) -> http::Response<Cow<'static
             page.extend_from_slice(document);
             (format!("{policy}; sandbox allow-scripts"), Cow::Owned(page))
         }
-        Route::Asset(_) | Route::Denied => return not_found(),
+        Route::Asset(_) | Route::Outside(_) | Route::Denied => return not_found(),
     };
     headers("text/html; charset=utf-8")
         .header(http::header::CONTENT_SECURITY_POLICY, policy)
@@ -205,7 +215,6 @@ mod tests {
         for (method, url) in [
             ("POST", CONTENT),
             ("POST", "shellfox-preview://document/files/a.png"),
-            ("GET", "shellfox-preview://document/file"),
             ("GET", "shellfox-preview://document/files/"),
             ("GET", "shellfox-preview://document/files/%2E%2E/secret.css"),
             ("GET", "shellfox-preview://document/files/a/%2e/b.css"),
@@ -220,6 +229,16 @@ mod tests {
             assert_eq!(request(method, url), Route::Denied, "{method} {url}");
         }
         assert_eq!(page(&Route::Denied, b"x").status(), 404);
+        assert_eq!(
+            request("GET", "shellfox-preview://document/file"),
+            Route::Outside("../file".into())
+        );
+        assert_eq!(
+            request("GET", "shellfox-preview://document/outside.svg"),
+            Route::Outside("../outside.svg".into())
+        );
+        assert_eq!(request("GET", "shellfox-preview://document/favicon.ico"), Route::Denied);
+        assert_eq!(page(&Route::Outside("../x".into()), b"x").status(), 404);
         assert!(page(&Route::Denied, b"x").body().is_empty());
     }
 

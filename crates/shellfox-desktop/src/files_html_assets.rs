@@ -153,6 +153,11 @@ impl Page {
         asset
     }
 
+    /// A reference above the document's folder: never read, listed once.
+    pub fn outside(&self, path: &str) {
+        self.warn_once(&format!("{path}: Preview asset is outside the HTML directory."));
+    }
+
     fn warn_once(&self, warning: &str) {
         self.warnings.send_if_modified(|warnings| {
             let new = !warnings.iter().any(|old| old == warning);
