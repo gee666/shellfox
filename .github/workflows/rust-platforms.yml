@@ -82,7 +82,7 @@ jobs:
         if: inputs.build_native_packages && matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential clang cmake pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev libx11-xcb-dev libxcb1-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-render0-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev libasound2-dev libudev-dev
       - name: Project-local pinned advisory tool and database
         if: inputs.build_native_packages
         run: |
