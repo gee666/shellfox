@@ -229,8 +229,20 @@ impl State {
         self.io.cancel.store(true, Ordering::Release);
         self.begin()?;
         let deadline = Instant::now() + Duration::from_secs(7);
-        while self.leader.poll()?.is_none() || !self.writer.finished() || !self.output.finished() {
-            ensure!(Instant::now() < deadline, "macOS PTY cleanup not confirmed");
+        loop {
+            let (exited, writer, output) = (
+                self.leader.poll()?.is_some(),
+                self.writer.finished(),
+                self.output.finished(),
+            );
+            if exited && writer && output {
+                break;
+            }
+            ensure!(
+                Instant::now() < deadline,
+                "macOS PTY cleanup not confirmed (session ended: {exited}, \
+                 input stopped: {writer}, output stopped: {output})"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
         self.writer.join()?;
