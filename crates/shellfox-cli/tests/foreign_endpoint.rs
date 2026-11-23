@@ -67,7 +67,7 @@ fn an_unreadable_record_is_another_build_only_while_its_host_answers() -> Result
     // A crashed host leaves its record behind. Rewriting the file in place
     // keeps its private permissions.
     host.0.kill()?;
-    host.0.wait()?;
+    host.wait(Duration::from_secs(20))?;
     let foreign = result?;
     std::fs::write(&endpoint, &foreign)?;
     let stale = runtime
