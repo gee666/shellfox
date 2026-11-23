@@ -25,6 +25,7 @@ struct View<W> {
     /// Follows the remote modes so keys and pastes encode as its terminal expects.
     mirror: shellfox_ghostty_vt::Terminal,
     queries: QueryFilter,
+    keys: crate::keys::Keys,
     size: (u16, u16),
 }
 impl<W: Write> View<W> {
@@ -233,7 +234,8 @@ impl<T: OutboundTransport, W: Write> Attach<'_, T, W> {
                 return Ok(true);
             }
         }
-        let bytes = match crate::keys::from_event(event) {
+        let input = self.view.borrow_mut().keys.input(event);
+        let bytes = match input {
             crate::keys::Input::Detach => return Ok(false),
             crate::keys::Input::Key(event) => self.view.borrow_mut().mirror.encode_key_event(&event)?,
             crate::keys::Input::Paste(text) => self.view.borrow_mut().mirror.encode_paste(&text)?,
@@ -265,6 +267,7 @@ where
             owned: false,
             mirror: shellfox_ghostty_vt::Terminal::new(size.0, size.1)?,
             queries: QueryFilter::default(),
+            keys: crate::keys::Keys::default(),
             size,
         }),
     };
