@@ -68,7 +68,9 @@ pub(crate) fn start_in_background(
     std::thread::Builder::new().name("shellfox-host-start".into()).spawn(move || {
         let found = (|| {
             let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
-            let (client, info, started) = start_and_discover(&runtime, &relaunch_args, &application_args, &config)?;
+            let executable = std::env::current_exe()?;
+            let (client, info, started) =
+                start_and_discover(&runtime, &executable, &relaunch_args, &application_args, &config)?;
             let _ = runtime.block_on(client.disconnect());
             anyhow::Ok(HostRoute { info, started })
         })();
@@ -79,6 +81,7 @@ pub(crate) fn start_in_background(
 
 fn start_and_discover(
     runtime: &tokio::runtime::Runtime,
+    executable: &Path,
     relaunch_args: &[OsString],
     application_args: &[OsString],
     config: &HostEndpointConfig,
@@ -86,10 +89,11 @@ fn start_and_discover(
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut started = false;
     loop {
-        match start(relaunch_args, application_args, config) {
+        match start(executable, relaunch_args, application_args, config) {
             Ok(()) => started = true,
-            Err(error) if Instant::now() >= deadline => return Err(error),
-            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+            Err(StartError::Permanent(error)) => return Err(error),
+            Err(StartError::Exited(error)) if Instant::now() >= deadline => return Err(error),
+            Err(StartError::Exited(_)) => std::thread::sleep(Duration::from_millis(100)),
         }
         match runtime.block_on(discover(config)) {
             Ok((client, route)) => return Ok((client, route, started)),
@@ -127,10 +131,23 @@ async fn discover(config: &HostEndpointConfig) -> Result<(LocalClient, LaunchRou
     Ok((client, route))
 }
 
+enum StartError {
+    /// Retrying cannot help: no CLI, it cannot be spawned, or it is not a host.
+    Permanent(anyhow::Error),
+    /// The host exited silently, as one does after losing the directory lock
+    /// to a concurrent launch's host. Discovery finds the winner.
+    Exited(anyhow::Error),
+}
+
 /// Starts the host and waits until its local API admits clients.
-fn start(relaunch_args: &[OsString], application_args: &[OsString], config: &HostEndpointConfig) -> Result<()> {
-    let cli = cli_path()?;
-    let mut arguments = vec![LocalBootstrap::DESKTOP_HOST_FLAG.into(), std::env::current_exe()?.into_os_string()];
+fn start(
+    executable: &Path,
+    relaunch_args: &[OsString],
+    application_args: &[OsString],
+    config: &HostEndpointConfig,
+) -> Result<(), StartError> {
+    let cli = cli_beside(executable).map_err(StartError::Permanent)?;
+    let mut arguments = vec![LocalBootstrap::DESKTOP_HOST_FLAG.into(), executable.as_os_str().to_owned()];
     arguments.push(relaunch_args.len().to_string().into());
     arguments.extend(relaunch_args.iter().cloned());
     arguments.extend(["--data-dir".into(), config.data_dir.clone().into_os_string()]);
@@ -144,13 +161,14 @@ fn start(relaunch_args: &[OsString], application_args: &[OsString], config: &Hos
     let output = match output {
         Some(line) => line,
         // No systemd user manager or no job breakaway: the wrapper failed before the host ran.
-        None => spawn(&mut platform::direct(&cli, &arguments))?
-            .context("The Shellfox host exited during startup")?,
+        None => spawn(&mut platform::direct(&cli, &arguments))
+            .map_err(StartError::Permanent)?
+            .ok_or_else(|| StartError::Exited(anyhow::anyhow!("The Shellfox host exited during startup")))?,
     };
     if output == LocalBootstrap::DESKTOP_HOST_READY {
         return Ok(());
     }
-    bail!("The Shellfox host did not start: {output}")
+    Err(StartError::Permanent(anyhow::anyhow!("The Shellfox host did not start: {output}")))
 }
 
 /// Returns the host's first stdout line, or None if it printed nothing.
@@ -203,7 +221,9 @@ pub(crate) fn recorded_owner(desktop_dir: &Path) -> Option<LaunchOwnerFence> {
 
 /// Packages keep the CLI in bin/ (Windows) or beside the desktop binary.
 pub(crate) fn cli_path() -> Result<PathBuf> {
-    let executable = std::env::current_exe()?;
+    cli_beside(&std::env::current_exe()?)
+}
+fn cli_beside(executable: &Path) -> Result<PathBuf> {
     let directory = executable.parent().context("Missing Shellfox executable directory")?;
     let name = if cfg!(windows) { "shellfox-cli.exe" } else { "shellfox-cli" };
     [directory.join("bin").join(name), directory.join(name)]

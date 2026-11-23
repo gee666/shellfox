@@ -18,6 +18,27 @@ fn owner_marker_round_trips_and_rejects_garbage() {
     assert_eq!(recorded_owner(directory.path()), None);
 }
 
+#[test]
+fn missing_cli_fails_at_once_and_names_the_cli() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2).unwrap().join("tmp");
+    std::fs::create_dir_all(&root).unwrap();
+    let directory = tempfile::tempdir_in(root).unwrap();
+    let executable = directory.path().join(if cfg!(windows) { "shellfox.exe" } else { "shellfox" });
+    let config = HostEndpointConfig {
+        data_dir: directory.path().join("data"),
+        helper: directory.path().join("helper"),
+        helper_sha256: [0; 32],
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let began = Instant::now();
+    let Err(error) = start_and_discover(&runtime, &executable, &[], &[], &config) else {
+        panic!("a host started without its CLI");
+    };
+    assert!(began.elapsed() < Duration::from_secs(5), "retried a missing CLI for {:?}", began.elapsed());
+    assert!(format!("{error:#}").contains("shellfox-cli"), "unclear error: {error:#}");
+    assert!(!config.data_dir.exists());
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn linux_host_scope_survives_oom_kills_of_its_members() {
