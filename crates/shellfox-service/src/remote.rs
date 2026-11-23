@@ -123,6 +123,7 @@ impl RemoteState {
     }
     /// The oldest peer attach whose terminal start settled.
     pub(super) fn next_started(&mut self, service: &mut Service) -> Option<shellfox_remote::OwnerRequest> {
+        self.awaiting_start.retain(|(_, request)| !request.is_cancelled());
         let index = self.awaiting_start.iter().position(|(tab, _)| service.start_settled(*tab))?;
         Some(self.awaiting_start.remove(index).1)
     }

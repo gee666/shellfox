@@ -44,6 +44,10 @@ impl AutomationState {
     pub(crate) fn needs_polling(&self) -> bool {
         !self.writes.is_empty() || self.runs.needs_polling()
     }
+    /// True while a raw process runs or is being torn down.
+    pub(crate) fn has_processes(&self) -> bool {
+        self.runs.active_processes() > 0
+    }
     pub(crate) fn next_deadline(&self) -> Option<std::time::Instant> {
         self.runs.next_deadline()
     }

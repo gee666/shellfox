@@ -54,7 +54,7 @@ impl Task {
 impl Task {
     /// The tab an attach would start, for a valid request. The owner starts it
     /// first and runs the request once the start settled (see owner.rs).
-    pub(super) fn start_target(&self) -> Option<shellfox_core::TabId> {
+    pub(super) fn start_target(&self, private: &super::private::PrivateOwner) -> Option<shellfox_core::TabId> {
         use shellfox_protocol::Validate;
         match self {
             Self::Execute { request: request @ LocalApiRequest::Attach { tab, .. }, .. } => {
@@ -64,8 +64,35 @@ impl Task {
                 crate::native::NativeAction::Attach { tab, .. } => action.validate().is_ok().then_some(*tab),
                 _ => None,
             },
-            Self::Private(task) => task.start_target(),
+            Self::Private(task) => task.start_target(private),
             _ => None,
+        }
+    }
+    /// The client a request comes from.
+    pub(super) fn client(&self) -> Option<uuid::Uuid> {
+        match self {
+            Self::Execute { client_id, .. } | Self::Native { client_id, .. } => Some(*client_id),
+            Self::Private(task) => task.client(),
+            _ => None,
+        }
+    }
+    /// The client whose controller this request detaches.
+    pub(super) fn detaches(&self) -> Option<uuid::Uuid> {
+        let detaching = match self {
+            Self::Execute { request, .. } => matches!(request, LocalApiRequest::Detach {}),
+            Self::Native { action, .. } => matches!(action.as_ref(), crate::native::NativeAction::DetachAll),
+            Self::Private(task) => task.detaches(),
+            _ => false,
+        };
+        detaching.then(|| self.client()).flatten()
+    }
+    /// Answers a request with `error` without running it.
+    pub(super) fn fail(self, error: anyhow::Error) {
+        match self {
+            Self::Execute { reply, .. } => drop(reply.send(Err(error))),
+            Self::Native { reply, .. } => drop(reply.send(Err(error))),
+            Self::Private(task) => task.fail(error),
+            _ => {}
         }
     }
 }

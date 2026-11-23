@@ -52,28 +52,30 @@ impl Service {
             || anyhow::anyhow!("Terminal startup timed out; owner retained for cleanup."),
         )
     }
-    /// Starts `tab` if needed, without waiting. True while its start is
-    /// pending: the caller comes back once `start_settled`. False when it
-    /// runs, or the start failed at once (the caller's own `start_terminal`
-    /// then reports why).
-    pub(crate) fn begin_start(&mut self, tab: TabId) -> bool {
-        if !self.terminals.contains_key(&tab) && self.start_terminal_policy(tab, false).is_err() {
-            return false;
+    /// Starts `tab` if needed, without waiting. Ok(true) while its start is
+    /// pending: the caller comes back once `start_settled`. Ok(false) when it
+    /// runs or settled. Err when the start failed at once; nothing is retried.
+    pub(crate) fn begin_start(&mut self, tab: TabId) -> Result<bool> {
+        if !self.terminals.contains_key(&tab) {
+            self.start_terminal_policy(tab, false)?;
         }
-        self.terminals.get(&tab).is_some_and(|terminal| terminal.start_deadline.is_some())
-            && !self.start_settled(tab)
+        Ok(self.terminals.get(&tab).is_some_and(|terminal| terminal.start_deadline.is_some())
+            && !self.start_settled(tab))
     }
     /// True once `tab`'s start succeeded, failed or ran out of time.
     pub(crate) fn start_settled(&mut self, tab: TabId) -> bool {
         !matches!(self.startup_state(tab), Ok(None))
     }
     /// When the earliest pending start gives up, for the owner's pass timeout.
+    /// A passed deadline no longer counts: the waiter enforces it when it
+    /// runs, and one that never runs must not make the owner spin.
     pub(crate) fn start_deadline(&self) -> Option<Instant> {
-        self.terminals
+        let pending = self
+            .terminals
             .values()
             .filter(|terminal| terminal.startup.is_none() && terminal.runtime.phase() == Phase::Starting)
-            .filter_map(|terminal| terminal.start_deadline)
-            .min()
+            .filter_map(|terminal| terminal.start_deadline);
+        next_live(pending, Instant::now())
     }
     /// Ok(Some) once running; Ok(None) while starting; Err if it failed or timed out.
     fn startup_state(&mut self, tab: TabId) -> Result<Option<()>> {
@@ -97,7 +99,8 @@ impl Service {
         }
     }
     /// `startup_state`, then records a pinned WSL account once running.
-    /// A metadata write, so it runs in the request, never during a close.
+    /// A metadata write, so it runs in the request, never during a close. If
+    /// every waiter was cancelled, the next attach to this terminal records it.
     /// The outcome is reported once: afterwards the tab is used as it is, as
     /// when the start used to block.
     fn started(&mut self, tab: TabId) -> Result<Option<()>> {
@@ -211,9 +214,22 @@ impl Service {
     }
 }
 
+/// The earliest deadline still in the future.
+fn next_live(deadlines: impl Iterator<Item = Instant>, now: Instant) -> Option<Instant> {
+    deadlines.filter(|deadline| *deadline > now).min()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_passed_start_deadline_does_not_drive_the_pass_timeout() {
+        let now = Instant::now();
+        let (past, soon) = (now - Duration::from_secs(1), now + Duration::from_secs(1));
+        assert_eq!(next_live([past].into_iter(), now), None, "a missed waiter must not make the owner spin");
+        assert_eq!(next_live([past, soon].into_iter(), now), Some(soon));
+    }
     use shellfox_core::{CreateSession, EnvVar, ProfileId, SessionId};
     use shellfox_terminal::TerminalEnvironment;
 

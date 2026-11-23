@@ -261,6 +261,26 @@ fn encode(value: impl serde::Serialize) -> Result<Value> {
 }
 
 impl PrivateTask {
+    pub(super) fn client(&self) -> Option<uuid::Uuid> {
+        match self {
+            Self::Request { client_id, .. } => Some(*client_id),
+            _ => None,
+        }
+    }
+    pub(super) fn detaches(&self) -> bool {
+        match self {
+            Self::Request { request: PrivateRequest::LocalApi(LocalApiRequest::Detach {}), .. } => true,
+            Self::Request { request: PrivateRequest::DesktopView(view), .. } => {
+                matches!(view.as_ref(), crate::local::DesktopRequest::DetachAll)
+            }
+            _ => false,
+        }
+    }
+    pub(super) fn fail(self, error: anyhow::Error) {
+        if let Self::Request { reply, .. } = self {
+            let _ = reply.send(Err(error));
+        }
+    }
     /// Whether this task may run while a close is in flight (see close.rs).
     pub(super) fn flows(&self, service: &Service) -> bool {
         let Self::Request { request, .. } = self else {
@@ -279,12 +299,16 @@ impl PrivateTask {
 }
 
 impl PrivateTask {
-    /// The tab an attach would start; see `Task::start_target`.
-    pub(super) fn start_target(&self) -> Option<shellfox_core::TabId> {
+    /// The tab an attach would start; see `Task::start_target`. None for a
+    /// stale lifetime epoch, which the request itself then refuses.
+    pub(super) fn start_target(&self, owner: &PrivateOwner) -> Option<shellfox_core::TabId> {
         use shellfox_protocol::Validate;
-        let Self::Request { request, .. } = self else {
+        let Self::Request { request, client_id, epoch, .. } = self else {
             return None;
         };
+        if epoch.is_some_and(|epoch| owner.lifetimes.get(client_id).map(|l| l.epoch) != Some(epoch)) {
+            return None;
+        }
         match request {
             PrivateRequest::LocalApi(request @ LocalApiRequest::Attach { tab, .. }) => {
                 request.validate().is_ok().then_some(*tab)

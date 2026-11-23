@@ -64,16 +64,15 @@ impl RemoteService<'_> {
         }
         // While the terminal starts the owner serves other requests; this
         // attach runs again, authorized again, once the start settled.
-        if self.state.awaiting_start.len() < MAX_AWAITING_START && self.service.begin_start(tab) {
+        let launch_failed = || failure(ErrorCode::NativeUnavailable, "Terminal launch did not complete.");
+        // When full, this one starts as before: blocking, at most 12 s.
+        if self.state.awaiting_start.len() < MAX_AWAITING_START
+            && self.service.begin_start(tab).map_err(|_| launch_failed())?
+        {
             self.state.starting = Some(tab);
             return Ok(serde_json::Value::Null);
         }
-        self.service.start_terminal(tab).map_err(|_| {
-            failure(
-                ErrorCode::NativeUnavailable,
-                "Terminal launch did not complete.",
-            )
-        })?;
+        self.service.start_terminal(tab).map_err(|_| launch_failed())?;
         let runtime = self.service.terminals.get(&tab).ok_or_else(lost)?;
         if !accessible(runtime) {
             return Err(failure(

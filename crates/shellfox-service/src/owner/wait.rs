@@ -11,6 +11,11 @@ const WAIT_STEP: Duration = Duration::from_millis(2);
 /// Owner pass interval while automation has work that can't wake it (see
 /// AutomationState::needs_polling).
 const AUTOMATION_POLL: Duration = Duration::from_millis(20);
+/// Longest pass interval while raw automation processes exist. Their wakes
+/// come from Windows Job completion-port messages, which aren't guaranteed to
+/// arrive; a lost one must not leave a run looking alive. (Same as the
+/// runtime owner's teardown_step.)
+const AUTOMATION_RECHECK: Duration = Duration::from_millis(250);
 
 /// Wakes the owner when dropped, so a worker's result is collected at once.
 pub(crate) struct WakeOnExit(Option<shellfox_runtime::EventWake>);
@@ -67,11 +72,14 @@ impl Service {
             .into_iter()
             .flatten()
             .fold(activity.next_poll_ms, u64::min);
-        let timeout = activity
+        let mut timeout = activity
             .owner
             .clock()
             .instant_at(due)
             .map_or(Duration::ZERO, |at| at.saturating_duration_since(Instant::now()));
+        if self.automation.has_processes() {
+            timeout = timeout.min(AUTOMATION_RECHECK);
+        }
         // Runtime events end the wait for a close; its deadline is the fallback.
         [self.close_deadline(), self.automation.next_deadline(), self.start_deadline()]
             .into_iter()

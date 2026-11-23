@@ -181,15 +181,32 @@ impl ServiceOwner {
                             deferred.push_back(task);
                             continue;
                         }
-                        Ok(task) if starting.len() < MAX_DEFERRED => match task.start_target() {
+                        // A client's detach also ends its attaches still waiting
+                        // for a start: they would attach a client that left.
+                        Ok(task) if task.detaches().is_some() => {
+                            let client = task.detaches();
+                            let (ended, kept) = std::mem::take(&mut starting)
+                                .into_iter()
+                                .partition(|(_, waiting): &(_, Task)| waiting.client() == client);
+                            starting = kept;
+                            for (_, waiting) in ended {
+                                waiting.fail(anyhow::anyhow!("The client detached before its attach finished."));
+                            }
+                            Ok(task)
+                        }
+                        Ok(task) if starting.len() < MAX_DEFERRED => match task.start_target(&private) {
                             Some(tab) => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                                 service.begin_start(tab)
                             })) {
-                                Ok(true) => {
+                                Ok(Ok(true)) => {
                                     starting.push((tab, task));
                                     continue;
                                 }
-                                Ok(false) => Ok(task),
+                                Ok(Ok(false)) => Ok(task),
+                                Ok(Err(error)) => {
+                                    task.fail(error);
+                                    continue;
+                                }
                                 Err(_) => break,
                             },
                             None => Ok(task),

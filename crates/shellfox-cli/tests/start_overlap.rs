@@ -79,6 +79,25 @@ fn a_snapshot_is_answered_while_an_attach_starts_its_shell() -> Result<()> {
         snapshot.0?;
         eprintln!("attach {:?}, snapshot sent during it {:?}", attached.1, snapshot.1);
         ensure!(snapshot.1 < attached.1, "the snapshot waited for the shell start");
+
+        // A detach sent while the attach waits for its start ends that attach:
+        // it must not attach a client that already left.
+        let input = CreateSession {
+            request_id: SessionId::new(),
+            title: Some("detached early".into()),
+            cwd: data.to_string_lossy().into_owned(),
+            profile_id: ProfileId::new(if cfg!(windows) { "cmd" } else { "login-shell" })?,
+        };
+        let Response::Snapshot(created) = client.execute(Request::CreateSession { input }).await? else {
+            anyhow::bail!("Host did not return the created session.");
+        };
+        let tab = created.sessions.iter().find(|s| s.title == "detached early").context("session")?.tabs[0].id;
+        let (attached, detached) = tokio::join!(client.execute(Request::Attach { tab, takeover: false }), async {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            client.execute(Request::Detach {}).await
+        });
+        detached?;
+        ensure!(attached.is_err(), "an attach finished for a client that had detached");
         client.execute(Request::Stop {}).await?;
         anyhow::Ok(())
     });
