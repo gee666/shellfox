@@ -26,6 +26,8 @@
   store.fixture.polling = YES;
   store.fixture.pollOperation = @"19";
   NSMutableArray<NSString *> *started = [NSMutableArray new];
+  // The completion below carries the same connection authority as before.
+  store.fixture.authorityKey = @"[null,null]";
   [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     [started addObject:@"attach"]; return @"20";
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_OK); }];
