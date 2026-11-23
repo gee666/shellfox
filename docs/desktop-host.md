@@ -22,12 +22,16 @@ Before the UI stops the host it writes a quit byte to the host's stdin. If the p
 
 If the host ends without the UI asking (host_lost.rs), the UI quits when its own host was stopped, offers Restart when it died, and waits to reconnect to a `host run` host.
 
+On macOS, Dock Quit, Cmd+Q sent from outside the app and AppleScript quit go through the same confirmation, as Electron's `before-quit` did. GPUI 0.2.2's app delegate cannot refuse a terminate, so macos_terminate.rs adds `applicationShouldTerminate:` to it. That method cancels any terminate Shellfox or a logout did not ask for, and runs the menu's Quit instead.
+
+The end-of-app work runs once on every OS (app_exit.rs): stop or leave the host, then install a downloaded update once the host is gone. macOS exits inside GPUI's quit hook, so the hook runs it.
+
 ## Logout and shutdown
 
 The OS ending the UI is an approved Quit with no prompt, as in 0.9.15. The host stops and its shells end:
 
 - Windows: `WM_ENDSESSION` closes the windows (accessibility/windows_end_session.rs). The host handles console close, logoff, shutdown and break as a stop.
 - Linux: SIGTERM or SIGHUP to the UI, or the display going away. The host stops on SIGTERM or SIGHUP. If its UI dies while logind is closing the session or the Wayland/X11 display is gone, the host stops instead of relaunching the UI (shellfox-service desktop_session.rs).
-- macOS: the power-off notification before logout, restart and shutdown, and SIGTERM or SIGHUP. GPUI has no `applicationShouldTerminate:`, so the app ends right after `applicationWillTerminate:`, and the UI stops the host there (system_end.rs).
+- macOS: the power-off notification before logout, restart and shutdown, and SIGTERM or SIGHUP (system_end.rs). The quit that follows is let through, and the host stops in GPUI's quit hook.
 
 An unsaved file cannot hold up a logout. After 10 seconds the UI quits and stops the host anyway.

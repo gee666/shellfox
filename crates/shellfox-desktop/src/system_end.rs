@@ -34,9 +34,9 @@ fn request() {
     }
 }
 
-/// Closes the windows as an approved Quit once the OS asks, and stops the host
-/// when the app ends for an OS reason without having stopped it.
-pub(crate) fn watch(host: AppHost, cx: &mut App) {
+/// Closes the windows as an approved Quit once the OS asks. app_exit.rs stops
+/// the host if the app ends for an OS reason without having stopped it.
+pub(crate) fn watch(cx: &mut App) {
     let (sender, asked) = oneshot::channel();
     *ASKED.lock().unwrap_or_else(|error| error.into_inner()) = Some(sender);
     listen();
@@ -48,15 +48,7 @@ pub(crate) fn watch(host: AppHost, cx: &mut App) {
         let _ = cx.update(close_windows);
         // An unsaved file or a stuck close must not hold up a logout.
         executor.timer(Duration::from_secs(10)).await;
-        let _ = cx.update(|cx| cx.quit());
-    })
-    .detach();
-    cx.on_app_quit(move |cx| {
-        let init_failed = cx
-            .try_global::<crate::app_startup::InitErrors>()
-            .is_some_and(|errors| errors.0.borrow().is_some());
-        finish(&host, init_failed);
-        async {}
+        let _ = cx.update(crate::app_exit::quit);
     })
     .detach();
 }
@@ -68,7 +60,7 @@ fn close_windows(cx: &mut App) {
         .into_iter()
         .find_map(|window| window.downcast::<Root>())
     else {
-        return cx.quit();
+        return crate::app_exit::quit(cx);
     };
     let _ = root.update(cx, |root, window, cx| {
         if root.close(window, cx) {
@@ -77,7 +69,7 @@ fn close_windows(cx: &mut App) {
     });
 }
 
-/// Runs as the app ends, from GPUI's quit hook, or from main after a panic.
+/// Runs once as the app ends (app_exit.rs).
 /// `init_failed` means Shellfox quit on a startup error, not the OS.
 pub(crate) fn finish(host: &AppHost, init_failed: bool) {
     let running = !host.is_external()

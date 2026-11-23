@@ -71,7 +71,7 @@ fn about(cx: &mut gpui::App) {
 
 /// Each window goes through the same confirmation as closing it.
 #[cfg(target_os = "macos")]
-fn quit(cx: &mut gpui::App) {
+pub(crate) fn quit(cx: &mut gpui::App) {
     for handle in cx.windows() {
         let Some(root) = handle.downcast::<crate::root::Root>() else {
             continue;

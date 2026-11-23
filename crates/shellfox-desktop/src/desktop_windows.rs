@@ -54,7 +54,7 @@ fn open_bootstrap(options: Options, initial: InitialSelection, trace: bool, cx: 
         Err(error) => {
             crate::trace_ui_init(trace, "desktop_windows::open returned Err");
             crate::app_startup::record_init_failure(error, cx);
-            cx.quit();
+            crate::app_exit::quit(cx);
         }
     }
 }

@@ -2,6 +2,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 mod accessibility;
 mod app;
+mod app_exit;
 pub mod app_host;
 mod app_launch;
 mod app_startup;
@@ -40,6 +41,8 @@ mod root;
 mod session_environment;
 mod session_menu;
 mod session_visibility;
+#[cfg(target_os = "macos")]
+mod macos_terminate;
 #[cfg(target_os = "macos")]
 mod macos_window;
 mod settings;
@@ -141,6 +144,7 @@ fn main() -> Result<()> {
             eprintln!("Updater unavailable: {error:#}");
         }).ok()
     };
+    let exit = app_exit::Exit::new(owner.clone(), updater.clone());
     let graphics = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         trace_ui_init(trace, "frontend.prepare begin");
         frontend.prepare()?;
@@ -159,21 +163,15 @@ fn main() -> Result<()> {
                 }
             },
         );
-        run_graphics(options, owner.as_ref(), device_colors, editors, trace, updater.clone())
+        run_graphics(options, owner.as_ref(), device_colors, editors, trace, updater, exit.clone())
     }));
     let preserved = frontend.preserve();
-    if let Some(owner) = &owner {
-        // A panic skipped GPUI's quit hook.
-        if graphics.is_err() {
-            system_end::finish(&owner.host, false);
-        }
-        owner.cleanup_until_confirmed();
-    }
-    if matches!(graphics, Ok(Ok(()))) && let Some(updater) = &updater
-        && let Err(error) = updater.install_on_exit()
-    {
-        eprintln!("Shellfox update did not start: {error:#}");
-    }
+    // A no-op when GPUI's quit hook already ran it.
+    exit.finish(match &graphics {
+        Ok(Ok(())) => app_exit::Outcome::Clean,
+        Ok(Err(_)) => app_exit::Outcome::StartupFailed,
+        Err(_) => app_exit::Outcome::Panicked,
+    });
     finish_frontend(preserved, graphics).inspect_err(|error| {
         if show_startup_error { desktop_errors::startup(error); }
     })
@@ -224,6 +222,7 @@ fn run_graphics(
     editors: editor_composition::EditorOutcome,
     trace: bool,
     updater: Option<std::sync::Arc<update::Updater>>,
+    exit: app_exit::Exit,
 ) -> Result<()> {
     let retained = owner.map(|owner| (owner.config.clone(), owner.host.clone()));
     let errors = app_startup::InitErrors(std::rc::Rc::new(std::cell::RefCell::new(None)));
@@ -231,10 +230,17 @@ fn run_graphics(
     trace_ui_init(trace, "run_graphics entered; Application::new begin");
     let application = Application::new();
     trace_ui_init(trace, "Application::new returned");
+    #[cfg(target_os = "macos")]
+    let terminate = retained.is_some().then(app_exit::route_terminate);
     application
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             trace_ui_init(trace, "Application run callback entered");
+            exit.hook(cx);
+            #[cfg(target_os = "macos")]
+            if let Some(asked) = terminate {
+                app_exit::answer_terminate(asked, cx);
+            }
             cx.set_global(app_errors);
             cx.set_global(device_prefs::DevicePrefs(device_colors));
             cx.set_global(editors);
@@ -252,31 +258,29 @@ fn run_graphics(
                         if let Some(chrome) = chrome { chrome.install(cx); }
                     }
                     Ok(app_startup::Ready::Forwarded) => {
-                        cx.quit();
+                        app_exit::quit(cx);
                         return;
                     }
                     Err(error) => {
                         app_startup::record_init_failure(error, cx);
-                        cx.quit();
+                        app_exit::quit(cx);
                         return;
                     }
                 }
                 trace_ui_init(trace, "host wait returned");
                 if let Err(error) = app_host::adapter::install_prestarted(cx, config.clone(), &host) {
                     app_startup::record_init_failure(error, cx);
-                    cx.quit();
+                    app_exit::quit(cx);
                     return;
                 }
                 cx.set_global(host_lost::Relaunch(options.relaunch_args.clone()));
-                system_end::watch(host.clone(), cx);
+                system_end::watch(cx);
                 host_lost::watch(config, host, cx);
             }
             trace_ui_init(trace, "prestarted adapter install returned");
-            // Quitting the event loop does not drop the sole cleanup owner. Main
-            // drives its retained endpoint to actual confirmed Stop before returning.
             cx.on_window_closed(|cx| {
                 if cx.windows().is_empty() {
-                    cx.quit();
+                    app_exit::quit(cx);
                 }
             })
             .detach();

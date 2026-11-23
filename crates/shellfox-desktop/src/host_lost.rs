@@ -62,7 +62,7 @@ fn host_ended(closed: HostClosed, config: HostEndpointConfig, host: AppHost, cx:
     host.host_ended();
     match outcome {
         Outcome::Expected => {}
-        Outcome::Quit => cx.quit(),
+        Outcome::Quit => crate::app_exit::quit(cx),
         Outcome::OfferRestart => show(Notice { message: "Shellfox host stopped unexpectedly.", restart: true }, cx),
         Outcome::AwaitHost => {
             show(Notice { message: "Shellfox host stopped. Reconnecting when it is back.", restart: false }, cx);
@@ -103,7 +103,7 @@ fn reconnect_when_back(config: HostEndpointConfig, cx: &mut App) {
 fn relaunch(cx: &mut App) {
     let arguments = cx.try_global::<Relaunch>().map(|relaunch| relaunch.0.clone()).unwrap_or_default();
     match std::env::current_exe().and_then(|exe| std::process::Command::new(exe).args(arguments).spawn()) {
-        Ok(_) => cx.quit(),
+        Ok(_) => crate::app_exit::quit(cx),
         Err(error) => eprintln!("Shellfox restart failed: {error:#}"),
     }
 }
@@ -119,7 +119,7 @@ fn show(notice: Notice, cx: &mut App) {
     let stale = cx.windows();
     if let Err(error) = cx.open_window(options, |_, cx| cx.new(|_| notice)) {
         eprintln!("Shellfox host notice unavailable: {error:#}");
-        cx.quit();
+        crate::app_exit::quit(cx);
         return;
     }
     for handle in stale {
@@ -141,7 +141,7 @@ impl Render for Notice {
         if self.restart {
             buttons = buttons.child(dialog_button("host-restart", "Restart", palette).on_click(|_, _, cx| relaunch(cx)));
         }
-        buttons = buttons.child(dialog_button("host-quit", "Quit", palette).on_click(|_, _, cx| cx.quit()));
+        buttons = buttons.child(dialog_button("host-quit", "Quit", palette).on_click(|_, _, cx| crate::app_exit::quit(cx)));
         div()
             .size_full()
             .flex()

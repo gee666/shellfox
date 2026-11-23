@@ -33,6 +33,7 @@ pub(crate) enum Startup {
     Forwarded,
     Graphical(Option<Prestarted>),
 }
+#[derive(Clone)]
 pub(crate) struct Prestarted {
     pub config: HostEndpointConfig,
     pub host: AppHost,
@@ -190,7 +191,7 @@ pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Optio
     Ok(Ready::Attach(chrome.inspect_err(|error| eprintln!("Startup chrome unavailable: {error:#}")).ok()))
 }
 impl Prestarted {
-    /// Called outside Application.run, including after installation/GPU failure.
+    /// Called once as the app ends (app_exit.rs), including after a GPU failure.
     /// A UI that ends without a confirmed Quit leaves live shells to their host,
     /// as a crash would; an idle desktop-started host is stopped.
     pub fn cleanup_until_confirmed(&self) {
