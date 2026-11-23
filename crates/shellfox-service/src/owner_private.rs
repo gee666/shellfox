@@ -95,17 +95,19 @@ impl PrivateOwner {
             outgoing_native: shellfox_protocol::CancellationToken::new(),
         }
     }
+    /// Runs every owner pass, after any task, so receipt changes from tasks are published here too.
     pub fn pump(&mut self, service: &mut Service) {
         if service.stopping || service.ownership_lost.is_cancelled() {
             self.cancel_outgoing_fences();
             self.launches.invalidate_owner();
-            return;
+        } else {
+            let owner = self.launches.owner();
+            let mut resolver = ServiceLaunchResolver::new(service, &ExistingLocalDirectory);
+            // Full/no registered desktop retains queued intent without creating any
+            // metadata. The next owner tick retries delivery, never the UI effect.
+            let _ = self.launches.dispatch_one(owner, &mut resolver);
         }
-        let owner = self.launches.owner();
-        let mut resolver = ServiceLaunchResolver::new(service, &ExistingLocalDirectory);
-        // Full/no registered desktop retains queued intent without creating any
-        // metadata. The next owner tick retries delivery, never the UI effect.
-        let _ = self.launches.dispatch_one(owner, &mut resolver);
+        service.publish_launch_receipts(self.launches.generation());
     }
     pub fn handle(
         &mut self,

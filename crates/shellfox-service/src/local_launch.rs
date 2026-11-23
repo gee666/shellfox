@@ -73,19 +73,18 @@ where
             ),
             LaunchState::Queued | LaunchState::Dispatched | LaunchState::Applying => {}
         }
-        if tokio::time::Instant::now() >= deadline {
+        // Receipt reads retain the exact same owner. They never rediscover or resubmit.
+        // The host holds each read until the receipt changes.
+        let read = request(DesktopLaunchRequest::Receipt {
+            owner: route.owner,
+            request_id,
+        });
+        let Ok(read) = tokio::time::timeout_at(deadline, read).await else {
             bail!(
                 "Desktop launch receipt is still pending; submission was not replayed. Request ID: {request_id}"
             );
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        // Receipt reads retain the exact same owner. They never rediscover or resubmit.
-        reply = request(DesktopLaunchRequest::Receipt {
-            owner: route.owner,
-            request_id,
-        })
-        .await
-        .with_context(|| {
+        };
+        reply = read.with_context(|| {
             format!(
                 "Desktop receipt unavailable; submission was not replayed. Request ID: {request_id}"
             )

@@ -54,6 +54,8 @@ pub struct DesktopLaunchRouter {
     desktop: Option<Registered>,
     pending: VecDeque<SessionId>,
     entries: BTreeMap<SessionId, Entry>,
+    /// Bumped whenever a receipt may have changed state; published to held receipt reads.
+    generation: u64,
 }
 impl Default for DesktopLaunchRouter {
     fn default() -> Self {
@@ -68,10 +70,17 @@ impl DesktopLaunchRouter {
             desktop: None,
             pending: VecDeque::new(),
             entries: BTreeMap::new(),
+            generation: 0,
         }
     }
     pub fn owner(&self) -> LaunchOwnerFence {
         self.owner
+    }
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+    fn receipts_changed(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
     }
     fn check(
         &mut self,
@@ -88,6 +97,7 @@ impl DesktopLaunchRouter {
         Ok(())
     }
     pub fn invalidate_owner(&mut self) {
+        self.receipts_changed();
         self.live = false;
         self.desktop = None;
         self.pending.clear();

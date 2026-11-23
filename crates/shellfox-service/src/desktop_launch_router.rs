@@ -35,6 +35,7 @@ impl DesktopLaunchRouter {
         Ok(())
     }
     fn retire_client(&mut self, token: DesktopClientToken) {
+        self.receipts_changed();
         self.desktop = None;
         for entry in self.entries.values_mut() {
             if entry.client == Some(token)
@@ -135,6 +136,7 @@ impl DesktopLaunchRouter {
                 state: LaunchState::Queued,
             },
         );
+        self.receipts_changed();
         self.pending.push_back(request_id);
         Ok(LaunchReceipt {
             request_id,
@@ -184,6 +186,7 @@ impl DesktopLaunchRouter {
             .get_mut(&request_id)
             .ok_or(LaunchError::ReceiptUnavailable)?
             .state = LaunchState::Uncertain;
+        self.receipts_changed();
         let resolved = host.resolve(&intent, kind);
         if self.check(owner, host).is_err() {
             return Err(LaunchError::StaleOwner);

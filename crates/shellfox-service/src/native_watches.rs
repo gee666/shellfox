@@ -16,6 +16,8 @@ pub struct NativeWatches {
     /// The same rows as `NativeAction::ReadTabActivity`.
     pub tab_activity: watch::Receiver<Arc<[NativeTabActivity]>>,
     pub frames: FrameWakes,
+    /// Moves when any desktop launch receipt changes state.
+    pub launches: watch::Receiver<u64>,
 }
 
 /// Per-tab counters bumped when a tab's presentation may have changed:
@@ -45,6 +47,7 @@ pub(crate) struct WatchSenders {
     power: watch::Sender<PowerReport>,
     tab_activity: watch::Sender<Arc<[NativeTabActivity]>>,
     pub(crate) frames: FrameWakes,
+    launches: watch::Sender<u64>,
 }
 impl Default for WatchSenders {
     fn default() -> Self {
@@ -59,6 +62,7 @@ impl Default for WatchSenders {
             .0,
             tab_activity: watch::channel(Arc::from([])).0,
             frames: FrameWakes::default(),
+            launches: watch::channel(0).0,
         }
     }
 }
@@ -69,6 +73,7 @@ impl WatchSenders {
             power: self.power.subscribe(),
             tab_activity: self.tab_activity.subscribe(),
             frames: self.frames.clone(),
+            launches: self.launches.subscribe(),
         }
     }
 }
@@ -77,6 +82,12 @@ impl crate::Service {
     pub(crate) fn native_watches(&self) -> NativeWatches {
         self.publish_native_watches();
         self.native.watches.subscribe()
+    }
+    /// Called by the launch router's owner with its receipt generation.
+    pub(crate) fn publish_launch_receipts(&self, generation: u64) {
+        self.native.watches.launches.send_if_modified(|current| {
+            std::mem::replace(current, generation) != generation
+        });
     }
     pub(crate) fn publish_native_watches(&self) {
         let watches = &self.native.watches;

@@ -4,12 +4,13 @@
 //! to the owner as usual. A deadline returns the current value.
 use super::{request::PrivateRequest, DesktopRequest};
 use crate::{
+    desktop_launch::DesktopLaunchRequest,
     native::{NativePresentation, NativeViewAttachment, NativeWatches},
     power::{PowerReport, PowerRequest},
     remote::native::{RemoteControlState, RemoteRequest},
     NativeTabActivity,
 };
-use shellfox_core::TabId;
+use shellfox_core::{SessionId, TabId};
 use shellfox_protocol::CancellationToken;
 use std::{
     collections::HashMap,
@@ -29,6 +30,7 @@ enum Kind {
     Activity,
     Power,
     Remote,
+    Launch(SessionId),
 }
 
 /// What this client was last answered, as a receiver whose seen version
@@ -38,6 +40,7 @@ enum Seen {
     Activity(watch::Receiver<Arc<[NativeTabActivity]>>),
     Power(watch::Receiver<PowerReport>),
     Remote(watch::Receiver<RemoteControlState>),
+    Launch(watch::Receiver<u64>),
 }
 impl Seen {
     fn has_changed(&self) -> bool {
@@ -46,6 +49,7 @@ impl Seen {
             Self::Activity(changes) => changes.has_changed(),
             Self::Power(changes) => changes.has_changed(),
             Self::Remote(changes) => changes.has_changed(),
+            Self::Launch(changes) => changes.has_changed(),
         }
         .unwrap_or(true)
     }
@@ -56,6 +60,7 @@ impl Seen {
             Self::Activity(changes) => changes.changed().await,
             Self::Power(changes) => changes.changed().await,
             Self::Remote(changes) => changes.changed().await,
+            Self::Launch(changes) => changes.changed().await,
         };
     }
     fn mark_seen(&mut self) {
@@ -70,6 +75,9 @@ impl Seen {
                 changes.borrow_and_update();
             }
             Self::Remote(changes) => {
+                changes.borrow_and_update();
+            }
+            Self::Launch(changes) => {
                 changes.borrow_and_update();
             }
         }
@@ -164,6 +172,9 @@ impl LongPolls {
             },
             PrivateRequest::Power(PowerRequest::Status {}) => Some((Kind::Power, false)),
             PrivateRequest::RemoteOperator(RemoteRequest::State) => Some((Kind::Remote, false)),
+            PrivateRequest::DesktopLaunch(DesktopLaunchRequest::Receipt { request_id, .. }) => {
+                Some((Kind::Launch(*request_id), false))
+            }
             _ => None,
         }
     }
@@ -178,6 +189,7 @@ impl LongPolls {
             Kind::Activity => Seen::Activity(self.watches.tab_activity.clone()),
             Kind::Power => Seen::Power(self.watches.power.clone()),
             Kind::Remote => Seen::Remote(self.remote.clone()?),
+            Kind::Launch(_) => Seen::Launch(self.watches.launches.clone()),
         })
         .map(|mut seen| {
             seen.mark_seen();
@@ -218,7 +230,12 @@ impl LongPolls {
 mod tests {
     use super::*;
 
-    type Senders = (watch::Sender<u64>, watch::Sender<PowerReport>, watch::Sender<Arc<[NativeTabActivity]>>);
+    type Senders = (
+        watch::Sender<u64>,
+        watch::Sender<PowerReport>,
+        watch::Sender<Arc<[NativeTabActivity]>>,
+        watch::Sender<u64>,
+    );
     fn polls() -> (LongPolls, Senders) {
         let (revision, revisions) = watch::channel(3);
         let power = watch::channel(PowerReport {
@@ -228,13 +245,15 @@ mod tests {
             pending: false,
         });
         let activity = watch::channel(Arc::from([]));
+        let launches = watch::channel(0);
         let watches = NativeWatches {
             revision: revisions,
             power: power.1,
             tab_activity: activity.1,
             frames: Default::default(),
+            launches: launches.1,
         };
-        (LongPolls::new(watches, None), (revision, power.0, activity.0))
+        (LongPolls::new(watches, None), (revision, power.0, activity.0, launches.0))
     }
     fn activity() -> PrivateRequest {
         PrivateRequest::DesktopView(Box::new(DesktopRequest::ReadTabActivity))
@@ -257,7 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn changed_since_waits_for_a_newer_revision() {
-        let (polls, (revision, _power, _activity)) = polls();
+        let (polls, (revision, _power, _activity, _launches)) = polls();
         let (client, stop) = (uuid::Uuid::new_v4(), CancellationToken::new());
         let request = |revision| PrivateRequest::DesktopView(Box::new(DesktopRequest::ChangedSince { revision }));
         assert!(returns_soon(polls.hold(client, &request(2), &stop)).await);
@@ -266,6 +285,22 @@ mod tests {
         tokio::pin!(held);
         assert!(!returns_soon(&mut held).await);
         revision.send_replace(4);
+        assert!(returns_soon(held).await);
+    }
+
+    #[tokio::test]
+    async fn a_launch_receipt_read_waits_for_a_receipt_change() {
+        let (polls, (_revision, _power, _activity, launches)) = polls();
+        let (client, stop) = (uuid::Uuid::new_v4(), CancellationToken::new());
+        let receipt = PrivateRequest::DesktopLaunch(DesktopLaunchRequest::Receipt {
+            owner: "11111111-1111-4111-8111-111111111111".parse().unwrap(),
+            request_id: SessionId::new(),
+        });
+        assert!(returns_soon(polls.hold(client, &receipt, &stop)).await);
+        let held = polls.hold(client, &receipt, &stop);
+        tokio::pin!(held);
+        assert!(!returns_soon(&mut held).await);
+        launches.send_replace(1);
         assert!(returns_soon(held).await);
     }
 }

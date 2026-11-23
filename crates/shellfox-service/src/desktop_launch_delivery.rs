@@ -25,6 +25,7 @@ impl DesktopLaunchRouter {
             Ok(target) => target,
             Err(error) => {
                 self.check(delivery.client.owner, host)?;
+                self.receipts_changed();
                 self.entries
                     .get_mut(&delivery.intent.request_id)
                     .ok_or(LaunchError::ReceiptUnavailable)?
@@ -36,6 +37,7 @@ impl DesktopLaunchRouter {
         if resolved != delivery.target {
             return Err(LaunchError::Conflict);
         }
+        self.receipts_changed();
         let entry = self
             .entries
             .get_mut(&delivery.intent.request_id)
@@ -81,6 +83,7 @@ impl DesktopLaunchRouter {
             return Err(LaunchError::Conflict);
         }
         entry.state = state;
+        self.receipts_changed();
         Ok(LaunchReceipt {
             request_id: delivery.intent.request_id,
             state,
