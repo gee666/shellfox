@@ -231,12 +231,26 @@ const WSL_FOLDER: &str = r#"  # Windows programs see only the WSLENV names. Repl
   export SHELLFOX_CLI_DISTRO="$WSL_DISTRO_NAME" SHELLFOX_CLI_WSL_CWD="$PWD"
   shellfox_wsl_env SHELLFOX_CLI_DISTRO
   shellfox_wsl_env SHELLFOX_CLI_WSL_CWD
+  # Drops . and .. by spelling, as realpath -ms does; not every distro's realpath has -m.
+  lexical_path() {
+    lexical_rest=$1/ lexical=
+    while [ -n "$lexical_rest" ]; do
+      lexical_part=${lexical_rest%%/*}
+      lexical_rest=${lexical_rest#*/}
+      case "$lexical_part" in
+        ''|.) ;;
+        ..) lexical=${lexical%/*} ;;
+        *) lexical=$lexical/$lexical_part ;;
+      esac
+    done
+    printf '%s\n' "${lexical:-/}"
+  }
   windows_path() {
     case "$1" in
       [A-Za-z]:[\\/]*|\\\\*) printf '%s\n' "$1" ;;
       *)
         case "$1" in /*) path=$1 ;; *) path=$PWD/$1 ;; esac
-        wslpath -w "$(realpath -ms -- "$path" 2>/dev/null || printf '%s' "$path")"
+        wslpath -w "$(lexical_path "$path")"
         ;;
     esac
   }
