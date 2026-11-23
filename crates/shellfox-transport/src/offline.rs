@@ -7,7 +7,6 @@ use std::{
 };
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
-#[path = "ownership.rs"]
 mod ownership;
 pub use ownership::HostOwnership;
 

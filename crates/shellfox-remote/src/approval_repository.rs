@@ -13,5 +13,4 @@ pub trait ApprovalRepository: Send + Sync {
     ) -> ApprovalRepositoryFuture<'_, ApprovalStoreSnapshot>;
 }
 #[cfg(test)]
-#[path = "approval_repository_tests.rs"]
 mod tests;

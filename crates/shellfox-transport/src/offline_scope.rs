@@ -7,7 +7,7 @@ use std::{
     process::{Command, Stdio},
     sync::{mpsc, Arc, Mutex, MutexGuard},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 const MAX_PENDING: usize = 32;
 pub(crate) struct Ledger {
@@ -209,6 +209,12 @@ impl OfflineScope {
         control.enter_spawn()?;
         let child = command.spawn().map_err(|_| HelperError::Spawn)?;
         control.capture(child); // First action after success; no allocation/pipe/task setup.
+        let waiter = control.clone();
+        // Without a waiter the exit is never recorded: waits time out and the
+        // scope keeps the original's resources.
+        let _ = thread::Builder::new()
+            .name("shellfox-offline-wait".into())
+            .spawn(move || waiter.wait_os_exit());
         Ok(control)
     }
     pub fn seal(&self) {
@@ -237,64 +243,34 @@ impl OfflineScope {
             .unwrap_or_else(|e| e.into_inner())
             .children
             .clone();
-        let end = Instant::now() + Duration::from_secs(2);
-        loop {
-            let mut complete = true;
-            let mut error = None;
-            for child in &children {
-                if let Err(e) = child.poll_exit() {
-                    error = Some(e);
-                }
-                if !child.resolved_cached() {
-                    complete = false;
-                    if child.has_fault() {
-                        error = Some(HelperError::Command);
-                    }
-                }
-            }
-            // Poison is retained unknown admission, not evidence of no effect.
-            if self.0.ledger.is_poisoned() {
-                return Err(HelperError::Stopped);
-            }
-            if complete {
-                return Ok(NoOwnerProof::sealed());
-            }
-            if let Some(e) = error {
-                return Err(e);
-            }
-            if Instant::now() >= end {
-                return Err(HelperError::Deadline);
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+        // Poison is retained unknown admission, not evidence of no effect.
+        let poisoned = || self.0.ledger.is_poisoned();
+        if poisoned() {
+            return Err(HelperError::Stopped);
         }
+        let end = tokio::time::Instant::now() + Duration::from_secs(2);
+        for child in &children {
+            child.wait_resolved(end).await?;
+        }
+        if poisoned() {
+            return Err(HelperError::Stopped);
+        }
+        Ok(NoOwnerProof::sealed())
     }
 }
+/// Holds every original until the scope is gone, then releases them and keeps
+/// each one's resources until its exit is recorded.
 fn monitor(receive: mpsc::Receiver<Arc<OfflineControl>>) {
     let mut originals: Vec<Arc<OfflineControl>> = Vec::with_capacity(MAX_PENDING);
-    let mut disconnected = false;
-    loop {
-        if !disconnected {
-            match receive.recv_timeout(Duration::from_millis(10)) {
-                Ok(control) => originals.push(control),
-                Err(mpsc::RecvTimeoutError::Disconnected) => disconnected = true,
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
-            }
-        }
-        if disconnected {
-            for control in &originals {
-                let _ = control.release(false);
-            }
-        }
-        originals.retain(|control| {
-            let _ = control.poll_exit();
-            !control.resolved_cached()
-        });
-        if disconnected && originals.is_empty() {
-            break;
-        }
-        if disconnected {
-            thread::sleep(Duration::from_millis(10));
-        }
+    while let Ok(control) = receive.recv() {
+        originals.retain(|control| !control.resolved_cached());
+        originals.push(control);
+    }
+    for control in &originals {
+        let _ = control.release(false);
+    }
+    for control in &originals {
+        control.wait_resolved_blocking();
     }
 }
 impl Drop for Inner {
@@ -308,5 +284,4 @@ impl Drop for Inner {
 }
 
 #[cfg(test)]
-#[path = "offline_scope_tests.rs"]
 mod tests;

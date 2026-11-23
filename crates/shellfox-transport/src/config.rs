@@ -125,7 +125,6 @@ impl VerifiedHelper {
     }
 }
 
-#[path = "config/state_directory.rs"]
 mod state_directory;
 pub use state_directory::IsolatedStateDirectory;
 

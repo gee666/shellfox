@@ -4,11 +4,8 @@ use shellfox_core as core;
 use shellfox_protocol as wire;
 use std::collections::HashMap;
 
-#[path = "adapter_manager.rs"]
 mod manager;
-#[path = "adapter_settings.rs"]
 mod settings;
-#[path = "adapter_terminal.rs"]
 mod terminal;
 pub use manager::*;
 pub use settings::*;

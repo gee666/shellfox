@@ -7,7 +7,7 @@ license.workspace = true
 
 [features]
 default = []
-helper = ["host-auth", "tokio/process", "tokio/io-util", "tokio/net", "dep:rustix"]
+helper = ["host-auth", "tokio/process", "tokio/io-util", "tokio/net", "dep:rustix", "dep:windows-sys"]
 host-auth = ["dep:base64", "dep:hmac", "dep:sha2", "dep:hex"]
 test-helper = ["helper"]
 
@@ -24,6 +24,9 @@ hex = { version = "0.4", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs", "process"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"], optional = true }
 
 [[bin]]
 name = "shellfox-fixture-helper"

@@ -1,10 +1,7 @@
-#[path = "approval_management.rs"]
 mod management;
 #[cfg(test)]
-#[path = "approval_policy_tests.rs"]
 mod policy_tests;
 #[cfg(test)]
-#[path = "approval_tests.rs"]
 mod tests;
 use crate::{error, policy, Approval, PollWake, PrivateApprovalStore, ViewPermission};
 use shellfox_files::FileService;

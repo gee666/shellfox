@@ -1,13 +1,9 @@
 #[cfg(test)]
-#[path = "backend_http_tests.rs"]
 mod http_tests;
 #[cfg(test)]
-#[path = "backend_poll_tests.rs"]
 mod poll_tests;
-#[path = "backend_server.rs"]
 mod server;
 #[cfg(test)]
-#[path = "backend_tests.rs"]
 mod tests;
 use crate::{error, http, Actor, ApprovalControl, OwnerCommand, RemoteHost};
 use serde::Deserialize;

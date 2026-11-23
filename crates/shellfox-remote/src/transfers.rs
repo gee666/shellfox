@@ -1,6 +1,5 @@
 //! Unchanged v1 transfer DTOs over explicit approved-device OS-account authority.
 #[cfg(test)]
-#[path = "transfer_tests.rs"]
 mod tests;
 use crate::{file_ops, transfer_bridge, Actor, ViewPermission};
 use shellfox_files as files;

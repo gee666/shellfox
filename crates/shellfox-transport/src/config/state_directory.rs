@@ -6,7 +6,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-#[path = "state_io.rs"]
 mod io;
 
 const MARKER_LIMIT: u64 = 256;

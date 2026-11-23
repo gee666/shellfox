@@ -231,7 +231,6 @@ async fn line<R: tokio::io::AsyncRead + Unpin>(
 }
 
 #[cfg(test)]
-#[path = "http_status_tests.rs"]
 mod status_tests;
 #[cfg(test)]
 mod tests {

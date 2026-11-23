@@ -1,7 +1,7 @@
 use crate::{BoundOwnershipRoot, HelperError, RootLifetimeGuard, VerifiedHelper};
 use std::{
     process::{Child, ChildStderr, ChildStdout, ExitStatus},
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
 use tokio::task::JoinHandle;
@@ -32,8 +32,10 @@ pub(crate) struct OfflineControl {
     _original_directories: RootLifetimeGuard,
     lost: CancellationToken,
     fault: std::sync::atomic::AtomicBool,
-    /// Notified once `poll_exit` records the original wait; the scope monitor polls.
-    exited: tokio::sync::Notify,
+    /// Notified when the original resolves or faults.
+    changed: tokio::sync::Notify,
+    /// Signalled when the original resolves, for the scope monitor's thread.
+    resolved: Condvar,
 }
 impl OfflineControl {
     pub fn prepare(
@@ -55,7 +57,8 @@ impl OfflineControl {
             _original_directories: original_directories,
             lost: CancellationToken::new(),
             fault: std::sync::atomic::AtomicBool::new(false),
-            exited: tokio::sync::Notify::new(),
+            changed: tokio::sync::Notify::new(),
+            resolved: Condvar::new(),
         })
     }
     pub fn enter_spawn(&self) -> Result<(), HelperError> {
@@ -77,6 +80,8 @@ impl OfflineControl {
             return Err(HelperError::Stopped);
         }
         s.original = OriginalChild::NoChild(ProvenNoChild);
+        self.resolved.notify_all();
+        self.changed.notify_waiters();
         Ok(())
     }
     pub fn pipes(&self) -> Result<(ChildStdout, ChildStderr), HelperError> {
@@ -98,6 +103,7 @@ impl OfflineControl {
     pub fn fault(&self) {
         self.fault.store(true, std::sync::atomic::Ordering::Release);
         self.lost.cancel();
+        self.changed.notify_waiters();
     }
     pub fn has_fault(&self) -> bool {
         self.fault.load(std::sync::atomic::Ordering::Acquire)
@@ -150,7 +156,8 @@ impl OfflineControl {
                 child.stdin.take();
                 s.exit = Some(exit);
                 self.lost.cancel();
-                self.exited.notify_waiters();
+                self.resolved.notify_all();
+                self.changed.notify_waiters();
                 Ok(Some(exit))
             }
             Ok(None) => Ok(None),
@@ -186,11 +193,11 @@ impl OfflineControl {
         }
         Ok(())
     }
-    /// Waits for the original wait, which the scope monitor records.
+    /// Waits for the original wait, which its waiter thread records.
     pub async fn wait_exit(&self, timeout: Duration) -> Result<ExitStatus, HelperError> {
         let end = tokio::time::Instant::now() + timeout;
         loop {
-            let notified = self.exited.notified();
+            let notified = self.changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
             if let Some(exit) = self.poll_exit()? {
@@ -200,5 +207,77 @@ impl OfflineControl {
                 return self.poll_exit()?.ok_or(HelperError::Deadline);
             }
         }
+    }
+    /// Until the original resolves. A fault on an unresolved original fails at once.
+    pub async fn wait_resolved(&self, end: tokio::time::Instant) -> Result<(), HelperError> {
+        loop {
+            let notified = self.changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            self.poll_exit()?;
+            if self.resolved_cached() {
+                return Ok(());
+            }
+            if self.has_fault() {
+                return Err(HelperError::Command);
+            }
+            if tokio::time::timeout_at(end, notified).await.is_err() {
+                self.poll_exit()?;
+                return self.resolved_cached().then_some(()).ok_or(HelperError::Deadline);
+            }
+        }
+    }
+    /// Blocks the calling thread until the original resolves. One that was
+    /// never captured never resolves, and keeps its resources.
+    pub fn wait_resolved_blocking(&self) {
+        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        while s.exit.is_none() && !matches!(s.original, OriginalChild::NoChild(_)) {
+            s = self.resolved.wait(s).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+    /// Blocks until the captured original exits, without reaping it, then
+    /// records the exit. Runs on the original's own waiter thread.
+    pub fn wait_os_exit(&self) {
+        let target = {
+            let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let OriginalChild::Captured(child) = &s.original else {
+                return;
+            };
+            if s.exit.is_some() {
+                return;
+            }
+            os::target(child)
+        };
+        os::wait(target);
+        let _ = self.poll_exit();
+    }
+}
+
+#[cfg(windows)]
+mod os {
+    use std::os::windows::io::AsRawHandle;
+    pub struct Target(isize);
+    pub fn target(child: &std::process::Child) -> Target {
+        Target(child.as_raw_handle() as isize)
+    }
+    /// The handle stays open: its Child lives in the control the waiter holds.
+    pub fn wait(target: Target) {
+        use windows_sys::Win32::System::Threading::{WaitForSingleObject, INFINITE};
+        // SAFETY: a live process handle; waiting neither reaps nor closes it.
+        unsafe { WaitForSingleObject(target.0 as _, INFINITE) };
+    }
+}
+#[cfg(unix)]
+mod os {
+    use rustix::process::{waitid, Pid, WaitId, WaitIdOptions};
+    pub struct Target(Pid);
+    pub fn target(child: &std::process::Child) -> Target {
+        Target(Pid::from_child(child))
+    }
+    /// WNOWAIT leaves the exit for try_wait to reap; ECHILD means it already did.
+    pub fn wait(target: Target) {
+        while let Err(rustix::io::Errno::INTR) =
+            waitid(WaitId::Pid(target.0), WaitIdOptions::EXITED | WaitIdOptions::NOWAIT)
+        {}
     }
 }

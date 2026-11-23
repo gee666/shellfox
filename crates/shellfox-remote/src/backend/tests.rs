@@ -12,7 +12,7 @@ struct Vector {
 }
 pub(super) fn request(name: &str) -> http::Request {
     let vector =
-        serde_json::from_str::<Vec<Vector>>(include_str!("../tests/fixtures/auth-vectors.json"))
+        serde_json::from_str::<Vec<Vector>>(include_str!("../../tests/fixtures/auth-vectors.json"))
             .unwrap()
             .into_iter()
             .find(|v| v.name == name)

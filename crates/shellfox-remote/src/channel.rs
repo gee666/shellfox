@@ -3,7 +3,6 @@ use shellfox_protocol::{AppError, CancellationToken, ErrorCode, RemoteCommand};
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot};
 #[cfg(test)]
-#[path = "channel_tests.rs"]
 mod tests;
 
 #[derive(Clone)]
