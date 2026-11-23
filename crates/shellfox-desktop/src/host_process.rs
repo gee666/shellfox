@@ -273,12 +273,9 @@ pub(crate) fn recorded_owner(desktop_dir: &Path) -> Option<LaunchOwnerFence> {
     std::fs::read_to_string(desktop_dir.join(OWNER_MARKER)).ok()?.trim().parse().ok()
 }
 
-/// The build stamp a host started by this UI reports.
+/// The build stamp a host from this build reports.
 pub(crate) fn expected_build() -> u64 {
-    cli_path()
-        .ok()
-        .and_then(|cli| shellfox_service::desktop_launch::build_stamp(&cli).ok())
-        .unwrap_or(0)
+    shellfox_service::desktop_launch::build_stamp(env!("SHELLFOX_BUILD_ID"))
 }
 
 /// Packages keep the CLI in bin/ (Windows) or beside the desktop binary.

@@ -78,7 +78,7 @@ impl DesktopLaunchRouter {
                 .desktop
                 .as_ref()
                 .is_some_and(|desktop| !desktop.sender.is_closed()),
-            build: super::own_build_stamp(),
+            build: super::host_build(),
         })
     }
     pub fn enqueue(

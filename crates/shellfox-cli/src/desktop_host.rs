@@ -59,6 +59,7 @@ fn serve(arguments: &[OsString]) -> Result<()> {
     ensure!(matches!(args.command, crate::args::Command::Serve), "Unexpected host command");
     // The desktop host opens folders and links for its UI, unlike a headless host.
     let remote = args.application.remote_options(std::env::current_exe()?, true)?;
+    shellfox_service::desktop_launch::set_host_build(env!("SHELLFOX_BUILD_ID"));
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     let serving = Serving {
         data: args.data_dir.clone(),

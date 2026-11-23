@@ -10,31 +10,26 @@ pub use shellfox_protocol::DESKTOP_LAUNCH_NAMESPACE as DESKTOP_LAUNCH_METHOD;
 pub struct LaunchRouteInfo {
     pub owner: LaunchOwnerFence,
     pub desktop_registered: bool,
-    /// The host executable's [`build_stamp`]. A host from before this field
-    /// reports 0, which matches no build.
+    /// The host's [`build_stamp`], or 0 for a host that set none or predates
+    /// this field. 0 matches no build.
     #[serde(default)]
     pub build: u64,
 }
-/// Identifies one build of an executable: its canonical path, size and
-/// modification time. A rebuild or an update to another folder changes it.
-/// The desktop attaches only to a host whose CLI has the stamp it expects.
-pub fn build_stamp(executable: &std::path::Path) -> std::io::Result<u64> {
+/// Identifies one build: the stamp of its `SHELLFOX_BUILD_ID`. Never 0.
+pub fn build_stamp(build_id: &str) -> u64 {
     use std::hash::{Hash, Hasher};
-    let path = std::fs::canonicalize(executable)?;
-    let metadata = std::fs::metadata(&path)?;
-    let modified = metadata
-        .modified()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |time| time.as_nanos());
-    // Fixed keys: the same in every process built by the same toolchain.
+    // Fixed keys: the same in every binary built by the same toolchain.
     let mut hash = std::hash::DefaultHasher::new();
-    (path, metadata.len(), modified).hash(&mut hash);
-    Ok(hash.finish().max(1))
+    build_id.hash(&mut hash);
+    hash.finish().max(1)
 }
-/// This process's own stamp, computed once.
-pub fn own_build_stamp() -> u64 {
-    static STAMP: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
-    *STAMP.get_or_init(|| std::env::current_exe().and_then(|exe| build_stamp(&exe)).unwrap_or(0))
+static HOST_BUILD: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+/// Set once by the host process before it serves, from its own build id.
+pub fn set_host_build(build_id: &str) {
+    let _ = HOST_BUILD.set(build_stamp(build_id));
+}
+pub(crate) fn host_build() -> u64 {
+    HOST_BUILD.get().copied().unwrap_or(0)
 }
 /// This local DTO cannot be passed through the sealed remote Request API.
 /// ```compile_fail
