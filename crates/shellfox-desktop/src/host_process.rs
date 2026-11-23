@@ -5,7 +5,7 @@ use crate::host_client::HostEndpointConfig;
 use anyhow::{Context, Result, bail};
 use shellfox_service::{
     desktop_launch::{DesktopLaunchReply, DesktopLaunchRequest, LaunchOwnerFence, LaunchRouteInfo},
-    local::{LocalBootstrap, LocalClient},
+    local::{LocalBootstrap, LocalClient, OtherBuildRunning},
 };
 use std::{
     ffi::OsString,
@@ -57,8 +57,13 @@ impl Route {
 }
 
 /// The data directory's host, if one answers now.
-pub(crate) fn find_running(runtime: &tokio::runtime::Runtime, config: &HostEndpointConfig) -> Option<Running> {
-    runtime.block_on(discover(config)).ok().map(|(client, route)| Running { client, route })
+/// None when no host answers. A live host of another build is an error.
+pub(crate) fn find_running(runtime: &tokio::runtime::Runtime, config: &HostEndpointConfig) -> Result<Option<Running>> {
+    match runtime.block_on(discover(config)) {
+        Ok((client, route)) => Ok(Some(Running { client, route })),
+        Err(error) if error.is::<OtherBuildRunning>() => Err(error),
+        Err(_) => Ok(None),
+    }
 }
 
 /// Starts a host on its own thread, so the UI can initialize meanwhile. A host

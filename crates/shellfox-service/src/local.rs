@@ -23,7 +23,7 @@ use crate::{
     security::PrivateDirectory,
 };
 use anyhow::{bail, Context, Result};
-pub use client::{HostClosed, LocalClient, LocalRequestFailure};
+pub use client::{HostClosed, LocalClient, LocalRequestFailure, OtherBuildRunning};
 
 pub async fn check_helper_protocol(helper: &std::path::Path, digest: [u8; 32]) -> Result<()> {
     let helper = shellfox_transport::VerifiedHelper::new(helper.to_owned(), digest)?;
@@ -60,6 +60,9 @@ struct Envelope<T = LocalApiRequest> {
     method: String,
     payload: T,
 }
+// Never change the endpoint record namespace, the transport version or the
+// shellfox_protocol local namespaces: a newer desktop uses them to find and
+// replace an older build's host. Pinned by tests::wire_names_are_frozen.
 const NAMESPACE: &str = "shellfox.local.endpoint.v1";
 
 mod api;
@@ -290,4 +293,18 @@ pub(crate) async fn write_frame<W: AsyncWrite + Unpin>(write: &mut W, bytes: &[u
     write.write_all(bytes).await?;
     write.flush().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn wire_names_are_frozen() {
+        assert_eq!(super::NAMESPACE, "shellfox.local.endpoint.v1");
+        assert_eq!(super::TRANSPORT_VERSION, 1);
+        assert_eq!(shellfox_protocol::LOCAL_NAMESPACE, "private.local.v1");
+        assert_eq!(shellfox_protocol::DESKTOP_LAUNCH_NAMESPACE, "private.desktop.launch.v1");
+        assert_eq!(shellfox_protocol::DESKTOP_VIEW_NAMESPACE, "private.desktop.view.v1");
+        assert_eq!(shellfox_protocol::POWER_NAMESPACE, "private.power.v1");
+        assert_eq!(shellfox_protocol::SSH_READ_NAMESPACE, "private.ssh.read.v1");
+    }
 }

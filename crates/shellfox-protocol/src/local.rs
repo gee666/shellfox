@@ -2,6 +2,8 @@
 use crate::{RequestLimits, TransportFuture, Validate};
 use serde::{de::DeserializeOwned, Serialize};
 
+// Never change these strings: a newer desktop uses them to find and replace
+// an older build's host. Pinned by shellfox-service local::tests.
 pub const LOCAL_NAMESPACE: &str = "private.local.v1";
 /// Private Discover/Submit/Receipt routing. Native registration, claim and ACK are not request methods.
 pub const DESKTOP_LAUNCH_NAMESPACE: &str = "private.desktop.launch.v1";
@@ -17,3 +19,4 @@ pub trait LocalRequest: Serialize + DeserializeOwned + Validate {
 pub trait LocalTransport: Send + Sync {
     fn send<'a>(&'a self, body: Vec<u8>, limits: RequestLimits) -> TransportFuture<'a>;
 }
+

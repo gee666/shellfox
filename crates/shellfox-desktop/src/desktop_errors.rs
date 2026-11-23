@@ -6,7 +6,7 @@ use windows::{
 };
 
 pub(crate) fn startup(error: &anyhow::Error) {
-    let other = error.chain().any(|cause| cause.is::<crate::app_startup::OtherVersionRunning>());
+    let other = error.chain().any(|cause| cause.is::<shellfox_service::local::OtherBuildRunning>());
     #[cfg(windows)]
     alert(
         "Shellfox",

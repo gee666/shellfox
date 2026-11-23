@@ -56,21 +56,50 @@ impl LocalTransportContract for LocalTransport {
                     .map_err(|_| TransportError::Unavailable)?;
                 Ok(response)
             };
-            tokio::pin!(operation);
-            loop {
-                if limits.cancel.is_cancelled() {
-                    return Err(TransportError::Cancelled);
-                }
-                if Instant::now() >= limits.deadline {
-                    return Err(TransportError::Deadline);
-                }
-                tokio::select! {
-                    result = &mut operation => return result,
-                    _ = tokio::time::sleep_until(deadline) => return Err(TransportError::Deadline),
-                    _ = tokio::time::sleep(Duration::from_millis(10)) => {}
-                }
+            tokio::select! {
+                biased;
+                _ = limits.cancel.cancelled() => Err(TransportError::Cancelled),
+                _ = tokio::time::sleep_until(deadline) => Err(TransportError::Deadline),
+                result = operation => result,
             }
         })
+    }
+}
+
+/// endpoint.json names a live host that this build can't talk to.
+#[derive(Debug)]
+pub struct OtherBuildRunning;
+impl std::fmt::Display for OtherBuildRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("A different Shellfox version is still running. Close it first.")
+    }
+}
+impl std::error::Error for OtherBuildRunning {}
+
+/// A record this build can't read came from another build. It is that build's
+/// live host only if its endpoint still accepts a connection; otherwise it is
+/// stale and a new host replaces it.
+async fn foreign_record(bytes: &[u8], private: &PrivateDirectory) -> anyhow::Error {
+    let address = serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|value| value.get("address")?.as_str().map(str::to_owned));
+    let answering = match address {
+        Some(address) => {
+            #[cfg(unix)]
+            let connect = async {
+                let parent = private.endpoint_directory()?;
+                platform::connect_verified(&address, &private.path, &parent).await
+            };
+            #[cfg(windows)]
+            let connect = platform::connect_verified(&address, &private.path);
+            matches!(tokio::time::timeout(Duration::from_secs(2), connect).await, Ok(Ok(_)))
+        }
+        None => false,
+    };
+    if answering {
+        OtherBuildRunning.into()
+    } else {
+        anyhow::anyhow!("No Shellfox host is running; endpoint.json is stale.")
     }
 }
 
@@ -103,10 +132,15 @@ pub struct LocalClient {
 impl LocalClient {
     pub async fn connect(data: &Path, helper: &Path, helper_sha256: [u8; 32]) -> Result<Self> {
         let (private, bytes) = PrivateDirectory::read_existing(data, helper, helper_sha256).await?;
-        let record: Record = serde_json::from_slice(&bytes)?;
-        if record.namespace != NAMESPACE
-            || record.transport_version != TRANSPORT_VERSION
-            || record.secret.len() != 64
+        let record = match serde_json::from_slice::<Record>(&bytes) {
+            Ok(record)
+                if record.namespace == NAMESPACE && record.transport_version == TRANSPORT_VERSION =>
+            {
+                record
+            }
+            _ => return Err(foreign_record(&bytes, &private).await),
+        };
+        if record.secret.len() != 64
             || !record.secret.bytes().all(|b| b.is_ascii_hexdigit())
         {
             bail!("Invalid local endpoint record.");

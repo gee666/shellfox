@@ -8,11 +8,10 @@ use crate::{
 use anyhow::{Context, Result};
 use shellfox_service::{
     desktop_launch::{LaunchRequestKind, LaunchRouteInfo},
-    local::LocalClient,
+    local::{LocalClient, OtherBuildRunning},
 };
 use std::{
     cell::RefCell,
-    fmt,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -55,7 +54,7 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
         &config.helper,
         config.helper_sha256,
     ))?;
-    let running = crate::host_process::find_running(&runtime, &config);
+    let running = crate::host_process::find_running(&runtime, &config)?;
     let running = match running {
         Some(running) => match stale_host(&runtime, options, &running)? {
             // A previous build's idle host was stopped; start the right one.
@@ -87,15 +86,6 @@ pub(crate) fn prepare(options: &Options) -> Result<Startup> {
     Ok(Startup::Graphical(Some(Prestarted { config, host })))
 }
 
-/// Another build of Shellfox still owns this data directory.
-#[derive(Debug)]
-pub(crate) struct OtherVersionRunning;
-impl fmt::Display for OtherVersionRunning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("A different Shellfox version is still running. Close it first.")
-    }
-}
-impl std::error::Error for OtherVersionRunning {}
 
 #[derive(Debug, PartialEq, Eq)]
 enum Stale {
@@ -125,7 +115,7 @@ fn stale_host(runtime: &tokio::runtime::Runtime, options: &Options, running: &cr
     };
     match stale(desktop_owned, same_build, route.desktop_registered, terminals) {
         Stale::Attach => Ok(false),
-        Stale::Refuse => Err(OtherVersionRunning.into()),
+        Stale::Refuse => Err(OtherBuildRunning.into()),
         Stale::Replace => {
             runtime.block_on(async {
                 running.client.execute(shellfox_service::local_api::LocalApiRequest::Stop {}).await?;
@@ -172,7 +162,7 @@ pub(crate) fn ready(host: &AppHost, config: &HostEndpointConfig, options: &Optio
         host.set_owned(options.owned_host || recorded(options, route.info));
         if route.info.build != crate::host_process::expected_build() && !host.is_external() {
             host.host_ended();
-            return Err(OtherVersionRunning.into());
+            return Err(OtherBuildRunning.into());
         }
         if route.info.desktop_registered {
             let client = runtime.block_on(LocalClient::connect(&config.data_dir, &config.helper, config.helper_sha256))?;
