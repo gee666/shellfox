@@ -8,6 +8,24 @@ use windows_sys::Win32::System::Threading::{
     GetCurrentProcess, SetEvent, EVENT_MODIFY_STATE, SYNCHRONIZATION_SYNCHRONIZE,
 };
 
+/// The shell must get Ctrl+C. A host started in its own process group (the
+/// desktop starts it so) hands down the "ignore Ctrl+C" flag, which every
+/// process in the tab would inherit. Clear it for the shell, and keep this
+/// supervisor alive with a handler, which is not inherited.
+fn deliver_ctrl_c() {
+    use windows_sys::Win32::System::Console::{
+        SetConsoleCtrlHandler, CTRL_BREAK_EVENT, CTRL_C_EVENT,
+    };
+    unsafe extern "system" fn stay(event: u32) -> i32 {
+        i32::from(event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT)
+    }
+    // SAFETY: changes this process's console control handling only.
+    unsafe {
+        SetConsoleCtrlHandler(Some(stay), 1);
+        SetConsoleCtrlHandler(None, 0);
+    }
+}
+
 pub(crate) fn entry() -> Result<Option<u32>> {
     let mut args = std::env::args_os().skip(1);
     if args.next().as_deref() != Some(std::ffi::OsStr::new(SUPERVISOR_FLAG)) {
@@ -48,6 +66,7 @@ pub(crate) fn entry() -> Result<Option<u32>> {
         ok != 0 && in_job != 0,
         "uncontained supervisor refuses to spawn"
     );
+    deliver_ctrl_c();
     let arguments: Vec<OsString> = args.collect();
     let mut command = Command::new(&program);
     command.args(arguments);
