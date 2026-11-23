@@ -275,11 +275,15 @@ async fn run_started(
         Some(remote) => client.with_remote(remote),
         None => client,
     };
-    let polls = std::sync::Arc::new(long_poll::LongPolls::new(
-        client.native_watches().await?,
-        client.remote_state(),
-    ));
     let lost = ownership.lost();
+    // The owner may be busy; a stop or lost ownership must not wait for it.
+    let watches = tokio::select! {
+        biased;
+        _ = server.stop.cancelled() => return Ok(()),
+        _ = lost.cancelled() => anyhow::bail!("Native host ownership lost; refusing further metadata access."),
+        watches = client.native_watches() => watches?,
+    };
+    let polls = std::sync::Arc::new(long_poll::LongPolls::new(watches, client.remote_state()));
     while server.ensure_running().is_ok() {
         anyhow::ensure!(
             ownership.is_alive(),
