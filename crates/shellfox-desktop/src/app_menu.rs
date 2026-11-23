@@ -1,9 +1,12 @@
 //! The standard macOS menu bar. Windows and Linux have no menu bar.
 use gpui::actions;
 
-// Edit items act on the focused terminal or text field. Their keyboard
-// shortcuts stay with those views' own key handling, so the items are unbound.
+// Edit items act on the focused terminal or text field. Cmd+C/V/A stay with
+// those views' own key handling; the Edit bindings only label the menu.
 actions!(shellfox_app, [About, Hide, HideOthers, Quit, Minimize, Copy, Paste, SelectAll]);
+
+#[cfg(target_os = "macos")]
+const MENU_LABEL_ONLY: &str = "MenuLabelOnly";
 
 #[cfg(target_os = "macos")]
 pub(crate) fn install(cx: &mut gpui::App) {
@@ -13,6 +16,11 @@ pub(crate) fn install(cx: &mut gpui::App) {
         KeyBinding::new("cmd-h", Hide, None),
         KeyBinding::new("alt-cmd-h", HideOthers, None),
         KeyBinding::new("cmd-m", Minimize, None),
+        // No element sets this context, so these never match in a window. GPUI
+        // still shows the first binding of an action as the menu's shortcut.
+        KeyBinding::new("cmd-c", Copy, Some(MENU_LABEL_ONLY)),
+        KeyBinding::new("cmd-v", Paste, Some(MENU_LABEL_ONLY)),
+        KeyBinding::new("cmd-a", SelectAll, Some(MENU_LABEL_ONLY)),
     ]);
     cx.on_action(|_: &About, cx| about(cx));
     cx.on_action(|_: &Hide, cx| cx.hide());
