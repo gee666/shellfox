@@ -9,6 +9,7 @@ pub enum NetworkCommand {
         hostname: Option<String>,
     },
     LoginFromStdin,
+    LoginFromFile(std::path::PathBuf),
 }
 
 /// Closed local operator grammar. Never accepts a login secret in argv.
@@ -40,6 +41,9 @@ pub fn parse(words: &[&str]) -> Result<Option<NetworkCommand>> {
         }
         ["login"] => NetworkCommand::Request(RemoteRequest::Login { auth_key: None }),
         ["login", "--auth-key-stdin"] => NetworkCommand::LoginFromStdin,
+        ["login", "--auth-key-file", path] if !path.is_empty() => {
+            NetworkCommand::LoginFromFile((*path).into())
+        }
         [operation @ ("cancel" | "continue"), attempt] => {
             let attempt_id = attempt
                 .parse()

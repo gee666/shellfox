@@ -34,27 +34,29 @@ The host keeps its own state in `<data root>/rust-v1/host`. Files that Shellfox 
 shellfox session list --json
 shellfox session create /srv/project --title Backend --json
 shellfox session inspect SESSION_UUID --json
-shellfox session rename SESSION_UUID "new title"
+shellfox session settle SESSION_UUID
+shellfox session stats --all
 shellfox session delete SESSION_UUID --yes
 shellfox terminals list [SESSION_UUID] --json
 shellfox terminals create SESSION_UUID [--title T] [--profile P]
-shellfox terminals rename SESSION_UUID TAB_UUID "title"
-shellfox terminals close TAB_UUID --yes
+shellfox terminals write TAB_UUID --stdin < commands.txt
 shellfox terminals attach TAB_UUID
 shellfox settings read --json
-shellfox settings update --input '{"historyPageSize":30}'
+shellfox api getSnapshot --json
+shellfox --host build-box session list --json
+shellfox cmd --register deploy ./deploy.sh
 shellfox host keep-awake [on|off]
 shellfox ssh [NAME]
 shellfox version
 ```
 
-`ss` and `sessions` are aliases for `session`, and `tm` is an alias for `terminals`. Globals (`--user-data`, `--json`, `--yes`, `--host local`) can come before or after the command. Everything after `--` is literal.
+`ss` and `sessions` are aliases for `session`, and `tm` is an alias for `terminals`. Globals (`--user-data`, `--json`, `--yes`, `--host`) can come before or after the command. Everything after `--` is literal. Every 0.9 command is available; [terminal commands](cli.md) describes them all.
 
 JSON successes are `{"ok":true,"value":...}`. Failures are `{"ok":false,"error":{"code":"VALIDATION","message":"...","retryable":false}}`. Invalid arguments exit with 2 and failures with 1. Destructive commands need `--yes` in JSON or noninteractive mode.
 
 Attach forwards input, output and resizes to the existing PTY. Ctrl+] detaches and leaves the shell running. Attach needs a TTY and rejects `--json`.
 
-Not available in this version yet: remote `--host` targets, `api`, `commands`/`cmd`, `completion`, `path`, `profiles`, `session stats|processes|env|pin|settle|unsettle|focus|refresh|clear-error`, `terminals write|reorder`, `network login --auth-key-file`, and the 0.9 table output. They fail with `VALIDATION` or `UNSUPPORTED` instead of doing something else. Human output is indented JSON. Session and terminal records use the host's own fields (`id`, `title`, `cwd`, `tabs`), not every field 0.9 printed.
+Human output uses the 0.9 tables and fields. A few records differ from 0.9; see [what differs from 0.9](cli.md#what-differs-from-09).
 
 ## Remote access without a browser on the server
 
@@ -62,6 +64,7 @@ Not available in this version yet: remote `--host` targets, `api`, `commands`/`c
 shellfox network enable --hostname build-server --json
 shellfox network login --json
 shellfox network login --auth-key-stdin --json < private-auth-key
+shellfox network login --auth-key-file /protected/auth-key --json
 shellfox machines list --json
 shellfox machines connect DEVICE_ID --json
 shellfox approvals list --json

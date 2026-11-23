@@ -8,6 +8,10 @@ use std::io::{IsTerminal, Read};
 
 pub async fn run(client: &LocalClient, command: NetworkCommand) -> Result<()> {
     let changing = !matches!(&command, NetworkCommand::Request(RemoteRequest::State));
+    let login = matches!(
+        &command,
+        NetworkCommand::LoginFromStdin | NetworkCommand::LoginFromFile(_)
+    );
     let request = match command {
         NetworkCommand::Request(request) => request,
         NetworkCommand::Configure { enabled, hostname } => {
@@ -28,9 +32,22 @@ pub async fn run(client: &LocalClient, command: NetworkCommand) -> Result<()> {
                 auth_key: Some(read_auth_key(input.lock())?),
             }
         }
+        NetworkCommand::LoginFromFile(path) => RemoteRequest::Login {
+            auth_key: Some(crate::auth_key::read_file(&path)?),
+        },
     };
     // Same authenticated local epoch and original actor; no network/PAIR client.
-    let state = client.remote_control(request).await?;
+    // 0.9 never echoed why a keyed login failed.
+    let state = match client.remote_control(request).await {
+        Err(_) if login => {
+            return Err(crate::output::CliError::new(
+                "AUTH_FAILED",
+                "Network login failed. Check host network status.",
+                false,
+            ))
+        }
+        state => state?,
+    };
     crate::commands::print_json(&state)?;
     if changing && (state.error.is_some() || state.cleanup_retained) {
         bail!("Local network operator is not confirmed; inspect the returned state.");
@@ -41,21 +58,15 @@ pub async fn run(client: &LocalClient, command: NetworkCommand) -> Result<()> {
 fn read_auth_key(input: impl Read) -> Result<AuthKey> {
     let mut bytes = Vec::new();
     input
-        .take(4099)
+        .take(4097)
         .read_to_end(&mut bytes)
         .map_err(|_| anyhow::anyhow!("Unable to read login key from standard input."))?;
-    if bytes.len() > 4098 {
-        bail!("Invalid authentication key input.");
+    if bytes.len() > 4096 {
+        return Err(crate::output::CliError::usage(
+            "Stdin exceeds the input limit.",
+        ));
     }
-    let mut value = String::from_utf8(bytes)
-        .map_err(|_| anyhow::anyhow!("Invalid authentication key input."))?;
-    if value.ends_with('\n') {
-        value.pop();
-        if value.ends_with('\r') {
-            value.pop();
-        }
-    }
-    AuthKey::new(value).map_err(|_| anyhow::anyhow!("Invalid authentication key input."))
+    crate::auth_key::validate(&bytes)
 }
 
 #[cfg(test)]

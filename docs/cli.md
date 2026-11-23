@@ -18,7 +18,7 @@ shellfox --user-data /absolute/private/data host status
 | Option | Meaning |
 | --- | --- |
 | `--host local` | Use the local host, the default. |
-| `--host <peer-id-or-hostname>` | Route manager requests through the local host to an approved, connected Tailscale peer. Hostnames must be unambiguous. |
+| `--host <peer-id-or-hostname>` | Send the command through the local host's Tailscale node to a peer that has approved this machine. Each command pairs one view and disconnects it. Hostnames must be unambiguous. |
 | `--user-data <path>` | Select the host's data directory. An explicit value overrides the installed launcher's default. |
 | `--json` | Structured output and errors instead of human formatting. Never prompt. |
 | `--yes` | Confirm a destructive operation without an interactive prompt. |
@@ -81,7 +81,7 @@ shellfox session clear-error SESSION_UUID
 
 `list` lists all sessions by default. `create` uses the caller's working directory unless a path is supplied; on a remote host its default is the remote home directory. Creating sessions does not change desktop selection. New sessions use the host's default terminal profile.
 
-Targeted operations accept a positional session UUID or `--id UUID`. If neither is given, the CLI resolves `SHELLFOX_TERMINAL_MARKER` through the local host's authenticated context resolver. Missing, stale or ambiguous context fails. It never falls back to a selected desktop session, working directory or caller PID.
+Targeted operations accept a positional session UUID or `--id UUID`. If neither is given, the CLI uses `SHELLFOX_TERMINAL_MARKER`: each Shellfox terminal gets its tab UUID there, and the command targets that tab's session while the tab is running. Missing, stale or unknown context fails. It never falls back to a selected desktop session, working directory or caller PID.
 
 An explicit ID always wins over the ambient marker and `--current`. Supplying two explicit IDs, even if identical, is an error. Remote targeted commands require an explicit ID. A local marker is never forwarded to another host. Commands run inside that remote host's own terminal naturally use its localhost context instead.
 
@@ -97,7 +97,7 @@ shellfox ss processes
 shellfox ss rm --yes
 ```
 
-`stats` and `processes` require a session ID, current context, or explicit `--all`. They use the same validated `getSessionStats` method locally and remotely. `list` also requests fresh observations. Generic `api getSnapshot` reads the cached manager snapshot instead; it does not force a native tracking poll.
+`stats` and `processes` require a session ID, current context, or explicit `--all`. They use the same validated `getSessionStats` method locally and remotely. This host reports running terminals but no process or memory measurements, so RSS and duration show `n/a` with a reason; a 0.9 peer still reports them.
 
 `env --input` replaces the entire saved environment. Without `--input`, it reads it. `settle` and `unsettle` change status without closing terminals or stopping agents. If settling active work requires confirmation, use `--confirm-active --yes`. `delete`, `rm`, and `-rm` are the same operation within the session namespace. Noninteractive deletion requires `--yes`; piping `yes` is not a substitute. Interactive deletion inspects the resolved target before prompting and keeps that UUID pinned for the mutation.
 
@@ -155,14 +155,7 @@ Queries answered by the host parser are not replayed to a second terminal respon
 
 Output is acknowledged after delivery. Input is limited to 64 KiB per frame and 128 KiB pending. Oversized paste or a full queue detaches with an explicit error, not silent truncation. A lost reply may mean input was already delivered. The CLI never reconnects and resends that uncertain input. Inspect the terminal before sending it again. Detaching or exiting a client never closes the shell or stops the host.
 
-### External TTY verification
-
-After the final test build, run this smoke against an isolated real desktop host:
-
-```sh
-pnpm build:test
-pnpm exec playwright test --project=e2e tests/e2e/cli-attach-tty.spec.ts
-```
+Interactive attach works on the local host only. With a remote `--host` it fails with `UNSUPPORTED`; run `shellfox terminals attach` on that machine.
 
 The smoke creates its sessions and tabs through the window API before launching the built CLI through `node-pty`, not mocked streams. A separate bundled-Node driver loads the staged terminal addon; the Playwright worker never loads it. The harness exchanges JSON lines over ordinary stdio pipes, with only input-write and test-owned kill commands after startup. Evidence records native PTY data/exit events, command acknowledgements, driver errors, stderr and driver exit status. A driver failure never substitutes a terminal exit code. It attaches existing UUIDs through `terminals` and `tm`, checks that a missing UUID fails without mutation, and verifies that no CLI attach changes the session/tab identities. Each client explicitly takes control with Ctrl+T if another viewer owns the terminal, sends a shell command, checks the returned live working directory, and detaches with Ctrl+]. The test checks that the shell remains open after the client exits. A second case starts a resize-driven Node TUI on a pre-sized 90x40 terminal and takes it from an external 90x40 CLI. It checks that the TUI repaints at 90x40 without manually resizing the external TTY. Playwright attaches `external-tty-evidence.json` and `same-grid-repaint.json` with the isolated data directory, CLI/runtime paths, session/tab IDs, shell output, exit codes and repaint counters. It does not access the installed host or register startup tasks. Windows, macOS and Linux require their normal desktop/native build prerequisites. Mobile and headless clients use the same existing manager contracts; the external desktop smoke does not verify those platforms.
 
@@ -242,9 +235,11 @@ shellfox api renameSession --input '{"sessionId":"SESSION_UUID","title":"new tit
 shellfox remote api getState --json
 ```
 
-Settings updates merge supplied fields into current settings and validate the full result. `profiles` lists terminal profiles and availability. Directory helpers run on the selected host; `path create` is an explicit request to create a directory.
+Settings updates merge supplied fields into current settings and validate the full result. `profiles` lists terminal profiles and availability. Directory helpers run on the selected host and resolve relative paths against its home directory; `path create` is an explicit request to create a directory. With a remote `--host`, `settings read` reads the peer's settings and `settings update` is rejected.
 
-`api` accepts every validated `ManagerMethod` from `src/shared/schemas.ts`, including methods without a dedicated spelling. Input defaults to `{}`. Requests and responses use the application schemas. Desktop-only or unavailable OS actions report `UNSUPPORTED`. Remote requests cannot bypass the existing method allowlist. `remote api` exposes validated local remote management and generic peer requests. Destructive methods require confirmation or `--yes` in both generic channels. Human formatting remains the default; add `--json` for structured automation.
+`api` takes the 0.9 `ManagerMethod` names and payloads. Input defaults to `{}`. Unknown names fail with `VALIDATION`. On the local host these work: `getSnapshot`, `getSessionStats`, `getTerminalProfiles`, `getHomeDirectory`, `resolveDirectory`, `completeDirectory`, `createDirectory`, `createSession`, `addTab`, `activateSession`, `focusSession`, `refreshSessionMembership`, `renameSession`, `renameTab`, `reorderTabs`, `setSessionPinned`, `settleSession`, `unsettleSession`, `clearSessionError`, `setSessionEnv`, `setTerminalEnv`, `deleteSession`, `closeTab`, `saveSettings`, `getKeepAwake` and `setKeepAwake`. `saveSettings` takes this version's settings fields, as `settings update` does. Terminal control, file and upload methods need a connection that outlives one command, so they fail with `UNSUPPORTED` locally; use `terminals write` and `terminals attach`. SSH-profile, update, clipboard, folder-picker, Explorer and PuTTY methods also report `UNSUPPORTED`. With a remote `--host`, `api` sends any method on the v1 remote allowlist, and the peer applies its own permissions.
+
+`remote api` manages the local host's network: `getState`, `configure`, `login` (never with a key), `connect`, `disconnect`, `approve`, `reject`, `revoke`, `forget`, and `request` to send one allowlisted method to a peer. It returns this host's network state record. Destructive methods require confirmation or `--yes` in both generic channels.
 
 ## Commands and SSH
 
@@ -282,8 +277,13 @@ compinit
 source <(shellfox completion zsh)
 ```
 
-Completion shows canonical groups and their operations, plus custom-management flags and validated script names. It also recognizes aliases already typed. It does not query session IDs or execute registry text. Loading a hook is safe more than once and does not edit profiles. The Debian package installs Bash and zsh hooks system-wide.
+Completion shows canonical groups and their operations, plus custom-management flags and validated script names. It also recognizes aliases already typed. It does not query session IDs or execute registry text. Loading a hook is safe more than once and does not edit profiles.
 
-The Windows-installed WSL command runs bundled Windows Node against Windows loopback and the installation's Windows data directory. It forwards `SHELLFOX_TERMINAL_MARKER` unchanged through WSLENV and never falls back to Linux Node or Linux user data. A separately installed Linux command controls a Linux host. Use `type -a shellfox` and `hash -r` when diagnosing a shadowed command.
+The Windows-installed WSL command runs the Windows `shellfox-cli` against the installation's Windows data directory. It forwards `SHELLFOX_TERMINAL_MARKER` and `NO_COLOR` through WSLENV, plus the caller's distro and folder for `commands`. A separately installed Linux command controls a Linux host. Use `type -a shellfox` and `hash -r` when diagnosing a shadowed command.
 
-The opt-in WSL regression test is `SHELLFOX_CLI_TEST_WSL=1 pnpm exec vitest run src/main/platform/wsl-control-launcher.test.ts`. It defaults to Debian, selectable with `SHELLFOX_CLI_TEST_WSL_DISTRO`. It boots that distro but writes startup files only in project `tmp/` fixtures. No test changes the user's PATH, startup files, live host installation or preview data.
+## What differs from 0.9
+
+- Local session records are this host's fields (`id`, `title`, `cwd`, `createdAt`, `updatedAt`, `settledAt`, `pinnedAt`, `env`, `tabs`) plus 0.9's `status`, `activityStatus` and `counts`. Each tab adds `lifecycle`, `status`, `agents` and `generation`. The host reports whether a tab runs agents, not how many, so `agents` is 0 or 1. 0.9's `adapterId`, `shellId`, `window`, `canFocus`, `canAddTab`, `controlReason`, `terminalLifetime` and `shellSurvival` are not included. A remote `--host` peer returns its own v1 records.
+- `api getSnapshot` returns `revision`, `sessions` and `settings`, without `probe`, `explorer` or `cli`. Settings and `remote api` state use this version's fields.
+- `session stats` and `session processes` have no process or memory measurements on this host.
+- `terminals attach` doesn't work with a remote `--host`.

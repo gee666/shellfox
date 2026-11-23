@@ -1,0 +1,3 @@
+Usage: shellfox completion <powershell|bash|zsh>
+Print a shell completion hook. Does not edit shell profiles.
+See docs/cli.md for loading instructions.

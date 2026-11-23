@@ -1,50 +1,17 @@
 //! Runs the 0.9.x command surface against the Rust host.
+use crate::manager_args::ManagerCommand;
 use crate::{
     legacy_host::LegacyHost,
     node_args::{data_dir, Action, Invocation},
     output::{print_value, CliError},
 };
 use anyhow::{Context, Result};
-use shellfox_core::{AddTab, CreateSession, ProfileId, SessionId, Snapshot};
-use shellfox_service::{
-    experiment::{ExperimentRequest, ExperimentResponse},
-    local::LocalClient,
-    remote::RemoteRequest,
-};
+use shellfox_core::SessionId;
+use shellfox_service::{experiment::ExperimentRequest, local::LocalClient, remote::RemoteRequest};
 use std::{
     io::{IsTerminal, Write},
     path::{Path, PathBuf},
 };
-
-pub const HELP: &str = "Shellfox
-
-Usage: shellfox [--user-data DIR] [--json] [--yes] COMMAND
-
-Host
-  host run | host status | host stop
-  host keep-awake [on|off]
-  host service install [--startup] | host service uninstall
-Sessions (session, sessions, ss)
-  session list | create [PATH] [--title TITLE] | inspect ID
-  session rename ID TITLE | delete ID
-Terminals (terminals, tm)
-  terminals list [SESSION] | create SESSION [--title T] [--profile P]
-  terminals rename SESSION TAB TITLE | close TAB | attach TAB
-Automation
-  run [--cwd PATH] [--title T] [--request-id UUID] [--detach] -- EXE [ARG...]
-  runs list | runs show ID | runs stop ID
-Network
-  network status | enable [--hostname NAME] | disable
-  network login [--auth-key-stdin]
-  machines list | connect ID | disconnect ID | forget ID
-  approvals list | approve ID | reject ID | revoke ID
-Other
-  settings read | settings update --input JSON|@FILE|-
-  ssh [NAME | --profile NAME]
-  update [--check] | version | help
-
-Destructive commands need --yes in noninteractive or --json mode.
-Ctrl+] detaches from an attached terminal.";
 
 pub fn run(
     invocation: Invocation,
@@ -58,7 +25,11 @@ pub fn run(
         None => Some(invocation.user_data()?),
     };
     let Invocation {
-        json, yes, action, ..
+        json,
+        yes,
+        host,
+        action,
+        ..
     } = invocation;
     let data = match (&selection.data_dir, &user_data) {
         (Some(data), _) => data.clone(),
@@ -86,7 +57,11 @@ pub fn run(
             .build()
     };
     match action {
-        Action::Help => print_value(&HELP)?,
+        Action::Help(topic) => {
+            let color = !json && crate::human_text::color(true);
+            let text = crate::help::text(topic.as_deref(), crate::human_text::Style(color), crate::human_text::terminal_width());
+            crate::output::print_text(&text)?
+        }
         Action::Unknown(words) if !legacy => {
             crate::output::set_mode(crate::output::Mode::Raw);
             let args = selection.args(data, &words)?;
@@ -172,94 +147,67 @@ pub fn run(
             }
             return runtime()?.block_on(crate::commands::run(args));
         }
-        Action::CreateSession { cwd, .. }
-            if legacy && !json && !crate::desktop_handoff::endpoint_exists(&data) =>
+        Action::CreateSession { path, .. }
+            if legacy && host.is_none() && !json && !crate::desktop_handoff::endpoint_exists(&data) =>
         {
             // 0.9.x: with no host running, a desktop install opens the window on the new session.
+            let cwd = crate::node_args::local_directory(path.as_deref())?;
             match crate::desktop_handoff::desktop_binary() {
                 Some(desktop) => crate::desktop_handoff::open_session(&desktop, &cwd)?,
                 None => return Err(unavailable()),
             }
         }
-        action => runtime()?.block_on(connected(&target()?, action))?,
+        Action::Completion(shell) => return crate::completion::run(shell.as_deref()),
+        Action::Commands(words) => {
+            let root = user_data.as_deref().context("Custom commands need --user-data, not --data-dir")?;
+            return crate::custom_commands::run(&words, root, json);
+        }
+        action => {
+            let options = crate::manager_run::Options { json, yes, host };
+            runtime()?.block_on(connected(&target()?, action, &options))?
+        }
     }
     Ok(0)
 }
 
-async fn connected(target: &Target, action: Action) -> Result<()> {
+async fn connected(
+    target: &Target,
+    action: Action,
+    options: &crate::manager_run::Options,
+) -> Result<()> {
     let client = target.connect().await?;
-    let result = query(&client, action).await;
+    let result = query(&client, action, options).await;
     let _ = client.disconnect().await;
     result
 }
 
-async fn query(client: &LocalClient, action: Action) -> Result<()> {
+async fn query(
+    client: &LocalClient,
+    action: Action,
+    options: &crate::manager_run::Options,
+) -> Result<()> {
     match action {
+        Action::Manager(command) => crate::manager_run::run(client, command, options).await,
         Action::CreateSession {
-            cwd,
+            path,
             title,
             request_id,
         } => {
-            let before = snapshot(client).await?;
-            let profile_id = shellfox_service::desktop_launch::folder_profile(&cwd)
-                .unwrap_or_else(|| default_profile(&before));
-            let input = CreateSession {
-                request_id: request_id.unwrap_or_else(SessionId::new),
-                title,
-                cwd,
-                profile_id,
+            let cwd = if options.remote() {
+                path.unwrap_or_else(|| "~".into())
+            } else {
+                crate::node_args::local_directory(path.as_deref())?
             };
-            let snapshot = mutate(client, ExperimentRequest::CreateSession { input }).await?;
-            let created = snapshot
-                .sessions
-                .iter()
-                .find(|s| !before.sessions.iter().any(|old| old.id == s.id));
-            print_value(&created.context("The host did not return the new session.")?)
-        }
-        Action::CreateTab {
-            session,
-            title,
-            profile,
-        } => {
-            let id: SessionId = session
-                .parse()
-                .map_err(|_| CliError::usage("A session UUID is required."))?;
-            let before = snapshot(client).await?;
-            let profile_id = match profile {
-                Some(profile) => profile
-                    .parse()
-                    .map_err(|_| CliError::usage("Invalid profile ID."))?,
-                None => default_profile(&before),
-            };
-            let input = AddTab {
-                title,
-                cwd: None,
-                profile_id,
-            };
-            let snapshot = mutate(client, ExperimentRequest::AddTab { id, input }).await?;
-            let old: Vec<_> = before
-                .sessions
-                .iter()
-                .flat_map(|s| &s.tabs)
-                .map(|t| t.id)
-                .collect();
-            let created = snapshot
-                .sessions
-                .iter()
-                .filter(|s| s.id == id)
-                .flat_map(|s| &s.tabs)
-                .find(|t| !old.contains(&t.id));
-            print_value(&created.context("The host did not return the new terminal.")?)
-        }
-        Action::Inspect(id) => {
-            let id: SessionId = id
-                .parse()
-                .map_err(|_| CliError::usage("A session UUID is required."))?;
-            let snapshot = snapshot(client).await?;
-            let session = snapshot.sessions.iter().find(|s| s.id == id);
-            print_value(
-                &session.ok_or_else(|| CliError::new("NOT_FOUND", "Session not found.", false))?,
+            crate::manager_run::run(
+                client,
+                ManagerCommand::CreateSession {
+                    cwd,
+                    title,
+                    request_id: request_id.unwrap_or_else(SessionId::new),
+                },
+                options,
             )
+            .await
         }
         Action::Machines => {
             let state = client.remote_control(RemoteRequest::State).await?;
@@ -277,19 +225,6 @@ async fn query(client: &LocalClient, action: Action) -> Result<()> {
             )
         }
         _ => unreachable!("handled before connecting"),
-    }
-}
-
-fn default_profile(snapshot: &Snapshot) -> ProfileId {
-    snapshot.preferences.default_profile_id.clone()
-}
-async fn snapshot(client: &LocalClient) -> Result<Snapshot> {
-    mutate(client, ExperimentRequest::Snapshot {}).await
-}
-async fn mutate(client: &LocalClient, request: ExperimentRequest) -> Result<Snapshot> {
-    match client.execute(request).await? {
-        ExperimentResponse::Snapshot(snapshot) => Ok(snapshot),
-        _ => anyhow::bail!("Unexpected host response."),
     }
 }
 
@@ -314,7 +249,11 @@ fn unavailable() -> anyhow::Error {
     )
 }
 
-fn confirm(json: bool, yes: bool, what: &str) -> Result<()> {
+pub(crate) fn interactive() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+pub(crate) fn confirm(json: bool, yes: bool, what: &str) -> Result<()> {
     if yes {
         return Ok(());
     }

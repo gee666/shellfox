@@ -1,0 +1,52 @@
+# Shellfox completion for Bash 3.2+. No bash-completion dependency.
+_shellfox_complete() {
+  local current="${COMP_WORDS[COMP_CWORD]}" name output candidate
+  COMPREPLY=()
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    for candidate in host session run runs terminals network machines approvals settings profiles path commands ssh api remote update version help completion --host --json --yes; do
+      [[ $candidate == "$current"* ]] && COMPREPLY+=("$candidate")
+    done
+    return 0
+  fi
+  if [[ ${COMP_WORDS[1]} != cmd && ${COMP_WORDS[1]} != commands ]]; then
+    [[ $COMP_CWORD -eq 2 ]] || return 0
+    case "${COMP_WORDS[1]}" in
+      host) output='run status stop service keep-awake' ;;
+      network) output='enable disable login status' ;;
+      machines) output='list connect disconnect forget' ;;
+      approvals) output='list approve revoke reject' ;;
+      session) output='list create inspect rename pin env settle unsettle delete stats processes focus refresh clear-error' ;;
+      ss) output='list create inspect rename pin env settle unsettle delete stats processes focus refresh clear-error' ;;
+      sessions) output='list create inspect rename pin env settle unsettle delete stats processes focus refresh clear-error' ;;
+      terminals) output='list create rename reorder close attach write' ;;
+      tm) output='list create rename reorder close attach write' ;;
+      run) output='--cwd --title --request-id --detach --' ;;
+      runs) output='list show stop' ;;
+      update) output='--check' ;;
+      settings) output='read update' ;;
+      profiles) output='list' ;;
+      path) output='home resolve complete create' ;;
+      remote) output='api' ;;
+      *) return 0 ;;
+    esac
+    for candidate in $output; do [[ $candidate == "$current"* ]] && COMPREPLY+=("$candidate"); done
+    return 0
+  fi
+  if [[ $COMP_CWORD -eq 2 ]]; then
+    for candidate in --run --register --ls --list --remove --rm --unregister --rename --help -h; do
+      [[ $candidate == "$current"* ]] && COMPREPLY+=("$candidate")
+    done
+  elif [[ $COMP_CWORD -eq 3 ]]; then
+    case "${COMP_WORDS[2]}" in --run|--remove|--rm|--unregister|--rename) ;; *) return 0 ;; esac
+  else
+    return 0
+  fi
+  [[ $current != -* ]] || return 0
+  output=$("${COMP_WORDS[0]}" cmd --complete "$current" 2>/dev/null) || return 0
+  while IFS= read -r name; do
+    name=${name%$'\r'}
+    [[ $name =~ ^[A-Za-z][A-Za-z0-9_-]{0,63}$ ]] && COMPREPLY+=("$name")
+  done <<< "$output"
+  return 0
+}
+complete -F _shellfox_complete shellfox

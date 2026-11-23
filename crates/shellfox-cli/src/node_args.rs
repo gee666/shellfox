@@ -10,12 +10,15 @@ pub struct Invocation {
     pub user_data: Option<PathBuf>,
     pub json: bool,
     pub yes: bool,
+    /// A remote peer ID or hostname; None is this machine.
+    pub host: Option<String>,
     pub action: Action,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
-    Help,
+    /// `help [group]`; None is every group.
+    Help(Option<String>),
     Version,
     Update {
         check: bool,
@@ -32,17 +35,17 @@ pub enum Action {
         words: Vec<String>,
         confirm: Option<String>,
     },
+    /// The folder as typed; None is the caller's folder, or `~` on a remote host.
     CreateSession {
-        cwd: String,
+        path: Option<String>,
         title: Option<String>,
         request_id: Option<shellfox_core::SessionId>,
     },
-    CreateTab {
-        session: String,
-        title: Option<String>,
-        profile: Option<String>,
-    },
-    Inspect(String),
+    Manager(crate::manager_args::ManagerCommand),
+    /// `completion [SHELL]`; None prints the usage.
+    Completion(Option<String>),
+    /// `commands`/`cmd` and everything after it.
+    Commands(Vec<String>),
     Machines,
     Approvals,
     /// Not a 0.9.x command. Development hosts selected with --data-dir also
@@ -51,7 +54,10 @@ pub enum Action {
 }
 
 const GLOBALS: [&str; 4] = ["--json", "--yes", "--host", "--user-data"];
-const VALUED: [&str; 9] = [
+const VALUED: [&str; 12] = [
+    "--tab",
+    "--path",
+    "--pid",
     "--title",
     "--input",
     "--hostname",
@@ -89,7 +95,10 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
         words.drain(..2);
     }
     let (mut json, mut yes, mut host, mut user_data) = (false, false, None, None);
-    let mut rest = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    // 0.9 parseGlobals: after `cmd NAME` (or `cmd --run NAME`) every word is the script's.
+    let mut commands = Commands::No;
+    let mut operands = 0;
     let mut index = 0;
     while index < words.len() {
         let word = &words[index];
@@ -97,11 +106,46 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
             rest.extend_from_slice(&words[index..]);
             break;
         }
+        if operands > 0 {
+            rest.push(word.clone());
+            operands -= 1;
+            index += 1;
+            continue;
+        }
+        match commands {
+            Commands::Operation => {
+                if let Some(count) = crate::custom_commands::operand_count(word) {
+                    commands = Commands::Admin;
+                    operands = count;
+                    rest.push(word.clone());
+                    index += 1;
+                    continue;
+                }
+                if word == "--run" {
+                    commands = Commands::Script;
+                    rest.push(word.clone());
+                    index += 1;
+                    continue;
+                }
+                if !word.starts_with('-') {
+                    rest.extend_from_slice(&words[index..]);
+                    break;
+                }
+            }
+            Commands::Script if !word.starts_with('-') => {
+                rest.extend_from_slice(&words[index..]);
+                break;
+            }
+            _ => {}
+        }
         let (flag, inline) = match word.split_once('=') {
             Some((flag, value)) if word.starts_with("--") => (flag, Some(value.to_owned())),
             _ => (word.as_str(), None),
         };
         if !GLOBALS.contains(&flag) {
+            if rest.is_empty() && (word == "cmd" || word == "commands") {
+                commands = Commands::Operation;
+            }
             rest.push(word.clone());
             if inline.is_none() && VALUED.contains(&flag) {
                 if let Some(value) = words.get(index + 1).filter(|v| *v != "--") {
@@ -116,19 +160,30 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
             "--json" | "--yes" if inline.is_some() => {
                 return Err(CliError::usage(format!("{flag} does not accept a value.")));
             }
-            "--json" => json = true,
-            "--yes" => yes = true,
+            "--json" | "--yes" => {
+                let slot = if flag == "--json" {
+                    &mut json
+                } else {
+                    &mut yes
+                };
+                if std::mem::replace(slot, true) {
+                    return Err(CliError::usage(format!("Duplicate option: {flag}")));
+                }
+            }
             _ => {
                 let value = match inline {
                     Some(value) => value,
                     None => {
                         index += 1;
-                        words
-                            .get(index)
-                            .cloned()
-                            .ok_or_else(|| CliError::usage(format!("{flag} requires a value.")))?
+                        words.get(index).cloned().unwrap_or_default()
                     }
                 };
+                if value.is_empty() || value.starts_with("--") || value.contains(['\0', '\r', '\n'])
+                {
+                    return Err(CliError::usage(format!(
+                        "Missing or invalid value for {flag}"
+                    )));
+                }
                 let slot = if flag == "--host" {
                     &mut host
                 } else {
@@ -141,20 +196,26 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
         }
         index += 1;
     }
-    if host.as_deref().is_some_and(|host| host != "local") {
-        return Err(CliError::new(
-            "UNSUPPORTED",
-            "Remote --host targets are not available in this CLI yet. Run the command on that machine.",
-            false,
-        ));
+    let host = host.filter(|host| host != "local");
+    if host.is_some() {
+        local_only(&rest)?;
     }
-    let action = action(&rest, json)?;
+    let action = action(&rest, json, host.is_some())?;
     Ok(Invocation {
         user_data: user_data_root(user_data.or(launcher_default))?,
         json,
         yes,
+        host,
         action,
     })
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Commands {
+    No,
+    Operation,
+    Admin,
+    Script,
 }
 
 /// The chosen 0.9.x data root; None means the platform default.
@@ -186,7 +247,7 @@ impl Invocation {
 }
 
 /// Node's `path.resolve`: no `.`, `..` or trailing separator, so startup names match 0.9.x.
-fn resolve(path: &std::path::Path) -> PathBuf {
+pub(crate) fn resolve(path: &std::path::Path) -> PathBuf {
     use std::path::Component;
     let mut out = PathBuf::new();
     for part in path.components() {
@@ -227,14 +288,30 @@ fn with_rest(prefix: &[&str], rest: &[&str]) -> Vec<String> {
     words(prefix).into_iter().chain(words(rest)).collect()
 }
 
-fn action(args: &[String], json: bool) -> Result<Action> {
+fn action(args: &[String], json: bool, remote: bool) -> Result<Action> {
     let parts: Vec<&str> = args.iter().map(String::as_str).collect();
-    let trailing_help = parts.len() > 1 && parts.iter().any(|p| *p == "--help" || *p == "-h");
+    let commands = matches!(parts.first(), Some(&("cmd" | "commands")));
+    let trailing_help =
+        !commands && parts.len() > 1 && parts.iter().any(|p| *p == "--help" || *p == "-h");
+    if let Some(command) = (!trailing_help)
+        .then(|| crate::manager_args::parse(&parts))
+        .transpose()?
+        .flatten()
+    {
+        return Ok(Action::Manager(command));
+    }
     let session = |namespace: &str| matches!(namespace, "session" | "sessions" | "ss");
     let terminal = |namespace: &str| matches!(namespace, "terminals" | "tm");
     Ok(match parts.as_slice() {
-        [] | ["help" | "--help" | "-h", ..] => Action::Help,
-        _ if trailing_help && parts[0] != "run" => Action::Help,
+        [] | ["help" | "--help" | "-h"] => Action::Help(None),
+        ["help", topic, ..] if crate::help::known(topic) => Action::Help(Some((*topic).to_owned())),
+        ["help", ..] => return Err(CliError::usage("Unknown help group. Run shellfox help.")),
+        ["cmd" | "commands"] => Action::Help(Some("commands".into())),
+        [first, ..]
+            if trailing_help && *first != "run" && *first != "ssh" && crate::help::known(first) =>
+        {
+            Action::Help(Some((*first).to_owned()))
+        }
         ["version" | "--version" | "-v"] => Action::Version,
         ["update"] => Action::Update { check: false },
         ["update", "--check"] => Action::Update { check: true },
@@ -257,32 +334,24 @@ fn action(args: &[String], json: bool) -> Result<Action> {
             install: false,
             startup: false,
         },
-        [namespace, "list"] if session(namespace) => host(&["session", "list"]),
+        [namespace] if session(namespace) => Action::Help(Some("session".into())),
         [namespace, "create", rest @ ..] if session(namespace) => create_session(rest)?,
-        [namespace, "inspect", id] if session(namespace) => Action::Inspect((*id).into()),
-        [namespace, "rename", id, title] if session(namespace) => {
-            host(&["session", "rename", id, title])
-        }
-        [namespace, "delete" | "rm" | "-rm", id] if session(namespace) => {
-            confirm(format!("session delete {id}"), &["session", "close", id])
-        }
-        [namespace, "list"] if terminal(namespace) => host(&["tab", "list"]),
-        [namespace, "list", id] if terminal(namespace) => host(&["tab", "list", id]),
-        [namespace, "create", session, rest @ ..] if terminal(namespace) => {
-            create_tab(session, rest)?
-        }
-        [namespace, "rename", _session, tab, title] if terminal(namespace) => {
-            host(&["tab", "rename", tab, title])
-        }
-        [namespace, "close", tab] if terminal(namespace) => {
-            confirm(format!("Close terminal {tab}"), &["tab", "close", tab])
-        }
         [namespace, "attach", _] if terminal(namespace) && json => {
             return Err(CliError::usage(
                 "Interactive attach does not support --json.",
             ));
         }
         [namespace, "attach", tab] if terminal(namespace) => host(&["attach", tab]),
+        ["settings", "read"] if remote => {
+            Action::Manager(crate::manager_args::ManagerCommand::Settings)
+        }
+        ["settings", "update", ..] if remote => {
+            return Err(CliError::new(
+                "UNSUPPORTED",
+                "saveSettings is not available over a remote connection.",
+                false,
+            ))
+        }
         ["settings", "read"] => host(&["settings", "get"]),
         ["settings", "update", "--input", input] => host(&["settings", "set", &read_input(input)?]),
         ["network", "status"] => host(&["host", "network", "status"]),
@@ -295,6 +364,29 @@ fn action(args: &[String], json: bool) -> Result<Action> {
         ["network", "login", "--auth-key-stdin"] => {
             host(&["host", "network", "login", "--auth-key-stdin"])
         }
+        ["network", "login", file] if file.starts_with("--auth-key-file=") => host(&[
+            "host",
+            "network",
+            "login",
+            "--auth-key-file",
+            &file["--auth-key-file=".len()..],
+        ]),
+        ["network", "login", "--auth-key-file", file] => {
+            host(&["host", "network", "login", "--auth-key-file", file])
+        }
+        ["network", "login", ..]
+            if parts.iter().any(|p| p.starts_with("--auth-key-file"))
+                && parts.contains(&"--auth-key-stdin") =>
+        {
+            return Err(CliError::usage(
+                "Choose --auth-key-stdin or --auth-key-file.",
+            ))
+        }
+        ["completion"] => Action::Completion(None),
+        ["completion", "--help" | "-h" | "help"] => Action::Completion(None),
+        ["completion", shell] => Action::Completion(Some((*shell).to_owned())),
+        ["completion", ..] => return Err(CliError::usage(crate::completion::HELP.trim())),
+        ["cmd" | "commands", rest @ ..] => Action::Commands(words(rest)),
         ["machines", "list"] => Action::Machines,
         ["machines", op @ ("connect" | "disconnect"), peer] => {
             host(&["host", "network", "peer", peer, op])
@@ -357,72 +449,10 @@ fn flag(flags: &[(&str, &str)], name: &str) -> Option<String> {
         .map(|(_, value)| (*value).to_owned())
 }
 
-fn create_session(rest: &[&str]) -> Result<Action> {
-    let (positional, flags) = options(rest, &["--title", "--request-id"])?;
-    let path = match positional.as_slice() {
-        [] => ".",
-        [path] => path,
-        _ => {
-            return Err(CliError::usage(
-                "Usage: shellfox session create [PATH] [--title TITLE] [--request-id UUID]",
-            ))
-        }
-    };
-    let cwd = std::path::absolute(path)
-        .ok()
-        .filter(|cwd| cwd.is_dir())
-        .ok_or_else(|| CliError::usage("Invalid directory."))?;
-    let cwd = crate::headless_layout::normalize(&cwd)
-        .into_os_string()
-        .into_string()
-        .map_err(|_| CliError::usage("Invalid directory."))?;
-    let request_id = flag(&flags, "--request-id")
-        .map(|id| {
-            id.parse()
-                .map_err(|_| CliError::usage("Invalid session title or request ID."))
-        })
-        .transpose()?;
-    Ok(Action::CreateSession {
-        cwd,
-        title: flag(&flags, "--title"),
-        request_id,
-    })
-}
-
-fn create_tab(session: &str, rest: &[&str]) -> Result<Action> {
-    let (positional, flags) = options(rest, &["--title", "--profile"])?;
-    if !positional.is_empty() {
-        return Err(CliError::usage(
-            "Usage: shellfox terminals create SESSION_UUID [--title TITLE] [--profile PROFILE_ID]",
-        ));
-    }
-    Ok(Action::CreateTab {
-        session: session.into(),
-        title: flag(&flags, "--title"),
-        profile: flag(&flags, "--profile"),
-    })
-}
-
-/// `--input` accepts inline JSON, `@file.json` or `-` for stdin, up to 1 MiB.
-fn read_input(input: &str) -> Result<String> {
-    use std::io::Read;
-    const LIMIT: u64 = 1024 * 1024;
-    let mut text = String::new();
-    if input == "-" {
-        std::io::stdin().take(LIMIT + 1).read_to_string(&mut text)?;
-    } else if let Some(file) = input.strip_prefix('@') {
-        std::fs::File::open(file)
-            .with_context(|| format!("Could not read {file}"))?
-            .take(LIMIT + 1)
-            .read_to_string(&mut text)?;
-    } else {
-        text = input.to_owned();
-    }
-    if text.len() as u64 > LIMIT {
-        return Err(CliError::usage("JSON input exceeds 1 MiB."));
-    }
-    Ok(text)
-}
+#[path = "node_input.rs"]
+mod input;
+use input::{create_session, local_only};
+pub use input::{local_directory, read_input, read_stdin};
 
 #[cfg(test)]
 #[path = "node_args_tests.rs"]

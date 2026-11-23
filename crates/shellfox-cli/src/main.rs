@@ -1,18 +1,29 @@
 use shellfox_service::app_composition;
 mod args;
 mod attach;
+mod auth_key;
 mod automation;
 mod automation_args;
 mod commands;
+mod completion;
+mod custom_commands;
 mod desktop_handoff;
 mod desktop_host;
 mod headless_layout;
 mod headless_package;
 mod headless_update;
+mod help;
 mod host_service;
+mod human;
+mod human_text;
 mod keys;
 mod launch_args;
 mod legacy_host;
+mod manager;
+mod manager_args;
+mod manager_local;
+mod manager_peer;
+mod manager_run;
 mod node_args;
 mod node_run;
 mod output;
@@ -22,6 +33,7 @@ mod queries;
 mod query_rules;
 mod remote_args;
 mod remote_command;
+mod session_view;
 mod ssh;
 #[cfg(test)]
 mod startup_dispatch_tests;
@@ -81,5 +93,11 @@ fn run(arguments: Vec<OsString>, watch: Option<parent_watch::Watch>) -> Result<i
     let mut words = arguments.into_iter().peekable();
     let selection = args::Selection::parse(&mut words)?;
     let invocation = node_args::parse(&words.collect::<Vec<_>>())?;
+    // A script's own --json is not ours: only parsed globals pick the output.
+    output::set_mode(if invocation.json {
+        output::Mode::Json
+    } else {
+        output::Mode::Human
+    });
     node_run::run(invocation, selection, watch)
 }

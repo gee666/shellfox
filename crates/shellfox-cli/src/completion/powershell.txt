@@ -1,0 +1,54 @@
+# Shellfox completion. Safe to load more than once; no profile edits.
+Register-ArgumentCompleter -Native -CommandName shellfox,shellfox.ps1,shellfox.cmd -ScriptBlock {
+  param($wordToComplete, $commandAst, $cursorPosition)
+  # Use only completed arguments before the cursor, including mid-line completion.
+  $before=@($commandAst.CommandElements | Select-Object -Skip 1 | Where-Object { $_.Extent.EndOffset -lt $cursorPosition })
+  $position=$before.Count + 1
+  $items=@()
+  if ($position -eq 1) { $items=@(@('host','Run or manage the host'),@('session','Manage sessions'),@('run','Run an automation process with pipes'),@('runs','Inspect or stop automation runs'),@('terminals','Manage and attach terminals'),@('network','Manage Tailscale networking'),@('machines','Manage remote machines'),@('approvals','Manage access approvals'),@('settings','Read or update settings'),@('profiles','List terminal profiles'),@('path','Use host path helpers'),@('commands','Run or manage script commands'),@('ssh','Connect to a saved SSH profile'),@('api','Call a validated manager method'),@('remote','Call remote management'),@('update','Update Shellfox'),@('version','Print the version'),@('help','Show help'),@('completion','Print shell completion'),@('--host','Select a local or remote host'),@('--json','Print JSON'),@('--yes','Confirm destructive operations')) }
+  elseif ($before[0].Extent.Text -notmatch '^(?i:cmd|commands)$') {
+    if ($position -eq 2) {
+      $namespace=$before[0].Extent.Text
+      switch ($namespace) {
+        'host' { $items=@(@('run','run'),@('status','status'),@('stop','stop'),@('service','service'),@('keep-awake','keep-awake')) }
+        'network' { $items=@(@('enable','enable'),@('disable','disable'),@('login','login'),@('status','status')) }
+        'machines' { $items=@(@('list','list'),@('connect','connect'),@('disconnect','disconnect'),@('forget','forget')) }
+        'approvals' { $items=@(@('list','list'),@('approve','approve'),@('revoke','revoke'),@('reject','reject')) }
+        'session' { $items=@(@('list','list'),@('create','create'),@('inspect','inspect'),@('rename','rename'),@('pin','pin'),@('env','env'),@('settle','settle'),@('unsettle','unsettle'),@('delete','delete'),@('stats','stats'),@('processes','processes'),@('focus','focus'),@('refresh','refresh'),@('clear-error','clear-error')) }
+        'ss' { $items=@(@('list','list'),@('create','create'),@('inspect','inspect'),@('rename','rename'),@('pin','pin'),@('env','env'),@('settle','settle'),@('unsettle','unsettle'),@('delete','delete'),@('stats','stats'),@('processes','processes'),@('focus','focus'),@('refresh','refresh'),@('clear-error','clear-error')) }
+        'sessions' { $items=@(@('list','list'),@('create','create'),@('inspect','inspect'),@('rename','rename'),@('pin','pin'),@('env','env'),@('settle','settle'),@('unsettle','unsettle'),@('delete','delete'),@('stats','stats'),@('processes','processes'),@('focus','focus'),@('refresh','refresh'),@('clear-error','clear-error')) }
+        'terminals' { $items=@(@('list','list'),@('create','create'),@('rename','rename'),@('reorder','reorder'),@('close','close'),@('attach','attach'),@('write','write')) }
+        'tm' { $items=@(@('list','list'),@('create','create'),@('rename','rename'),@('reorder','reorder'),@('close','close'),@('attach','attach'),@('write','write')) }
+        'run' { $items=@(@('--cwd','--cwd'),@('--title','--title'),@('--request-id','--request-id'),@('--detach','--detach'),@('--','--')) }
+        'runs' { $items=@(@('list','list'),@('show','show'),@('stop','stop')) }
+        'update' { $items=@(@('--check','--check')) }
+        'settings' { $items=@(@('read','read'),@('update','update')) }
+        'profiles' { $items=@(@('list','list')) }
+        'path' { $items=@(@('home','home'),@('resolve','resolve'),@('complete','complete'),@('create','create')) }
+        'remote' { $items=@(@('api','api')) }
+      }
+    }
+  }
+  elseif ($position -eq 2) { $items=@(@('--run','Run a registered command'),@('--register','Register a name and script path'),@('--ls','List registered commands'),@('--list','List registered commands'),@('--remove','Remove a registered command'),@('--rm','Remove a registered command'),@('--unregister','Remove a registered command'),@('--rename','Rename a registered command'),@('--help','Show custom command help'),@('-h','Show custom command help')) }
+  elseif ($position -ne 3 -or $before[1].Extent.Text -notin @('--run','--remove','--rm','--unregister','--rename')) { return }
+  foreach ($item in $items) {
+    if ($item[0].StartsWith($wordToComplete,[StringComparison]::OrdinalIgnoreCase)) {
+      [System.Management.Automation.CompletionResult]::new($item[0],$item[0],'ParameterValue',$item[1])
+    }
+  }
+  if ($before.Count -gt 0 -and $before[0].Extent.Text -match '^(?i:cmd|commands)$' -and $position -ge 2 -and -not $wordToComplete.StartsWith('-')) {
+    $savedExit=$global:LASTEXITCODE
+    try {
+      $commandName=$commandAst.CommandElements[0].Value
+      $names=@(& $commandName cmd --complete ([string]$wordToComplete) 2>$null)
+      if ($LASTEXITCODE -eq 0) {
+        foreach ($name in $names) {
+          if ($name -cmatch '^[A-Za-z][A-Za-z0-9_-]{0,63}$' -and $name.StartsWith($wordToComplete,[StringComparison]::OrdinalIgnoreCase)) {
+            [System.Management.Automation.CompletionResult]::new($name,$name,'ParameterValue','Run or select registered command')
+          }
+        }
+      }
+    } catch { # Missing CLI or unreadable registry: no dynamic suggestions.
+    } finally { $global:LASTEXITCODE=$savedExit }
+  }
+}

@@ -36,12 +36,14 @@ fn service_unit_command_lines_from_0_9_keep_working() {
 
 #[test]
 fn namespaces_and_aliases_translate_to_host_commands() {
-    assert_eq!(host_words(&["ss", "list"]), ["session", "list"]);
-    assert_eq!(host_words(&["tm", "list", "S"]), ["tab", "list", "S"]);
+    assert!(matches!(action(&["ss", "list"]), Action::Manager(_)));
+    assert!(matches!(action(&["tm", "list"]), Action::Manager(_)));
+    assert_eq!(action(&["session"]), Action::Help(Some("session".into())));
     assert_eq!(
-        host_words(&["terminals", "rename", "S", "T", "new"]),
-        ["tab", "rename", "T", "new"]
+        action(&["session", "pin", "--help"]),
+        Action::Help(Some("session".into()))
     );
+    assert!(parse_words(&["help", "nope"]).is_err());
     assert_eq!(
         host_words(&["network", "enable", "--hostname", "box"]),
         ["host", "network", "on", "--hostname", "box"]
@@ -54,19 +56,20 @@ fn namespaces_and_aliases_translate_to_host_commands() {
         host_words(&["host", "keep-awake", "on"]),
         ["host", "power", "on"]
     );
-    match action(&["session", "rm", "ID"]) {
-        Action::Host { words, confirm } => {
-            assert_eq!(words, ["session", "close", "ID"]);
-            assert!(confirm.is_some());
-        }
-        other => panic!("{other:?}"),
-    }
+    assert_eq!(
+        host_words(&["network", "login", "--auth-key-file=/k"]),
+        ["host", "network", "login", "--auth-key-file", "/k"]
+    );
+    assert_eq!(
+        action(&["completion", "bash"]),
+        Action::Completion(Some("bash".into()))
+    );
     assert_eq!(
         action(&["update", "--check", "--json"]),
         Action::Update { check: true }
     );
     assert_eq!(action(&["--version"]), Action::Version);
-    assert_eq!(action(&[]), Action::Help);
+    assert_eq!(action(&[]), Action::Help(None));
 }
 
 #[test]
@@ -116,10 +119,7 @@ fn option_values_are_never_globals_and_errors_are_validation() {
             "{bad:?}"
         );
     }
-    assert_eq!(
-        action(&["session", "stats"]),
-        Action::Unknown(vec!["session".into(), "stats".into()])
-    );
+    assert!(parse_words(&["session", "frobnicate"]).is_err());
     assert_eq!(action(&["host", "serve"]), Action::HostRun);
     match action(&[
         "session",
@@ -132,12 +132,30 @@ fn option_values_are_never_globals_and_errors_are_validation() {
         other => panic!("{other:?}"),
     }
     assert!(parse_words(&["session", "create", ".", "--request-id", "nope"]).is_err());
-    let remote = parse_words(&["--host", "other", "session", "list"]).unwrap_err();
-    assert_eq!(
-        remote.downcast_ref::<CliError>().unwrap().code,
-        "UNSUPPORTED"
-    );
-    assert!(parse_words(&["--host", "local", "session", "list"]).is_ok());
+    let remote = parse_words(&["--host", "other", "session", "list"]).unwrap();
+    assert_eq!(remote.host.as_deref(), Some("other"));
+    assert!(parse_words(&["--host", "local", "session", "list"])
+        .unwrap()
+        .host
+        .is_none());
+    for local in [
+        &["host", "stop"][..],
+        &["network", "status"],
+        &["run", "--", "x"],
+        &["cmd", "--ls"],
+        &["remote", "api", "getState"],
+    ] {
+        let words: Vec<&str> = ["--host", "other"]
+            .into_iter()
+            .chain(local.iter().copied())
+            .collect();
+        let error = parse_words(&words).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<CliError>().unwrap().code,
+            "VALIDATION",
+            "{local:?}"
+        );
+    }
 }
 
 #[test]
@@ -164,5 +182,27 @@ fn old_host_terminal_shims_and_path_spellings_resolve_like_0_9() {
     assert_eq!(
         messy.user_data().unwrap(),
         std::path::absolute("/srv/data").unwrap()
+    );
+}
+
+#[test]
+fn everything_after_a_custom_command_name_is_the_scripts() {
+    let script = parse_words(&["cmd", "deploy", "--json", "--yes", "--host", "x"]).unwrap();
+    assert!(!script.json && !script.yes && script.host.is_none());
+    assert_eq!(
+        script.action,
+        Action::Commands(
+            ["deploy", "--json", "--yes", "--host", "x"]
+                .map(String::from)
+                .to_vec()
+        )
+    );
+    let run = parse_words(&["commands", "--run", "deploy", "--json"]).unwrap();
+    assert!(!run.json);
+    let admin = parse_words(&["cmd", "--register", "a", "/s.sh", "--json"]).unwrap();
+    assert!(admin.json);
+    assert_eq!(
+        admin.action,
+        Action::Commands(["--register", "a", "/s.sh"].map(String::from).to_vec())
     );
 }
