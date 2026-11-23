@@ -71,6 +71,9 @@ impl OwnerDispatcher for RemoteDispatcher {
         }
         self.state.finish_stats(service);
         self.state.finish_close(service);
+        while let Some(request) = self.state.next_started(service) {
+            self.route(service, request);
+        }
         // Held requests collect facts again: facts from before the commit are stale.
         // Released in arrival order. A facts request answers when its job
         // finishes, so later requests that need no facts can answer first, as

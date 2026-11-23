@@ -176,3 +176,29 @@ async fn shutdown_answers_requests_held_behind_a_close_and_commits_none() {
     assert_eq!(snapshot.sessions[0].title, "Original");
     assert_eq!(snapshot.sessions[0].tabs.len(), 1, "the close was not committed");
 }
+
+#[tokio::test]
+async fn an_attach_routed_through_a_start_reports_a_failed_start() {
+    let data = scratch();
+    let mut owner = owner_with(data.path(), ()).await;
+    let client = owner.client(uuid::Uuid::new_v4());
+    let crate::local_api::LocalApiResponse::Snapshot(created) = client
+        .execute(LocalApiRequest::CreateSession {
+            input: CreateSession {
+                request_id: SessionId::new(),
+                title: None,
+                cwd: data.path().join("missing-cwd").to_string_lossy().into_owned(),
+                profile_id: shellfox_core::ProfileId::new("cmd").unwrap(),
+            },
+        })
+        .await
+        .unwrap()
+    else {
+        panic!("snapshot")
+    };
+    let tab = created.sessions[0].tabs[0].id;
+    assert!(client.execute(LocalApiRequest::Attach { tab, takeover: false }).await.is_err());
+    // Reported once; the failed owner stays registered until a close confirms it.
+    client.execute(LocalApiRequest::CloseTab { id: tab }).await.unwrap();
+    owner.shutdown().await.unwrap();
+}

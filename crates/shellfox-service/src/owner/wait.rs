@@ -56,7 +56,8 @@ impl Service {
     /// remote requests, worker completions and owner tasks wake it earlier.
     /// The rest are deadlines: the activity process poll (which also covers
     /// grant cancellation, inspections and desktop-launch retries), busy-quiet
-    /// transitions, debounced activity persistence and a close's deadline.
+    /// transitions, debounced activity persistence, and close, start and
+    /// capture deadlines.
     pub(crate) fn owner_pass_timeout(&self) -> Duration {
         if self.automation.needs_polling() {
             return AUTOMATION_POLL;
@@ -72,7 +73,7 @@ impl Service {
             .instant_at(due)
             .map_or(Duration::ZERO, |at| at.saturating_duration_since(Instant::now()));
         // Runtime events end the wait for a close; its deadline is the fallback.
-        [self.close_deadline(), self.automation.next_deadline()]
+        [self.close_deadline(), self.automation.next_deadline(), self.start_deadline()]
             .into_iter()
             .flatten()
             .fold(timeout, |timeout, deadline| {

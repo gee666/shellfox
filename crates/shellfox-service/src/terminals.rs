@@ -27,6 +27,11 @@ pub(crate) struct OwnedTerminal {
     pub(crate) startup: Option<std::result::Result<(), shellfox_runtime::RuntimeError>>,
     pub(crate) startup_error_acknowledged: bool,
     pub(crate) external_cleanup: Option<crate::automation::AutomationCleanupProof>,
+    /// While starting: when the start gives up (none for Administrator tabs).
+    pub(crate) start_deadline: Option<std::time::Instant>,
+    /// A WSL account pinned at launch, recorded once the terminal runs.
+    #[cfg(windows)]
+    pub(crate) wsl_account: Option<shellfox_core::WslLaunchAccount>,
     pub(crate) control_epoch: u64,
     replies: VecDeque<(
         RequestId,
@@ -50,6 +55,9 @@ impl OwnedTerminal {
             startup: None,
             startup_error_acknowledged: false,
             external_cleanup: None,
+            start_deadline: None,
+            #[cfg(windows)]
+            wsl_account: None,
             replies: VecDeque::new(),
             waiting: None,
             output: VecDeque::new(),
@@ -119,9 +127,8 @@ impl Service {
         if controller == 0 {
             bail!("Controller must not be zero.");
         }
-        if !self.terminals.contains_key(&tab) {
-            self.start_terminal(tab)?;
-        }
+        // Starts a missing tab, and reports a start begun earlier exactly once.
+        self.start_terminal(tab)?;
         let detached = self.terminals[&tab].lease.is_none() || self.terminals[&tab].lease_retiring;
         self.controller_grant(
             tab,

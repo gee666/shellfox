@@ -33,8 +33,97 @@ impl Service {
         );
         Ok(config)
     }
+    /// Starts `tab` if needed and waits, blocking the owner, until it is
+    /// running. The owner's request routes start first with `begin_start`
+    /// and come back here once it settled, so this rarely waits.
     pub(crate) fn start_terminal(&mut self, tab: TabId) -> Result<()> {
-        self.start_terminal_policy(tab, false)
+        if !self.terminals.contains_key(&tab) {
+            self.start_terminal_policy(tab, false)?;
+        }
+        // A running tab, or an Administrator one on its secure desktop, is
+        // used as it is, as before.
+        if self.terminals.get(&tab).is_some_and(|terminal| terminal.start_deadline.is_none()) {
+            return Ok(());
+        }
+        // startup_state enforces the start's own 12 s deadline.
+        self.wait_until(
+            Instant::now() + Duration::from_secs(13),
+            |service| service.started(tab),
+            || anyhow::anyhow!("Terminal startup timed out; owner retained for cleanup."),
+        )
+    }
+    /// Starts `tab` if needed, without waiting. True while its start is
+    /// pending: the caller comes back once `start_settled`. False when it
+    /// runs, or the start failed at once (the caller's own `start_terminal`
+    /// then reports why).
+    pub(crate) fn begin_start(&mut self, tab: TabId) -> bool {
+        if !self.terminals.contains_key(&tab) && self.start_terminal_policy(tab, false).is_err() {
+            return false;
+        }
+        self.terminals.get(&tab).is_some_and(|terminal| terminal.start_deadline.is_some())
+            && !self.start_settled(tab)
+    }
+    /// True once `tab`'s start succeeded, failed or ran out of time.
+    pub(crate) fn start_settled(&mut self, tab: TabId) -> bool {
+        !matches!(self.startup_state(tab), Ok(None))
+    }
+    /// When the earliest pending start gives up, for the owner's pass timeout.
+    pub(crate) fn start_deadline(&self) -> Option<Instant> {
+        self.terminals
+            .values()
+            .filter(|terminal| terminal.startup.is_none() && terminal.runtime.phase() == Phase::Starting)
+            .filter_map(|terminal| terminal.start_deadline)
+            .min()
+    }
+    /// Ok(Some) once running; Ok(None) while starting; Err if it failed or timed out.
+    fn startup_state(&mut self, tab: TabId) -> Result<Option<()>> {
+        self.assert_owned()?;
+        self.drain(tab)?;
+        let terminal = self.terminals.get(&tab).context("Terminal is not running.")?;
+        // Keep the original owner; propagate only its typed startup error,
+        // never PTY output or failed-source presentation evidence.
+        if let Some(Err(error)) = terminal.startup.as_ref() {
+            return Err(anyhow::Error::new(error.clone())).context(
+                "Terminal launch failed; original owner retained until confirmed cleanup.",
+            );
+        }
+        match terminal.runtime.phase() {
+            Phase::Active => Ok(Some(())),
+            Phase::Closed => bail!("Terminal launch failed; closed owner retained until confirmed cleanup."),
+            _ if terminal.start_deadline.is_some_and(|deadline| Instant::now() >= deadline) => {
+                bail!("Terminal startup timed out; owner retained for cleanup.")
+            }
+            _ => Ok(None),
+        }
+    }
+    /// `startup_state`, then records a pinned WSL account once running.
+    /// A metadata write, so it runs in the request, never during a close.
+    /// The outcome is reported once: afterwards the tab is used as it is, as
+    /// when the start used to block.
+    fn started(&mut self, tab: TabId) -> Result<Option<()>> {
+        let state = self.startup_state(tab);
+        if !matches!(state, Ok(None)) {
+            if let Some(terminal) = self.terminals.get_mut(&tab) {
+                terminal.start_deadline = None;
+            }
+        }
+        let Some(()) = state? else {
+            return Ok(None);
+        };
+        #[cfg(windows)]
+        if let Some(terminal) = self.terminals.get_mut(&tab) {
+            if let Some(account) = terminal.wsl_account.take() {
+                let id = terminal.runtime.identity();
+                let identity = TerminalIdentity { tab_id: tab, generation: id.generation };
+                if let Err(error) = self.host.record_wsl_launch_account(identity, account.clone()) {
+                    if let Some(terminal) = self.terminals.get_mut(&tab) {
+                        terminal.wsl_account = Some(account);
+                    }
+                    return Err(error.into());
+                }
+            }
+        }
+        Ok(Some(()))
     }
     #[cfg(windows)]
     pub(crate) fn start_administrator_tab(&mut self, tab: TabId) -> Result<()> {
@@ -107,39 +196,17 @@ impl Service {
                 return Err(error.into());
             }
         };
-        self.install_terminal(tab, OwnedTerminal::new(runtime));
-        // UAC runs on the Runtime owner. Keep Service available for attach,
-        // status and cancellation while the secure desktop is open.
-        if administrator {
-            return Ok(());
+        let mut terminal = OwnedTerminal::new(runtime);
+        // UAC runs on the Runtime owner and has no deadline: the secure
+        // desktop stays open as long as the user needs.
+        if !administrator {
+            terminal.start_deadline = Some(Instant::now() + Duration::from_secs(12));
         }
-        self.wait_until(
-            Instant::now() + Duration::from_secs(12),
-            |service| {
-                service.assert_owned()?;
-                service.drain(tab)?;
-                let terminal = &service.terminals[&tab];
-                // Keep the original owner; propagate only its typed startup error,
-                // never PTY output or failed-source presentation evidence.
-                if let Some(Err(error)) = terminal.startup.as_ref() {
-                    return Err(anyhow::Error::new(error.clone())).context(
-                        "Terminal launch failed; original owner retained until confirmed cleanup.",
-                    );
-                }
-                match terminal.runtime.phase() {
-                    Phase::Active => Ok(Some(())),
-                    Phase::Closed => bail!(
-                        "Terminal launch failed; closed owner retained until confirmed cleanup."
-                    ),
-                    _ => Ok(None),
-                }
-            },
-            || anyhow::anyhow!("Terminal startup timed out; owner retained for cleanup."),
-        )?;
         #[cfg(windows)]
-        if let Some(account) = wsl_account {
-            self.host.record_wsl_launch_account(registration, account)?;
+        {
+            terminal.wsl_account = wsl_account;
         }
+        self.install_terminal(tab, terminal);
         Ok(())
     }
 }

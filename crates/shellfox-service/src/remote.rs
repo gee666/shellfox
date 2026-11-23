@@ -94,6 +94,10 @@ pub struct RemoteState {
     pub(super) stats: stats::PendingStats,
     closing: Option<close::Closing>,
     held: close::Held,
+    /// Set by an attach that started its terminal; `keep` parks its request.
+    starting: Option<shellfox_core::TabId>,
+    /// Peer attaches waiting for their terminal's start, in arrival order.
+    awaiting_start: Vec<(shellfox_core::TabId, shellfox_remote::OwnerRequest)>,
 }
 impl RemoteState {
     pub fn new(
@@ -113,7 +117,14 @@ impl RemoteState {
             stats: Default::default(),
             closing: None,
             held: Default::default(),
+            starting: None,
+            awaiting_start: Vec::new(),
         }
+    }
+    /// The oldest peer attach whose terminal start settled.
+    pub(super) fn next_started(&mut self, service: &mut Service) -> Option<shellfox_remote::OwnerRequest> {
+        let index = self.awaiting_start.iter().position(|(tab, _)| service.start_settled(*tab))?;
+        Some(self.awaiting_start.remove(index).1)
     }
     pub(super) fn dispatch_request(
         &mut self,
@@ -314,6 +325,13 @@ impl ServiceHost for RemoteService<'_> {
         }
     }
     fn keep(&mut self, request: shellfox_remote::OwnerRequest) -> Option<shellfox_remote::OwnerRequest> {
-        self.keep_closing(request)
+        let request = self.keep_closing(request)?;
+        match self.state.starting.take() {
+            Some(tab) => {
+                self.state.awaiting_start.push((tab, request));
+                None
+            }
+            None => Some(request),
+        }
     }
 }

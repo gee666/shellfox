@@ -18,6 +18,9 @@ fn accessible(terminal: &crate::terminals::OwnedTerminal) -> bool {
         && !super::v1_privilege::explicitly_elevated(&terminal.runtime.launch_privilege_facts())
 }
 
+/// Peer attaches that may wait for their terminal's start at once.
+pub(super) const MAX_AWAITING_START: usize = 64;
+
 impl RemoteService<'_> {
     pub(super) fn attach_terminal(
         &mut self,
@@ -58,13 +61,19 @@ impl RemoteService<'_> {
             }
             super::v1_privilege::ensure_normal_launch()?;
             super::v1_launch::ensure_launch_profile(self.state, saved.profile_id.as_str())?;
-            self.service.start_terminal(tab).map_err(|_| {
-                failure(
-                    ErrorCode::NativeUnavailable,
-                    "Terminal launch did not complete.",
-                )
-            })?;
         }
+        // While the terminal starts the owner serves other requests; this
+        // attach runs again, authorized again, once the start settled.
+        if self.state.awaiting_start.len() < MAX_AWAITING_START && self.service.begin_start(tab) {
+            self.state.starting = Some(tab);
+            return Ok(serde_json::Value::Null);
+        }
+        self.service.start_terminal(tab).map_err(|_| {
+            failure(
+                ErrorCode::NativeUnavailable,
+                "Terminal launch did not complete.",
+            )
+        })?;
         let runtime = self.service.terminals.get(&tab).ok_or_else(lost)?;
         if !accessible(runtime) {
             return Err(failure(

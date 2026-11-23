@@ -277,3 +277,23 @@ impl PrivateTask {
         }
     }
 }
+
+impl PrivateTask {
+    /// The tab an attach would start; see `Task::start_target`.
+    pub(super) fn start_target(&self) -> Option<shellfox_core::TabId> {
+        use shellfox_protocol::Validate;
+        let Self::Request { request, .. } = self else {
+            return None;
+        };
+        match request {
+            PrivateRequest::LocalApi(request @ LocalApiRequest::Attach { tab, .. }) => {
+                request.validate().is_ok().then_some(*tab)
+            }
+            PrivateRequest::DesktopView(view) => match view.as_ref() {
+                crate::local::DesktopRequest::Attach { tab, .. } => view.validate().is_ok().then_some(*tab),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}

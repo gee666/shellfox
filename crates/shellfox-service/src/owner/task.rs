@@ -50,3 +50,22 @@ impl Task {
         }
     }
 }
+
+impl Task {
+    /// The tab an attach would start, for a valid request. The owner starts it
+    /// first and runs the request once the start settled (see owner.rs).
+    pub(super) fn start_target(&self) -> Option<shellfox_core::TabId> {
+        use shellfox_protocol::Validate;
+        match self {
+            Self::Execute { request: request @ LocalApiRequest::Attach { tab, .. }, .. } => {
+                request.validate().is_ok().then_some(*tab)
+            }
+            Self::Native { action, .. } => match action.as_ref() {
+                crate::native::NativeAction::Attach { tab, .. } => action.validate().is_ok().then_some(*tab),
+                _ => None,
+            },
+            Self::Private(task) => task.start_target(),
+            _ => None,
+        }
+    }
+}

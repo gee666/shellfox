@@ -112,6 +112,9 @@ impl ServiceOwner {
                 let mut private = private::PrivateOwner::new();
                 // Tasks that arrived while a close was in flight, in arrival order.
                 let mut deferred = std::collections::VecDeque::new();
+                // Attaches waiting for the terminal they started. Other requests
+                // keep running meanwhile; each attach runs once its start settled.
+                let mut starting: Vec<(shellfox_core::TabId, Task)> = Vec::new();
                 dispatcher.bind_wake(wake.clone());
                 loop {
                     if lost.is_cancelled() || owner_abandon.is_cancelled() {
@@ -149,12 +152,20 @@ impl ServiceOwner {
                     {
                         break;
                     }
-                    let received = match deferred.pop_front() {
-                        Some(task) if !service.metadata_busy() => Ok(task),
-                        held => {
-                            if let Some(task) = held {
-                                deferred.push_front(task);
-                            }
+                    let settled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        starting.iter().position(|(tab, _)| service.start_settled(*tab))
+                    }));
+                    let Ok(settled) = settled else {
+                        break;
+                    };
+                    let next = match settled {
+                        Some(index) => Some(starting.remove(index).1),
+                        None if !service.metadata_busy() => deferred.pop_front(),
+                        None => None,
+                    };
+                    let received = match next {
+                        Some(task) => Ok(task),
+                        None => {
                             if deferred.len() >= MAX_DEFERRED {
                                 // Leave the rest in the bounded inbox, so senders see "busy".
                                 // Requests that could flow wait there too, at most until
@@ -170,6 +181,19 @@ impl ServiceOwner {
                             deferred.push_back(task);
                             continue;
                         }
+                        Ok(task) if starting.len() < MAX_DEFERRED => match task.start_target() {
+                            Some(tab) => match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                service.begin_start(tab)
+                            })) {
+                                Ok(true) => {
+                                    starting.push((tab, task));
+                                    continue;
+                                }
+                                Ok(false) => Ok(task),
+                                Err(_) => break,
+                            },
+                            None => Ok(task),
+                        },
                         received => received,
                     };
                     match received {
