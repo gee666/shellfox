@@ -26,6 +26,47 @@ fn send(value: Value) -> io::Result<()> {
     output.write_all(b"\n")?;
     output.flush()
 }
+/// The broker outlives this launcher and runs from the fixture directory, so
+/// the test must wait for its real exit before removing that directory. Gives
+/// the host a wait-only handle to it, listed in `owned-processes` in the cwd.
+#[cfg(windows)]
+fn hand_to_host(child: &std::process::Child) -> anyhow::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, DuplicateHandle},
+        System::Threading::{
+            GetCurrentProcess, OpenProcess, PROCESS_DUP_HANDLE, SYNCHRONIZATION_SYNCHRONIZE,
+        },
+    };
+    let host: u32 = std::env::var("SHELLFOX_FIXTURE_HOST_PID")?.parse()?;
+    // SAFETY: plain handle calls; the host process handle is closed below.
+    let process = unsafe { OpenProcess(PROCESS_DUP_HANDLE, 0, host) };
+    anyhow::ensure!(!process.is_null(), "open fixture host");
+    let mut handle = std::ptr::null_mut();
+    // SAFETY: the child handle stays open for the call; the duplicate belongs to the host.
+    let duplicated = unsafe {
+        let current = GetCurrentProcess();
+        let ok = DuplicateHandle(
+            current,
+            child.as_raw_handle().cast(),
+            process,
+            &mut handle,
+            SYNCHRONIZATION_SYNCHRONIZE,
+            0,
+            0,
+        );
+        CloseHandle(process);
+        ok
+    };
+    anyhow::ensure!(duplicated != 0, "hand fixture process to host");
+    let mut list = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("owned-processes")?;
+    writeln!(list, "{}", handle as usize)?;
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
@@ -62,12 +103,15 @@ fn main() -> anyhow::Result<()> {
     }
     send(json!({"type":"ready", "pid":424242, "birth":"133000000000000000"}))?;
     if scenario == "launcher-first" {
-        Command::new(std::env::current_exe()?)
+        let broker = Command::new(std::env::current_exe()?)
             .arg("--shellfox-elevated-fixture-broker")
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::null())
             .spawn()?;
+        #[cfg(windows)]
+        hand_to_host(&broker)?;
+        drop(broker);
         return Ok(());
     }
     if scenario == "unconfirmed" {

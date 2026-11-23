@@ -47,8 +47,34 @@ impl Fixture {
             .unwrap()
     }
 }
+/// Waits for fixture processes that outlived their launcher (see
+/// `hand_to_host` in elevated_helper.rs): their image and cwd are in `root`.
+#[cfg(windows)]
+fn wait_for_handed_processes(root: &std::path::Path) {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, WAIT_OBJECT_0},
+        System::Threading::WaitForSingleObject,
+    };
+    let Ok(list) = std::fs::read_to_string(root.join("owned-processes")) else {
+        return;
+    };
+    for line in list.lines() {
+        let handle = line.parse::<usize>().unwrap() as windows_sys::Win32::Foundation::HANDLE;
+        // SAFETY: the fixture duplicated this handle into this process for us alone.
+        let result = unsafe {
+            let result = WaitForSingleObject(handle, 15_000);
+            CloseHandle(handle);
+            result
+        };
+        if result != WAIT_OBJECT_0 && !std::thread::panicking() {
+            panic!("fixture process in {} did not exit", root.display());
+        }
+    }
+}
 impl Drop for Fixture {
     fn drop(&mut self) {
+        #[cfg(windows)]
+        wait_for_handed_processes(&self.root);
         if let Err(error) = std::fs::remove_dir_all(&self.root) {
             if std::thread::panicking() {
                 eprintln!("owned fixture retained at {}: {error}", self.root.display());

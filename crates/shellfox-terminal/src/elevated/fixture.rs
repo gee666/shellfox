@@ -35,7 +35,11 @@ pub fn fixture_session<L: Send + 'static>(
     if let Some(parent) = image.path().parent() {
         command.current_dir(parent);
     }
-    command.env_clear().envs(launch.launcher_environment());
+    command
+        .env_clear()
+        .envs(launch.launcher_environment())
+        // Lets a fixture process that outlives its launcher hand this host a wait handle.
+        .env("SHELLFOX_FIXTURE_HOST_PID", std::process::id().to_string());
     Session::start(
         command,
         Box::new((image, additional_hold)),
