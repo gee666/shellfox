@@ -24,7 +24,7 @@ The expected helper digest comes from the trusted build/package record, not a ha
 - Each private client has one authenticated lifetime connection and a server-created epoch, separate from per-RPC connections. Explicit disconnect, drop or actual process death releases only that controller's raw stdin/pipe and input leases, not its processes. A replacement epoch allocates a fresh controller and cannot adopt old raw pipes. Old EOF cannot revoke the replacement. Lifetimes are bounded at128 separately from16 request tasks; no automatic reconnect or input replay.
 - Output stays in bounded memory until the client acknowledges consumption. Recovery carries a sequence barrier, and stale generations/epochs cannot acknowledge or write. Recovery currently restores only visible cells. It does not restore TUI modes, inactive buffers, saved cursors or scrollback.
 
-The strict private lifetime frames and response-consumption handshake are described in `docs/private-client-lifetime.md`. Endpoint transport versions fail closed instead of falling back to another owner.
+A client whose transport version differs from the host's is refused; it never falls back to another owner.
 
 One dedicated owner thread holds the metadata host and runtime map. A bounded command queue and asynchronous replies leave the permission/ownership supervisor and transport deadlines runnable during PTY waits. Dropping a request does not cancel or retry a mutation with an uncertain outcome. A random response trailer must be consumed and acknowledged before normal stop tears down the endpoint.
 

@@ -51,7 +51,7 @@ impl Service {
                 None => {
                     let id = self.request_id()?;
                     self.grants.prepare_retirement(ticket, id).map_err(|_| {
-                        anyhow::anyhow!("Grant retirement reservation failed; custody retained.")
+                        anyhow::anyhow!("Grant retirement reservation failed; the host keeps the grant.")
                     })?;
                     id
                 }
@@ -66,7 +66,7 @@ impl Service {
                 .context("Grant source owner disappeared.")?;
             match terminal.runtime.try_send(Request { id, command }) {
                 Ok(()) => self.grants.retirement_sent(ticket, id).map_err(|_| {
-                    anyhow::anyhow!("Grant cleanup admission became uncertain; custody retained.")
+                    anyhow::anyhow!("Grant cleanup became uncertain; the host keeps the grant.")
                 })?,
                 Err(shellfox_runtime::SubmitError::Full(_)) => {}
                 Err(_) => {} // No inference from a closed/invalid queue; wait for exact source destruction.

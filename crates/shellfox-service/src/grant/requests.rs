@@ -47,7 +47,7 @@ impl std::fmt::Display for GrantNotSent {
             Self::SourceUnavailable => f.write_str("source unavailable"),
             Self::RequestIdExhausted => f.write_str("request IDs exhausted"),
             Self::RecipientCancelled => f.write_str("recipient cancelled before queue admission"),
-            Self::Custody(error) => write!(f, "custody {error:?}"),
+            Self::Custody(error) => write!(f, "grant ledger {error:?}"),
             Self::Invalid(error) => write!(f, "invalid command ({:?})", error.code),
             Self::Full => f.write_str("Runtime queue full"),
             Self::Disconnected => f.write_str("Runtime queue disconnected"),
@@ -59,9 +59,9 @@ impl std::fmt::Display for GrantFailure {
         match self {
             Self::NotSent(reason)=>write!(f,"Ownership request not sent: {reason}."),
             Self::Rejected(error)=>write!(f,"Runtime rejected ownership without a new grant ({:?}).",error.code),
-            Self::Uncertain(ticket)=>write!(f,"Ownership request {} is uncertain; original request remains in Service custody and must not be retried.",ticket.request().0),
+            Self::Uncertain(ticket)=>write!(f,"Ownership request {} is uncertain; the host still holds the original request; do not retry it.",ticket.request().0),
             Self::Retired(ticket)=>write!(f,"Exact ownership request {} was retired/revoked.",ticket.request().0),
-            Self::Custody(error)=>write!(f,"Ownership custody transition rejected: {error:?}."),
+            Self::Custody(error)=>write!(f,"Ownership request state change rejected: {error:?}."),
         }
     }
 }

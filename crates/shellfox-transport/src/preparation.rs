@@ -29,7 +29,7 @@ pub struct OfflinePreparation {
 }
 impl std::fmt::Debug for OfflinePreparation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("OfflinePreparation([original custody])")
+        f.write_str("OfflinePreparation([original resources])")
     }
 }
 impl OfflinePreparation {
@@ -162,7 +162,7 @@ pub struct OwnershipAttempt {
 }
 impl std::fmt::Debug for OwnershipAttempt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("OwnershipAttempt([original custody])")
+        f.write_str("OwnershipAttempt([original resources])")
     }
 }
 pub struct AcquireTransferFailure {

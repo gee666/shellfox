@@ -110,7 +110,7 @@ impl std::fmt::Display for HelperError {
             Self::PermissionDenied => "Unsafe private permissions.",
             Self::UnsupportedIdentity => "Native full-width root identity is unsupported; no fallback was used.",
             Self::OwnershipRequired => "Existing permissions cannot be rewritten before actual ownership.",
-            Self::RootChainRequired => "Original full-chain directory custody is required before native work or binding.",
+            Self::RootChainRequired => "The original directory chain must be held before native work or binding.",
             Self::StateUnmarked => "State folder has no Shellfox Rust ownership marker; existing node credentials were not adopted.",
             Self::StateMarkerInvalid => "Rust node state marker is invalid, unsupported, or belongs to another fixed path.",
             Self::Executable => "Helper artifact verification failed.",

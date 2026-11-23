@@ -10,7 +10,7 @@ use std::{
 };
 
 // Client namespace probe only. Georgia's full Discover/Submit/Receipt DTO and
-// Walter's server validator remain the authority for desktop launch payloads.
+// the host's validator remains the authority for desktop launch payloads.
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "camelCase", deny_unknown_fields)]
 enum Discover {

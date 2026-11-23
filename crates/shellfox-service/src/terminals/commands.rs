@@ -1,5 +1,5 @@
 use super::*;
-use crate::activity_integration::InputAdmission;
+use crate::activity::integration::InputAdmission;
 
 impl Service {
     fn submit_command(&mut self, tab: TabId, id: RequestId, command: Command) -> Result<()> {
@@ -53,7 +53,7 @@ impl Service {
         admission: Option<InputAdmission>,
     ) -> Result<Response> {
         if matches!(command, Command::Claim { .. } | Command::Observe { .. }) {
-            bail!("Ownership grants require retained Service request custody.");
+            bail!("Ownership grants must go through the host's request ledger.");
         }
         let cleanup = matches!(command, Command::RetryClose);
         if !cleanup {

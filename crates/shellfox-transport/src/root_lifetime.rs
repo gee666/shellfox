@@ -13,7 +13,7 @@ struct Originals {
 pub struct RootLifetimeGuard(Arc<Originals>);
 impl std::fmt::Debug for RootLifetimeGuard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("RootLifetimeGuard([original custody only])")
+        f.write_str("RootLifetimeGuard([original directories only])")
     }
 }
 impl RootLifetimeGuard {
