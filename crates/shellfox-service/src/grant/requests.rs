@@ -92,7 +92,7 @@ impl ControllerGrantOffer {
     pub fn identity(&self) -> Identity {
         self.ticket().identity()
     }
-    #[cfg(all(test, windows))]
+    #[cfg(test)]
     pub fn lease(&self) -> Lease {
         self.lease
     }
