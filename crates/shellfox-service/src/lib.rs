@@ -3,7 +3,6 @@ pub mod facts;
 mod grant;
 pub mod activity;
 mod electron_import;
-pub mod activity_integration;
 pub mod app_composition;
 pub mod app_paths;
 pub mod automation;

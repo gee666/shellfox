@@ -1,6 +1,6 @@
 //! Single-owner, initially pending sanitized watch binding for async projection.
 use super::*;
-use crate::activity_integration::{read_source, source_is_current, SourceFacts, SourceFactsWatch};
+use crate::activity::integration::{read_source, source_is_current, SourceFacts, SourceFactsWatch};
 use std::sync::Arc;
 #[cfg(test)]
 mod tests;

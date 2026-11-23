@@ -1,5 +1,5 @@
 use super::*;
-use crate::activity_integration::SourceFactsPublisher;
+use crate::activity::integration::SourceFactsPublisher;
 use std::sync::atomic::{AtomicUsize, Ordering};
 struct Projector {
     calls: AtomicUsize,

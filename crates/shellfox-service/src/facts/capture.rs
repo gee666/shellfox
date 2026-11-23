@@ -1,7 +1,7 @@
 //! One mapper for immutable evidence from the current registered Runtime.
 use crate::{
     Service,
-    activity_integration::{StartupEvidence, TerminalSourceFacts},
+    activity::integration::{StartupEvidence, TerminalSourceFacts},
     terminals::OwnedTerminal,
 };
 pub(crate) fn terminal(service: &Service, terminal: &OwnedTerminal) -> TerminalSourceFacts {

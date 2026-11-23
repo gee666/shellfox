@@ -1,9 +1,9 @@
 //! Pure sanitized v1 session mapping. Discovery/system orchestration has one
-//! owner: activity_integration::NativeSourceFactsProjector.
+//! owner: activity::integration::NativeSourceFactsProjector.
 mod tabs;
 #[cfg(test)]
 mod tests;
-use crate::activity_integration::SourceFacts;
+use crate::activity::integration::SourceFacts;
 use shellfox_protocol::{self as wire, AppError, ErrorCode};
 use shellfox_remote::adapter::SessionFacts;
 use std::collections::{HashMap, HashSet};

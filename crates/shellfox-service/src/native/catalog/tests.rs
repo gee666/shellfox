@@ -59,7 +59,7 @@ fn linux_catalog_offers_installed_shells_and_the_legacy_default() {
     use std::{os::unix::fs::PermissionsExt, path::Path};
 
     let discovery =
-        crate::activity_integration::NativeFactsDiscovery::new(std::env::current_exe().unwrap())
+        crate::activity::integration::NativeFactsDiscovery::new(std::env::current_exe().unwrap())
             .unwrap();
     let default = shellfox_core::ProfileId::default();
     let catalog = discovery

@@ -1,5 +1,5 @@
 use super::*;
-use crate::{activity_integration::*, remote::SourceFactsProjector, system::*};
+use crate::{activity::integration::*, remote::SourceFactsProjector, system::*};
 use shellfox_core::{Preferences, Selection, Settings, Snapshot};
 use std::{
     path::Path,

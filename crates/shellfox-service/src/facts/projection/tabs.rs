@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     activity::{Health, RootState},
-    activity_integration::{StartupEvidence, TerminalSourceFacts},
+    activity::integration::{StartupEvidence, TerminalSourceFacts},
 };
 use shellfox_remote::adapter::{ObservationFacts, TabFacts};
 use shellfox_runtime::Phase;

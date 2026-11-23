@@ -1,4 +1,4 @@
-use crate::activity_integration::{
+use crate::activity::integration::{
     ActivityClock, ActivityPersistence, ActivityUtcAnchor, OwnerActivity, SourceFactsPublisher,
     SourceFactsWatch,
 };

@@ -1,5 +1,5 @@
 use super::{watch_program, AutomationActivity};
-use crate::activity_integration::{ActivityClock, InspectionScope, OwnerActivity};
+use crate::activity::integration::{ActivityClock, InspectionScope, OwnerActivity};
 mod runtime_tests;
 use shellfox_core::{Generation, ProfileId, SessionId, TabId};
 use shellfox_host::{Host, ReservedSessionPublication};

@@ -127,7 +127,7 @@ impl FactsPipeline {
         }
         // Catalog writes need to be visible to this request, independent of the
         // next activity poll. Genuine changes during projection are still fenced.
-        let source = crate::activity_integration::read_source(&service.source_facts_watch());
+        let source = crate::activity::integration::read_source(&service.source_facts_watch());
         if service.activity.dirty || source.is_none_or(|source| !source.matches_request(&evidence)) {
             let _ = service.publish_source_facts(evidence.snapshot.clone(), evidence.settings.clone());
         }

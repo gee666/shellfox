@@ -30,7 +30,7 @@ fn actual_app_creation_projects_without_invented_runtime() {
         panic!("snapshot");
     };
     service.pump_activity();
-    let source = crate::activity_integration::read_source(&service.source_facts_watch()).unwrap();
+    let source = crate::activity::integration::read_source(&service.source_facts_watch()).unwrap();
     let result = project_session_facts(&source).unwrap();
     let id = snapshot.selection.session_id.unwrap();
     let session = &result[&id];
@@ -63,7 +63,7 @@ fn unknown_creation_time_or_session_intent_is_unavailable_without_backfill() {
         })
         .unwrap();
     service.pump_activity();
-    let source = crate::activity_integration::read_source(&service.source_facts_watch()).unwrap();
+    let source = crate::activity::integration::read_source(&service.source_facts_watch()).unwrap();
     assert!(project_session_facts(&source).is_err());
     let (data, mut service) = fixture();
     service
@@ -75,7 +75,7 @@ fn unknown_creation_time_or_session_intent_is_unavailable_without_backfill() {
         })
         .unwrap();
     service.pump_activity();
-    let source = crate::activity_integration::read_source(&service.source_facts_watch()).unwrap();
+    let source = crate::activity::integration::read_source(&service.source_facts_watch()).unwrap();
     let mut missing = (*source).clone();
     missing.snapshot.sessions[0].tabs[0].created_at = None;
     assert!(project_session_facts(&missing).is_err());

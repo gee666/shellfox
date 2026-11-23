@@ -1,5 +1,5 @@
 use super::*;
-use crate::{activity_integration::NativeSourceFactsProjector, owner::ServiceOwner, system::*};
+use crate::{activity::integration::NativeSourceFactsProjector, owner::ServiceOwner, system::*};
 use anyhow::{Context, Result};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 

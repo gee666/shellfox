@@ -22,7 +22,7 @@ pub(super) enum Task {
         reply: oneshot::Sender<()>,
     },
     SourceFactsWatch {
-        reply: oneshot::Sender<crate::activity_integration::SourceFactsWatch>,
+        reply: oneshot::Sender<crate::activity::integration::SourceFactsWatch>,
     },
     Watches {
         reply: oneshot::Sender<crate::native::NativeWatches>,

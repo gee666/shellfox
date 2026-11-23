@@ -1,6 +1,6 @@
 use crate::{
     activity::{AgentState, TabFacts, TabLifecycle, tab_agent_state, tab_status},
-    activity_integration::{StartupEvidence, TerminalSourceFacts, read_source},
+    activity::integration::{StartupEvidence, TerminalSourceFacts, read_source},
 };
 use shellfox_core::{Generation, TabId};
 use shellfox_runtime::{Phase, SourceKind};

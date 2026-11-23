@@ -12,7 +12,7 @@ struct Provider {
 impl super::super::SourceFactsProjector for Provider {
     fn project(
         &self,
-        source: Arc<crate::activity_integration::SourceFacts>,
+        source: Arc<crate::activity::integration::SourceFacts>,
         request: ManagerFactsRequest,
     ) -> ManagerFactsFuture<'_> {
         Box::pin(async move {
@@ -47,7 +47,7 @@ async fn facts_refresh_before_projection_and_fence_mutations_after_it_starts() {
         Service::open_owned(scratch.path(), &std::env::current_exe().unwrap()).unwrap();
     service.pump_activity();
     let watch = service.source_facts_watch();
-    assert!(crate::activity_integration::read_source(&watch)
+    assert!(crate::activity::integration::read_source(&watch)
         .unwrap()
         .snapshot
         .sessions

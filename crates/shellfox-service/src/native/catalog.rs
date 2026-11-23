@@ -85,7 +85,7 @@ impl Service {
             let settings = self.host.global_settings()?;
             let default_profile = self.host.snapshot()?.preferences.default_profile_id;
             let discovery =
-                crate::activity_integration::NativeFactsDiscovery::new(self.supervisor.clone())?;
+                crate::activity::integration::NativeFactsDiscovery::new(self.supervisor.clone())?;
             let cancel = self.ownership_lost.child_token();
             let input_settings = settings.clone();
             let input_default = default_profile.clone();

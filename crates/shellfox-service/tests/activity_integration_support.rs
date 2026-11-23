@@ -4,7 +4,7 @@ use shellfox_host::CapturedSettlement;
 use shellfox_runtime::{
     Command, Event, Identity, Phase, Request, RequestId, Response, Runtime, RuntimeHooks,
 };
-use shellfox_service::activity_integration::{
+use shellfox_service::activity::integration::{
     AcceptedInputContext, InputAdmission, InspectionScope, LiveActivitySink, OwnerActivity,
 };
 use shellfox_terminal::{PtyCommand, PtyConfig};

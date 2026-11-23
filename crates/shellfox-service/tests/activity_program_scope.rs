@@ -5,7 +5,7 @@ use shellfox_host::{CapturedSettlement, Host, SessionCreationFacts};
 use shellfox_runtime::{
     Identity, InputKind, InputReceipt, LiveOutputSink, Phase, RequestId, Response, Runtime,
 };
-use shellfox_service::{activity::*, activity_integration::*};
+use shellfox_service::{activity::*, activity::integration::*};
 use std::{collections::HashMap, path::PathBuf};
 
 #[test]

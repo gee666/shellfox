@@ -89,7 +89,7 @@ fn blocked_ack_does_not_block_live_busy_or_ttl_and_meaningful_output_while_busy(
     let initial = policy.take_live_updates().remove(0);
     // This is a fixture protocol trigger, not captured human input. No input TTL
     // touch or echo marker is supplied; all following touches must be live output.
-    let admission = shellfox_service::activity_integration::InputAdmission::raw(
+    let admission = shellfox_service::activity::integration::InputAdmission::raw(
         b"start\r",
         false,
         false,

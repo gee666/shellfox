@@ -1,7 +1,7 @@
 use shellfox_core::{Generation, SessionId, TabId};
 use shellfox_host::CapturedSettlement;
 use shellfox_runtime::{Identity, InputKind, InputReceipt, RequestId, Response, RuntimeHooks};
-use shellfox_service::activity_integration::{InputAdmission, InspectionScope, OwnerActivity};
+use shellfox_service::activity::integration::{InputAdmission, InspectionScope, OwnerActivity};
 use std::sync::Arc;
 
 #[test]

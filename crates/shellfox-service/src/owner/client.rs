@@ -6,7 +6,7 @@ impl OwnerClient {
     /// or Runtime. None remains explicit while evidence is pending/invalidated.
     pub async fn source_facts_watch(
         &self,
-    ) -> Result<crate::activity_integration::SourceFactsWatch> {
+    ) -> Result<crate::activity::integration::SourceFactsWatch> {
         let (reply, receive) = oneshot::channel();
         self.sender
             .try_send(Task::SourceFactsWatch { reply })

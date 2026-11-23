@@ -1,6 +1,6 @@
 use shellfox_core::{Generation, SessionId, TabId};
 use shellfox_runtime::{Identity, LiveOutputSink, Runtime};
-use shellfox_service::activity_integration::{InspectionScope, OwnerActivity};
+use shellfox_service::activity::integration::{InspectionScope, OwnerActivity};
 use std::collections::HashMap;
 #[test]
 fn unsupported_first_poll_and_silence_are_diagnostic_not_ttl_but_all_live_output_still_touches() {

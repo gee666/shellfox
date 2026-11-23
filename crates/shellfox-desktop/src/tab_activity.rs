@@ -184,7 +184,7 @@ mod tests {
     use shellfox_runtime::{Identity, Phase};
     use shellfox_service::{
         activity::{Health, Observation, RootState},
-        activity_integration::{StartupEvidence, TerminalSourceFacts},
+        activity::integration::{StartupEvidence, TerminalSourceFacts},
     };
 
     #[test]

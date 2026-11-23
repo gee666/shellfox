@@ -75,7 +75,7 @@ impl crate::Service {
             }
         };
         let response = if let Some(context) = input {
-            let admission = crate::activity_integration::InputAdmission::native(
+            let admission = crate::activity::integration::InputAdmission::native(
                 context.user_initiated,
                 context.hint,
                 context.captured_settlement,

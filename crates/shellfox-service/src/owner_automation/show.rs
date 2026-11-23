@@ -25,7 +25,7 @@ struct Viewer<'a> {
     /// Headless hosts publish the view for remote clients without focusing a window.
     desktop: bool,
     authority: ShowAuthority<'a>,
-    activity: &'a mut crate::activity_integration::OwnerActivity,
+    activity: &'a mut crate::activity::integration::OwnerActivity,
 }
 impl Viewer<'_> {
     fn identity(&self, id: Uuid) -> Result<Identity> {

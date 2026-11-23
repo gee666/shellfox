@@ -8,7 +8,7 @@ fn legacy_all_elevated_session_metadata_is_authorized_but_private_tab_facts_are_
     let mut snapshot=service.host().snapshot().unwrap(); let session=snapshot.sessions[0].id; let tab=snapshot.sessions[0].tabs[0].id;
     snapshot.sessions[0].tabs[0].created_at=None;
     let private=std::collections::HashSet::from([tab]);
-    let source = crate::activity_integration::SourceFacts {
+    let source = crate::activity::integration::SourceFacts {
         sequence: 1, snapshot, settings: service.host().global_settings().unwrap(), terminals: Vec::new(),
         creation_facts: service.host().session_creation_facts().unwrap(),
         #[cfg(windows)]
@@ -60,7 +60,7 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
     };
     let normal = create("cmd", true);
     let raw = create("automation-pipe", false);
-    let source = crate::activity_integration::SourceFacts {
+    let source = crate::activity::integration::SourceFacts {
         sequence: 1,
         snapshot: service.host().snapshot().unwrap(),
         settings: service.host().global_settings().unwrap(),

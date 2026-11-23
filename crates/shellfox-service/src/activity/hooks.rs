@@ -1,4 +1,4 @@
-use crate::activity_integration::{ActivityFlush, InspectionScope, SourceFactsWatch};
+use crate::activity::integration::{ActivityFlush, InspectionScope, SourceFactsWatch};
 use crate::*;
 #[cfg(test)]
 mod tests;
@@ -223,7 +223,7 @@ impl Service {
                 }
             }
             let snapshot = self.host.snapshot()?;
-            let current_revision = crate::activity_integration::read_source(&self.activity.watch)
+            let current_revision = crate::activity::integration::read_source(&self.activity.watch)
                 .map(|source| source.snapshot.revision);
             if self.activity.dirty || current_revision != Some(snapshot.revision) {
                 self.publish_source_facts(snapshot, settings)?;

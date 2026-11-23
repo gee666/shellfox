@@ -46,7 +46,7 @@ impl RemoteService<'_> {
     fn launched_session(&self, id: SessionId) -> Result<serde_json::Value, AppError> {
         let snapshot = self.service.host().snapshot().map_err(host_error)?;
         let private = self.private_tabs(&snapshot);
-        let facts = crate::activity_integration::SourceFacts {
+        let facts = crate::activity::integration::SourceFacts {
             sequence: 0,
             snapshot,
             settings: self.service.host().global_settings().map_err(host_error)?,

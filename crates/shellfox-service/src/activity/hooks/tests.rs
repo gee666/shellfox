@@ -67,7 +67,7 @@ fn ownership_loss_confirms_resources_but_reports_uncommitted_activity_separately
 #[test]
 #[ignore = "requires a trusted separate supervisor artifact; no installed data or host"]
 fn positive_receipts_keep_original_settlement_and_metadata_failure_never_fails_write() {
-    use crate::activity_integration::InputAdmission;
+    use crate::activity::integration::InputAdmission;
     use shellfox_runtime::{Command, InputKind, Response};
     let data = crate::tests::scratch();
     let supervisor = std::path::PathBuf::from(

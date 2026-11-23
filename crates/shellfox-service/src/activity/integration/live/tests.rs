@@ -1,5 +1,5 @@
 use super::*;
-use crate::{activity::*, activity_integration::ActivityUtcAnchor};
+use crate::{activity::*, activity::integration::ActivityUtcAnchor};
 use shellfox_core::{Generation, SessionId, TabId};
 use std::{sync::Arc, time::Duration};
 fn identity() -> Identity {

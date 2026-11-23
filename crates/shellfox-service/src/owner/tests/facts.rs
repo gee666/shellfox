@@ -1,5 +1,5 @@
 use crate::{
-    activity_integration::read_source,
+    activity::integration::read_source,
     local_api::{LocalApiRequest, LocalApiResponse},
 };
 

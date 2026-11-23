@@ -1,5 +1,5 @@
 //! Publication-gated live activity for the one raw automation presentation.
-use crate::activity_integration::{InspectionScope, LiveActivitySink, OwnerActivity};
+use crate::activity::integration::{InspectionScope, LiveActivitySink, OwnerActivity};
 use anyhow::{ensure, Context, Result};
 use shellfox_runtime::{Identity, LiveOutputFailure, LiveOutputSink, RuntimeHooks};
 use std::{

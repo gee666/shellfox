@@ -1,5 +1,5 @@
 use super::*;
-use crate::activity_integration::{ActivityClock, LiveActivitySink};
+use crate::activity::integration::{ActivityClock, LiveActivitySink};
 use shellfox_core::{Generation, SessionId, TabId};
 use shellfox_ghostty_vt::{key::KeyAction, MouseButton};
 use shellfox_runtime::{ErrorCode, Identity, LiveOutputSink, Response, RuntimeError};
