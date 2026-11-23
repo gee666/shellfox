@@ -42,13 +42,11 @@ fn verify_acl(file: &std::fs::File) -> Result<()> {
         .context("Host resource has access or inheritance ACLs")
 }
 
+#[cfg(target_os = "macos")]
 fn verify_ancestor(dir: &Dir) -> Result<()> {
     let file = dir.try_clone()?.into_std_file();
-    #[cfg(target_os = "macos")]
-    return shellfox_transport::verify_held_traversal_acl(&readable_directory(&file)?)
-        .context("Host ancestor ACL grants access or cannot be verified");
-    #[cfg(not(target_os = "macos"))]
-    verify_acl(&file)
+    shellfox_transport::verify_held_traversal_acl(&readable_directory(&file)?)
+        .context("Host ancestor ACL grants access or cannot be verified")
 }
 fn owned(info: &Metadata, user: u32) -> Result<()> {
     ensure!(info.uid() == user, "Foreign host resource owner");
@@ -89,6 +87,11 @@ impl HostRoot {
         let ancestor_count = self.anchors.len() - usize::from(self.exists());
         for anchor in &self.anchors[..ancestor_count] {
             let info = anchor.handle.dir_metadata()?;
+            // Linux needs no ACL check here: a POSIX ACL caps every named entry
+            // with its mask, which st_mode shows as the group bits, so the mode
+            // check below already refuses an ancestor anyone but its owner can
+            // write. Read or traverse entries (common on shared homes) are fine.
+            #[cfg(target_os = "macos")]
             verify_ancestor(&anchor.handle)?;
             let system = info.uid() == 0 || (cfg!(target_os = "android") && info.uid() == 1000);
             ensure!(system || info.uid() == user, "Foreign host ancestor owner");

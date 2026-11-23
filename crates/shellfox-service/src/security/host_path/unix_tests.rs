@@ -38,3 +38,26 @@ fn readable_owned_anchor_is_allowed_but_foreign_writable_ancestor_is_rejected_be
     assert!(plan.validate_creation_ancestors().is_err());
     assert!(!parent.join("new-host").exists());
 }
+#[cfg(target_os = "linux")]
+#[test]
+fn an_ancestor_acl_is_refused_only_when_it_lets_another_user_write() {
+    let data = super::tests::scratch();
+    let parent = data.path().join("shared");
+    std::fs::create_dir(&parent).unwrap();
+    std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Linux CI installs the acl package; root is a user other than the test's.
+    let setfacl = |spec: &str| {
+        let status = std::process::Command::new("setfacl")
+            .args(["-m", spec])
+            .arg(&parent)
+            .status()
+            .expect("setfacl from the acl package");
+        assert!(status.success());
+    };
+    setfacl("u:root:rx");
+    let plan = HostRoot::inspect(&parent.join("new-host")).unwrap();
+    plan.validate_creation_ancestors().unwrap();
+    setfacl("u:root:rwx");
+    assert!(plan.validate_creation_ancestors().is_err());
+    assert!(!parent.join("new-host").exists());
+}
