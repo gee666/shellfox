@@ -9,9 +9,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const owned = [];
 afterEach(() => { for (const path of owned.splice(0)) rmSync(path, { recursive: true, force: true }); });
 const digest = letter => letter.repeat(64);
-const profile = { defaultCreator: 'v1', legacyClientAbi: 1, observerClientAbi: 1,
-  observerWireVersion: 2, observerProfile: 'observer-v2', engine: 'default-vt-1.0.1', experimentalNative002: false };
-const functions = ['sfm_terminal_create', 'sfm_client_create', 'sfm_observer_v2_abi_version'];
+const profile = { defaultCreator: 'v1', legacyClientAbi: 1, engine: 'default-vt-1.0.1' };
+const functions = ['sfm_terminal_create', 'sfm_client_create', 'sfm_client_poll'];
 function put(file, value) { writeFileSync(file, JSON.stringify(value)); }
 function fixture() {
   mkdirSync(join(root, 'tmp'), { recursive: true });
@@ -20,11 +19,11 @@ function fixture() {
   const output = join(artifactDir, 'arm64-v8a');
   for (const p of [join(output, 'include'), headersDir, jniDir]) mkdirSync(p, { recursive: true });
   const sourceHeaders = { 'shellfox_mobile.h': 'SfmStatus sfm_terminal_create(void);\n',
-    'shellfox_mobile_client.h': 'SfmStatus sfm_client_create(void);\nuint32_t sfm_observer_v2_abi_version(void);\n' };
+    'shellfox_mobile_client.h': 'SfmStatus sfm_client_create(void);\nSfmStatus sfm_client_poll(void);\n' };
   for (const [name, content] of Object.entries(sourceHeaders)) {
     writeFileSync(join(headersDir, name), content); writeFileSync(join(output, 'include', name), content);
   }
-  writeFileSync(join(jniDir, 'client_jni.cpp'), 'sfm_client_create(); sfm_observer_v2_abi_version();');
+  writeFileSync(join(jniDir, 'client_jni.cpp'), 'sfm_client_create(); sfm_client_poll();');
   writeFileSync(join(jniDir, 'terminal_jni.cpp'), 'sfm_terminal_create();');
   // Fixture bytes deliberately are NOT an executable/object archive. This gate
   // verifies file hashes and declarations; it must not claim binary symbols.
@@ -51,9 +50,9 @@ test('validates actual known manifest fields/hashes but makes no binary-symbol c
   assert.equal(result.snapshot, digest('a')); assert.equal(result.archiveHashesVerified, true);
   assert.equal(result.headerHashesVerified, true); assert.match(result.symbolInventory, /declarations only/);
 });
-test('missing observer or any JNI-required declaration fails', () => {
-  const f = fixture(); update(f, m => { m.exportedHeaderFunctions = functions.filter(name => !name.includes('observer')); });
-  assert.throws(() => validateRustArtifacts(f), /functions missing.*sfm_observer_v2_abi_version/);
+test('any missing JNI-required declaration fails', () => {
+  const f = fixture(); update(f, m => { m.exportedHeaderFunctions = functions.filter(name => name !== 'sfm_client_poll'); });
+  assert.throws(() => validateRustArtifacts(f), /functions missing.*sfm_client_poll/);
   update(f, m => { delete m.exportedHeaderFunctions; });
   assert.throws(() => validateRustArtifacts(f), /Missing\/invalid declared function inventory/);
 });
@@ -84,9 +83,9 @@ test('unknown/old formats and missing manifests fail without migration/fallback'
   const next = fixture(); const gate = JSON.parse(readFileSync(next.gatePath, 'utf8')); gate.format = 'unknown'; put(next.gatePath, gate);
   assert.throws(() => validateRustArtifacts(next), /unsupported four-ABI acceptance manifest format/);
 });
-test('mixed/live provenance, native002 or ABI/profile mismatch fails', () => {
+test('mixed/live provenance or ABI/profile mismatch fails', () => {
   for (const change of [m => { m.sourceFingerprint = digest('e'); }, m => { m.builtFrom = 'live-head'; },
-    m => { m.profile = { ...m.profile, experimentalNative002: true }; }, m => { m.profile = { ...m.profile, observerClientAbi: 2 }; }]) {
+    m => { m.profile = { ...m.profile, engine: 'other' }; }, m => { m.profile = { ...m.profile, legacyClientAbi: 2 }; }]) {
     const f = fixture(); update(f, change); assert.throws(() => validateRustArtifacts(f), /provenance|ABI\/profile\/engine/);
   }
 });

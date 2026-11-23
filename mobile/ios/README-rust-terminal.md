@@ -1,6 +1,6 @@
 # iOS Rust terminal
 
-This implementation adds a Fabric terminal and TurboModule to the existing RN 0.88 application. The explicit additive observer source route is documented separately in [README-observer-v2.md](README-observer-v2.md); v1 remains the default and observer parsers never fit locally. The terminal renders Ghostty through a native view. A Windows source or codegen check is not iOS acceptance.
+This implementation adds a Fabric terminal and TurboModule to the existing RN 0.88 application. The terminal renders Ghostty through a native view. A Windows source or codegen check is not iOS acceptance.
 
 ## Registration and build dependencies
 

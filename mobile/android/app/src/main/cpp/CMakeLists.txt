@@ -7,13 +7,8 @@ get_filename_component(SHELLFOX_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../../../.
 set(SHELLFOX_MOBILE_INCLUDE "${SHELLFOX_ROOT}/crates/shellfox-mobile/include")
 add_library(shellfox_jni_objects OBJECT
   "${CMAKE_CURRENT_LIST_DIR}/terminal_jni.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/client_jni.cpp"
-  "${CMAKE_CURRENT_LIST_DIR}/manager_client_jni.cpp")
+  "${CMAKE_CURRENT_LIST_DIR}/client_jni.cpp")
 target_compile_features(shellfox_jni_objects PRIVATE cxx_std_17)
-option(SFM_ENABLE_MANAGER_V2 "Explicit matching Native002 Manager-v2 SDK artifact" OFF)
-if(SFM_ENABLE_MANAGER_V2)
-  target_compile_definitions(shellfox_jni_objects PRIVATE SFM_ENABLE_MANAGER_V2=1)
-endif()
 target_compile_options(shellfox_jni_objects PRIVATE -Wall -Wextra -Werror -fexceptions)
 target_include_directories(shellfox_jni_objects PRIVATE "${SHELLFOX_MOBILE_INCLUDE}")
 set_target_properties(shellfox_jni_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)

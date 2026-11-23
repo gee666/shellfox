@@ -14,7 +14,7 @@ import org.robolectric.shadows.ShadowPowerManager
 class PairApprovalWakeLockTest {
   @Test fun pairingAndDisconnectHoldPowerOnlyDuringRequestAndReleaseOnFailure() {
     val context = RuntimeEnvironment.getApplication()
-    for (path in listOf("/v1/pair", "/v2/pair", "/v1/disconnect", "/v2/disconnect")) {
+    for (path in listOf("/v1/pair", "/v1/disconnect")) {
       assertEquals("ok", withPairApprovalWakeLock(context, path, 1000) {
         assertTrue(ShadowPowerManager.getLatestWakeLock().isHeld)
         "ok"
@@ -28,7 +28,7 @@ class PairApprovalWakeLockTest {
   }
   @Test fun ordinaryRequestsDoNotAcquireAWakeLock() {
     val before = ShadowPowerManager.getLatestWakeLock()
-    for (path in listOf("/v1/events", "/v2/events")) {
+    for (path in listOf("/v1/events")) {
       val value = withPairApprovalWakeLock(RuntimeEnvironment.getApplication(), path, 1000) { "fixture" }
       assertEquals("fixture", value)
       assertSame(before, ShadowPowerManager.getLatestWakeLock())

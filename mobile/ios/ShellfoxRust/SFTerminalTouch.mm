@@ -86,7 +86,7 @@ static CGPoint CellPoint(SFTerminalView *view, CGPoint point) {
     uint8_t tracking = 0;
     SfmStatus status = sfm_terminal_mouse_tracking(terminal.handle, &tracking);
     if (status != SFM_OK) { [terminal.sink terminalFailed:terminal.identifier status:status]; return; }
-    if (!tracking || terminal.readOnly || terminal.deliveryOnly || (modifiers & 1)) {
+    if (!tracking || terminal.readOnly || (modifiers & 1)) {
       status = sfm_terminal_scroll(terminal.handle, rows);
       if (status == SFM_OK) terminal.dirty = YES;
       else [terminal.sink terminalFailed:terminal.identifier status:status];

@@ -223,7 +223,6 @@ static void FrameForTest(void *context, const SfmFrame *frame) {
   XCTestExpectation *done = [self expectationWithDescription:@"native event filter"];
   BOOL accepted = [[SFOwner shared] enqueue:^{
     SFClientRecord *client = [SFClientRecord new];
-    client.profile = SFM_CLIENT_PROFILE_V1;
     SFClientStore *store = [SFClientStore shared];
     NSDictionary *connection = @{@"status":@"connected", @"permission":@"approved", @"connectionId":@"1"};
     NSDictionary *(^event)(NSString *) = ^NSDictionary *(NSString *operation) {

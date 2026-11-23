@@ -1,7 +1,6 @@
 #pragma once
 #import "SFOwner.h"
 #import "SFGoTransport.h"
-#import "SFClientProfile.h"
 
 typedef void (^SFClientCloseCompletion)(SfmStatus status);
 typedef id (^SFClientDeferredWork)(SfmStatus *status);
@@ -15,9 +14,6 @@ typedef NS_ENUM(NSUInteger, SFClientAdmission) {
 @class SFClientDeferredCall;
 @interface SFClientRecord : NSObject
 @property(nonatomic) SfmClientHandle handle;
-@property(nonatomic) uint32_t profile;
-@property(nonatomic) uint32_t apiCapabilities;
-- (const shellfox::ClientAPI &)functions;
 @property(nonatomic, strong) NSMutableArray<NSData *> *events;
 @property(nonatomic) NSUInteger eventBytes;
 @property(nonatomic, strong) NSMutableSet<NSString *> *resets;
@@ -50,8 +46,6 @@ typedef NS_ENUM(NSUInteger, SFClientAdmission) {
 // Returns YES when a state without its own wake needs another pass soon.
 - (BOOL)tick;
 - (SfmStatus)createPeer:(NSString *)peer clientId:(NSString *)clientId result:(NSString **)result;
-- (SfmStatus)createObserverPeer:(NSString *)peer clientId:(NSString *)clientId result:(NSString **)result;
-- (SfmStatus)createManagerPeer:(NSString *)peer clientId:(NSString *)clientId result:(NSString **)result;
 - (SFClientRecord *)client:(NSString *)identifier;
 - (SfmStatus)close:(NSString *)identifier;
 - (SfmStatus)beginClose:(NSString *)identifier completion:(SFClientCloseCompletion)completion;

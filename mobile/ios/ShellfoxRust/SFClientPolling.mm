@@ -24,7 +24,7 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   if (!client || client.closing) { done(nil, SFM_STALE); return; }
   if (client.pollFailure != SFM_OK) {
     BOOL teardown = admission == SFClientAdmissionV1RetireView || admission == SFClientAdmissionV1Reconnect;
-    if (client.profile != SFM_CLIENT_PROFILE_V1 || !teardown) {
+    if (!teardown) {
       done(nil, client.pollFailure); return;
     }
     // Unbind is local. Reconnect fences the generation in Rust. Neither
@@ -38,7 +38,7 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   }
   // Files commands do not change terminal delivery, and Rust supplies their
   // usual connection/authority checks. Preserve ordering with queued commands.
-  if (admission == SFClientAdmissionV1FileRequest && client.profile == SFM_CLIENT_PROFILE_V1 &&
+  if (admission == SFClientAdmissionV1FileRequest &&
       client.polling && !client.pendingCalls.count && !client.mutations.count) {
     SfmStatus status = SFM_OK;
     id value = RunWork(client, work, &status);
@@ -63,7 +63,7 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   }
 }
 - (void)clearFailedPollAfterV1Fence:(SFClientRecord *)client {
-  if (client.profile != SFM_CLIENT_PROFILE_V1 || client.pollFailure == SFM_OK) return;
+  if (client.pollFailure == SFM_OK) return;
   client.pollOperation = nil;
   client.pollFailure = SFM_OK;
   client.polling = NO;
@@ -95,9 +95,7 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
     client.nextPoll = NSProcessInfo.processInfo.systemUptime + (success ? 0 : 0.5);
   }
   NSDictionary *connection = [event[@"connection"] isKindOfClass:NSDictionary.class] ? event[@"connection"] : @{};
-  id binding = connection[@"binding"];
-  id identity = [binding isKindOfClass:NSDictionary.class] ? binding :
-    @[connection[@"status"] ?: NSNull.null, connection[@"connectionId"] ?: NSNull.null];
+  id identity = @[connection[@"status"] ?: NSNull.null, connection[@"connectionId"] ?: NSNull.null];
   NSData *bytes = [NSJSONSerialization dataWithJSONObject:identity options:NSJSONWritingSortedKeys error:nil];
   NSString *key = [[NSString alloc] initWithData:bytes encoding:NSUTF8StringEncoding];
   if (![client.authorityKey isEqual:key]) { client.authorityEpoch++; client.authorityKey = key; }
@@ -108,15 +106,12 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   if (client.pollFailure != SFM_OK) return client.pollFailure;
   if (client.pollOperation) { *operation = strtoull(client.pollOperation.UTF8String, nullptr, 10); return SFM_OK; }
   if (!client.polling || client.pendingCalls.count || client.mutations.count || [self recoveringViews:client] || ![self ownerDrained:client]) return SFM_BUSY;
-  SfmStatus status = [client functions].poll(client.handle, operation);
+  SfmStatus status = sfm_client_poll(client.handle, operation);
   if (status == SFM_OK) client.pollOperation = SFDecimal(*operation);
   return status;
 }
 - (BOOL)shouldForward:(id)event client:(SFClientRecord *)client {
   if (![event isKindOfClass:NSDictionary.class]) return NO;
-  BOOL observer = client.profile != SFM_CLIENT_PROFILE_V1;
-  NSString *profile = client.profile == SFM_CLIENT_PROFILE_MANAGER_V2 ? @"manager-v2" : @"observer-v2";
-  if (observer && ![event[@"profile"] isEqual:profile]) { client.polling = NO; return NO; }
   NSString *operation = event[@"operationId"];
   BOOL internal = [event[@"internal"] boolValue];
   BOOL requested = [operation isKindOfClass:NSString.class] && [client.explicitOperations containsObject:operation];
@@ -127,18 +122,8 @@ static id RunWork(SFClientRecord *client, SFClientDeferredWork work, SfmStatus *
   NSDictionary *error = [result[@"error"] isKindOfClass:NSDictionary.class] ? result[@"error"] : @{};
   NSString *errorCode = denied ? ([error[@"code"] isKindOfClass:NSString.class] ? error[@"code"] : @"remote") : @"";
   client.polling = client.pollFailure == SFM_OK && [connection[@"status"] isEqual:@"connected"];
-  NSString *key;
-  if (observer) {
-    id binding = connection[@"binding"];
-    if (![binding isKindOfClass:NSDictionary.class] && binding != NSNull.null) { client.polling = NO; return NO; }
-    NSData *identity = [NSJSONSerialization dataWithJSONObject:@[binding] options:NSJSONWritingSortedKeys error:nil];
-    NSString *stamp = [[NSString alloc] initWithData:identity encoding:NSUTF8StringEncoding];
-    key = [NSString stringWithFormat:@"%@/%@/%@/%@", connection[@"status"], stamp, event[@"status"], errorCode];
-    client.polling = client.polling && binding != NSNull.null;
-  } else {
-    key = [NSString stringWithFormat:@"%@/%@/%@/%@/%@", connection[@"status"], connection[@"permission"],
+  NSString *key = [NSString stringWithFormat:@"%@/%@/%@/%@/%@", connection[@"status"], connection[@"permission"],
       connection[@"connectionId"], event[@"status"], errorCode];
-  }
   BOOL changed = ![client.connectionKey isEqual:key]; client.connectionKey = key;
   NSDictionary *tickets = [event[@"resetTickets"] isKindOfClass:NSDictionary.class] ? event[@"resetTickets"] : @{};
   BOOL reset = NO;

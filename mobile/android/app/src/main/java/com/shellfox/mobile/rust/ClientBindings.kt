@@ -6,18 +6,6 @@ import androidx.annotation.Keep
 internal object ClientBindings {
   init { System.loadLibrary("shellfox_android") }
   external fun create(peer: ByteArray, clientId: ByteArray): Long
-  external fun managerAbiVersion(): Int
-  external fun createManager(peer: ByteArray, clientId: ByteArray): Long
-  external fun discoverManager(client: Long): Long
-  external fun pairManager(client: Long, attempt: ByteArray): Long
-  external fun reconnectManager(client: Long, clientId: ByteArray)
-  external fun inputManager(client: Long, terminal: Long, json: ByteArray, userInitiated: Boolean): Int
-  external fun observerAbiVersion(): Int
-  external fun createObserver(peer: ByteArray, clientId: ByteArray): Long
-  external fun discoverObserver(client: Long, offerLegacy: Boolean): Long
-  external fun pairObserver(client: Long, attempt: ByteArray): Long
-  external fun reconnectObserver(client: Long, clientId: ByteArray)
-  external fun profile(client: Long): IntArray
   external fun start(client: Long, kind: Int, json: ByteArray?): Long
   external fun cancelOperation(client: Long, operation: Long)
   external fun bind(client: Long, tab: ByteArray, terminal: Long)
@@ -33,7 +21,6 @@ internal object ClientBindings {
   external fun dispatch(client: Long, transport: Class<*>)
   external fun close(client: Long, transport: Class<*>)
   external fun complete(client: Long, generation: Long, request: Long, outcome: Int, bytes: ByteArray): Int
-  external fun completeHttp(client: Long, generation: Long, request: Long, outcome: Int, httpStatus: Int, bytes: ByteArray): Int
   external fun readEvent(client: Long): ByteArray?
 
   /** Called by Rust from any thread; coalesced until the next dispatch. */

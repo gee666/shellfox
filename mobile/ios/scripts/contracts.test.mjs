@@ -58,10 +58,10 @@ test('native C calls exist in the actual Carter and client headers', () => {
   const declarations = new Set([...headers.matchAll(/\b(sfm_\w+)\s*\(/g)].map(m => m[1]));
   for (const call of source.matchAll(/\b(sfm_\w+)\b/g)) assert.ok(declarations.has(call[1]), call[1]);
   assert.match(headers, /sfm_client_terminal_reset_done\(SfmClientHandle client,\s*SfmHandle terminal, uint64_t ticket\)/);
-  assert.match(source, /\[client functions\]\.resetTicket\(client.handle, terminal.handle, &ticket\)/);
-  assert.match(source, /\[client functions\]\.resetDone\(client.handle, terminal.handle, ticket\)/);
-  assert.match(source, /\[client functions\]\.resetGrid\(client.handle, terminal.handle, ticket, &hostCols, &hostRows\)/);
-  assert.match(source, /\[client functions\]\.ready\(client.handle, terminal.handle, ready\)/);
+  assert.match(source, /sfm_client_terminal_reset_ticket\(client.handle, terminal.handle, &ticket\)/);
+  assert.match(source, /sfm_client_terminal_reset_done\(client.handle, terminal.handle, ticket\)/);
+  assert.match(source, /sfm_client_terminal_reset_grid\(client.handle, terminal.handle, ticket, &hostCols, &hostRows\)/);
+  assert.match(source, /sfm_client_terminal_recovery_ready\(client.handle, terminal.handle, ready\)/);
 });
 test('Rust input hints stay paired with explicit-length bytes through admission and Go writes', () => {
   const owner = read('mobile/ios/ShellfoxRust/SFOwner.mm');
@@ -125,63 +125,23 @@ test('runtime Pod linker settings come from actual rustc output, not guessed fra
   assert.throws(() => nativeLinkSettings('no native link output'));
   assert.throws(() => nativeLinkSettings('native-static-libs: -Wl,unexpected-option'));
 });
-test('observer profile is explicit, delivery-only and keeps the canonical native parser grid', () => {
-  const module = read('mobile/ios/ShellfoxRust/ShellfoxRustClient.mm');
-  const store = read('mobile/ios/ShellfoxRust/SFClientStore.mm');
-  const polling = read('mobile/ios/ShellfoxRust/SFClientPolling.mm');
-  const owner = read('mobile/ios/ShellfoxRust/SFOwnerInput.mm');
-  const table = read('mobile/ios/ShellfoxRust/SFClientProfile.mm');
-  assert.match(module, /observerV2Operation:/);
-  assert.match(module, /sfm_client_profile\(client.handle, &profile, &capabilities\)/);
-  assert.doesNotMatch(module, /sfm_client_profile\(terminal/);
-  assert.match(store, /profile:SFM_CLIENT_PROFILE_V1 result:result/);
-  assert.match(store, /profile:SFM_CLIENT_PROFILE_OBSERVER_V2 result:result/);
-  assert.match(table, /SFM_CLIENT_PROFILE_OBSERVER_V2, SFM_CLIENT_API_DELIVERY/);
-  for (const api of ['bind_terminal', 'unbind_terminal', 'terminal_reset_ticket', 'terminal_reset_grid',
-    'terminal_reset_done', 'terminal_recovery_ready', 'terminal_consumed', 'poll', 'disconnect']) {
-    assert.ok(table.includes(`sfm_observer_v2_${api}`));
-  }
-  const resize = owner.split('- (SfmStatus)resize:')[1].split('- (SfmStatus)input:')[0];
-  assert.ok(resize.indexOf('if (terminal.deliveryOnly) return SFM_OK;') < resize.indexOf('sfm_terminal_resize('));
-  assert.match(owner, /if \(terminal.deliveryOnly\) return SFM_INVALID/);
-  assert.match(polling, /connection\[@"binding"\]/);
-  assert.match(polling, /@"observer-v2"/);
-});
-test('the Rust Go transport uses exact routes and preserves real HTTP status', () => {
+test('the Rust Go transport uses exact v1 routes', () => {
   const policy = read('mobile/ios/ShellfoxRust/SFNetworkPolicy.h');
   const allow = policy.split('static inline BOOL SFNetworkPathPoll')[0];
-  const paths = [...allow.matchAll(/@"(\/v[12]\/[^\"]+)"/g)].map(m => m[1]).sort();
-  const expected = [1, 2].flatMap(version => ['discover', 'pair', 'request', 'events', 'disconnect']
-    .map(name => `/v${version}/${name}`)).sort();
+  const paths = [...allow.matchAll(/@"(\/v\d\/[^\"]+)"/g)].map(m => m[1]).sort();
+  const expected = ['discover', 'pair', 'request', 'events', 'disconnect'].map(name => `/v1/${name}`).sort();
   assert.deepEqual(paths, expected);
-  const goPolicy = [...read('native/mobile/policy.go').matchAll(/"(\/v[12]\/[^\"]+)"/g)].map(m => m[1]);
+  const goPolicy = [...read('native/mobile/policy.go').matchAll(/"(\/v\d\/[^\"]+)"/g)].map(m => m[1]);
   assert.deepEqual([...new Set(goPolicy)].sort(), expected);
   const transport = read('mobile/ios/ShellfoxRust/SFGoTransport.mm');
-  assert.match(transport, /@implementation SFGoHTTPResponse[\s\S]*?@end\s*@interface SFGoRequest/);
   assert.doesNotMatch(read('mobile/ios/ShellfoxRust/ShellfoxRustNative.podspec'), /-fcxx-modules/);
   assert.match(transport, /SFNetworkPathAllowed\(route\)/);
   assert.match(transport, /SFNetworkPathPoll\(path\)/);
   assert.match(transport, /SFNetworkPathFiniteCompletion\(path\)/);
   assert.doesNotMatch(read('mobile/ios/ShellfoxMobile/ShellfoxNetwork.mm'), /RCT_REMAP_METHOD\(request,/);
-  assert.match(transport, /MobileRequestWithStatus\(peer, path, body, error\)/);
-  assert.match(transport, /\[result statusCode\]/);
-  assert.match(transport, /\[result body\]/);
-  assert.match(transport, /sfm_observer_v2_complete_http\(client, generation, request, outcome, status/);
+  assert.match(transport, /MobileRequest\(peer, path, body, error\)/);
+  assert.match(transport, /sfm_client_complete\(client, generation, request, outcome/);
   assert.doesNotMatch(transport, /404|localizedDescription|rangeOfString|containsString/);
-  const fixture = read('mobile/ios/ShellfoxRust/Tests/SFObserverV2Tests.mm');
-  assert.match(fixture, /sequence:UINT64_MAX/);
-  assert.match(fixture, /testOnlyActualDiscover404OffersLegacyAndNeverPairsAutomatically/);
-});
-test('observer native fixtures retain canonical golden bytes without v1 DTO conversions', () => {
-  for (const name of ['discovery', 'pair-selection', 'attachment', 'events', 'acknowledged', 'request-attach']) {
-    assert.equal(read(`mobile/ios/ShellfoxRust/Tests/Fixtures/observer-v2-${name}.json`),
-      read(`crates/shellfox-protocol/tests/fixtures/observer_v2/${name}.json`));
-  }
-  const attachment = JSON.parse(read('mobile/ios/ShellfoxRust/Tests/Fixtures/observer-v2-attachment.json'));
-  assert.equal(attachment.value.kind, 'attached');
-  assert.equal(attachment.value.input, null);
-  assert.equal(attachment.value.layout.kind, 'fixedCanonicalGrid');
-  assert.equal(Object.hasOwn(attachment.value, 'control'), false);
 });
 test('native source files stay within the project size limit', () => {
   for (const name of readdirSync(join(root, 'mobile/ios/ShellfoxRust'))) {

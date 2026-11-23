@@ -69,8 +69,7 @@
   if (self.window) [self bind];
 }
 - (BOOL)inputReady {
-  return _parserReady && !self.readOnly && self.window && _mailbox &&
-    !_mailbox->deliveryOnly.load() && _mailbox->active.load();
+  return _parserReady && !self.readOnly && self.window && _mailbox && _mailbox->active.load();
 }
 - (void)setReadOnly:(BOOL)value {
   if (_readOnly == value) return;
@@ -144,8 +143,6 @@
     if (status == SFM_OK) {
       mailbox->setAppearance(terminal.mailbox->appearance());
       mailbox->ready.store(terminal.mailbox->ready.load());
-      mailbox->deliveryOnly.store(terminal.deliveryOnly);
-      mailbox->hostEncoding.store(terminal.hostEncoding);
       terminal.mailbox = mailbox; terminal.readOnly = readOnly;
       terminal.visible = YES; terminal.dirty = YES;
     }
@@ -182,7 +179,6 @@
   if (_mailbox->closed.load()) {
     [self detach]; if (self.stateChanged) self.stateChanged(@"closed"); return;
   }
-  _input.hostEncoding = _mailbox->hostEncoding.load();
   BOOL ready = _mailbox->ready.load();
   if (ready != _parserReady) {
     _parserReady = ready; _input.editable = self.inputReady;
@@ -270,8 +266,6 @@
   BOOL release = [event[@"action"] isEqual:@"release"] || ([event[@"kind"] isEqual:@"key"] && [event[@"event"][@"action"] isEqual:@"release"]);
   if (self.readOnly && !release) return;
   NSMutableDictionary *encoded = [event mutableCopy];
-  if (_input.hostEncoding && [event[@"type"] isEqual:@"commit"])
-    encoded = [SFManagerLogicalKey(event[@"text"], self.modifiers) mutableCopy];
   if ([event[@"kind"] isEqual:@"key"]) {
     NSMutableDictionary *key = [event[@"event"] mutableCopy];
     key[@"modifiers"] = @([key[@"modifiers"] unsignedIntegerValue] | self.modifiers);

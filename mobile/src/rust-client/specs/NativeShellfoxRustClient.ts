@@ -20,23 +20,6 @@ export interface Spec extends TurboModule {
   unbindTerminal(clientHandle: string, terminalHandle: string): Promise<void>;
   readEvent(clientHandle: string): Promise<string | null>;
   closeClient(clientHandle: string): Promise<void>;
-  managerV2AbiVersion(): number;
-  createManagerV2Client(peerId: string, clientId: string): Promise<string>;
-  discoverManagerV2(clientHandle: string): Promise<string>;
-  pairManagerV2(clientHandle: string, attemptId: string): Promise<string>;
-  managerV2Operation(clientHandle: string, json: string): Promise<string>;
-  pollManagerV2(clientHandle: string): Promise<string>;
-  reconnectManagerV2(clientHandle: string, clientId: string): Promise<void>;
-  disconnectManagerV2(clientHandle: string): Promise<string>;
-  observerV2AbiVersion(): number;
-  clientProfile(clientHandle: string): Promise<string>;
-  createObserverV2Client(peerId: string, clientId: string): Promise<string>;
-  discoverObserverV2(clientHandle: string, offerLegacy: boolean): Promise<string>;
-  pairObserverV2(clientHandle: string, attemptId: string): Promise<string>;
-  observerV2Operation(clientHandle: string, json: string): Promise<string>;
-  pollObserverV2(clientHandle: string): Promise<string>;
-  reconnectObserverV2(clientHandle: string, clientId: string): Promise<void>;
-  disconnectObserverV2(clientHandle: string): Promise<string>;
 }
 
 export default TurboModuleRegistry.get<Spec>('NativeShellfoxRustClient');

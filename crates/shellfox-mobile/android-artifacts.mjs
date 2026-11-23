@@ -12,11 +12,7 @@ export const androidTargets = Object.freeze({
 export const buildSetFormat = 'shellfox-android-rust-build-set-v1';
 export const buildAbiFormat = 'shellfox-android-rust-build-output-v1';
 export const headerNames = ['shellfox_mobile.h', 'shellfox_mobile_client.h'];
-export const defaultBuildProfile = Object.freeze({ defaultCreator: 'v1', legacyClientAbi: 1,
-  observerClientAbi: 1, observerWireVersion: 2, observerProfile: 'observer-v2', engine: 'default-vt-1.0.1', experimentalNative002: false });
-export const native002BuildProfile = Object.freeze({ ...defaultBuildProfile, managerClientAbi: 1,
-  managerWireVersion: 2, managerProfile: 'manager-v2', managerApiCapabilities: 7,
-  engine: 'native002', experimentalNative002: true });
+export const defaultBuildProfile = Object.freeze({ defaultCreator: 'v1', legacyClientAbi: 1, engine: 'default-vt-1.0.1' });
 export const defaultAndroidOutputRoot = project => join(project, 'tmp/mobile-rust-produced/android');
 export const digest = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 export function sha256(file) {
@@ -62,40 +58,38 @@ export function headerHashes(project) {
   const directory = join(project, 'crates/shellfox-mobile/include');
   return Object.fromEntries(headerNames.map(name => [name, sha256(join(directory, name))]));
 }
-export function headerFunctions(project, native002 = false) {
+export function headerFunctions(project) {
   const directory = join(project, 'crates/shellfox-mobile/include');
   return [...new Set(headerNames.flatMap(name => [...readFileSync(join(directory, name), 'utf8')
-    .matchAll(/^(?:SfmStatus|uint32_t|const char\s*\*)\s*(sfm_[a-z0-9_]+)\s*\(/gm)].map(match => match[1])))].filter(name => native002 || !name.startsWith('sfm_manager_v2_')).sort();
+    .matchAll(/^(?:SfmStatus|uint32_t|const char\s*\*)\s*(sfm_[a-z0-9_]+)\s*\(/gm)].map(match => match[1])))].sort();
 }
-export function beginAndroidOutput(project, outputRoot = defaultAndroidOutputRoot(project), options = {}) {
+export function beginAndroidOutput(project, outputRoot = defaultAndroidOutputRoot(project)) {
   if (!inside(join(project, 'tmp'), outputRoot)) throw new Error('New Android outputs must be under this project tmp directory.');
-  if (options.native002 && resolve(outputRoot) === resolve(defaultAndroidOutputRoot(project))) throw new Error('Native002 cannot replace the default output selector.');
   const id = randomUUID(); mkdirSync(outputRoot, { recursive: true });
   const pending = join(outputRoot, `.build-${id}.pending`); mkdirSync(pending);
   return { project, outputRoot, pending, id, work: join(pending, 'work'),
-    profile: options.native002 ? native002BuildProfile : defaultBuildProfile,
+    profile: defaultBuildProfile,
     before: fingerprintMobileSources(project), headers: headerHashes(project),
     cargoLockSha256: sha256(join(project, 'Cargo.lock')), staged: new Set() };
 }
-export function stageAndroidAbi(run, { abi, archive, measurement, command, nativeStaticLibraries, nativeVt }) {
+export function stageAndroidAbi(run, { abi, archive, measurement, command, nativeStaticLibraries }) {
   const target = androidTargets[abi];
   if (!target || run.staged.has(abi)) throw new Error(`Unexpected or duplicate ABI ${abi}`);
   if (!inside(run.work, archive)) throw new Error('Only freshly produced files from this build work directory can be staged.');
   const after = fingerprintMobileSources(run.project);
   if (after !== run.before) throw new Error('Mobile build sources changed; partial outputs remain unpublished.');
-  const declared = headerFunctions(run.project, run.profile.experimentalNative002);
+  const declared = headerFunctions(run.project);
   if (!declared.length) throw new Error('No header functions found.');
   const symbols = measurement ?? { kind: 'header-declarations', functions: declared };
   if (!['header-declarations', 'ndk-llvm-nm'].includes(symbols.kind) || !Array.isArray(symbols.functions)) throw new Error('Unknown symbol inventory kind.');
   if (symbols.kind === 'ndk-llvm-nm' && (!symbols.tool || !Array.isArray(symbols.command))) throw new Error('Measured inventory needs actual tool/command provenance.');
   if (declared.some(name => !symbols.functions.includes(name))) throw new Error('Produced archive is missing required header functions.');
-  if (run.profile.experimentalNative002 && (!nativeVt || !digest(nativeVt.engineProfile) || !digest(nativeVt.manifestSha256) || nativeVt.profileIsAuthenticity !== false)) throw new Error('Missing measured Native002 VT provenance.');
   const directory = join(run.pending, abi); mkdirSync(join(directory, 'include'), { recursive: true });
   copyFileSync(archive, join(directory, 'libshellfox_mobile.a'), constants.COPYFILE_EXCL);
   for (const name of headerNames) copyFileSync(join(run.project, 'crates/shellfox-mobile/include', name), join(directory, 'include', name), constants.COPYFILE_EXCL);
   put(join(directory, 'manifest.json'), { format: buildAbiFormat, buildId: run.id, builtFrom: 'live-source-build-output',
     abi, target: target.target, androidApi: 24, sourceFingerprintBefore: run.before, sourceFingerprintAfter: after,
-    cargoLockSha256: run.cargoLockSha256, headers: run.headers, profile: run.profile, nativeVt,
+    cargoLockSha256: run.cargoLockSha256, headers: run.headers, profile: run.profile,
     rustArchiveSha256: sha256(join(directory, 'libshellfox_mobile.a')), symbolInventory: symbols,
     producer: 'crates/shellfox-mobile/build-mobile.mjs', producerCommand: command, nativeStaticLibraries,
     evidence: 'build output only; not runtime acceptance or an immutable-source claim' });
@@ -114,7 +108,7 @@ export function finishAndroidOutput(run) {
       || !Object.entries(run.profile).every(([key, value]) => manifest.profile?.[key] === value)) throw new Error('Mixed ABI build provenance.');
     if (!['header-declarations', 'ndk-llvm-nm'].includes(manifest.symbolInventory?.kind)
       || !Array.isArray(manifest.symbolInventory.functions)
-      || headerFunctions(run.project, run.profile.experimentalNative002).some(name => !manifest.symbolInventory.functions.includes(name))) throw new Error('Mixed staged symbol declarations.');
+      || headerFunctions(run.project).some(name => !manifest.symbolInventory.functions.includes(name))) throw new Error('Mixed staged symbol declarations.');
     for (const name of headerNames) if (manifest.headers?.[name] !== run.headers[name] || sha256(join(run.pending, abi, 'include', name)) !== run.headers[name]) throw new Error('Mixed staged header inputs.');
     if (sha256(join(run.pending, abi, 'libshellfox_mobile.a')) !== manifest.rustArchiveSha256) throw new Error('Staged archive changed before finalization.');
     return { abi, manifestSha256: sha256(file), archiveSha256: manifest.rustArchiveSha256 };

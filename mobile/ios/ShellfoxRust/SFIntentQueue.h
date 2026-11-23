@@ -7,7 +7,6 @@ typedef NS_ENUM(uint8_t, SFIntentKind) { SFIntentWrite, SFIntentRelease, SFInten
 @property(nonatomic) SFIntentKind kind;
 // Copied from SfmInputExFn. Admission priority is separate from this Rust hint.
 @property(nonatomic) uint8_t userInitiated;
-@property(nonatomic) BOOL nativeJson;
 @property(nonatomic, strong, nullable) NSData *data;
 @property(nonatomic) uint16_t columns;
 @property(nonatomic) uint16_t rows;

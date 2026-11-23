@@ -11,7 +11,7 @@ internal object ClientTerminalBindings {
   private const val FRAME_MS = 16L
   /** Safety pass only; Rust wakes the owner for all network work. */
   private const val IDLE_MS = 1000L
-  private class Client(val handle: Long, val module: Any, val profile: ClientProfile) {
+  private class Client(val handle: Long, val module: Any) {
     val events = ArrayDeque<String>()
     var eventBytes = 0
     var failed = false
@@ -31,7 +31,7 @@ internal object ClientTerminalBindings {
   private class Binding(val client: Client, terminal: Long) {
     var size: Pair<Int, Int>? = null
     val input = NativeInputAdmission(
-      { bytes, hint -> if (client.profile == ClientProfile.MANAGER_V2) ClientBindings.inputManager(client.handle, terminal, bytes, hint) else ClientBindings.write(client.handle, terminal, bytes, hint) },
+      { bytes, hint -> ClientBindings.write(client.handle, terminal, bytes, hint) },
       { cols, rows -> ClientBindings.resize(client.handle, terminal, cols, rows) },
     )
   }
@@ -41,18 +41,11 @@ internal object ClientTerminalBindings {
   private val terminals = mutableMapOf<String, Binding>()
   private val transport = NativeGoTransport::class.java
 
-  fun create(module: Any, peer: String, clientId: String, requested: ClientProfile = ClientProfile.V1): String {
+  fun create(module: Any, peer: String, clientId: String): String {
     require(peer.toByteArray().size <= 256 && clientId.length <= 64)
-    val handle = when (requested) {
-      ClientProfile.V1 -> ClientBindings.create(peer.toByteArray(), clientId.toByteArray())
-      ClientProfile.OBSERVER_V2 -> ClientBindings.createObserver(peer.toByteArray(), clientId.toByteArray())
-      ClientProfile.MANAGER_V2 -> { require(ClientBindings.managerAbiVersion() == 1); ClientBindings.createManager(peer.toByteArray(), clientId.toByteArray()) }
-    }
-    val actual = try {
-      ClientProfile.decode(ClientBindings.profile(handle)).also { require(it == requested) }
-    } catch (error: Exception) { ClientBindings.close(handle, transport); throw error }
+    val handle = ClientBindings.create(peer.toByteArray(), clientId.toByteArray())
     val id = idString(handle)
-    val client = Client(handle, module, actual)
+    val client = Client(handle, module)
     clients[id] = client
     // Registration runs one wake, which starts the first pass.
     try { ClientBindings.setWaker(handle) }
@@ -76,15 +69,14 @@ internal object ClientTerminalBindings {
   fun afterPoll(module: Any, id: String, action: () -> String?, fenceV1: Boolean = false,
     independentFile: Boolean = false, done: (String?, Exception?) -> Unit) {
     val original = get(module, id)
-    val v1 = original.profile == ClientProfile.V1
-    if (fenceV1 && v1) original.poll.prepareV1Fence()
-    original.poll.submit({ check(get(module, id) === original); action() }, independentFile && v1, done)
+    if (fenceV1) original.poll.prepareV1Fence()
+    original.poll.submit({ check(get(module, id) === original); action() }, independentFile, done)
     kick(original)
   }
   fun changeViewBinding(module: Any, id: String, tab: String?, terminal: String, done: (String?, Exception?) -> Unit) {
     val client = get(module, id)
     val change = { if (tab == null) unbind(module, id, terminal) else bind(module, id, tab, terminal); null }
-    if (client.profile == ClientProfile.V1 && (tab == null || !client.poll.failedPoll)) {
+    if (tab == null || !client.poll.failedPoll) {
       // V1 bind only reserves a local parser; attach still waits for the poll.
       // An old parser can be released even after the carrier drops its poll.
       val error = try { change(); null } catch (cause: Exception) { cause }
@@ -100,57 +92,6 @@ internal object ClientTerminalBindings {
   fun foreground(module: Any, value: Boolean) {
     clients.values.filter { it.module === module }.forEach { it.foreground = value; kick(it) }
   }
-  fun profile(module: Any, id: String): String = get(module, id).profile.let {
-    JSONObject().put("profile", it.code).put("apiCapabilities", it.apiCapabilities).toString()
-  }
-  private fun observer(module: Any, id: String): Client = get(module, id).also {
-    require(it.profile == ClientProfile.OBSERVER_V2)
-  }
-  fun discoverObserver(module: Any, id: String, offerLegacy: Boolean): String {
-    val client = observer(module, id)
-    val operation = idString(ClientBindings.discoverObserver(client.handle, offerLegacy))
-    client.filter.expect(operation)
-    return operation
-  }
-  fun pairObserver(module: Any, id: String, attempt: String): String {
-    val client = observer(module, id)
-    require(attempt.length <= 36)
-    val operation = idString(ClientBindings.pairObserver(client.handle, attempt.toByteArray()))
-    client.filter.expect(operation)
-    return operation
-  }
-  fun observerOperation(module: Any, id: String, kind: Int, json: String? = null): String {
-    observer(module, id)
-    require(kind in setOf(2, 3, 4))
-    return start(module, id, kind, json)
-  }
-  fun reconnectObserver(module: Any, id: String, clientId: String) {
-    val client = observer(module, id)
-    require(clientId.length <= 36)
-    ClientBindings.reconnectObserver(client.handle, clientId.toByteArray())
-    client.poll.connection(false, "reconnecting")
-    terminals.filterValues { it.client === client }.forEach { (terminal, binding) ->
-      binding.input.clear(); binding.size = null; resetting.add(terminal)
-    }
-  }
-
-  fun discoverManager(module: Any, id: String): String {
-    val client = get(module, id); require(client.profile == ClientProfile.MANAGER_V2)
-    val operation = idString(ClientBindings.discoverManager(client.handle)); client.filter.expect(operation); return operation
-  }
-  fun pairManager(module: Any, id: String, attempt: String): String {
-    val client = get(module, id); require(client.profile == ClientProfile.MANAGER_V2 && attempt.length <= 36)
-    val operation = idString(ClientBindings.pairManager(client.handle, attempt.toByteArray())); client.filter.expect(operation); return operation
-  }
-  fun reconnectManager(module: Any, id: String, identity: String) {
-    val client = get(module, id); require(client.profile == ClientProfile.MANAGER_V2 && identity.length <= 36)
-    ClientBindings.reconnectManager(client.handle, identity.toByteArray())
-    client.poll.connection(false, "reconnecting")
-    terminals.filterValues { it.client === client }.forEach { (_, binding) -> binding.input.clear(); binding.size = null }
-  }
-  fun managerOperation(module: Any, id: String, kind: Int, json: String? = null): String {
-    require(get(module, id).profile == ClientProfile.MANAGER_V2 && kind in setOf(2, 3, 4)); return start(module, id, kind, json)
-  }
   fun cancel(module: Any, id: String, operation: String) {
     ClientBindings.cancelOperation(get(module, id).handle, nativeId(operation))
   }
@@ -160,8 +101,7 @@ internal object ClientTerminalBindings {
     require(terminals[terminal] == null)
     ClientBindings.bind(client.handle, tab.toByteArray(), handle)
     terminals[terminal] = Binding(client, handle)
-    TerminalCoordinator.boundProfile(terminal, client.profile)
-    if (client.profile == ClientProfile.MANAGER_V2) recovering.add(terminal)
+    TerminalCoordinator.bindingChanged(terminal)
     kick(client)
   }
   fun unbind(module: Any, id: String, terminal: String) {
@@ -173,23 +113,16 @@ internal object ClientTerminalBindings {
     val binding = terminals[terminal] ?: return
     ClientBindings.unbind(binding.client.handle, nativeId(terminal))
     terminals.remove(terminal)
-    TerminalCoordinator.boundProfile(terminal, ClientProfile.V1)
+    TerminalCoordinator.bindingChanged(terminal)
     resetting.remove(terminal)
     recovering.remove(terminal)
   }
   fun input(terminal: String, encoded: EncodedInput, release: Boolean = false) {
     val binding = requireNotNull(terminals[terminal])
     check(binding.client.closing == null)
-    if (!binding.client.profile.allowsInputApi) throw NativeCallException(2)
     if (resetting.contains(terminal) || recovering.contains(terminal)) throw NativeInputStale()
     binding.input.submit(encoded, release)
     if (binding.input.hasPending) kick(binding.client)
-  }
-  fun inputNativeJson(terminal: String, json: String, release: Boolean) {
-    val binding = requireNotNull(terminals[terminal]); require(binding.client.profile == ClientProfile.MANAGER_V2)
-    check(binding.client.closing == null)
-    if (resetting.contains(terminal) || recovering.contains(terminal)) throw NativeInputBusy()
-    binding.input.submitNativeJson(json, release)
   }
   fun engineFailed(terminal: String) {
     terminals[terminal]?.client?.let { if (it.closing == null) it.failed = true }
@@ -204,9 +137,8 @@ internal object ClientTerminalBindings {
   }
   fun resize(terminal: String, cols: Int, rows: Int, writable: Boolean) {
     val binding = terminals[terminal] ?: return
-    val allowed = writable && binding.client.profile.allowsHostLayoutApi
-    binding.size = if (allowed) Pair(cols, rows) else null
-    if (!allowed) binding.input.dropResizes()
+    binding.size = if (writable) Pair(cols, rows) else null
+    if (!writable) binding.input.dropResizes()
     resizePending(binding)
     if (binding.size != null || binding.input.hasPending) kick(binding.client)
   }
@@ -231,7 +163,7 @@ internal object ClientTerminalBindings {
       return
     }
     client.closing = Closing(android.os.SystemClock.elapsedRealtime() + 3000, mutableListOf<(String?) -> Unit>().apply { if (done != null) add(done) })
-    if (client.profile == ClientProfile.V1) client.poll.prepareV1Fence()
+    client.poll.prepareV1Fence()
     client.poll.retire()
     if (client.failed) client.failed = false
     schedule(id, client, 0)
@@ -242,7 +174,7 @@ internal object ClientTerminalBindings {
       if (!closing.gate.finish(client.poll.drained, ownerDrained(client)) { ClientBindings.close(client.handle, transport) }) return
       clients.remove(id)
       terminals.entries.filter { it.value.client === client }.forEach {
-        resetting.remove(it.key); recovering.remove(it.key); TerminalCoordinator.boundProfile(it.key, ClientProfile.V1)
+        resetting.remove(it.key); recovering.remove(it.key); TerminalCoordinator.bindingChanged(it.key)
       }
       terminals.entries.removeAll { it.value.client === client }
       client.events.clear()
@@ -256,7 +188,7 @@ internal object ClientTerminalBindings {
   }
   fun released(module: Any) = clients.values.none { it.module === module }
   private fun resizePending(binding: Binding) {
-    if (binding.client.closing != null || !binding.client.profile.allowsHostLayoutApi) return
+    if (binding.client.closing != null) return
     val (cols, rows) = binding.size ?: return
     try { if (binding.input.submitResize(cols, rows)) binding.size = null }
     catch (_: NativeInputBusy) { /* Keep the latest viewport until native admission has capacity. */ }
@@ -283,8 +215,7 @@ internal object ClientTerminalBindings {
         client.poll.complete(event.getString("operationId"), event.getInt("status"), success)
         val connection = event.getJSONObject("connection")
         val connected = connection.getString("status") == "connected"
-        val authority = connection.optJSONObject("binding")?.toString()
-          ?: "${connection.optString("status")}/${connection.optString("connectionId")}"
+        val authority = "${connection.optString("status")}/${connection.optString("connectionId")}"
         client.poll.connection(connected, authority)
         if (closing != null) {
           if (event.getString("operationId") == closing.operation) {
@@ -336,15 +267,6 @@ internal object ClientTerminalBindings {
               3 -> Unit // A reconnect raced reset; no held bytes were installed.
               else -> error("Terminal reset failed")
             }
-          }
-        }
-      }
-      if (client.profile == ClientProfile.MANAGER_V2) {
-        terminals.filterValues { it.client === client }.forEach { (terminal, binding) ->
-          if (terminal !in recovering && !ClientBindings.recoveryReady(client.handle, nativeId(terminal))) {
-            binding.input.clear()
-            recovering.add(terminal)
-            TerminalCoordinator.recoveryPending(terminal)
           }
         }
       }
@@ -406,6 +328,6 @@ internal object ClientTerminalBindings {
     client.signalled = true
     (client.module as? ClientEventSink)?.clientEvent(id)
   }
-  private fun readable(client: Client) = client.profile == ClientProfile.MANAGER_V2 ||
+  private fun readable(client: Client) =
     (resetting + recovering).none { terminals[it]?.client === client }
 }

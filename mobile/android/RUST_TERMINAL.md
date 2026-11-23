@@ -1,6 +1,6 @@
 # Native Rust terminal on Android
 
-Android uses the Rust V1 client and Ghostty Fabric terminal by default, with the same Sessions and Files screens. It uses official libghostty-vt 1.0.1 and works with V1 hosts. The `shellfoxManagerV2` build flag and launch profile still select the separate Native002 experiment. iOS keeps its WebView default pending its simulator run.
+Android uses the Rust V1 client and Ghostty Fabric terminal by default, with the same Sessions and Files screens. It uses official libghostty-vt 1.0.1 and works with V1 hosts. iOS keeps its WebView default pending its simulator run.
 
 ## Ownership and data path
 

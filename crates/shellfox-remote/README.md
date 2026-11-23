@@ -1,6 +1,6 @@
 # Remote host boundary
 
-This crate implements authenticated remote handlers and the bounded owner-channel boundary. The HTTP task does not open another Host, parse terminal output or launch a PTY. The real HTTP allowlist remains the five `/v1/{discover,pair,request,events,disconnect}` routes. Explicitly prepared observer-v2/manager-v2 signed handlers do not turn on V2 network ingress or default migration.
+This crate implements authenticated remote handlers and the bounded owner-channel boundary. The HTTP task does not open another Host, parse terminal output or launch a PTY. The real HTTP allowlist remains the five `/v1/{discover,pair,request,events,disconnect}` routes.
 
 ## Device policy and the native activation gate
 

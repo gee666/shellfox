@@ -121,7 +121,7 @@ The service supplies its existing shared activity policy and one clock anchor. A
 
 ## Stamped controller epochs
 
-`RecoverStamped` opts a real controller lease into atomic recovery/layout fencing. Exact `ControllerLayoutAck` consumption gates subsequent delivery and interactive side effects. `MouseStamped` validates captured geometry before owner encoding; `InteractiveBytes` preserves binary input. `ReleaseControl` and ordered `ControllerRevoked` retire only the real lease without stopping its PTY. V1 epochs and Observer APIs retain their behavior. See [the compiled producer API and tests](docs/controller-stamps.md). Runtime adds no share or metadata authority. The additive [owned KeyV2 producer](docs/key-v2-producer.md) preserves the full safe physical-key/modifier vocabulary across FIFO admission; native OS capture/adoption is not yet accepted.
+`RecoverStamped` opts a real controller lease into atomic recovery/layout fencing. Exact `ControllerLayoutAck` consumption gates subsequent delivery and interactive side effects. `MouseStamped` validates captured geometry before owner encoding; `InteractiveBytes` preserves binary input. `ReleaseControl` and ordered `ControllerRevoked` retire only the real lease without stopping its PTY. V1 epochs and Observer APIs retain their behavior. See [the compiled producer API and tests](docs/controller-stamps.md). Runtime adds no share or metadata authority.
 
 ## Sealed initial launch facts
 

@@ -23,7 +23,7 @@
   if (tail && intent.kind == SFIntentResize && tail.kind == SFIntentResize) {
     tail.columns = intent.columns; tail.rows = intent.rows; return SFM_OK;
   }
-  if (release && !intent.nativeJson && !tail.nativeJson && tail.kind == SFIntentRelease && tail.userInitiated == intent.userInitiated &&
+  if (release && tail.kind == SFIntentRelease && tail.userInitiated == intent.userInitiated &&
     tail.data.length <= 32768 - bytes) {
     NSMutableData *joined = [tail.data mutableCopy]; [joined appendData:intent.data];
     tail.data = joined; _bytes += bytes; return SFM_OK;
@@ -35,7 +35,7 @@
   // Ordinary writes/resizes cannot consume the slots or bytes reserved for releases.
   if (_items.count >= 128 || (!release && (ordinary >= 64 || bytes > 131072 - ordinaryBytes))) return SFM_BUSY;
   SFNativeIntent *copy = [SFNativeIntent new];
-  copy.kind = intent.kind; copy.userInitiated = intent.userInitiated; copy.nativeJson = intent.nativeJson;
+  copy.kind = intent.kind; copy.userInitiated = intent.userInitiated;
   copy.columns = intent.columns; copy.rows = intent.rows;
   copy.data = intent.kind == SFIntentResize ? nil : [intent.data copy];
   [_items addObject:copy]; _bytes += bytes;
@@ -45,7 +45,7 @@
   SFIntentQueue *staged = [SFIntentQueue new];
   for (SFNativeIntent *existing in _items) {
     SFNativeIntent *copy = [SFNativeIntent new];
-    copy.kind = existing.kind; copy.userInitiated = existing.userInitiated; copy.nativeJson = existing.nativeJson;
+    copy.kind = existing.kind; copy.userInitiated = existing.userInitiated;
     copy.columns = existing.columns; copy.rows = existing.rows; copy.data = [existing.data copy];
     [staged->_items addObject:copy];
   }

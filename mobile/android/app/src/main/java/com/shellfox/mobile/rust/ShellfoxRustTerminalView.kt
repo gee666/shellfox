@@ -32,8 +32,7 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
       refreshInputContext()
     }
   private val inputRefresh = InputRefreshGate()
-  private var inputApiAllowed = true
-  val acceptsInput: Boolean get() = !readOnly && inputApiAllowed
+  val acceptsInput: Boolean get() = !readOnly
   private var focusRequested = false
   private var preedit = ""
   private var connection: TerminalInputConnection? = null
@@ -51,14 +50,6 @@ internal class ShellfoxRustTerminalView(context: Context) : View(context) {
     @Volatile var inputEpoch = 0L
     @Volatile var inputAvailable = false
     @Volatile var inputReset: Any = Any()
-    override fun capabilities(profile: ClientProfile) { post {
-      if (sink === this) {
-        inputApiAllowed = profile.allowsInputApi
-        input.managerV2 = profile == ClientProfile.MANAGER_V2
-        if (!inputApiAllowed) { connection?.cancelComposition(); input.reset(releaseHeld = false); setFocused(false) }
-        refreshInputContext()
-      }
-    } }
     override fun resetInput(epoch: Long) {
       inputReset = Any()
       val originalReset = inputReset

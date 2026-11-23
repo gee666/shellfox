@@ -7,7 +7,6 @@ static NSString *const Sentinel = @"\u200B";
   NSMutableSet<NSNumber *> *_textPhysical;
   UIKey *_sourceKey;
   NSString *_sourceAction;
-  NSUInteger _managerSides;
 }
 - (instancetype)initWithFrame:(CGRect)frame textContainer:(NSTextContainer *)container {
   if ((self = [super initWithFrame:frame textContainer:container])) {
@@ -55,9 +54,9 @@ static NSString *const Sentinel = @"\u200B";
   if (!text.length || !self.sendEvent) return;
   text = [text stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"];
   if (source && [text rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location == NSNotFound) {
-    NSMutableDictionary *event = [self.hostEncoding ? SFManagerHardwareKey(source, action, text, _managerSides) : SFHardwareTextKey(source, action) mutableCopy];
+    NSMutableDictionary *event = [SFHardwareTextKey(source, action) mutableCopy];
     if (!event) return;
-    if (!self.hostEncoding) event[@"text"] = text;
+    event[@"text"] = text;
     self.sendEvent(event);
     _physical[@(source.keyCode)] = event; [_textPhysical addObject:@(source.keyCode)];
     return;
@@ -89,7 +88,7 @@ static NSString *const Sentinel = @"\u200B";
   for (NSDictionary *pressed in _physical.allValues) {
     if (self.sendEvent) self.sendEvent(SFReleasedKey(pressed));
   }
-  [_physical removeAllObjects]; [_textPhysical removeAllObjects]; _sourceKey = nil; _sourceAction = nil; _managerSides = 0;
+  [_physical removeAllObjects]; [_textPhysical removeAllObjects]; _sourceKey = nil; _sourceAction = nil;
 }
 - (void)textViewDidEndEditing:(UITextView *)textView { [self cancelComposition]; }
 - (void)paste:(id)sender { if (self.requestPaste) self.requestPaste(); }
@@ -109,12 +108,6 @@ static NSString *const Sentinel = @"\u200B";
   for (UIPress *press in presses) {
     UIKey *key = press.key;
     NSDictionary *encoded = key ? SFHardwareKey(key, _physical[@(key.keyCode)] != nil ? @"repeat" : @"press") : nil;
-    if (self.hostEncoding && key) {
-      NSUInteger side = key.keyCode == 228 ? 128 : key.keyCode == 229 ? 64 : key.keyCode == 230 ? 256 : key.keyCode == 231 ? 512 : 0;
-      _managerSides |= side;
-      if (encoded || (key.keyCode >= 224 && key.keyCode <= 231))
-        encoded = SFManagerHardwareKey(key, _physical[@(key.keyCode)] ? @"repeat" : @"press", @"", _managerSides);
-    }
     if (encoded && !self.markedTextRange) {
       _physical[@(key.keyCode)] = encoded;
       if (self.sendEvent) self.sendEvent(encoded);
@@ -137,11 +130,7 @@ static NSString *const Sentinel = @"\u200B";
         [_textPhysical removeObject:@(press.key.keyCode)]; [ordinary addObject:press];
       }
     } else [ordinary addObject:press];
-    if (press.key) {
-      NSUInteger side = press.key.keyCode == 228 ? 128 : press.key.keyCode == 229 ? 64 : press.key.keyCode == 230 ? 256 : press.key.keyCode == 231 ? 512 : 0;
-      _managerSides &= ~side;
-      if (_sourceKey.keyCode == press.key.keyCode) _sourceKey = nil;
-    }
+    if (press.key && _sourceKey.keyCode == press.key.keyCode) _sourceKey = nil;
   }
   if (ordinary.count) {
     if (cancelled) [super pressesCancelled:ordinary withEvent:event];

@@ -26,13 +26,6 @@ export async function discoverHosts(): Promise<DiscoveredHosts> {
     .object({ peers: z.array(remoteNetworkPeerSchema).max(1000), discovering: z.boolean() }).strict()
     .parse(JSON.parse(await nativeNetwork.hosts()));
 }
-// Explicit Manager candidates only. This authentic same-owner map is not host
-// confirmation: ManagerV2 Discover must succeed before offering PAIR.
-export async function discoverManagerCandidates():Promise<DiscoveredHosts> {
-  const value=z.object({peers:z.array(remoteNetworkPeerSchema).max(1000)}).strict()
-    .parse(JSON.parse(await nativeNetwork.peers()));
-  return {peers:value.peers,discovering:false};
-}
 export async function networkPeers(): Promise<NetworkPeer[]> {
   return (await discoverHosts()).peers;
 }

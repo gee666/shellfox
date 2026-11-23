@@ -37,28 +37,17 @@ internal object NativeGoTransport {
   private val requests = pool(12, "ShellfoxRustRequest")
   private val polls = pool(64, "ShellfoxRustPoll")
 
-  // V1 callback and completion stay unchanged. Observer handles select requestHttp
-  // before dispatch, including an allowed /v1/discover legacy-offer probe.
   @JvmStatic fun request(client: Long, generation: Long, request: Long, peer: ByteArray,
-    path: ByteArray, body: ByteArray, deadlineMs: Int, maxResponse: Long) =
-    submit(false, client, generation, request, peer, path, body, deadlineMs, maxResponse)
-
-  @JvmStatic fun requestHttp(client: Long, generation: Long, request: Long, peer: ByteArray,
-    path: ByteArray, body: ByteArray, deadlineMs: Int, maxResponse: Long) =
-    submit(true, client, generation, request, peer, path, body, deadlineMs, maxResponse)
-
-  private fun submit(observer: Boolean, client: Long, generation: Long, request: Long, peer: ByteArray,
     path: ByteArray, body: ByteArray, deadlineMs: Int, maxResponse: Long) {
     val token = Token(client, generation, request)
     val call = Call()
     if (calls.putIfAbsent(token, call) != null) return
-    fun finish(outcome: Int, bytes: ByteArray = byteArrayOf(), httpStatus: Int = 0) {
+    fun finish(outcome: Int, bytes: ByteArray = byteArrayOf()) {
       if (!call.finished.compareAndSet(false, true)) return
       calls.remove(token, call)
       call.deadline?.cancel(false)
       // Rust fences reconnect/close generations too. A late completion cannot revive a client.
-      if (observer) ClientBindings.completeHttp(client, generation, request, outcome, httpStatus, bytes)
-      else ClientBindings.complete(client, generation, request, outcome, bytes)
+      ClientBindings.complete(client, generation, request, outcome, bytes)
     }
     val route = path.toString(Charsets.UTF_8)
     val endpoint = MobileEndpoint.fromPath(route)
@@ -71,21 +60,11 @@ internal object NativeGoTransport {
       call.work = (if (endpoint.isPoll) polls else requests).submit {
         if (call.finished.get()) return@submit
         try {
-          if (observer) {
-            val received = withPairApprovalWakeLock(application, route, deadlineMs.toLong()) {
-              Mobile.requestWithStatus(peer.toString(Charsets.UTF_8), route, body.toString(Charsets.UTF_8))
-            } ?: throw NativeInvalidHttpReply()
-            val reply = NativeHttpReply.received(received.statusCode().toLong(), received.body(), maxResponse)
-            finish(0, reply.bytes, reply.status)
-          } else {
-            val result = withPairApprovalWakeLock(application, route, deadlineMs.toLong()) {
-              Mobile.request(peer.toString(Charsets.UTF_8), route, body.toString(Charsets.UTF_8))
-            }.toByteArray(Charsets.UTF_8)
-            if (result.size > maxResponse) finish(4) else finish(0, result)
-          }
-        } catch (_: NativeResponseTooLarge) { finish(4) }
-        catch (_: NativeInvalidHttpReply) { finish(6) }
-        catch (_: Exception) { finish(3) }
+          val result = withPairApprovalWakeLock(application, route, deadlineMs.toLong()) {
+            Mobile.request(peer.toString(Charsets.UTF_8), route, body.toString(Charsets.UTF_8))
+          }.toByteArray(Charsets.UTF_8)
+          if (result.size > maxResponse) finish(4) else finish(0, result)
+        } catch (_: Exception) { finish(3) }
       }
       if (call.finished.get()) call.work?.cancel(true)
     } catch (_: RejectedExecutionException) { finish(3) }

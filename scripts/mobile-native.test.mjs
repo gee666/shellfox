@@ -62,12 +62,10 @@ test('iOS Go headers use a textual Foundation import without changing declaratio
 const readSource = file => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 const v1Paths = ['/v1/discover', '/v1/pair', '/v1/request', '/v1/events', '/v1/disconnect'];
-const v2Paths = Object.values(JSON.parse(readFileSync(
-  new URL('../crates/shellfox-protocol/tests/fixtures/observer_v2/contract.json', import.meta.url), 'utf8')).routes);
-const allowedPaths = [...v1Paths, ...v2Paths].sort();
-const polls = ['/v1/events', '/v2/events'];
-const pairAndDisconnect = ['/v1/pair', '/v2/pair', '/v1/disconnect', '/v2/disconnect'].sort();
-const invalidPaths = ['/v1/events/', '/v2/events/', '/v2/events?x=1', '/V2/events',
+const allowedPaths = [...v1Paths].sort();
+const polls = ['/v1/events'];
+const pairAndDisconnect = ['/v1/pair', '/v1/disconnect'].sort();
+const invalidPaths = ['/v1/events/', '/v2/discover', '/v2/pair', '/v2/request', '/v2/events', '/v2/disconnect', '/v2/events/', '/v2/events?x=1', '/V2/events',
   'https://host/v2/discover', '//v2/discover', '/v2/stop', '/v2/request\u0000'];
 const objectivePaths = source => [...source.matchAll(/@"(\/v[12]\/[^"\n]+)"/g)].map(match => match[1]);
 function objcPolicyFunction(source, name) {
@@ -76,7 +74,7 @@ function objcPolicyFunction(source, name) {
   return body[1];
 }
 
-test('Android source preserves exact ten carrier paths and bounded poll/background admission', () => {
+test('Android source preserves exact five carrier paths and bounded poll/background admission', () => {
   const base = 'mobile/android/app/src/main/java/com/shellfox/mobile/';
   const source = readSource(base + 'ShellfoxNetworkModule.kt');
   const helper = readSource(base + 'PairApprovalWakeLock.kt');
@@ -84,7 +82,7 @@ test('Android source preserves exact ten carrier paths and bounded poll/backgrou
   const policy = readSource(base + 'MobileEndpoint.kt');
   const entries = [...policy.matchAll(/^\s*V[12]_[A-Z]+\("([^"]+)", Traffic\.([A-Z]+)\)/gm)];
   const roles = new Map(entries.map(([, path, role]) => [path, role]));
-  assert.equal(entries.length, 10);
+  assert.equal(entries.length, 5);
   assert.deepEqual([...roles.keys()].sort(), allowedPaths);
   assert.deepEqual([...roles].filter(([, role]) => role === 'POLL').map(([path]) => path), polls);
   assert.deepEqual([...roles].filter(([, role]) => ['PAIR', 'DISCONNECT'].includes(role)).map(([path]) => path).sort(), pairAndDisconnect);
@@ -106,7 +104,7 @@ test('Android source preserves exact ten carrier paths and bounded poll/backgrou
   assert.match(transport, /deadlineMs !in 1\.\.MobileEndpoint\.DEADLINE_MS/);
 });
 
-test('iOS source preserves exact ten paths and finite poll/pair/disconnect completion', () => {
+test('iOS source preserves exact five paths and finite poll/pair/disconnect completion', () => {
   const source = readSource('mobile/ios/ShellfoxMobile/ShellfoxNetwork.mm');
   const policy = readSource('mobile/ios/ShellfoxRust/SFNetworkPolicy.h');
   const allowed = objcPolicyFunction(policy, 'SFNetworkPathAllowed');
@@ -116,7 +114,7 @@ test('iOS source preserves exact ten paths and finite poll/pair/disconnect compl
   assert.match(allowed, /isKindOfClass:NSString\.class/);
   assert.match(allowed, /containsObject:path/);
   assert.deepEqual(objectivePaths(poll), polls);
-  assert.match(poll, /isEqualToString:@"\/v1\/events"\] \|\| \[path isEqualToString:@"\/v2\/events"/);
+  assert.match(poll, /return \[path isEqualToString:@"\/v1\/events"\];/);
   assert.deepEqual(objectivePaths(finite).sort(), pairAndDisconnect);
   assert.match(finite, /SFNetworkPathPoll\(path\) \|\|/);
   assert.match(finite, /containsObject:path/);

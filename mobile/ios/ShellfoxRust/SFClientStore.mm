@@ -9,15 +9,8 @@
     _explicitOperations = [NSMutableSet new]; _resetTickets = [NSMutableDictionary new];
     _closeWaiters = [NSMutableArray new];
     _pendingCalls = [NSMutableArray new]; _mutations = [NSMutableSet new];
-    _profile = SFM_CLIENT_PROFILE_V1;
-    _apiCapabilities = shellfox::V1ClientAPI().capabilities;
   }
   return self;
-}
-- (const shellfox::ClientAPI &)functions {
-  const auto *api=shellfox::ClientAPIForProfile(self.profile);
-  if(!api)@throw [NSException exceptionWithName:NSInvalidArgumentException reason:@"Unsupported native client profile" userInfo:nil];
-  return *api;
 }
 @end
 
@@ -71,33 +64,16 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   return YES;
 }
 - (SfmStatus)createPeer:(NSString *)peer clientId:(NSString *)identity result:(NSString **)result {
-  return [self createPeer:peer clientId:identity profile:SFM_CLIENT_PROFILE_V1 result:result];
-}
-- (SfmStatus)createObserverPeer:(NSString *)peer clientId:(NSString *)identity result:(NSString **)result {
-  return [self createPeer:peer clientId:identity profile:SFM_CLIENT_PROFILE_OBSERVER_V2 result:result];
-}
-- (SfmStatus)createManagerPeer:(NSString *)peer clientId:(NSString *)identity result:(NSString **)result {
-  return [self createPeer:peer clientId:identity profile:SFM_CLIENT_PROFILE_MANAGER_V2 result:result];
-}
-- (SfmStatus)createPeer:(NSString *)peer clientId:(NSString *)identity profile:(uint32_t)requested result:(NSString **)result {
-  const auto *expected=shellfox::ClientAPIForProfile(requested);
-  if(!expected||sfm_client_abi_version()!=SFM_CLIENT_ABI_VERSION)return SFM_INVALID;
-  auto create=sfm_client_create;
-  if(requested==SFM_CLIENT_PROFILE_OBSERVER_V2){if(sfm_observer_v2_abi_version()!=1)return SFM_INVALID;create=sfm_observer_v2_create;}
-#ifdef SFM_ENABLE_MANAGER_V2
-  if(requested==SFM_CLIENT_PROFILE_MANAGER_V2){if(sfm_manager_v2_abi_version()!=1)return SFM_INVALID;create=sfm_manager_v2_create;}
-#endif
-  NSData *p=[peer dataUsingEncoding:NSUTF8StringEncoding],*c=[identity dataUsingEncoding:NSUTF8StringEncoding];
-  SfmClientHandle handle=0;SfmStatus status=create((const uint8_t *)p.bytes,p.length,(const uint8_t *)c.bytes,c.length,&handle);
-  if(status!=SFM_OK)return status;
-  uint32_t profile=0,capabilities=0;status=sfm_client_profile(handle,&profile,&capabilities);
-  if(status!=SFM_OK||profile!=expected->profile||capabilities!=expected->capabilities){[[SFGoTransport shared] closeClient:handle];return SFM_INVALID;}
-  if(profile==SFM_CLIENT_PROFILE_V1){
-    status=sfm_client_set_waker(handle,WakeOwner,nullptr);
-    if(status!=SFM_OK){[[SFGoTransport shared] closeClient:handle];return status;}
-  }
-  NSString *identifier=SFDecimal(handle);SFClientRecord *record=[SFClientRecord new];record.handle=handle;record.profile=profile;record.apiCapabilities=capabilities;
-  _clients[identifier]=record;*result=identifier;return SFM_OK;
+  if (sfm_client_abi_version() != SFM_CLIENT_ABI_VERSION) return SFM_INVALID;
+  NSData *p = [peer dataUsingEncoding:NSUTF8StringEncoding], *c = [identity dataUsingEncoding:NSUTF8StringEncoding];
+  SfmClientHandle handle = 0;
+  SfmStatus status = sfm_client_create((const uint8_t *)p.bytes, p.length, (const uint8_t *)c.bytes, c.length, &handle);
+  if (status != SFM_OK) return status;
+  status = sfm_client_set_waker(handle, WakeOwner, nullptr);
+  if (status != SFM_OK) { [[SFGoTransport shared] closeClient:handle]; return status; }
+  NSString *identifier = SFDecimal(handle);
+  SFClientRecord *record = [SFClientRecord new]; record.handle = handle;
+  _clients[identifier] = record; *result = identifier; return SFM_OK;
 }
 - (void)dropBindings:(NSString *)identifier {
   SFClientRecord *client = _clients[identifier];
@@ -128,10 +104,10 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   return SFM_OK;
 }
 - (void)startDisconnect:(SFClientRecord *)client {
-  BOOL failedV1 = client.profile == SFM_CLIENT_PROFILE_V1 && client.pollFailure != SFM_OK;
+  BOOL failedV1 = client.pollFailure != SFM_OK;
   if (client.disconnectOperation || (client.pollOperation && !failedV1) || client.mutations.count || ![self ownerDrained:client]) return;
   uint64_t operation = 0;
-  SfmStatus status = [client functions].disconnect(client.handle, &operation);
+  SfmStatus status = sfm_client_disconnect(client.handle, &operation);
   if (status == SFM_OK) {
     [self clearFailedPollAfterV1Fence:client];
     client.disconnectOperation = SFDecimal(operation);
@@ -155,15 +131,11 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   SFTerminal *terminal = [[SFOwner shared] terminal:terminalId];
   if (!client || client.closing || !terminal) return SFM_STALE;
   NSData *bytes = [tab dataUsingEncoding:NSUTF8StringEncoding];
-  SfmStatus status = [client functions].bind(client.handle, (const uint8_t *)bytes.bytes, bytes.length, terminal.handle);
+  SfmStatus status = sfm_client_bind_terminal(client.handle, (const uint8_t *)bytes.bytes, bytes.length, terminal.handle);
   if (status == SFM_OK) {
     _bindings[terminalId] = identifier; terminal.sink = self;
-    terminal.deliveryOnly = client.profile == SFM_CLIENT_PROFILE_OBSERVER_V2;
-    terminal.hostEncoding = client.profile == SFM_CLIENT_PROFILE_MANAGER_V2;
-    terminal.mailbox->deliveryOnly.store(terminal.deliveryOnly);
-    terminal.mailbox->hostEncoding.store(terminal.hostEncoding);
     [terminal.pendingIntents clear]; terminal.viewportUnaccepted = NO;
-    terminal.recovering = YES; terminal.recoveryInstalled = terminal.hostEncoding;
+    terminal.recovering = YES; terminal.recoveryInstalled = NO;
     terminal.mailbox->ready.store(false);
   }
   return status;
@@ -172,7 +144,7 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   SFClientRecord *client = _clients[identifier];
   SFTerminal *terminal = [[SFOwner shared] terminal:terminalId];
   if (!client || !terminal || ![_bindings[terminalId] isEqual:identifier]) return SFM_STALE;
-  SfmStatus status = [client functions].unbind(client.handle, terminal.handle);
+  SfmStatus status = sfm_client_unbind_terminal(client.handle, terminal.handle);
   if (status == SFM_OK || status == SFM_STALE) {
     terminal.sink = nil; terminal.recovering = NO; terminal.recoveryInstalled = NO;
     terminal.mailbox->ready.store(false);
@@ -194,8 +166,8 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
       [self finishClose:client]; continue;
     }
     if (client.closing) [self startDisconnect:client];
-    // Teardown is bounded by its deadline; the experimental profiles have no waker.
-    busy = busy || client.closing || client.profile != SFM_CLIENT_PROFILE_V1;
+    // Teardown is bounded by its deadline.
+    busy = busy || client.closing;
     if (_foreground.load() || client.closing) [[SFGoTransport shared] dispatchClient:client.handle];
     // Bounded native coarse queue. Rust retains the next event under pressure.
     unsigned i = 0;
@@ -238,8 +210,6 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
       client.signalled = YES; client.eventSignal(SFDecimal(client.handle));
     }
     [self drainClient:client];
-    // Native0 imports atomically on owner pump. It has no ANSI reset API.
-    if (![client functions].resetTicket) continue;
     // Query each bound engine too. A full JS event queue must not delay reset.
     for (NSString *identifier in _bindings) if ([_bindings[identifier] isEqual:SFDecimal(client.handle)])
       [client.resets addObject:identifier];
@@ -249,7 +219,7 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
         [client.resets removeObject:identifier]; continue;
       }
       uint64_t ticket = 0;
-      SfmStatus status = [client functions].resetTicket(client.handle, terminal.handle, &ticket);
+      SfmStatus status = sfm_client_terminal_reset_ticket(client.handle, terminal.handle, &ticket);
       if (status == SFM_CLIENT_EMPTY) { [client.resets removeObject:identifier]; continue; }
       if (status == SFM_OK) {
         terminal.recovering = YES; terminal.recoveryInstalled = NO;
@@ -259,7 +229,7 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
       uint16_t cols = terminal.columns, rows = terminal.rows;
       if (status == SFM_OK) {
         uint16_t hostCols = 0, hostRows = 0;
-        status = [client functions].resetGrid(client.handle, terminal.handle, ticket, &hostCols, &hostRows);
+        status = sfm_client_terminal_reset_grid(client.handle, terminal.handle, ticket, &hostCols, &hostRows);
         if (status == SFM_OK) { cols = hostCols; rows = hostRows; }
         else if (status == SFM_CLIENT_EMPTY) status = SFM_OK;
       }
@@ -267,7 +237,7 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
       if (status == SFM_OK) {
         terminal.columns = cols; terminal.rows = rows;
         terminal.mailbox->resetFrame(); terminal.delivered = 0;
-        status = [client functions].resetDone(client.handle, terminal.handle, ticket);
+        status = sfm_client_terminal_reset_done(client.handle, terminal.handle, ticket);
       }
       if (status == SFM_OK) {
         terminal.recoveryInstalled = YES; terminal.dirty = YES;
@@ -311,33 +281,15 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   SFClientRecord *client = _clients[_bindings[identifier]];
   SFTerminal *terminal = [[SFOwner shared] terminal:identifier];
   if (!client || client.closing || !terminal) return SFM_STALE;
-  if (client.profile != SFM_CLIENT_PROFILE_V1 || terminal.deliveryOnly) return SFM_INVALID;
   if (client.pollFailure != SFM_OK) return client.pollFailure;
   uint64_t operation = 0;
   return sfm_client_terminal_write_ex(client.handle, terminal.handle, (const uint8_t *)bytes.bytes, bytes.length, hint, &operation);
-}
-- (SfmStatus)sendCanonicalInput:(NSData *)json terminal:(NSString *)identifier {
-#ifdef SFM_ENABLE_MANAGER_V2
-  SFClientRecord *client = _clients[_bindings[identifier]];
-  SFTerminal *terminal = [[SFOwner shared] terminal:identifier];
-  if (!client || client.closing || !terminal) return SFM_STALE;
-  if (!terminal.hostEncoding || terminal.deliveryOnly) return SFM_INVALID;
-  uint64_t operation = 0;
-  return sfm_manager_v2_terminal_input(client.handle, terminal.handle, (const uint8_t *)json.bytes, json.length, 1, &operation);
-#else
-  return SFM_INVALID;
-#endif
 }
 - (SfmStatus)resizeTerminal:(NSString *)identifier columns:(uint16_t)columns rows:(uint16_t)rows {
   SFClientRecord *client = _clients[_bindings[identifier]];
   SFTerminal *terminal = [[SFOwner shared] terminal:identifier];
   if (!client || client.closing || !terminal || terminal.readOnly) return SFM_STALE;
-  if (terminal.deliveryOnly) return SFM_INVALID;
   uint64_t operation = 0;
-#ifdef SFM_ENABLE_MANAGER_V2
-  if (terminal.hostEncoding) return sfm_manager_v2_terminal_resize(client.handle, terminal.handle, columns, rows, &operation);
-#endif
-  if (client.profile != SFM_CLIENT_PROFILE_V1) return SFM_INVALID;
   if (client.pollFailure != SFM_OK) return client.pollFailure;
   return sfm_client_terminal_resize(client.handle, terminal.handle, columns, rows, &operation);
 }
@@ -345,14 +297,14 @@ static void WakeOwner(void *, SfmClientHandle) { [[SFOwner shared] requestTick];
   SFClientRecord *client = _clients[_bindings[identifier]];
   SFTerminal *terminal = [[SFOwner shared] terminal:identifier];
   if (!client || !terminal) return SFM_STALE;
-  if (client.profile == SFM_CLIENT_PROFILE_V1 && client.pollFailure != SFM_OK) return client.pollFailure;
-  return [client functions].consumed(client.handle, terminal.handle);
+  if (client.pollFailure != SFM_OK) return client.pollFailure;
+  return sfm_client_terminal_consumed(client.handle, terminal.handle);
 }
 - (SfmStatus)recoveryReady:(NSString *)identifier ready:(uint8_t *)ready {
   SFClientRecord *client = _clients[_bindings[identifier]];
   SFTerminal *terminal = [[SFOwner shared] terminal:identifier];
   if (!client || client.closing || !terminal) return SFM_STALE;
-  return [client functions].ready(client.handle, terminal.handle, ready);
+  return sfm_client_terminal_recovery_ready(client.handle, terminal.handle, ready);
 }
 - (void)terminalFailed:(NSString *)identifier status:(SfmStatus)status {
   SFTerminal *terminal = [[SFOwner shared] terminal:identifier];

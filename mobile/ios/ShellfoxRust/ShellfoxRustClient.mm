@@ -166,11 +166,10 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
     return nil;
   } resolve:^(id ignored) {} reject:reject];
 }
-- (void)pollProfile:(NSString *)identifier profile:(uint32_t)profile
-            resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
+- (void)pollClient:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   [self submit:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
-    if (!client || client.profile != profile) { *status = SFM_STALE; return nil; }
+    if (!client) { *status = SFM_STALE; return nil; }
     uint64_t operation = 0; *status = [[SFClientStore shared] poll:identifier operation:&operation];
     if (*status == SFM_OK) [client.explicitOperations addObject:SFDecimal(operation)];
     return SFDecimal(operation);
@@ -182,7 +181,6 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
   [self afterPoll:identifier admission:admission work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
-    if (client.profile != SFM_CLIENT_PROFILE_V1) { *status = SFM_INVALID; return nil; }
     uint64_t operation = 0; *status = function(client.handle, &operation);
     if (*status == SFM_OK) [client.explicitOperations addObject:SFDecimal(operation)];
     return SFDecimal(operation);
@@ -195,7 +193,7 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
   [self start:identifier function:sfm_client_reconnect resolve:resolve reject:reject];
 }
 - (void)poll:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self pollProfile:identifier profile:SFM_CLIENT_PROFILE_V1 resolve:resolve reject:reject];
+  [self pollClient:identifier resolve:resolve reject:reject];
 }
 - (void)operation:(NSString *)identifier json:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
   NSData *bytes = [json dataUsingEncoding:NSUTF8StringEncoding];
@@ -213,7 +211,6 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
   [self afterPoll:identifier admission:admission work:^id(SfmStatus *status) {
     SFClientRecord *client = [self ownedClient:identifier];
     if (!client) { *status = SFM_STALE; return nil; }
-    if (client.profile != SFM_CLIENT_PROFILE_V1) { *status = SFM_INVALID; return nil; }
     if ([method isEqual:@"writeTerminal"] || [method isEqual:@"acknowledgeTerminal"]) { *status = SFM_INVALID; return nil; }
     if (([method isEqual:@"resizeTerminal"] || [method isEqual:@"finishTerminalUpload"]) &&
       [[SFClientStore shared] hasPendingIntents:identifier]) { *status = SFM_BUSY; return nil; }
@@ -268,77 +265,5 @@ RCT_EXPORT_MODULE(NativeShellfoxRustClient)
     return nil;
   } resolve:^(id ignored) {} reject:reject];
 }
-- (NSNumber *)observerV2AbiVersion { return @(sfm_observer_v2_abi_version()); }
-- (void)clientProfile:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self submit:^id(SfmStatus *status) {
-    SFClientRecord *client = [self ownedClient:identifier];
-    if (!client) { *status = SFM_STALE; return nil; }
-    uint32_t profile = 0, capabilities = 0;
-    *status = sfm_client_profile(client.handle, &profile, &capabilities);
-    if (*status != SFM_OK) return nil;
-    NSData *json = [NSJSONSerialization dataWithJSONObject:@{@"profile":@(profile), @"apiCapabilities":@(capabilities)} options:0 error:nil];
-    return [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
-  } resolve:resolve reject:reject];
-}
-- (void)createObserverV2Client:(NSString *)peerId clientId:(NSString *)clientId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  if (peerId.length > 4096 || clientId.length > 64) { reject(@"RUST_INVALID", @"Invalid client identity.", nil); return; }
-  [self submit:^id(SfmStatus *status) {
-    NSString *identifier = nil;
-    *status = [[SFClientStore shared] createObserverPeer:peerId clientId:clientId result:&identifier];
-    if (identifier) [self->_lifetime.clients addObject:identifier];
-    return identifier;
-  } resolve:resolve reject:reject];
-}
-- (void)observerOperation:(NSString *)identifier action:(SfmStatus (^)(SfmClientHandle, uint64_t *))action
-                  resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
-    SFClientRecord *client = [self ownedClient:identifier];
-    if (!client) { *status = SFM_STALE; return nil; }
-    if (client.profile != SFM_CLIENT_PROFILE_OBSERVER_V2) { *status = SFM_INVALID; return nil; }
-    uint64_t operation = 0; *status = action(client.handle, &operation);
-    if (*status == SFM_OK) [client.explicitOperations addObject:SFDecimal(operation)];
-    return SFDecimal(operation);
-  } resolve:resolve reject:reject];
-}
-- (void)discoverObserverV2:(NSString *)identifier offerLegacy:(BOOL)offer resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self observerOperation:identifier action:^SfmStatus(SfmClientHandle client, uint64_t *operation) {
-    return sfm_observer_v2_discover(client, offer ? 1 : 0, operation);
-  } resolve:resolve reject:reject];
-}
-- (void)pairObserverV2:(NSString *)identifier attemptId:(NSString *)attempt resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  NSData *bytes = [attempt dataUsingEncoding:NSUTF8StringEncoding];
-  if (bytes.length != 36) { reject(@"RUST_INVALID", @"Invalid attempt ID.", nil); return; }
-  [self observerOperation:identifier action:^SfmStatus(SfmClientHandle client, uint64_t *operation) {
-    return sfm_observer_v2_pair(client, (const uint8_t *)bytes.bytes, bytes.length, operation);
-  } resolve:resolve reject:reject];
-}
-- (void)observerV2Operation:(NSString *)identifier json:(NSString *)json resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  NSData *bytes = [json dataUsingEncoding:NSUTF8StringEncoding];
-  if (!bytes || bytes.length > SFM_CLIENT_MAX_REQUEST_BYTES) { reject(@"RUST_INVALID", @"Request is too large.", nil); return; }
-  [self observerOperation:identifier action:^SfmStatus(SfmClientHandle client, uint64_t *operation) {
-    return sfm_observer_v2_operation(client, (const uint8_t *)bytes.bytes, bytes.length, operation);
-  } resolve:resolve reject:reject];
-}
-- (void)pollObserverV2:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self pollProfile:identifier profile:SFM_CLIENT_PROFILE_OBSERVER_V2 resolve:resolve reject:reject];
-}
-- (void)reconnectObserverV2:(NSString *)identifier clientId:(NSString *)clientId resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  NSData *bytes = [clientId dataUsingEncoding:NSUTF8StringEncoding];
-  if (bytes.length != 36) { reject(@"RUST_INVALID", @"Invalid client ID.", nil); return; }
-  [self afterPoll:identifier admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
-    SFClientRecord *client = [self ownedClient:identifier];
-    if (!client) { *status = SFM_STALE; return nil; }
-    if (client.profile != SFM_CLIENT_PROFILE_OBSERVER_V2) { *status = SFM_INVALID; return nil; }
-    *status = sfm_observer_v2_reconnect(client.handle, (const uint8_t *)bytes.bytes, bytes.length);
-    if (*status == SFM_OK) { client.polling = NO; client.authorityEpoch++; }
-    return nil;
-  } resolve:resolve reject:reject];
-}
-- (void)disconnectObserverV2:(NSString *)identifier resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject {
-  [self observerOperation:identifier action:^SfmStatus(SfmClientHandle client, uint64_t *operation) {
-    return sfm_observer_v2_disconnect(client, operation);
-  } resolve:resolve reject:reject];
-}
-#include "ShellfoxRustManagerMethods.inc"
 
 @end

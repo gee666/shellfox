@@ -9,7 +9,6 @@ NSString *SFDecimal(uint64_t value);
 // Implemented by the Rust client adapter, not by JavaScript. Calls happen on owner.
 @protocol SFRemoteTerminalSink <NSObject>
 - (SfmStatus)sendInput:(NSData *)bytes userInitiated:(uint8_t)hint terminal:(NSString *)terminal;
-- (SfmStatus)sendCanonicalInput:(NSData *)json terminal:(NSString *)terminal;
 - (SfmStatus)resizeTerminal:(NSString *)terminal columns:(uint16_t)columns rows:(uint16_t)rows;
 - (SfmStatus)consumedTerminal:(NSString *)terminal sequence:(uint64_t)sequence;
 - (SfmStatus)recoveryReady:(NSString *)terminal ready:(uint8_t *)ready;
@@ -30,8 +29,6 @@ NSString *SFDecimal(uint64_t value);
 @property(nonatomic) uint16_t viewportColumns;
 @property(nonatomic) uint16_t viewportRows;
 @property(nonatomic) BOOL readOnly;
-@property(nonatomic) BOOL deliveryOnly;
-@property(nonatomic) BOOL hostEncoding;
 @property(nonatomic) BOOL recovering;
 @property(nonatomic) BOOL recoveryInstalled;
 @property(nonatomic) BOOL viewportUnaccepted;

@@ -36,8 +36,6 @@ public:
   std::atomic<bool> active{false};
   std::atomic<bool> closed{false};
   std::atomic<bool> ready{false};
-  std::atomic<bool> deliveryOnly{false};
-  std::atomic<bool> hostEncoding{false};
   std::atomic<uint64_t> epoch{0};
   std::atomic<SfmStatus> failure{SFM_OK};
   void put(std::shared_ptr<const Frame> frame);

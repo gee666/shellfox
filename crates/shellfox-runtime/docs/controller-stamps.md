@@ -1,8 +1,6 @@
 # Compiled controller-stamp producer
 
-Runtime implementation, not a wire schema or permission policy. Russell's canonical manager-v2 contract and reviewed amendments own JSON. V1 and Observer APIs keep their existing behavior. No Runtime → Service/protocol dependency is added.
-
-Full physical keyboard input is now available through the additive [owned KeyV2 producer](key-v2-producer.md). It consumes the compiled safe value types without changing existing Key or declaring OS capture accepted.
+Runtime implementation, not a wire schema or permission policy. V1 and Observer APIs keep their existing behavior. No Runtime → Service/protocol dependency is added.
 
 ## Exact public API
 
@@ -39,7 +37,7 @@ enum ControllerRevocation { Replaced, Released }
 
 Existing `StampedRecovery` carries bytes, actual capability, last_delivery_sequence, cols, rows, layout_revision and opaque RecoveryId. Existing `LayoutStamp` carries actual cols/rows/revision and the preceding byte boundary. RecoveryId remains opaque, Copy/Eq and non-Serde. It now includes a private Runtime domain so IDs from independent Runtime instances cannot alias.
 
-`MAX_INPUT_PAYLOAD_BYTES` and `MAX_ENCODED_INPUT_BYTES` are distinct public names, both currently 65536. `MAX_INPUT_BYTES` remains the payload compatibility alias. Encoding overflow in a stamped epoch returns `ErrorCode::ResourceLimit` before any prewrite hook or write; ordinary legacy epochs retain their original validation behavior. No splitting/truncation/partial receipt is added. Full-size bracketed paste and expanded key input remain an explicit parity gap. See [the vocabulary and budget audit](input-vocabulary-audit.md).
+`MAX_INPUT_PAYLOAD_BYTES` and `MAX_ENCODED_INPUT_BYTES` are distinct public names, both currently 65536. `MAX_INPUT_BYTES` remains the payload compatibility alias. Encoding overflow in a stamped epoch returns `ErrorCode::ResourceLimit` before any prewrite hook or write; ordinary legacy epochs retain their original validation behavior. No splitting/truncation/partial receipt is added. Full-size bracketed paste and expanded key input remain an explicit parity gap.
 
 `ErrorCode::RecoveryRequired` means the real epoch has not consumed its latest full recovery/current canonical layout. `ErrorCode::StaleLayout` rejects a mismatched mouse recovery ID/revision/grid. Neither is a fatal PTY error. No input event is clamped, retargeted or automatically retried.
 
@@ -73,10 +71,10 @@ Event-queue backpressure retains ordered revocation and reply custody. The calle
 
 ## Checked on Windows
 
-- Runtime all-target suite after owned KeyV2: 159 passed, comprising 99 unit and 60 integration tests.
+- Runtime all-target suite: 159 passed, comprising 99 unit and 60 integration tests.
 - Scoped all-target Clippy with warnings denied passed. Existing vendored portable-pty warning is separate.
 - Seven new unit tests cover atomic stamps, wrong/latest/foreign IDs, scalar/downgrade rejection, pending side effects, bounded journal/backpressure, stale geometry and real release/replacement ordering.
-- Six new owned-PTY tests cover real source feeds during barriers, exact binary prewrite/actual receipt, canonical resize and upload-readiness checks, takeover/release without process kill, actual X10 high-byte/SGR mouse reports, bracketed-paste/Kitty boundary rejection before any write with exact positive receipt correlation, and owned full-vocabulary KeyV2 FIFO/receipt/stamp behavior.
+- Six new owned-PTY tests cover real source feeds during barriers, exact binary prewrite/actual receipt, canonical resize and upload-readiness checks, takeover/release without process kill, actual X10 high-byte/SGR mouse reports, bracketed-paste/Kitty boundary rejection before any write with exact positive receipt correlation.
 - The controlled mouse child explicitly enables its own Windows VT input/output modes before emitting tracking modes. Without that fixture prerequisite ConPTY consumes the request and tracking stays off. No production console/factory defaults, output filtering or normal desktop relink changed.
 
 Linux/macOS native acceptance remains unverified on this Windows host. Cross-platform owner tests exercise the shared handlers; they do not claim native platform acceptance or elevated sharing authority.

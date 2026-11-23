@@ -147,14 +147,6 @@ static void CopyFrame(void *context, const SfmFrame *source) {
       BOOL busy = [[SFClientStore shared] tick], pumped = NO;
       for (SFTerminal *terminal in _terminals.allValues) if (!terminal.retiring) [self retryIntents:terminal];
       for (SFTerminal *terminal in _terminals.allValues) {
-        if (terminal.hostEncoding && terminal.sink) {
-          uint8_t ready = 0;
-          if ([terminal.sink recoveryReady:terminal.identifier ready:&ready] != SFM_OK || !ready) {
-            if (!terminal.recovering) [terminal.pendingIntents clear];
-            terminal.recovering = YES; terminal.recoveryInstalled = YES;
-            terminal.mailbox->ready.store(false);
-          }
-        }
         BOOL presenting = !terminal.retiring && terminal.visible && terminal.mailbox->active.load();
         // Detach waits for the parser, including when UIKit has removed its view.
         // Keep consuming accepted output without copying a frame for an offscreen terminal.
@@ -242,7 +234,6 @@ static void CopyFrame(void *context, const SfmFrame *source) {
 }
 - (SfmStatus)dispatchIntent:(SFNativeIntent *)intent terminal:(SFTerminal *)terminal {
   if (terminal.retiring || !terminal.sink) return SFM_STALE;
-  if (terminal.deliveryOnly) return SFM_INVALID;
   if (terminal.recovering) return SFM_BUSY;
   if (intent.kind == SFIntentResize) return terminal.readOnly ? SFM_OK :
     [terminal.sink resizeTerminal:terminal.identifier columns:intent.columns rows:intent.rows];
@@ -250,7 +241,6 @@ static void CopyFrame(void *context, const SfmFrame *source) {
   if (terminal.readOnly && intent.kind != SFIntentRelease) return SFM_STALE;
   NSData *data = intent.data;
   if (!data.length || data.length > SFM_MAX_INPUT_BYTES) return SFM_INVALID;
-  if (intent.nativeJson) return [terminal.sink sendCanonicalInput:data terminal:terminal.identifier];
   return [terminal.sink sendInput:data userInitiated:intent.userInitiated terminal:terminal.identifier];
 }
 - (SfmStatus)submitIntent:(SFNativeIntent *)intent terminal:(SFTerminal *)terminal {

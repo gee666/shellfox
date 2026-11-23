@@ -35,7 +35,7 @@ Ship Shellfox on Rust + GPUI + libghostty-vt. The desktop app must match the Ele
 - Remote automation replay: completed runs that aren't elevated are visible read-only to approved devices, the same eligibility as ordinary sessions. Record that provenance at launch.
 - HTML preview: Linux always shows the editable Source view with its notice; there is no WebKitGTK dependency (2026-11-21). Windows and macOS keep the opaque-sandbox webview and serve local assets through its custom protocol.
 - Remote Files: reconnect an established peer automatically and reattach only after checking the original file scope and revision. Never save automatically or replay a write.
-- Android and iOS default to the native V1 Rust client and official Ghostty engine. The WebView terminal and unused TypeScript client are removed. ManagerV2/Native002 remains experimental.
+- Android and iOS default to the native V1 Rust client and official Ghostty engine. The WebView terminal and unused TypeScript client are removed. The unshipped ManagerV2/Observer-v2 profiles and Native002 are removed.
 - macOS/iOS: build and test in GitHub Actions on the experiment branch. Pushing the branch and running CI is allowed. Releases are not.
 - Release version: the first Rust release is 0.10.0.
 - Rust uses a native Linux PTY and supervisor even for imported GNOME Terminal settings. Drop the legacy Linux Python preference on import. WSL guest Python requirements stay in place.

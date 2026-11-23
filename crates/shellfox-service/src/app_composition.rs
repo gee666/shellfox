@@ -203,13 +203,13 @@ impl NativeApplicationConfig {
             Some(resources) => resources.build(interactive),
             None => unconfigured_providers(interactive),
         };
-        Ok(RemoteBootOptions::native(
+        RemoteBootOptions::native(
             supervisor,
             providers.system_services(),
             SystemScope::User,
             resources,
         )?
-        .with_native_providers(providers)?)
+        .with_native_providers(providers)
     }
 }
 // Early lexical rejection only. Native preparation retains/revalidates actual path identities.

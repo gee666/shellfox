@@ -96,33 +96,17 @@ export function build(recipe, zig, options = {}) {
     env.IPHONEOS_DEPLOYMENT_TARGET = recipe.minimum.ios;
   }
   // No fetch/install fallback. The pinned source/dependency archives must exist.
-  if (!options.prepared) run(process.execPath, [
+  run(process.execPath, [
     'crates/ghostty-vt-sys/build-support/prepare.mjs', 'build',
     '--target', recipe.target, '--prefix', recipe.prefix, '--zig', zig,
     '--zig-target', recipe.zigTarget,
-    ...(options.native002 ? ['--experimental-shellfox-native', ...(options.patch ? ['--patch', options.patch] : [])] : []),
   ], env, 1_800_000);
-  let nativeVt;
-  if (options.native002) {
-    const file = join(recipe.prefix, 'shellfox-native002.json');
-    const vt = JSON.parse(readFileSync(file, 'utf8'));
-    const built = JSON.parse(readFileSync(join(recipe.prefix, 'ghostty-vt-build.json'), 'utf8'));
-    if (vt.schema !== 1 || vt.status !== 'experimental-native002-not-final-acceptance' ||
-      vt.profileIsAuthenticity !== false || built.rustTarget !== recipe.target || built.zigTarget !== recipe.zigTarget ||
-      createHash('sha256').update(vt.recipe ?? '').digest('hex') !== vt.engineProfile ||
-      !Array.isArray(vt.artifacts) || !vt.artifacts.length || vt.artifacts.some(a =>
-        typeof a.path !== 'string' || !/^(include|lib)\/[A-Za-z0-9_./-]+$/.test(a.path) || a.path.includes('..') || sha256(join(recipe.prefix, a.path)) !== a.sha256))
-      throw new Error('Prepared Native002 target/recipe/artifact verification failed.');
-    env.GHOSTTY_VT_ENGINE_PROFILE = vt.engineProfile;
-    nativeVt = { engineProfile: vt.engineProfile, manifestSha256: sha256(file), artifacts: vt.artifacts,
-      profileIsAuthenticity: false, runtimeAcceptance: false };
-  }
   if (!options.staging) {
     run('cargo', ['build', '--locked', '--offline', '-p', 'shellfox-mobile', '--release', '--target', recipe.target], env, 1_800_000);
     return;
   }
   const args = ['rustc', '--locked', '--offline', '--lib', '-j', '1', '-p', 'shellfox-mobile', '--release', '--target', recipe.target,
-    ...(options.native002 ? ['--features', 'shellfox-mobile/experimental-shellfox-native'] : []), '--', '--print', 'native-static-libs'];
+    '--', '--print', 'native-static-libs'];
   const output = buildCapture('cargo', args, env);
   const nativeStaticLibraries = output.match(/native-static-libs:\s*([^\r\n]+)/)?.[1];
   if (!nativeStaticLibraries) throw new Error('Rust did not report its actual native linker requirements.');
@@ -132,19 +116,17 @@ export function build(recipe, zig, options = {}) {
   const nmArgs = ['--defined-only', archive];
   const symbols = buildCapture(tool, nmArgs, env).split(/\r?\n/).map(line => line.trim().split(/\s+/).at(-1))
     .filter(name => /^sfm_[a-z0-9_]+$/.test(name ?? ''));
-  return { archive, command: ['cargo', ...args], nativeStaticLibraries, nativeVt,
+  return { archive, command: ['cargo', ...args], nativeStaticLibraries,
     measurement: { kind: 'ndk-llvm-nm', tool, command: [tool, ...nmArgs], functions: [...new Set(symbols)].sort() } };
 }
-export function buildAndroid(zig, outputRoot, options = {}) {
-  if (options.native002 && !outputRoot) throw new Error('Native002 requires a distinct explicit output root, never the default selector.');
-  const batch = beginAndroidOutput(root, outputRoot, options);
+export function buildAndroid(zig, outputRoot) {
+  const batch = beginAndroidOutput(root, outputRoot);
   // Short fresh target avoids Windows/NDK MAX_PATH without touching old targets.
   batch.work = mkdtempSync(join(root, 'tmp', 'mma-'));
   // Sequential ABIs, bounded Cargo workers. Partial/mixed sets never become current.
   for (const [abi, descriptor] of Object.entries(androidTargets)) {
-    const prepared = options.prepared?.[abi];
-    const recipe = { ...plan(descriptor.target), prefix: prepared ? resolve(prepared) : join(batch.work, 'vt', abi) };
-    const output = build(recipe, zig, { ...options, prepared: Boolean(prepared), targetDir: batch.work, staging: true });
+    const recipe = { ...plan(descriptor.target), prefix: join(batch.work, 'vt', abi) };
+    const output = build(recipe, zig, { targetDir: batch.work, staging: true });
     stageAndroidAbi(batch, { abi, ...output });
   }
   return finishAndroidOutput(batch);
@@ -153,15 +135,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     const { values, positionals } = parseArgs({ allowPositionals: true, options: {
       target: { type: 'string' }, zig: { type: 'string', default: 'zig' }, 'output-root': { type: 'string' },
-      native002: { type: 'boolean' }, 'prepared-vt-map': { type: 'string' }, patch: { type: 'string' },
     } });
     if (positionals.length !== 1) throw new Error('Expected plan, build, or build-android.');
     if (positionals[0] === 'build-android' && !values.target) {
-      if (values['prepared-vt-map'] && !values.native002) throw new Error('Prepared VT map is explicit Native002 only.');
-      const prepared = values['prepared-vt-map'] ? JSON.parse(readFileSync(values['prepared-vt-map'], 'utf8')) : undefined;
-      if (prepared && (typeof prepared !== 'object' || Array.isArray(prepared) || Object.entries(prepared).some(([abi, p]) => !androidTargets[abi] || typeof p !== 'string'))) throw new Error('Invalid prepared VT map.');
-      console.log(buildAndroid(values.zig, values['output-root'] ? resolve(values['output-root']) : undefined,
-        { native002: values.native002 === true, prepared, patch: values.patch }));
+      console.log(buildAndroid(values.zig, values['output-root'] ? resolve(values['output-root']) : undefined));
     } else {
       if (!values.target || !['plan', 'build'].includes(positionals[0])) {
         throw new Error('Usage: build-mobile.mjs plan|build --target <triple>, or build-android [--output-root <new project tmp root>] [--zig <cached Zig 0.17.0>]');

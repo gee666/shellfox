@@ -22,8 +22,8 @@ function fixture() {
   const headersDir = join(project, 'crates/shellfox-mobile/include'), jniDir = join(project, 'jni');
   mkdirSync(headersDir); mkdirSync(jniDir);
   writeFileSync(join(headersDir, 'shellfox_mobile.h'), 'SfmStatus sfm_terminal_create(void);\n');
-  writeFileSync(join(headersDir, 'shellfox_mobile_client.h'), 'SfmStatus sfm_client_create(void);\nuint32_t sfm_observer_v2_abi_version(void);\n');
-  writeFileSync(join(jniDir, 'client_jni.cpp'), 'sfm_client_create(); sfm_observer_v2_abi_version();');
+  writeFileSync(join(headersDir, 'shellfox_mobile_client.h'), 'SfmStatus sfm_client_create(void);\nSfmStatus sfm_client_poll(void);\n');
+  writeFileSync(join(jniDir, 'client_jni.cpp'), 'sfm_client_create(); sfm_client_poll();');
   writeFileSync(join(jniDir, 'terminal_jni.cpp'), 'sfm_terminal_create();');
   return { project, headersDir, jniDir };
 }
@@ -65,7 +65,7 @@ test('source changes during build are refused and leave the previous complete de
 });
 test('mixed, tampered or unknown provenance cannot finalize', () => {
   for (const mutation of [m => { m.buildId = 'wrong'; }, m => { m.format = 'unknown'; }, m => { m.abi = 'wrong'; },
-    m => { m.profile.experimentalNative002 = true; }]) {
+    m => { m.profile.engine = "other"; }]) {
     const f = fixture(), run = beginAndroidOutput(f.project); all(run);
     const file = join(run.pending, 'x86/manifest.json'), m = read(file); mutation(m); writeFileSync(file, JSON.stringify(m));
     assert.throws(() => finishAndroidOutput(run), /Mixed ABI/);

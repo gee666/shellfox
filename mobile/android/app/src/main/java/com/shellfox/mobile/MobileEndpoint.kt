@@ -6,12 +6,7 @@ internal enum class MobileEndpoint(val path: String, private val traffic: Traffi
   V1_PAIR("/v1/pair", Traffic.PAIR),
   V1_REQUEST("/v1/request", Traffic.REQUEST),
   V1_EVENTS("/v1/events", Traffic.POLL),
-  V1_DISCONNECT("/v1/disconnect", Traffic.DISCONNECT),
-  V2_DISCOVER("/v2/discover", Traffic.REQUEST),
-  V2_PAIR("/v2/pair", Traffic.PAIR),
-  V2_REQUEST("/v2/request", Traffic.REQUEST),
-  V2_EVENTS("/v2/events", Traffic.POLL),
-  V2_DISCONNECT("/v2/disconnect", Traffic.DISCONNECT);
+  V1_DISCONNECT("/v1/disconnect", Traffic.DISCONNECT);
 
   private enum class Traffic { REQUEST, PAIR, POLL, DISCONNECT }
   val isPoll: Boolean get() = traffic == Traffic.POLL

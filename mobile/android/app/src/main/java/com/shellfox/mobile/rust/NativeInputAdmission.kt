@@ -26,11 +26,6 @@ internal class NativeInputAdmission(
   fun submit(value: EncodedInput, release: Boolean) {
     if (!offer(Input(value.bytes.copyOf(), value.userInitiated, release))) throw NativeInputStale()
   }
-  fun submitNativeJson(value: String, release: Boolean) {
-    val payload = value.toByteArray(Charsets.UTF_8)
-    require(payload.size <= 1_048_576)
-    if (!offer(Input(payload, true, release))) throw NativeInputStale()
-  }
   fun submitResize(cols: Int, rows: Int): Boolean {
     // Coalesce consecutive layout changes only, never across a key intent.
     if (pending.peekLast() is Resize) removeLast()

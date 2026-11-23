@@ -44,8 +44,7 @@ type proxyRequest struct {
 
 func allowedPath(path string) bool {
 	switch path {
-	case "/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect",
-		"/v2/discover", "/v2/pair", "/v2/request", "/v2/events", "/v2/disconnect":
+	case "/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect":
 		return true
 	}
 	return false

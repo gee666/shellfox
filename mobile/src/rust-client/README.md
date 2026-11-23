@@ -7,7 +7,6 @@ transport. The factory checks the Rust module ABI, required methods and Fabric
 registration before connecting.
 
 For an isolated iOS simulator fixture, pass `--shellfox-control-url http://127.0.0.1:<port>`.
-ManagerV2 remains a separate experimental build and launch profile.
 
 ## Native client and terminal flow
 

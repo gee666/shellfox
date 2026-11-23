@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { androidTargets, buildAbiFormat, buildSetFormat, defaultBuildProfile, native002BuildProfile, digest, headerNames,
+import { androidTargets, buildAbiFormat, buildSetFormat, defaultBuildProfile, digest, headerNames,
   selectedAndroidOutput, sha256 as hashFile } from '../../crates/shellfox-mobile/android-artifacts.mjs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,28 +24,27 @@ export function sha256(file) {
   regular(file);
   return hashFile(file);
 }
-function requiredFunctions(headersDir, jniDir, native002) {
+function requiredFunctions(headersDir, jniDir) {
   const functions = new Set();
   for (const name of headerNames) {
     const text = readFileSync(join(headersDir, name), 'utf8');
     for (const match of text.matchAll(/^(?:SfmStatus|uint32_t|const char\s*\*)\s*(sfm_[a-z0-9_]+)\s*\(/gm)) functions.add(match[1]);
   }
-  for (const name of ['client_jni.cpp', 'terminal_jni.cpp', ...(native002 ? ['manager_client_jni.cpp'] : [])]) {
+  for (const name of ['client_jni.cpp', 'terminal_jni.cpp']) {
     const text = readFileSync(join(jniDir, name), 'utf8');
     for (const match of text.matchAll(/\b(sfm_[a-z0-9_]+)\s*\(/g)) functions.add(match[1]);
   }
   requireValue(functions.size > 0, 'No declared JNI/header functions found');
-  return new Set([...functions].filter(name => native002 || !name.startsWith('sfm_manager_v2_')));
+  return functions;
 }
 
 /** File/hash/declaration gate only. It does NOT inspect binary symbol tables or
  * prove link/runtime acceptance. Those remain the actual linker/runner gates. */
 export function validateRustArtifacts({ artifactDir, headersDir = join(root, 'crates/shellfox-mobile/include'),
-  jniDir = join(root, 'mobile/android/app/src/main/cpp'), abis = Object.keys(targets), native002 = false }) {
+  jniDir = join(root, 'mobile/android/app/src/main/cpp'), abis = Object.keys(targets) }) {
   requireValue(Array.isArray(abis) && abis.length > 0 && abis.length <= 4
     && new Set(abis).size === abis.length && abis.every(abi => Object.hasOwn(targets, abi)), 'Invalid configured Android ABI list');
-  const required = requiredFunctions(headersDir, jniDir, native002);
-  const expectedProfile = native002 ? native002BuildProfile : defaultBuildProfile;
+  const required = requiredFunctions(headersDir, jniDir);
   const buildOutput = existsSync(join(artifactDir, 'build-output.json'));
   const gate = json(buildOutput ? join(artifactDir, 'build-output.json') : resolve(artifactDir, '../rust-gate.json'));
   if (buildOutput) {
@@ -66,8 +65,7 @@ export function validateRustArtifacts({ artifactDir, headersDir = join(root, 'cr
   for (const abi of abis) {
     const directory = join(artifactDir, abi), manifestPath = join(directory, 'manifest.json');
     const manifest = json(manifestPath);
-    // Deliberately no migration framework: the old v1 manifest has no usable
-    // observer symbol inventory and cannot satisfy the current common JNI.
+    // No migration: older manifests lack the symbol inventory the JNI check needs.
     requireValue(manifest.format === (buildOutput ? buildAbiFormat : 'shellfox-observer-v2-rust-android-gate-v1'), `Outdated or unsupported Rust artifact manifest format for ${abi}`);
     requireValue(manifest.abi === abi && manifest.target === targets[abi] && manifest.androidApi === 24, `Artifact ABI/target/API mismatch for ${abi}`);
     if (buildOutput) {
@@ -82,9 +80,7 @@ export function validateRustArtifacts({ artifactDir, headersDir = join(root, 'cr
         && manifest.cargoLockSha256 === gate.cargoLockSha256, `Mixed or missing snapshot provenance for ${abi}`);
     }
     const profile = manifest.profile;
-    requireValue(profile && Object.entries(expectedProfile).every(([key, value]) => profile[key] === value), `Unsupported ABI/profile/engine declaration for ${abi}`);
-    if (native002) requireValue(buildOutput && digest(manifest.nativeVt?.engineProfile) && digest(manifest.nativeVt?.manifestSha256)
-      && manifest.nativeVt.profileIsAuthenticity === false && manifest.nativeVt.runtimeAcceptance === false, `Missing Native002 provenance for ${abi}`);
+    requireValue(profile && Object.entries(defaultBuildProfile).every(([key, value]) => profile[key] === value), `Unsupported ABI/profile/engine declaration for ${abi}`);
     for (const name of headerNames) {
       requireValue(manifest.headers?.[name] === headers[name] && gate.headers?.[name] === headers[name]
         && sha256(join(directory, 'include', name)) === headers[name], `Source/artifact header hash mismatch: ${abi}/${name}`);
@@ -110,11 +106,11 @@ export function validateRustArtifacts({ artifactDir, headersDir = join(root, 'cr
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const { values } = parseArgs({ options: { 'artifact-dir': { type: 'string' }, abis: { type: 'string' }, 'print-default-artifact-dir': { type: 'boolean' }, native002: { type: 'boolean' } } });
+    const { values } = parseArgs({ options: { 'artifact-dir': { type: 'string' }, abis: { type: 'string' }, 'print-default-artifact-dir': { type: 'boolean' } } });
     if (values['print-default-artifact-dir']) console.log(selectedAndroidOutput(root));
     else {
       const artifactDir = values['artifact-dir'] ? resolve(values['artifact-dir']) : selectedAndroidOutput(root);
-      console.log(JSON.stringify(validateRustArtifacts({ artifactDir, abis: values.abis?.split(',').map(value => value.trim()), native002: values.native002 === true }), null, 2));
+      console.log(JSON.stringify(validateRustArtifacts({ artifactDir, abis: values.abis?.split(',').map(value => value.trim()) }), null, 2));
     }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

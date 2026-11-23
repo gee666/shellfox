@@ -5,7 +5,7 @@ const bridge = vi.hoisted(() => ({
   request: vi.fn(), stop: vi.fn(), logout: vi.fn(),
 }));
 vi.mock('react-native', () => ({ NativeModules: { ShellfoxNetwork: bridge } }));
-import { discoverHosts, discoverManagerCandidates, networkPeers } from './network';
+import { discoverHosts, networkPeers } from './network';
 
 const host = { id: 'n-host', hostname: 'plain-laptop', addresses: ['100.100.1.2'], online: true };
 beforeEach(() => { vi.resetAllMocks(); });
@@ -14,14 +14,6 @@ it('reads only native verified hosts and preserves active discovery alongside ca
   bridge.hosts.mockResolvedValue(JSON.stringify({ peers: [host], discovering: true }));
   expect(await discoverHosts()).toEqual({ peers: [host], discovering: true });
   expect(bridge.hosts).toHaveBeenCalledOnce(); expect(bridge.peers).not.toHaveBeenCalled();
-});
-it('uses the authenticated Go map only as explicit Manager candidates, without a legacy signature probe',async()=>{
-  bridge.peers.mockResolvedValue(JSON.stringify({peers:[host,{...host,id:'offline',online:false}]}));
-  expect(await discoverManagerCandidates()).toEqual({peers:[host,{...host,id:'offline',online:false}],discovering:false});
-  expect(bridge.peers).toHaveBeenCalledOnce();expect(bridge.hosts).not.toHaveBeenCalled();expect(bridge.request).not.toHaveBeenCalled();
-});
-it.each(['{','{"peers":[],"hostConfirmed":true}',JSON.stringify({peers:Array.from({length:1001},()=>host)})])('rejects malformed or authority-added Manager candidate maps',async raw=>{
-  bridge.peers.mockResolvedValue(raw);await expect(discoverManagerCandidates()).rejects.toThrow();expect(bridge.hosts).not.toHaveBeenCalled();
 });
 it('distinguishes an initial empty scan from an empty settled result', async () => {
   bridge.hosts.mockResolvedValueOnce('{"peers":[],"discovering":true}').mockResolvedValueOnce('{"peers":[],"discovering":false}');

@@ -114,7 +114,7 @@ fn project_session(
         (wire::AdapterId::EmbeddedPty, wire::ShellId::LoginShell)
     } else {
         let creation = source.creation_facts.get(&session.id).ok_or_else(|| {
-            incompatible("V1 requires recorded session creation adapter/shell facts. Use observer-v2; no settings/first-tab backfill is allowed.")
+            incompatible("V1 requires recorded session creation adapter/shell facts. No settings/first-tab backfill is allowed.")
         })?;
         creation.validate().map_err(|_| unavailable("Persisted session creation facts are invalid."))?;
         (adapter(creation.adapter_id), shell(creation.shell_id))

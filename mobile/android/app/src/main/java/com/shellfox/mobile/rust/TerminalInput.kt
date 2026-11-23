@@ -6,7 +6,6 @@ import org.json.JSONObject
 
 internal class TerminalInput(private val send: (JSONObject) -> Unit) {
   var stickyModifiers = 0
-  var managerV2 = false
   private var accent = 0
   private val pressed = mutableMapOf<Int, JSONObject>()
 
@@ -23,10 +22,6 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
       }
       if (start < text.length) text("commit", text.substring(start))
       return
-    }
-    if(type == "commit" && stickyModifiers != 0 && managerV2){
-      val event=ManagerKeyInput.logical(modifiers=stickyModifiers,text=text)
-      send(event);send(ManagerKeyInput.release(event));return
     }
     if (type == "commit" && stickyModifiers != 0) {
       val key = if (text.length == 1 && text[0].code in 32..126)
@@ -45,7 +40,9 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
   }
 
   fun reset(releaseHeld: Boolean = true) {
-    if (releaseHeld) pressed.values.forEach { event -> send(ManagerKeyInput.release(event)) }
+    if (releaseHeld) pressed.values.forEach { event ->
+      send(JSONObject(event.toString()).apply { put("action", "release"); remove("text") })
+    }
     accent = 0
     pressed.clear()
     text("preedit", "")
@@ -56,13 +53,12 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
       event.characters?.let { if (!validUnicode(it)) return false; text("commit", it); return true }
       return false
     }
-    if ((!managerV2 && event.keyCode in modifierKeys) || event.keyCode == KeyEvent.KEYCODE_BACK) return false
-    if(managerV2 && ManagerKeyInput.physical(event.keyCode) == null)return false
+    if (event.keyCode in modifierKeys || event.keyCode == KeyEvent.KEYCODE_BACK) return false
     if (event.action != KeyEvent.ACTION_DOWN && event.action != KeyEvent.ACTION_UP) return false
     val kind = specialKeys[event.keyCode]
     val altGr = event.metaState and KeyEvent.META_ALT_RIGHT_ON != 0
     val unicode = event.getUnicodeChar(if (altGr) event.metaState and KeyEvent.META_CTRL_MASK.inv() else event.metaState)
-    if (!managerV2 && kind == null && unicode == 0 && event.keyCode !in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12 && event.action == KeyEvent.ACTION_DOWN) return false
+    if (kind == null && unicode == 0 && event.keyCode !in KeyEvent.KEYCODE_F1..KeyEvent.KEYCODE_F12 && event.action == KeyEvent.ACTION_DOWN) return false
     if (unicode and KeyCharacterMap.COMBINING_ACCENT != 0 && event.action == KeyEvent.ACTION_DOWN) {
       accent = unicode and KeyCharacterMap.COMBINING_ACCENT_MASK
       text("preedit", String(Character.toChars(accent)))
@@ -78,12 +74,6 @@ internal class TerminalInput(private val send: (JSONObject) -> Unit) {
       text("preedit", "")
     }
     val unshifted = event.getUnicodeChar(0)
-    if(managerV2){
-      val action=if(event.action == KeyEvent.ACTION_UP) "release" else if(event.repeatCount > 0) "repeat" else "press"
-      val output=ManagerKeyInput.event(event,logical,unshifted,stickyModifiers,action) ?: return false
-      if(event.action == KeyEvent.ACTION_DOWN)pressed[event.keyCode]=output
-      send(output);return true
-    }
     val key = JSONObject()
     when {
       kind != null -> key.put("kind", kind)

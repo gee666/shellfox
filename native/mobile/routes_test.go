@@ -12,28 +12,25 @@ import (
 	"testing"
 )
 
-var observerV2Paths = []string{"/v2/discover", "/v2/pair", "/v2/request", "/v2/events", "/v2/disconnect"}
+var routePaths = []string{"/v1/discover", "/v1/pair", "/v1/request", "/v1/events", "/v1/disconnect"}
 
-func TestObserverV2AllowlistIsExactlyAdditiveAndMatchesDesktop(t *testing.T) {
+func TestAllowlistIsExactlyV1AndMatchesDesktop(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "tailscale", "bridge.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []string{"v1", "v2"} {
-		for _, action := range []string{"discover", "pair", "request", "events", "disconnect"} {
-			path := "/" + version + "/" + action
-			if !allowedPath(path) || !strings.Contains(string(data), `"`+path+`"`) {
-				t.Fatalf("endpoint drift: %s", path)
-			}
+	for _, path := range routePaths {
+		if !allowedPath(path) || !strings.Contains(string(data), `"`+path+`"`) {
+			t.Fatalf("endpoint drift: %s", path)
 		}
 	}
-	for _, path := range []string{"/v2", "/v2/", "/v2/health", "/v2/stream", "/v2/request/", "/v2/request?query=1", "/v2/events#fragment", "/v2/%72equest", "/v2/../v1/request", "/V2/request", "/v20/request", "http://127.0.0.1/v2/request", "//other/v2/request"} {
+	for _, path := range []string{"/v2/discover", "/v2/pair", "/v2/request", "/v2/events", "/v2/disconnect", "/v1", "/v1/", "/v1/health", "/v1/stream", "/v1/request/", "/v1/request?query=1", "/v1/events#fragment", "/v1/%72equest", "/v2/../v1/request", "/V2/request", "/v20/request", "http://127.0.0.1/v2/request", "//other/v2/request"} {
 		if allowedPath(path) || validateRequest("n-peer", path, "{}") == nil {
 			t.Fatalf("unsafe endpoint: %s", path)
 		}
 	}
 }
-func TestObserverV2UsesSamePollAndOperationPoolsWithoutIncreasingBudgets(t *testing.T) {
+func TestPollAndOperationPoolsAreBounded(t *testing.T) {
 	n := &node{requests: make(chan struct{}, 12), polls: make(chan struct{}, 64)}
 	releases := []func(){}
 	defer func() {
@@ -42,39 +39,35 @@ func TestObserverV2UsesSamePollAndOperationPoolsWithoutIncreasingBudgets(t *test
 		}
 	}()
 	for i := 0; i < 64; i++ {
-		path := []string{"/v1/events", "/v2/events"}[i%2]
+		path := "/v1/events"
 		release, err := n.admit(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		releases = append(releases, release)
 	}
-	for _, path := range []string{"/v1/events", "/v2/events"} {
-		if _, err := n.admit(path); err == nil {
-			t.Fatal("poll capacity grew with profile count")
-		}
+	if _, err := n.admit("/v1/events"); err == nil {
+		t.Fatal("poll capacity grew")
 	}
 	for i := 0; i < 12; i++ {
-		path := []string{"/v1/request", "/v2/request"}[i%2]
+		path := "/v1/request"
 		release, err := n.admit(path)
 		if err != nil {
 			t.Fatal("polls starved operations")
 		}
 		releases = append(releases, release)
 	}
-	for _, path := range []string{"/v1/request", "/v2/request"} {
-		if _, err := n.admit(path); err == nil {
-			t.Fatal("operation capacity grew with profile count")
-		}
+	if _, err := n.admit("/v1/request"); err == nil {
+		t.Fatal("operation capacity grew")
 	}
-	for _, path := range []string{"/v1/events/", "/v2/events?x=1", "/v20/events", "/v2/request"} {
+	for _, path := range []string{"/v1/events/", "/v1/events?x=1", "/v10/events", "/v2/events", "/v1/request"} {
 		if isEventPath(path) {
 			t.Fatal("non-exact poll classification")
 		}
 	}
 }
-func TestObserverV2EveryRouteIsOnePostWithNoCallerIdentityOrFallback(t *testing.T) {
-	for _, path := range observerV2Paths {
+func TestEveryRouteIsOnePostWithNoCallerIdentityOrFallback(t *testing.T) {
+	for _, path := range routePaths {
 		t.Run(path, func(t *testing.T) {
 			var calls atomic.Int32
 			const body = `{"clientId":"fixture", "value":true}`
@@ -100,7 +93,7 @@ func TestObserverV2EveryRouteIsOnePostWithNoCallerIdentityOrFallback(t *testing.
 		})
 	}
 }
-func TestObserverV2LegacyRequestKeepsSuccessAndGenericRejection(t *testing.T) {
+func TestLegacyRequestKeepsSuccessAndGenericRejection(t *testing.T) {
 	for _, code := range []int{200, 404, 403} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(code)

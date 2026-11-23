@@ -16,11 +16,10 @@ internal object TerminalCoordinator {
   private data class Entry(val handle: Long, val module: Any, var view: TerminalSink? = null,
     var dirty: Boolean = true, var ticking: Boolean = false, var cols: Int = 80, var rows: Int = 24,
     var appearance: TerminalAppearance = TerminalAppearance(), var foreground: Boolean = true, var inputEpoch: Long = 1, var writable: Boolean = false, var recovering: Boolean = false,
-    var engineCols: Int = cols, var engineRows: Int = rows, var profile: ClientProfile = ClientProfile.V1,
+    var engineCols: Int = cols, var engineRows: Int = rows,
     var pass: Runnable? = null, var passAt: Long = 0)
 
   interface TerminalSink {
-    fun capabilities(profile: ClientProfile)
     fun resetInput(epoch: Long)
     fun userInput()
     fun appearance(appearance: TerminalAppearance)
@@ -120,7 +119,6 @@ internal object TerminalCoordinator {
     if (entry.view != null && entry.view !== sink) { sink.error(1); return@execute }
     entry.view = sink
     entry.dirty = true
-    sink.capabilities(entry.profile)
     sink.resetInput(entry.inputEpoch)
     sink.appearance(entry.appearance)
     sink.state(if (entry.recovering) "recovering" else "ready")
@@ -136,12 +134,10 @@ internal object TerminalCoordinator {
     entry.cols = cols
     entry.rows = rows
     entry.writable = writable
-    if (!entry.recovering && entry.profile.allowsHostLayoutApi) {
+    if (!entry.recovering) {
       flushAccepted(id, entry)
-      if (entry.profile.localParserResize) {
-        RustBindings.resize(entry.handle, cols, rows)
-        entry.engineCols = cols; entry.engineRows = rows
-      }
+      RustBindings.resize(entry.handle, cols, rows)
+      entry.engineCols = cols; entry.engineRows = rows
       ClientTerminalBindings.resize(id, cols, rows, writable)
     }
     entry.dirty = true
@@ -151,7 +147,6 @@ internal object TerminalCoordinator {
     critical = isRelease(json),
   ) { entry ->
     if (entry.inputEpoch != epoch || entry.recovering) return@command
-    if (!entry.profile.allowsInputApi) throw NativeCallException(2)
     flushAccepted(id, entry)
     if (admitInput(id,entry,json)) entry.view?.userInput()
     entry.dirty = true
@@ -199,7 +194,6 @@ internal object TerminalCoordinator {
     require(json.toByteArray().size <= 65536)
     val entry = requireNotNull(terminals[id])
     if (entry.recovering) throw NativeInputBusy()
-    if (!entry.profile.allowsInputApi) throw NativeCallException(2)
     flushAccepted(id, entry)
     val event = JSONObject(json)
     if (admitInput(id,entry,event)) entry.view?.userInput()
@@ -212,26 +206,13 @@ internal object TerminalCoordinator {
     return entry.handle
   }
 
-  fun boundProfile(id: String, profile: ClientProfile) {
+  /** A client bound or released this terminal; input from the old binding is dropped. */
+  fun bindingChanged(id: String) {
     terminals[id]?.let { entry ->
-      entry.profile = profile
-      entry.writable = entry.writable && profile.allowsHostLayoutApi
-      if(profile == ClientProfile.MANAGER_V2) entry.recovering = true
       entry.inputEpoch = Math.addExact(entry.inputEpoch, 1)
-      entry.view?.capabilities(profile)
       entry.view?.resetInput(entry.inputEpoch)
       entry.dirty = true
     }
-  }
-
-  fun recoveryPending(id: String) {
-    val entry = terminals[id] ?: return
-    if (entry.recovering) return
-    entry.recovering = true
-    entry.inputEpoch = Math.addExact(entry.inputEpoch, 1)
-    entry.view?.resetInput(entry.inputEpoch)
-    entry.view?.state("recovering")
-    entry.dirty = true
   }
 
   fun reset(id: String, hostCols: Int = 0, hostRows: Int = 0) {
@@ -251,14 +232,9 @@ internal object TerminalCoordinator {
   fun fitAfterRecovery(id: String) {
     val entry = requireNotNull(terminals[id])
     flushAccepted(id, entry)
-    if (entry.profile.allowsHostLayoutApi) {
-      if(entry.profile.localParserResize){
-        RustBindings.resize(entry.handle, entry.cols, entry.rows)
-        entry.engineCols=entry.cols; entry.engineRows=entry.rows
-      }
-      ClientTerminalBindings.resize(id, entry.cols, entry.rows, entry.writable)
-    }
-    // Observer keeps its canonical parser grid. Canvas clips/pads the local viewport.
+    RustBindings.resize(entry.handle, entry.cols, entry.rows)
+    entry.engineCols = entry.cols; entry.engineRows = entry.rows
+    ClientTerminalBindings.resize(id, entry.cols, entry.rows, entry.writable)
     entry.recovering = false
     entry.view?.state("ready")
     entry.dirty = true
@@ -267,7 +243,7 @@ internal object TerminalCoordinator {
   fun scroll(id: String, sink: TerminalSink, rows: Int, x: Float, y: Float, cw: Int, ch: Int, reportMouse: Boolean) = command(id, sink) { entry ->
     if (entry.recovering) return@command
     flushAccepted(id, entry)
-    if (reportMouse && entry.profile.allowsInputApi && RustBindings.mouseTracking(entry.handle)) {
+    if (reportMouse && RustBindings.mouseTracking(entry.handle)) {
       val event = JSONObject().put("type", "mouse").put("action", "press")
         .put("button", if (rows < 0) "wheelUp" else "wheelDown").put("x", x).put("y", y)
         .put("cellWidth", cw).put("cellHeight", ch).put("anyButtonPressed", false)
@@ -283,7 +259,7 @@ internal object TerminalCoordinator {
   fun pointer(id: String, sink: TerminalSink, x: Float, y: Float, cw: Int, ch: Int) = command(id, sink) { entry ->
     if (entry.recovering) return@command
     flushAccepted(id, entry)
-    if (entry.profile.allowsInputApi && RustBindings.mouseTracking(entry.handle)) {
+    if (RustBindings.mouseTracking(entry.handle)) {
       var userInput = false
       for (action in listOf("press", "release")) {
         val event = JSONObject().put("type", "mouse").put("action", action).put("button", "left")
@@ -297,7 +273,6 @@ internal object TerminalCoordinator {
 
   private fun isRelease(json: JSONObject): Boolean = json.optString("action") == "release" || json.optJSONObject("event")?.optString("action") == "release"
   private fun admitInput(id:String,entry:Entry,event:JSONObject):Boolean {
-    if(entry.profile == ClientProfile.MANAGER_V2){ClientTerminalBindings.inputNativeJson(id,event.toString(),isRelease(event));return false}
     val encoded=encode(entry.handle,event.toString()) ?: return false
     ClientTerminalBindings.input(id,encoded,isRelease(event));return encoded.userInitiated
   }

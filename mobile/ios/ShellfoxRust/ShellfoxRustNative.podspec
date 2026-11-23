@@ -17,7 +17,6 @@ Pod::Spec.new do |s|
   s.pod_target_xcconfig = {
     'CLANG_CXX_LANGUAGE_STANDARD' => 'c++20',
     'GCC_ENABLE_CPP_EXCEPTIONS' => 'YES',
-    'GCC_PREPROCESSOR_DEFINITIONS' => ENV['SHELLFOX_MANAGER_V2'] == '1' ? '$(inherited) SFM_ENABLE_MANAGER_V2=1' : '$(inherited)',
     'HEADER_SEARCH_PATHS' => '$(inherited) "$(PODS_ROOT)/Headers/Private/ReactCodegen"'
   }
   install_modules_dependencies(s)

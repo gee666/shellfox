@@ -53,7 +53,7 @@ func TestRequestWithStatusPreservesActualStatusWithoutFallbackOrDiagnosticBody(t
 			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
-				if r.Method != "POST" || r.URL.Path != "/v2/discover" || r.Header.Get("Content-Type") != "application/json" {
+				if r.Method != "POST" || r.URL.Path != "/v1/discover" || r.Header.Get("Content-Type") != "application/json" {
 					t.Error("request changed")
 				}
 				w.Header().Set("Location", "http://127.0.0.1:1/not-followed")
@@ -65,7 +65,7 @@ func TestRequestWithStatusPreservesActualStatusWithoutFallbackOrDiagnosticBody(t
 				}
 			}))
 			defer server.Close()
-			response, err := statusRequest(context.Background(), testNetwork(), localStatusDial(server), "/v2/discover", "{}")
+			response, err := statusRequest(context.Background(), testNetwork(), localStatusDial(server), "/v1/discover", "{}")
 			if err != nil || response == nil {
 				t.Fatalf("missing actual status: %v", err)
 			}
@@ -103,12 +103,12 @@ func TestRequestWithStatusErrorsNeverBecomeSyntheticHTTP404(t *testing.T) {
 		client     peerClient
 		path, body string
 	}{
-		{"network", context.Background(), broken, "/v2/discover", "{}"},
-		{"ownership", context.Background(), foreign, "/v2/discover", "{}"},
-		{"canceled", ctx, testNetwork(), "/v2/discover", "{}"},
-		{"path", context.Background(), testNetwork(), "/v2/discover?query=404", "{}"},
-		{"json", context.Background(), testNetwork(), "/v2/discover", "{"},
-		{"request limit", context.Background(), testNetwork(), "/v2/discover", `"` + strings.Repeat("x", bodyLimit) + `"`},
+		{"network", context.Background(), broken, "/v1/discover", "{}"},
+		{"ownership", context.Background(), foreign, "/v1/discover", "{}"},
+		{"canceled", ctx, testNetwork(), "/v1/discover", "{}"},
+		{"path", context.Background(), testNetwork(), "/v1/discover?query=404", "{}"},
+		{"json", context.Background(), testNetwork(), "/v1/discover", "{"},
+		{"request limit", context.Background(), testNetwork(), "/v1/discover", `"` + strings.Repeat("x", bodyLimit) + `"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dial := func(context.Context, string, string) (net.Conn, error) {
@@ -146,7 +146,7 @@ func TestRequestWithStatusErrorsNeverBecomeSyntheticHTTP404(t *testing.T) {
 				ctx, cancel = context.WithTimeout(context.Background(), 20*time.Millisecond)
 			}
 			defer cancel()
-			result, err := statusRequest(ctx, testNetwork(), localStatusDial(server), "/v2/events", "{}")
+			result, err := statusRequest(ctx, testNetwork(), localStatusDial(server), "/v1/events", "{}")
 			if result != nil || err == nil {
 				t.Fatal("invalid or timed out response became success/status")
 			}

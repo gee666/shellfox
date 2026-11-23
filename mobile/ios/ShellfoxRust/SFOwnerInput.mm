@@ -35,15 +35,7 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
   SFTerminal *terminal = [self terminal:identifier];
   if (!terminal) return SFM_STALE;
   terminal.viewportColumns = cols; terminal.viewportRows = rows;
-  // Observer-v2 keeps the canonical parser grid. UIKit clips/pads; it never fits or reflows.
-  if (terminal.deliveryOnly) return SFM_OK;
   if (terminal.recovering) return SFM_OK;
-  if (terminal.hostEncoding) {
-    if (terminal.readOnly || (cols == terminal.columns && rows == terminal.rows)) return SFM_OK;
-    SFNativeIntent *intent = [SFNativeIntent new]; intent.kind = SFIntentResize;
-    intent.columns = cols; intent.rows = rows;
-    return [self submitIntent:intent terminal:terminal];
-  }
   BOOL changed = terminal.columns != cols || terminal.rows != rows;
   if (!changed && !terminal.viewportUnaccepted) return SFM_OK;
   SfmStatus status = [self drainBeforeCommand:terminal];
@@ -68,7 +60,6 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
   if (!events.count || events.count > 128) return SFM_INVALID;
   SFTerminal *terminal = [self terminal:identifier];
   if (!terminal) return SFM_STALE;
-  if (terminal.deliveryOnly) return SFM_INVALID;
   BOOL release = YES;
   for (NSDictionary *event in events) {
     if (![event isKindOfClass:NSDictionary.class] ||
@@ -81,19 +72,6 @@ static void CopyInputEx(void *context, const uint8_t *bytes, size_t length, uint
   if (!preedit && (terminal.recovering || (terminal.readOnly && !release))) return SFM_BUSY;
   SfmStatus status = preedit ? SFM_OK : [self drainBeforeCommand:terminal];
   if (status != SFM_OK) return status;
-  if (terminal.hostEncoding) {
-    if (preedit) return SFM_OK;
-    NSMutableArray<SFNativeIntent *> *intents = [NSMutableArray new];
-    for (NSDictionary *event in events) {
-      NSData *json = [NSJSONSerialization dataWithJSONObject:event options:0 error:nil];
-      if (!json || json.length > SFM_MAX_INPUT_BYTES) return SFM_INVALID;
-      SFNativeIntent *intent = [SFNativeIntent new]; intent.nativeJson = YES;
-      intent.kind = release ? SFIntentRelease : SFIntentWrite; intent.data = json;
-      [intents addObject:intent];
-    }
-    status = [terminal.pendingIntents appendBatch:intents];
-    return status == SFM_OK ? [self retryIntents:terminal] : status;
-  }
   SFEncodedOutput encoded{[NSMutableArray new]};
   for (NSDictionary *event in events) {
     NSData *json = [NSJSONSerialization dataWithJSONObject:event options:0 error:nil];

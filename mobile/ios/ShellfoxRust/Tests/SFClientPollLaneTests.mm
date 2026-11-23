@@ -11,9 +11,9 @@
 @interface SFClientPollLaneTests : XCTestCase
 @end
 @implementation SFClientPollLaneTests
-- (SFPollFixtureStore *)storeWithFailedPoll:(uint32_t)profile {
+- (SFPollFixtureStore *)storeWithFailedPoll {
   SFPollFixtureStore *store = [SFPollFixtureStore new];
-  store.fixture = [SFClientRecord new]; store.fixture.profile = profile;
+  store.fixture = [SFClientRecord new];
   store.fixture.polling = YES; store.fixture.pollOperation = @"19";
   [store completed:@{@"operationId": @"19", @"status": @(SFM_ENGINE)} client:store.fixture];
   XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
@@ -23,7 +23,6 @@
 - (void)testV1FilesRunDuringPollWithoutOvertakingQueuedWork {
   SFPollFixtureStore *store = [SFPollFixtureStore new];
   store.fixture = [SFClientRecord new];
-  store.fixture.profile = SFM_CLIENT_PROFILE_V1;
   store.fixture.polling = YES;
   store.fixture.pollOperation = @"19";
   [store whenDrained:@"1" admission:SFClientAdmissionV1FileRequest work:^id(SfmStatus *status) {
@@ -41,7 +40,7 @@
   XCTAssertEqual(store.fixture.pendingCalls.count, 2u);
 }
 - (void)testFailedV1PollAllowsOnlyLocalRetirementAndAcceptedReconnectFence {
-  SFPollFixtureStore *store = [self storeWithFailedPoll:SFM_CLIENT_PROFILE_V1];
+  SFPollFixtureStore *store = [self storeWithFailedPoll];
   [store whenDrained:@"1" admission:SFClientAdmissionOrdinary work:^id(SfmStatus *status) {
     XCTFail(@"Ordinary work entered an uncertain poll lane"); return nil;
   } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
@@ -72,16 +71,5 @@
   XCTAssertEqual(store.fixture.authorityEpoch, oldEpoch + 1);
   XCTAssertTrue([store.fixture.mutations containsObject:@"20"]);
   XCTAssertFalse(store.fixture.polling);
-}
-- (void)testFailedObserverPollDoesNotAdmitV1TeardownOrReconnect {
-  SFPollFixtureStore *store = [self storeWithFailedPoll:SFM_CLIENT_PROFILE_OBSERVER_V2];
-  const SFClientAdmission attempts[] = {SFClientAdmissionV1RetireView, SFClientAdmissionV1Reconnect};
-  for (SFClientAdmission admission : attempts) {
-    [store whenDrained:@"1" admission:admission work:^id(SfmStatus *status) {
-      XCTFail(@"V1 bypass affected observer delivery"); return nil;
-    } done:^(id value, SfmStatus status) { XCTAssertEqual(status, SFM_ENGINE); }];
-  }
-  XCTAssertEqualObjects(store.fixture.pollOperation, @"19");
-  XCTAssertEqual(store.fixture.pollFailure, SFM_ENGINE);
 }
 @end
