@@ -233,7 +233,8 @@ impl Terminal {
         Ok(pid.trim().parse()?)
     }
     async fn echo(&mut self, client: &LocalClient) -> Result<()> {
-        let command = if cfg!(windows) { "echo ALIVE^=MARK^=END" } else { "printf 'ALIVE%s\\n' =MARK=END" };
+        let command = if cfg!(windows) { "echo ALIVE^=MARK^=END" } else { "printf 'ALIVE%s\\n' '=MARK=END'" };
+        // zsh expands an unquoted =word as a command path, so the value is quoted.
         self.run(client, command, "ALIVE=MARK", "=END").await.map(drop)
     }
 }
