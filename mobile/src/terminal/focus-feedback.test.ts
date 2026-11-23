@@ -44,6 +44,8 @@ it('validates the action discriminator before readiness and never returns the fr
  const body={terminalHandle:'100',state:'focusResult',focusResult:{...common,platform:'android',keyboardRequest:'accepted'}};
  expect(focusFeedbackSchema.safeParse(body).success).toBe(true);
  expect(focusFeedbackSchema.parse({...body,target:77})).not.toHaveProperty('target');
+ // Android React Native also adds the event time.
+ expect(focusFeedbackSchema.parse({...body,target:208,timeStamp:31458480})).not.toHaveProperty('timeStamp');
  expect(focusFeedbackSchema.safeParse({...body,state:'ready'}).success).toBe(false);
  expect(focusFeedbackSchema.safeParse({...body,rawRpc:'forbidden'}).success).toBe(false);
 });

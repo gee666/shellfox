@@ -11,9 +11,10 @@ export const focusResultSchema=z.discriminatedUnion('platform',[
 ]);
 export const focusFeedbackSchema=z.object({terminalHandle:positiveDecimalSchema,state:z.literal('focusResult'),
   focusResult:focusResultSchema,
-  // React Native may supply this envelope field. Never retain or display it.
+  // React Native may add these envelope fields. Never retain or display them.
   target:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
-}).strict().transform(({target:_target,...feedback})=>feedback);
+  timeStamp:z.number().nonnegative().optional(),
+}).strict().transform(({target:_target,timeStamp:_timeStamp,...feedback})=>feedback);
 // RN codegen emits optional nested event objects as a value struct on iOS.
 // Its untouched default is not feedback. Reject every other unexpected body.
 const emptyGeneratedResult=z.object({platform:z.literal(''),source:z.literal(''),attached:z.literal(false),
