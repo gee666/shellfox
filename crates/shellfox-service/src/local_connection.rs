@@ -190,10 +190,14 @@ fn failure(error: anyhow::Error) -> shellfox_protocol::Reply<serde_json::Value> 
         None if error.is::<shellfox_terminal::raw_process::AutomationStdinClosed>() => (shellfox_protocol::ErrorCode::TargetLost,"Automation stdin is closed.".into()),
         None if error.is::<crate::AutomationViewFailure>() => (shellfox_protocol::ErrorCode::NativeUnavailable, "Original raw process cleanup is confirmed, but final automation rendering failed; source evidence is retained.".into()),
         None if error.is::<shellfox_runtime::ExternalStartError>() => (shellfox_protocol::ErrorCode::NativeUnavailable, "External parser startup was not ready; no raw target was launched and any pending original owner is retained for confirmed cleanup.".into()),
-        None => (
+        None => {
+            // The client only gets the generic reply; the host's own log keeps the cause.
+            eprintln!("Shellfox host: a local request failed: {error:#}");
+            (
             shellfox_protocol::ErrorCode::Internal,
             "Private host operation failed; metadata and unconfirmed ownership retained.".into(),
-        ),
+            )
+        }
     };
     shellfox_protocol::Reply::Failure(shellfox_protocol::AppError {
         code,
