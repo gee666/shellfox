@@ -127,7 +127,8 @@ static void Replace(SFTextInput *input, NSUInteger start, NSUInteger length, NSS
     XCTAssertEqualObjects(keys.firstObject[@"text"], @"c");
     input.stickyModifiers = 0;
     [input insertText:@"ls"];
-    XCTAssertEqualObjects(line, @"ls");
+    // Ctrl+C reached the terminal as ETX, then the plain text.
+    XCTAssertEqualObjects(line, @"\x03ls");
   }];
 }
 - (void)testStickyModifierWithReturnIsEnterAndTabEndsTheEditor {
