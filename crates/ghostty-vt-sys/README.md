@@ -200,7 +200,7 @@ multi-line text. Ghostty still replaces ESC/NUL/DEL and frames per mode 2004.
 
 The encode allocation bound is one MiB, not Runtime's 64-KiB write cap. Encoding
 returns one owned vector; it does not write, split, or authorize a larger Runtime
-write. See the [safe API usage and limits](../ghostty-vt/README.md#additive-keyv2-input).
+write. See the [safe API usage and limits](../ghostty-vt/README.md#keys-paste-and-focus).
 
 The default build does not compile the C input probe. To compile it against the
 same selected headers/library as the adapter and run its Rust test entry point:

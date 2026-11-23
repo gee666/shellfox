@@ -20,9 +20,12 @@ The host validates approval, client identity, terminal generation and control ep
 
 ## Native text input
 
-Android and iOS use native input and rendering with Ghostty. The native
-adapter handles composition, paste, deletion and accessory keys. Desktop
-Electron text input still uses xterm's built-in handling.
+Android and iOS use native input and rendering with Ghostty. The keyboard
+works on a small editor holding the text since the last Enter or key, so
+suggestions, swipe typing, voice input and corrections behave as in 0.9.15.
+After each edit the shared Rust composer sends the terminal only the change:
+backspaces to the first changed character, then the new text. Keys from
+hardware keyboards and the key bar are Ghostty key events.
 
 The Android `nativeFixture` tests run against production C ABI, JNI and
 Ghostty code in an isolated package. The iOS simulator UI test exercises
