@@ -20,8 +20,10 @@ fn main() -> anyhow::Result<()> {
                 libc::signal(libc::SIGHUP, libc::SIG_IGN);
             }
             let listener = UnixListener::bind(&args[1])?;
+            // Hold every connection: macOS reports no peer PID once we close it.
+            let mut held = Vec::new();
             loop {
-                let _ = listener.accept()?;
+                held.push(listener.accept()?.0);
             }
         }
         #[cfg(unix)]
