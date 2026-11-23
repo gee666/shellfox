@@ -135,10 +135,18 @@ async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) ->
     let attach = |takeover| local.0.execute(ExperimentRequest::Attach { tab, takeover });
     let attachment = match attach(false).await {
         Ok(ExperimentResponse::Attachment(attachment)) => attachment,
-        Err(_) if take => match attach(true).await? {
+        // Another client holds it. Take over only while the same shell still runs.
+        Err(_) if take && local.live(tab).await?.is_some() => match attach(true).await? {
             ExperimentResponse::Attachment(attachment) => attachment,
             _ => return Err(control_required()),
         },
+        Err(_) if local.live(tab).await?.is_none() => {
+            return Err(CliError::new(
+                "NOT_FOUND",
+                "Open embedded terminal not found.",
+                false,
+            ))
+        }
         _ => return Err(control_required()),
     };
     let input = ExperimentRequest::Input {
@@ -146,7 +154,10 @@ async fn write_local(local: &Local<'_>, tab: TabId, data: String, take: bool) ->
         attachment,
         bytes: data.into_bytes(),
     };
-    match local.0.execute(input).await {
+    let written = local.0.execute(input).await;
+    // Give control back at once; the shell keeps running.
+    let _ = local.0.execute(ExperimentRequest::Detach {}).await;
+    match written {
         Ok(ExperimentResponse::Done {}) => Ok(json!({ "written": true })),
         _ => Err(uncertain()),
     }

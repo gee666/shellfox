@@ -59,7 +59,7 @@ pub async fn run(client: &LocalClient, command: ManagerCommand, options: &Option
     }
     let host = match &options.host {
         Some(target) if options.remote() => {
-            let peer = crate::manager_peer::resolve(client, target).await?;
+            let peer = crate::manager_peer::resolve(client, target, true).await?;
             Host::Peer(Peer::connect(client, peer).await?)
         }
         _ => Host::Local(Local(client)),

@@ -81,7 +81,7 @@ pub(super) async fn remote_api(
             if request.destructive() {
                 confirm(options.json, options.yes, request.name())?;
             }
-            let peer = crate::manager_peer::resolve(client, peer_id).await?;
+            let peer = crate::manager_peer::resolve(client, peer_id, false).await?;
             let peer = Peer::connect(client, peer).await?;
             let result = peer.call(request).await;
             peer.close().await;

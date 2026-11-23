@@ -42,6 +42,8 @@ pub fn endpoint_exists(data: &Path) -> bool {
 /// Cold-start the desktop on a new session in `cwd`, detached from this console.
 pub fn open_session(desktop: &Path, cwd: &str) -> Result<()> {
     let mut command = std::process::Command::new(desktop);
+    // The desktop outlives this tab; it must not carry the tab's session context.
+    command.env_remove("SHELLFOX_TERMINAL_MARKER");
     command
         .arg("start")
         .arg(cwd)
@@ -71,6 +73,8 @@ pub fn open_session(desktop: &Path, cwd: &str) -> Result<()> {
 /// Explicit inherited handles let the windows-subsystem desktop write to this console.
 pub fn update(desktop: &Path, check: bool) -> Result<i32> {
     let mut command = std::process::Command::new(desktop);
+    // The desktop outlives this tab; it must not carry the tab's session context.
+    command.env_remove("SHELLFOX_TERMINAL_MARKER");
     command.arg("--cli-update");
     if check {
         command.arg("--check");

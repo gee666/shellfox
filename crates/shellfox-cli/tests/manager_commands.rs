@@ -190,6 +190,8 @@ fn run(host: &Fixture) -> Result<()> {
             && unknown.1["error"]["message"] == "Unknown host. Run shellfox machines list."
     );
     ensure!(code(&host.reply(&["--host", "box", "host", "stop", "--json"])?) == ("VALIDATION", 2));
+    // Dev operator words never run here with --host either.
+    ensure!(code(&host.reply(&["--host", "box", "tab", "list", "--json"])?) == ("VALIDATION", 2));
 
     // completion prints the 0.9 hook; cmd keeps the 0.9 registry next to user data.
     ensure!(host

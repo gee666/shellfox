@@ -68,8 +68,21 @@ fn uncertain() -> anyhow::Error {
     CliError::new(
         "TARGET_LOST",
         "The remote host did not answer. The outcome is unknown and the request was not retried.",
-        true,
+        false,
     )
+}
+/// Errors found before anything was sent are this machine's, not the peer's.
+fn failed(error: shellfox_client::ClientError) -> anyhow::Error {
+    use shellfox_client::ClientError as E;
+    match error {
+        E::Validation(_) => CliError::usage("Invalid remote request."),
+        E::NotConnected | E::StaleConnection | E::TooManyRequests => CliError::new(
+            "INTERNAL",
+            "The remote view is not connected. Nothing was sent.",
+            false,
+        ),
+        E::Transport(_) => uncertain(),
+    }
 }
 fn value(reply: Reply<Value>) -> Result<Value> {
     match reply {
@@ -79,21 +92,31 @@ fn value(reply: Reply<Value>) -> Result<Value> {
 }
 
 /// 0.9 `resolveTarget`: an exact peer ID, else one case-insensitive hostname.
-pub async fn resolve(local: &LocalClient, target: &str) -> Result<AuthenticatedPeerId> {
+pub async fn resolve(
+    local: &LocalClient,
+    target: &str,
+    by_name: bool,
+) -> Result<AuthenticatedPeerId> {
     let state = local.remote_control(RemoteRequest::State).await?;
     let id = match state.peers.iter().find(|peer| peer.id == target) {
         Some(peer) => peer.id.clone(),
-        None => {
+        // Names only pick confirmed Shellfox hosts: another device may reuse a forgotten name.
+        None if by_name => {
             let matches: Vec<_> = state
                 .peers
                 .iter()
-                .filter(|peer| peer.hostname.eq_ignore_ascii_case(target))
+                .filter(|peer| peer.host_confirmed && peer.hostname.eq_ignore_ascii_case(target))
                 .collect();
             match matches.as_slice() {
                 [peer] => peer.id.clone(),
                 [] => return Err(CliError::usage("Unknown host. Run shellfox machines list.")),
                 _ => return Err(CliError::usage("Host name is ambiguous. Use a peer ID.")),
             }
+        }
+        None => {
+            return Err(CliError::usage(
+                "Unknown peer ID. Run shellfox machines list.",
+            ))
         }
     };
     AuthenticatedPeerId::new(id).map_err(|_| CliError::usage("Invalid peer ID."))
@@ -109,7 +132,7 @@ impl<'a> Peer<'a> {
         transport: Box<dyn OutboundTransport + 'a>,
     ) -> Result<Self> {
         let client = Client::new(peer, ClientId::new_v4(), Transport(transport));
-        match client.pair().await.map_err(|_| uncertain())? {
+        match client.pair().await.map_err(failed)? {
             Reply::Success(_) => Ok(Self { client }),
             Reply::Failure(error) => Err(CliError::app(error)),
         }
@@ -126,7 +149,7 @@ impl<'a> Peer<'a> {
             self.client
                 .execute_command(&command)
                 .await
-                .map_err(|_| uncertain())?,
+                .map_err(failed)?,
         )
     }
     pub async fn close(self) {

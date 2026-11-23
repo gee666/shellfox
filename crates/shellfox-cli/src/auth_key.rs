@@ -46,7 +46,13 @@ fn open(path: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        // A FIFO or device swapped in after the check must not block or become our terminal.
+        .custom_flags(
+            (rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::NONBLOCK
+                | rustix::fs::OFlags::NOCTTY)
+                .bits() as i32,
+        )
         .open(path)
 }
 #[cfg(windows)]
@@ -76,6 +82,10 @@ fn private(_: &std::fs::File, before: &std::fs::Metadata, after: &std::fs::Metad
 
 #[cfg(windows)]
 fn private(file: &std::fs::File, _: &std::fs::Metadata, _: &std::fs::Metadata) -> Result<()> {
+    // The handle was opened without following links, so its identity is the file checked.
+    if !windows::single_link(file).unwrap_or(false) {
+        return Err(CliError::usage("Unsafe auth key file."));
+    }
     if windows::private(file).unwrap_or(false) {
         Ok(())
     } else {
@@ -94,8 +104,19 @@ mod windows {
             WinBuiltinAdministratorsSid, WinLocalSystemSid, ACCESS_ALLOWED_ACE, ACE_HEADER,
             DACL_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, TOKEN_QUERY, TOKEN_USER,
         },
+        Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION},
         System::Threading::{GetCurrentProcess, OpenProcessToken},
     };
+
+    /// Not a hard link to a file someone else can name.
+    pub fn single_link(file: &std::fs::File) -> std::io::Result<bool> {
+        // SAFETY: the handle is open and the output struct is plain data.
+        let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(info.nNumberOfLinks == 1)
+    }
 
     /// Owner is this user, and every allow ACE names this user, SYSTEM or Administrators.
     pub fn private(file: &std::fs::File) -> std::io::Result<bool> {
@@ -157,10 +178,15 @@ mod windows {
                         return false;
                     }
                     let header = &*ace.cast::<ACE_HEADER>();
-                    // Only ACCESS_ALLOWED (0) grants; deny ACEs only narrow access.
-                    header.AceType != 0 || {
-                        let ace = &*ace.cast::<ACCESS_ALLOWED_ACE>();
-                        trusted((&ace.SidStart as *const u32).cast_mut().cast())
+                    // Fail closed: a plain deny (1) only narrows access, a plain allow (0)
+                    // must name a trusted SID, and callback or object ACEs are refused.
+                    match header.AceType {
+                        0 => {
+                            let ace = &*ace.cast::<ACCESS_ALLOWED_ACE>();
+                            trusted((&ace.SidStart as *const u32).cast_mut().cast())
+                        }
+                        1 => true,
+                        _ => false,
                     }
                 })
         };

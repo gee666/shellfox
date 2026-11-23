@@ -201,6 +201,21 @@ pub fn parse(arguments: &[OsString]) -> Result<Invocation> {
         local_only(&rest)?;
     }
     let action = action(&rest, json, host.is_some())?;
+    // Only these reach a peer; anything else with --host must not quietly run here.
+    if host.is_some()
+        && !matches!(
+            action,
+            Action::Manager(_)
+                | Action::CreateSession { .. }
+                | Action::Help(_)
+                | Action::Version
+                | Action::Completion(_)
+        )
+    {
+        return Err(CliError::usage(
+            "This command manages the local host. Use --host for session and terminal operations.",
+        ));
+    }
     Ok(Invocation {
         user_data: user_data_root(user_data.or(launcher_default))?,
         json,
