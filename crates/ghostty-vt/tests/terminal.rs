@@ -1,4 +1,5 @@
-use shellfox_ghostty_vt::{Error, Key, KeyAction, KeyEvent, Modifiers, Rgb, Terminal};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::{Error, Modifiers, Rgb, Terminal};
 
 #[test]
 fn fragmented_utf8_escape_and_owned_render() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,25 +61,17 @@ fn alternate_screen_resize_and_cursor() -> Result<(), Box<dyn std::error::Error>
 #[test]
 fn ghostty_key_modes_ctrl_c_release_and_paste() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(80, 24)?;
-    let mut key = KeyEvent {
-        key: Key::ArrowUp,
-        ..Default::default()
-    };
-    assert_eq!(terminal.encode_key(&key)?, b"\x1b[A");
+    let up = KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE);
+    assert_eq!(terminal.encode_key_event(&up)?, b"\x1b[A");
     terminal.feed(b"\x1b[?1h")?;
-    assert_eq!(terminal.encode_key(&key)?, b"\x1bOA");
-    key = KeyEvent {
-        key: Key::Character('c'),
-        text: Some("c".into()),
-        modifiers: Modifiers {
-            control: true,
-            ..Default::default()
-        },
-        ..Default::default()
+    assert_eq!(terminal.encode_key_event(&up)?, b"\x1bOA");
+    let ctrl_c = KeyEvent {
+        text: "c".into(),
+        unshifted_codepoint: Some('c'),
+        ..KeyEvent::press(PhysicalKey::KeyC, KeyModifiers::CONTROL)
     };
-    assert_eq!(terminal.encode_key(&key)?, b"\x03");
-    key.action = KeyAction::Release;
-    assert!(terminal.encode_key(&key)?.is_empty());
+    assert_eq!(terminal.encode_key_event(&ctrl_c)?, b"\x03");
+    assert!(terminal.encode_key_event(&ctrl_c.release())?.is_empty());
     assert_eq!(terminal.encode_paste("hello")?, b"hello");
     // User paste is never refused; unbracketed newlines become CR, ESC a space.
     assert_eq!(terminal.encode_paste("a\nb\x1b")?, b"a\rb ");
@@ -100,7 +93,7 @@ fn query_storm_fails_closed_and_stays_poisoned() -> Result<(), Box<dyn std::erro
     assert!(terminal.resize(90, 25).is_err());
     assert_eq!(terminal.drain_replies().unwrap_err(), Error(-6));
     assert_eq!(
-        terminal.encode_key(&KeyEvent::default()).unwrap_err(),
+        terminal.encode_key_event(&KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE)).unwrap_err(),
         Error(-6)
     );
     assert_eq!(terminal.encode_paste("text").unwrap_err(), Error(-6));
@@ -163,10 +156,7 @@ fn query_storm_fails_closed_and_stays_poisoned() -> Result<(), Box<dyn std::erro
     );
     assert_eq!(
         terminal
-            .encode_key(&KeyEvent {
-                key: Key::F(0),
-                ..Default::default()
-            })
+            .encode_key_event(&KeyEvent::text("x"))
             .unwrap_err(),
         Error(-6)
     );
@@ -184,16 +174,9 @@ fn invalid_inputs_and_malformed_output_do_not_panic() -> Result<(), Box<dyn std:
     assert!(Terminal::new(0, 24).is_err());
     assert!(Terminal::new(u16::MAX, u16::MAX).is_err());
     let mut terminal = Terminal::new(8, 3)?;
-    let invalid = KeyEvent {
-        key: Key::F(0),
-        ..Default::default()
-    };
-    assert!(terminal.encode_key(&invalid).is_err());
-    let invalid = KeyEvent {
-        text: Some("\0".into()),
-        ..Default::default()
-    };
-    assert!(terminal.encode_key(&invalid).is_err());
+    assert!(terminal.encode_key_event(&KeyEvent::text("\0")).is_err());
+    let nul_scalar = KeyEvent { unshifted_codepoint: Some(char::MIN), ..KeyEvent::text("a") };
+    assert!(terminal.encode_key_event(&nul_scalar).is_err());
     assert!(terminal.feed(&vec![b'x'; 1024 * 1024 + 1]).is_err());
     terminal.feed(&[0xff, 0xc0, 0x80, 0x1b, b'[', b'm'])?;
     assert_eq!(terminal.render()?.cells.len(), 24);

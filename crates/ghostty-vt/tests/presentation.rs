@@ -1,5 +1,6 @@
 use shellfox_ghostty_vt::{
-    CursorShape, Error, Key, KeyEvent, PresentationFrame, Selection, Terminal, ViewportPoint,
+    key::{KeyEvent, KeyModifiers, PhysicalKey},
+    CursorShape, Error, PresentationFrame, Selection, Terminal, ViewportPoint,
     MAX_PRESENTATION_VIEWS,
 };
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -35,10 +36,7 @@ fn two_observers_scroll_select_and_copy_without_touching_host_presentation_or_vt
     let host_copy = terminal.copy_selection()?;
     let continuation = terminal.continuation()?;
     let formatted = terminal.format_vt(0xFFF, 1024 * 1024)?;
-    let input = terminal.encode_key(&KeyEvent {
-        key: Key::ArrowUp,
-        ..Default::default()
-    })?;
+    let input = terminal.encode_key_event(&KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE))?;
     let mut one = terminal.new_presentation_view()?;
     let mut two = terminal.new_presentation_view()?;
     terminal.view_scroll(&mut one, isize::MIN)?;
@@ -62,10 +60,7 @@ fn two_observers_scroll_select_and_copy_without_touching_host_presentation_or_vt
     assert_eq!(terminal.continuation()?, continuation);
     assert_eq!(terminal.format_vt(0xFFF, 1024 * 1024)?, formatted);
     assert_eq!(
-        terminal.encode_key(&KeyEvent {
-            key: Key::ArrowUp,
-            ..Default::default()
-        })?,
+        terminal.encode_key_event(&KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE))?,
         input
     );
     assert_eq!(terminal.drain_replies()?, expected_replies);

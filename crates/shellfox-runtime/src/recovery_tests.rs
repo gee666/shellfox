@@ -19,7 +19,8 @@ fn v1_snapshot_restores_alternate_buffer_cursor_and_reported_modes() {
     assert!(snapshot.windows(8).any(|w| w == b"\x1b[?2004h"));
     assert!(snapshot.windows(5).any(|w| w == b"\x1b[?1h"));
 }
-use shellfox_ghostty_vt::{Key, KeyEvent, Screen};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::Screen;
 use std::process::Command;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -158,11 +159,8 @@ fn alternate_active_buffer_and_supported_input_modes_roundtrip() -> TestResult {
     let mut target = Terminal::new(16, 4)?;
     feed(&mut target, &recovery)?;
     assert_eq!(comparable(target.render()?), comparable(source.render()?));
-    let up = KeyEvent {
-        key: Key::ArrowUp,
-        ..Default::default()
-    };
-    assert_eq!(target.encode_key(&up)?, source.encode_key(&up)?);
+    let up = KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE);
+    assert_eq!(target.encode_key_event(&up)?, source.encode_key_event(&up)?);
     assert_eq!(
         target.encode_paste("one\ntwo")?,
         source.encode_paste("one\ntwo")?
@@ -307,11 +305,8 @@ fn keyboard_stack_is_not_a_full_state_contract() -> TestResult {
     feed(&mut target, &recovery)?;
     source.feed(b"\x1b[<u")?;
     target.feed(b"\x1b[<u")?;
-    let escape = KeyEvent {
-        key: Key::Escape,
-        ..Default::default()
-    };
-    assert_ne!(source.encode_key(&escape)?, target.encode_key(&escape)?);
+    let escape = KeyEvent::press(PhysicalKey::Escape, KeyModifiers::NONE);
+    assert_ne!(source.encode_key_event(&escape)?, target.encode_key_event(&escape)?);
     Ok(())
 }
 

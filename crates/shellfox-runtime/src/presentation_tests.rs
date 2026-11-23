@@ -1,7 +1,8 @@
 use super::*;
 use crate::{Lease, ObserverLease};
 use shellfox_core::{Generation, SessionId, TabId};
-use shellfox_ghostty_vt::{CursorShape, Key, KeyEvent, Selection, ViewportPoint};
+use shellfox_ghostty_vt::key::{KeyEvent, KeyModifiers, PhysicalKey};
+use shellfox_ghostty_vt::{CursorShape, Selection, ViewportPoint};
 fn identity() -> Identity {
     static IDENTITY: std::sync::OnceLock<Identity> = std::sync::OnceLock::new();
     *IDENTITY.get_or_init(|| Identity {
@@ -100,10 +101,7 @@ fn independent_observers_never_change_canonical_viewport_selection_modes_replies
     let continuation = terminal.continuation().unwrap();
     let formatted = terminal.format_vt(0xfff, 1024 * 1024).unwrap();
     let key = terminal
-        .encode_key(&KeyEvent {
-            key: Key::ArrowUp,
-            ..Default::default()
-        })
+        .encode_key_event(&KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE))
         .unwrap();
     let mut bank = Presentations::new();
     let one = PresentationLease::Observer(ObserverLease {
@@ -151,10 +149,7 @@ fn independent_observers_never_change_canonical_viewport_selection_modes_replies
     assert_eq!(terminal.format_vt(0xfff, 1024 * 1024).unwrap(), formatted);
     assert_eq!(
         terminal
-            .encode_key(&KeyEvent {
-                key: Key::ArrowUp,
-                ..Default::default()
-            })
+            .encode_key_event(&KeyEvent::press(PhysicalKey::ArrowUp, KeyModifiers::NONE))
             .unwrap(),
         key
     );

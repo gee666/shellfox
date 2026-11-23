@@ -2,7 +2,6 @@
 use shellfox_ghostty_vt_sys as sys;
 mod colors;
 mod input;
-mod input_v2;
 pub mod key;
 pub use colors::TerminalColors;
 mod metadata;
@@ -11,8 +10,7 @@ mod presentation;
 mod recovery;
 mod selection;
 pub mod terminal_links;
-pub use input::{Key, KeyAction, KeyEvent, Modifiers};
-pub use input_v2::{InvalidKeyV2, KeyActionV2, KeyEventV2, ModifiersV2, PhysicalKey};
+pub use input::Modifiers;
 pub use metadata::{
     TerminalMetadata, MAX_METADATA_CWD_BYTES, MAX_METADATA_TITLE_BYTES, MAX_METADATA_TITLE_UNITS,
     MAX_PENDING_BELLS, MAX_RAW_TITLE_BYTES,
@@ -147,10 +145,6 @@ impl Terminal {
                 visible: cursor.visible != 0,
             },
         })
-    }
-    pub fn encode_key(&mut self, event: &KeyEvent) -> Result<Vec<u8>> {
-        self.engine.status().map_err(Error)?;
-        self.engine.encode_key(&event.native()?).map_err(Error)
     }
     /// Encodes a user paste with the terminal's bracketed-paste mode.
     /// CRLF from Windows clipboards is one line break, not Enter twice.
