@@ -1,5 +1,5 @@
-//! `session stats` and `session processes`: one on-demand capture of each live
-//! tab's owned processes, off the owner thread. Nothing here runs periodically.
+//! `session stats` and `session processes`, local or from a peer: one
+//! on-demand capture of each live tab's owned processes, off the owner thread. Nothing here runs periodically.
 //! The capture is the read-only activity inspection: only processes inside the
 //! tab's own Job, cgroup or session, run by this user.
 use crate::Service;
@@ -17,6 +17,8 @@ const MAX_TABS: usize = 64;
 pub(crate) enum StatsReply {
     Native(oneshot::Sender<anyhow::Result<crate::native::NativeResponse>>),
     Desktop(oneshot::Sender<anyhow::Result<serde_json::Value>>),
+    /// A peer's `getSessionStats`; the owner finishes the request on its next pass.
+    Remote(oneshot::Sender<anyhow::Result<Vec<TabStat>>>),
 }
 impl StatsReply {
     fn send(self, result: anyhow::Result<Vec<TabStat>>) {
@@ -29,6 +31,9 @@ impl StatsReply {
                     Ok(serde_json::to_value(crate::local::DesktopReply::TabStats(stats))?)
                 });
                 let _ = reply.send(value);
+            }
+            Self::Remote(reply) => {
+                let _ = reply.send(result);
             }
         }
     }
@@ -57,9 +62,12 @@ impl Service {
             .take(MAX_TABS)
             .map(|(tab, terminal)| (*tab, terminal.runtime.inspection_capability()))
             .collect();
+        let wake = self.wake_on_exit();
         let spawned = std::thread::Builder::new()
             .name("shellfox-tab-stats".into())
             .spawn(move || {
+                // Dropped after the reply, so the owner sees it on its next pass.
+                let _wake = wake;
                 let _slot = slot;
                 let now = now_ms();
                 let stats = tabs

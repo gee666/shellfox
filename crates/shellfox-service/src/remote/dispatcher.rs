@@ -49,6 +49,7 @@ impl OwnerDispatcher for RemoteDispatcher {
         if let Some(facts) = &mut self.facts {
             while facts.finish(service, &mut self.state) {}
         }
+        self.state.finish_stats(service);
         while let Ok(request) = self.receiver.try_recv() {
             match &mut self.facts {
                 Some(facts)

@@ -146,6 +146,16 @@ fn legacy_normal_target_rename_stats_and_file_privacy_do_not_preflight_unrelated
     stats.validate().unwrap();
     assert_eq!(stats.sessions.len(), 1);
     assert_eq!(stats.sessions[0].id, normal);
+    // A finished capture fills the live tab's row; an error becomes every row's reason.
+    let tab = stats.tabs[0].tab_id;
+    let measured = wire::TabStat { tab_id: tab, processes: Vec::new(), memory_bytes: Some(42), elapsed_seconds: Some(1.0), reason: None };
+    state.stats.measured = Some(Ok(vec![measured.clone()]));
+    let stats = state.bind(&mut service).statistics(wire::GetSessionStats { session_id: Some(normal) }).unwrap();
+    assert_eq!(stats["tabs"], serde_json::json!([measured]));
+    assert!(state.stats.measured.is_none(), "a measurement answers one request");
+    state.stats.measured = Some(Err(anyhow::anyhow!("Session stats are busy; retry shortly.")));
+    let stats = state.bind(&mut service).statistics(wire::GetSessionStats { session_id: Some(normal) }).unwrap();
+    assert_eq!(stats["tabs"][0]["reason"], "Session stats are busy; retry shortly.");
     let read:RemoteCommand=serde_json::from_value(serde_json::json!({"method":"readFile","payload":{"sessionId":normal,"path":data.path().join("owned.txt").to_string_lossy()}})).unwrap();
     state.bind(&mut service).authorize_profiles(&read).unwrap();
     assert!(

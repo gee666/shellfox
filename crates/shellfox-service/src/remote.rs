@@ -87,6 +87,7 @@ pub struct RemoteState {
     #[cfg(windows)]
     wsl_transfers: wsl_files::Transfers,
     visibility_dirty: bool,
+    pub(super) stats: stats::PendingStats,
 }
 impl RemoteState {
     pub fn new(
@@ -103,6 +104,7 @@ impl RemoteState {
             #[cfg(windows)]
             wsl_transfers: Default::default(),
             visibility_dirty: false,
+            stats: Default::default(),
         }
     }
     pub(super) fn dispatch_request(
@@ -110,6 +112,9 @@ impl RemoteState {
         service: &mut Service,
         request: shellfox_remote::OwnerRequest,
     ) {
+        let Some(request) = self.stats_ready(service, request) else {
+            return;
+        };
         let cancel = request.cancellation_token();
         service.with_grant_recipient(cancel, |service| request.dispatch(&mut self.bind(service)));
         if std::mem::take(&mut self.visibility_dirty) {
